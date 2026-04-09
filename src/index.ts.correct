@@ -1,0 +1,89 @@
+import dotenv from 'dotenv';
+// Load environment variables FIRST
+dotenv.config();
+
+import express, { Application } from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import passport from './config/passport';
+import path from 'path';
+
+// Import routes
+import authRoutes from './routes/auth.routes';
+import userRoutes from './routes/user.routes';
+import roomRoutes from './routes/room.routes';
+import giftRoutes from './routes/gift.routes';
+import messageRoutes from './routes/message.routes';
+import adminRoutes from './routes/admin.routes';
+import uploadRoutes from './routes/upload.routes';
+import gamificationRoutes from './routes/gamification.routes';
+
+// Import socket handlers
+import { initializeSocketHandlers } from './services/socket.service';
+import { initializeRoomHandlers } from './services/socket.room.handlers';
+
+const app: Application = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || '*',
+    methods: ['GET', 'POST']
+  }
+});
+
+const PORT = Number(process.env.PORT) || 3000;
+
+// Middleware
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*'
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(passport.initialize());
+
+// Static files (for uploaded images)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'SamaFox API is running' });
+});
+
+// API Routes
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/rooms', roomRoutes);
+app.use('/api/v1/gifts', giftRoutes);
+app.use('/api/v1/messages', messageRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/upload', uploadRoutes);
+app.use('/api/v1/gamification', gamificationRoutes);
+
+// Initialize Socket.IO handlers
+initializeSocketHandlers(io);
+
+// Initialize enhanced room handlers (8-seat layout, mic permissions)
+initializeRoomHandlers(io);
+
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(err.stack);
+  res.status(err.status || 500).json({
+    error: {
+      message: err.message || 'Internal Server Error',
+      status: err.status || 500
+    }
+  });
+});
+
+// Start server
+httpServer.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`🚀 SamaFox API Server is running on port ${PORT}`);
+  console.log(`📡 Socket.IO server is ready for real-time connections`);
+  console.log(`🎙️ Voice chat rooms with 8-seat layout enabled`);
+  console.log(`🎮 Gamification system active (achievements, quests, XP, streaks)`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+export { io };

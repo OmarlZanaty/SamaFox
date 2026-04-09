@@ -1,0 +1,777 @@
+// This is your COMPLETE Prisma schema with ALL models + Phase 1 updates
+// File: samafox-backend/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MODEL (UPDATED WITH PHASE 1)
+// ============================================
+
+model User {
+  id                       Int                       @id @default(autoincrement())
+  email                    String?                   @unique
+  phone                    String?                   @unique
+  googleId                 String?                   @unique
+  name                     String
+  avatarUrl                String?
+  countryCode              String? // NEW: ISO country code (e.g., "EG", "SA")
+  gender                   String? // NEW: "male", "female", "other"
+  bio                      String?
+  coinsBalance             Int                       @default(0)
+  level                    Int                       @default(1)
+  xp                       Int                       @default(0)
+  vipLevel                 Int                       @default(0)
+  isAdmin                  Boolean                   @default(false)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  passwordHash             String? // ✅ for email/password login
+  isVerified               Boolean                   @default(false)
+  lastLoginAt              DateTime?
+  country                  String? // optional
+  ownedRooms               Room[]                    @relation("RoomOwner")
+  roomMemberships          RoomMember[]
+  roomMessages             RoomMessage[]             @relation("RoomMessageSender")
+  sentGifts                GiftLog[]                 @relation("GiftSender")
+  receivedGifts            GiftLog[]                 @relation("GiftReceiver")
+  sentMessages             Message[]                 @relation("MessageSender")
+  receivedMessages         Message[]                 @relation("MessageReceiver")
+  followers                Relationship[]            @relation("Following")
+  following                Relationship[]            @relation("Follower")
+  transactions             Transaction[]
+  reportsMade              Report[]                  @relation("Reporter")
+  reportsReceived          Report[]                  @relation("Reported")
+  achievements             UserAchievement[]
+  quests                   UserQuest[]
+  giftBattlesUser1         GiftBattle[]              @relation("GiftBattleUser1")
+  giftBattlesUser2         GiftBattle[]              @relation("GiftBattleUser2")
+  leaderboardEntries       LeaderboardEntry[]
+  subscription             UserSubscription?
+  items                    UserItem[]
+  familyMembership         FamilyMember?
+  ownedFamily              Family?                   @relation("FamilyOwner")
+  roomVisits               RoomVisit[]
+  bannedFromRooms          RoomBan[]                 @relation("BannedFromRoom")
+  roomBans                 RoomBan[]                 @relation("RoomBanner")
+  chargingAgencies         ChargingAgency[]
+  reviewedTopups           AgencyTopupRequest[]      @relation("TopupReviewedBy")
+  AgencyTransfer           AgencyTransfer[]
+  conversationsA           Conversation[]            @relation("ConvUserA")
+  conversationsB           Conversation[]            @relation("ConvUserB")
+  conversationParticipants ConversationParticipant[]
+  directMessagesSent       DirectMessage[]
+  avatarFrameUrl String?
+  @@map("users")
+}
+
+// ============================================
+// ROOM MODEL
+// ============================================
+
+model Room {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  description        String?
+  coverImageUrl      String?
+  backgroundImageUrl String?
+  ownerId            Int
+  type               String   @default("public")
+  passwordHash       String?
+  maxSeats           Int      @default(8)
+  isActive           Boolean  @default(true)
+  xp                 Int      @default(0)
+  level              Int      @default(1)
+  activeThemeId      String?
+  isLocked           Boolean  @default(false)
+  backgroundMusicUrl String?
+  muteGiftSounds     Boolean  @default(false)
+  muteEntranceSounds Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  owner           User             @relation("RoomOwner", fields: [ownerId], references: [id])
+  members         RoomMember[]
+  messages        RoomMessage[]
+  gifts           GiftLog[]
+  reports         Report[]
+  activeTheme     Item?            @relation(fields: [activeThemeId], references: [id])
+  gameSessions    GameSession[]
+  giftBattles     GiftBattle[]
+  timedEvents     TimedEvent[]
+  roomVisits      RoomVisit[]
+  scheduledEvents ScheduledEvent[]
+  pkBattlesRoom1  PkBattle[]       @relation("PkBattleRoom1")
+  pkBattlesRoom2  PkBattle[]       @relation("PkBattleRoom2")
+  bannedUsers     RoomBan[]
+
+  @@map("rooms")
+}
+
+// ============================================
+// ROOM MEMBER MODEL
+// ============================================
+
+model RoomMember {
+  userId   Int
+  roomId   Int
+  role     String   @default("member")
+  isMuted  Boolean  @default(false)
+  joinedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@id([userId, roomId])
+  @@map("room_members")
+}
+
+// ============================================
+// ROOM MESSAGE MODEL
+// ============================================
+
+model RoomMessage {
+  id        Int      @id @default(autoincrement())
+  roomId    Int
+  userId    Int
+  username  String
+  content   String
+  timestamp DateTime @default(now())
+  avatar    String?
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation("RoomMessageSender", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([userId])
+  @@map("room_messages")
+}
+
+// ============================================
+// ROOM BAN MODEL
+// ============================================
+
+model RoomBan {
+  id        Int       @id @default(autoincrement())
+  roomId    Int
+  userId    Int
+  bannedBy  Int
+  reason    String?
+  bannedAt  DateTime  @default(now())
+  expiresAt DateTime?
+
+  room   Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user   User @relation("BannedFromRoom", fields: [userId], references: [id], onDelete: Cascade)
+  banner User @relation("RoomBanner", fields: [bannedBy], references: [id])
+
+  @@unique([roomId, userId])
+  @@map("room_bans")
+}
+
+// ============================================
+// GIFT MODEL
+// ============================================
+
+model Gift {
+  id              Int     @id @default(autoincrement())
+  name            String
+  imageUrl        String
+  animationUrl    String?
+  priceCoins      Int
+  category        String
+  isActive        Boolean @default(true)
+  xp              Int     @default(0)
+  level           Int     @default(1)
+  isComboFriendly Boolean @default(false)
+
+  logs GiftLog[]
+
+  @@map("gifts")
+}
+
+// ============================================
+// GIFT LOG MODEL
+// ============================================
+
+model GiftLog {
+  id         Int      @id @default(autoincrement())
+  senderId   Int
+  receiverId Int
+  giftId     Int
+  roomId     Int?
+  coinsSpent Int
+  createdAt  DateTime @default(now())
+  quantity   Int      @default(1) // <-- NEW FIELD
+  message    String? // <-- NEW FIELD
+
+  sender   User  @relation("GiftSender", fields: [senderId], references: [id])
+  receiver User  @relation("GiftReceiver", fields: [receiverId], references: [id])
+  gift     Gift  @relation(fields: [giftId], references: [id])
+  room     Room? @relation(fields: [roomId], references: [id])
+
+  @@map("gift_logs")
+}
+
+// ============================================
+// MESSAGE MODEL (PRIVATE MESSAGES)
+// ============================================
+
+model Message {
+  id         Int      @id @default(autoincrement())
+  senderId   Int
+  receiverId Int
+  content    String
+  type       String   @default("text")
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("MessageSender", fields: [senderId], references: [id])
+  receiver User @relation("MessageReceiver", fields: [receiverId], references: [id])
+
+  @@map("messages")
+}
+
+// ============================================
+// RELATIONSHIP MODEL (FOLLOW/FOLLOWERS)
+// ============================================
+
+model Relationship {
+  followerId  Int
+  followingId Int
+  type        String   @default("fan")
+  status      String   @default("accepted")
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("Follower", fields: [followerId], references: [id])
+  following User @relation("Following", fields: [followingId], references: [id])
+
+  @@id([followerId, followingId])
+  @@map("relationships")
+}
+
+// ============================================
+// TRANSACTION MODEL
+// ============================================
+
+model Transaction {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  type          String
+  amountCoins   Int
+  externalId    String?
+  paymentMethod String?
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("transactions")
+}
+
+// ============================================
+// REPORT MODEL
+// ============================================
+
+model Report {
+  id             Int      @id @default(autoincrement())
+  reporterId     Int
+  reportedUserId Int?
+  roomId         Int?
+  reason         String
+  notes          String?
+  status         String   @default("pending")
+  createdAt      DateTime @default(now())
+
+  reporter     User  @relation("Reporter", fields: [reporterId], references: [id])
+  reportedUser User? @relation("Reported", fields: [reportedUserId], references: [id])
+  room         Room? @relation(fields: [roomId], references: [id])
+
+  @@map("reports")
+}
+
+// ============================================
+// ACHIEVEMENT MODEL
+// ============================================
+
+model Achievement {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  iconUrl     String
+  target      Int
+  metric      String // e.g., "gifts_sent", "time_in_room"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+// ============================================
+// USER ACHIEVEMENT MODEL
+// ============================================
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        Int
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id])
+  achievement Achievement @relation(fields: [achievementId], references: [id])
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+// ============================================
+// DAILY QUEST MODEL
+// ============================================
+
+model DailyQuest {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  metric      String // e.g., "send_gift", "join_room"
+  target      Int
+  rewardCoins Int
+  createdAt   DateTime @default(now())
+
+  userQuests UserQuest[]
+
+  @@map("daily_quests")
+}
+
+// ============================================
+// USER QUEST MODEL
+// ============================================
+
+model UserQuest {
+  id         String   @id @default(cuid())
+  userId     Int
+  questId    String
+  progress   Int      @default(0)
+  isComplete Boolean  @default(false)
+  date       DateTime @default(now())
+
+  user  User       @relation(fields: [userId], references: [id])
+  quest DailyQuest @relation(fields: [questId], references: [id])
+
+  @@unique([userId, questId, date])
+  @@map("user_quests")
+}
+
+// ============================================
+// GAME MODEL
+// ============================================
+
+model Game {
+  id          String   @id @default(cuid())
+  name        String // e.g., "Truth or Dare", "Spin the Wheel"
+  description String
+  rules       String
+  createdAt   DateTime @default(now())
+
+  sessions GameSession[]
+
+  @@map("games")
+}
+
+// ============================================
+// GAME SESSION MODEL
+// ============================================
+
+model GameSession {
+  id        String   @id @default(cuid())
+  roomId    Int
+  gameId    String
+  isActive  Boolean  @default(true)
+  xp        Int      @default(0)
+  level     Int      @default(1)
+  state     String // JSON stored as string for SQLite compatibility
+  createdAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id])
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@map("game_sessions")
+}
+
+// ============================================
+// GIFT BATTLE MODEL
+// ============================================
+
+model GiftBattle {
+  id         String   @id @default(cuid())
+  roomId     Int
+  user1Id    Int
+  user2Id    Int
+  user1Score Int      @default(0)
+  user2Score Int      @default(0)
+  endsAt     DateTime
+  isActive   Boolean  @default(true)
+  xp         Int      @default(0)
+  level      Int      @default(1)
+
+  room  Room @relation(fields: [roomId], references: [id])
+  user1 User @relation("GiftBattleUser1", fields: [user1Id], references: [id])
+  user2 User @relation("GiftBattleUser2", fields: [user2Id], references: [id])
+
+  @@map("gift_battles")
+}
+
+// ============================================
+// TIMED EVENT MODEL
+// ============================================
+
+model TimedEvent {
+  id          String   @id @default(cuid())
+  roomId      Int?
+  name        String
+  description String
+  multiplier  Float    @default(1.0)
+  startsAt    DateTime
+  endsAt      DateTime
+  isActive    Boolean  @default(false)
+  xp          Int      @default(0)
+  level       Int      @default(1)
+
+  room Room? @relation(fields: [roomId], references: [id])
+
+  @@map("timed_events")
+}
+
+// ============================================
+// LEADERBOARD MODEL
+// ============================================
+
+model Leaderboard {
+  id        String   @id @default(cuid())
+  name      String
+  metric    String
+  timeframe String // e.g., "daily", "weekly", "monthly"
+  createdAt DateTime @default(now())
+
+  entries LeaderboardEntry[]
+
+  @@map("leaderboards")
+}
+
+// ============================================
+// LEADERBOARD ENTRY MODEL
+// ============================================
+
+model LeaderboardEntry {
+  id            String @id @default(cuid())
+  leaderboardId String
+  userId        Int
+  score         Int
+  rank          Int
+
+  leaderboard Leaderboard @relation(fields: [leaderboardId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@unique([leaderboardId, userId])
+  @@map("leaderboard_entries")
+}
+
+// ============================================
+// VIP TIER MODEL
+// ============================================
+
+model VipTier {
+  id        String   @id @default(cuid())
+  name      String
+  price     Float
+  perks     String // JSON stored as string for SQLite compatibility
+  createdAt DateTime @default(now())
+
+  subscriptions UserSubscription[]
+
+  @@map("vip_tiers")
+}
+
+// ============================================
+// USER SUBSCRIPTION MODEL
+// ============================================
+
+model UserSubscription {
+  id       String   @id @default(cuid())
+  userId   Int      @unique
+  tierId   String
+  startsAt DateTime
+  endsAt   DateTime
+  isActive Boolean  @default(true)
+  xp       Int      @default(0)
+  level    Int      @default(1)
+
+  user User    @relation(fields: [userId], references: [id])
+  tier VipTier @relation(fields: [tierId], references: [id])
+
+  @@map("user_subscriptions")
+}
+
+// ============================================
+// ITEM MODEL (CUSTOMIZATION)
+// ============================================
+
+model Item {
+  id            String   @id @default(cuid())
+  name          String
+  description   String
+  type          String // "PROFILE_FRAME", "ROOM_THEME", "ENTRANCE_EFFECT"
+  assetUrl      String
+  priceCoins    Int      @default(0)
+  isPurchasable Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  userItems UserItem[]
+  rooms     Room[]
+
+  @@map("items")
+}
+
+// ============================================
+// USER ITEM MODEL
+// ============================================
+
+model UserItem {
+  id         String   @id @default(cuid())
+  userId     Int
+  itemId     String
+  acquiredAt DateTime @default(now())
+  isActive   Boolean  @default(false)
+  xp         Int      @default(0)
+  level      Int      @default(1)
+
+  user User @relation(fields: [userId], references: [id])
+  item Item @relation(fields: [itemId], references: [id])
+
+  @@unique([userId, itemId])
+  @@map("user_items")
+}
+
+// ============================================
+// FAMILY MODEL (GUILDS)
+// ============================================
+
+model Family {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  iconUrl     String?
+  ownerId     Int      @unique
+  createdAt   DateTime @default(now())
+
+  owner   User           @relation("FamilyOwner", fields: [ownerId], references: [id])
+  members FamilyMember[]
+
+  @@map("families")
+}
+
+// ============================================
+// FAMILY MEMBER MODEL
+// ============================================
+
+model FamilyMember {
+  id       String   @id @default(cuid())
+  familyId String
+  userId   Int      @unique
+  role     String // "OWNER", "ADMIN", "MEMBER"
+  joinedAt DateTime @default(now())
+
+  family Family @relation(fields: [familyId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("family_members")
+}
+
+// ============================================
+// ROOM VISIT MODEL (ANALYTICS)
+// ============================================
+
+model RoomVisit {
+  id       String    @id @default(cuid())
+  roomId   Int
+  userId   Int
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+  duration Int? // in seconds
+
+  room Room @relation(fields: [roomId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("room_visits")
+}
+
+// ============================================
+// SCHEDULED EVENT MODEL
+// ============================================
+
+model ScheduledEvent {
+  id          String   @id @default(cuid())
+  roomId      Int
+  title       String
+  description String
+  startTime   DateTime
+  endTime     DateTime
+  createdAt   DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@map("scheduled_events")
+}
+
+// ============================================
+// PK BATTLE MODEL (ROOM vs ROOM)
+// ============================================
+
+model PkBattle {
+  id         String   @id @default(cuid())
+  room1Id    Int
+  room2Id    Int
+  room1Score Int      @default(0)
+  room2Score Int      @default(0)
+  endsAt     DateTime
+  isActive   Boolean  @default(true)
+  xp         Int      @default(0)
+  level      Int      @default(1)
+
+  room1 Room @relation("PkBattleRoom1", fields: [room1Id], references: [id])
+  room2 Room @relation("PkBattleRoom2", fields: [room2Id], references: [id])
+
+  @@map("pk_battles")
+}
+
+model ChargingAgency {
+  id             Int                  @id @default(autoincrement())
+  userId         Int
+  agencyName     String
+  phoneNumber    String
+  agencyImageUrl String
+  idFrontUrl     String
+  idBackUrl      String
+  status         String               @default("pending") // pending/approved/rejected
+  topupRequests  AgencyTopupRequest[]
+
+  // ✅ NEW: agency wallet
+  balanceCoins Int @default(0)
+
+  // optional stats
+  totalSentCoins  Int @default(0)
+  totalTopupCoins Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transfers AgencyTransfer[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("charging_agencies")
+}
+
+model AgencyTransfer {
+  id        Int      @id @default(autoincrement())
+  agencyId  Int
+  toUserId  Int
+  amount    Int
+  note      String?
+  createdAt DateTime @default(now())
+
+  agency ChargingAgency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  toUser User           @relation(fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId])
+  @@index([toUserId])
+  @@map("agency_transfers")
+}
+
+model AgencyTopupRequest {
+  id         Int       @id @default(autoincrement())
+  agencyId   Int
+  amount     Int
+  receiptUrl String
+  note       String?
+  status     String    @default("pending") // pending/approved/rejected
+  reviewedBy Int?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  agency ChargingAgency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  // ✅ reviewer relation must have a name + opposite name
+  reviewer User? @relation("TopupReviewedBy", fields: [reviewedBy], references: [id])
+
+  @@index([agencyId])
+  @@index([status])
+  @@map("agency_topup_requests")
+}
+
+model Conversation {
+  id Int @id @default(autoincrement())
+
+  userAId Int
+  userBId Int
+
+  lastMessageId Int?      @unique // ✅ ADD THIS
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  userA User @relation("ConvUserA", fields: [userAId], references: [id])
+  userB User @relation("ConvUserB", fields: [userBId], references: [id])
+
+  lastMessage DirectMessage? @relation("ConvLastDM", fields: [lastMessageId], references: [id])
+
+  participants ConversationParticipant[]
+  messages     DirectMessage[]
+
+  @@unique([userAId, userBId])
+  @@index([lastMessageAt])
+}
+
+model ConversationParticipant {
+  id             Int @id @default(autoincrement())
+  conversationId Int
+  userId         Int
+
+  lastReadAt DateTime?
+  muted      Boolean   @default(false)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model DirectMessage {
+  id             Int @id @default(autoincrement())
+  conversationId Int
+  senderId       Int
+
+  text      String?
+  imageUrl  String?
+  type      String   @default("text")
+  createdAt DateTime @default(now())
+
+  deliveredAt DateTime?
+  readAt      DateTime?
+  audioUrl    String? // ✅ REQUIRED
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation(fields: [senderId], references: [id])
+
+  // ✅ ADD THIS (opposite side of Conversation.lastMessage)
+  asLastMessageFor Conversation? @relation("ConvLastDM")
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}

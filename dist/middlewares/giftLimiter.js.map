@@ -1,0 +1,1 @@
+{"version":3,"file":"giftLimiter.js","sourceRoot":"","sources":["../../src/middlewares/giftLimiter.ts"],"names":[],"mappings":";;;;;;AAAA,4EAA2C;AAE9B,QAAA,WAAW,GAAG,IAAA,4BAAS,EAAC;IACnC,QAAQ,EAAE,CAAC,GAAG,IAAI;IAClB,GAAG,EAAE,EAAE;IACP,OAAO,EAAE,iCAAiC;CAC3C,CAAC,CAAC"}

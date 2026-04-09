@@ -1,0 +1,23 @@
+[0;1;32m●[0m pm2-ubuntu.service - PM2 process manager
+     Loaded: loaded (]8;;file://ip-172-31-31-125/etc/systemd/system/pm2-ubuntu.service/etc/systemd/system/pm2-ubuntu.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Fri 2025-10-31 19:49:40 UTC; 27s ago
+       Docs: ]8;;https://pm2.keymetrics.io/https://pm2.keymetrics.io/]8;;
+    Process: 4075 ExecStart=/usr/lib/node_modules/pm2/bin/pm2 resurrect (code=exited, status=0/SUCCESS)
+   Main PID: 4082 (PM2 v6.0.13: Go)
+      Tasks: 24 (limit: 2213)
+     Memory: 32.3M (peak: 47.7M)
+        CPU: 1.167s
+     CGroup: /system.slice/pm2-ubuntu.service
+             ├─[0;38;5;245m4082 "PM2 v6.0.13: God Daemon (/home/ubuntu/.pm2)"[0m
+             └─[0;38;5;245m4093 "node /home/ubuntu/samafox-backend/dist/index.js"[0m
+
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: [PM2] PM2 Successfully daemonized
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: [PM2] Resurrecting
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: [PM2] Restoring processes located in /home/ubuntu/.pm2/dump.pm2
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: [PM2] Process /home/ubuntu/samafox-backend/dist/index.js restored
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: ┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: │ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: ├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: │ 0  │ samafox-backend    │ default     │ 1.0.0   │ fork    │ 4093     │ 0s     │ 0    │ online    │ 0%       │ 29.6mb   │ ubuntu   │ disabled │
+Oct 31 19:49:40 ip-172-31-31-125 pm2[4075]: └────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+Oct 31 19:49:40 ip-172-31-31-125 systemd[1]: Started pm2-ubuntu.service - PM2 process manager.

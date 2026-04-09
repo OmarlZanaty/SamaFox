@@ -1,0 +1,347 @@
+import { Request, Response } from 'express';
+import prisma from '../utils/prisma';
+import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt';
+import { OAuth2Client } from 'google-auth-library';
+
+export const register = async (req: Request, res: Response) => {
+  try {
+    const { provider, name, email, phone } = req.body;
+
+    // Validate input
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    // Check if user already exists
+    let existingUser = null;
+    if (email) {
+      existingUser = await prisma.user.findUnique({ where: { email } });
+    } else if (phone) {
+      existingUser = await prisma.user.findUnique({ where: { phone } });
+    }
+
+    if (existingUser) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    // Create new user
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email: email || null,
+        phone: phone || null,
+        level: 1,
+        xp: 0,
+        coinsBalance: 100, // Welcome bonus
+        vipLevel: 0
+      }
+    });
+
+    // Generate tokens
+    const accessToken = generateAccessToken({ userId: user.id, ...(user.email && { email: user.email }), ...(user.phone && { phone: user.phone }) });
+    const refreshToken = generateRefreshToken({ userId: user.id });
+
+    res.status(201).json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        avatarUrl: user.avatarUrl,
+        level: user.level,
+        xp: user.xp,
+        coinsBalance: user.coinsBalance,
+        vipLevel: user.vipLevel
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const login = async (req: Request, res: Response) => {
+  try {
+    const { email, phone } = req.body;
+
+    if (!email && !phone) {
+      return res.status(400).json({ error: 'Email or phone is required' });
+    }
+
+    // Find user
+    const user = await prisma.user.findFirst({
+      where: email ? { email } : { phone }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate tokens
+    const accessToken = generateAccessToken({ userId: user.id, ...(user.email && { email: user.email }), ...(user.phone && { phone: user.phone }) });
+    const refreshToken = generateRefreshToken({ userId: user.id });
+
+    res.json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        avatarUrl: user.avatarUrl,
+        countryCode: user.countryCode,
+        bio: user.bio,
+        level: user.level,
+        xp: user.xp,
+        coinsBalance: user.coinsBalance,
+        vipLevel: user.vipLevel,
+        vipExpiresAt: user.vipExpiresAt
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const refresh = async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token is required' });
+    }
+
+    // Verify refresh token
+    const payload = verifyRefreshToken(refreshToken);
+
+    // Generate new access token
+    const accessToken = generateAccessToken({ userId: payload.userId });
+
+    res.json({ accessToken });
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid or expired refresh token' });
+  }
+};
+
+
+
+export const guestLogin = async (req: Request, res: Response) => {
+  try {
+    const { deviceId } = req.body;
+    
+    // Generate a unique guest name
+    const guestNumber = Math.floor(Math.random() * 999999);
+    const guestName = `Guest_${guestNumber}`;
+    
+    // Create or find guest user
+    let user = null;
+    if (deviceId) {
+      // Try to find existing guest by phone (using deviceId as identifier)
+      user = await prisma.user.findFirst({
+        where: { phone: `guest_${deviceId}` }
+      });
+    }
+    
+    if (!user) {
+      // Create new guest user
+      user = await prisma.user.create({
+        data: {
+          name: guestName,
+          phone: deviceId ? `guest_${deviceId}` : `guest_${Date.now()}`,
+          level: 1,
+          xp: 0,
+          coinsBalance: 50, // Guest bonus
+          vipLevel: 0
+        }
+      });
+    }
+    
+    // Generate tokens
+    const accessToken = generateAccessToken({ userId: user.id, phone: user.phone! });
+    const refreshToken = generateRefreshToken({ userId: user.id });
+    
+    res.json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        avatarUrl: user.avatarUrl,
+        countryCode: user.countryCode,
+        bio: user.bio,
+        level: user.level,
+        xp: user.xp,
+        coinsBalance: user.coinsBalance,
+        vipLevel: user.vipLevel,
+        vipExpiresAt: user.vipExpiresAt
+      }
+    });
+  } catch (error) {
+    console.error('Guest login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+// Google OAuth callback handler
+export const googleCallback = async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Authentication failed' });
+    }
+
+    // Generate tokens
+    const accessToken = generateAccessToken({ 
+      userId: user.id, 
+      ...(user.email && { email: user.email }),
+      googleId: user.googleId 
+    });
+    const refreshToken = generateRefreshToken({ userId: user.id });
+
+    // Check if request is from mobile app (redirect to deep link) or web (return JSON)
+    const userAgent = req.headers['user-agent'] || '';
+    const isMobileApp = userAgent.includes('Android') || userAgent.includes('iPhone');
+    
+    if (isMobileApp) {
+      // Redirect to Android app with tokens as URL parameters
+      const deepLink = `samafox://oauth?` +
+        `accessToken=${encodeURIComponent(accessToken)}&` +
+        `refreshToken=${encodeURIComponent(refreshToken)}&` +
+        `userId=${user.id}&` +
+        `name=${encodeURIComponent(user.name)}&` +
+        `email=${encodeURIComponent(user.email || '')}&` +
+        `avatarUrl=${encodeURIComponent(user.avatarUrl || '')}`;
+      
+      res.redirect(deepLink);
+    } else {
+      // Return JSON for web or testing
+      res.json({
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          avatarUrl: user.avatarUrl,
+          countryCode: user.countryCode,
+          bio: user.bio,
+          level: user.level,
+          xp: user.xp,
+          coinsBalance: user.coinsBalance,
+          vipLevel: user.vipLevel,
+          vipExpiresAt: user.vipExpiresAt,
+          authProvider: user.authProvider
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Google callback error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+
+// Initialize Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+// Google Sign-In for Mobile (ID Token verification)
+export const googleMobileLogin = async (req: Request, res: Response) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ error: 'ID token is required' });
+    }
+
+    // Verify the ID token with Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    
+    if (!payload) {
+      return res.status(401).json({ error: 'Invalid ID token' });
+    }
+
+    const { sub: googleId, email, name, picture } = payload;
+
+    // Check if user exists with this Google ID
+    let user = await prisma.user.findFirst({
+      where: { googleId }
+    });
+
+    if (!user) {
+      // Check if user exists with this email
+      if (email) {
+        user = await prisma.user.findUnique({ where: { email } });
+      }
+
+      if (user) {
+        // Link Google account to existing user
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            googleId,
+            authProvider: 'google',
+            avatarUrl: picture || user.avatarUrl,
+          }
+        });
+      } else {
+        // Create new user
+        user = await prisma.user.create({
+          data: {
+            name: name || 'Google User',
+            email: email || null,
+            googleId,
+            authProvider: 'google',
+            avatarUrl: picture || null,
+            level: 1,
+            xp: 0,
+            coinsBalance: 100, // Welcome bonus
+            vipLevel: 0
+          }
+        });
+      }
+    }
+
+    // Generate tokens
+    const accessToken = generateAccessToken({ 
+      userId: user.id, 
+      ...(user.email && { email: user.email }),
+    });
+    const refreshToken = generateRefreshToken({ userId: user.id });
+
+    res.json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        countryCode: user.countryCode,
+        bio: user.bio,
+        level: user.level,
+        xp: user.xp,
+        coinsBalance: user.coinsBalance,
+        vipLevel: user.vipLevel,
+        vipExpiresAt: user.vipExpiresAt,
+        authProvider: user.authProvider
+      }
+    });
+  } catch (error) {
+    console.error('Google mobile login error:', error);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+};
