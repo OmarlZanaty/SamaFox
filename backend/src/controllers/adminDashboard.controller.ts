@@ -49,42 +49,31 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
     const search = String(req.query.search || '').trim();
 
-    const where = search
-      ? {
-          OR: [
-            { name: { contains: search } },
-            { email: { contains: search } },
-            { phone: { contains: search } },
-          ],
-        }
-      : undefined;
+    const whereSql = search
+      ? 'WHERE (name LIKE ? OR email LIKE ? OR phone LIKE ?)'
+      : '';
 
-    const [total, users] = await Promise.all([
-      prisma.user.count({ where }),
-      prisma.user.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phone: true,
-          avatarUrl: true,
-          isAdmin: true,
-          coinsBalance: true,
-          isBanned: true,
-          bannedAt: true,
-          banReason: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-    ]);
+    const params = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
+
+    const countRows = await prisma.$queryRawUnsafe<Array<{ total: number }>>(
+      `SELECT COUNT(*) as total FROM users ${whereSql}`,
+      ...params,
+    );
+    const total = Number(countRows[0]?.total || 0);
+
+    const data = await prisma.$queryRawUnsafe<Array<any>>(
+      `SELECT id, name, email, phone, avatarUrl, isAdmin, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
+       FROM users
+       ${whereSql}
+       ORDER BY createdAt DESC
+       LIMIT ? OFFSET ?`,
+      ...params,
+      limit,
+      skip,
+    );
 
     return ok(res, {
-      data: users.map(serializeUser),
+      data: data.map((u) => ({ ...u, isAdmin: Boolean(u.isAdmin), coinsBalance: String(u.coinsBalance ?? '0') })),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch {
