@@ -41,15 +41,10 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use("/api/v1/store", storeRoutes);
+
 app.use('/api/v1/admin', adminRoutes);
-app.use(cookieParser());
-
-// 🔥 MOVE ROUTE BEFORE BODY PARSERS
+app.use("/api/v1/store", storeRoutes);
 app.use("/api/v1/admin-products", adminProductRoutes);
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 app.use("/uploads", express.static("uploads"));
 // passport (if you still use it elsewhere)
