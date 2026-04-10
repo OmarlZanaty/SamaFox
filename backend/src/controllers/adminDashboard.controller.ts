@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import { io } from '../index';
 
 const parsePage = (v: unknown, d = 1) => {
   const n = Number(v);
@@ -23,6 +22,11 @@ const serialize = (obj: any): any => {
   }
   return obj;
 };
+
+const serializeUser = (user: any) => ({
+  ...user,
+  coinsBalance: user?.coinsBalance != null ? String(user.coinsBalance) : '0',
+});
 
 export const adminDashboardOverview = async (_req: Request, res: Response) => {
   try {
@@ -70,6 +74,9 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
           avatarUrl: true,
           isAdmin: true,
           coinsBalance: true,
+          isBanned: true,
+          bannedAt: true,
+          banReason: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -77,7 +84,7 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
     ]);
 
     return ok(res, {
-      data: serialize(users),
+      data: users.map(serializeUser),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch {
@@ -90,19 +97,22 @@ export const adminDashboardBanUser = async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     if (!id) return fail(res, 400, 'Invalid user id');
 
-    const isBanned = Boolean(req.body.isBanned);
-    const banReason = typeof req.body.banReason === 'string' ? req.body.banReason.trim() : null;
-    const bannedAt = isBanned ? new Date().toISOString() : null;
+    const isBanned = Boolean(req.body?.isBanned);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : null;
 
-    await prisma.$executeRawUnsafe(
-      'UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?',
-      isBanned ? 1 : 0,
-      bannedAt,
-      isBanned ? banReason : null,
-      id,
-    );
+    if (isBanned && !reason) return fail(res, 400, 'reason is required when banning user');
 
-    return ok(res, { data: { id, isBanned, bannedAt, banReason: isBanned ? banReason : null } });
+    const data = await prisma.user.update({
+      where: { id },
+      data: {
+        isBanned,
+        bannedAt: isBanned ? new Date() : null,
+        banReason: isBanned ? reason : null,
+      },
+      select: { id: true, isBanned: true, bannedAt: true, banReason: true },
+    });
+
+    return ok(res, { data });
   } catch {
     return fail(res, 500, 'Server error');
   }
@@ -141,13 +151,20 @@ export const adminDashboardTransactions = async (req: Request, res: Response) =>
 };
 
 export const adminDashboardBroadcast = async (req: Request, res: Response) => {
-  const title = String(req.body?.title || '').trim();
-  const message = String(req.body?.message || '').trim();
-  if (!title || !message) return fail(res, 400, 'title and message are required');
+  try {
+    const title = String(req.body?.title || '').trim();
+    const message = String(req.body?.message || '').trim();
+    if (!title || !message) return fail(res, 400, 'title and message are required');
 
-  const payload = { title, message, createdAt: new Date().toISOString() };
-  io.emit('admin_broadcast', payload);
-  return ok(res, { data: payload });
+    const sentAt = new Date().toISOString();
+    const payload = { title, message, sentAt };
+    const { io } = await import('../index');
+    io.emit('admin_broadcast', payload);
+
+    return ok(res, { data: payload });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
 };
 
 export const adminDashboardTopupRequests = async (req: Request, res: Response) => {
@@ -180,8 +197,8 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
         await tx.chargingAgency.update({
           where: { id: topup.agencyId },
           data: {
-            balanceCoins: { increment: Number(BigInt(topup.amount)) },
-            totalTopupCoins: { increment: Number(BigInt(topup.amount)) },
+            balanceCoins: { increment: topup.amount },
+            totalTopupCoins: { increment: topup.amount },
           },
         });
       }
@@ -204,33 +221,52 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
 export const adminDashboardAnalytics = async (_req: Request, res: Response) => {
   try {
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
-    const [topGifters, topRoomsRaw, pendingReports, dailyGiftCoinsRaw] = await Promise.all([
-      prisma.giftLog.groupBy({ by: ['senderId'], where: { createdAt: { gte: since } }, _sum: { coinsSpent: true }, orderBy: { _sum: { coinsSpent: 'desc' } }, take: 10 }),
-      prisma.giftLog.groupBy({ by: ['roomId'], where: { roomId: { not: null }, createdAt: { gte: since } }, _sum: { coinsSpent: true }, orderBy: { _sum: { coinsSpent: 'desc' } }, take: 10 }),
+    const [topGifters, topRoomsRaw, pendingReports, todayGiftCoins] = await Promise.all([
+      prisma.giftLog.groupBy({
+        by: ['senderId'],
+        where: { createdAt: { gte: since } },
+        _sum: { coinsSpent: true },
+        orderBy: { _sum: { coinsSpent: 'desc' } },
+        take: 5,
+      }),
+      prisma.roomMessage.groupBy({
+        by: ['roomId'],
+        where: { timestamp: { gte: since } },
+        _count: { roomId: true },
+        orderBy: { _count: { roomId: 'desc' } },
+        take: 5,
+      }),
       prisma.report.count({ where: { status: 'pending' } }),
-      prisma.$queryRaw<Array<{ day: string; total: number | bigint }>>`
-        SELECT date(createdAt) as day, SUM(coinsSpent) as total
-        FROM gift_logs
-        WHERE createdAt >= ${since.toISOString()}
-        GROUP BY date(createdAt)
-        ORDER BY day ASC
-      `,
+      prisma.giftLog.aggregate({ where: { createdAt: { gte: startOfToday } }, _sum: { coinsSpent: true } }),
     ]);
 
     const senderIds = topGifters.map((r) => r.senderId);
-    const roomIds = topRoomsRaw.map((r) => r.roomId).filter(Boolean) as number[];
+    const roomIds = topRoomsRaw.map((r) => r.roomId);
+
     const [users, rooms] = await Promise.all([
-      senderIds.length ? prisma.user.findMany({ where: { id: { in: senderIds } }, select: { id: true, name: true, avatarUrl: true } }) : [],
+      senderIds.length
+        ? prisma.user.findMany({ where: { id: { in: senderIds } }, select: { id: true, name: true, avatarUrl: true } })
+        : [],
       roomIds.length ? prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, name: true } }) : [],
     ]);
 
     return ok(res, {
       data: {
-        topGifters: topGifters.map((g) => ({ ...g, user: users.find((u) => u.id === g.senderId) || null, coins: (g._sum.coinsSpent || 0).toString() })),
-        topRooms: topRoomsRaw.map((r) => ({ ...r, room: rooms.find((x) => x.id === r.roomId) || null, coins: (r._sum.coinsSpent || 0).toString() })),
+        topGifters: topGifters.map((g) => ({
+          senderId: g.senderId,
+          user: users.find((u) => u.id === g.senderId) || null,
+          coins: ((g._sum?.coinsSpent as any) || 0).toString(),
+        })),
+        topRooms: topRoomsRaw.map((r) => ({
+          roomId: r.roomId,
+          room: rooms.find((x) => x.id === r.roomId) || null,
+          messagesCount: (r._count as any)?.roomId || 0,
+        })),
         pendingReports,
-        dailyGiftCoins: dailyGiftCoinsRaw.map((d) => ({ day: d.day, total: BigInt(d.total || 0).toString() })),
+        todayGiftCoins: (todayGiftCoins._sum.coinsSpent || 0).toString(),
       },
     });
   } catch {
@@ -247,7 +283,7 @@ export const adminDashboardReports = async (req: Request, res: Response) => {
       include: {
         reporter: { select: { id: true, name: true, email: true, avatarUrl: true } },
         reportedUser: { select: { id: true, name: true, email: true, avatarUrl: true } },
-        room: { select: { id: true, name: true, isActive: true } },
+        room: { select: { id: true, name: true } },
       },
     });
     return ok(res, { data });
@@ -260,7 +296,7 @@ export const adminDashboardUpdateReport = async (req: Request, res: Response) =>
   try {
     const id = Number(req.params.id);
     const status = String(req.body?.status || '');
-    if (!id || !status) return fail(res, 400, 'Invalid payload');
+    if (!id || !['resolved', 'dismissed'].includes(status)) return fail(res, 400, 'Invalid payload');
 
     const data = await prisma.report.update({ where: { id }, data: { status } });
     return ok(res, { data });
@@ -290,7 +326,9 @@ export const adminDashboardForceCloseRoom = async (req: Request, res: Response) 
     if (!id || !reason) return fail(res, 400, 'Invalid payload');
 
     const room = await prisma.room.update({ where: { id }, data: { isActive: false } });
-    io.to(`room:${id}`).emit('admin_force_close', { roomId: id, reason, closedAt: new Date().toISOString() });
+    const { io } = await import('../index');
+    io.to(`room:${id}`).emit('room_force_closed', { roomId: id, reason });
+
     return ok(res, { data: room });
   } catch {
     return fail(res, 500, 'Server error');
@@ -312,7 +350,13 @@ export const adminDashboardCreateQuest = async (req: Request, res: Response) => 
     if (!name || !description || !metric || !target || !rewardCoins) return fail(res, 400, 'Missing required fields');
 
     const data = await prisma.dailyQuest.create({
-      data: { name: String(name), description: String(description), metric: String(metric), target: Number(target), rewardCoins: Number(rewardCoins) },
+      data: {
+        name: String(name),
+        description: String(description),
+        metric: String(metric),
+        target: Number(target),
+        rewardCoins: Number(rewardCoins),
+      },
     });
     return ok(res, { data });
   } catch {
@@ -341,19 +385,39 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
         orderBy: { coinsBalance: 'desc' },
         select: { id: true, name: true, avatarUrl: true, coinsBalance: true },
       });
-      return ok(res, { data: serialize(data) });
+      return ok(res, { data: data.map(serializeUser) });
     }
 
     if (type === 'gifts') {
-      const rows = await prisma.giftLog.groupBy({ by: ['senderId'], _sum: { coinsSpent: true }, orderBy: { _sum: { coinsSpent: 'desc' } }, take: 20 });
-      const users = await prisma.user.findMany({ where: { id: { in: rows.map((r) => r.senderId) } }, select: { id: true, name: true, avatarUrl: true } });
-      return ok(res, { data: rows.map((r) => ({ user: users.find((u) => u.id === r.senderId) || null, total: (r._sum.coinsSpent || 0).toString() })) });
+      const rows = await prisma.giftLog.groupBy({
+        by: ['senderId'],
+        _sum: { coinsSpent: true },
+        orderBy: { _sum: { coinsSpent: 'desc' } },
+        take: 20,
+      });
+      const users = await prisma.user.findMany({
+        where: { id: { in: rows.map((r) => r.senderId) } },
+        select: { id: true, name: true, avatarUrl: true },
+      });
+
+      return ok(res, {
+        data: rows.map((r) => ({
+          senderId: r.senderId,
+          user: users.find((u) => u.id === r.senderId) || null,
+          coinsSpent: (r._sum.coinsSpent || 0).toString(),
+        })),
+      });
     }
 
     const data = await prisma.room.findMany({
       take: 20,
-      orderBy: { members: { _count: 'desc' } },
-      select: { id: true, name: true, isActive: true, _count: { select: { members: true } } },
+      orderBy: { xp: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        xp: true,
+        owner: { select: { name: true } },
+      },
     });
     return ok(res, { data });
   } catch {
