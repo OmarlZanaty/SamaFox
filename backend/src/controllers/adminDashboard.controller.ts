@@ -88,6 +88,16 @@ export const adminDashboardListUsers = async (req: AdminReq, res: Response) => {
     const [total, users] = await Promise.all([
       prisma.user.count(),
       prisma.user.findMany({
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatarUrl: true,
+          isAdmin: true,
+          createdAt: true,
+          updatedAt: true
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit
