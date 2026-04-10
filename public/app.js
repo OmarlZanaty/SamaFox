@@ -165,7 +165,7 @@ function setAuthState(online, label) {
 
 async function checkAuth() {
   try {
-    await loadOverview();
+    await apiFetch("/admin-dashboard-auth/status");
     setAuthState(true, "متصل ✓");
     return true;
   } catch {
@@ -477,7 +477,7 @@ document.getElementById("btnReload").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("btnLogin").addEventListener("click", async () => {
+async function handleLogin() {
   try {
     const email    = document.getElementById("loginEmail").value.trim();
     const password = document.getElementById("loginPassword").value;
@@ -490,6 +490,16 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
   } catch (e) {
     showToast("فشل تسجيل الدخول: " + e.message);
   }
+}
+
+document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await handleLogin();
+});
+
+document.getElementById("btnLogin").addEventListener("click", async (e) => {
+  e.preventDefault();
+  await handleLogin();
 });
 
 document.getElementById("btnLogout").addEventListener("click", async () => {
