@@ -10,10 +10,10 @@
 
 :root {
   /* Core colors */
-  --bg:           #09090b;
-  --bg-2:         #0f0f12;
-  --sidebar-bg:   #0c0c10;
-  --card-bg:      #111116;
+  --bg:           #11142a;
+  --bg-2:         #181c39;
+  --sidebar-bg:   #141936;
+  --card-bg:      #1a2147;
   --card-border:  #1e1e26;
   --input-bg:     #16161c;
   --input-border: #2a2a35;
@@ -24,7 +24,7 @@
   --text-subtle:  #52525b;
 
   /* Accent */
-  --brand:        #7C5AF0;
+  --brand:        #8b5cf6;
   --brand-dim:    rgba(124,90,240,.18);
   --brand-glow:   rgba(124,90,240,.35);
 
@@ -59,6 +59,18 @@ html, body {
   line-height: 1.6;
   overflow-x: hidden;
 }
+
+body::before {
+  content:"";
+  position: fixed; inset: -20%; z-index:-1;
+  background: radial-gradient(circle at 20% 20%, rgba(56,189,248,.22), transparent 45%),
+              radial-gradient(circle at 80% 10%, rgba(168,85,247,.22), transparent 42%),
+              radial-gradient(circle at 70% 80%, rgba(34,211,238,.16), transparent 40%);
+  animation: auroraMove 14s ease-in-out infinite alternate;
+}
+@keyframes auroraMove { from { transform: translate3d(0,0,0) scale(1);} to { transform: translate3d(2%, -2%, 0) scale(1.06);} }
+
+
 
 /* ============================================================
    SIDEBAR
@@ -796,3 +808,9 @@ tr:hover td { background: rgba(255,255,255,.02); }
   font-weight: 600;
 }
 .td-link:hover { color: #c4b5fd; text-decoration: underline; }
+
+.stat-card, .form-card, .config-card, .table-wrap { box-shadow: 0 8px 30px rgba(20,30,90,.25); }
+.nav-item, .btn, .stat-card { transition: all .25s ease; }
+.nav-item:hover { transform: translateX(-2px); }
+.btn:hover { transform: translateY(-1px); }
+.json-box { margin-top:10px; background: rgba(11,20,55,.55); border:1px solid var(--input-border); border-radius: 12px; padding: 12px; color:#dbeafe; max-height:220px; overflow:auto; font-size:12px; line-height:1.5; }

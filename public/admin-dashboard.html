@@ -33,6 +33,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
       الغرف
     </a>
+    <a href="#" class="nav-item" data-section="advanced">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-1.5L12 2z"/></svg>
+      ميزات الأدمن
+    </a>
     <a href="#" class="nav-item" data-section="agencies">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
       وكالات الشحن
@@ -149,6 +153,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
             حفظ
           </button>
+          <button class="btn btn-outline" id="btnUsersExport">تصدير CSV</button>
         </div>
 
         <div class="divider"></div>
@@ -176,6 +181,7 @@
           <p class="section-sub">إدارة حسابات المستخدمين</p>
         </div>
         <div class="section-actions">
+          <input id="usersSearch" class="form-input form-input--sm" placeholder="بحث" />
           <input id="usersPage" type="number" min="1" value="1" class="form-input form-input--sm" placeholder="صفحة" />
           <input id="usersLimit" type="number" min="5" value="30" class="form-input form-input--sm" placeholder="عدد" />
           <button class="btn btn-outline" id="btnUsers">
@@ -231,6 +237,7 @@
               <th>المالك</th>
               <th>الغلاف</th>
               <th>تاريخ الإنشاء</th>
+              <th>إجراءات</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -275,6 +282,72 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- ======================== ADVANCED SECTION ======================== -->
+    <section class="section" id="section-advanced">
+      <div class="section-header">
+        <div><h2 class="section-title">ميزات الأدمن المتقدمة</h2><p class="section-sub">بث، معاملات، تقارير، تحليلات، مهام، ليدربورد</p></div>
+        <div class="section-actions"><button class="btn btn-outline" id="btnAdvancedRefresh">تحديث الكل</button>
+        <button class="btn btn-outline" id="btnLiveToggle">إيقاف التحديث الحي</button></div>
+      </div>
+
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-card-title">بث إشعار عام</div>
+        <div class="form-row">
+          <input id="broadcastTitle" class="form-input" placeholder="عنوان الرسالة" />
+          <input id="broadcastMessage" class="form-input" placeholder="نص الرسالة" />
+          <button class="btn btn-primary" id="btnBroadcast">إرسال بث</button>
+        </div>
+      </div>
+
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-card-title">المعاملات</div>
+        <div class="form-row">
+          <input id="txUserId" class="form-input form-input--sm" placeholder="User ID" />
+          <input id="txType" class="form-input form-input--sm" placeholder="type" />
+          <button class="btn btn-outline" id="btnTransactions">تحميل المعاملات</button>
+          <button class="btn btn-outline" id="btnTransactionsExport">تصدير CSV</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px"><table id="transactionsTable"><thead><tr><th>ID</th><th>المستخدم</th><th>النوع</th><th>الحالة</th><th>Coins</th><th>تاريخ</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-card-title">طلبات الشحن + التقارير</div>
+        <div class="form-row">
+          <button class="btn btn-outline" id="btnTopups">تحميل طلبات الشحن</button>
+          <button class="btn btn-outline" id="btnTopupsExport">تصدير CSV</button>
+          <button class="btn btn-outline" id="btnReports">تحميل التقارير</button>
+          <button class="btn btn-outline" id="btnReportsExport">تصدير CSV</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px"><table id="topupsTable"><thead><tr><th>ID</th><th>الوكالة</th><th>القيمة</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody></tbody></table></div>
+        <div class="table-wrap" style="margin-top:10px"><table id="reportsTable"><thead><tr><th>ID</th><th>المبلغ</th><th>المشكو</th><th>السبب</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-card-title">التحليلات + ليدربورد</div>
+        <div class="form-row">
+          <button class="btn btn-outline" id="btnAnalytics">تحميل التحليلات</button>
+          <select id="leaderboardType" class="form-select"><option value="coins">coins</option><option value="gifts">gifts</option><option value="rooms">rooms</option></select>
+          <button class="btn btn-outline" id="btnLeaderboard">تحميل الليدربورد</button>
+          <button class="btn btn-outline" id="btnLeaderboardExport">تصدير CSV</button>
+        </div>
+        <pre id="analyticsBox" class="json-box"></pre>
+        <div class="table-wrap" style="margin-top:10px"><table id="leaderboardTable"><thead><tr><th>#</th><th>الاسم</th><th>القيمة</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="form-card">
+        <div class="form-card-title">المهام اليومية</div>
+        <div class="form-row">
+          <input id="qName" class="form-input" placeholder="name"/>
+          <input id="qMetric" class="form-input" placeholder="metric"/>
+          <input id="qTarget" class="form-input form-input--sm" placeholder="target"/>
+          <input id="qReward" class="form-input form-input--sm" placeholder="reward"/>
+          <button class="btn btn-primary" id="btnQuestCreate">إضافة مهمة</button>
+          <button class="btn btn-outline" id="btnQuests">تحميل المهام</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px"><table id="questsTable"><thead><tr><th>ID</th><th>الاسم</th><th>metric</th><th>target</th><th>reward</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
       </div>
     </section>
 
@@ -385,6 +458,17 @@
         تأكيد
       </button>
       <button class="btn btn-outline" onclick="closeCoinsModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-overlay hidden" id="confirmModal" onclick="closeConfirmModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header"><div><h3 class="modal-title" id="confirmTitle">تأكيد الإجراء</h3><p class="modal-sub" id="confirmText">هل أنت متأكد؟</p></div></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="confirmYesBtn">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeConfirmModal()">إلغاء</button>
     </div>
   </div>
 </div>

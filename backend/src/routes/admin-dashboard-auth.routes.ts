@@ -48,7 +48,7 @@ router.post('/login', async (req, res) => {
 
     if (!r.ok) {
       const msg = body?.message || body?.error || `Login failed (HTTP ${r.status})`;
-      return res.status(401).json({ message: msg });
+      return res.status(r.status).json({ success: false, message: msg });
     }
 
     const token = pickToken(body);
