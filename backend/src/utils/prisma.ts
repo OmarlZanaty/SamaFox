@@ -1,16 +1,10 @@
-import dotenv from 'dotenv';
-import path from 'path';
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-
-// Ensure env vars are loaded even when this module is imported before app bootstrap.
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 
 if (!databaseUrl) {
-  throw new Error(
-    'DATABASE_URL is not set. Add it to your environment or backend/.env before starting the server.',
-  );
+  throw new Error('DATABASE_URL is not set. Add it to your environment before starting the server.');
 }
 
 if (!databaseUrl.startsWith('file:')) {
