@@ -879,32 +879,32 @@ await emitRoomState(io, rid);
     return;
   }
 
-  const price = Number(gift.priceCoins ?? 0);
-  const totalCost = price * qty;
-  if (!Number.isFinite(totalCost) || totalCost <= 0) {
+  const price = BigInt(gift.priceCoins ?? 0);
+  const totalCost = price * BigInt(qty);
+  if (totalCost <= BigInt(0)) {
     socket.emit('gift_error', { message: 'Invalid gift price' });
     return;
   }
 
-  const receiverCoins = recvId != null ? Math.floor(totalCost * 0.5) : 0;
+  const receiverCoins = recvId != null ? totalCost / BigInt(2) : BigInt(0);
 
   try {
     const result = await prisma.$transaction(async (tx) => {
       // ✅ race-safe sender decrement
       const updated = await tx.user.updateMany({
-        where: { id: senderId, coinsBalance: { gte: totalCost } },
-        data: { coinsBalance: { decrement: totalCost } },
+        where: { id: senderId, coinsBalance: { gte: Number(totalCost) } },
+        data: { coinsBalance: { decrement: Number(totalCost) } },
       });
       if (updated.count === 0) throw new Error('INSUFFICIENT_COINS');
 
-      let receiverNewBalance: number | null = null;
+      let receiverNewBalance: bigint | null = null;
       if (recvId != null) {
         const ur = await tx.user.update({
           where: { id: recvId },
-          data: { coinsBalance: { increment: receiverCoins } },
+          data: { coinsBalance: { increment: Number(receiverCoins) } },
           select: { coinsBalance: true },
         });
-        receiverNewBalance = ur.coinsBalance;
+        receiverNewBalance = BigInt(ur.coinsBalance);
       }
 
       const senderNew = await tx.user.findUnique({
@@ -918,7 +918,7 @@ await emitRoomState(io, rid);
           receiverId: recvId ?? senderId,
           giftId: gid,
           roomId: rid,
-          coinsSpent: totalCost,
+          coinsSpent: Number(totalCost),
           quantity: qty,
           message: message ?? null,
         },
@@ -932,18 +932,18 @@ await emitRoomState(io, rid);
       
 
       await tx.transaction.create({
-        data: { userId: senderId, type: 'gift_send', amountCoins: -totalCost, status: 'completed' },
+        data: { userId: senderId, type: 'gift_send', amountCoins: -Number(totalCost), status: 'completed' },
       });
 
       if (recvId != null) {
         await tx.transaction.create({
-          data: { userId: recvId, type: 'gift_receive', amountCoins: receiverCoins, status: 'completed' },
+          data: { userId: recvId, type: 'gift_receive', amountCoins: Number(receiverCoins), status: 'completed' },
         });
       }
 
       return {
         createdLog,
-        senderNewBalance: senderNew?.coinsBalance ?? 0,
+        senderNewBalance: BigInt(senderNew?.coinsBalance ?? 0),
         receiverNewBalance,
       };
     });
@@ -959,13 +959,16 @@ await emitRoomState(io, rid);
     giftId: gid,
     giftName: createdLog.gift.name,
     giftImageUrl: createdLog.gift.imageUrl,
-    coinsSpent: totalCost,
+    coinsSpent: Number(totalCost),
     quantity: qty,
     message: message ?? null,
     sender: createdLog.sender,
     receiver: createdLog.receiver,
     senderId,
     receiverId: recvId ?? senderId,
+    senderNewBalance: result.senderNewBalance.toString(),
+    receiverCoins: receiverCoins.toString(),
+    receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
     createdAt: createdLog.createdAt.toISOString()
   }
 };
