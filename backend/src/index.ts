@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import passport from './config/passport';
 import path from 'path';
+import fs from 'fs';
 import cookieParser from 'cookie-parser';
 
 import chargingAgencyRoutes from './routes/charging-agency.routes';
@@ -54,13 +55,32 @@ app.use("/uploads", express.static("uploads"));
 // passport (if you still use it elsewhere)
 app.use(passport.initialize());
 
+const staticPublicCandidates: string[] = [
+  path.join(process.cwd(), 'public'),
+  path.resolve(process.cwd(), 'public'),
+  path.resolve(process.cwd(), './public'),
+  path.resolve(process.cwd(), '../public'),
+  path.resolve(__dirname, '../../public'),
+  path.resolve(__dirname, '../public')
+];
+
+const publicDir =
+  staticPublicCandidates.find((candidate) => fs.existsSync(candidate)) ??
+  path.join(process.cwd(), 'public');
+
+console.log(`📁 Serving static public directory from: ${publicDir}`);
+
 // ✅ static
-app.use('/public', express.static(path.join(process.cwd(), 'public')));
+app.use('/public', express.static(publicDir));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 
-app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static(publicDir));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+app.get('/public/admin-dashboard.html', (_req, res) => {
+  res.sendFile(path.join(publicDir, 'admin-dashboard.html'));
+});
 
 // ✅ dashboard auth first (sets cookie)
 app.use('/api/v1/admin-dashboard-auth', adminDashAuthRoutes);
