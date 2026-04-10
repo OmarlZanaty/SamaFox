@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import passport from './config/passport';
 import path from 'path';
+import fs from 'fs';
 import cookieParser from 'cookie-parser';
 
 import chargingAgencyRoutes from './routes/charging-agency.routes';
@@ -54,12 +55,22 @@ app.use("/uploads", express.static("uploads"));
 // passport (if you still use it elsewhere)
 app.use(passport.initialize());
 
+const staticPublicCandidates = [
+  path.join(process.cwd(), 'public'),
+  path.resolve(__dirname, '../../public'),
+  path.resolve(process.cwd(), '../public')
+];
+
+const publicDir =
+  staticPublicCandidates.find((candidate) => fs.existsSync(candidate)) ??
+  staticPublicCandidates[0];
+
 // ✅ static
-app.use('/public', express.static(path.join(process.cwd(), 'public')));
+app.use('/public', express.static(publicDir));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 
-app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static(publicDir));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // ✅ dashboard auth first (sets cookie)
