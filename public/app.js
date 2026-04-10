@@ -72,6 +72,55 @@ function getApiBase() {
   return base;
 }
 
+function getApiBaseCandidates() {
+  const base = getApiBase();
+  if (!base) return [];
+
+  const normalized = base.replace(/\/+$/, "");
+  const candidates = [normalized];
+
+  if (normalized.endsWith("/api/v1")) {
+    candidates.push(normalized.slice(0, -"/api/v1".length));
+  } else {
+    candidates.push(normalized + "/api/v1");
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+async function fetchWithBaseFallback(path, opts = {}) {
+  const candidates = getApiBaseCandidates();
+  if (!candidates.length) throw new Error("يرجى إدخال قاعدة الـ API");
+
+  let lastError = null;
+
+  for (const base of candidates) {
+    const res = await fetch(base + path, {
+      ...opts,
+      credentials: "include",
+      headers: Object.assign({ Accept: "application/json" }, opts.headers || {}),
+    });
+
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+
+    if (res.ok) return data;
+
+    const msg = data && (data.message || data.error)
+      ? (data.message || data.error)
+      : `HTTP ${res.status}`;
+
+    lastError = Object.assign(new Error(msg), { status: res.status });
+
+    if (res.status !== 404) {
+      throw lastError;
+    }
+  }
+
+  throw lastError || new Error("تعذر الوصول إلى الـ API");
+}
+
 function fmtDate(s) {
   if (!s) return "—";
   try { return new Date(s).toISOString().replace("T", " ").slice(0, 19); }
@@ -106,54 +155,23 @@ function statusText(s) {
 // API FETCH (cookie-based)
 // ============================================================
 async function apiFetch(path, opts = {}) {
-  const base = getApiBase();
-  if (!base) throw new Error("يرجى إدخال قاعدة الـ API");
-
-  const res = await fetch(base + path, {
-    ...opts,
-    credentials: "include",
-    headers: Object.assign({ Accept: "application/json" }, opts.headers || {}),
-  });
-
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-
-  if (!res.ok) {
-    const msg = data && (data.message || data.error) ? (data.message || data.error) : `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
+  return fetchWithBaseFallback(path, opts);
 }
 
 // ============================================================
 // AUTH
 // ============================================================
 async function doLogin(email, password) {
-  const base = getApiBase();
-  const res = await fetch(base + "/admin-dashboard-auth/login", {
+  return fetchWithBaseFallback("/admin-dashboard-auth/login", {
     method: "POST",
-    credentials: "include",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ email, password }),
   });
-
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-
-  if (!res.ok) {
-    const msg = data && (data.message || data.error) ? (data.message || data.error) : `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
 }
 
 async function doLogout() {
-  const base = getApiBase();
-  await fetch(base + "/admin-dashboard-auth/logout", {
+  await fetchWithBaseFallback("/admin-dashboard-auth/logout", {
     method: "POST",
-    credentials: "include",
     headers: { Accept: "application/json" },
   });
 }
