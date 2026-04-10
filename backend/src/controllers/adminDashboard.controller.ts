@@ -370,12 +370,13 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
     if (!['coins', 'gifts', 'rooms'].includes(type)) return fail(res, 400, 'Invalid leaderboard type');
 
     if (type === 'coins') {
-      const data = await prisma.user.findMany({
-        take: 20,
-        orderBy: { coinsBalance: 'desc' },
-        select: { id: true, name: true, avatarUrl: true, coinsBalance: true },
-      });
-      return ok(res, { data: data.map(serializeUser) });
+      const data = await prisma.$queryRawUnsafe<Array<{ id: number; name: string; avatarUrl: string | null; coinsBalance: string }>>(
+        `SELECT id, name, avatarUrl, CAST(coinsBalance AS TEXT) as coinsBalance
+         FROM users
+         ORDER BY coinsBalance DESC
+         LIMIT 20`,
+      );
+      return ok(res, { data });
     }
 
     if (type === 'gifts') {
