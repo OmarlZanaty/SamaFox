@@ -115,25 +115,25 @@ export const sendGift = async (req: Request, res: Response) => {
       receiver = { id: r.id, name: r.name, avatarUrl: r.avatarUrl };
     }
 
-    const price = Number(gift.priceCoins ?? 0);
-    const totalCost = price * qty;
+    const price = BigInt(gift.priceCoins ?? 0);
+    const totalCost = price * BigInt(qty);
 
-    if (!Number.isFinite(totalCost) || totalCost <= 0) {
+    if (totalCost <= BigInt(0)) {
       return res.status(400).json({ error: 'Invalid gift price' });
     }
 
     // Receiver share (50% of total cost) only if receiver exists
-    const receiverCoins = receiverNum != null ? Math.floor(totalCost * 0.5) : 0;
+    const receiverCoins = receiverNum != null ? totalCost / BigInt(2) : BigInt(0);
 
     // ✅ Transaction (race-safe): decrement sender only if balance is enough AT UPDATE TIME
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.user.updateMany({
         where: {
           id: senderId,
-          coinsBalance: { gte: totalCost },
+          coinsBalance: { gte: Number(totalCost) },
         },
         data: {
-          coinsBalance: { decrement: totalCost },
+          coinsBalance: { decrement: Number(totalCost) },
         },
       });
 
@@ -142,14 +142,14 @@ export const sendGift = async (req: Request, res: Response) => {
       }
 
       // Increment receiver only if receiver exists
-      let receiverNewBalance: number | null = null;
+      let receiverNewBalance: bigint | null = null;
       if (receiverNum != null) {
         const ur = await tx.user.update({
           where: { id: receiverNum },
-          data: { coinsBalance: { increment: receiverCoins } },
+          data: { coinsBalance: { increment: Number(receiverCoins) } },
           select: { coinsBalance: true },
         });
-        receiverNewBalance = ur.coinsBalance;
+        receiverNewBalance = BigInt(ur.coinsBalance);
       }
 
       const us = await tx.user.findUnique({
@@ -164,7 +164,7 @@ export const sendGift = async (req: Request, res: Response) => {
           receiverId: receiverNum ?? senderId, // keep DB consistent; if no receiver, use sender as receiver
           giftId: gid,
           roomId: rid || null,
-          coinsSpent: totalCost,
+          coinsSpent: Number(totalCost),
           quantity: qty,
           message: message ?? null,
         },
@@ -180,7 +180,7 @@ export const sendGift = async (req: Request, res: Response) => {
         data: {
           userId: senderId,
           type: 'gift_send',
-          amountCoins: -totalCost,
+          amountCoins: -Number(totalCost),
           status: 'completed',
         },
       });
@@ -190,7 +190,7 @@ export const sendGift = async (req: Request, res: Response) => {
           data: {
             userId: receiverNum,
             type: 'gift_receive',
-            amountCoins: receiverCoins,
+            amountCoins: Number(receiverCoins),
             status: 'completed',
           },
         });
@@ -198,7 +198,7 @@ export const sendGift = async (req: Request, res: Response) => {
 
       return {
         createdLog,
-        senderNewBalance: us?.coinsBalance ?? 0,
+        senderNewBalance: BigInt(us?.coinsBalance ?? 0),
         receiverNewBalance,
       };
     });
@@ -218,7 +218,7 @@ export const sendGift = async (req: Request, res: Response) => {
   giftName: createdLog.gift.name,
   giftImageUrl: createdLog.gift.imageUrl,
 
-  coinsSpent: totalCost,
+  coinsSpent: Number(totalCost),
   quantity: qty,
   message: message ?? null,
 
@@ -226,10 +226,10 @@ export const sendGift = async (req: Request, res: Response) => {
   receiver: createdLog.receiver,
 
   senderId,
-  senderNewBalance: result.senderNewBalance,
+  senderNewBalance: result.senderNewBalance.toString(),
   receiverId: receiverNum ?? senderId,
-  receiverCoins,
-  receiverNewBalance: result.receiverNewBalance,
+  receiverCoins: receiverCoins.toString(),
+  receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
 
   createdAt: createdLog.createdAt,
 }
@@ -243,16 +243,16 @@ export const sendGift = async (req: Request, res: Response) => {
         id: gift.id,
         name: gift.name,
         imageUrl: gift.imageUrl,
-        unitPriceCoins: gift.priceCoins,
+        unitPriceCoins: gift.priceCoins?.toString?.() ?? String(gift.priceCoins),
         quantity: qty,
         message: message ?? null,
-        coinsSpent: totalCost,
+        coinsSpent: Number(totalCost),
       },
       balances: {
         senderId,
-        senderNewBalance: result.senderNewBalance,
+        senderNewBalance: result.senderNewBalance.toString(),
         receiverId: receiverNum ?? senderId,
-        receiverNewBalance: result.receiverNewBalance,
+        receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
       },
     });
   } catch (error: any) {

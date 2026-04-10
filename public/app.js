@@ -559,7 +559,7 @@ async function loadAll() {
 // BOOT
 // ============================================================
 (function init() {
-  const saved = localStorage.getItem(LS_API) || "http://54.254.79.239:3000/api/v1";
+  const saved = localStorage.getItem(LS_API) || getApiBase();
   apiEl.value = saved;
   const settingsInput = document.getElementById("apiBaseSettings");
   if (settingsInput) settingsInput.value = saved;

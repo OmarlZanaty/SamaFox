@@ -29,8 +29,11 @@ interface GoogleLoginRequest {
   idToken: string;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
+if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET env variable is required');
+if (!process.env.JWT_REFRESH_SECRET) throw new Error('JWT_REFRESH_SECRET env variable is required');
+
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
 const generateTokens = (userId: number) => {
   const accessToken = jwt.sign({ userId } satisfies JwtPayload, JWT_SECRET, { expiresIn: '24h' });
@@ -107,6 +110,14 @@ export const login = async (req: Request, res: Response) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.passwordHash) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    const bannedRows = await prisma.$queryRaw<Array<{ isBanned: number; banReason: string | null }>>`
+      SELECT isBanned, banReason FROM users WHERE id = ${user.id} LIMIT 1
+    `;
+    const banned = bannedRows[0];
+    if (banned && Number(banned.isBanned) === 1) {
+      return res.status(403).json({ success: false, message: banned.banReason || 'User is banned' });
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);
