@@ -102,17 +102,17 @@ export const adminDashboardBanUser = async (req: Request, res: Response) => {
 
     if (isBanned && !reason) return fail(res, 400, 'reason is required when banning user');
 
-    const data = await prisma.user.update({
-      where: { id },
-      data: {
-        isBanned,
-        bannedAt: isBanned ? new Date() : null,
-        banReason: isBanned ? reason : null,
-      },
-      select: { id: true, isBanned: true, bannedAt: true, banReason: true },
-    });
+    const bannedAt = isBanned ? new Date().toISOString() : null;
 
-    return ok(res, { data });
+    await prisma.$executeRawUnsafe(
+      'UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?',
+      isBanned ? 1 : 0,
+      bannedAt,
+      isBanned ? reason : null,
+      id,
+    );
+
+    return ok(res, { data: { id, isBanned, bannedAt, banReason: isBanned ? reason : null } });
   } catch {
     return fail(res, 500, 'Server error');
   }
