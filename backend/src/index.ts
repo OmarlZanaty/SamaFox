@@ -57,8 +57,6 @@ app.use(passport.initialize());
 
 const staticPublicCandidates: string[] = [
   path.join(process.cwd(), 'public'),
-  path.resolve(process.cwd(), 'public'),
-  path.resolve(process.cwd(), './public'),
   path.resolve(process.cwd(), '../public'),
   path.resolve(__dirname, '../../public'),
   path.resolve(__dirname, '../public')
@@ -72,14 +70,15 @@ console.log(`📁 Serving static public directory from: ${publicDir}`);
 
 // ✅ static
 app.use('/public', express.static(publicDir));
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
-
 app.use(express.static(publicDir));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.get('/public/admin-dashboard.html', (_req, res) => {
-  res.sendFile(path.join(publicDir, 'admin-dashboard.html'));
+  const dashboardFilePath = path.join(publicDir, 'admin-dashboard.html');
+  if (!fs.existsSync(dashboardFilePath)) {
+    return res.status(404).send('admin-dashboard.html not found');
+  }
+  return res.sendFile(dashboardFilePath);
 });
 
 // ✅ dashboard auth first (sets cookie)
