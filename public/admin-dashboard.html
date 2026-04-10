@@ -153,6 +153,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
             حفظ
           </button>
+          <button class="btn btn-outline" id="btnUsersExport">تصدير CSV</button>
         </div>
 
         <div class="divider"></div>
@@ -288,7 +289,8 @@
     <section class="section" id="section-advanced">
       <div class="section-header">
         <div><h2 class="section-title">ميزات الأدمن المتقدمة</h2><p class="section-sub">بث، معاملات، تقارير، تحليلات، مهام، ليدربورد</p></div>
-        <div class="section-actions"><button class="btn btn-outline" id="btnAdvancedRefresh">تحديث الكل</button></div>
+        <div class="section-actions"><button class="btn btn-outline" id="btnAdvancedRefresh">تحديث الكل</button>
+        <button class="btn btn-outline" id="btnLiveToggle">إيقاف التحديث الحي</button></div>
       </div>
 
       <div class="form-card" style="margin-bottom:14px">
@@ -306,6 +308,7 @@
           <input id="txUserId" class="form-input form-input--sm" placeholder="User ID" />
           <input id="txType" class="form-input form-input--sm" placeholder="type" />
           <button class="btn btn-outline" id="btnTransactions">تحميل المعاملات</button>
+          <button class="btn btn-outline" id="btnTransactionsExport">تصدير CSV</button>
         </div>
         <div class="table-wrap" style="margin-top:10px"><table id="transactionsTable"><thead><tr><th>ID</th><th>المستخدم</th><th>النوع</th><th>الحالة</th><th>Coins</th><th>تاريخ</th></tr></thead><tbody></tbody></table></div>
       </div>
@@ -314,7 +317,9 @@
         <div class="form-card-title">طلبات الشحن + التقارير</div>
         <div class="form-row">
           <button class="btn btn-outline" id="btnTopups">تحميل طلبات الشحن</button>
+          <button class="btn btn-outline" id="btnTopupsExport">تصدير CSV</button>
           <button class="btn btn-outline" id="btnReports">تحميل التقارير</button>
+          <button class="btn btn-outline" id="btnReportsExport">تصدير CSV</button>
         </div>
         <div class="table-wrap" style="margin-top:10px"><table id="topupsTable"><thead><tr><th>ID</th><th>الوكالة</th><th>القيمة</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody></tbody></table></div>
         <div class="table-wrap" style="margin-top:10px"><table id="reportsTable"><thead><tr><th>ID</th><th>المبلغ</th><th>المشكو</th><th>السبب</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody></tbody></table></div>
@@ -326,6 +331,7 @@
           <button class="btn btn-outline" id="btnAnalytics">تحميل التحليلات</button>
           <select id="leaderboardType" class="form-select"><option value="coins">coins</option><option value="gifts">gifts</option><option value="rooms">rooms</option></select>
           <button class="btn btn-outline" id="btnLeaderboard">تحميل الليدربورد</button>
+          <button class="btn btn-outline" id="btnLeaderboardExport">تصدير CSV</button>
         </div>
         <pre id="analyticsBox" class="json-box"></pre>
         <div class="table-wrap" style="margin-top:10px"><table id="leaderboardTable"><thead><tr><th>#</th><th>الاسم</th><th>القيمة</th></tr></thead><tbody></tbody></table></div>
@@ -452,6 +458,17 @@
         تأكيد
       </button>
       <button class="btn btn-outline" onclick="closeCoinsModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-overlay hidden" id="confirmModal" onclick="closeConfirmModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header"><div><h3 class="modal-title" id="confirmTitle">تأكيد الإجراء</h3><p class="modal-sub" id="confirmText">هل أنت متأكد؟</p></div></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="confirmYesBtn">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeConfirmModal()">إلغاء</button>
     </div>
   </div>
 </div>
