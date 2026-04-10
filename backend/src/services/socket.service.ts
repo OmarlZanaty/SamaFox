@@ -52,6 +52,10 @@ function getAdmins(roomId: number): Set<number> {
   return roomAdmins.get(roomId)!;
 }
 
+function parseLockFlag(locked: any): boolean {
+  return locked === true || locked?.toString() === 'true';
+}
+
 async function populateAdmins(roomId: number) {
   const admins = new Set<number>();
 
@@ -261,7 +265,7 @@ socket.on('send_dm', async ({ toUserId, text }: any) => {
 });
 
 
-socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
+const handleMicSeatLock = async (roomId: any, seatNumber: any, locked: any) => {
   const rid = toInt(roomId);
   const sn = toInt(seatNumber);
   const uid = socket.userId;
@@ -269,7 +273,7 @@ socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
 
   await populateAdmins(rid);
   const admins = getAdmins(rid);
-  if (!admins.has(uid)) return; // ✅ only admin/owner
+  if (!admins.has(uid)) return; // only admin/owner
 
   const room = await prisma.room.findUnique({
     where: { id: rid },
@@ -279,20 +283,39 @@ socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
   if (sn < 1 || sn > maxSeats) return;
 
   const set = getLockedSeats(rid);
-  const willLock = locked === true || locked?.toString() === 'true';
+  const willLock = parseLockFlag(locked);
 
   if (willLock) set.add(sn);
   else set.delete(sn);
 
-  // ✅ broadcast to everyone
-  io.to(`room:${rid}`).emit('seat_lock', {
+  const payload = {
     roomId: rid,
     seatNumber: sn,
     locked: willLock,
-  });
+  };
 
-  // ✅ strong sync: snapshot refresh
+  // keep backward compatibility + provide explicit app listener event
+  io.to(`room:${rid}`).emit('seat_lock', payload);
+  io.to(`room:${rid}`).emit('mic_seat_lock_changed', payload);
+
+  // strong sync
   await emitRoomState(io, rid);
+};
+
+socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
+  await handleMicSeatLock(roomId, seatNumber, locked);
+});
+
+socket.on('lock_mic_seat', async ({ roomId, seatNumber }: any) => {
+  await handleMicSeatLock(roomId, seatNumber, true);
+});
+
+socket.on('unlock_mic_seat', async ({ roomId, seatNumber }: any) => {
+  await handleMicSeatLock(roomId, seatNumber, false);
+});
+
+socket.on('toggle_mic_seat_lock', async ({ roomId, seatNumber, locked }: any) => {
+  await handleMicSeatLock(roomId, seatNumber, locked);
 });
 
 socket.on('take_seat', async ({ roomId, seatNumber }: any) => {
@@ -427,6 +450,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
 
   // send FULL snapshot to requester (and also refresh room to be safe)
   await emitRoomState(io, rid);
+  socket.emit('mic_queue_updated', { roomId: rid, queue: getQueue(rid) });
 });
 
     // ----------------------------
@@ -437,14 +461,13 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       const rid = toInt(roomId);
       if (!uid || !rid) return;
 
-      const locked = getLockedSeats(rid);
-
       socket.join(`room:${rid}`);
       await populateAdmins(rid);
 
       const admins = getAdmins(rid);
       const seatsMap = getSeats(rid);
       const mutedMap = getMuted(rid);
+      const lockedSeats = getLockedSeats(rid);
       const queue = getQueue(rid);
 
       console.log('[join_room]', {
@@ -476,7 +499,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
           const maxSeats = room?.maxSeats ?? 8;
 
           for (let i = 1; i <= maxSeats; i++) {
-            if (!seatsMap.has(i)) {
+            if (!seatsMap.has(i) && !lockedSeats.has(i)) {
               seatNum = i;
               break;
             }
@@ -525,59 +548,8 @@ await emitRoomState(io, rid);
         }
       }
 
-      // Seat snapshot
-      const seatDetails = await Promise.all(
-        [...seatsMap.entries()].map(async ([num, occupant]) => {
-          const u = await prisma.user.findUnique({
-            where: { id: occupant },
-            select: {
-  id: true,
-  name: true,
-  avatarUrl: true,        // 🔥 ADD THIS
-  avatarFrameUrl: true,
-  level: true,
-}
-          });
-          const avatarFrameUrl = u?.avatarFrameUrl ?? null;
-
-return {
-  seatNumber: num,
-  userId: occupant,
-  username: u?.name ?? null,
-  avatarUrl: u?.avatarUrl ?? null,
-  avatarFrameUrl, // ✅ ADD
-  level: u?.level ?? 1,
-  isMuted: mutedMap.get(occupant) ?? true,
-  isLocked: locked.has(num),
-};
-
-        })
-      );
-
-      const room = await prisma.room.findUnique({
-        where: { id: rid },
-        select: { ownerId: true, maxSeats: true },
-      });
-
-      const adminList = Array.from(admins);
-
-      socket.emit('room_seats_state', {
-        roomId: rid,
-        ownerId: room?.ownerId ?? 0,
-        admins: adminList,
-        adminIds: adminList,
-        maxSeats: room?.maxSeats ?? 8,
-        seats: seatDetails,
-        lockedSeats: Array.from(locked.values()),
-
-      });
-
-      console.log('[room_seats_state emit]', {
-        rid,
-        ownerId: room?.ownerId,
-        admins: adminList,
-        maxSeats: room?.maxSeats,
-      });
+      // full snapshot for all seats (occupied + empty + lock state)
+      await emitRoomState(io, rid);
 
       io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue });
     });
@@ -855,7 +827,7 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
     // ----------------------------
     // Seat controls
     // ----------------------------
-    socket.on('leave_seat', ({ roomId, seatNumber }: any) => {
+    socket.on('leave_seat', async ({ roomId, seatNumber }: any) => {
       const rid = toInt(roomId);
       const seatNum = toInt(seatNumber);
       const uid = socket.userId;
@@ -875,6 +847,7 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
 
         getVoiceSet(rid).delete(uid);
 emitVoiceUsers(io, rid);
+        await emitRoomState(io, rid);
 
       }
     });
@@ -909,12 +882,13 @@ emitVoiceUsers(io, rid);
   isMuted: !!isMuted,
 });
 
-      if (!!isMuted) {
+if (!!isMuted) {
   getVoiceSet(rid).delete(uid);
 } else {
   getVoiceSet(rid).add(uid);
 }
 emitVoiceUsers(io, rid);
+await emitRoomState(io, rid);
 
     });
 
