@@ -26,6 +26,7 @@ const sectionTitles = {
   users:     "المستخدمين",
   rooms:     "الغرف",
   agencies:  "وكالات الشحن",
+  advanced:  "ميزات الأدمن",
   store:     "إدارة المتجر",
   settings:  "الإعدادات",
 };
@@ -210,7 +211,8 @@ async function loadOverview() {
 async function loadUsers() {
   const page  = Number(document.getElementById("usersPage").value  || 1);
   const limit = Number(document.getElementById("usersLimit").value || 30);
-  const q     = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}`;
+  const search = (document.getElementById("usersSearch")?.value || "").trim();
+  const q     = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}&search=${encodeURIComponent(search)}`;
 
   const d     = await apiFetch("/admin-dashboard/users" + q);
   const tbody = document.querySelector("#usersTable tbody");
@@ -229,9 +231,8 @@ async function loadUsers() {
       <td><span class="cell-muted">${fmtDate(u.createdAt)}</span></td>
       <td>
         <div class="td-actions">
-          <button class="btn-ok" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}')">
-            + كوينز
-          </button>
+          <button class="btn-ok" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}')">+ كوينز</button>
+          <button class="btn-bad" onclick="toggleUserBan(${u.id}, ${u.isBanned ? "false" : "true"})">${u.isBanned ? "فك حظر" : "حظر"}</button>
         </div>
       </td>
     `;
@@ -264,6 +265,7 @@ async function loadRooms() {
       <td>${ownerName} <span class="cell-muted">#${r.owner?.id ?? ""}</span></td>
       <td>${cover}</td>
       <td><span class="cell-muted">${fmtDate(r.createdAt)}</span></td>
+      <td><button class="btn-bad" onclick="forceCloseRoom(${r.id})">إغلاق</button></td>
     `;
     tbody.appendChild(tr);
   }
@@ -317,10 +319,89 @@ async function setAgencyStatus(id, status) {
     showToast(`✓ تم تحديث الوكالة #${id} → ${statusText(status)}`);
     await loadOverview();
     await loadAgencies();
+  if (document.getElementById("section-advanced")) await loadAdvanced();
   } catch (e) {
     showToast("خطأ: " + e.message);
   }
 }
+
+window.toggleUserBan = async function(userId, shouldBan) {
+  const reason = shouldBan ? (prompt("سبب الحظر") || "Admin action") : null;
+  if (shouldBan && !reason) return showToast("سبب الحظر مطلوب");
+  await apiFetch(`/admin-dashboard/users/${userId}/ban`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isBanned: !!shouldBan, reason }),
+  });
+  showToast("✓ تم تحديث حالة الحظر");
+  await loadUsers();
+};
+
+window.forceCloseRoom = async function(roomId) {
+  const reason = prompt("سبب إغلاق الغرفة") || "Admin force close";
+  await apiFetch(`/admin-dashboard/rooms/${roomId}/force-close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  showToast("✓ تم إغلاق الغرفة");
+  await loadRooms();
+};
+
+async function loadTransactions() {
+  const userId = (document.getElementById("txUserId")?.value || "").trim();
+  const type = (document.getElementById("txType")?.value || "").trim();
+  const q = `?page=1&limit=30${userId ? `&userId=${encodeURIComponent(userId)}` : ""}${type ? `&type=${encodeURIComponent(type)}` : ""}`;
+  const d = await apiFetch('/admin-dashboard/transactions' + q);
+  const tb = document.querySelector('#transactionsTable tbody'); tb.innerHTML = '';
+  (d.data || []).forEach((x) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${escapeHtml(x.user?.name || x.userId)}</td><td>${escapeHtml(x.type || '')}</td><td>${escapeHtml(x.status || '')}</td><td>${escapeHtml(x.amountCoins || '')}</td><td>${fmtDate(x.createdAt)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function loadTopups() {
+  const d = await apiFetch('/admin-dashboard/topup-requests?status=pending');
+  const tb = document.querySelector('#topupsTable tbody'); tb.innerHTML = '';
+  (d.data || []).forEach((x) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${escapeHtml(x.agency?.agencyName || '')}</td><td>${x.amount}</td><td>${escapeHtml(x.status)}</td><td><button class="btn-ok" onclick="reviewTopup(${x.id},'approved')">قبول</button> <button class="btn-bad" onclick="reviewTopup(${x.id},'rejected')">رفض</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+window.reviewTopup = async (id, status) => { await apiFetch(`/admin-dashboard/topup-requests/${id}/review`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status}) }); showToast('✓ تم مراجعة الطلب'); await loadTopups(); };
+
+async function loadReports() {
+  const d = await apiFetch('/admin-dashboard/reports?status=pending');
+  const tb = document.querySelector('#reportsTable tbody'); tb.innerHTML = '';
+  (d.data || []).forEach((x) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${escapeHtml(x.reporter?.name || '')}</td><td>${escapeHtml(x.reportedUser?.name || '')}</td><td>${escapeHtml(x.reason || '')}</td><td>${escapeHtml(x.status || '')}</td><td><button class="btn-ok" onclick="reviewReport(${x.id},'resolved')">حل</button> <button class="btn-bad" onclick="reviewReport(${x.id},'dismissed')">رفض</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+window.reviewReport = async (id, status) => { await apiFetch(`/admin-dashboard/reports/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status}) }); showToast('✓ تم تحديث التقرير'); await loadReports(); };
+
+async function loadAnalytics() { const d = await apiFetch('/admin-dashboard/analytics'); document.getElementById('analyticsBox').textContent = JSON.stringify(d.data || d, null, 2); }
+async function sendBroadcast() { const title=document.getElementById('broadcastTitle').value.trim(); const message=document.getElementById('broadcastMessage').value.trim(); await apiFetch('/admin-dashboard/broadcast',{method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({title,message})}); showToast('✓ تم إرسال البث'); }
+
+async function loadQuests() {
+  const d = await apiFetch('/admin-dashboard/quests');
+  const tb = document.querySelector('#questsTable tbody'); tb.innerHTML = '';
+  (d.data || []).forEach((q)=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${q.id}</td><td>${escapeHtml(q.name)}</td><td>${escapeHtml(q.metric)}</td><td>${q.target}</td><td>${q.rewardCoins}</td><td><button class='btn-bad' onclick="deleteQuest('${q.id}')">حذف</button></td>`; tb.appendChild(tr); });
+}
+window.deleteQuest = async (id) => { await apiFetch(`/admin-dashboard/quests/${id}`,{method:'DELETE'}); showToast('✓ تم حذف المهمة'); await loadQuests(); };
+async function createQuest() { await apiFetch('/admin-dashboard/quests',{method:'POST',headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:document.getElementById('qName').value, description:document.getElementById('qName').value, metric:document.getElementById('qMetric').value, target:Number(document.getElementById('qTarget').value||0), rewardCoins:Number(document.getElementById('qReward').value||0) })}); showToast('✓ تم إضافة المهمة'); await loadQuests(); }
+
+async function loadLeaderboard() {
+  const type = document.getElementById('leaderboardType').value;
+  const d = await apiFetch(`/admin-dashboard/leaderboard?type=${encodeURIComponent(type)}`);
+  const tb = document.querySelector('#leaderboardTable tbody'); tb.innerHTML='';
+  (d.data || []).forEach((x, i)=>{ const value = x.coinsBalance ?? x.coinsSpent ?? x.xp ?? x.total ?? ''; const name = x.name || x.user?.name || x.owner?.name || `#${x.id || x.senderId || ''}`; const tr=document.createElement('tr'); tr.innerHTML=`<td>${i+1}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(value)}</td>`; tb.appendChild(tr); });
+}
+
+async function loadAdvanced() { await Promise.all([loadTransactions(), loadTopups(), loadReports(), loadAnalytics(), loadQuests(), loadLeaderboard()]); }
 
 // --- PRODUCTS ---
 window.loadProducts = async function () {
@@ -542,6 +623,16 @@ document.getElementById("btnAgencies").addEventListener("click", async () => {
   try { await loadAgencies(); showToast("✓ تم تحميل الوكالات"); }     catch (e) { showToast("خطأ: " + e.message); }
 });
 
+document.getElementById("btnTransactions")?.addEventListener("click", () => loadTransactions().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnTopups")?.addEventListener("click", () => loadTopups().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnReports")?.addEventListener("click", () => loadReports().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnAnalytics")?.addEventListener("click", () => loadAnalytics().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnLeaderboard")?.addEventListener("click", () => loadLeaderboard().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnBroadcast")?.addEventListener("click", () => sendBroadcast().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnQuests")?.addEventListener("click", () => loadQuests().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnQuestCreate")?.addEventListener("click", () => createQuest().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnAdvancedRefresh")?.addEventListener("click", () => loadAdvanced().catch(e => showToast("خطأ: " + e.message)));
+
 // expose for inline agency buttons
 window.setAgencyStatus = setAgencyStatus;
 
@@ -553,6 +644,7 @@ async function loadAll() {
   await loadUsers();
   await loadRooms();
   await loadAgencies();
+  if (document.getElementById("section-advanced")) await loadAdvanced();
 }
 
 // ============================================================
