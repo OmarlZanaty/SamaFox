@@ -66,6 +66,15 @@ function showToast(msg, type = "default") {
   toastTimer = setTimeout(() => toast.classList.remove("show"), 2800);
 }
 
+
+function debounce(fn, wait = 500) {
+  let t = null;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+
 function getApiBase() {
   let base = apiEl.value.trim();
   if (base.endsWith("/")) base = base.slice(0, -1);
@@ -192,7 +201,8 @@ async function loadOverview() {
 async function loadUsers() {
   const page  = Number(document.getElementById("usersPage").value  || 1);
   const limit = Number(document.getElementById("usersLimit").value || 30);
-  const q     = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}`;
+  const search = document.getElementById("userSearch")?.value?.trim() || "";
+  const q     = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}${search ? `&search=${encodeURIComponent(search)}` : ""}`;
 
   const d     = await apiFetch("/admin-dashboard/users" + q);
   const tbody = document.querySelector("#usersTable tbody");
@@ -502,6 +512,8 @@ document.getElementById("btnLogout").addEventListener("click", async () => {
   }
 });
 
+document.getElementById("userSearch")?.addEventListener("input", debounce(() => loadUsers(), 500));
+
 document.getElementById("btnUsers").addEventListener("click", async () => {
   try { await loadUsers();    showToast("✓ تم تحميل المستخدمين"); } catch (e) { showToast("خطأ: " + e.message); }
 });
@@ -531,7 +543,7 @@ async function loadAll() {
 // BOOT
 // ============================================================
 (function init() {
-  const saved = localStorage.getItem(LS_API) || "http://54.254.79.239:3000/api/v1";
+  const saved = localStorage.getItem(LS_API) || `${window.location.origin}/api/v1`;
   apiEl.value = saved;
   const settingsInput = document.getElementById("apiBaseSettings");
   if (settingsInput) settingsInput.value = saved;

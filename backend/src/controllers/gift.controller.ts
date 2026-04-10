@@ -130,10 +130,10 @@ export const sendGift = async (req: Request, res: Response) => {
       const updated = await tx.user.updateMany({
         where: {
           id: senderId,
-          coinsBalance: { gte: totalCost },
+          coinsBalance: { gte: BigInt(totalCost) as any },
         },
         data: {
-          coinsBalance: { decrement: totalCost },
+          coinsBalance: { decrement: BigInt(totalCost) as any },
         },
       });
 
@@ -142,11 +142,11 @@ export const sendGift = async (req: Request, res: Response) => {
       }
 
       // Increment receiver only if receiver exists
-      let receiverNewBalance: number | null = null;
+      let receiverNewBalance: bigint | null = null;
       if (receiverNum != null) {
         const ur = await tx.user.update({
           where: { id: receiverNum },
-          data: { coinsBalance: { increment: receiverCoins } },
+          data: { coinsBalance: { increment: BigInt(receiverCoins) as any } },
           select: { coinsBalance: true },
         });
         receiverNewBalance = ur.coinsBalance;
@@ -198,7 +198,7 @@ export const sendGift = async (req: Request, res: Response) => {
 
       return {
         createdLog,
-        senderNewBalance: us?.coinsBalance ?? 0,
+        senderNewBalance: us?.coinsBalance ?? BigInt(0),
         receiverNewBalance,
       };
     });
@@ -226,10 +226,10 @@ export const sendGift = async (req: Request, res: Response) => {
   receiver: createdLog.receiver,
 
   senderId,
-  senderNewBalance: result.senderNewBalance,
+  senderNewBalance: result.senderNewBalance.toString(),
   receiverId: receiverNum ?? senderId,
   receiverCoins,
-  receiverNewBalance: result.receiverNewBalance,
+  receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
 
   createdAt: createdLog.createdAt,
 }
@@ -250,9 +250,9 @@ export const sendGift = async (req: Request, res: Response) => {
       },
       balances: {
         senderId,
-        senderNewBalance: result.senderNewBalance,
+        senderNewBalance: result.senderNewBalance.toString(),
         receiverId: receiverNum ?? senderId,
-        receiverNewBalance: result.receiverNewBalance,
+        receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
       },
     });
   } catch (error: any) {

@@ -151,9 +151,9 @@ export const myAgencyBalance = async (req: any, res: Response) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  if (!agency) return res.json({ balanceCoins: 0, status: 'none' });
+  if (!agency) return res.json({ balanceCoins: "0", status: 'none' });
 
-  return res.json(agency);
+  return res.json({ ...agency, balanceCoins: String((agency as any).balanceCoins) });
 };
 
 
@@ -230,8 +230,8 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
       | { ok: false; reason: 'insufficient_balance' }
       | {
           ok: true;
-          updatedAgency: { id: number; balanceCoins: number };
-          updatedUser: { id: number; coinsBalance: number };
+          updatedAgency: { id: number; balanceCoins: bigint };
+          updatedUser: { id: number; coinsBalance: bigint };
           transfer: { id: number };
         };
 
@@ -243,22 +243,22 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
 
       if (!agencyNow) throw new Error('agency_missing');
 
-      if (agencyNow.balanceCoins < amount) {
+      if (BigInt(agencyNow.balanceCoins as any) < BigInt(amount)) {
         return { ok: false as const, reason: 'insufficient_balance' as const };
       }
 
       const updatedAgency = await tx.chargingAgency.update({
         where: { id: agency.id },
         data: {
-          balanceCoins: { decrement: amount },
-          totalSentCoins: { increment: amount },
+          balanceCoins: { decrement: BigInt(amount) as any },
+          totalSentCoins: { increment: BigInt(amount) as any },
         },
         select: { id: true, balanceCoins: true },
       });
 
       const updatedUser = await tx.user.update({
         where: { id: toUserId },
-        data: { coinsBalance: { increment: amount } },
+        data: { coinsBalance: { increment: BigInt(amount) as any } },
         select: { id: true, coinsBalance: true },
       });
 
@@ -276,8 +276,8 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
 
     return res.json({
       message: 'Transfer successful',
-      agencyBalance: result.updatedAgency.balanceCoins,
-      userBalance: result.updatedUser.coinsBalance,
+      agencyBalance: result.updatedAgency.balanceCoins.toString(),
+      userBalance: result.updatedUser.coinsBalance.toString(),
       transferId: result.transfer.id,
     });
   } catch (e) {
@@ -381,7 +381,7 @@ export const adminListTopups = async (req: Request, res: Response) => {
       },
     });
 
-    return res.json(items);
+    return res.json(items.map((it: any) => ({ ...it, amount: String(it.amount), agency: it.agency ? { ...it.agency, balanceCoins: String(it.agency.balanceCoins) } : it.agency })));
   } catch (e) {
     console.error('adminListTopups error:', e);
     return res.status(500).json({ message: 'Server error' });
@@ -420,8 +420,8 @@ export const reviewTopupRequest = async (req: Request, res: Response) => {
         await tx.chargingAgency.update({
           where: { id: request.agencyId },
           data: {
-            balanceCoins: { increment: request.amount },
-            totalTopupCoins: { increment: request.amount },
+            balanceCoins: { increment: BigInt(request.amount as any) as any },
+            totalTopupCoins: { increment: BigInt(request.amount as any) as any },
           },
         });
       }
@@ -475,14 +475,14 @@ export const adminAdjustAgencyBalance = async (req: Request, res: Response) => {
       });
       if (!agency) throw new Error('agency_not_found');
 
-      const newBal = agency.balanceCoins + delta;
-      if (newBal < 0) return { ok: false as const };
+      const newBal = BigInt(agency.balanceCoins as any) + BigInt(delta);
+      if (newBal < BigInt(0)) return { ok: false as const };
 
       const updated = await tx.chargingAgency.update({
         where: { id: agencyId },
         data: {
-          balanceCoins: delta > 0 ? { increment: delta } : { decrement: Math.abs(delta) },
-          totalTopupCoins: delta > 0 ? { increment: delta } : undefined,
+          balanceCoins: delta > 0 ? { increment: BigInt(delta) as any } : { decrement: BigInt(Math.abs(delta)) as any },
+          totalTopupCoins: delta > 0 ? { increment: BigInt(delta) as any } : undefined,
         },
         select: { id: true, balanceCoins: true, status: true },
       });
@@ -492,7 +492,7 @@ export const adminAdjustAgencyBalance = async (req: Request, res: Response) => {
 
     if (result.ok === false) return res.status(409).json({ message: 'Balance cannot go negative' });
 
-    return res.json({ message: 'Agency balance updated', agency: result.updated });
+    return res.json({ message: 'Agency balance updated', agency: { ...result.updated, balanceCoins: String((result.updated as any).balanceCoins) } });
   } catch (e) {
     console.error('adminAdjustAgencyBalance error:', e);
     return res.status(500).json({ message: 'Server error' });

@@ -29,8 +29,11 @@ interface GoogleLoginRequest {
   idToken: string;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
+if (!JWT_SECRET) throw new Error('JWT_SECRET env variable is required');
+if (!JWT_REFRESH_SECRET) throw new Error('JWT_REFRESH_SECRET env variable is required');
 
 const generateTokens = (userId: number) => {
   const accessToken = jwt.sign({ userId } satisfies JwtPayload, JWT_SECRET, { expiresIn: '24h' });
@@ -109,6 +112,10 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
+    if ((user as any).isBanned) {
+      return res.status(403).json({ success: false, message: `Account banned: ${(user as any).banReason ?? ''}`.trim() });
+    }
+
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ success: false, message: 'Invalid email or password' });
 
@@ -175,6 +182,10 @@ export const googleLogin = async (req: Request, res: Response) => {
       });
     }
 
+    if ((user as any).isBanned) {
+      return res.status(403).json({ success: false, message: `Account banned: ${(user as any).banReason ?? ''}`.trim() });
+    }
+
     const { accessToken, refreshToken } = generateTokens(user.id);
 
     return res.status(200).json({
@@ -202,6 +213,7 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (!user) return res.status(401).json({ success: false, message: 'User not found' });
+    if ((user as any).isBanned) return res.status(403).json({ success: false, message: `Account banned: ${(user as any).banReason ?? ''}`.trim() });
 
     const { accessToken, refreshToken: newRefresh } = generateTokens(user.id);
 

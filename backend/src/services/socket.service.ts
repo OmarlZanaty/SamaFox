@@ -951,16 +951,16 @@ emitVoiceUsers(io, rid);
     const result = await prisma.$transaction(async (tx) => {
       // ✅ race-safe sender decrement
       const updated = await tx.user.updateMany({
-        where: { id: senderId, coinsBalance: { gte: totalCost } },
-        data: { coinsBalance: { decrement: totalCost } },
+        where: { id: senderId, coinsBalance: { gte: BigInt(totalCost) as any } },
+        data: { coinsBalance: { decrement: BigInt(totalCost) as any } },
       });
       if (updated.count === 0) throw new Error('INSUFFICIENT_COINS');
 
-      let receiverNewBalance: number | null = null;
+      let receiverNewBalance: bigint | null = null;
       if (recvId != null) {
         const ur = await tx.user.update({
           where: { id: recvId },
-          data: { coinsBalance: { increment: receiverCoins } },
+          data: { coinsBalance: { increment: BigInt(receiverCoins) as any } },
           select: { coinsBalance: true },
         });
         receiverNewBalance = ur.coinsBalance;
@@ -1002,7 +1002,7 @@ emitVoiceUsers(io, rid);
 
       return {
         createdLog,
-        senderNewBalance: senderNew?.coinsBalance ?? 0,
+        senderNewBalance: senderNew?.coinsBalance ?? BigInt(0),
         receiverNewBalance,
       };
     });
@@ -1025,6 +1025,8 @@ emitVoiceUsers(io, rid);
     receiver: createdLog.receiver,
     senderId,
     receiverId: recvId ?? senderId,
+    senderNewBalance: result.senderNewBalance.toString(),
+    receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
     createdAt: createdLog.createdAt.toISOString()
   }
 };

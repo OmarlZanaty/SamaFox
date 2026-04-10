@@ -1,31 +1,18 @@
 import { Router } from "express";
 import multer from "multer";
 import { createProduct } from "../controllers/adminProduct.controller";
+import { authMiddleware } from '../middlewares/auth.middleware';
+import { adminMiddleware } from '../middlewares/admin.middleware';
 
 const router = Router();
 
-// ✅ IMPORTANT: use diskStorage (not dest)
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    const unique = Date.now() + "-" + file.originalname;
-    cb(null, unique);
-  },
+  destination: (_req, _file, cb) => cb(null, "uploads/"),
+  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 
 const upload = multer({ storage });
 
-// ✅ VERY IMPORTANT: multer MUST be first
-router.post(
-  "/products",
-  upload.single("file"), // 👈 MUST MATCH formData.append("file")
-  (req, res, next) => {
-    console.log("🔥 MULTER HIT");
-    next();
-  },
-  createProduct
-);
+router.post('/products', authMiddleware, adminMiddleware, upload.single('file'), createProduct);
 
 export default router;
