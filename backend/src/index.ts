@@ -56,6 +56,10 @@ app.use(passport.initialize());
 app.use('/public', express.static(path.join(process.cwd(), 'public')));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
+
+app.use(express.static(path.join(process.cwd(), 'public')));
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 // ✅ dashboard auth first (sets cookie)
 app.use('/api/v1/admin-dashboard-auth', adminDashAuthRoutes);
 
