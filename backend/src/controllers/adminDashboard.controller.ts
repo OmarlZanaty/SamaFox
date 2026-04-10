@@ -1,6 +1,7 @@
 import prisma from '../utils/prisma';
 import { Request, Response } from 'express';
 import { firstStr } from '../utils/http';
+import { MAX_COINS_BALANCE } from '../utils/coins';
 
 type AdminReq = Request;
 
@@ -81,6 +82,10 @@ export const adminDashboardListUsers = async (req: AdminReq, res: Response) => {
   try {
     await requireAdminDashboard(req);
 
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET coinsBalance = ${MAX_COINS_BALANCE} WHERE coinsBalance > ${MAX_COINS_BALANCE}`
+    );
+
     const page  = parseIntOr(req.query.page, 1);
     const limit = parseIntOr(req.query.limit, 30);
     const skip  = (page - 1) * limit;
@@ -88,6 +93,16 @@ export const adminDashboardListUsers = async (req: AdminReq, res: Response) => {
     const [total, users] = await Promise.all([
       prisma.user.count(),
       prisma.user.findMany({
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatarUrl: true,
+          isAdmin: true,
+          createdAt: true,
+          updatedAt: true
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit

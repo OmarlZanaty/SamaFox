@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { MAX_COINS_BALANCE } from '../utils/coins';
 
 // Helper: get authed userId
 function getUserId(req: Request): number | null {
@@ -247,6 +248,15 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
         return { ok: false as const, reason: 'insufficient_balance' as const };
       }
 
+      const receiverNow = await tx.user.findUnique({
+        where: { id: toUserId },
+        select: { coinsBalance: true },
+      });
+      if (!receiverNow) throw new Error('receiver_missing');
+      if (receiverNow.coinsBalance + amount > MAX_COINS_BALANCE) {
+        throw new Error('coins_overflow');
+      }
+
       const updatedAgency = await tx.chargingAgency.update({
         where: { id: agency.id },
         data: {
@@ -281,6 +291,9 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
       transferId: result.transfer.id,
     });
   } catch (e) {
+    if ((e as Error)?.message === 'coins_overflow') {
+      return res.status(400).json({ message: `Max coins limit is ${MAX_COINS_BALANCE}` });
+    }
     console.error('agencyTransferCoins error:', e);
     return res.status(500).json({ message: 'Server error' });
   }
