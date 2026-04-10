@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
+import { getPublicBaseUrl } from "../utils/public-url";
 
 export const createProduct = async (req: Request, res: Response) => {
   try {
@@ -39,7 +40,7 @@ export const createProduct = async (req: Request, res: Response) => {
     }
 
     // ✅ STEP 6: build file URL
-    const assetUrl = `http://54.254.79.239:3000/uploads/${file.filename}`;
+    const assetUrl = `${getPublicBaseUrl(req)}/uploads/${file.filename}`;
 
     // ✅ STEP 7: map type to DB enum
     const mappedType =
