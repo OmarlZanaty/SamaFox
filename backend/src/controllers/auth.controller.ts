@@ -112,8 +112,13 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    if (user.isBanned) {
-      return res.status(403).json({ success: false, message: user.banReason || 'User is banned' });
+    // Keep raw query for ban fields to remain compatible with stale generated Prisma client types.
+    const bannedRows = await prisma.$queryRaw<Array<{ isBanned: number; banReason: string | null }>>`
+      SELECT isBanned, banReason FROM users WHERE id = ${user.id} LIMIT 1
+    `;
+    const banned = bannedRows[0];
+    if (banned && Number(banned.isBanned) === 1) {
+      return res.status(403).json({ success: false, message: banned.banReason || 'User is banned' });
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);

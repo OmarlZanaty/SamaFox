@@ -104,6 +104,7 @@ export const adminDashboardBanUser = async (req: Request, res: Response) => {
 
     const bannedAt = isBanned ? new Date().toISOString() : null;
 
+    // NOTE: Prisma client in production may lag behind schema generation; use SQL to avoid TS type breakage.
     await prisma.$executeRawUnsafe(
       'UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?',
       isBanned ? 1 : 0,
