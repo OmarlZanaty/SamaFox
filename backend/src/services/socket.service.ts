@@ -156,6 +156,44 @@ async function emitVoiceUsers(io: Server, rid: number) {
   io.to(`room:${rid}`).emit('voice_users', { roomId: rid, users });
 }
 
+function emitSeatOccupied(
+  io: Server,
+  rid: number,
+  payload: {
+    seatNumber: number;
+    userId: number;
+    username: string | null;
+    avatarUrl: string | null;
+    avatarFrameUrl: string | null;
+    level: number;
+    isMuted: boolean;
+  }
+) {
+  const data = { roomId: rid, ...payload };
+  io.to(`room:${rid}`).emit('seat_occupied', data);
+  // Flutter listener compatibility: canonical seat delta event
+  io.to(`room:${rid}`).emit('seat_updated', data);
+  io.to(`room:${rid}`).emit('mic_state_changed', {
+    roomId: rid,
+    seatNumber: payload.seatNumber,
+    userId: payload.userId,
+    isMuted: payload.isMuted,
+  });
+}
+
+function emitSeatReleased(io: Server, rid: number, seatNumber: number, userId: number) {
+  const data = { roomId: rid, seatNumber, userId };
+  io.to(`room:${rid}`).emit('seat_released', data);
+  // Flutter listener compatibility: canonical seat delta event
+  io.to(`room:${rid}`).emit('seat_updated', { ...data, released: true });
+}
+
+function emitSeatMuteChanged(io: Server, rid: number, seatNumber: number, userId: number, isMuted: boolean) {
+  const data = { roomId: rid, seatNumber, userId, isMuted };
+  io.to(`room:${rid}`).emit('seat_mute_changed', data);
+  io.to(`room:${rid}`).emit('mic_state_changed', data);
+}
+
 export const initializeSocketHandlers = (io: Server) => {
   io.use((socket: AuthenticatedSocket, next) => {
   try {
@@ -371,12 +409,12 @@ socket.emit('seat_error', {
 });
 
   // ✅ broadcast to everyone (this is what other devices need)
-  io.to(`room:${rid}`).emit('seat_occupied', {
+  emitSeatOccupied(io, rid, {
     seatNumber: sn,
     userId: uid,
     username: u?.name ?? null,
     avatarUrl: u?.avatarUrl ?? null,
-    avatarFrameUrl, // ✅ ADD THIS
+    avatarFrameUrl,
     level: u?.level ?? 1,
     isMuted: true,
   });
@@ -500,12 +538,12 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
             const avatarFrameUrl = user?.avatarFrameUrl ?? null;
           console.log('[auto-seat assigned]', { uid, rid, seatNum });
 
-          io.to(`room:${rid}`).emit('seat_occupied', {
+          emitSeatOccupied(io, rid, {
   seatNumber: seatNum,
   userId: uid,
   username: user?.name ?? null,
   avatarUrl: user?.avatarUrl ?? null,
-  avatarFrameUrl, // ✅ ADD
+  avatarFrameUrl,
   level: user?.level ?? 1,
   isMuted: false,
 });
@@ -604,7 +642,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
       seats.delete(num);
       getMuted(rid).delete(uid);
 
-      io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
+      emitSeatReleased(io, rid, num, uid);
 
       getVoiceSet(rid).delete(uid);
       emitVoiceUsers(io, rid);
@@ -759,12 +797,12 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   const avatarFrameUrl = u?.avatarFrameUrl ?? null;
 
-  io.to(`room:${rid}`).emit('seat_occupied', {
+  emitSeatOccupied(io, rid, {
   seatNumber: seatNum,
   userId: targetId,
   username: u?.name ?? null,
   avatarUrl: u?.avatarUrl ?? null,
-  avatarFrameUrl, // ✅ ADD THIS
+  avatarFrameUrl,
   level: u?.level ?? 1,
   isMuted: false,
 });
@@ -818,13 +856,8 @@ socket.on('leave_room', async ({ roomId }: any) => {
 getMuted(rid).set(target, !!mute); // ✅ target = userId
 
 
-    io.to(`room:${rid}`).emit('seat_mute_changed', {
-      roomId: rid,
-      seatNumber: sn,
-      userId: target,
-      isMuted: !!mute,
-    });
-    emitRoomState(io, rid);
+    emitSeatMuteChanged(io, rid, sn, target, !!mute);
+    await emitRoomState(io, rid);
   });
 
 socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
@@ -843,19 +876,14 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
   seats.delete(sn);
   getMuted(rid).delete(target); // ✅ FIX
 
-  io.to(`room:${rid}`).emit('seat_released', {
-    roomId: rid,
-    seatNumber: sn,
-    userId: target,
-  });
-
-  emitRoomState(io, rid);
+  emitSeatReleased(io, rid, sn, target);
+  await emitRoomState(io, rid);
 });
 
     // ----------------------------
     // Seat controls
     // ----------------------------
-    socket.on('leave_seat', ({ roomId, seatNumber }: any) => {
+    socket.on('leave_seat', async ({ roomId, seatNumber }: any) => {
       const rid = toInt(roomId);
       const seatNum = toInt(seatNumber);
       const uid = socket.userId;
@@ -868,13 +896,11 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
 
         console.log('[leave_seat]', { uid, rid, seatNum });
 
-        io.to(`room:${rid}`).emit('seat_released', {
-          seatNumber: seatNum,
-          userId: uid,
-        });
+        emitSeatReleased(io, rid, seatNum, uid);
 
         getVoiceSet(rid).delete(uid);
-emitVoiceUsers(io, rid);
+        await emitVoiceUsers(io, rid);
+        await emitRoomState(io, rid);
 
       }
     });
@@ -899,12 +925,12 @@ emitVoiceUsers(io, rid);
 
       console.log('[toggle_mute]', { uid, rid, seatNum, isMuted: !!isMuted });
 
-      io.to(`room:${rid}`).emit('seat_occupied', {
+      emitSeatOccupied(io, rid, {
   seatNumber: seatNum,
   userId: uid,
   username: u?.name ?? null,
   avatarUrl: u?.avatarUrl ?? null,
-  avatarFrameUrl, // ✅ ADD
+  avatarFrameUrl,
   level: u?.level ?? 1,
   isMuted: !!isMuted,
 });
@@ -915,6 +941,7 @@ emitVoiceUsers(io, rid);
   getVoiceSet(rid).add(uid);
 }
 emitVoiceUsers(io, rid);
+      await emitRoomState(io, rid);
 
     });
 
@@ -1152,7 +1179,7 @@ socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
     if (occupant === uid) {
       seats.delete(num);
       roomMuted.get(rid)?.delete(uid);
-      io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
+      emitSeatReleased(io, rid, num, uid);
       changed = true;
     }
   }
