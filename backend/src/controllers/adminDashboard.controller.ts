@@ -1,6 +1,7 @@
 import prisma from '../utils/prisma';
 import { Request, Response } from 'express';
 import { firstStr } from '../utils/http';
+import { MAX_COINS_BALANCE } from '../utils/coins';
 
 type AdminReq = Request;
 
@@ -80,6 +81,10 @@ export const adminDashboardOverview = async (req: AdminReq, res: Response) => {
 export const adminDashboardListUsers = async (req: AdminReq, res: Response) => {
   try {
     await requireAdminDashboard(req);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE users SET coinsBalance = ${MAX_COINS_BALANCE} WHERE coinsBalance > ${MAX_COINS_BALANCE}`
+    );
 
     const page  = parseIntOr(req.query.page, 1);
     const limit = parseIntOr(req.query.limit, 30);

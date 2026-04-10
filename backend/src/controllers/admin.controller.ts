@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { intParam, firstStr } from '../utils/http';
+import { isValidPositiveAmount, MAX_COINS_BALANCE } from '../utils/coins';
 
 // Get all users (admin only)
 export const getAllUsers = async (req: Request, res: Response) => {
@@ -44,8 +45,18 @@ export const addCoins = async (req: Request, res: Response) => {
     if (!userIdNum) return res.status(400).json({ message: 'Invalid userId' });
 
     const amt = Number(req.body.amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
+    if (!isValidPositiveAmount(amt)) {
       return res.status(400).json({ message: 'Invalid amount' });
+    }
+
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userIdNum },
+      select: { coinsBalance: true }
+    });
+    if (!currentUser) return res.status(404).json({ message: 'User not found' });
+
+    if (currentUser.coinsBalance + amt > MAX_COINS_BALANCE) {
+      return res.status(400).json({ message: `Max coins limit is ${MAX_COINS_BALANCE}` });
     }
 
     const user = await prisma.user.update({
@@ -104,7 +115,7 @@ export const removeCoins = async (req: Request, res: Response) => {
     if (!userIdNum) return res.status(400).json({ message: 'Invalid userId' });
 
     const amt = Number(req.body.amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
+    if (!isValidPositiveAmount(amt)) {
       return res.status(400).json({ message: 'Invalid amount' });
     }
 
@@ -308,5 +319,4 @@ export const toggleAdminStatus = async (req: Request, res: Response) => {
     return res.status(500).json({ message: 'Failed to update admin status' });
   }
 };
-
 
