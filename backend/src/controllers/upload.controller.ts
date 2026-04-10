@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import prisma from '../utils/prisma';
+import { getPublicBaseUrl } from '../utils/public-url';
 import { firstStr } from '../utils/http';
 /**
  * Upload a general image (for rooms, gifts, etc.)
@@ -17,9 +18,8 @@ export const uploadImage = async (req: Request, res: Response) => {
     }
 
     const file = req.file;
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const imageUrl = `${protocol}://${host}/uploads/${file.filename}`;
+    const baseUrl = getPublicBaseUrl(req);
+    const imageUrl = `${baseUrl}/uploads/${file.filename}`;
 
     console.log(`✅ Image uploaded successfully: ${file.filename}`);
 
@@ -67,9 +67,8 @@ if (!userId) {
 
 
     const file = req.file;
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const avatarUrl = `${protocol}://${host}/uploads/${file.filename}`;
+    const baseUrl = getPublicBaseUrl(req);
+    const avatarUrl = `${baseUrl}/uploads/${file.filename}`;
 
     // Update user's avatar URL in database
     const updatedUser = await prisma.user.update({

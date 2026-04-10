@@ -27,6 +27,8 @@ import adminProductRoutes from "./routes/adminProduct.routes";
 
 const app: Application = express();
 
+app.set('trust proxy', true);
+
 // ✅ CORS FIRST (and allow credentials for cookies)
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
