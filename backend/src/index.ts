@@ -25,6 +25,7 @@ import adminDashAuthRoutes from './routes/admin-dashboard-auth.routes';
 import storeRoutes from "./routes/store.routes";
 import { initializeSocketHandlers } from './services/socket.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
+import { resolvePublicDir } from './utils/publicDir';
 
 const app: Application = express();
 
@@ -50,16 +51,7 @@ app.use("/uploads", express.static("uploads"));
 // passport (if you still use it elsewhere)
 app.use(passport.initialize());
 
-const staticPublicCandidates: string[] = [
-  path.join(process.cwd(), 'public'),
-  path.resolve(process.cwd(), '../public'),
-  path.resolve(__dirname, '../../public'),
-  path.resolve(__dirname, '../public')
-];
-
-const publicDir =
-  staticPublicCandidates.find((candidate) => fs.existsSync(candidate)) ??
-  path.join(process.cwd(), 'public');
+const publicDir = resolvePublicDir();
 
 console.log(`📁 Serving static public directory from: ${publicDir}`);
 
