@@ -112,6 +112,7 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
+    // Keep raw query for ban fields to remain compatible with stale generated Prisma client types.
     const bannedRows = await prisma.$queryRaw<Array<{ isBanned: number; banReason: string | null }>>`
       SELECT isBanned, banReason FROM users WHERE id = ${user.id} LIMIT 1
     `;

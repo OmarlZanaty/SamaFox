@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware';
+import { requireAdminDashboard } from '../middlewares/adminDashboard.middleware';
 import {
   adminDashboardAnalytics,
   adminDashboardBanUser,
@@ -24,6 +25,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
+router.use(requireAdminDashboard);
 
 router.get('/overview', adminDashboardOverview);
 router.get('/users', adminDashboardListUsers);
