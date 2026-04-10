@@ -993,7 +993,7 @@ if (recvId) {
     // ----------------------------
     // Voice presence (ONE SET ONLY)
     // ----------------------------
-    socket.on('user_joined_voice', ({ roomId, userId }: any) => {
+    socket.on('user_joined_voice', async ({ roomId, userId }: any) => {
       const rid = Number(roomId);
       const uid = Number(userId ?? socket.userId);
       if (!rid || !uid) return;
