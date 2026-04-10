@@ -25,6 +25,7 @@ import adminDashAuthRoutes from './routes/admin-dashboard-auth.routes';
 import storeRoutes from "./routes/store.routes";
 import { initializeSocketHandlers } from './services/socket.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
+import { resolvePublicDir } from './utils/publicDir';
 
 const app: Application = express();
 
@@ -41,37 +42,31 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use("/api/v1/store", storeRoutes);
+
 app.use('/api/v1/admin', adminRoutes);
-app.use(cookieParser());
-
-// 🔥 MOVE ROUTE BEFORE BODY PARSERS
+app.use("/api/v1/store", storeRoutes);
 app.use("/api/v1/admin-products", adminProductRoutes);
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 app.use("/uploads", express.static("uploads"));
 // passport (if you still use it elsewhere)
 app.use(passport.initialize());
 
-const staticPublicCandidates = [
-  path.join(process.cwd(), 'public'),
-  path.resolve(__dirname, '../../public'),
-  path.resolve(process.cwd(), '../public')
-];
+const publicDir = resolvePublicDir();
 
-const publicDir =
-  staticPublicCandidates.find((candidate) => fs.existsSync(candidate)) ??
-  staticPublicCandidates[0];
+console.log(`📁 Serving static public directory from: ${publicDir}`);
 
 // ✅ static
 app.use('/public', express.static(publicDir));
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
-
 app.use(express.static(publicDir));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+app.get('/public/admin-dashboard.html', (_req, res) => {
+  const dashboardFilePath = path.join(publicDir, 'admin-dashboard.html');
+  if (!fs.existsSync(dashboardFilePath)) {
+    return res.status(404).send('admin-dashboard.html not found');
+  }
+  return res.sendFile(dashboardFilePath);
+});
 
 // ✅ dashboard auth first (sets cookie)
 app.use('/api/v1/admin-dashboard-auth', adminDashAuthRoutes);
