@@ -20,6 +20,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   List<Map<String, dynamic>> _results = [];
   bool _isSearching = false;
   String? _errorMessage;
+  bool _searchRouteUnavailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onChanged);
+  }
 
   @override
   void initState() {
