@@ -51,6 +51,8 @@ class SocketService {
 
   final _seatEffectController = StreamController<Map>.broadcast();
   Stream<Map> get seatEffectStream => _seatEffectController.stream;
+  final _notificationController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get notificationStream => _notificationController.stream;
 
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<SocketMessage> get messageStream => _messageController.stream;
@@ -695,6 +697,32 @@ class SocketService {
       }
     });
 
+    _socket!.on('notification:new', (data) {
+      if (data is Map) {
+        _notificationController.add(Map<String, dynamic>.from(data));
+      }
+    });
+    _socket!.on('follow_request', (data) {
+      if (data is Map) {
+        _notificationController.add({
+          'type': 'follow_request',
+          'title': 'New follow request',
+          'body': '${(data['fromUser'] as Map?)?['name'] ?? 'Someone'} sent you a follow request',
+          'payload': data,
+        });
+      }
+    });
+    _socket!.on('follow_accepted', (data) {
+      if (data is Map) {
+        _notificationController.add({
+          'type': 'follow_accepted',
+          'title': 'Follow request accepted',
+          'body': '${(data['byUser'] as Map?)?['name'] ?? 'Someone'} accepted your follow request',
+          'payload': data,
+        });
+      }
+    });
+
     // Chat
     _socket!.on('new_message', (data) {
       try {
@@ -962,6 +990,7 @@ class SocketService {
     _typingController.close();
     _receiptController.close();
     _reactionController.close();
+    _notificationController.close();
 
     disconnect();
   }

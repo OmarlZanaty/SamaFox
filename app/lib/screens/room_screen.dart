@@ -1407,6 +1407,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     final seat = state.seats[seatNumber];
     if (seat == null) return;
 
+    final isMicTurningOn = seat.isMuted;
+    await AudioController.instance.setMicEnabled(isMicTurningOn);
     ref.read(roomControllerProvider(widget.roomId).notifier).toggleMute(
       seatNumber: seatNumber,
       isMuted: !seat.isMuted,
@@ -1833,11 +1835,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     });
 
     SocketService().on('gift_received', (data) {
-      if (!mounted || data is! Map) return;
+      if (!mounted) return;
       try {
-        final event = GiftEvent.fromJson(Map<String, dynamic>.from(data));
+        final map = Map.from(data as Map);
+        final event = GiftEvent.fromJson(Map<String, dynamic>.from(map));
         _showGiftBanner(context, event);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('gift_received parse error: $e');
+      }
     });
 
 
@@ -3202,9 +3207,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
                         if (_currentSeatNumber != null)
                           GestureDetector(
-                            onTap: () {
+                            onTap: () async {
                               final userId = ref.read(authStateProvider).user?.id;
                               if (userId == null) return;
+                              final isMicTurningOn = _currentSeatMuted;
+                              await AudioController.instance.setMicEnabled(isMicTurningOn);
 
                               ref.read(roomControllerProvider(widget.roomId).notifier).toggleMute(
                                 seatNumber: _currentSeatNumber!,
@@ -3339,188 +3346,42 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
   void _openGiftSheetToUser(BuildContext context, _Recipient r) {
     final auth = ref.read(authStateProvider);
-    final myId = auth.user?.id;
-    if (myId == null) {
+    if (auth.user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Login first')),
       );
       return;
     }
 
-    final giftRepo = GiftRepository();
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final users = state.onlineUsers.values.toList();
+    final User target = users.cast<User?>().firstWhere(
+          (u) => u?.id == r.id,
+          orElse: () => User(id: r.id, name: r.name, avatarUrl: r.avatarUrl),
+        )!;
 
     showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => DraggableScrollableSheet(
-          initialChildSize: 0.55,
-          maxChildSize: 0.85,
-          minChildSize: 0.35,
-          builder: (_, controller) {
-        final int selectedUserId = r.id;
-
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 12,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 46,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  Text(
-                    'Send a Gift to ${r.name}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ===== Gifts grid (same as your existing) =====
-                  FutureBuilder<Result<List<Gift>>>(
-                    future: _giftsFuture,
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return const Padding(
-                          padding: EdgeInsets.all(18),
-                          child: CircularProgressIndicator(),
-                        );
-                      }
-
-                      final result = snap.data;
-                      final gifts = (result != null && result.isSuccess)
-                          ? (result.data ?? const <Gift>[])
-                          : const <Gift>[];
-
-                      if (gifts.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(14),
-                          child: Text(
-                            'No gifts available',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                        );
-                      }
-
-                      return GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: gifts.length,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 4,
-                          childAspectRatio: 0.85,
-                          crossAxisSpacing: 6,
-                          mainAxisSpacing: 6,
-                        ),
-                        itemBuilder: (context, index) {
-                          final g = gifts[index];
-
-                          final raw = (g.imageUrl ?? '').trim();
-                          final isEmoji = raw.isNotEmpty &&
-                              !raw.toLowerCase().startsWith('http') &&
-                              !raw.contains('/') &&
-                              raw.runes.length <= 6;
-
-                          final displayImageUrl = (raw.isEmpty || isEmoji)
-                              ? raw
-                              : (raw.startsWith('http') ? raw : '${AppConfig.apiBaseUrl}$raw');
-
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () async {
-                              if (context.mounted) Navigator.of(context).pop();
-
-                              final now = DateTime.now();
-
-                              if (_lastGiftSent != null &&
-                                  now.difference(_lastGiftSent!) < const Duration(milliseconds: 400)) {
-                                return;
-                              }
-
-                              _lastGiftSent = now;
-
-                              ref.read(roomControllerProvider(widget.roomId).notifier).sendGift(
-                                receiverId: selectedUserId,
-                                giftId: g.id,
-                                quantity: 1,
-                                message: null,
-                              );
-
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Sending gift...')),
-                                );
-                              }
-                            },
-                            child: Column(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white10,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.white24),
-                                    ),
-                                    child: (displayImageUrl.isNotEmpty && !isEmoji)
-                                        ? Image.network(
-                                      displayImageUrl,
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.card_giftcard,
-                                        color: Colors.orange,
-                                        size: 28,
-                                      ),
-                                    )
-                                        : Center(
-                                      child: isEmoji
-                                          ? Text(displayImageUrl, style: const TextStyle(fontSize: 26))
-                                          : const Icon(Icons.card_giftcard, color: Colors.orange, size: 28),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  g.displayName,
-                                  style: const TextStyle(color: Colors.white, fontSize: 11),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  '${g.displayCoinsValue}',
-                                  style: const TextStyle(color: Colors.amber, fontSize: 10),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-        ));
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => GiftSelectionDialog(
+        roomId: widget.roomId,
+        targetUser: target,
+        currentUserCoins: auth.user?.coins ?? 0,
+        roomMembers: users.isNotEmpty ? users : [target],
+        onGiftSelected: (gift, user) {
+          final receiver = user ?? target;
+          ref.read(roomControllerProvider(widget.roomId).notifier).sendGift(
+                receiverId: receiver.id,
+                giftId: gift.id,
+                quantity: 1,
+                message: null,
+              );
+        },
+      ),
+    );
   }
+
 
   Future<void> _openDirectChat(_Recipient r) async {
     if (!mounted) return;

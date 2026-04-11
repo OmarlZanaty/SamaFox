@@ -69,7 +69,9 @@ class _RoomActivityPanelState
               controller: _scroll,
               itemCount: events.length,
               itemBuilder: (_, i) {
-                final e = events[i];
+                final e = events[events.length - 1 - i];
+                final hh = e.at.hour.toString().padLeft(2, '0');
+                final mm = e.at.minute.toString().padLeft(2, '0');
 
                 return Padding(
                   padding:
@@ -86,12 +88,24 @@ class _RoomActivityPanelState
                       const SizedBox(width: 8),
 
                       Expanded(
-                        child: Text(
-                          e.text,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              e.text,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              '$hh:$mm',
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -100,6 +114,17 @@ class _RoomActivityPanelState
               },
             ),
           ),
+          if (events.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 16),
+              child: Text(
+                'لا يوجد نشاط مباشر حالياً',
+                style: TextStyle(
+                  color: Colors.white38,
+                  fontSize: 12,
+                ),
+              ),
+            ),
         ],
       ),
     );
