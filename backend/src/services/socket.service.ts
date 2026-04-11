@@ -1052,6 +1052,7 @@ await emitRoomState(io, rid);
           where: { userId: recvId },
           include: { agency: { select: { id: true, type: true } } },
         });
+
         if (membership && (membership as any).agency?.type === 'HOSTING') {
           await prisma.chargingAgency.update({
             where: { id: membership.agencyId },
@@ -1060,7 +1061,7 @@ await emitRoomState(io, rid);
         }
       } catch (agencyErr) {
         console.error('Agency earnedCoins update error:', agencyErr);
-        // Non-fatal — don't let this break the gift transaction
+        // Non-fatal: do not break gift transaction flow
       }
     }
 
