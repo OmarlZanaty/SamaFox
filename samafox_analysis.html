@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SamaFox — Deep Codebase Analysis</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f0f11;color:#e2e0d8;font-size:14px;line-height:1.6}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:210px;background:#17161a;border-right:1px solid #2a2830;overflow-y:auto;padding:16px 0}
+.sidebar h2{font-size:11px;font-weight:600;color:#6b6880;padding:0 16px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em}
+.nav-item{display:block;padding:7px 16px;font-size:12px;color:#9490a8;cursor:pointer;border-left:3px solid transparent;transition:all .12s}
+.nav-item:hover{background:#1e1c24;color:#e2e0d8}
+.nav-item.on{background:#1a1830;color:#c4b5fd;border-left-color:#7c3aed}
+.sep{height:1px;background:#2a2830;margin:12px 16px}
+.main{margin-left:210px;padding:28px 32px;max-width:960px}
+.page{display:none}.page.on{display:block}
+h1{font-size:22px;font-weight:600;margin-bottom:6px}
+.subtitle{font-size:13px;color:#6b6880;margin-bottom:20px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:24px}
+.stat{background:#17161a;border:1px solid #2a2830;border-radius:8px;padding:12px 14px;text-align:center}
+.stat .n{font-size:24px;font-weight:600;margin-bottom:2px}
+.stat .l{font-size:11px;color:#6b6880}
+.n-red{color:#f87171}.n-amber{color:#fbbf24}.n-green{color:#4ade80}.n-blue{color:#60a5fa}.n-purple{color:#c4b5fd}
+.bug{border:1px solid #2a2830;border-radius:10px;margin-bottom:12px;overflow:hidden}
+.bug-head{padding:10px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .1s}
+.bug-head:hover{background:#1e1c24}
+.bug-body{padding:12px 16px;border-top:1px solid #2a2830;background:#17161a;display:none}
+.bug-body.open{display:block}
+.sev{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;flex-shrink:0}
+.s-crit{background:#7f1d1d;color:#fca5a5}.s-high{background:#78350f;color:#fcd34d}
+.s-med{background:#1e3a5f;color:#93c5fd}.s-low{background:#14532d;color:#86efac}
+.s-info{background:#1e1c30;color:#c4b5fd}
+.bug-title{font-size:13px;font-weight:500;flex:1}
+.file-tag{font-size:10px;background:#1e1c24;border:1px solid #3a3650;border-radius:4px;padding:2px 7px;color:#9490a8;font-family:monospace;margin-left:auto;flex-shrink:0}
+.code{background:#0d0c10;border:1px solid #2a2830;border-radius:6px;padding:10px 12px;font-size:11px;line-height:1.65;font-family:'Courier New',monospace;color:#c9c5d8;white-space:pre-wrap;word-break:break-word;margin:8px 0}
+.fix{background:#0a1a0f;border:1px solid #1a4030;border-radius:6px;padding:10px 12px;font-size:11px;font-family:'Courier New',monospace;color:#86efac;white-space:pre-wrap;word-break:break-word;margin:8px 0}
+.label{font-size:11px;color:#6b6880;margin:8px 0 3px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+p{font-size:13px;color:#b0adc0;margin:6px 0}
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:16px 0}
+.feat-card{background:#17161a;border:1px solid #2a2830;border-radius:8px;padding:12px}
+.feat-card .fc-title{font-size:13px;font-weight:500;margin-bottom:4px}
+.feat-card .fc-sub{font-size:11px;color:#6b6880;line-height:1.5}
+.tag{display:inline-block;font-size:10px;padding:1px 7px;border-radius:3px;font-weight:500;margin:2px 2px 0 0}
+.t-done{background:#14532d;color:#86efac}.t-bug{background:#7f1d1d;color:#fca5a5}
+.t-partial{background:#78350f;color:#fcd34d}.t-miss{background:#1e1c30;color:#c4b5fd}
+.arrow{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid #6b6880;transition:transform .2s;margin-left:auto;flex-shrink:0}
+.arrow.open{transform:rotate(180deg)}
+.rec-item{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #2a2830}
+.rec-item:last-child{border-bottom:none}
+.rec-num{width:24px;height:24px;border-radius:50%;background:#1a1830;color:#c4b5fd;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;margin-top:1px}
+.rec-title{font-size:13px;font-weight:500;margin-bottom:3px}
+.rec-sub{font-size:12px;color:#6b6880}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <h2>Analysis</h2>
+  <a class="nav-item on" onclick="nav('summary')">Summary</a>
+  <a class="nav-item" onclick="nav('f11status')">11 Features Status</a>
+  <div class="sep"></div>
+  <h2>Bugs Found</h2>
+  <a class="nav-item" onclick="nav('critical')">🔴 Critical Bugs (5)</a>
+  <a class="nav-item" onclick="nav('high')">🟡 High Bugs (8)</a>
+  <a class="nav-item" onclick="nav('medium')">🔵 Medium Bugs (7)</a>
+  <a class="nav-item" onclick="nav('low')">🟢 Low/Info (5)</a>
+  <div class="sep"></div>
+  <h2>Extra</h2>
+  <a class="nav-item" onclick="nav('conflicts')">Conflicts & Mismatches</a>
+  <a class="nav-item" onclick="nav('recs')">Recommendations</a>
+</div>
+
+<div class="main">
+
+<!-- SUMMARY -->
+<div id="summary" class="page on">
+  <h1>SamaFox — Deep Codebase Analysis</h1>
+  <p class="subtitle">Full Flutter + Backend audit against 11 planned features · April 2026</p>
+  <div class="stats">
+    <div class="stat"><div class="n n-red">5</div><div class="l">Critical bugs</div></div>
+    <div class="stat"><div class="n n-amber">8</div><div class="l">High bugs</div></div>
+    <div class="stat"><div class="n n-blue">7</div><div class="l">Medium bugs</div></div>
+    <div class="stat"><div class="n n-green">6</div><div class="l">Features complete</div></div>
+    <div class="stat"><div class="n n-purple">5</div><div class="l">Features partial</div></div>
+  </div>
+
+  <p>The codebase is well-structured and most of the 11 features were partially or fully implemented. However there are a cluster of runtime-breaking issues that must be fixed before production, plus several features that are partially wired but missing the Flutter-side socket listeners or UI integration.</p>
+
+  <div style="margin-top:20px;background:#17161a;border:1px solid #2a2830;border-radius:10px;padding:16px">
+    <div style="font-size:13px;font-weight:500;margin-bottom:10px">Priority fix order</div>
+    <div style="font-size:12px;color:#b0adc0;line-height:2">
+      1. Fix duplicate SocketService class (app won't compile)<br>
+      2. Fix coinsBalance INT→proper handling in socket (BigInt wrapping wrong)<br>
+      3. Fix search screen using old endpoint instead of /search<br>
+      4. Wire relation_request / relation_accepted socket events in Flutter<br>
+      5. Remove hardcoded gift_catalog.dart — room still uses it<br>
+      6. Fix agencyMember HOSTING filter (prisma nested where not supported in SQLite)<br>
+      7. Add rate limiting to gift sending<br>
+      8. Fix socket_service_impl.dart duplicate class definition
+    </div>
+  </div>
+</div>
+
+<!-- 11 FEATURES STATUS -->
+<div id="f11status" class="page">
+  <h1>11 Features — Implementation Status</h1>
+  <p class="subtitle">Full review of each feature across backend, Flutter, and socket layers</p>
+
+  <div class="feat-grid">
+    <div class="feat-card">
+      <div class="fc-title">F1 — Seat Frame</div>
+      <div class="fc-sub">Backend: store.routes has activate-frame, deactivate-frame, my-frames ✓<br>Socket: emits avatarFrameUrl in all seat events ✓<br>Flutter: FramedAvatar widget used in SeatCard ✓<br>Issue: itemType check uses "FRAME" but store seeded items may use "AVATAR_FRAME"</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-done">Socket ✓</span><span class="tag t-partial">Flutter ~</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F2 — Dynamic Arabic Gifts</div>
+      <div class="fc-sub">Backend: /gifts endpoint exists, admin CRUD in adminDashboard ✓<br>Flutter: GiftRepository has fetchGifts() ✓<br>CRITICAL BUG: room_screen.dart still imports gift_catalog.dart and uses hardcoded GiftCatalog for animation type detection</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-bug">Flutter has hardcoded fallback</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F3 — Global Gift Broadcast</div>
+      <div class="fc-sub">Backend: io.emit('global_gift_broadcast') on coinsValue >= MEGA_GIFT_THRESHOLD ✓<br>Flutter: main.dart listens to globalGiftBroadcastStream and shows MegaGiftOverlay ✓<br>Overlay implemented correctly ✓</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-done">Flutter ✓</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F4 — Gift Sender/Receiver Display</div>
+      <div class="fc-sub">Backend: gift_received event has full sender+receiver data ✓<br>Flutter: GiftNotificationBanner exists and uses senderName/receiverName ✓<br>Bug: room_screen subscribes to 'gift' event not 'gift_received' — banner may miss data</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-partial">Flutter event mismatch</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F5 — Agency System</div>
+      <div class="fc-sub">Backend: agency.controller.ts fully implemented ✓<br>Admin routes added ✓<br>Flutter: charging_agent_screen.dart fully built with both tabs ✓<br>Bug: AgencyMember findFirst with nested agency.type filter won't work in SQLite</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-done">Flutter ✓</span><span class="tag t-bug">SQLite nested where</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F6 — Search by Name + ID</div>
+      <div class="fc-sub">Backend: /search endpoint fully implemented ✓<br>CRITICAL: search_screen.dart uses GET /users/:id — it does NOT call /search and only searches by numeric ID, not name</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-bug">Flutter uses wrong endpoint</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F7 — IDs from 10000</div>
+      <div class="fc-sub">Backend: createUserWithDisplayId() in auth.controller ✓<br>UserIdSequence model in schema ✓<br>Admin endpoint for reassignment needs to be added to adminDashboard routes<br>Flutter: displayId shown in NotificationsScreen ✓</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-partial">Admin route missing</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F8 — Leave Seat</div>
+      <div class="fc-sub">Backend: leave_seat socket handler fully implemented ✓<br>Flutter: SocketService.leaveMySeat() exists ✓<br>Bug: room_screen.dart taps on seats go to profile dialog for ALL users including self — leave seat sheet not wired</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-partial">Flutter tap not conditional</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F9 — Mic-On Speaker</div>
+      <div class="fc-sub">Flutter: AudioController fully implemented with audio_session ✓<br>room_screen.dart imports audio_controller.dart ✓<br>Bug: mic toggle in room does NOT call AudioController.instance.setMicEnabled() — they are parallel, not integrated</div>
+      <div style="margin-top:6px"><span class="tag t-done">Service ✓</span><span class="tag t-bug">Not called in mic toggle</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F10 — Follow System</div>
+      <div class="fc-sub">Backend: follow.controller.ts fully implemented ✓<br>Flutter: FollowService, NotificationsScreen ✓<br>Bug: follow_request socket event in main.dart only debugPrints — no UI update, no badge on notifications tab</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-partial">Socket → UI not wired</span></div>
+    </div>
+    <div class="feat-card">
+      <div class="fc-title">F11 — Relation Ring</div>
+      <div class="fc-sub">Backend: relation.controller.ts fully implemented ✓<br>50/50 coin split in socket ✓<br>SeatCard shows relationPartner mini-avatar ✓<br>MISSING: Flutter has no socket listener for relation_request/relation_accepted. User never sees ring request notification.</div>
+      <div style="margin-top:6px"><span class="tag t-done">Backend ✓</span><span class="tag t-miss">Flutter socket listeners missing</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- CRITICAL BUGS -->
+<div id="critical" class="page">
+  <h1>Critical Bugs</h1>
+  <p class="subtitle">These will crash the app or cause silent data corruption in production</p>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-crit">CRITICAL</span>
+      <span class="bug-title">Duplicate SocketService class definition — compile error</span>
+      <span class="file-tag">socket_service.dart + socket_service_impl.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p><code>socket_service.dart</code> exports <code>socket_service_impl.dart</code> at the bottom, but <code>socket_service_impl.dart</code> defines a second standalone <code>class SocketService</code> with the same name. This is a duplicate class definition — Flutter will fail to compile or silently use the wrong one.</p>
+      <div class="label">What's happening</div>
+      <div class="code">// socket_service.dart line 1247: exports impl
+export 'socket_service_impl.dart';
+
+// socket_service_impl.dart line 7: defines same class again
+class SocketService {   // ← DUPLICATE — same name as socket_service.dart</div>
+      <div class="label">Fix</div>
+      <div class="fix">// Option A (recommended): delete socket_service_impl.dart entirely.
+// The full SocketService in socket_service.dart is the complete version.
+// Remove the export line at the bottom of socket_service.dart too.
+
+// Option B: rename impl class to SocketServiceImpl and never use it.
+// The primary socket_service.dart class is more complete.</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-crit">CRITICAL</span>
+      <span class="bug-title">Search screen calls /users/:id — ignores /search endpoint entirely</span>
+      <span class="file-tag">search_screen.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Feature 6 requires searching by name OR numeric ID. The backend /search endpoint handles both. But search_screen.dart only accepts a numeric input and calls <code>/users/:id</code>, meaning name search is completely broken.</p>
+      <div class="label">Current code (broken)</div>
+      <div class="code">final userId = int.tryParse(searchText);
+if (userId == null) {
+  setState(() { _errorMessage = 'معرف المستخدم يجب أن يكون رقماً'; });  // ← blocks name search
+  return;
+}
+final response = await DioClient.dio.get('/users/$userId');  // ← wrong endpoint</div>
+      <div class="label">Fix — replace _searchUserById() entirely</div>
+      <div class="fix">Future<void> _doSearch(String q) async {
+  setState(() { _isSearching = true; _errorMessage = null; _results = []; });
+  try {
+    final resp = await DioClient.dio.get('/search', queryParameters: {'q': q, 'type': 'all'});
+    final list = (resp.data['data'] as List? ?? [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    setState(() { _results = list; _isSearching = false; });
+  } catch (e) {
+    setState(() { _isSearching = false; _errorMessage = 'حدث خطأ أثناء البحث'; });
+  }
+}
+
+// Also: change TextField to accept text (not just numbers)
+// and show unified list of rooms + users from _results</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-crit">CRITICAL</span>
+      <span class="bug-title">Relation ring request never reaches Flutter — socket listener missing</span>
+      <span class="file-tag">main.dart / socket_service.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>The backend emits <code>relation_request</code> and <code>relation_accepted</code> via socket. Flutter has zero listeners for these events anywhere. Users will never see ring/relation notifications — the entire F11 notification flow is dead.</p>
+      <div class="label">Missing in main.dart initState</div>
+      <div class="fix">_socketService.on('relation_request', (data) {
+  final ctx = navigatorKey.currentContext;
+  if (ctx == null) return;
+  final from = (data is Map ? data['fromUser'] : null) as Map?;
+  final name = from?['name']?.toString() ?? 'مستخدم';
+  final relationId = (data is Map ? data['relationId'] : null);
+  // Show dialog / snackbar
+  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+    content: Text('$name يريد أن يكون في علاقة معك 💍'),
+    action: SnackBarAction(
+      label: 'عرض',
+      onPressed: () => Navigator.pushNamed(ctx, '/notifications'),
+    ),
+  ));
+  // Also invalidate notifications provider to show badge
+});
+
+_socketService.on('relation_accepted', (data) {
+  final ctx = navigatorKey.currentContext;
+  if (ctx == null) return;
+  final by = (data is Map ? data['byUser'] : null) as Map?;
+  final name = by?['name']?.toString() ?? 'مستخدم';
+  ScaffoldMessenger.of(ctx).showSnackBar(
+    SnackBar(content: Text('$name قبل طلب العلاقة 💍')),
+  );
+});
+
+_socketService.on('relation_ended', (_) {
+  // Invalidate relation state provider
+});</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-crit">CRITICAL</span>
+      <span class="bug-title">AgencyMember HOSTING filter — Prisma nested where unsupported on SQLite</span>
+      <span class="file-tag">socket.service.ts line 1050</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>After a gift is sent, the code tries to find the receiver's agency with a nested filter <code>{ userId, agency: { type: 'HOSTING' } }</code>. SQLite (used in dev/prod here) does NOT support Prisma nested relation filters — this will throw a runtime error on every gift sent to a hosting agency member.</p>
+      <div class="label">Broken code</div>
+      <div class="code">const membership = await (prisma as any).agencyMember.findFirst({
+  where: { userId: recvId, agency: { type: 'HOSTING' } }  // ← nested filter fails on SQLite
+});</div>
+      <div class="label">Fix — two-step query</div>
+      <div class="fix">// Step 1: find membership
+const membership = await prisma.agencyMember.findFirst({
+  where: { userId: recvId },
+  include: { agency: { select: { id: true, type: true } } }
+});
+// Step 2: check type
+if (membership && (membership as any).agency?.type === 'HOSTING') {
+  await prisma.chargingAgency.update({
+    where: { id: membership.agencyId },
+    data: { earnedCoins: { increment: totalCost } },
+  });
+}</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-crit">CRITICAL</span>
+      <span class="bug-title">AudioController never called during mic toggle — F9 completely non-functional</span>
+      <span class="file-tag">room_screen.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>AudioController is imported and initialized correctly but the actual mic toggle handler in room_screen.dart calls WebRTC methods and emits socket events — it never calls <code>AudioController.instance.setMicEnabled()</code>. Speaker auto-enable on mic-on is completely non-functional despite the service being fully written.</p>
+      <div class="label">Fix — add to mic toggle</div>
+      <div class="fix">// In _RoomScreenState, find the mic toggle function and add:
+Future<void> _toggleMic() async {
+  final newState = !_currentSeatMuted;
+
+  // ✅ ADD THIS LINE:
+  await AudioController.instance.setMicEnabled(!newState); // !newState because muted=true means mic off
+
+  // existing socket emit...
+  SocketService().toggleMute(
+    roomId: widget.roomId,
+    seatNumber: _currentSeatNumber!,
+    isMuted: newState,
+  );
+  setState(() => _currentSeatMuted = newState);
+}
+
+// Also in dispose():
+@override
+void dispose() {
+  AudioController.instance.deactivate(); // ✅ ADD
+  // ... existing dispose code
+  super.dispose();
+}</div>
+    </div>
+  </div>
+</div>
+
+<!-- HIGH BUGS -->
+<div id="high" class="page">
+  <h1>High Severity Bugs</h1>
+  <p class="subtitle">These cause features to silently fail or produce wrong results</p>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">room_screen.dart listens to 'gift' event — GiftNotificationBanner receives incomplete data</span>
+      <span class="file-tag">room_screen.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Backend emits two events per gift: <code>gift</code> (wrapper with giftEvent sub-object) and <code>gift_received</code> (flat payload with full sender/receiver data). GiftNotificationBanner needs senderName, senderAvatarUrl, receiverName etc. — those are in <code>gift_received</code>, not in <code>gift</code>. Room likely uses the gift stream which parses the wrapper, not the full banner data.</p>
+      <div class="label">Fix — listen to gift_received for the banner</div>
+      <div class="fix">// In room_screen.dart initState, add separate listener:
+SocketService().on('gift_received', (data) {
+  if (!mounted) return;
+  try {
+    final map = Map<String, dynamic>.from(data as Map);
+    final event = GiftEvent.fromJson(map);
+    _showGiftBanner(context, event); // show sender→gift→receiver banner
+  } catch (_) {}
+});</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">follow_request socket event only debugPrints — no badge update</span>
+      <span class="file-tag">main.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>When a follow request arrives via socket, main.dart just prints to console. There is no SnackBar, no notification badge increment, no state invalidation. Users have no idea someone sent them a follow request in real-time.</p>
+      <div class="label">Current broken code</div>
+      <div class="code">_socketService.on('follow_request', (data) {
+  debugPrint('New follow request event: $data');  // ← does nothing visible
+});</div>
+      <div class="label">Fix</div>
+      <div class="fix">_socketService.on('follow_request', (data) {
+  final ctx = navigatorKey.currentContext;
+  if (ctx == null) return;
+  final from = (data is Map ? data['fromUser'] : null) as Map?;
+  final name = from?['name']?.toString() ?? 'مستخدم';
+  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+    content: Text('$name أرسل طلب متابعة'),
+    action: SnackBarAction(label: 'عرض', onPressed: () => Navigator.pushNamed(ctx, '/notifications')),
+  ));
+  // Invalidate provider to update badge count
+  // ref is not available here — use a global notifier or ValueNotifier
+});</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">Leave seat tap not conditional — own seat shows profile dialog instead of leave sheet</span>
+      <span class="file-tag">room_screen.dart / seat_card.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Feature 8 is implemented on the backend and the SocketService has <code>leaveMySeat()</code>, but the seat onTap in room_screen always shows the user profile dialog. It never checks if <code>seat.userId == currentUserId</code> to show the leave-seat bottom sheet instead.</p>
+      <div class="label">Fix — in the seat tap handler in room_screen.dart</div>
+      <div class="fix">void _onSeatTap(SeatData seat, int currentUserId) {
+  if (seat.userId == null) {
+    _takeSeat(seat.seatNumber);
+  } else if (seat.userId == currentUserId) {
+    // OWN seat → show leave bottom sheet
+    _showLeaveSeatSheet(context, seat.seatNumber);
+  } else {
+    // Someone else → show profile
+    _showUserProfile(context, seat.userId!);
+  }
+}
+
+void _showLeaveSeatSheet(BuildContext context, int seatNumber) {
+  showModalBottomSheet(context: context, builder: (_) => SafeArea(
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      const SizedBox(height: 16),
+      const Text('مغادرة المقعد', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 8),
+      ElevatedButton(
+        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+        onPressed: () {
+          Navigator.pop(context);
+          SocketService().leaveMySeat(roomId: widget.roomId, seatNumber: seatNumber);
+        },
+        child: const Text('مغادرة', style: TextStyle(color: Colors.white)),
+      ),
+      const SizedBox(height: 16),
+    ]),
+  ));
+}</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">coinsBalance is Int in schema — BigInt wrapping in socket causes precision loss for large values</span>
+      <span class="file-tag">schema.prisma / socket.service.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p><code>User.coinsBalance</code> is defined as <code>Int</code> (32-bit) in schema.prisma. The socket service wraps values in BigInt() for arithmetic then uses Number() to write back. For any value above ~2.1 billion this silently truncates. For now it's safe, but if coins scale this becomes a silent corruption bug.</p>
+      <div class="label">Schema has Int not BigInt</div>
+      <div class="code">coinsBalance  Int  @default(0)   // ← should be BigInt for a currency field</div>
+      <div class="label">Fix — migrate coinsBalance to BigInt</div>
+      <div class="fix">// In schema.prisma:
+coinsBalance  BigInt  @default(0)
+
+// Run: npx prisma migrate dev --name coins_balance_bigint
+
+// Then in all controllers: stop wrapping in Number() before writes
+// Use BigInt arithmetic throughout</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">Gift catalog still imported in room_screen — hardcoded gift data used for animation type</span>
+      <span class="file-tag">room_screen.dart line 13</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p><code>gift_catalog.dart</code> has old hardcoded English gift names (rose, coffee, crown…). <code>room_screen.dart</code> imports it and uses it in <code>_detectMegaType()</code> checking for "dragon", "rocket", "castle" — names that don't exist in the Arabic DB gifts. The dynamic gift system is loaded but the old catalog creates confusion and dead code paths.</p>
+      <div class="label">Fix</div>
+      <div class="fix">// 1. Remove: import '../data/gift_catalog.dart';
+// 2. Update _detectMegaType to use gift nameAr:
+GiftAnimationType _detectMegaType(String? giftName) {
+  if (giftName == null) return GiftAnimationType.normal;
+  if (giftName.contains('يخت') || giftName.contains('قصر')) return GiftAnimationType.castle;
+  if (giftName.contains('طيارة')) return GiftAnimationType.rocket;
+  return GiftAnimationType.normal;
+}
+// 3. Delete data/gift_catalog.dart entirely</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">Admin change-display-id route not registered</span>
+      <span class="file-tag">adminDashboard.routes.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>The <code>adminChangeUserDisplayId</code> function exists in adminDashboard.controller.ts but the route <code>PATCH /admin-dashboard/users/:id/display-id</code> is not registered in the routes file. Admin dashboard will show a 404.</p>
+      <div class="label">Fix — add to adminDashboard.routes.ts</div>
+      <div class="fix">import { adminChangeUserDisplayId } from '../controllers/adminDashboard.controller';
+// ...
+router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">No rate limiting on gift socket event — users can spam gifts and drain coins</span>
+      <span class="file-tag">socket.service.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>The <code>send_gift</code> socket event has no debounce or rate limiting. A malicious client can emit thousands of gift events per second. The transaction prevents overspend but server CPU and DB will be hammered.</p>
+      <div class="label">Fix — add server-side cooldown map</div>
+      <div class="fix">const lastGiftTime = new Map<number, number>();
+const GIFT_COOLDOWN_MS = 500; // 500ms between gifts
+
+socket.on('send_gift', async (data) => {
+  const now = Date.now();
+  const last = lastGiftTime.get(senderId) ?? 0;
+  if (now - last < GIFT_COOLDOWN_MS) {
+    socket.emit('gift_error', { message: 'Too fast, please wait' });
+    return;
+  }
+  lastGiftTime.set(senderId, now);
+  // ... rest of handler
+});</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">HIGH</span>
+      <span class="bug-title">No push notifications — follow/relation/gift events only work when app is in foreground</span>
+      <span class="file-tag">Backend (missing)</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>.env.example has Firebase config keys but there is zero push notification integration in the backend. All real-time events (follow request, relation request, mega gift) are socket-only. When the app is in background or closed, users miss everything. This is a major UX problem for a social app.</p>
+      <div class="label">Required additions</div>
+      <div class="fix">// 1. Install: npm install firebase-admin
+// 2. Create src/services/push.service.ts:
+import admin from 'firebase-admin';
+export async function sendPush(fcmToken: string, title: string, body: string, data?: object) {
+  await admin.messaging().send({ token: fcmToken, notification: { title, body }, data });
+}
+// 3. Add fcmToken field to User model
+// 4. Call sendPush() after socket.emit() for: follow_request, relation_request, gift_received_personal, mega_gift</div>
+    </div>
+  </div>
+</div>
+
+<!-- MEDIUM BUGS -->
+<div id="medium" class="page">
+  <h1>Medium Severity Bugs</h1>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MEDIUM</span>
+      <span class="bug-title">Seat state is in-memory only — server restart clears all occupied seats</span>
+      <span class="file-tag">socket.service.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>All seat data (roomSeats, roomMuted, roomMicQueue) is stored in Maps in memory. A server restart or crash wipes everything — rooms appear empty even with active users, and the mic queue is lost. This is fine for development but breaks production.</p>
+      <div class="label">Fix options</div>
+      <div class="fix">// Option A: persist seats in DB (RoomSeat table — already exists in some form)
+// On take_seat: also write to DB
+// On emitRoomState: merge DB state + in-memory if in-memory is empty
+
+// Option B: use Redis for seat state (already in .env.example)
+// REDIS_URL is configured — implement seat maps as Redis hashes</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MEDIUM</span>
+      <span class="bug-title">agencyMember filter uses (prisma as any) cast — bypasses TypeScript safety</span>
+      <span class="file-tag">socket.service.ts line 1050</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Two places in socket.service.ts cast prisma as <code>any</code> to access agencyMember. This means TypeScript won't catch schema changes and the code could silently break after a migration.</p>
+      <div class="label">Fix — import prisma types properly</div>
+      <div class="fix">// Import the correct prisma instance at top of file (already done: import prisma from '../utils/prisma')
+// Just use prisma.agencyMember directly — it exists in schema and is generated
+const membership = await prisma.agencyMember.findFirst({...});
+// Remove all (prisma as any) casts</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MEDIUM</span>
+      <span class="bug-title">CORS_ORIGIN defaults to localhost only — production mobile clients blocked</span>
+      <span class="file-tag">index.ts / .env.example</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>When CORS_ORIGIN env is empty, the server falls back to localhost only. Flutter mobile apps don't use CORS (they're not browsers) but the admin dashboard web panel will be blocked unless the correct origin is set. The .env.example has placeholder localhost values which are wrong for production.</p>
+      <div class="label">Fix</div>
+      <div class="fix">// In .env (production):
+CORS_ORIGIN=https://admin.samafox.com,https://samafox.com
+
+// In index.ts, the fallback should allow all origins in development:
+if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') {
+  return callback(null, true); // dev: allow all
+}</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MEDIUM</span>
+      <span class="bug-title">Transaction amountCoins is Int not BigInt — signed negative values may overflow</span>
+      <span class="file-tag">schema.prisma / socket.service.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Transaction.amountCoins is <code>Int</code> in schema. When logging gift_send the code stores <code>-Number(totalCost)</code>. For large gift amounts (yacht = 10000 coins × multiple qty) this could approach Int limits in bulk operations. More importantly, the type mismatch with BigInt arithmetic causes implicit conversions.</p>
+      <div class="label">Fix</div>
+      <div class="fix">// schema.prisma: change amountCoins to BigInt
+amountCoins  BigInt  @default(0)
+
+// socket.service.ts: use bigint directly
+await tx.transaction.create({
+  data: { userId: senderId, type: 'gift_send', amountCoins: -totalCost, status: 'completed' }
+});</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MEDIUM</span>
+      <span class="bug-title">No input validation on gift quantity — negative or zero qty possible</span>
+      <span class="file-tag">socket.service.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>The gift handler uses <code>Math.max(1, Number(quantity || 1))</code> which prevents 0 but doesn't cap the maximum. A client could send qty=99999 and attempt to buy 99999 gifts in one transaction.</p>
+      <div class="label">Fix</div>
+      <div class="fix">const qty = Math.min(Math.max(1, Number(quantity || 1)), 99); // max 99 per send</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MEDIUM</span>
+      <span class="bug-title">No refresh token rotation — replay attacks possible</span>
+      <span class="file-tag">auth.controller.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>The refresh token endpoint issues a new token pair but doesn't invalidate the old refresh token. Someone who steals a refresh token can generate new access tokens indefinitely. There is no refresh token blacklist or rotation strategy.</p>
+      <div class="label">Recommended fix</div>
+      <div class="fix">// Add RefreshToken model to schema:
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+}
+
+// On refresh: mark old token as revoked, create new record
+// On login: create new RefreshToken record
+// On refresh endpoint: verify token exists and not revoked</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MEDIUM</span>
+      <span class="bug-title">messageRoutes registered at two paths — /api/v1/messages AND /api/messages</span>
+      <span class="file-tag">index.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Messages routes are mounted twice: <code>app.use('/api/v1/messages', messageRoutes)</code> and <code>app.use('/api/messages', messageRoutes)</code>. The second path is unversioned — Flutter may call the wrong one in edge cases, and it creates a security surface for unintended access.</p>
+      <div class="label">Fix</div>
+      <div class="fix">// Remove the duplicate line in index.ts:
+// app.use('/api/messages', messageRoutes);  ← DELETE THIS LINE
+// Keep only:
+app.use('/api/v1/messages', messageRoutes);</div>
+    </div>
+  </div>
+</div>
+
+<!-- LOW / INFO -->
+<div id="low" class="page">
+  <h1>Low Severity & Code Quality</h1>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-low">LOW</span>
+      <span class="bug-title">console.log("DEBUG USER:", u) left in production code</span>
+      <span class="file-tag">socket.service.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Lines like <code>console.log("DEBUG USER:", u)</code> and <code>console.log("🧪 BACKEND seat_occupied:", {...})</code> will print sensitive user data (name, avatarUrl, level) to server logs on every seat occupation event. Remove all debug logs before production.</p>
+      <div class="label">Items to remove from socket.service.ts</div>
+      <div class="code">console.log("DEBUG USER:", u);
+console.log("🧪 BACKEND seat_occupied:", {...});</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-low">LOW</span>
+      <span class="bug-title">Relation model missing @@map — table name inconsistent</span>
+      <span class="file-tag">schema.prisma</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>Most models use <code>@@map("snake_case_name")</code> for DB table naming consistency. Relation and Follow models are missing <code>@@map</code> — Prisma will use "Relation" and "Follow" as table names (capitalized), which is inconsistent with the rest.</p>
+      <div class="label">Fix</div>
+      <div class="fix">model Follow {
+  // ...
+  @@unique([followerId, followingId])
+  @@map("follows")  // ← ADD
+}
+
+model Relation {
+  // ...
+  @@unique([user1Id, user2Id])
+  @@map("relations")  // ← ADD
+}</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-low">LOW</span>
+      <span class="bug-title">Relationship model is a duplicate of Follow — two similar models exist</span>
+      <span class="file-tag">schema.prisma</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>schema.prisma has both <code>Relationship</code> (old model, status always "accepted") and <code>Follow</code> (new model with PENDING/ACCEPTED/BLOCKED). The old <code>Relationship</code> model is never used by the new follow.controller but takes up schema space and creates confusing back-relations on User. Remove it.</p>
+      <div class="label">Fix</div>
+      <div class="fix">// 1. Remove Relationship model from schema.prisma
+// 2. Remove back-relations from User: relationshipFollowers, relationshipFollowing
+// 3. Run: npx prisma migrate dev --name remove_old_relationship_model</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-info">INFO</span>
+      <span class="bug-title">SQLite used in production — will not scale for concurrent gift transactions</span>
+      <span class="file-tag">schema.prisma / .env.example</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>The schema uses SQLite. For a social app with concurrent gift sending, SQLite's single-writer lock will cause write contention. Prisma $transaction helps but at 50+ concurrent users sending gifts simultaneously, SQLite will serialize all writes and lag. Recommend migrating to PostgreSQL or MySQL before launch.</p>
+      <div class="label">Migration path</div>
+      <div class="fix">// schema.prisma:
+datasource db {
+  provider = "postgresql"  // change from "sqlite"
+  url      = env("DATABASE_URL")
+}
+// Then: npx prisma migrate deploy</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-info">INFO</span>
+      <span class="bug-title">.env.example has default JWT_SECRET strings — must change before deploy</span>
+      <span class="file-tag">.env.example</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>JWT_SECRET is <code>"your-super-secret-jwt-key-change-this-in-production"</code>. auth.controller.ts correctly throws if JWT_SECRET is missing, but won't throw if someone copies .env.example verbatim. The well-known default value would allow token forgery.</p>
+      <div class="label">Generate strong secrets for production</div>
+      <div class="fix">node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+// Use the output as JWT_SECRET and JWT_REFRESH_SECRET</div>
+    </div>
+  </div>
+</div>
+
+<!-- CONFLICTS -->
+<div id="conflicts" class="page">
+  <h1>Conflicts & Mismatches</h1>
+  <p class="subtitle">Backend ↔ Flutter payload mismatches, duplicate code, naming conflicts</p>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-high">MISMATCH</span>
+      <span class="bug-title">Item.activeFrameId is String in schema but Int in activate-frame logic</span>
+      <span class="file-tag">schema.prisma / store.routes.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>User.activeFrameId is declared as <code>String?</code> (FK to Item.id which uses cuid, a string). But the original feature design assumed Int IDs. The store.routes.ts correctly uses String(itemId), but any Flutter code that stores activeFrameId as int will mismatch.</p>
+      <div class="label">Verify Flutter stores it as String</div>
+      <div class="fix">// In Flutter: activeFrameId should be String? not int?
+// Check User model parsing: activeFrameId: json['activeFrameId']?.toString()</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MISMATCH</span>
+      <span class="bug-title">seat_updated event emitted from leave_seat but Flutter only listens to seat_released</span>
+      <span class="file-tag">socket.service.ts / socket_service.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>When leave_seat fires, backend emits BOTH <code>seat_updated</code> AND <code>seat_released</code>. Flutter's SeatUpdate stream only has a handler for <code>seat_released</code>. The <code>seat_updated</code> event is never processed, meaning the local UI may not clear the seat immediately in all code paths.</p>
+      <div class="label">Fix — ensure seat_updated is handled</div>
+      <div class="fix">// socket_service.dart _setupListeners():
+_socket!.on('seat_updated', (data) {
+  try {
+    final map = Map<String, dynamic>.from(data);
+    if (map['userId'] == null) {
+      // Seat was cleared — treat as vacated
+      final update = SeatUpdate.fromJson(map, SeatUpdateType.vacated);
+      _seatUpdateController.add(update);
+    }
+  } catch (e) { AppLogger.error('seat_updated error: $e'); }
+});</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MISMATCH</span>
+      <span class="bug-title">Gift model has both 'name' and 'nameAr' — send_gift uses nameAr but _detectMegaType checks English names</span>
+      <span class="file-tag">schema.prisma / room_screen.dart</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>The Gift model has <code>name String @default("")</code> (English, unused) and <code>nameAr String</code> (Arabic, used). Backend gift payload correctly uses nameAr. But Flutter's <code>_detectMegaType()</code> checks for "dragon", "rocket", "castle" in English — names that will never match Arabic nameAr values.</p>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-med">MISMATCH</span>
+      <span class="bug-title">ChargingAgency has both balanceCoins (Int) and targetCoins/earnedCoins (BigInt)</span>
+      <span class="file-tag">schema.prisma</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>In ChargingAgency: <code>balanceCoins Int</code> (regular int) but <code>targetCoins BigInt</code> and <code>earnedCoins BigInt</code>. When the socket increments earnedCoins with <code>{ increment: totalCost }</code> where totalCost is BigInt, and balanceCoins is Int — the two fields use different types causing implicit conversion issues.</p>
+      <div class="label">Fix</div>
+      <div class="fix">// schema.prisma — make all coin fields consistent:
+balanceCoins  BigInt  @default(0)  // change from Int
+targetCoins   BigInt  @default(0)  // already BigInt ✓
+earnedCoins   BigInt  @default(0)  // already BigInt ✓</div>
+    </div>
+  </div>
+
+  <div class="bug">
+    <div class="bug-head" onclick="tog(this)">
+      <span class="sev s-low">MISMATCH</span>
+      <span class="bug-title">Two charging agency route prefixes exist: /charging-agencies AND /agencies</span>
+      <span class="file-tag">index.ts</span>
+      <div class="arrow"></div>
+    </div>
+    <div class="bug-body">
+      <p>index.ts registers both <code>/api/v1/charging-agencies</code> (old chargingAgencyRoutes) and <code>/api/v1/agencies</code> (new agencyRoutes). Flutter's ChargingAgentScreen calls <code>/agencies/*</code> correctly, but the old routes still exist and may conflict or confuse future developers.</p>
+      <div class="label">Fix</div>
+      <div class="fix">// Remove old route if fully replaced:
+// app.use('/api/v1/charging-agencies', chargingAgencyRoutes);  ← REMOVE if unused
+// Verify no Flutter code still calls /charging-agencies/*</div>
+    </div>
+  </div>
+</div>
+
+<!-- RECOMMENDATIONS -->
+<div id="recs" class="page">
+  <h1>Recommendations</h1>
+  <p class="subtitle">Features and improvements to add for a production-ready app</p>
+
+  <div class="rec-item">
+    <div class="rec-num">1</div>
+    <div><div class="rec-title">Push notifications (Firebase FCM)</div><div class="rec-sub">Already in .env.example. Add fcmToken to User, call sendPush() for follow/relation/gift events. Background notifications are critical for user retention in a social app.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">2</div>
+    <div><div class="rec-title">Migrate to PostgreSQL</div><div class="rec-sub">SQLite single-writer lock will bottleneck concurrent gift transactions. PostgreSQL handles concurrent writes properly and is required for production scale.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">3</div>
+    <div><div class="rec-title">Redis for seat state persistence</div><div class="rec-sub">Already in .env.example. Seat state (roomSeats Map) should be stored in Redis so server restarts don't wipe active rooms. Add redis package and replace in-memory Maps.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">4</div>
+    <div><div class="rec-title">Refresh token rotation + blacklist</div><div class="rec-sub">Add RefreshToken table. Invalidate old token on each refresh. This prevents stolen token replay attacks and is a security requirement.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">5</div>
+    <div><div class="rec-title">Image CDN / file upload to S3</div><div class="rec-sub">Currently uploads go to local /uploads folder. AWS S3 keys are in .env.example but unused. Local uploads are lost on server restarts and don't scale. Connect to S3 or Cloudinary.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">6</div>
+    <div><div class="rec-title">Global error boundary in Flutter</div><div class="rec-sub">Add a top-level FlutterError.onError handler and runZonedGuarded() in main() to catch all unhandled exceptions and report to Sentry/Crashlytics rather than crashing silently.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">7</div>
+    <div><div class="rec-title">API response pagination on room list</div><div class="rec-sub">Home screen loads all rooms with no pagination. With 100+ rooms this becomes slow. Add cursor-based or offset pagination to GET /rooms with a limit of 20.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">8</div>
+    <div><div class="rec-title">Room password validation on join</div><div class="rec-sub">Room schema has passwordHash but the join flow doesn't prompt for or validate passwords for private rooms. Add a password prompt in Flutter when room.type is "private".</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">9</div>
+    <div><div class="rec-title">Gift animation assets — add real images</div><div class="rec-sub">Gift imageUrls are seeded as /gifts/ward.png etc. but these files don't exist in /uploads. Add real gift images (or animated Lottie files via animationUrl) for each Arabic gift.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">10</div>
+    <div><div class="rec-title">Add Helmet.js and express-rate-limit to backend</div><div class="rec-sub">No security headers (Helmet) and no HTTP rate limiting on REST endpoints. Admin login, register, and gift HTTP endpoints are brute-forceable. Add both packages to index.ts.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">11</div>
+    <div><div class="rec-title">Add notifications tab badge counter</div><div class="rec-sub">Notifications screen shows follow requests on load but the bottom nav tab has no badge. Track unread count in a Riverpod StateProvider, increment on socket follow_request/relation_request events, clear on screen open.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">12</div>
+    <div><div class="rec-title">Coin top-up / payment gateway</div><div class="rec-sub">Stripe is in .env.example but there's no payment route or Flutter payment flow. Users can only receive coins from admin manually. Add an in-app purchase flow or Stripe checkout for coin packages.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">13</div>
+    <div><div class="rec-title">Add deep links for room sharing</div><div class="rec-sub">room_screen.dart has a Share button but it just shares a text URL. Add Firebase Dynamic Links or App Links so that opening a shared room link takes the user directly into the room even if the app is not installed.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">14</div>
+    <div><div class="rec-title">Add account deletion (GDPR compliance)</div><div class="rec-sub">There is no account deletion endpoint. Required for App Store / Play Store compliance and GDPR. Add DELETE /api/v1/users/me that anonymizes and soft-deletes the account.</div></div>
+  </div>
+  <div class="rec-item">
+    <div class="rec-num">15</div>
+    <div><div class="rec-title">Add WebSocket reconnection room re-join</div><div class="rec-sub">When socket reconnects (_onReconnect in socket_service.dart), the app emits the reconnect event but doesn't automatically re-join the current room or re-request the seat snapshot. Users see a blank room after network interruption.</div></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+function nav(id) {
+  document.querySelectorAll('.nav-item,.page').forEach(e=>e.classList.remove('on'));
+  document.querySelector(`[onclick="nav('${id}')"]`).classList.add('on');
+  document.getElementById(id).classList.add('on');
+}
+function tog(el) {
+  const body = el.nextElementSibling;
+  const arr = el.querySelector('.arrow');
+  const open = body.style.display === 'block';
+  body.style.display = open ? 'none' : 'block';
+  if (arr) arr.classList.toggle('open', !open);
+}
+</script>
+</body>
+</html>
