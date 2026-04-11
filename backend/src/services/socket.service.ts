@@ -1047,12 +1047,20 @@ await emitRoomState(io, rid);
     const createdLog = result.createdLog;
 
     if (recvId != null) {
-      const membership = await (prisma as any).agencyMember.findFirst({ where: { userId: recvId, agency: { type: 'HOSTING' } } });
-      if (membership) {
-        await (prisma as any).chargingAgency.update({
-          where: { id: membership.agencyId },
-          data: { earnedCoins: { increment: totalCost } },
+      try {
+        const membership = await prisma.agencyMember.findFirst({
+          where: { userId: recvId },
+          include: { agency: { select: { id: true, type: true } } },
         });
+        if (membership && (membership as any).agency?.type === 'HOSTING') {
+          await prisma.chargingAgency.update({
+            where: { id: membership.agencyId },
+            data: { earnedCoins: { increment: totalCost } },
+          });
+        }
+      } catch (agencyErr) {
+        console.error('Agency earnedCoins update error:', agencyErr);
+        // Non-fatal — don't let this break the gift transaction
       }
     }
 
