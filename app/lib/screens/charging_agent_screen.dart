@@ -20,7 +20,8 @@ class ChargingAgentScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final balanceAsync = ref.watch(agencyBalanceProvider);
-    final approvedAsync = ref.watch(approvedAgenciesProvider);
+    final chargingAsync = ref.watch(chargingAgenciesProvider);
+    final hostingAsync = ref.watch(hostingAgenciesProvider);
     final myAsync = ref.watch(myAgenciesProvider);
 
     return Scaffold(
@@ -58,7 +59,8 @@ class ChargingAgentScreen extends ConsumerWidget {
               const SnackBar(content: Text('✅ تم إرسال طلب إنشاء الوكالة (Pending)')),
             );
             ref.invalidate(myAgenciesProvider);
-            ref.invalidate(approvedAgenciesProvider);
+            ref.invalidate(chargingAgenciesProvider);
+            ref.invalidate(hostingAgenciesProvider);
             ref.invalidate(agencyBalanceProvider);
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -84,7 +86,8 @@ class ChargingAgentScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(agencyBalanceProvider);
             ref.invalidate(myAgenciesProvider);
-            ref.invalidate(approvedAgenciesProvider);
+            ref.invalidate(chargingAgenciesProvider);
+            ref.invalidate(hostingAgenciesProvider);
           },
           child: ListView(
             padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 120),
@@ -184,15 +187,15 @@ class ChargingAgentScreen extends ConsumerWidget {
 
               const SizedBox(height: 26),
 
-              // ================== Approved Agencies Grid ==================
+              // ================== Charging Agencies Grid ==================
               const Text(
-                'الوكلاء المعتمدون',
+                'وكالات الشحن المعتمدة',
                 style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.right,
               ),
               const SizedBox(height: 12),
 
-              approvedAsync.when(
+              chargingAsync.when(
                 data: (items) {
                   if (items.isEmpty) {
                     return Text(
@@ -220,7 +223,50 @@ class ChargingAgentScreen extends ConsumerWidget {
                   child: Center(child: CircularProgressIndicator()),
                 ),
                 error: (e, _) => Text(
-                  'خطأ في تحميل الوكلاء: $e',
+                  'خطأ في تحميل وكالات الشحن: $e',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ),
+
+              const SizedBox(height: 26),
+
+              const Text(
+                'وكالات الاستضافة',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.right,
+              ),
+              const SizedBox(height: 12),
+
+              hostingAsync.when(
+                data: (items) {
+                  if (items.isEmpty) {
+                    return Text(
+                      'لا توجد وكالات استضافة حالياً',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                    );
+                  }
+
+                  return GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: items.length,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 0.92,
+                    ),
+                    itemBuilder: (_, i) => _AgencyGridCard(items[i]),
+                  );
+                },
+                loading: () => const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (e, _) => Text(
+                  'خطأ في تحميل وكالات الاستضافة: $e',
                   textAlign: TextAlign.right,
                   style: const TextStyle(color: Colors.redAccent),
                 ),
@@ -356,22 +402,22 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
   void _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_agencyImage == null || _idFront == null || _idBack == null) {
+    if (_agencyImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('من فضلك ارفع صورة الوكالة + البطاقة (أمام/خلف).')),
+        const SnackBar(content: Text('من فضلك ارفع صورة الوكالة.')),
       );
       return;
     }
 
     setState(() => _submitting = true);
 
-    final payload = CreateChargingAgencyPayload(
-      agencyName: _agencyName.text.trim(),
-      phoneNumber: _phone.text.trim(),
-      agencyImagePath: _agencyImage!.path,
-      idFrontPath: _idFront!.path,
-      idBackPath: _idBack!.path,
-    );
+      final payload = CreateChargingAgencyPayload(
+        agencyName: _agencyName.text.trim(),
+        phoneNumber: _phone.text.trim(),
+        agencyImagePath: _agencyImage!.path,
+        idFrontPath: _idFront?.path ?? '',
+        idBackPath: _idBack?.path ?? '',
+      );
 
     if (!mounted) return;
     Navigator.pop(context, payload);
@@ -751,37 +797,42 @@ final List<ChargingPackage> chargingPackages = [
 // ========================== Agency UI ==========================
 class ChargingAgency {
   final int id;
-  final int userId;
   final String agencyName;
-  final String phoneNumber;
+  final String contactInfo;
   final String agencyImageUrl;
-  final String idFrontUrl;
-  final String idBackUrl;
+  final String type;
   final String status; // pending/approved/rejected
+  final String targetCoins;
+  final String earnedCoins;
   final String createdAt;
 
   ChargingAgency({
     required this.id,
-    required this.userId,
     required this.agencyName,
-    required this.phoneNumber,
+    required this.contactInfo,
     required this.agencyImageUrl,
-    required this.idFrontUrl,
-    required this.idBackUrl,
+    required this.type,
     required this.status,
+    required this.targetCoins,
+    required this.earnedCoins,
     required this.createdAt,
   });
 
   factory ChargingAgency.fromJson(Map<String, dynamic> j) {
+    final image = (j['agencyImageUrl'] ??
+            j['imageUrl'] ??
+            j['logoUrl'] ??
+            '') as String;
+
     return ChargingAgency(
       id: (j['id'] ?? 0) as int,
-      userId: (j['userId'] ?? 0) as int,
       agencyName: (j['agencyName'] ?? '') as String,
-      phoneNumber: (j['phoneNumber'] ?? '') as String,
-      agencyImageUrl: (j['agencyImageUrl'] ?? '') as String,
-      idFrontUrl: (j['idFrontUrl'] ?? '') as String,
-      idBackUrl: (j['idBackUrl'] ?? '') as String,
+      contactInfo: (j['contactInfo'] ?? j['phoneNumber'] ?? '') as String,
+      agencyImageUrl: image,
+      type: (j['type'] ?? 'CHARGING') as String,
       status: (j['status'] ?? 'pending') as String,
+      targetCoins: '${j['targetCoins'] ?? '0'}',
+      earnedCoins: '${j['earnedCoins'] ?? '0'}',
       createdAt: (j['createdAt'] ?? '') as String,
     );
   }
@@ -838,7 +889,7 @@ class _AgencyGridCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    a.phoneNumber,
+                    a.contactInfo.isEmpty ? '—' : a.contactInfo,
                     textAlign: TextAlign.right,
                     style: TextStyle(color: Colors.white.withOpacity(0.8)),
                     maxLines: 1,
@@ -918,7 +969,7 @@ class _MyAgencyTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  a.phoneNumber,
+                  a.contactInfo.isEmpty ? '—' : a.contactInfo,
                   textAlign: TextAlign.right,
                   style: TextStyle(color: Colors.white.withOpacity(0.75)),
                 ),
@@ -938,22 +989,32 @@ class _MyAgencyTile extends StatelessWidget {
 /// ✅ Agency wallet balance (ChargingAgency.balanceCoins)
 final agencyBalanceProvider = FutureProvider<int>((ref) async {
   final dio = DioClient.dio;
-  final resp = await dio.get('/charging-agencies/my/balance');
-  return (resp.data['balanceCoins'] ?? 0) as int;
+  final resp = await dio.get('/agencies/my-agency');
+  final data = (resp.data is Map<String, dynamic>) ? (resp.data['data'] ?? {}) as Map<String, dynamic> : <String, dynamic>{};
+  final raw = data['balanceCoins'] ?? 0;
+  return int.tryParse('$raw') ?? 0;
 });
 
-final approvedAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
+final chargingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
   final dio = DioClient.dio;
-  final resp = await dio.get('/charging-agencies', queryParameters: {'status': 'approved'});
-  final list = (resp.data as List).cast<Map<String, dynamic>>();
+  final resp = await dio.get('/agencies/charging');
+  final list = (resp.data['data'] as List? ?? const []).cast<Map<String, dynamic>>();
+  return list.map((e) => ChargingAgency.fromJson(e)).toList();
+});
+
+final hostingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
+  final dio = DioClient.dio;
+  final resp = await dio.get('/agencies/hosting');
+  final list = (resp.data['data'] as List? ?? const []).cast<Map<String, dynamic>>();
   return list.map((e) => ChargingAgency.fromJson(e)).toList();
 });
 
 final myAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
   final dio = DioClient.dio;
-  final resp = await dio.get('/charging-agencies/me');
-  final list = (resp.data as List).cast<Map<String, dynamic>>();
-  return list.map((e) => ChargingAgency.fromJson(e)).toList();
+  final resp = await dio.get('/agencies/my-agency');
+  final data = (resp.data['data'] is Map<String, dynamic>) ? (resp.data['data'] as Map<String, dynamic>) : null;
+  if (data == null || data.isEmpty) return [];
+  return [ChargingAgency.fromJson(data)];
 });
 
 final createAgencyControllerProvider =
@@ -975,25 +1036,22 @@ class CreateAgencyController extends StateNotifier<bool> {
       final uploader = ImageUploadService();
 
       final agencyUrl = await uploader.uploadImage(File(payload.agencyImagePath), token);
-      final idFrontUrl = await uploader.uploadImage(File(payload.idFrontPath), token);
-      final idBackUrl = await uploader.uploadImage(File(payload.idBackPath), token);
-
-      if (agencyUrl == null || idFrontUrl == null || idBackUrl == null) {
+      if (agencyUrl == null) {
         throw Exception('upload failed');
       }
 
       final dio = DioClient.dio;
-      await dio.post('/charging-agencies', data: {
+      await dio.post('/agencies/request', data: {
+        'type': 'CHARGING',
         'agencyName': payload.agencyName,
-        'phoneNumber': payload.phoneNumber,
-        'agencyImageUrl': agencyUrl,
-        'idFrontUrl': idFrontUrl,
-        'idBackUrl': idBackUrl,
+        'contactInfo': payload.phoneNumber,
+        'imageUrl': agencyUrl,
       });
 
       // ✅ refresh UI after create
       ref.invalidate(myAgenciesProvider);
-      ref.invalidate(approvedAgenciesProvider);
+      ref.invalidate(chargingAgenciesProvider);
+      ref.invalidate(hostingAgenciesProvider);
       ref.invalidate(agencyBalanceProvider);
 
       return true;
@@ -1004,4 +1062,3 @@ class CreateAgencyController extends StateNotifier<bool> {
     }
   }
 }
-
