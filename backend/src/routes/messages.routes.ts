@@ -43,7 +43,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-router.post("/upload-audio", upload.single("file"), async (req, res) => {
+router.post("/upload-audio", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: "file is required" });
 
   // if you already serve /uploads as static => this URL works

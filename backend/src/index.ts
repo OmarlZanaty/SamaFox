@@ -31,9 +31,26 @@ const app: Application = express();
 
 app.set('trust proxy', true);
 
+const allowedOrigins = (process.env.CORS_ORIGIN ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const isOriginAllowed = (origin?: string) => {
+  if (!origin) return true; // non-browser clients / same-origin calls
+  if (allowedOrigins.length === 0) {
+    // Safe local fallback only.
+    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  }
+  return allowedOrigins.includes(origin);
+};
+
 // ✅ CORS FIRST (and allow credentials for cookies)
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) return callback(null, true);
+    return callback(new Error('CORS origin not allowed'));
+  },
   credentials: true,
 }));
 
@@ -95,7 +112,10 @@ app.get('/health', (_req, res) => {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) return callback(null, true);
+      return callback(new Error('CORS origin not allowed'));
+    },
     methods: ['GET', 'POST'],
     credentials: true,
   }

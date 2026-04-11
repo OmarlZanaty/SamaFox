@@ -1,6 +1,7 @@
 import prisma from '../utils/prisma';
 import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
+import bcrypt from 'bcrypt';
 
 
 export const getRooms = async (req: Request, res: Response) => {
@@ -194,6 +195,8 @@ export async function createRoom(req: Request, res: Response) {  try {
       return res.status(400).json({ error: 'Room name is required' });
     }
 
+    const passwordHash = password ? await bcrypt.hash(String(password), 10) : null;
+
     const room = await prisma.room.create({
       data: {
         name,
@@ -203,8 +206,7 @@ export async function createRoom(req: Request, res: Response) {  try {
         coverImageUrl: coverImage || coverImageUrl || null,
         backgroundImageUrl: backgroundImageUrl || null,
 
-        // NOTE: if you really want hashing, do it here; for now keeping your same behavior
-        passwordHash: password || null,
+        passwordHash,
 
         ownerId: userId,
         isActive: true,
