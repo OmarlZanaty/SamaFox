@@ -4,9 +4,9 @@ import '../models/user.dart';
 import '../repositories/gift_repository.dart';
 import '../config/app_config.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'mega_gift_card.dart';
-import 'dart:math'; // <-- Add this import for max function
 class GiftSelectionDialog extends StatefulWidget {
   final User? targetUser;
   final int roomId;
@@ -682,7 +682,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
       return Icon(
         _getGiftIcon(gift.displayName),
         color: _getCategoryColor(gift.category ?? 'common'),
-        size: max(100.0 * scale, 150.0),  // Ensure a larger minimum size
+        size: 34,
       );
     }
 
@@ -691,29 +691,41 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
       return Center(
         child: Text(
           raw,
-          style: TextStyle(fontSize: 100 * scale),  // Adjusted emoji size
+          style: const TextStyle(fontSize: 32),
         ),
       );
     }
 
     /// ✅ LOCAL ASSETS
     if (raw.startsWith('assets/')) {
+      if (raw.toLowerCase().endsWith('.svg')) {
+        return SvgPicture.asset(raw, fit: BoxFit.contain);
+      }
       return Image.asset(raw, fit: BoxFit.cover);
     }
 
     /// ✅ NETWORK IMAGE
     final url = raw.startsWith('/') ? '${AppConfig.apiBaseUrl}$raw' : raw;
+    if (url.toLowerCase().endsWith('.svg')) {
+      return SvgPicture.network(
+        url,
+        fit: BoxFit.contain,
+        placeholderBuilder: (_) => const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
 
     return CachedNetworkImage(
       imageUrl: url,
       width: double.infinity,
       height: double.infinity,
-      fit: BoxFit.cover,
+      fit: BoxFit.contain,
       placeholder: (_, __) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       errorWidget: (_, __, ___) => Icon(
         _getGiftIcon(gift.displayName),
         color: _getCategoryColor(gift.category ?? 'common'),
-        size: 150,  // Ensure icon size is large for fallback
+        size: 34,
       ),
     );
   }
