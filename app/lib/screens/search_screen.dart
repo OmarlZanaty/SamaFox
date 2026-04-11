@@ -29,6 +29,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onChanged);
+  }
+
+  @override
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
