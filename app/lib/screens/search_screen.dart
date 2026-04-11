@@ -148,6 +148,20 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
+  void _onTapResult(Map<String, dynamic> result) {
+    final id = result['id'];
+    final type = (result['type'] ?? '').toString();
+
+    if (type == 'room') {
+      Navigator.pushNamed(context, '/room', arguments: id);
+      return;
+    }
+
+    if (type == 'user') {
+      Navigator.pushNamed(context, '/user-profile', arguments: id);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
