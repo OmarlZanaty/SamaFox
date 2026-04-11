@@ -14,12 +14,15 @@ enum GiftAnimationType {
 class Gift {
   final int id;
   final String name;
+  final String? nameAr;
   final String? description;
   final String? imageUrl;
   final String? animationUrl;
   final String? category;
   final String? rarity;
   final int priceCoins;
+  final int? coinsValue;
+  final int? sortOrder;
 
   /// NEW
   final String? animationKey;
@@ -29,15 +32,21 @@ class Gift {
   Gift({
     required this.id,
     required this.name,
+    this.nameAr,
     this.description,
     this.imageUrl,
     this.animationUrl,
     this.category,
     this.rarity,
     required this.priceCoins,
+    this.coinsValue,
+    this.sortOrder,
     this.animationKey,
     this.isActive = true,
   });
+
+  String get displayName => (nameAr?.trim().isNotEmpty == true) ? nameAr! : name;
+  int get displayCoinsValue => coinsValue ?? priceCoins;
 
   factory Gift.fromJson(Map<String, dynamic> json) => _$GiftFromJson(json);
   Map<String, dynamic> toJson() => _$GiftToJson(this);

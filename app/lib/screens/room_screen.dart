@@ -105,6 +105,7 @@ class RoomScreen extends ConsumerStatefulWidget {
 class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObserver {
   final GiftAnimationService _giftAnim = GiftAnimationService();
   StreamSubscription<GiftSentEvent>? _giftSub;
+  StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
   bool _openingMic = false;
   /// WebRTC audio service for voice chat
   late final WebRTCAudioService _audioService;
@@ -1818,9 +1819,28 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
     });
 
+    _globalGiftSub = SocketService().globalGiftBroadcastStream.listen((payload) {
+      if (!mounted) return;
+      _showGlobalGiftBroadcast(payload);
+    });
+
 
   }
   late final RoomLiveNotifier _live;
+
+  void _showGlobalGiftBroadcast(Map<String, dynamic> payload) {
+    final overlay = Overlay.of(context);
+    late final OverlayEntry entry;
+
+    entry = OverlayEntry(
+      builder: (_) => _GlobalGiftBroadcastOverlay(
+        payload: payload,
+        onDismissed: () => entry.remove(),
+      ),
+    );
+
+    overlay.insert(entry);
+  }
 
 
   @override
@@ -1832,6 +1852,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     _bgImageCtrl.dispose();
     _socketErrSub?.cancel();
     _giftSub?.cancel();
+    _globalGiftSub?.cancel();
     _giftAnim.dispose();
     _audioService.dispose();
     _seatVideoController?.dispose();
@@ -3349,7 +3370,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                       final result = snap.data;
                       final gifts = (result != null && result.isSuccess)
                           ? (result.data ?? const <Gift>[])
-                          : giftRepo.getMockGifts();
+                          : const <Gift>[];
 
                       if (gifts.isEmpty) {
                         return const Padding(
@@ -3440,13 +3461,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  g.name,
+                                  g.displayName,
                                   style: const TextStyle(color: Colors.white, fontSize: 11),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 Text(
-                                  '${g.priceCoins}',
+                                  '${g.displayCoinsValue}',
                                   style: const TextStyle(color: Colors.amber, fontSize: 10),
                                 ),
                               ],
@@ -4315,7 +4336,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                           final result = snap.data;
                           final gifts = (result != null && result.isSuccess)
                               ? (result.data ?? const <Gift>[])
-                              : giftRepo.getMockGifts();
+                              : const <Gift>[];
 
                           if (gifts.isEmpty) {
                             return const Padding(
@@ -4418,13 +4439,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      g.name,
+                                      g.displayName,
                                       style: const TextStyle(color: Colors.white, fontSize: 11),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     Text(
-                                      '${g.priceCoins}',
+                                      '${g.displayCoinsValue}',
                                       style: const TextStyle(color: Colors.amber, fontSize: 10),
                                     ),
                                   ],
@@ -4692,4 +4713,169 @@ Widget _gradientStat(String title, String subtitle, Color color) {
       ],
     ),
   );
+}
+
+class _GlobalGiftBroadcastOverlay extends StatefulWidget {
+  final Map<String, dynamic> payload;
+  final VoidCallback onDismissed;
+
+  const _GlobalGiftBroadcastOverlay({
+    required this.payload,
+    required this.onDismissed,
+  });
+
+  @override
+  State<_GlobalGiftBroadcastOverlay> createState() => _GlobalGiftBroadcastOverlayState();
+}
+
+class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+      reverseDuration: const Duration(milliseconds: 300),
+    )..forward();
+
+    Future.delayed(const Duration(seconds: 4), () async {
+      if (!mounted) return;
+      await _controller.reverse();
+      if (mounted) widget.onDismissed();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final senderName = _text('senderName', 'مرسل');
+    final receiverName = _text('receiverName', 'مستلم');
+    final giftName = _text('giftNameAr', 'هدية');
+    final roomName = _text('roomName', '');
+    final giftImageUrl = _url(_text('giftImageUrl', ''));
+    final senderAvatar = _url(_text('senderAvatar', ''));
+    final receiverAvatar = _url(_text('receiverAvatar', ''));
+
+    return Positioned.fill(
+      child: Material(
+        color: Colors.transparent,
+        child: FadeTransition(
+          opacity: _controller,
+          child: Container(
+            color: Colors.black.withOpacity(0.72),
+            child: ScaleTransition(
+              scale: CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+              child: Center(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111827),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.withOpacity(0.75)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        roomName.isEmpty ? 'هدية كبيرة' : roomName,
+                        style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _avatar(senderAvatar, senderName),
+                          const SizedBox(width: 14),
+                          _gift(giftImageUrl),
+                          const SizedBox(width: 14),
+                          _avatar(receiverAvatar, receiverName),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '$senderName أرسلت $giftName لـ $receiverName',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _avatar(String url, String name) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircleAvatar(
+          radius: 28,
+          backgroundColor: Colors.white12,
+          backgroundImage: url.isEmpty ? null : NetworkImage(url),
+          child: url.isEmpty ? Text(name.isEmpty ? '?' : name[0]) : null,
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          width: 72,
+          child: Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _gift(String url) {
+    return Container(
+      width: 76,
+      height: 76,
+      padding: const EdgeInsets.all(8),
+      decoration: const BoxDecoration(
+        color: Colors.white10,
+        shape: BoxShape.circle,
+      ),
+      child: url.isEmpty
+          ? const Icon(Icons.card_giftcard, color: Colors.amber, size: 42)
+          : Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.card_giftcard, color: Colors.amber, size: 42),
+            ),
+    );
+  }
+
+  String _text(String key, String fallback) {
+    final value = widget.payload[key];
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty || text == 'null' ? fallback : text;
+  }
+
+  String _url(String raw) {
+    if (raw.isEmpty || raw == 'null') return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    if (!raw.startsWith('/')) return raw;
+    return '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '')}$raw';
+  }
 }

@@ -1,31 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../config/app_config.dart';
 
 enum AvatarFrameType { samafoxDefault, vip, crown, neon, none }
 
 class AvatarFrame {
   final AvatarFrameType type;
-
-  /// Local SVG frame (asset)
   final String? frameAsset;
-
-
-  /// Remote frame (from backend)
   final String? url;
-
-  /// Inner avatar scale
   final double innerScale;
 
   const AvatarFrame({
     required this.type,
     this.frameAsset,
     this.url,
-
-
     required this.innerScale,
   });
 
-  /// 🔥 FROM BACKEND (URL FRAME)
   factory AvatarFrame.fromUrl(String url) {
     return AvatarFrame(
       type: AvatarFrameType.none,
@@ -44,7 +35,6 @@ class AvatarFrame {
     );
   }
 
-  /// 🔥 LOCAL TYPES (SVG)
   static AvatarFrame fromType(AvatarFrameType type) {
     return const AvatarFrame(
       type: AvatarFrameType.none,
@@ -56,12 +46,11 @@ class AvatarFrame {
 }
 
 class FramedAvatar extends StatelessWidget {
-  final double size; // total widget size (frame size)
+  final double size;
   final String? imageUrl;
   final String? fallbackText;
   final AvatarFrame? frame;
-  final double avatarSize; // ✅ ADD THIS
-  /// Optional: show glow ring (later for speaking)
+  final double avatarSize;
   final bool glow;
   final Color glowColor;
 
@@ -72,21 +61,18 @@ class FramedAvatar extends StatelessWidget {
     this.imageUrl,
     this.fallbackText,
     this.glow = false,
-    required this.avatarSize, // ✅ REQUIRED
+    required this.avatarSize,
     this.glowColor = const Color(0xFF22C55E),
   });
 
   @override
   Widget build(BuildContext context) {
-    final innerSize = avatarSize;
-
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // ✅ glow behind everything
           if (glow)
             Container(
               width: size,
@@ -102,71 +88,55 @@ class FramedAvatar extends StatelessWidget {
                 ],
               ),
             ),
-
-          // ✅ FRAME (BOTTOM — IMPORTANT)
-          // ✅ FRAME (BOTTOM — IMPORTANT)
-          // In FramedAvatar build(), the frame builder section — replace with:
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Builder(
-                builder: (_) {
-                  if (frame == null) return const SizedBox.shrink();
-
-                  // ✅ Remote URL frame (from DB)
-                  if (frame!.url != null && frame!.url!.isNotEmpty) {
-                    final url = frame!.url!.toLowerCase();
-                    if (url.endsWith('.svg')) {
-                      return SvgPicture.network(
-                        frame!.url!,
-                        fit: BoxFit.contain,
-                      );
-                    }
-                    return Image.network(
-                      frame!.url!,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                    );
-                  }
-
-                  // ✅ Local asset frame (default fallback)
-                  if (frame!.frameAsset != null && frame!.frameAsset!.isNotEmpty) {
-                    if (frame!.frameAsset!.endsWith('.svg')) {
-                      return SvgPicture.asset(
-                        frame!.frameAsset!,
-                        fit: BoxFit.contain,
-                      );
-                    }
-                    // ✅ PNG/WebP asset
-                    return Image.asset(
-                      frame!.frameAsset!,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                    );
-                  }
-
-                  return const SizedBox.shrink();
-                },
-              ),
-            ),
-          ),
-
-          // ✅ AVATAR (TOP — smaller, visible inside frame)
           SizedBox(
             width: avatarSize,
             height: avatarSize,
-            child: ClipOval(
-              child: _avatarChild(),
-            ),
+            child: ClipOval(child: _avatarChild()),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(child: _frameChild()),
           ),
         ],
       ),
     );
   }
 
-  Widget _avatarChild() {
-    if (imageUrl != null && imageUrl!.isNotEmpty) {
+  Widget _frameChild() {
+    if (frame == null) return const SizedBox.shrink();
+
+    final remoteUrl = frame!.url;
+    if (remoteUrl != null && remoteUrl.isNotEmpty) {
+      final url = _absoluteUrl(remoteUrl);
+      if (url.toLowerCase().endsWith('.svg')) {
+        return SvgPicture.network(url, fit: BoxFit.contain);
+      }
       return Image.network(
-        imageUrl!,
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      );
+    }
+
+    final asset = frame!.frameAsset;
+    if (asset != null && asset.isNotEmpty) {
+      if (asset.toLowerCase().endsWith('.svg')) {
+        return SvgPicture.asset(asset, fit: BoxFit.contain);
+      }
+      return Image.asset(
+        asset,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _avatarChild() {
+    final url = imageUrl;
+    if (url != null && url.isNotEmpty) {
+      return Image.network(
+        _absoluteUrl(url),
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _fallback(),
       );
@@ -191,5 +161,11 @@ class FramedAvatar extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _absoluteUrl(String raw) {
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    if (!raw.startsWith('/')) return raw;
+    return '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '')}$raw';
   }
 }

@@ -10,25 +10,28 @@ const gifts = [
   { name: 'Car', nameAr: 'سيارة', imageUrl: '/gifts/car.png', animationUrl: null, priceCoins: 1500, coinsValue: 1500, sortOrder: 5, category: 'arabic', isActive: true },
   { name: 'Plane', nameAr: 'طيارة', imageUrl: '/gifts/plane.png', animationUrl: null, priceCoins: 5000, coinsValue: 5000, sortOrder: 6, category: 'arabic', isActive: true },
   { name: 'Castle', nameAr: 'قصر', imageUrl: '/gifts/castle.png', animationUrl: null, priceCoins: 9000, coinsValue: 9000, sortOrder: 7, category: 'arabic', isActive: true },
-  { name: 'Yacht', nameAr: 'يخت', imageUrl: '/gifts/yacht.png', animationUrl: null, priceCoins: 12000, coinsValue: 12000, sortOrder: 8, category: 'arabic', isActive: true }
+  { name: 'Yacht', nameAr: 'يخت', imageUrl: '/gifts/yacht.png', animationUrl: null, priceCoins: 12000, coinsValue: 12000, sortOrder: 8, category: 'arabic', isActive: true },
 ];
 
 async function seedGifts() {
-  console.log('🎁 Starting gift seeding...');
+  console.log('Starting gift seeding...');
   try {
     await prisma.gift.deleteMany({});
-    console.log('✅ Cleared existing gifts');
+    console.log('Cleared existing gifts');
     for (const gift of gifts) {
       await prisma.gift.create({ data: gift });
-      console.log(`✅ Created: ${gift.name} (${gift.priceCoins} coins)`);
+      console.log(`Created: ${gift.name} (${gift.priceCoins} coins)`);
     }
-    console.log(`\n🎉 Successfully seeded ${gifts.length} gifts!`);
+    console.log(`Successfully seeded ${gifts.length} gifts.`);
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('Gift seed error:', error);
     throw error;
   } finally {
     await prisma.$disconnect();
   }
 }
 
-seedGifts().catch((error) => { console.error(error); process.exit(1); });
+seedGifts().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

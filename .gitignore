@@ -5,3 +5,6 @@ build
 uploads
 logs
 *.log
+*.zip
+*.ppk
+*.key

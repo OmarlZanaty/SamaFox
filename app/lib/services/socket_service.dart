@@ -39,6 +39,10 @@ class SocketService {
   StreamController<GiftSentEvent>.broadcast();
 
   Stream<GiftSentEvent> get giftStream => _giftController.stream;
+  final StreamController<Map<String, dynamic>> _globalGiftBroadcastController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get globalGiftBroadcastStream =>
+      _globalGiftBroadcastController.stream;
 
   final _typingController = StreamController<TypingEvent>.broadcast();
   Stream<TypingEvent> get typingStream => _typingController.stream;
@@ -682,6 +686,16 @@ class SocketService {
       }
     });
 
+    _socket!.on('global_gift_broadcast', (data) {
+      try {
+        if (data is Map) {
+          _globalGiftBroadcastController.add(Map<String, dynamic>.from(data));
+        }
+      } catch (e) {
+        AppLogger.error('Global gift broadcast parse error: $e');
+      }
+    });
+
     // Chat
     _socket!.on('new_message', (data) {
       try {
@@ -891,6 +905,7 @@ class SocketService {
     _seatUpdateController.close();
     _roomStateController.close();
     _giftController.close();
+    _globalGiftBroadcastController.close();
     _micQueueController.close();
     _voiceUsersController.close(); // ✅ ADD
     _approveMicController.close();
@@ -1176,7 +1191,7 @@ class SeatData {
       userId: rawUserId == null ? null : toInt(rawUserId),
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
-      avatarFrameUrl: (json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(), // ✅ NEW
+      avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),
       level: toInt(json['level']),
       isMuted: rawMuted == true || rawMuted?.toString() == 'true',
       isLocked: rawLocked == true || rawLocked?.toString() == 'true',
