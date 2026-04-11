@@ -1,6 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
+import { createNotification } from './notification.service';
 
 
 interface AuthenticatedSocket extends Socket {
@@ -1045,6 +1046,16 @@ await emitRoomState(io, rid);
     });
 
     const createdLog = result.createdLog;
+    if (recvId != null && recvId !== senderId) {
+      await createNotification({
+        userId: recvId,
+        actorId: senderId,
+        type: 'gift_received',
+        title: 'You received a gift',
+        body: `${createdLog.sender.name} sent you ${qty} × ${createdLog.gift.nameAr || createdLog.gift.name}`,
+        data: { giftId: gid, giftLogId: createdLog.id, quantity: qty, roomId: rid },
+      });
+    }
 
     if (recvId != null) {
       try {
