@@ -977,7 +977,16 @@ await emitRoomState(io, rid);
 
     const createdLog = result.createdLog;
 
-    
+    if (recvId != null) {
+      const membership = await (prisma as any).agencyMember.findFirst({ where: { userId: recvId, agency: { type: 'HOSTING' } } });
+      if (membership) {
+        await (prisma as any).chargingAgency.update({
+          where: { id: membership.agencyId },
+          data: { earnedCoins: { increment: totalCost } },
+        });
+      }
+    }
+
   const payload = {
   roomId: rid,
   type: 'sent',
