@@ -1,112 +1,104 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import '../models/InventoryItem.dart';
+import 'dio_client.dart';
 
 class StoreService {
-  final String baseUrl = "http://54.254.79.239:3000/api/v1";
-
   Future<List<InventoryItem>> getInventory(String token) async {
-    final res = await http.get(
-      Uri.parse("$baseUrl/store/inventory"),
-      headers: {
-        "Authorization": "Bearer $token",
-      },
-    );
+    try {
+      final res = await DioClient.dio.get(
+        '/store/inventory',
+        options: token.isNotEmpty
+            ? Options(headers: {'Authorization': 'Bearer $token'})
+            : null,
+      );
 
-    final body = jsonDecode(res.body);
+      final body = res.data;
+      final list = (body is Map)
+          ? (body['data'] ?? body['products'] ?? body['items'] ?? const [])
+          : const [];
 
-    print("FULL BODY: $body");
-
-
-    print("STORE BODY: $body");
-
-    final list = body['data'] ?? body['products'] ?? [];
-
-    return List.from(list)
-        .map((e) => InventoryItem.fromJson(e))
-        .toList();
+      return List.from(list)
+          .map((e) => InventoryItem.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (e) {
+      // Prevent unhandled exceptions from breaking room flow when network is flaky.
+      print('StoreService.getInventory error: $e');
+      return <InventoryItem>[];
+    }
   }
 
   Future<void> buyProduct(String token, String productId) async {
-    final res = await http.post(
-      Uri.parse("$baseUrl/store/buy"),
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
-      body: jsonEncode({
-        "productId": productId,
-      }),
-    );
-
-    if (res.statusCode != 200) {
-      final body = jsonDecode(res.body);
-      throw Exception(body['message'] ?? "Buy failed");
+    try {
+      final res = await DioClient.dio.post(
+        '/store/buy',
+        data: {'productId': productId},
+        options: token.isNotEmpty
+            ? Options(headers: {'Authorization': 'Bearer $token'})
+            : null,
+      );
+      final body = res.data;
+      final success = body is Map ? (body['success'] == true) : false;
+      if (!success) {
+        throw Exception(body is Map ? (body['message'] ?? 'Buy failed') : 'Buy failed');
+      }
+    } catch (e) {
+      throw Exception('Buy failed: $e');
     }
   }
 
   Future<void> activateItem(String token, String inventoryId) async {
-    final res = await http.post(
-      Uri.parse("$baseUrl/store/activate"),
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
-        body: jsonEncode({
-          "inventoryId": inventoryId,
-        })
+    await DioClient.dio.post(
+      '/store/activate',
+      data: {'inventoryId': inventoryId},
+      options: token.isNotEmpty
+          ? Options(headers: {'Authorization': 'Bearer $token'})
+          : null,
     );
-
-    if (res.statusCode != 200) {
-      throw Exception("Activation failed");
-    }
   }
 
   Future<void> activateFrame(String token, String inventoryId) async {
-    final res = await http.post(
-      Uri.parse("$baseUrl/store/activate-frame"),
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
-      body: jsonEncode({
-        "itemId": inventoryId,
-      }),
+    await DioClient.dio.post(
+      '/store/activate-frame',
+      data: {'itemId': inventoryId},
+      options: token.isNotEmpty
+          ? Options(headers: {'Authorization': 'Bearer $token'})
+          : null,
     );
-
-    if (res.statusCode != 200) {
-      throw Exception("Frame activation failed");
-    }
   }
 
   Future<void> deactivateFrame(String token) async {
-    final res = await http.post(
-      Uri.parse("$baseUrl/store/deactivate-frame"),
-      headers: {
-        "Authorization": "Bearer $token",
-        "Content-Type": "application/json",
-      },
+    await DioClient.dio.post(
+      '/store/deactivate-frame',
+      options: token.isNotEmpty
+          ? Options(headers: {'Authorization': 'Bearer $token'})
+          : null,
     );
-
-    if (res.statusCode != 200) {
-      throw Exception("Frame deactivation failed");
-    }
   }
 
   Future<List<Map<String, dynamic>>> getMyFrames(String token) async {
-    final res = await http.get(
-      Uri.parse("$baseUrl/store/my-frames"),
-      headers: {
-        "Authorization": "Bearer $token",
-      },
-    );
-
-    if (res.statusCode != 200) {
-      throw Exception("Failed to load frames");
+    try {
+      final res = await DioClient.dio.get(
+        '/store/my-frames',
+        options: token.isNotEmpty
+            ? Options(headers: {'Authorization': 'Bearer $token'})
+            : null,
+      );
+      final body = res.data;
+      final raw = (body is Map)
+          ? ((body['data'] as List?) ?? (body['frames'] as List?) ?? const [])
+          : const [];
+      return raw
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .map((m) => <String, dynamic>{
+                'id': m['id'] ?? m['itemId'],
+                'name': m['name'] ?? m['title'],
+                'imageUrl': m['imageUrl'] ?? m['assetUrl'] ?? m['file_url'],
+                'isActive': m['isActive'] ?? m['is_active'] ?? false,
+              })
+          .toList();
+    } catch (e) {
+      print('StoreService.getMyFrames error: $e');
+      return <Map<String, dynamic>>[];
     }
-
-    final body = jsonDecode(res.body) as Map<String, dynamic>;
-    final raw = (body['data'] as List?) ?? const [];
-    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 }
