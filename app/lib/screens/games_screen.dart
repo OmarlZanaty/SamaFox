@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'games/dice_game_screen.dart';
+import 'games/roulette_screen.dart';
 
 
 /// Games Screen - Displays available games in decorative cards
@@ -89,12 +89,11 @@ class _GameCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        // Navigate to Greedy Dice game if it's the Greedy Dice card
-        if (game.name == 'Greedy Dice') {
+        if (game.id == 'roulette') {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => const DiceGameScreen(),
+              builder: (context) => const RouletteScreen(),
             ),
           );
         } else {
@@ -218,17 +217,10 @@ class GameItem {
 // Games list matching the image
 final List<GameItem> games = [
   GameItem(
-    id: 'tic',
-    name: 'إكس أو',
-    icon: Icons.grid_3x3,
-    gradientColors: [Color(0xFF795548), Color(0xFF3E2723)],
-    borderColor: Color(0xFFFFD700),
-  ),
-  GameItem(
-    id: 'dice',
-    name: 'نرد التحدي',
+    id: 'roulette',
+    name: 'روليت',
     icon: Icons.casino_outlined,
-    gradientColors: [Color(0xFF6D4C41), Color(0xFF4E342E)],
+    gradientColors: [Color(0xFF6B21A8), Color(0xFF1a0533)],
     borderColor: Color(0xFFFFD700),
   ),
   GameItem(
@@ -283,4 +275,3 @@ final List<GameItem> games = [
     borderColor: Color(0xFFFFD700),
   ),
 ];
-
