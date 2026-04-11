@@ -363,7 +363,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
-              'ID: ${user.id}',
+              '#${user.publicDisplayId}',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 16,

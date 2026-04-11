@@ -1123,6 +1123,7 @@ class RoomSeatsState {
 class SeatData {
   final int seatNumber;
   final int? userId;
+  final int? displayId;
   final String? username;
   final String? avatarUrl;
   final String? avatarFrameUrl; // ✅ NEW
@@ -1134,6 +1135,7 @@ class SeatData {
   SeatData({
     required this.seatNumber,
     required this.userId,
+    this.displayId,
     required this.username,
     required this.avatarUrl,
     this.avatarFrameUrl, // ✅ NEW
@@ -1146,6 +1148,7 @@ class SeatData {
   factory SeatData.empty(int seatNumber) => SeatData(
     seatNumber: seatNumber,
     userId: null,
+    displayId: null,
     username: null,
     avatarUrl: null,
     avatarFrameUrl: null, // ✅ NEW
@@ -1157,6 +1160,7 @@ class SeatData {
 
   SeatData copyWith({
     int? userId,
+    int? displayId,
     String? username,
     String? avatarUrl,
     String? avatarFrameUrl,
@@ -1168,6 +1172,7 @@ class SeatData {
     return SeatData(
       seatNumber: seatNumber,
       userId: userId ?? this.userId,
+      displayId: displayId ?? this.displayId,
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
@@ -1189,6 +1194,9 @@ class SeatData {
     return SeatData(
       seatNumber: seatNum,
       userId: rawUserId == null ? null : toInt(rawUserId),
+      displayId: (json['displayId'] ?? json['display_id'] ?? json['userDisplayId']) == null
+          ? null
+          : toInt(json['displayId'] ?? json['display_id'] ?? json['userDisplayId']),
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
       avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),

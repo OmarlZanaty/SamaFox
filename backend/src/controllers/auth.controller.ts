@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
+import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -51,6 +52,31 @@ const formatUserResponse = (user: any) => {
   return safe;
 };
 
+async function createUserWithDisplayId(
+  tx: Prisma.TransactionClient,
+  userData: Omit<Prisma.UserCreateInput, 'displayId'>,
+) {
+  const seq = await tx.userIdSequence.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, nextId: 10000 },
+  });
+
+  let candidate = seq.nextId;
+  for (let attempts = 0; attempts < 200; attempts++) {
+    const taken = await tx.user.findUnique({ where: { displayId: candidate } });
+    if (!taken) break;
+    candidate++;
+  }
+
+  await tx.userIdSequence.update({
+    where: { id: 1 },
+    data: { nextId: candidate + 1 },
+  });
+
+  return tx.user.create({ data: { ...userData, displayId: candidate } });
+}
+
 // ------------------------------------
 // Register (email + password)
 // ------------------------------------
@@ -71,8 +97,8 @@ export const register = async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const user = await prisma.user.create({
-      data: {
+    const user = await prisma.$transaction(async (tx) => {
+      return createUserWithDisplayId(tx, {
         name,
         email,
         phone: phone || null,
@@ -81,7 +107,7 @@ export const register = async (req: Request, res: Response) => {
         countryCode: countryCode?.toUpperCase() || null,
         country: country || null,
         isVerified: false,
-      },
+      });
     });
 
     const { accessToken, refreshToken } = generateTokens(user.id);
@@ -178,15 +204,15 @@ export const googleLogin = async (req: Request, res: Response) => {
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      user = await prisma.user.create({
-        data: {
+      user = await prisma.$transaction(async (tx) => {
+        return createUserWithDisplayId(tx, {
           email,
           name,
           avatarUrl: picture,
           googleId: googleSub,
           isVerified: true,
           lastLoginAt: new Date(),
-        },
+        });
       });
     } else {
       user = await prisma.user.update({

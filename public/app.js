@@ -20,6 +20,8 @@ let lastTransactionsRows = [];
 let lastTopupsRows = [];
 let lastReportsRows = [];
 let lastLeaderboardRows = [];
+let changeIdUserId = null;
+let changeIdTargetCell = null;
 
 // ============================================================
 // NAVIGATION
@@ -172,6 +174,36 @@ document.getElementById('confirmYesBtn')?.addEventListener('click', async () => 
   try { if (confirmHandler) await confirmHandler(); } finally { closeConfirmModal(); }
 });
 
+window.openDisplayIdModal = function(userId, btnEl) {
+  changeIdUserId = Number(userId);
+  changeIdTargetCell = btnEl?.closest('tr')?.querySelector('.js-display-id') || null;
+  const input = document.getElementById('newDisplayIdInput');
+  if (input) input.value = '';
+  document.getElementById('displayIdModal')?.classList.remove('hidden');
+};
+window.closeDisplayIdModal = function() {
+  document.getElementById('displayIdModal')?.classList.add('hidden');
+  changeIdUserId = null;
+  changeIdTargetCell = null;
+};
+window.confirmDisplayIdChange = async function() {
+  const input = document.getElementById('newDisplayIdInput');
+  const newDisplayId = Number(input?.value || 0);
+  if (!changeIdUserId) return;
+  if (!newDisplayId || newDisplayId < 10000) {
+    showToast('displayId must be >= 10000');
+    return;
+  }
+  try {
+    await apiFetch(`/admin-dashboard/users/${changeIdUserId}/display-id`, 'PATCH', { newDisplayId });
+    if (changeIdTargetCell) changeIdTargetCell.textContent = `#${newDisplayId}`;
+    showToast('تم تحديث رقم المستخدم');
+    closeDisplayIdModal();
+  } catch (e) {
+    showToast(e?.message || 'فشل تحديث رقم المستخدم');
+  }
+};
+
 
 
 function statusBadge(s) {
@@ -192,8 +224,15 @@ function statusText(s) {
 // ============================================================
 // API FETCH (cookie-based)
 // ============================================================
-async function apiFetch(path, opts = {}) {
-  return fetchWithBaseFallback(path, opts);
+async function apiFetch(path, methodOrOpts = {}, body) {
+  if (typeof methodOrOpts === "string") {
+    return fetchWithBaseFallback(path, {
+      method: methodOrOpts,
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: body == null ? undefined : JSON.stringify(body),
+    });
+  }
+  return fetchWithBaseFallback(path, methodOrOpts);
 }
 
 // ============================================================
@@ -259,8 +298,10 @@ async function loadUsers() {
   lastUsersRows = rows;
   for (const u of rows) {
     const tr = document.createElement("tr");
+    const displayIdValue = Number(u.displayId || 0) >= 10000 ? `#${u.displayId}` : "—";
     tr.innerHTML = `
       <td><span class="cell-id">${escapeHtml(u.id ?? "")}</span></td>
+      <td><span class="cell-id js-display-id">${escapeHtml(displayIdValue)}</span></td>
       <td>${escapeHtml(u.name ?? "")}</td>
       <td><span class="cell-muted">${escapeHtml(u.email ?? "")}</span></td>
       <td><span class="cell-muted">${escapeHtml(u.phone ?? "")}</span></td>
@@ -270,6 +311,7 @@ async function loadUsers() {
       <td>
         <div class="td-actions">
           <button class="btn-ok" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}')">+ كوينز</button>
+          <button class="btn-outline" onclick="openDisplayIdModal(${Number(u.id || 0)}, this)">Change ID</button>
           <button class="btn-bad" onclick="toggleUserBan(${u.id}, ${u.isBanned ? "false" : "true"})">${u.isBanned ? "فك حظر" : "حظر"}</button>
         </div>
       </td>

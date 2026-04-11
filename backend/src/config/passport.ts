@@ -1,6 +1,32 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
+
+async function createUserWithDisplayId(
+  tx: Prisma.TransactionClient,
+  userData: Omit<Prisma.UserCreateInput, 'displayId'>,
+) {
+  const seq = await tx.userIdSequence.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, nextId: 10000 },
+  });
+
+  let candidate = seq.nextId;
+  for (let attempts = 0; attempts < 200; attempts++) {
+    const taken = await tx.user.findUnique({ where: { displayId: candidate } });
+    if (!taken) break;
+    candidate++;
+  }
+
+  await tx.userIdSequence.update({
+    where: { id: 1 },
+    data: { nextId: candidate + 1 },
+  });
+
+  return tx.user.create({ data: { ...userData, displayId: candidate } });
+}
 
 // Google OAuth Strategy
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
@@ -41,8 +67,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
             // Create new user if doesn't exist
             if (!user) {
-              user = await prisma.user.create({
-                data: {
+              user = await prisma.$transaction(async (tx) => {
+                return createUserWithDisplayId(tx, {
                   googleId: profile.id,
                   email: profile.emails?.[0]?.value,
                   name: profile.displayName || 'User',
@@ -52,7 +78,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
                   coinsBalance: 100, // Welcome bonus
                   vipLevel: 0,
                   isAdmin: false
-                }
+                });
               });
             }
           }

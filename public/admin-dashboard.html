@@ -196,6 +196,7 @@
           <thead>
             <tr>
               <th>المعرف</th>
+              <th>Display ID</th>
               <th>الاسم</th>
               <th>الإيميل</th>
               <th>الهاتف</th>
@@ -488,6 +489,24 @@
     <div class="modal-actions">
       <button class="btn btn-primary" id="confirmYesBtn">تأكيد</button>
       <button class="btn btn-outline" onclick="closeConfirmModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="displayIdModal" onclick="closeDisplayIdModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">Change User Display ID</h3>
+        <p class="modal-sub">Enter new ID (10000 or higher)</p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <input id="newDisplayIdInput" class="form-input" type="number" min="10000" placeholder="10042" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeDisplayIdModal()">إلغاء</button>
+      <button class="btn btn-primary" onclick="confirmDisplayIdChange()">حفظ</button>
     </div>
   </div>
 </div>
