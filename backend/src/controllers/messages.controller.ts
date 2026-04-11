@@ -219,18 +219,6 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
     createdAt: created.createdAt.toISOString(),
     sender: created.sender ?? null,
   });
-
-  return res.json({
-    id: created.id,
-    conversationId: created.conversationId,
-    senderId: created.senderId,
-    text: created.text,
-    imageUrl: created.imageUrl,
-    audioUrl: (created as any).audioUrl ?? null,
-    type: created.type,
-    createdAt: created.createdAt.toISOString(),
-    sender: created.sender,
-  });
 }
 
 // ✅ Mark read (updates lastReadAt)
