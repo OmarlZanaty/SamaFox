@@ -101,10 +101,17 @@ export const getRoomById = async (req: Request, res: Response) => {
             id: true,
             name: true,
             avatarUrl: true,
+            displayId: true,
             level: true,
             vipLevel: true,
             activeFrameId: true,
-            avatarFrameUrl: true,
+            activeFrame: {
+              select: {
+                id: true,
+                assetUrl: true,
+                name: true,
+              },
+            },
           },
         },
         members: {
@@ -114,8 +121,15 @@ export const getRoomById = async (req: Request, res: Response) => {
                 id: true,
                 name: true,
                 avatarUrl: true,
-                avatarFrameUrl: true,
+                displayId: true,
                 activeFrameId: true,
+                activeFrame: {
+                  select: {
+                    id: true,
+                    assetUrl: true,
+                    name: true,
+                  },
+                },
                 level: true,
                 vipLevel: true,
               },
@@ -136,8 +150,9 @@ export const getRoomById = async (req: Request, res: Response) => {
         id: m.user.id,
         name: m.user.name,
         avatarUrl: m.user.avatarUrl,
+        displayId: m.user.displayId,
         activeFrameId: m.user.activeFrameId,
-        frameImageUrl: m.user.avatarFrameUrl,
+        frameImageUrl: m.user.activeFrame?.assetUrl ?? null,
       },
     }));
 
@@ -150,7 +165,7 @@ export const getRoomById = async (req: Request, res: Response) => {
       type: room.type,
       maxSeats: room.maxSeats,
       owner: room.owner,
-      ownerFrameImageUrl: room.owner.avatarFrameUrl,
+      ownerFrameImageUrl: room.owner.activeFrame?.assetUrl ?? null,
       membersCount: room._count.members,
       members: room.members.map(m => ({
         userId: m.userId,

@@ -24,12 +24,15 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
   String selectedType = "seat_effect"; // Default tab
   Set<String> ownedIds = {};
   bool loadingInventory = true;
+  bool loadingFrames = false;
+  List<Map<String, dynamic>> myFrames = [];
 
 
   @override
   void initState() {
     super.initState();
     loadOwnedItems();
+    loadMyFrames();
   }
 
   Future<void> loadOwnedItems() async {
@@ -46,6 +49,50 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
     } catch (e) {
       print(e);
       setState(() => loadingInventory = false);
+    }
+  }
+
+  Future<void> loadMyFrames() async {
+    try {
+      setState(() => loadingFrames = true);
+      final token = await StorageService.getAccessToken();
+      if (token == null) return;
+      final service = StoreService();
+      final frames = await service.getMyFrames(token);
+      setState(() {
+        myFrames = frames;
+      });
+    } catch (e) {
+      print(e);
+    } finally {
+      if (mounted) setState(() => loadingFrames = false);
+    }
+  }
+
+  Future<void> toggleFrame(Map<String, dynamic> frame) async {
+    try {
+      final token = await StorageService.getAccessToken();
+      if (token == null) return;
+      final service = StoreService();
+      final isActive = frame['isActive'] == true;
+
+      if (isActive) {
+        await service.deactivateFrame(token);
+      } else {
+        await service.activateFrame(token, frame['id'].toString());
+      }
+
+      await loadMyFrames();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(isActive ? "تم إلغاء التفعيل" : "تم التفعيل")),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     }
   }
 
@@ -70,9 +117,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
       ),
       data: (products) {
         // Filter products based on selected tab
-        final filtered = products
-            .where((p) => p.type == selectedType)
-            .toList();
+        final filtered = products.where((p) => p.type == selectedType).toList();
 
         return Scaffold(
           backgroundColor: const Color(0xFF0D0620),
@@ -135,6 +180,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                       children: [
                         _buildTab("مركبة", "seat_effect"),
                         _buildTab("إطارات", "avatar_frame"),
+                        _buildTab("الإطارات", "frames"),
                       ],
                     ),
 
@@ -142,22 +188,24 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
 
                     /// ✅ GRID
                     Expanded(
-                      child: GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 120), // 👈 IMPORTANT
-                        itemCount: filtered.length,
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 16,
-                          crossAxisSpacing: 16,
-                          childAspectRatio: 0.6,
-                        ),
-                        itemBuilder: (context, index) {
-                          return StoreProductTile(
-                            product: filtered[index],
-                            isOwned: ownedIds.contains(filtered[index].id.toString()),
-                          );
-                        },
-                      ),
+                      child: selectedType == "frames"
+                          ? _buildFramesGrid()
+                          : GridView.builder(
+                              padding: const EdgeInsets.fromLTRB(12, 12, 12, 120), // 👈 IMPORTANT
+                              itemCount: filtered.length,
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisSpacing: 16,
+                                crossAxisSpacing: 16,
+                                childAspectRatio: 0.6,
+                              ),
+                              itemBuilder: (context, index) {
+                                return StoreProductTile(
+                                  product: filtered[index],
+                                  isOwned: ownedIds.contains(filtered[index].id.toString()),
+                                );
+                              },
+                            ),
                     ),
                   ],
                 ),
@@ -227,6 +275,84 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
           )
         ],
       ),
+    );
+  }
+
+  Widget _buildFramesGrid() {
+    if (loadingFrames) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (myFrames.isEmpty) {
+      return const Center(
+        child: Text("لا توجد إطارات مملوكة بعد", style: TextStyle(color: Colors.white70)),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 120),
+      itemCount: myFrames.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        childAspectRatio: 0.72,
+      ),
+      itemBuilder: (_, index) {
+        final frame = myFrames[index];
+        final isActive = frame['isActive'] == true;
+        return Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A0E3E),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isActive ? Colors.greenAccent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              if (isActive)
+                const Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(Icons.check_circle, color: Colors.greenAccent),
+                  ),
+                ),
+              Expanded(
+                child: Image.network(
+                  (frame['imageUrl'] ?? '').toString(),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  (frame['name'] ?? '').toString(),
+                  style: const TextStyle(color: Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: ElevatedButton(
+                  onPressed: () => toggleFrame(frame),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isActive ? Colors.redAccent : const Color(0xFF8E44AD),
+                    minimumSize: const Size(double.infinity, 36),
+                  ),
+                  child: Text(isActive ? "إلغاء التفعيل" : "تفعيل"),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -373,4 +499,3 @@ class _StoreProductTileState extends State<StoreProductTile> {
     );
   }
 }
-

@@ -164,51 +164,84 @@ router.post("/activate", async (req: any, res) => {
 router.post("/activate-frame", async (req: any, res) => {
   try {
     const userId = req.userId!;
-    const { inventoryId, itemId } = req.body;
+    const { itemId } = req.body;
 
-    const targetInventoryId = String(inventoryId || "");
-    const targetItemId = String(itemId || "");
+    if (!itemId) {
+      return res.status(400).json({ success: false, message: "itemId required" });
+    }
 
     const userItem = await prisma.userItem.findFirst({
       where: {
         userId,
-        ...(targetInventoryId
-          ? { id: targetInventoryId }
-          : targetItemId
-            ? { itemId: targetItemId }
-            : {}),
+        itemId: String(itemId),
       },
       include: { item: true },
     });
 
-    if (!userItem) return res.status(404).json({ message: "الإطار غير مملوك" });
-    if (!["AVATAR_FRAME", "avatar_frame", "FRAME"].includes(userItem.item.type)) {
-      return res.status(400).json({ message: "العنصر ليس إطاراً" });
+    if (!userItem) return res.status(404).json({ success: false, message: "Item not owned" });
+    if (userItem.item.itemType !== "FRAME") {
+      return res.status(400).json({ success: false, message: "Item is not a frame" });
     }
 
-    await prisma.$transaction([
-      prisma.userItem.updateMany({
-        where: {
-          userId,
-          item: { type: { in: ["AVATAR_FRAME", "avatar_frame", "FRAME"] } },
-        },
-        data: { isActive: false },
-      }),
-      prisma.userItem.update({ where: { id: userItem.id }, data: { isActive: true } }),
-      prisma.user.update({
-        where: { id: userId },
-        data: { activeFrameId: userItem.item.id, avatarFrameUrl: userItem.item.assetUrl },
-      }),
-    ]);
-
-    return res.json({
-      success: true,
-      activeFrameId: userItem.item.id,
-      frameImageUrl: userItem.item.assetUrl,
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        activeFrameId: String(itemId),
+        avatarFrameUrl: userItem.item.assetUrl,
+      },
+      select: { id: true, activeFrameId: true },
     });
+
+    return res.json({ success: true, data: updated });
   } catch (e) {
     console.error("ACTIVATE FRAME ERROR:", e);
     return res.status(500).json({ message: "خطأ في تفعيل الإطار" });
+  }
+});
+
+router.post("/deactivate-frame", async (req: any, res) => {
+  try {
+    const userId = req.userId!;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { activeFrameId: null, avatarFrameUrl: null },
+    });
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("DEACTIVATE FRAME ERROR:", e);
+    return res.status(500).json({ success: false, message: "Failed to deactivate frame" });
+  }
+});
+
+router.get("/my-frames", async (req: any, res) => {
+  try {
+    const userId = req.userId!;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { activeFrameId: true },
+    });
+
+    const items = await prisma.userItem.findMany({
+      where: {
+        userId,
+        item: { itemType: "FRAME" },
+      },
+      include: { item: true },
+    });
+
+    return res.json({
+      success: true,
+      data: items.map((i) => ({
+        id: i.item.id,
+        name: i.item.name,
+        imageUrl: i.item.assetUrl,
+        priceCoins: i.item.priceCoins,
+        isActive: i.item.id === user?.activeFrameId,
+      })),
+    });
+  } catch (e) {
+    console.error("MY FRAMES ERROR:", e);
+    return res.status(500).json({ success: false, message: "Failed to load frames" });
   }
 });
 
