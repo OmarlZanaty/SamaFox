@@ -1,30 +1,34 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
 import '../models/InventoryItem.dart';
+import 'dio_client.dart';
 
 class StoreService {
   final String baseUrl = "http://54.254.79.239:3000/api/v1";
 
   Future<List<InventoryItem>> getInventory(String token) async {
-    final res = await http.get(
-      Uri.parse("$baseUrl/store/inventory"),
-      headers: {
-        "Authorization": "Bearer $token",
-      },
-    );
+    try {
+      final res = await DioClient.dio.get(
+        '/store/inventory',
+        options: token.isNotEmpty
+            ? Options(headers: {'Authorization': 'Bearer $token'})
+            : null,
+      );
 
-    final body = jsonDecode(res.body);
+      final body = res.data;
+      final list = (body is Map)
+          ? (body['data'] ?? body['products'] ?? const [])
+          : const [];
 
-    print("FULL BODY: $body");
-
-
-    print("STORE BODY: $body");
-
-    final list = body['data'] ?? body['products'] ?? [];
-
-    return List.from(list)
-        .map((e) => InventoryItem.fromJson(e))
-        .toList();
+      return List.from(list)
+          .map((e) => InventoryItem.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (e) {
+      // Prevent unhandled exceptions from breaking room flow when network is flaky.
+      print('StoreService.getInventory error: $e');
+      return <InventoryItem>[];
+    }
   }
 
   Future<void> buyProduct(String token, String productId) async {

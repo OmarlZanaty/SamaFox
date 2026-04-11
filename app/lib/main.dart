@@ -94,7 +94,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final locale = ref.watch(localizationProvider);
 
     return MaterialApp(
