@@ -19,6 +19,7 @@ class Product {
     String normalizeType(String? type) {
       if (type == "ENTRANCE_EFFECT") return "seat_effect";
       if (type == "PROFILE_FRAME") return "avatar_frame";
+      if (type == "FRAME") return "avatar_frame";
       return type ?? "";
     }
 

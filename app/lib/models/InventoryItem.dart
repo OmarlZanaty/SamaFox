@@ -27,6 +27,7 @@ class InventoryItem {
         normalizedType = "seat_effect";
         break;
       case "PROFILE_FRAME":
+      case "FRAME":
         normalizedType = "avatar_frame";
         break;
       default:
