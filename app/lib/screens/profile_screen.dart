@@ -7,9 +7,6 @@ import 'package:samafox/screens/store_screen.dart';
 import '../models/InventoryItem.dart';
 import '../providers/auth_provider.dart';
 import '../models/user.dart';
-import 'package:dio/dio.dart';
-import '../services/api_service.dart';
-import '../services/dio_client.dart';
 import '../services/store_service.dart';
 import '../utils/storage_service.dart';
 import '../widgets/FramedAvatar.dart';
@@ -137,9 +134,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       );
 
       if (activatedItem.type == "avatar_frame" || activatedItem.type == "FRAME") {
-        await _service.activateFrame(token!, productId);
+        // Use inventory activation endpoint for compatibility.
+        await _service.activateItem(token!, activatedItem.id);
       } else {
-        await _service.activateItem(token!, productId);
+        await _service.activateItem(token!, activatedItem.id);
       }
 
       // ✅ SEAT EFFECT
@@ -153,16 +151,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
       // ✅ AVATAR FRAME
       else if (activatedItem.type == "avatar_frame" || activatedItem.type == "FRAME") {
-
-        // 🔥 SAVE TO BACKEND
-        await DioClient.dio.put(
-          "/users/me",
-          data: {
-            "avatarFrameUrl": Uri.encodeFull(activatedItem.fileUrl),
-          },
-        );
-
-        // 🔥 APPLY LOCALLY (IMPORTANT)
         setState(() {
           activeFrame = activatedItem;
         });

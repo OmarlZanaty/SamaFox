@@ -68,17 +68,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     setState(() => _isSearching = true);
 
     try {
-      final response = await DioClient.dio.get(
-        '/search',
-        queryParameters: {'q': q, 'type': 'all'},
-      );
-
-      final data = response.data;
-      final list = (data is Map<String, dynamic> ? data['data'] : null) as List?;
-      final parsed = (list ?? [])
-          .whereType<Map>()
-          .map((e) => SearchResult.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
+      final parsed = await _searchWithFallback(q);
 
       if (!mounted) return;
       setState(() {
@@ -89,6 +79,96 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
       if (!mounted) return;
       setState(() => _isSearching = false);
     }
+  }
+
+  Future<List<SearchResult>> _searchWithFallback(String q) async {
+    final rows = <Map<String, dynamic>>[];
+
+    try {
+      final usersResp = await DioClient.dio.get(
+        '/users/search',
+        queryParameters: {'query': q},
+      );
+      final usersRaw = (usersResp.data is Map)
+          ? ((usersResp.data['users'] as List?) ?? const [])
+          : const [];
+      rows.addAll(usersRaw.whereType<Map>().map((m) => {
+            'type': 'user',
+            'id': m['id'],
+            'name': m['name'],
+            'imageUrl': m['avatarUrl'],
+            'subtitle': m['displayId'] != null ? '#${m['displayId']}' : null,
+          }));
+    } catch (_) {}
+
+    final numericId = int.tryParse(q);
+    if (numericId != null && numericId > 0) {
+      try {
+        final u = await DioClient.dio.get('/users/$numericId');
+        final payload = u.data;
+        final user = payload is Map ? (payload['user'] ?? payload) : null;
+        if (user is Map) {
+          rows.add({
+            'type': 'user',
+            'id': user['id'],
+            'name': user['name'],
+            'imageUrl': user['avatarUrl'],
+            'subtitle': user['displayId'] != null ? '#${user['displayId']}' : null,
+          });
+        }
+      } catch (_) {}
+    }
+
+    try {
+      final roomsResp = await DioClient.dio.get('/rooms', queryParameters: {'limit': 100});
+      final roomsRaw = (roomsResp.data is Map)
+          ? ((roomsResp.data['rooms'] as List?) ?? const [])
+          : const [];
+      final queryLower = q.toLowerCase();
+      rows.addAll(
+        roomsRaw.whereType<Map>().where((r) {
+          final name = (r['name'] ?? '').toString().toLowerCase();
+          final id = (r['id'] ?? '').toString();
+          return name.contains(queryLower) || id == q;
+        }).map((r) => {
+              'type': 'room',
+              'id': r['id'],
+              'name': r['name'],
+              'imageUrl': r['coverImageUrl'],
+              'subtitle': null,
+            }),
+      );
+    } catch (_) {}
+
+    try {
+      final convResp = await DioClient.dio.get('/messages/conversations');
+      final raw = (convResp.data is Map)
+          ? ((convResp.data['data'] as List?) ??
+              (convResp.data['conversations'] as List?) ??
+              const [])
+          : const [];
+      final ql = q.toLowerCase();
+      rows.addAll(
+        raw.whereType<Map>().where((m) {
+          final name = (m['partnerName'] ?? m['name'] ?? '').toString().toLowerCase();
+          return name.contains(ql);
+        }).map((m) => {
+              'type': 'user',
+              'id': m['partnerId'] ?? m['userId'] ?? m['id'],
+              'name': m['partnerName'] ?? m['name'],
+              'imageUrl': m['partnerAvatarUrl'] ?? m['avatarUrl'],
+              'subtitle': null,
+            }),
+      );
+    } catch (_) {}
+
+    final dedup = <String, SearchResult>{};
+    for (final row in rows) {
+      final result = SearchResult.fromJson(row);
+      if (result.id == 0 || result.name.isEmpty) continue;
+      dedup['${result.type}:${result.id}'] = result;
+    }
+    return dedup.values.toList();
   }
 
   @override
