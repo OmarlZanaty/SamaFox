@@ -20,6 +20,7 @@ import '../services/socket_service.dart';
 import '../services/store_service.dart';
 import '../services/webrtc_audio_service.dart';
 import '../services/api_service.dart';
+import '../services/audio_controller.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/gift_animation_overlay.dart';
@@ -1392,6 +1393,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     final seatNumber = await _mySeatNumber();
     if (seatNumber == null) {
       if (_audioReady) {
+        final enableMic = _audioService.isMicMuted;
+        await AudioController.instance.setMicEnabled(enableMic);
         await _audioService.toggleMute();
         _showRoomSnack(_audioService.isMicMuted ? 'تم كتم الميكروفون' : 'تم فتح الميكروفون');
       } else {
@@ -1411,9 +1414,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     );
 
     if (seat.isMuted) {
+      await AudioController.instance.setMicEnabled(true);
       await _audioService.unmuteAudio();
       _showRoomSnack('تم فتح الميكروفون');
     } else {
+      await AudioController.instance.setMicEnabled(false);
       await _audioService.muteAudio();
       _showRoomSnack('تم كتم الميكروفون');
     }
@@ -1571,6 +1576,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
   void initState() {
     print('🟣 RoomScreen.initState room=${widget.roomId}');
     super.initState();
+    AudioController.instance.initialize();
 
     _audioService = WebRTCAudioService();
 
@@ -1875,6 +1881,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
   void dispose() {
     // Close the room and dispose resources
     print('🟣 RoomScreen.dispose room=${widget.roomId}');
+    AudioController.instance.deactivate();
 
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
