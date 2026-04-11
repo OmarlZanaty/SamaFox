@@ -112,11 +112,13 @@ router.post("/activate", async (req: any, res) => {
     const isTogglingOff = userItem.isActive;
     if (
       isTogglingOff &&
-      (userItem.item.type === "AVATAR_FRAME" || userItem.item.type === "avatar_frame")
+      (userItem.item.type === "AVATAR_FRAME" ||
+        userItem.item.type === "avatar_frame" ||
+        userItem.item.type === "FRAME")
     ) {
       await prisma.user.update({
         where: { id: userId },
-        data: { avatarFrameUrl: null },
+        data: { avatarFrameUrl: null, activeFrameId: null },
       });
       await prisma.userItem.update({
         where: { id: inventoryId },
@@ -138,10 +140,17 @@ router.post("/activate", async (req: any, res) => {
       data: { isActive: true },
     });
 
-    if (userItem.item.type === "AVATAR_FRAME" || userItem.item.type === "avatar_frame") {
+    if (
+      userItem.item.type === "AVATAR_FRAME" ||
+      userItem.item.type === "avatar_frame" ||
+      userItem.item.type === "FRAME"
+    ) {
       await prisma.user.update({
         where: { id: userId },
-        data: { avatarFrameUrl: userItem.item.assetUrl },
+        data: {
+          avatarFrameUrl: userItem.item.assetUrl,
+          activeFrameId: userItem.item.id,
+        },
       });
     }
 
@@ -149,6 +158,57 @@ router.post("/activate", async (req: any, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ message: "خطأ في التفعيل" });
+  }
+});
+
+router.post("/activate-frame", async (req: any, res) => {
+  try {
+    const userId = req.userId!;
+    const { inventoryId, itemId } = req.body;
+
+    const targetInventoryId = String(inventoryId || "");
+    const targetItemId = String(itemId || "");
+
+    const userItem = await prisma.userItem.findFirst({
+      where: {
+        userId,
+        ...(targetInventoryId
+          ? { id: targetInventoryId }
+          : targetItemId
+            ? { itemId: targetItemId }
+            : {}),
+      },
+      include: { item: true },
+    });
+
+    if (!userItem) return res.status(404).json({ message: "الإطار غير مملوك" });
+    if (!["AVATAR_FRAME", "avatar_frame", "FRAME"].includes(userItem.item.type)) {
+      return res.status(400).json({ message: "العنصر ليس إطاراً" });
+    }
+
+    await prisma.$transaction([
+      prisma.userItem.updateMany({
+        where: {
+          userId,
+          item: { type: { in: ["AVATAR_FRAME", "avatar_frame", "FRAME"] } },
+        },
+        data: { isActive: false },
+      }),
+      prisma.userItem.update({ where: { id: userItem.id }, data: { isActive: true } }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { activeFrameId: userItem.item.id, avatarFrameUrl: userItem.item.assetUrl },
+      }),
+    ]);
+
+    return res.json({
+      success: true,
+      activeFrameId: userItem.item.id,
+      frameImageUrl: userItem.item.assetUrl,
+    });
+  } catch (e) {
+    console.error("ACTIVATE FRAME ERROR:", e);
+    return res.status(500).json({ message: "خطأ في تفعيل الإطار" });
   }
 });
 

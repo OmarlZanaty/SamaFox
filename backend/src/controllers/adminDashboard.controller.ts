@@ -442,3 +442,73 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
     return fail(res, 500, 'Server error');
   }
 };
+
+export const adminDashboardListGifts = async (_req: Request, res: Response) => {
+  try {
+    const data = await prisma.gift.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
+    return ok(res, { data });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDashboardCreateGift = async (req: Request, res: Response) => {
+  try {
+    const { nameAr, imageUrl, animationUrl, coinsValue, sortOrder } = req.body || {};
+    if (!nameAr || !imageUrl || !coinsValue) return fail(res, 400, 'nameAr, imageUrl, coinsValue are required');
+
+    const data = await prisma.gift.create({
+      data: {
+        name: String(nameAr),
+        nameAr: String(nameAr),
+        imageUrl: String(imageUrl),
+        animationUrl: animationUrl ? String(animationUrl) : null,
+        coinsValue: Number(coinsValue),
+        sortOrder: Number(sortOrder ?? 0),
+        priceCoins: Number(coinsValue),
+        category: 'admin',
+        isActive: true,
+      },
+    });
+    return ok(res, { data });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDashboardUpdateGift = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid gift id');
+
+    const patch: any = {};
+    if (req.body?.nameAr != null) {
+      patch.nameAr = String(req.body.nameAr);
+      patch.name = String(req.body.nameAr);
+    }
+    if (req.body?.imageUrl != null) patch.imageUrl = String(req.body.imageUrl);
+    if (req.body?.animationUrl !== undefined) patch.animationUrl = req.body.animationUrl ? String(req.body.animationUrl) : null;
+    if (req.body?.coinsValue != null) {
+      patch.coinsValue = Number(req.body.coinsValue);
+      patch.priceCoins = Number(req.body.coinsValue);
+    }
+    if (req.body?.sortOrder != null) patch.sortOrder = Number(req.body.sortOrder);
+    if (req.body?.isActive != null) patch.isActive = Boolean(req.body.isActive);
+
+    const data = await prisma.gift.update({ where: { id }, data: patch });
+    return ok(res, { data });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDashboardDeleteGift = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid gift id');
+    await prisma.gift.delete({ where: { id } });
+    return ok(res, { message: 'Gift deleted' });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};

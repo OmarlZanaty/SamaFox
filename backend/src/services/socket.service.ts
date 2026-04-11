@@ -104,6 +104,7 @@ const locked = getLockedSeats(rid);
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
+  activeFrameId: true,
   level: true,
 }
       })
@@ -131,6 +132,8 @@ await Promise.all(
       username: u?.name ?? null,
       avatarUrl: u?.avatarUrl ?? null,
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
+      frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,
+      activeFrameId: u?.activeFrameId ?? null,
       level: u?.level ?? 1,
       isMuted: occupant ? (mutedMap.get(occupant) ?? true) : true,
       isLocked: locked.has(seatNumber),
@@ -879,7 +882,8 @@ await emitRoomState(io, rid);
     return;
   }
 
-  const price = BigInt(gift.priceCoins ?? 0);
+  const unitCoins = gift.coinsValue || gift.priceCoins;
+  const price = BigInt(unitCoins ?? 0);
   const totalCost = price * BigInt(qty);
   if (totalCost <= BigInt(0)) {
     socket.emit('gift_error', { message: 'Invalid gift price' });
@@ -954,10 +958,14 @@ await emitRoomState(io, rid);
   const payload = {
   roomId: rid,
   type: 'sent',
+  senderName: createdLog.sender.name,
+  senderAvatar: createdLog.sender.avatarUrl,
+  receiverName: createdLog.receiver.name,
+  receiverAvatar: createdLog.receiver.avatarUrl,
   giftEvent: {
     id: createdLog.id,
     giftId: gid,
-    giftName: createdLog.gift.name,
+    giftName: createdLog.gift.nameAr || createdLog.gift.name,
     giftImageUrl: createdLog.gift.imageUrl,
     coinsSpent: Number(totalCost),
     quantity: qty,
@@ -979,6 +987,21 @@ io.to(`room:${rid}`).emit('gift', payload);
 // ALSO send directly to receiver (important for reliability)
 if (recvId) {
   io.to(`user:${recvId}`).emit('gift', payload);
+}
+
+if ((gift.coinsValue || gift.priceCoins) >= 5000) {
+  const roomInfo = await prisma.room.findUnique({ where: { id: rid }, select: { id: true, name: true } });
+  io.emit('global_gift_broadcast', {
+    senderName: createdLog.sender.name,
+    receiverName: createdLog.receiver.name,
+    giftNameAr: createdLog.gift.nameAr || createdLog.gift.name,
+    coinsValue: gift.coinsValue || gift.priceCoins,
+    roomName: roomInfo?.name ?? null,
+    roomId: rid,
+    giftImageUrl: createdLog.gift.imageUrl,
+    senderAvatar: createdLog.sender.avatarUrl,
+    receiverAvatar: createdLog.receiver.avatarUrl,
+  });
 }
   } catch (e: any) {
     if (e?.message === 'INSUFFICIENT_COINS') {
