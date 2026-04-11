@@ -90,8 +90,8 @@ class ChargingAgentScreen extends ConsumerWidget {
                   chargingAsync.when(
                     data: (items) => items.isEmpty
                         ? _emptyText('لا توجد وكالات شحن معتمدة حالياً')
-                        : _AgencyGrid(
-                            items: items,
+                        : _buildAgencyGrid(
+                            items,
                             onTap: (agency) => _onAgencyTap(
                               context,
                               ref,
@@ -114,8 +114,8 @@ class ChargingAgentScreen extends ConsumerWidget {
                   hostingAsync.when(
                     data: (items) => items.isEmpty
                         ? _emptyText('لا توجد وكالات استضافة معتمدة حالياً')
-                        : _AgencyGrid(
-                            items: items,
+                        : _buildAgencyGrid(
+                            items,
                             onTap: (agency) => _onAgencyTap(
                               context,
                               ref,
@@ -469,56 +469,29 @@ class _AgencySidePanel extends StatelessWidget {
           ...children,
         ],
       ),
-      itemBuilder: (_, i) => _AgencyGridCard(items[i], onTap: onTap),
-    );
-  }
-}
-
-class _AgencyGrid extends StatelessWidget {
-  final List<ChargingAgency> items;
-  final void Function(ChargingAgency agency)? onTap;
-  const _AgencyGrid({required this.items, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.92,
-      ),
-      itemBuilder: (_, i) => _AgencyGridCard(items[i], onTap: onTap),
-    );
-  }
-}
-
-class _AgencyGrid extends StatelessWidget {
-  final List<ChargingAgency> items;
-  final void Function(ChargingAgency agency)? onTap;
-
-  const _AgencyGrid({required this.items, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.92,
-      ),
       itemBuilder: (context, index) {
         return _AgencyGridCard(items[index], onTap: onTap);
       },
     );
   }
+}
+
+Widget _buildAgencyGrid(
+  List<ChargingAgency> items, {
+  void Function(ChargingAgency agency)? onTap,
+}) {
+  return GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: items.length,
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 2,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 0.92,
+    ),
+    itemBuilder: (context, index) => _AgencyGridCard(items[index], onTap: onTap),
+  );
 }
 
 // ========================== Coin Icon (SVG with fallback) ==========================
