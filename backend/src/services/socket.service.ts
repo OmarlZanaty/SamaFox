@@ -104,6 +104,7 @@ const locked = getLockedSeats(rid);
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
+  activeFrameId: true,
   level: true,
 }
       })
@@ -131,6 +132,8 @@ await Promise.all(
       username: u?.name ?? null,
       avatarUrl: u?.avatarUrl ?? null,
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
+      frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,
+      activeFrameId: u?.activeFrameId ?? null,
       level: u?.level ?? 1,
       isMuted: occupant ? (mutedMap.get(occupant) ?? true) : true,
       isLocked: locked.has(seatNumber),
@@ -476,7 +479,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
           const maxSeats = room?.maxSeats ?? 8;
 
           for (let i = 1; i <= maxSeats; i++) {
-            if (!seatsMap.has(i)) {
+            if (!seatsMap.has(i) && !locked.has(i)) {
               seatNum = i;
               break;
             }
@@ -525,59 +528,8 @@ await emitRoomState(io, rid);
         }
       }
 
-      // Seat snapshot
-      const seatDetails = await Promise.all(
-        [...seatsMap.entries()].map(async ([num, occupant]) => {
-          const u = await prisma.user.findUnique({
-            where: { id: occupant },
-            select: {
-  id: true,
-  name: true,
-  avatarUrl: true,        // 🔥 ADD THIS
-  avatarFrameUrl: true,
-  level: true,
-}
-          });
-          const avatarFrameUrl = u?.avatarFrameUrl ?? null;
-
-return {
-  seatNumber: num,
-  userId: occupant,
-  username: u?.name ?? null,
-  avatarUrl: u?.avatarUrl ?? null,
-  avatarFrameUrl, // ✅ ADD
-  level: u?.level ?? 1,
-  isMuted: mutedMap.get(occupant) ?? true,
-  isLocked: locked.has(num),
-};
-
-        })
-      );
-
-      const room = await prisma.room.findUnique({
-        where: { id: rid },
-        select: { ownerId: true, maxSeats: true },
-      });
-
-      const adminList = Array.from(admins);
-
-      socket.emit('room_seats_state', {
-        roomId: rid,
-        ownerId: room?.ownerId ?? 0,
-        admins: adminList,
-        adminIds: adminList,
-        maxSeats: room?.maxSeats ?? 8,
-        seats: seatDetails,
-        lockedSeats: Array.from(locked.values()),
-
-      });
-
-      console.log('[room_seats_state emit]', {
-        rid,
-        ownerId: room?.ownerId,
-        admins: adminList,
-        maxSeats: room?.maxSeats,
-      });
+      // Unified snapshot (full seats 1..maxSeats) to avoid payload mismatches.
+      await emitRoomState(io, rid);
 
       io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue });
     });
@@ -776,7 +728,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
   await emitVoiceUsers(io, rid);
 
   // notify user directly
-  io.to(targetId.toString()).emit('approveMic', { roomId: rid, userId: targetId });
+  io.to(targetId.toString()).emit('approve_mic', { roomId: rid, userId: targetId });
 
   // strong sync snapshot
   await emitRoomState(io, rid);
@@ -824,7 +776,7 @@ getMuted(rid).set(target, !!mute); // ✅ target = userId
       userId: target,
       isMuted: !!mute,
     });
-    emitRoomState(io, rid);
+    await emitRoomState(io, rid);
   });
 
 socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
@@ -849,13 +801,13 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
     userId: target,
   });
 
-  emitRoomState(io, rid);
+  await emitRoomState(io, rid);
 });
 
     // ----------------------------
     // Seat controls
     // ----------------------------
-    socket.on('leave_seat', ({ roomId, seatNumber }: any) => {
+    socket.on('leave_seat', async ({ roomId, seatNumber }: any) => {
       const rid = toInt(roomId);
       const seatNum = toInt(seatNumber);
       const uid = socket.userId;
@@ -874,7 +826,8 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
         });
 
         getVoiceSet(rid).delete(uid);
-emitVoiceUsers(io, rid);
+        await emitVoiceUsers(io, rid);
+        await emitRoomState(io, rid);
 
       }
     });
@@ -890,31 +843,22 @@ emitVoiceUsers(io, rid);
 
       getMuted(rid).set(uid, !!isMuted);
 
-      const u = await prisma.user.findUnique({
-        where: { id: uid },
-        select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, level: true },
-      });
-
-      const avatarFrameUrl = u?.avatarFrameUrl ?? null;
-
       console.log('[toggle_mute]', { uid, rid, seatNum, isMuted: !!isMuted });
 
-      io.to(`room:${rid}`).emit('seat_occupied', {
-  seatNumber: seatNum,
-  userId: uid,
-  username: u?.name ?? null,
-  avatarUrl: u?.avatarUrl ?? null,
-  avatarFrameUrl, // ✅ ADD
-  level: u?.level ?? 1,
-  isMuted: !!isMuted,
-});
+      io.to(`room:${rid}`).emit('seat_mute_changed', {
+        roomId: rid,
+        seatNumber: seatNum,
+        userId: uid,
+        isMuted: !!isMuted,
+      });
 
       if (!!isMuted) {
   getVoiceSet(rid).delete(uid);
 } else {
   getVoiceSet(rid).add(uid);
 }
-emitVoiceUsers(io, rid);
+await emitVoiceUsers(io, rid);
+await emitRoomState(io, rid);
 
     });
 
@@ -938,32 +882,33 @@ emitVoiceUsers(io, rid);
     return;
   }
 
-  const price = Number(gift.priceCoins ?? 0);
-  const totalCost = price * qty;
-  if (!Number.isFinite(totalCost) || totalCost <= 0) {
+  const unitCoins = gift.coinsValue || gift.priceCoins;
+  const price = BigInt(unitCoins ?? 0);
+  const totalCost = price * BigInt(qty);
+  if (totalCost <= BigInt(0)) {
     socket.emit('gift_error', { message: 'Invalid gift price' });
     return;
   }
 
-  const receiverCoins = recvId != null ? Math.floor(totalCost * 0.5) : 0;
+  const receiverCoins = recvId != null ? totalCost / BigInt(2) : BigInt(0);
 
   try {
     const result = await prisma.$transaction(async (tx) => {
       // ✅ race-safe sender decrement
       const updated = await tx.user.updateMany({
-        where: { id: senderId, coinsBalance: { gte: totalCost } },
-        data: { coinsBalance: { decrement: totalCost } },
+        where: { id: senderId, coinsBalance: { gte: Number(totalCost) } },
+        data: { coinsBalance: { decrement: Number(totalCost) } },
       });
       if (updated.count === 0) throw new Error('INSUFFICIENT_COINS');
 
-      let receiverNewBalance: number | null = null;
+      let receiverNewBalance: bigint | null = null;
       if (recvId != null) {
         const ur = await tx.user.update({
           where: { id: recvId },
-          data: { coinsBalance: { increment: receiverCoins } },
+          data: { coinsBalance: { increment: Number(receiverCoins) } },
           select: { coinsBalance: true },
         });
-        receiverNewBalance = ur.coinsBalance;
+        receiverNewBalance = BigInt(ur.coinsBalance);
       }
 
       const senderNew = await tx.user.findUnique({
@@ -977,7 +922,7 @@ emitVoiceUsers(io, rid);
           receiverId: recvId ?? senderId,
           giftId: gid,
           roomId: rid,
-          coinsSpent: totalCost,
+          coinsSpent: Number(totalCost),
           quantity: qty,
           message: message ?? null,
         },
@@ -991,18 +936,18 @@ emitVoiceUsers(io, rid);
       
 
       await tx.transaction.create({
-        data: { userId: senderId, type: 'gift_send', amountCoins: -totalCost, status: 'completed' },
+        data: { userId: senderId, type: 'gift_send', amountCoins: -Number(totalCost), status: 'completed' },
       });
 
       if (recvId != null) {
         await tx.transaction.create({
-          data: { userId: recvId, type: 'gift_receive', amountCoins: receiverCoins, status: 'completed' },
+          data: { userId: recvId, type: 'gift_receive', amountCoins: Number(receiverCoins), status: 'completed' },
         });
       }
 
       return {
         createdLog,
-        senderNewBalance: senderNew?.coinsBalance ?? 0,
+        senderNewBalance: BigInt(senderNew?.coinsBalance ?? 0),
         receiverNewBalance,
       };
     });
@@ -1013,18 +958,25 @@ emitVoiceUsers(io, rid);
   const payload = {
   roomId: rid,
   type: 'sent',
+  senderName: createdLog.sender.name,
+  senderAvatar: createdLog.sender.avatarUrl,
+  receiverName: createdLog.receiver.name,
+  receiverAvatar: createdLog.receiver.avatarUrl,
   giftEvent: {
     id: createdLog.id,
     giftId: gid,
-    giftName: createdLog.gift.name,
+    giftName: createdLog.gift.nameAr || createdLog.gift.name,
     giftImageUrl: createdLog.gift.imageUrl,
-    coinsSpent: totalCost,
+    coinsSpent: Number(totalCost),
     quantity: qty,
     message: message ?? null,
     sender: createdLog.sender,
     receiver: createdLog.receiver,
     senderId,
     receiverId: recvId ?? senderId,
+    senderNewBalance: result.senderNewBalance.toString(),
+    receiverCoins: receiverCoins.toString(),
+    receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
     createdAt: createdLog.createdAt.toISOString()
   }
 };
@@ -1035,6 +987,21 @@ io.to(`room:${rid}`).emit('gift', payload);
 // ALSO send directly to receiver (important for reliability)
 if (recvId) {
   io.to(`user:${recvId}`).emit('gift', payload);
+}
+
+if ((gift.coinsValue || gift.priceCoins) >= 5000) {
+  const roomInfo = await prisma.room.findUnique({ where: { id: rid }, select: { id: true, name: true } });
+  io.emit('global_gift_broadcast', {
+    senderName: createdLog.sender.name,
+    receiverName: createdLog.receiver.name,
+    giftNameAr: createdLog.gift.nameAr || createdLog.gift.name,
+    coinsValue: gift.coinsValue || gift.priceCoins,
+    roomName: roomInfo?.name ?? null,
+    roomId: rid,
+    giftImageUrl: createdLog.gift.imageUrl,
+    senderAvatar: createdLog.sender.avatarUrl,
+    receiverAvatar: createdLog.receiver.avatarUrl,
+  });
 }
   } catch (e: any) {
     if (e?.message === 'INSUFFICIENT_COINS') {
@@ -1052,7 +1019,7 @@ if (recvId) {
     // ----------------------------
     // Voice presence (ONE SET ONLY)
     // ----------------------------
-    socket.on('user_joined_voice', ({ roomId, userId }: any) => {
+    socket.on('user_joined_voice', async ({ roomId, userId }: any) => {
       const rid = Number(roomId);
       const uid = Number(userId ?? socket.userId);
       if (!rid || !uid) return;
@@ -1063,10 +1030,7 @@ if (recvId) {
       console.log('🎤 user_joined_voice', { rid, uid });
 
       getVoiceSet(rid).add(uid);
-socket.to(`room:${rid}`).emit('user_joined_voice', { userId: uid, roomId: rid });
-
-// ✅ ADD snapshot so everyone updates UI
-emitVoiceUsers(io, rid);
+      await emitVoiceUsers(io, rid);
 
       
 
@@ -1083,7 +1047,7 @@ emitVoiceUsers(io, rid);
       socket.emit('voice_users', { roomId: rid, users });
     });
 
-    socket.on('user_left_voice', ({ roomId, userId }: any) => {
+    socket.on('user_left_voice', async ({ roomId, userId }: any) => {
       const rid = Number(roomId);
       const uid = Number(userId ?? socket.userId);
       if (!rid || !uid) return;
@@ -1091,10 +1055,7 @@ emitVoiceUsers(io, rid);
       console.log('🎤 user_left_voice', { rid, uid });
 
       getVoiceSet(rid).delete(uid);
-socket.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
-
-// ✅ ADD snapshot so everyone updates UI
-emitVoiceUsers(io, rid);
+      await emitVoiceUsers(io, rid);
 
     });
 

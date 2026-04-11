@@ -10,6 +10,7 @@ import { authenticate as requireAuth } from '../middlewares/auth.middleware';
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { getPublicBaseUrl } from '../utils/public-url';
 
 const router = Router();
 
@@ -46,7 +47,7 @@ router.post("/upload-audio", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: "file is required" });
 
   // if you already serve /uploads as static => this URL works
-  const audioUrl = `${req.protocol}://${req.get("host")}/uploads/audio/${req.file.filename}`;
+  const audioUrl = `${getPublicBaseUrl(req)}/uploads/audio/${req.file.filename}`;
   return res.json({ audioUrl });
 });
 

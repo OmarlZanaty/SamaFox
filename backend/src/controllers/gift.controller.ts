@@ -6,23 +6,23 @@ import type { Prisma } from '@prisma/client';
 
 export const getGifts = async (req: Request, res: Response) => {
   try {
-    const { category } = req.query;
-
-    const where = {
-      isActive: true,
-      ...(category && { category: String(category) })
-    };
+    const where = { isActive: true };
 
     const [gifts, total] = await prisma.$transaction([
       prisma.gift.findMany({
         where,
-        orderBy: { priceCoins: 'asc' }
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }]
       }),
       prisma.gift.count({ where })
     ]);
 
-    // Flutter compatibility (expects total sometimes)
-    res.json({ gifts, total });
+    res.json({
+      gifts: gifts.map((gift) => ({
+        ...gift,
+        coinsValue: gift.coinsValue || gift.priceCoins,
+      })),
+      total,
+    });
   } catch (error) {
     console.error('Get gifts error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -115,25 +115,26 @@ export const sendGift = async (req: Request, res: Response) => {
       receiver = { id: r.id, name: r.name, avatarUrl: r.avatarUrl };
     }
 
-    const price = Number(gift.priceCoins ?? 0);
-    const totalCost = price * qty;
+    const unitCoins = gift.coinsValue || gift.priceCoins;
+    const price = BigInt(unitCoins ?? 0);
+    const totalCost = price * BigInt(qty);
 
-    if (!Number.isFinite(totalCost) || totalCost <= 0) {
+    if (totalCost <= BigInt(0)) {
       return res.status(400).json({ error: 'Invalid gift price' });
     }
 
     // Receiver share (50% of total cost) only if receiver exists
-    const receiverCoins = receiverNum != null ? Math.floor(totalCost * 0.5) : 0;
+    const receiverCoins = receiverNum != null ? totalCost / BigInt(2) : BigInt(0);
 
     // ✅ Transaction (race-safe): decrement sender only if balance is enough AT UPDATE TIME
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.user.updateMany({
         where: {
           id: senderId,
-          coinsBalance: { gte: totalCost },
+          coinsBalance: { gte: Number(totalCost) },
         },
         data: {
-          coinsBalance: { decrement: totalCost },
+          coinsBalance: { decrement: Number(totalCost) },
         },
       });
 
@@ -142,14 +143,14 @@ export const sendGift = async (req: Request, res: Response) => {
       }
 
       // Increment receiver only if receiver exists
-      let receiverNewBalance: number | null = null;
+      let receiverNewBalance: bigint | null = null;
       if (receiverNum != null) {
         const ur = await tx.user.update({
           where: { id: receiverNum },
-          data: { coinsBalance: { increment: receiverCoins } },
+          data: { coinsBalance: { increment: Number(receiverCoins) } },
           select: { coinsBalance: true },
         });
-        receiverNewBalance = ur.coinsBalance;
+        receiverNewBalance = BigInt(ur.coinsBalance);
       }
 
       const us = await tx.user.findUnique({
@@ -164,7 +165,7 @@ export const sendGift = async (req: Request, res: Response) => {
           receiverId: receiverNum ?? senderId, // keep DB consistent; if no receiver, use sender as receiver
           giftId: gid,
           roomId: rid || null,
-          coinsSpent: totalCost,
+          coinsSpent: Number(totalCost),
           quantity: qty,
           message: message ?? null,
         },
@@ -180,7 +181,7 @@ export const sendGift = async (req: Request, res: Response) => {
         data: {
           userId: senderId,
           type: 'gift_send',
-          amountCoins: -totalCost,
+          amountCoins: -Number(totalCost),
           status: 'completed',
         },
       });
@@ -190,7 +191,7 @@ export const sendGift = async (req: Request, res: Response) => {
           data: {
             userId: receiverNum,
             type: 'gift_receive',
-            amountCoins: receiverCoins,
+            amountCoins: Number(receiverCoins),
             status: 'completed',
           },
         });
@@ -198,7 +199,7 @@ export const sendGift = async (req: Request, res: Response) => {
 
       return {
         createdLog,
-        senderNewBalance: us?.coinsBalance ?? 0,
+        senderNewBalance: BigInt(us?.coinsBalance ?? 0),
         receiverNewBalance,
       };
     });
@@ -207,18 +208,23 @@ export const sendGift = async (req: Request, res: Response) => {
 
     // ✅ Socket emit for RoomScreen realtime overlay
     if (rid && io) {
-      io.to(`room:${rid}`).emit('gift', {
+      const roomInfo = rid ? await prisma.room.findUnique({ where: { id: rid }, select: { id: true, name: true } }) : null;
+      const giftPayload = {
         roomId: rid,
         type: 'sent',
+        senderName: createdLog.sender.name,
+        senderAvatar: createdLog.sender.avatarUrl,
+        receiverName: createdLog.receiver.name,
+        receiverAvatar: createdLog.receiver.avatarUrl,
 
         giftEvent: {
   id: createdLog.id,
 
   giftId: createdLog.giftId,
-  giftName: createdLog.gift.name,
+  giftName: createdLog.gift.nameAr || createdLog.gift.name,
   giftImageUrl: createdLog.gift.imageUrl,
 
-  coinsSpent: totalCost,
+  coinsSpent: Number(totalCost),
   quantity: qty,
   message: message ?? null,
 
@@ -226,14 +232,30 @@ export const sendGift = async (req: Request, res: Response) => {
   receiver: createdLog.receiver,
 
   senderId,
-  senderNewBalance: result.senderNewBalance,
+  senderNewBalance: result.senderNewBalance.toString(),
   receiverId: receiverNum ?? senderId,
-  receiverCoins,
-  receiverNewBalance: result.receiverNewBalance,
+  receiverCoins: receiverCoins.toString(),
+  receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
 
   createdAt: createdLog.createdAt,
 }
-      });
+      };
+
+      io.to(`room:${rid}`).emit('gift', giftPayload);
+
+      if ((gift.coinsValue || gift.priceCoins) >= 5000) {
+        io.emit('global_gift_broadcast', {
+          senderName: createdLog.sender.name,
+          receiverName: createdLog.receiver.name,
+          giftNameAr: createdLog.gift.nameAr || createdLog.gift.name,
+          coinsValue: gift.coinsValue || gift.priceCoins,
+          roomName: roomInfo?.name ?? null,
+          roomId: rid || null,
+          giftImageUrl: createdLog.gift.imageUrl,
+          senderAvatar: createdLog.sender.avatarUrl,
+          receiverAvatar: createdLog.receiver.avatarUrl,
+        });
+      }
     }
 
     // ✅ REST response
@@ -242,17 +264,18 @@ export const sendGift = async (req: Request, res: Response) => {
       gift: {
         id: gift.id,
         name: gift.name,
+        nameAr: gift.nameAr || gift.name,
         imageUrl: gift.imageUrl,
-        unitPriceCoins: gift.priceCoins,
+        unitPriceCoins: (gift.coinsValue || gift.priceCoins)?.toString?.() ?? String(gift.priceCoins),
         quantity: qty,
         message: message ?? null,
-        coinsSpent: totalCost,
+        coinsSpent: Number(totalCost),
       },
       balances: {
         senderId,
-        senderNewBalance: result.senderNewBalance,
+        senderNewBalance: result.senderNewBalance.toString(),
         receiverId: receiverNum ?? senderId,
-        receiverNewBalance: result.receiverNewBalance,
+        receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
       },
     });
   } catch (error: any) {
@@ -263,4 +286,3 @@ export const sendGift = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
-

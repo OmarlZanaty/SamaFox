@@ -3,22 +3,14 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const gifts = [
-  { name: 'Red Rose', imageUrl: '🌹', animationUrl: null, priceCoins: 10, category: 'common', isActive: true },
-  { name: 'Heart Balloon', imageUrl: '🎈', animationUrl: null, priceCoins: 15, category: 'common', isActive: true },
-  { name: 'Chocolate Box', imageUrl: '🍫', animationUrl: null, priceCoins: 20, category: 'common', isActive: true },
-  { name: 'Coffee', imageUrl: '☕', animationUrl: null, priceCoins: 25, category: 'common', isActive: true },
-  { name: 'Love Letter', imageUrl: '💌', animationUrl: null, priceCoins: 50, category: 'rare', isActive: true },
-  { name: 'Diamond Ring', imageUrl: '💍', animationUrl: null, priceCoins: 100, category: 'rare', isActive: true },
-  { name: 'Champagne', imageUrl: '🍾', animationUrl: null, priceCoins: 75, category: 'rare', isActive: true },
-  { name: 'Teddy Bear', imageUrl: '🧸', animationUrl: null, priceCoins: 60, category: 'rare', isActive: true },
-  { name: 'Fireworks', imageUrl: '🎆', animationUrl: null, priceCoins: 250, category: 'epic', isActive: true },
-  { name: 'Luxury Car', imageUrl: '🚗', animationUrl: null, priceCoins: 500, category: 'epic', isActive: true },
-  { name: 'Diamond', imageUrl: '💎', animationUrl: null, priceCoins: 300, category: 'epic', isActive: true },
-  { name: 'Trophy', imageUrl: '🏆', animationUrl: null, priceCoins: 400, category: 'epic', isActive: true },
-  { name: 'Golden Crown', imageUrl: '👑', animationUrl: null, priceCoins: 1000, category: 'legendary', isActive: true },
-  { name: 'Mansion', imageUrl: '🏰', animationUrl: null, priceCoins: 2000, category: 'legendary', isActive: true },
-  { name: 'Private Jet', imageUrl: '✈️', animationUrl: null, priceCoins: 5000, category: 'legendary', isActive: true },
-  { name: 'Yacht', imageUrl: '🛥️', animationUrl: null, priceCoins: 3000, category: 'legendary', isActive: true }
+  { name: 'Rose', nameAr: 'ورد', imageUrl: '/gifts/ward.png', animationUrl: null, priceCoins: 100, coinsValue: 100, sortOrder: 1, category: 'arabic', isActive: true },
+  { name: 'Heart', nameAr: 'قلب', imageUrl: '/gifts/heart.png', animationUrl: null, priceCoins: 250, coinsValue: 250, sortOrder: 2, category: 'arabic', isActive: true },
+  { name: 'Star', nameAr: 'نجمة', imageUrl: '/gifts/star.png', animationUrl: null, priceCoins: 500, coinsValue: 500, sortOrder: 3, category: 'arabic', isActive: true },
+  { name: 'Crown', nameAr: 'تاج', imageUrl: '/gifts/crown.png', animationUrl: null, priceCoins: 900, coinsValue: 900, sortOrder: 4, category: 'arabic', isActive: true },
+  { name: 'Car', nameAr: 'سيارة', imageUrl: '/gifts/car.png', animationUrl: null, priceCoins: 1500, coinsValue: 1500, sortOrder: 5, category: 'arabic', isActive: true },
+  { name: 'Plane', nameAr: 'طيارة', imageUrl: '/gifts/plane.png', animationUrl: null, priceCoins: 5000, coinsValue: 5000, sortOrder: 6, category: 'arabic', isActive: true },
+  { name: 'Castle', nameAr: 'قصر', imageUrl: '/gifts/castle.png', animationUrl: null, priceCoins: 9000, coinsValue: 9000, sortOrder: 7, category: 'arabic', isActive: true },
+  { name: 'Yacht', nameAr: 'يخت', imageUrl: '/gifts/yacht.png', animationUrl: null, priceCoins: 12000, coinsValue: 12000, sortOrder: 8, category: 'arabic', isActive: true }
 ];
 
 async function seedGifts() {

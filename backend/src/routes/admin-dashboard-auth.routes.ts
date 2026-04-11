@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../utils/prisma';
 import jwt from 'jsonwebtoken';
+import { verifyAccessToken } from '../utils/jwt';
 
 const router = express.Router();
 
@@ -47,7 +48,7 @@ router.post('/login', async (req, res) => {
 
     if (!r.ok) {
       const msg = body?.message || body?.error || `Login failed (HTTP ${r.status})`;
-      return res.status(401).json({ message: msg });
+      return res.status(r.status).json({ success: false, message: msg });
     }
 
     const token = pickToken(body);
@@ -79,7 +80,7 @@ router.post('/login', async (req, res) => {
     res.cookie('access_token', token, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false, // set true when HTTPS
+      secure: process.env.NODE_ENV === "production",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -93,6 +94,26 @@ router.post('/login', async (req, res) => {
 router.post('/logout', (_req, res) => {
   res.clearCookie('access_token');
   return res.json({ success: true });
+});
+
+router.get('/status', async (req, res) => {
+  try {
+    const token = req.cookies?.access_token as string | undefined;
+    if (!token) return res.status(401).json({ success: false, message: 'Missing token' });
+
+    const payload = verifyAccessToken(token);
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, isAdmin: true },
+    });
+
+    if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!user.isAdmin) return res.status(403).json({ success: false, message: 'Not admin' });
+
+    return res.json({ success: true, user: { id: user.id, isAdmin: user.isAdmin } });
+  } catch {
+    return res.status(401).json({ success: false, message: 'Invalid token' });
+  }
 });
 
 export default router;

@@ -3,53 +3,36 @@ import prisma from "../utils/prisma";
 
 export const createProduct = async (req: Request, res: Response) => {
   try {
-    // ✅ STEP 1: get body
     const { name, type, price_coins } = req.body;
 
     if (!name || !type || !price_coins) {
-  return res.status(400).json({
-    message: "بيانات ناقصة",
-  });
-}
-    // ✅ STEP 2: get uploaded file (FROM MULTER)
-    const file = (req as any).file;
-
-    // 🔥 STEP 3: check file exists
-    if (!file) {
-      return res.status(400).json({
-        message: "يجب رفع ملف",
-      });
+      return res.status(400).json({ message: "بيانات ناقصة" });
     }
 
-    // 🔥 STEP 4: detect file type (THIS IS YOUR NEW PART ✔)
+    const file = (req as any).file;
+    if (!file) return res.status(400).json({ message: "يجب رفع ملف" });
+
     const isVideo = file.mimetype.startsWith("video/");
     const isImage = file.mimetype.startsWith("image/");
 
-    // 🔥 STEP 5: validate based on product type (✔ CORRECT PLACE)
     if (type === "seat_effect" && !isVideo) {
-      return res.status(400).json({
-        message: "يجب رفع فيديو لهذا النوع",
-      });
+      return res.status(400).json({ message: "يجب رفع فيديو لهذا النوع" });
     }
 
-    if (type === "avatar_frame" && !isImage) {
-      return res.status(400).json({
-        message: "يجب رفع صورة لهذا النوع",
-      });
+    if ((type === "avatar_frame" || type === "frame") && !isImage) {
+      return res.status(400).json({ message: "يجب رفع صورة لهذا النوع" });
     }
 
-    // ✅ STEP 6: build file URL
-    const assetUrl = `http://54.254.79.239:3000/uploads/${file.filename}`;
+    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const assetUrl = `${baseUrl}/uploads/${file.filename}`;
 
-    // ✅ STEP 7: map type to DB enum
     const mappedType =
       type === "seat_effect"
         ? "ENTRANCE_EFFECT"
-        : type === "avatar_frame"
-        ? "PROFILE_FRAME"
-        : type;
+        : type === "avatar_frame" || type === "frame"
+          ? "FRAME"
+          : type;
 
-    // ✅ STEP 8: save to database
     const product = await prisma.item.create({
       data: {
         name,
@@ -61,42 +44,29 @@ export const createProduct = async (req: Request, res: Response) => {
       },
     });
 
-    // ✅ STEP 9: return response
-    res.json({
+    return res.json({
       id: product.id,
       name: product.name,
       type: product.type,
       price_coins: product.priceCoins,
       file_url: product.assetUrl,
     });
-
   } catch (error) {
     console.error("createProduct error:", error);
-    res.status(500).json({ message: "فشل إنشاء المنتج" });
+    return res.status(500).json({ message: "فشل إنشاء المنتج" });
   }
 };
 
 export const deleteProduct = async (req: Request, res: Response) => {
   try {
-    const id = String(req.params.id); // ⚠️ IMPORTANT (your item.id is string)
+    const id = String(req.params.id);
+    const item = await prisma.item.findUnique({ where: { id } });
+    if (!item) return res.status(404).json({ message: "Product not found" });
 
-    const item = await prisma.item.findUnique({
-      where: { id }
-    });
-
-    if (!item) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    await prisma.item.delete({
-      where: { id }
-    });
-
+    await prisma.item.delete({ where: { id } });
     return res.json({ message: "Product deleted successfully" });
-
   } catch (error) {
     console.error("deleteProduct error:", error);
     return res.status(500).json({ message: "Failed to delete product" });
   }
 };
-

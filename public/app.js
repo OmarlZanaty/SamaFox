@@ -13,6 +13,13 @@ const apiBaseText    = document.getElementById("apiBaseText");
 const authLabel      = document.getElementById("authLabel");
 const authDot        = document.getElementById("authDot");
 const toast          = document.getElementById("toast");
+let liveMode = true;
+let liveTimer = null;
+let lastUsersRows = [];
+let lastTransactionsRows = [];
+let lastTopupsRows = [];
+let lastReportsRows = [];
+let lastLeaderboardRows = [];
 
 // ============================================================
 // NAVIGATION
@@ -26,6 +33,7 @@ const sectionTitles = {
   users:     "المستخدمين",
   rooms:     "الغرف",
   agencies:  "وكالات الشحن",
+  advanced:  "ميزات الأدمن",
   store:     "إدارة المتجر",
   settings:  "الإعدادات",
 };
@@ -72,6 +80,55 @@ function getApiBase() {
   return base;
 }
 
+function getApiBaseCandidates() {
+  const base = getApiBase();
+  if (!base) return [];
+
+  const normalized = base.replace(/\/+$/, "");
+  const candidates = [normalized];
+
+  if (normalized.endsWith("/api/v1")) {
+    candidates.push(normalized.slice(0, -"/api/v1".length));
+  } else {
+    candidates.push(normalized + "/api/v1");
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+async function fetchWithBaseFallback(path, opts = {}) {
+  const candidates = getApiBaseCandidates();
+  if (!candidates.length) throw new Error("يرجى إدخال قاعدة الـ API");
+
+  let lastError = null;
+
+  for (const base of candidates) {
+    const res = await fetch(base + path, {
+      ...opts,
+      credentials: "include",
+      headers: Object.assign({ Accept: "application/json" }, opts.headers || {}),
+    });
+
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+
+    if (res.ok) return data;
+
+    const msg = data && (data.message || data.error)
+      ? (data.message || data.error)
+      : `HTTP ${res.status}`;
+
+    lastError = Object.assign(new Error(msg), { status: res.status });
+
+    if (res.status !== 404) {
+      throw lastError;
+    }
+  }
+
+  throw lastError || new Error("تعذر الوصول إلى الـ API");
+}
+
 function fmtDate(s) {
   if (!s) return "—";
   try { return new Date(s).toISOString().replace("T", " ").slice(0, 19); }
@@ -86,6 +143,36 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+function downloadCSV(filename, rows) {
+  if (!rows || !rows.length) return showToast("لا توجد بيانات للتصدير");
+  const headers = Object.keys(rows[0]);
+  const csv = [headers.join(',')].concat(
+    rows.map((r) => headers.map((h) => `"${String(r[h] ?? '').replaceAll('"', '""')}"`).join(',')),
+  ).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+let confirmHandler = null;
+window.openConfirmModal = function(title, text, onYes) {
+  document.getElementById('confirmTitle').textContent = title || 'تأكيد الإجراء';
+  document.getElementById('confirmText').textContent = text || 'هل أنت متأكد؟';
+  confirmHandler = onYes;
+  document.getElementById('confirmModal').classList.remove('hidden');
+};
+window.closeConfirmModal = function() {
+  document.getElementById('confirmModal').classList.add('hidden');
+  confirmHandler = null;
+};
+document.getElementById('confirmYesBtn')?.addEventListener('click', async () => {
+  try { if (confirmHandler) await confirmHandler(); } finally { closeConfirmModal(); }
+});
+
+
 
 function statusBadge(s) {
   const map = {
@@ -106,54 +193,23 @@ function statusText(s) {
 // API FETCH (cookie-based)
 // ============================================================
 async function apiFetch(path, opts = {}) {
-  const base = getApiBase();
-  if (!base) throw new Error("يرجى إدخال قاعدة الـ API");
-
-  const res = await fetch(base + path, {
-    ...opts,
-    credentials: "include",
-    headers: Object.assign({ Accept: "application/json" }, opts.headers || {}),
-  });
-
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-
-  if (!res.ok) {
-    const msg = data && (data.message || data.error) ? (data.message || data.error) : `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
+  return fetchWithBaseFallback(path, opts);
 }
 
 // ============================================================
 // AUTH
 // ============================================================
 async function doLogin(email, password) {
-  const base = getApiBase();
-  const res = await fetch(base + "/admin-dashboard-auth/login", {
+  return fetchWithBaseFallback("/admin-dashboard-auth/login", {
     method: "POST",
-    credentials: "include",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ email, password }),
   });
-
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-
-  if (!res.ok) {
-    const msg = data && (data.message || data.error) ? (data.message || data.error) : `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
 }
 
 async function doLogout() {
-  const base = getApiBase();
-  await fetch(base + "/admin-dashboard-auth/logout", {
+  await fetchWithBaseFallback("/admin-dashboard-auth/logout", {
     method: "POST",
-    credentials: "include",
     headers: { Accept: "application/json" },
   });
 }
@@ -165,7 +221,7 @@ function setAuthState(online, label) {
 
 async function checkAuth() {
   try {
-    await loadOverview();
+    await apiFetch("/admin-dashboard-auth/status");
     setAuthState(true, "متصل ✓");
     return true;
   } catch {
@@ -192,13 +248,15 @@ async function loadOverview() {
 async function loadUsers() {
   const page  = Number(document.getElementById("usersPage").value  || 1);
   const limit = Number(document.getElementById("usersLimit").value || 30);
-  const q     = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}`;
+  const search = (document.getElementById("usersSearch")?.value || "").trim();
+  const q     = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}&search=${encodeURIComponent(search)}`;
 
   const d     = await apiFetch("/admin-dashboard/users" + q);
   const tbody = document.querySelector("#usersTable tbody");
   tbody.innerHTML = "";
 
   const rows = d.data || [];
+  lastUsersRows = rows;
   for (const u of rows) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -211,9 +269,8 @@ async function loadUsers() {
       <td><span class="cell-muted">${fmtDate(u.createdAt)}</span></td>
       <td>
         <div class="td-actions">
-          <button class="btn-ok" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}')">
-            + كوينز
-          </button>
+          <button class="btn-ok" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}')">+ كوينز</button>
+          <button class="btn-bad" onclick="toggleUserBan(${u.id}, ${u.isBanned ? "false" : "true"})">${u.isBanned ? "فك حظر" : "حظر"}</button>
         </div>
       </td>
     `;
@@ -246,6 +303,7 @@ async function loadRooms() {
       <td>${ownerName} <span class="cell-muted">#${r.owner?.id ?? ""}</span></td>
       <td>${cover}</td>
       <td><span class="cell-muted">${fmtDate(r.createdAt)}</span></td>
+      <td><button class="btn-bad" onclick="forceCloseRoom(${r.id})">إغلاق</button></td>
     `;
     tbody.appendChild(tr);
   }
@@ -299,10 +357,99 @@ async function setAgencyStatus(id, status) {
     showToast(`✓ تم تحديث الوكالة #${id} → ${statusText(status)}`);
     await loadOverview();
     await loadAgencies();
+  if (document.getElementById("section-advanced")) await loadAdvanced();
   } catch (e) {
     showToast("خطأ: " + e.message);
   }
 }
+
+window.toggleUserBan = async function(userId, shouldBan) {
+  const reason = shouldBan ? (prompt("سبب الحظر") || "Admin action") : null;
+  if (shouldBan && !reason) return showToast("سبب الحظر مطلوب");
+  await new Promise((resolve) => openConfirmModal("تأكيد الحظر", shouldBan ? "تأكيد حظر المستخدم؟" : "تأكيد فك الحظر؟", async () => {
+    await apiFetch(`/admin-dashboard/users/${userId}/ban`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isBanned: !!shouldBan, reason }),
+    });
+    resolve();
+  }));
+  showToast("✓ تم تحديث حالة الحظر");
+  await loadUsers();
+};
+
+window.forceCloseRoom = async function(roomId) {
+  const reason = prompt("سبب إغلاق الغرفة") || "Admin force close";
+  await new Promise((resolve) => openConfirmModal("تأكيد إغلاق الغرفة", "هل تريد إغلاق الغرفة الآن؟", async () => {
+    await apiFetch(`/admin-dashboard/rooms/${roomId}/force-close`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    resolve();
+  }));
+  showToast("✓ تم إغلاق الغرفة");
+  await loadRooms();
+};
+
+async function loadTransactions() {
+  const userId = (document.getElementById("txUserId")?.value || "").trim();
+  const type = (document.getElementById("txType")?.value || "").trim();
+  const q = `?page=1&limit=30${userId ? `&userId=${encodeURIComponent(userId)}` : ""}${type ? `&type=${encodeURIComponent(type)}` : ""}`;
+  const d = await apiFetch('/admin-dashboard/transactions' + q);
+  const tb = document.querySelector('#transactionsTable tbody'); tb.innerHTML = '';
+  lastTransactionsRows = (d.data || []);
+  (d.data || []).forEach((x) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${escapeHtml(x.user?.name || x.userId)}</td><td>${escapeHtml(x.type || '')}</td><td>${escapeHtml(x.status || '')}</td><td>${escapeHtml(x.amountCoins || '')}</td><td>${fmtDate(x.createdAt)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+async function loadTopups() {
+  const d = await apiFetch('/admin-dashboard/topup-requests?status=pending');
+  const tb = document.querySelector('#topupsTable tbody'); tb.innerHTML = '';
+  lastTopupsRows = (d.data || []);
+  (d.data || []).forEach((x) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${escapeHtml(x.agency?.agencyName || '')}</td><td>${x.amount}</td><td>${escapeHtml(x.status)}</td><td><button class="btn-ok" onclick="reviewTopup(${x.id},'approved')">قبول</button> <button class="btn-bad" onclick="reviewTopup(${x.id},'rejected')">رفض</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+window.reviewTopup = async (id, status) => { await apiFetch(`/admin-dashboard/topup-requests/${id}/review`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status}) }); showToast('✓ تم مراجعة الطلب'); await loadTopups(); };
+
+async function loadReports() {
+  const d = await apiFetch('/admin-dashboard/reports?status=pending');
+  const tb = document.querySelector('#reportsTable tbody'); tb.innerHTML = '';
+  lastReportsRows = (d.data || []);
+  (d.data || []).forEach((x) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${x.id}</td><td>${escapeHtml(x.reporter?.name || '')}</td><td>${escapeHtml(x.reportedUser?.name || '')}</td><td>${escapeHtml(x.reason || '')}</td><td>${escapeHtml(x.status || '')}</td><td><button class="btn-ok" onclick="reviewReport(${x.id},'resolved')">حل</button> <button class="btn-bad" onclick="reviewReport(${x.id},'dismissed')">رفض</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+window.reviewReport = async (id, status) => { await apiFetch(`/admin-dashboard/reports/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status}) }); showToast('✓ تم تحديث التقرير'); await loadReports(); };
+
+async function loadAnalytics() { const d = await apiFetch('/admin-dashboard/analytics'); document.getElementById('analyticsBox').textContent = JSON.stringify(d.data || d, null, 2); }
+async function sendBroadcast() { const title=document.getElementById('broadcastTitle').value.trim(); const message=document.getElementById('broadcastMessage').value.trim(); await apiFetch('/admin-dashboard/broadcast',{method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({title,message})}); showToast('✓ تم إرسال البث'); }
+
+async function loadQuests() {
+  const d = await apiFetch('/admin-dashboard/quests');
+  const tb = document.querySelector('#questsTable tbody'); tb.innerHTML = '';
+  (d.data || []).forEach((q)=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${q.id}</td><td>${escapeHtml(q.name)}</td><td>${escapeHtml(q.metric)}</td><td>${q.target}</td><td>${q.rewardCoins}</td><td><button class='btn-bad' onclick="deleteQuest('${q.id}')">حذف</button></td>`; tb.appendChild(tr); });
+}
+window.deleteQuest = async (id) => { await new Promise((resolve) => openConfirmModal('تأكيد حذف المهمة', 'هل تريد حذف المهمة؟', async () => { await apiFetch(`/admin-dashboard/quests/${id}`,{method:'DELETE'}); resolve(); })); showToast('✓ تم حذف المهمة'); await loadQuests(); };
+async function createQuest() { await apiFetch('/admin-dashboard/quests',{method:'POST',headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:document.getElementById('qName').value, description:document.getElementById('qName').value, metric:document.getElementById('qMetric').value, target:Number(document.getElementById('qTarget').value||0), rewardCoins:Number(document.getElementById('qReward').value||0) })}); showToast('✓ تم إضافة المهمة'); await loadQuests(); }
+
+async function loadLeaderboard() {
+  const type = document.getElementById('leaderboardType').value;
+  const d = await apiFetch(`/admin-dashboard/leaderboard?type=${encodeURIComponent(type)}`);
+  const tb = document.querySelector('#leaderboardTable tbody'); tb.innerHTML='';
+  lastLeaderboardRows = (d.data || []);
+  (d.data || []).forEach((x, i)=>{ const value = x.coinsBalance ?? x.coinsSpent ?? x.xp ?? x.total ?? ''; const name = x.name || x.user?.name || x.owner?.name || `#${x.id || x.senderId || ''}`; const tr=document.createElement('tr'); tr.innerHTML=`<td>${i+1}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(value)}</td>`; tb.appendChild(tr); });
+}
+
+async function loadAdvanced() { await Promise.all([loadTransactions(), loadTopups(), loadReports(), loadAnalytics(), loadQuests(), loadLeaderboard()]); }
 
 // --- PRODUCTS ---
 window.loadProducts = async function () {
@@ -320,7 +467,7 @@ window.loadProducts = async function () {
         <td><span class="cell-muted">${p.type}</span></td>
         <td><strong>${p.price_coins}</strong></td>
         <td>
-          ${p.type === "PROFILE_FRAME"
+          ${p.type === "PROFILE_FRAME" || p.type === "FRAME"
             ? `<img src="${p.file_url}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
             : "—"}
         </td>
@@ -384,13 +531,83 @@ window.addProduct = async function () {
   }
 };
 
+window.loadGifts = async function () {
+  const d = await apiFetch("/admin-dashboard/gifts");
+  const rows = d.data || [];
+  const tbody = document.querySelector("#giftsTable tbody");
+  tbody.innerHTML = "";
+  rows.forEach((g) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${g.id}</td>
+      <td>${escapeHtml(g.nameAr || g.name)}</td>
+      <td><img src="${g.imageUrl}" width="44" height="44" style="border-radius:8px;object-fit:cover;" /></td>
+      <td>${g.coinsValue ?? g.priceCoins}</td>
+      <td>${g.sortOrder ?? 0}</td>
+      <td>${g.isActive ? "✅" : "⛔"}</td>
+      <td>
+        <button class="btn btn-outline" onclick="toggleGift(${g.id}, ${!g.isActive})">تبديل</button>
+        <button class="btn-bad" onclick="deleteGift(${g.id})">حذف</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+};
+
+window.addGift = async function () {
+  const imageFile = document.getElementById("g_image_file").files?.[0];
+  let imageUrl = document.getElementById("g_imageUrl").value.trim();
+  const nameAr = document.getElementById("g_nameAr").value.trim();
+  const coinsValue = Number(document.getElementById("g_coinsValue").value || 0);
+  const sortOrder = Number(document.getElementById("g_sortOrder").value || 0);
+
+  if (!nameAr || !coinsValue) return showToast("❗ الاسم والقيمة مطلوبان");
+
+  if (!imageUrl && imageFile) {
+    const form = new FormData();
+    form.append("image", imageFile);
+    const uploadRes = await fetch(getApiBase() + "/upload/image", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    const uploadData = await uploadRes.json();
+    if (!uploadRes.ok) throw new Error(uploadData.message || "فشل رفع الصورة");
+    imageUrl = uploadData.imageUrl;
+  }
+  if (!imageUrl) return showToast("❗ أضف رابط صورة أو ارفع ملفاً");
+
+  await apiFetch("/admin-dashboard/gifts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nameAr, imageUrl, coinsValue, sortOrder }),
+  });
+  showToast("✓ تم إضافة الهدية");
+  await loadGifts();
+};
+
+window.toggleGift = async function (id, isActive) {
+  await apiFetch(`/admin-dashboard/gifts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isActive }),
+  });
+  await loadGifts();
+};
+
+window.deleteGift = async function (id) {
+  await apiFetch(`/admin-dashboard/gifts/${id}`, { method: "DELETE" });
+  showToast("✓ تم حذف الهدية");
+  await loadGifts();
+};
+
 // File input type switching
 const typeSelect   = document.getElementById("p_type");
 const fileLabelText = document.getElementById("fileLabelText");
 const p_fileInput  = document.getElementById("p_file");
 
 typeSelect.addEventListener("change", () => {
-  if (typeSelect.value === "avatar_frame") {
+  if (typeSelect.value === "avatar_frame" || typeSelect.value === "frame") {
     p_fileInput.accept     = "image/*";
     fileLabelText.textContent = "اختر صورة الإطار";
   } else {
@@ -477,7 +694,7 @@ document.getElementById("btnReload").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("btnLogin").addEventListener("click", async () => {
+async function handleLogin() {
   try {
     const email    = document.getElementById("loginEmail").value.trim();
     const password = document.getElementById("loginPassword").value;
@@ -490,6 +707,16 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
   } catch (e) {
     showToast("فشل تسجيل الدخول: " + e.message);
   }
+}
+
+document.getElementById("loginForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await handleLogin();
+});
+
+document.getElementById("btnLogin").addEventListener("click", async (e) => {
+  e.preventDefault();
+  await handleLogin();
 });
 
 document.getElementById("btnLogout").addEventListener("click", async () => {
@@ -514,6 +741,40 @@ document.getElementById("btnAgencies").addEventListener("click", async () => {
   try { await loadAgencies(); showToast("✓ تم تحميل الوكالات"); }     catch (e) { showToast("خطأ: " + e.message); }
 });
 
+document.getElementById("btnTransactions")?.addEventListener("click", () => loadTransactions().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnTopups")?.addEventListener("click", () => loadTopups().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnReports")?.addEventListener("click", () => loadReports().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnAnalytics")?.addEventListener("click", () => loadAnalytics().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnLeaderboard")?.addEventListener("click", () => loadLeaderboard().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnBroadcast")?.addEventListener("click", () => sendBroadcast().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnQuests")?.addEventListener("click", () => loadQuests().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnQuestCreate")?.addEventListener("click", () => createQuest().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnAdvancedRefresh")?.addEventListener("click", () => loadAdvanced().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnLoadGifts")?.addEventListener("click", () => loadGifts().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnAddGift")?.addEventListener("click", () => addGift().catch(e => showToast("خطأ: " + e.message)));
+
+
+document.getElementById("btnUsersExport")?.addEventListener("click", () => downloadCSV("users.csv", lastUsersRows));
+document.getElementById("btnTransactionsExport")?.addEventListener("click", () => downloadCSV("transactions.csv", lastTransactionsRows));
+document.getElementById("btnTopupsExport")?.addEventListener("click", () => downloadCSV("topups.csv", lastTopupsRows));
+document.getElementById("btnReportsExport")?.addEventListener("click", () => downloadCSV("reports.csv", lastReportsRows));
+document.getElementById("btnLeaderboardExport")?.addEventListener("click", () => downloadCSV("leaderboard.csv", lastLeaderboardRows));
+document.getElementById("btnLiveToggle")?.addEventListener("click", (e) => {
+  liveMode = !liveMode;
+  e.target.textContent = liveMode ? "إيقاف التحديث الحي" : "تشغيل التحديث الحي";
+  if (liveMode) startLiveRefresh(); else stopLiveRefresh();
+});
+
+function startLiveRefresh() {
+  stopLiveRefresh();
+  liveTimer = setInterval(() => {
+    if (!liveMode) return;
+    loadOverview().catch(()=>{});
+    loadAdvanced().catch(()=>{});
+  }, 20000);
+}
+function stopLiveRefresh() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
+
 // expose for inline agency buttons
 window.setAgencyStatus = setAgencyStatus;
 
@@ -525,19 +786,23 @@ async function loadAll() {
   await loadUsers();
   await loadRooms();
   await loadAgencies();
+  if (document.getElementById("section-advanced")) await loadAdvanced();
 }
 
 // ============================================================
 // BOOT
 // ============================================================
 (function init() {
-  const saved = localStorage.getItem(LS_API) || "http://54.254.79.239:3000/api/v1";
+  const saved = localStorage.getItem(LS_API) || getApiBase();
   apiEl.value = saved;
   const settingsInput = document.getElementById("apiBaseSettings");
   if (settingsInput) settingsInput.value = saved;
   apiBaseText.textContent = saved || "--";
 
   checkAuth().then(ok => {
-    if (ok) loadAll().catch(e => showToast("خطأ: " + e.message));
+    if (ok) {
+      loadAll().catch(e => showToast("خطأ: " + e.message));
+      startLiveRefresh();
+    }
   });
 })();

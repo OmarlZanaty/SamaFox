@@ -29,6 +29,9 @@ model User {
   xp                       Int                       @default(0)
   vipLevel                 Int                       @default(0)
   isAdmin                  Boolean                   @default(false)
+  isBanned                 Boolean                   @default(false)
+  bannedAt                 DateTime?
+  banReason                String?
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
   passwordHash             String? // ✅ for email/password login
@@ -67,6 +70,8 @@ model User {
   conversationParticipants ConversationParticipant[]
   directMessagesSent       DirectMessage[]
   avatarFrameUrl String?
+  activeFrameId String?
+  activeFrame   Item? @relation("ActiveUserFrame", fields: [activeFrameId], references: [id])
   @@map("users")
 }
 
@@ -179,8 +184,11 @@ model RoomBan {
 model Gift {
   id              Int     @id @default(autoincrement())
   name            String
+  nameAr          String  @default("")
   imageUrl        String
   animationUrl    String?
+  coinsValue      Int     @default(0)
+  sortOrder       Int     @default(0)
   priceCoins      Int
   category        String
   isActive        Boolean @default(true)
@@ -532,6 +540,7 @@ model Item {
 
   userItems UserItem[]
   rooms     Room[]
+  frameUsers User[] @relation("ActiveUserFrame")
 
   @@map("items")
 }
