@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/gift.dart';
 import '../providers/locale_provider.dart';
+import '../repositories/gift_repository.dart';
+import '../utils/result.dart';
 
 class GiftsScreen extends ConsumerStatefulWidget {
   const GiftsScreen({super.key});
@@ -12,11 +15,14 @@ class GiftsScreen extends ConsumerStatefulWidget {
 class _GiftsScreenState extends ConsumerState<GiftsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final GiftRepository _giftRepository = GiftRepository();
+  late Future<Result<List<Gift>>> _giftsFuture;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _giftsFuture = _giftRepository.getGifts();
   }
 
   @override
@@ -80,22 +86,6 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
   }
 
   Widget _buildGiftStoreTab(dynamic strings, ThemeData theme, bool isDark) {
-    // Mock gift data
-    final gifts = [
-      {'name': 'Rose', 'price': 10, 'icon': '🌹'},
-      {'name': 'Heart', 'price': 20, 'icon': '❤️'},
-      {'name': 'Diamond', 'price': 50, 'icon': '💎'},
-      {'name': 'Crown', 'price': 100, 'icon': '👑'},
-      {'name': 'Star', 'price': 30, 'icon': '⭐'},
-      {'name': 'Trophy', 'price': 80, 'icon': '🏆'},
-      {'name': 'Cake', 'price': 25, 'icon': '🎂'},
-      {'name': 'Gift', 'price': 15, 'icon': '🎁'},
-      {'name': 'Balloon', 'price': 12, 'icon': '🎈'},
-      {'name': 'Fireworks', 'price': 60, 'icon': '🎆'},
-      {'name': 'Ring', 'price': 150, 'icon': '💍'},
-      {'name': 'Rocket', 'price': 200, 'icon': '🚀'},
-    ];
-
     return Container(
       color: isDark ? const Color(0xFF0D0620) : Colors.grey.shade50,
       child: Column(
@@ -176,24 +166,50 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
 
           // Gifts grid
           Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 0.8,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemCount: gifts.length,
-              itemBuilder: (context, index) {
-                final gift = gifts[index];
-                return _buildGiftCard(
-                  gift['name'] as String,
-                  gift['price'] as int,
-                  gift['icon'] as String,
-                  strings,
-                  theme,
-                  isDark,
+            child: FutureBuilder<Result<List<Gift>>>(
+              future: _giftsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final result = snapshot.data;
+                final gifts = (result != null && result.isSuccess && result.data != null)
+                    ? result.data!
+                    : <Gift>[];
+
+                if (gifts.isEmpty) {
+                  return Center(
+                    child: Text(
+                      strings.noGiftsAvailable,
+                      style: TextStyle(
+                        color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
+                      ),
+                    ),
+                  );
+                }
+
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    setState(() {
+                      _giftsFuture = _giftRepository.getGifts();
+                    });
+                    await _giftsFuture;
+                  },
+                  child: GridView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 0.8,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: gifts.length,
+                    itemBuilder: (context, index) {
+                      final gift = gifts[index];
+                      return _buildGiftCard(gift, strings, theme, isDark);
+                    },
+                  ),
                 );
               },
             ),
@@ -204,15 +220,13 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
   }
 
   Widget _buildGiftCard(
-    String name,
-    int price,
-    String icon,
+    Gift gift,
     dynamic strings,
     ThemeData theme,
     bool isDark,
   ) {
     return GestureDetector(
-      onTap: () => _showBuyGiftDialog(name, price, icon, strings, theme, isDark),
+      onTap: () => _showBuyGiftDialog(gift, strings, theme, isDark),
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1A0E3E) : Colors.white,
@@ -231,13 +245,21 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              icon,
-              style: const TextStyle(fontSize: 48),
+            SizedBox(
+              width: 48,
+              height: 48,
+              child: (gift.imageUrl ?? '').trim().isEmpty
+                  ? const Icon(Icons.card_giftcard, size: 36, color: Colors.amber)
+                  : Image.network(
+                      gift.imageUrl!,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) =>
+                          const Icon(Icons.card_giftcard, size: 36, color: Colors.amber),
+                    ),
             ),
             const SizedBox(height: 8),
             Text(
-              name,
+              gift.displayName,
               style: TextStyle(
                 color: theme.textTheme.bodyLarge?.color,
                 fontWeight: FontWeight.w600,
@@ -255,7 +277,7 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  '$price',
+                  '${gift.displayCoinsValue}',
                   style: TextStyle(
                     color: isDark ? const Color(0xFFFFD700) : const Color(0xFF00A3FF),
                     fontWeight: FontWeight.bold,
@@ -365,9 +387,7 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
   }
 
   void _showBuyGiftDialog(
-    String name,
-    int price,
-    String icon,
+    Gift gift,
     dynamic strings,
     ThemeData theme,
     bool isDark,
@@ -383,13 +403,21 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              icon,
-              style: const TextStyle(fontSize: 64),
+            SizedBox(
+              width: 72,
+              height: 72,
+              child: (gift.imageUrl ?? '').trim().isEmpty
+                  ? const Icon(Icons.card_giftcard, size: 56, color: Colors.amber)
+                  : Image.network(
+                      gift.imageUrl!,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) =>
+                          const Icon(Icons.card_giftcard, size: 56, color: Colors.amber),
+                    ),
             ),
             const SizedBox(height: 16),
             Text(
-              name,
+              gift.displayName,
               style: TextStyle(
                 color: theme.textTheme.bodyLarge?.color,
                 fontSize: 20,
@@ -407,7 +435,7 @@ class _GiftsScreenState extends ConsumerState<GiftsScreen>
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  '$price ${strings.coins}',
+                  '${gift.displayCoinsValue} ${strings.coins}',
                   style: TextStyle(
                     color: isDark ? const Color(0xFFFFD700) : const Color(0xFF00A3FF),
                     fontSize: 18,

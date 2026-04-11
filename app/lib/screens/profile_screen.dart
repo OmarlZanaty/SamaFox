@@ -109,7 +109,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       InventoryItem? found;
       try {
         found = data.firstWhere(
-              (e) => e.type == "avatar_frame" && e.isActive,
+              (e) => (e.type == "avatar_frame" || e.type == "FRAME") && e.isActive,
         );
       } catch (_) {}
 
@@ -132,11 +132,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     try {
       final token = await StorageService.getAccessToken();
 
-      await _service.activateItem(token!, productId);
-
       final activatedItem = items.firstWhere(
             (e) => e.id == productId,
       );
+
+      if (activatedItem.type == "avatar_frame" || activatedItem.type == "FRAME") {
+        await _service.activateFrame(token!, productId);
+      } else {
+        await _service.activateItem(token!, productId);
+      }
 
       // ✅ SEAT EFFECT
       if (activatedItem.type == "seat_effect") {
@@ -148,7 +152,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
 
       // ✅ AVATAR FRAME
-      else if (activatedItem.type == "avatar_frame") {
+      else if (activatedItem.type == "avatar_frame" || activatedItem.type == "FRAME") {
 
         // 🔥 SAVE TO BACKEND
         await DioClient.dio.put(

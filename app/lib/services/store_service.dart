@@ -61,4 +61,21 @@ class StoreService {
       throw Exception("Activation failed");
     }
   }
+
+  Future<void> activateFrame(String token, String inventoryId) async {
+    final res = await http.post(
+      Uri.parse("$baseUrl/store/activate-frame"),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+      body: jsonEncode({
+        "inventoryId": inventoryId,
+      }),
+    );
+
+    if (res.statusCode != 200) {
+      throw Exception("Frame activation failed");
+    }
+  }
 }
