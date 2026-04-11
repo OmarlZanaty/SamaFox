@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../models/gift_sent_event.dart';
-export 'socket_service_impl.dart';
 import '../config/app_config.dart';
 import '../utils/logger.dart';
 import '../models/incoming_message.dart';
@@ -781,6 +780,11 @@ class SocketService {
   // ----------------------------
   // Room ops
   // ----------------------------
+  // Backward-compatible overload kept for legacy callers.
+  void joinRoomLegacy(int roomId, int userId, String username) {
+    joinRoom(roomId: roomId, userId: userId, username: username);
+  }
+
   void joinRoom({
     required int roomId,
     required int userId,
@@ -807,6 +811,51 @@ class SocketService {
     emit('leave_room', {'roomId': roomId, 'userId': userId});
     emit('room:leave', roomId);
     AppLogger.info('🚪 Left room $roomId');
+  }
+
+  // Backward-compatible overload kept for legacy callers.
+  void leaveRoomLegacy(int roomId, int userId) {
+    leaveRoom(roomId: roomId, userId: userId);
+  }
+
+  // Legacy helper that existed in socket_service_impl.dart
+  void initRoomSeats(int roomId) {
+    emit('init_room_seats', {'roomId': roomId});
+  }
+
+  // Legacy helper that existed in socket_service_impl.dart
+  void requestMicAccess(
+    int roomId,
+    int seatNumber,
+    int userId,
+    String username,
+    String? avatarUrl,
+  ) {
+    takeSeat(
+      roomId: roomId,
+      seatNumber: seatNumber,
+      userId: userId,
+      username: username,
+      avatarUrl: avatarUrl,
+    );
+  }
+
+  // Legacy helper that existed in socket_service_impl.dart
+  void leaveSeatRoom(int roomId, int userId, int seatNumber) {
+    emit('leave_seat', {
+      'roomId': roomId,
+      'userId': userId,
+      'seatNumber': seatNumber,
+    });
+  }
+
+  // Legacy helper that existed in socket_service_impl.dart
+  void toggleSelfMute(int roomId, int seatNumber, bool isMuted) {
+    toggleMute(
+      roomId: roomId,
+      seatNumber: seatNumber,
+      isMuted: isMuted,
+    );
   }
 
   // Chat helpers
