@@ -24,9 +24,12 @@ async function assertAdmin(userId: number) {
 export const listChargingAgencies = async (req: Request, res: Response) => {
   try {
     const status = (req.query.status as string) || 'approved';
+    const type = typeof req.query.type === 'string' ? req.query.type.toUpperCase() : null;
+    const where: any = { status };
+    if (type === 'CHARGING' || type === 'HOSTING') where.type = type;
 
     const items = await prisma.chargingAgency.findMany({
-      where: { status },
+      where,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -37,6 +40,10 @@ export const listChargingAgencies = async (req: Request, res: Response) => {
         idFrontUrl: true,
         idBackUrl: true,
         status: true,
+        type: true,
+        contactInfo: true,
+        targetCoins: true,
+        earnedCoins: true,
         createdAt: true,
       },
     });
@@ -93,6 +100,8 @@ export const createChargingAgency = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     const { agencyName, phoneNumber, agencyImageUrl, idFrontUrl, idBackUrl } = req.body as any;
+    const agencyTypeRaw = typeof (req.body as any)?.type === 'string' ? String((req.body as any).type).toUpperCase() : 'CHARGING';
+    const agencyType = agencyTypeRaw === 'HOSTING' ? 'HOSTING' : 'CHARGING';
 
     if (!agencyName || !phoneNumber || !agencyImageUrl || !idFrontUrl || !idBackUrl) {
       return res.status(400).json({ message: 'Missing required fields' });
@@ -116,6 +125,8 @@ export const createChargingAgency = async (req: Request, res: Response) => {
         agencyImageUrl: String(agencyImageUrl),
         idFrontUrl: String(idFrontUrl),
         idBackUrl: String(idBackUrl),
+        type: agencyType,
+        contactInfo: String(phoneNumber).trim(),
         status: 'pending',
       },
       select: {
@@ -127,6 +138,7 @@ export const createChargingAgency = async (req: Request, res: Response) => {
         idFrontUrl: true,
         idBackUrl: true,
         status: true,
+        type: true,
         createdAt: true,
       },
     });

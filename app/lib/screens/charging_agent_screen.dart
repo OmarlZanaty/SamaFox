@@ -184,13 +184,7 @@ Future<void> _handleCreateAgencyRequest(
     ref.invalidate(agencyBalanceProvider);
   } else {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          type == 'HOSTING'
-              ? '❌ فشل إنشاء وكالة الاستضافة. تأكد أن السيرفر يدعم /agencies/request'
-              : '❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت',
-        ),
-      ),
+      const SnackBar(content: Text('❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت')),
     );
   }
 }
@@ -475,6 +469,7 @@ class _AgencySidePanel extends StatelessWidget {
           ...children,
         ],
       ),
+      itemBuilder: (_, i) => _AgencyGridCard(items[i], onTap: onTap),
     );
   }
 }
@@ -1081,7 +1076,7 @@ final chargingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) asyn
   } on DioException catch (e) {
     if (e.response?.statusCode == 404) {
       try {
-        final resp = await dio.get('/charging-agencies', queryParameters: {'status': 'approved'});
+        final resp = await dio.get('/charging-agencies', queryParameters: {'status': 'approved', 'type': 'CHARGING'});
         final list = (resp.data is List ? resp.data as List : (resp.data['data'] as List? ?? const []))
             .cast<Map<String, dynamic>>();
         return list.map((e) => ChargingAgency.fromJson(e)).toList();
@@ -1100,7 +1095,16 @@ final hostingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async
     final list = (resp.data['data'] as List? ?? const []).cast<Map<String, dynamic>>();
     return list.map((e) => ChargingAgency.fromJson(e)).toList();
   } on DioException catch (e) {
-    if (e.response?.statusCode == 404) return [];
+    if (e.response?.statusCode == 404) {
+      try {
+        final resp = await dio.get('/charging-agencies', queryParameters: {'status': 'approved', 'type': 'HOSTING'});
+        final list = (resp.data is List ? resp.data as List : (resp.data['data'] as List? ?? const []))
+            .cast<Map<String, dynamic>>();
+        return list.map((e) => ChargingAgency.fromJson(e)).toList();
+      } on DioException {
+        return [];
+      }
+    }
     rethrow;
   }
 });
@@ -1159,8 +1163,9 @@ class CreateAgencyController extends StateNotifier<bool> {
           'imageUrl': agencyUrl,
         });
       } on DioException catch (e) {
-        if (e.response?.statusCode != 404 || payload.type != 'CHARGING') rethrow;
+        if (e.response?.statusCode != 404) rethrow;
         await dio.post('/charging-agencies', data: {
+          'type': payload.type,
           'agencyName': payload.agencyName,
           'phoneNumber': payload.phoneNumber,
           'agencyImageUrl': agencyUrl,
