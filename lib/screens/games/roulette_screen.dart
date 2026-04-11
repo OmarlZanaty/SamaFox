@@ -21,20 +21,21 @@ class _RouletteScreenState extends State<RouletteScreen>
   String? _lastResultColor;
   String? _resultMessage;
   bool _showResult = false;
-  List<Map<String, dynamic>> _history = [];
+  List<Map<String, dynamic>> _history = []; // {number, color}
   late AnimationController _spinController;
   late AnimationController _resultController;
   int _displayNumber = 0;
   Timer? _rollTimer;
-  Timer? _resultOverlayTimer;
 
   final Random _random = Random();
+  Timer? _overlayTimer;
+  int _targetResult = 0;
 
-  static const Color _bgColor = Color(0xFF0D001A);
-  static const Color _appBarColor = Color(0xFF1a0533);
-  static const Color _redCell = Color(0xFFB91C1C);
-  static const Color _blackCell = Color(0xFF1C1C1C);
-  static const Color _greenCell = Color(0xFF166534);
+  static const Color _bg = Color(0xFF0D001A);
+  static const Color _appBar = Color(0xFF1a0533);
+  static const Color _red = Color(0xFFB91C1C);
+  static const Color _black = Color(0xFF1C1C1C);
+  static const Color _green = Color(0xFF166534);
 
   @override
   void initState() {
@@ -42,34 +43,63 @@ class _RouletteScreenState extends State<RouletteScreen>
     _spinController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
-    )..addStatusListener((status) {
+    )
+      ..addStatusListener((status) {
         if (status == AnimationStatus.completed) {
-          _finishSpin();
+          _completeSpin();
+        }
+      })
+      ..addListener(() {
+        if (mounted && _isSpinning) {
+          setState(() {});
         }
       });
 
     _resultController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 650),
+      duration: const Duration(milliseconds: 900),
     );
   }
 
   @override
   void dispose() {
     _rollTimer?.cancel();
-    _resultOverlayTimer?.cancel();
+    _overlayTimer?.cancel();
     _spinController.dispose();
     _resultController.dispose();
     super.dispose();
   }
 
-  Color _getColorForNumber(int number) {
-    if (number == 0) return _greenCell;
-    return number.isOdd ? _redCell : _blackCell;
+  bool get _canSpin {
+    final hasBet = _betNumber != null || _betColor != null;
+    return !_isSpinning && hasBet && _balance >= _selectedChipAmount;
   }
 
-  String _getColorName(String colorKey) {
-    switch (colorKey) {
+  Color _colorForNumber(int number) {
+    if (number == 0) return _green;
+    return number.isOdd ? _red : _black;
+  }
+
+  String _keyForNumber(int number) {
+    if (number == 0) return 'green';
+    return number.isOdd ? 'red' : 'black';
+  }
+
+  Color _colorFromKey(String key) {
+    switch (key) {
+      case 'red':
+        return _red;
+      case 'black':
+        return _black;
+      case 'green':
+        return _green;
+      default:
+        return Colors.white;
+    }
+  }
+
+  String _labelForColor(String key) {
+    switch (key) {
       case 'red':
         return 'أحمر';
       case 'black':
@@ -81,31 +111,18 @@ class _RouletteScreenState extends State<RouletteScreen>
     }
   }
 
-  Color _getColorFromKey(String colorKey) {
-    switch (colorKey) {
-      case 'red':
-        return _redCell;
-      case 'black':
-        return _blackCell;
-      case 'green':
-        return _greenCell;
-      default:
-        return Colors.white;
-    }
-  }
-
-  String _currentBetText() {
-    if (_betNumber != null) return _betNumber.toString();
-    if (_betColor != null) return _getColorName(_betColor!);
+  String _betText() {
+    if (_betNumber != null) return 'رقم ${_betNumber!}';
+    if (_betColor != null) return _labelForColor(_betColor!);
     return 'لا يوجد';
   }
 
-  bool get _canSpin {
-    final hasBet = _betNumber != null || _betColor != null;
-    return !_isSpinning && hasBet && _balance >= _selectedChipAmount;
+  void _pickChip(int amount) {
+    if (_isSpinning) return;
+    setState(() => _selectedChipAmount = amount);
   }
 
-  void _placeNumberBet(int number) {
+  void _pickNumber(int number) {
     if (_isSpinning) return;
     setState(() {
       _betNumber = number;
@@ -113,16 +130,20 @@ class _RouletteScreenState extends State<RouletteScreen>
     });
   }
 
-  void _placeColorBet(String colorKey) {
+  void _pickColor(String color) {
     if (_isSpinning) return;
     setState(() {
-      _betColor = colorKey;
+      _betColor = color;
       _betNumber = null;
     });
   }
 
-  void _startSpin() {
+  void _spin() {
     if (!_canSpin) return;
+
+    _targetResult = _random.nextInt(37);
+    _rollTimer?.cancel();
+    _overlayTimer?.cancel();
 
     setState(() {
       _balance -= _selectedChipAmount;
@@ -132,54 +153,39 @@ class _RouletteScreenState extends State<RouletteScreen>
     });
 
     _resultController.reset();
-    _spinController.reset();
-
-    _rollTimer?.cancel();
-    _rollTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      if (!_isSpinning) return;
-      final t = Curves.decelerate.transform(_spinController.value);
-      final intervalMs = (50 + (t * 380)).toInt();
-      timer.cancel();
-
-      _displayNumber = _random.nextInt(37);
-      if (mounted) setState(() {});
-
-      _rollTimer = Timer.periodic(Duration(milliseconds: intervalMs), (next) {
-        if (!_isSpinning) {
-          next.cancel();
-          return;
-        }
-        _displayNumber = _random.nextInt(37);
-        if (mounted) setState(() {});
-        final progress = Curves.decelerate.transform(_spinController.value);
-        final newInterval = (50 + (progress * 380)).toInt();
-        if (newInterval != intervalMs) {
-          next.cancel();
-          _rollTimer = Timer.periodic(
-            Duration(milliseconds: newInterval),
-            (rolling) {
-              if (!_isSpinning) {
-                rolling.cancel();
-                return;
-              }
-              _displayNumber = _random.nextInt(37);
-              if (mounted) setState(() {});
-            },
-          );
-        }
-      });
-    });
-
-    _spinController.forward();
+    _spinController.forward(from: 0);
+    _startRollingTicker();
   }
 
-  void _finishSpin() {
+  void _startRollingTicker() {
+    void tick() {
+      if (!_isSpinning) return;
+
+      final t = Curves.decelerate.transform(_spinController.value);
+      final closeness = t > 0.7;
+
+      setState(() {
+        if (closeness) {
+          final jitter = _random.nextInt(7) - 3;
+          _displayNumber = (_targetResult + jitter) % 37;
+          if (_displayNumber < 0) _displayNumber += 37;
+        } else {
+          _displayNumber = _random.nextInt(37);
+        }
+      });
+
+      final delay = (45 + (t * 420)).toInt();
+      _rollTimer = Timer(Duration(milliseconds: delay), tick);
+    }
+
+    tick();
+  }
+
+  void _completeSpin() {
     _rollTimer?.cancel();
 
-    final result = _random.nextInt(37);
-    final resultColorKey = result == 0
-        ? 'green'
-        : (result.isOdd ? 'red' : 'black');
+    final result = _targetResult;
+    final resultColor = _keyForNumber(result);
 
     bool isWin = false;
     int payout = 0;
@@ -187,7 +193,7 @@ class _RouletteScreenState extends State<RouletteScreen>
     if (_betNumber != null && _betNumber == result) {
       isWin = true;
       payout = _selectedChipAmount * 10;
-    } else if (_betColor != null && _betColor == resultColorKey) {
+    } else if (_betColor != null && _betColor == resultColor) {
       isWin = true;
       payout = _selectedChipAmount * 2;
     }
@@ -199,12 +205,12 @@ class _RouletteScreenState extends State<RouletteScreen>
     setState(() {
       _isSpinning = false;
       _lastResult = result;
-      _lastResultColor = resultColorKey;
+      _lastResultColor = resultColor;
       _displayNumber = result;
-      _showResult = true;
       _resultMessage = isWin ? 'فزت! +$payout كوين' : 'خسرت 😔';
+      _showResult = true;
 
-      _history.insert(0, {'number': result, 'color': resultColorKey});
+      _history.insert(0, {'number': result, 'color': resultColor});
       if (_history.length > 10) {
         _history = _history.take(10).toList();
       }
@@ -214,123 +220,195 @@ class _RouletteScreenState extends State<RouletteScreen>
       ..reset()
       ..forward();
 
-    _resultOverlayTimer?.cancel();
-    _resultOverlayTimer = Timer(const Duration(seconds: 2), () {
+    _overlayTimer = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
-      setState(() {
-        _showResult = false;
-      });
+      setState(() => _showResult = false);
     });
   }
 
-  Widget _buildColorButton({
-    required String keyValue,
-    required String label,
-    required Color color,
-  }) {
-    final selected = _betColor == keyValue;
-    return GestureDetector(
-      onTap: _isSpinning ? null : () => _placeColorBet(keyValue),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        height: 44,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: selected ? 1 : 0.78),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? Colors.amber : Colors.white24,
-            width: selected ? 2.4 : 1,
+  Widget _buildStage() {
+    final spinT = Curves.decelerate.transform(_spinController.value);
+    final wheelRotation = _spinController.value * (pi * 11);
+    final wobble = sin(_spinController.value * pi * 12) * (0.07 * (1 - spinT));
+    final pulse = 0.45 + ((sin(_spinController.value * pi * 8) + 1) / 2) * 0.4;
+    final currentColor = _colorForNumber(_displayNumber);
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          height: 160,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                const Color(0xFF1A0533),
+                const Color(0xFF120225),
+                Colors.black.withOpacity(0.9),
+              ],
+            ),
+            border: Border.all(color: Colors.white24),
+            boxShadow: [
+              BoxShadow(
+                color: currentColor.withOpacity(_isSpinning ? 0.35 : 0.22),
+                blurRadius: _isSpinning ? 40 : 20,
+                spreadRadius: _isSpinning ? 4 : 1,
+              ),
+            ],
           ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: Colors.amber.withValues(alpha: 0.6),
-                    blurRadius: 14,
-                    spreadRadius: 1,
+        ),
+        Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.001)
+            ..rotateX(0.33 + wobble)
+            ..rotateZ(wheelRotation),
+          child: Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: SweepGradient(
+                colors: [
+                  const Color(0xFFE11D48),
+                  const Color(0xFF111827),
+                  const Color(0xFF16A34A),
+                  const Color(0xFF111827),
+                  const Color(0xFFE11D48),
+                ],
+                transform: GradientRotation(wheelRotation * 0.25),
+              ),
+              border: Border.all(color: Colors.white30, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.cyanAccent.withOpacity(_isSpinning ? pulse : 0.25),
+                  blurRadius: _isSpinning ? 28 : 12,
+                  spreadRadius: _isSpinning ? 2 : 0,
+                ),
+              ],
+            ),
+            child: Center(
+              child: Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black.withOpacity(0.65),
+                  border: Border.all(color: Colors.white24),
+                ),
+                alignment: Alignment.center,
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 120),
+                  style: TextStyle(
+                    color: currentColor,
+                    fontWeight: FontWeight.w900,
+                    fontSize: _isSpinning ? 30 : 34,
+                    shadows: [
+                      Shadow(
+                        color: currentColor.withOpacity(0.9),
+                        blurRadius: _isSpinning ? 20 : 8,
+                      ),
+                    ],
                   ),
-                ]
-              : null,
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
+                  child: Text('$_displayNumber'),
+                ),
+              ),
+            ),
           ),
         ),
-      ),
+        Positioned(
+          top: 14,
+          child: Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.white.withOpacity(0.9),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_showResult && _resultMessage != null)
+          FadeTransition(
+            opacity: CurvedAnimation(
+              parent: _resultController,
+              curve: Curves.easeOut,
+            ),
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.78, end: 1.06).animate(
+                CurvedAnimation(
+                  parent: _resultController,
+                  curve: Curves.easeOutBack,
+                ),
+              ),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: (_resultMessage!.startsWith('فزت')
+                          ? Colors.greenAccent
+                          : Colors.redAccent)
+                      .withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _resultMessage!.startsWith('فزت')
+                        ? Colors.greenAccent
+                        : Colors.redAccent,
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _resultMessage!.startsWith('فزت')
+                          ? Colors.greenAccent.withOpacity(0.65)
+                          : Colors.redAccent.withOpacity(0.65),
+                      blurRadius: 24,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Text(
+                  _resultMessage!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
-  Widget _buildNumberCell(int number) {
-    final isSelected = _betNumber == number;
-    final cellColor = _getColorForNumber(number);
-
-    return GestureDetector(
-      onTap: _isSpinning ? null : () => _placeNumberBet(number),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: cellColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? Colors.amber : Colors.white12,
-            width: isSelected ? 2.5 : 0.7,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.amber.withValues(alpha: 0.65),
-                    blurRadius: 14,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : null,
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          '$number',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChipButton(int amount) {
-    final isSelected = _selectedChipAmount == amount;
+  Widget _buildColorButton(String key, String text, Color color) {
+    final selected = _betColor == key;
     return Expanded(
       child: GestureDetector(
-        onTap: _isSpinning
-            ? null
-            : () {
-                setState(() => _selectedChipAmount = amount);
-              },
+        onTap: _isSpinning ? null : () => _pickColor(key),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.symmetric(horizontal: 5),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          height: 44,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF7E22CE), Color(0xFF4C1D95)],
-            ),
-            borderRadius: BorderRadius.circular(30),
+            color: color,
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? Colors.amber : Colors.white24,
-              width: isSelected ? 2.2 : 1,
+              color: selected ? Colors.amber : Colors.white24,
+              width: selected ? 2.4 : 1,
             ),
-            boxShadow: isSelected
+            boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: Colors.amber.withValues(alpha: 0.65),
-                      blurRadius: 14,
+                      color: Colors.amber.withOpacity(0.65),
+                      blurRadius: 16,
                       spreadRadius: 1,
                     ),
                   ]
@@ -338,7 +416,87 @@ class _RouletteScreenState extends State<RouletteScreen>
           ),
           alignment: Alignment.center,
           child: Text(
-            '$amount',
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNumberCell(int n) {
+    final selected = _betNumber == n;
+    return GestureDetector(
+      onTap: _isSpinning ? null : () => _pickNumber(n),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 130),
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: _colorForNumber(n),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? Colors.amber : Colors.white12,
+            width: selected ? 2.4 : 0.8,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: Colors.amber.withOpacity(0.65),
+                    blurRadius: 12,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          '$n',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChip(int value) {
+    final selected = _selectedChipAmount == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: _isSpinning ? null : () => _pickChip(value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          margin: const EdgeInsets.symmetric(horizontal: 5),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF7E22CE), Color(0xFF4C1D95)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(
+              color: selected ? Colors.amber : Colors.white24,
+              width: selected ? 2.4 : 1,
+            ),
+            boxShadow: [
+              if (selected)
+                BoxShadow(
+                  color: Colors.amber.withOpacity(0.55),
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '$value',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -352,32 +510,27 @@ class _RouletteScreenState extends State<RouletteScreen>
 
   @override
   Widget build(BuildContext context) {
-    final numberTiles = List<int>.generate(37, (i) => i);
-    final restNumbers = numberTiles.where((n) => n != 0).toList();
-
-    final overlayColor = (_resultMessage?.contains('فزت') ?? false)
-        ? Colors.greenAccent
-        : Colors.redAccent;
+    final numbers = List.generate(36, (i) => i + 1);
 
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: _bg,
       appBar: AppBar(
-        backgroundColor: _appBarColor,
-        title: const Text('روليت 🎰'),
+        backgroundColor: _appBar,
         centerTitle: true,
+        title: const Text('روليت 🎰'),
         actions: [
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: const Color(0xFF311152),
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(24),
               border: Border.all(color: Colors.white24),
             ),
             child: Row(
               children: [
                 const Icon(Icons.monetization_on, color: Colors.amber, size: 18),
-                const SizedBox(width: 5),
+                const SizedBox(width: 4),
                 Text(
                   '$_balance',
                   style: const TextStyle(
@@ -395,130 +548,31 @@ class _RouletteScreenState extends State<RouletteScreen>
           padding: const EdgeInsets.all(12),
           child: Column(
             children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    height: 120,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white24),
-                      boxShadow: _isSpinning
-                          ? [
-                              BoxShadow(
-                                color: Colors.cyanAccent.withValues(alpha: 0.5),
-                                blurRadius: 24,
-                                spreadRadius: 2,
-                              ),
-                            ]
-                          : null,
-                    ),
-                    alignment: Alignment.center,
-                    child: AnimatedDefaultTextStyle(
-                      duration: const Duration(milliseconds: 140),
-                      style: TextStyle(
-                        color: _getColorForNumber(_displayNumber),
-                        fontSize: _isSpinning ? 56 : 52,
-                        fontWeight: FontWeight.w900,
-                        shadows: [
-                          Shadow(
-                            color: _getColorForNumber(_displayNumber)
-                                .withValues(alpha: 0.7),
-                            blurRadius: _isSpinning ? 24 : 12,
-                          ),
-                        ],
-                      ),
-                      child: Text('$_displayNumber'),
-                    ),
-                  ),
-                  if (_showResult && _resultMessage != null)
-                    FadeTransition(
-                      opacity: CurvedAnimation(
-                        parent: _resultController,
-                        curve: Curves.easeOut,
-                      ),
-                      child: ScaleTransition(
-                        scale: Tween<double>(begin: 0.8, end: 1.05).animate(
-                          CurvedAnimation(
-                            parent: _resultController,
-                            curve: Curves.easeOutBack,
-                          ),
-                        ),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: overlayColor.withValues(alpha: 0.2),
-                            border: Border.all(color: overlayColor, width: 1.2),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: overlayColor.withValues(alpha: 0.5),
-                                blurRadius: 18,
-                                spreadRadius: 1,
-                              ),
-                            ],
-                          ),
-                          child: Text(
-                            _resultMessage!,
-                            style: TextStyle(
-                              color: overlayColor,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
+              _buildStage(),
+              const SizedBox(height: 10),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
+                  color: Colors.white.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'رهانك: ${_currentBetText()}  |  مبلغ: $_selectedChipAmount',
+                  'رهانك: ${_betText()}  |  مبلغ: $_selectedChipAmount',
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
-                    fontSize: 15,
                   ),
                 ),
               ),
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildColorButton(
-                      keyValue: 'red',
-                      label: 'Red',
-                      color: _redCell,
-                    ),
-                  ),
+                  _buildColorButton('red', 'Red', _red),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildColorButton(
-                      keyValue: 'black',
-                      label: 'Black',
-                      color: _blackCell,
-                    ),
-                  ),
+                  _buildColorButton('black', 'Black', _black),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildColorButton(
-                      keyValue: 'green',
-                      label: 'Green',
-                      color: _greenCell,
-                    ),
-                  ),
+                  _buildColorButton('green', 'Green', _green),
                 ],
               ),
               const SizedBox(height: 10),
@@ -526,7 +580,7 @@ class _RouletteScreenState extends State<RouletteScreen>
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.04),
+                    color: Colors.white.withOpacity(0.04),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.white10),
                   ),
@@ -535,16 +589,13 @@ class _RouletteScreenState extends State<RouletteScreen>
                       SizedBox(
                         height: 44,
                         child: Row(
-                          children: [
-                            Expanded(child: _buildNumberCell(0)),
-                          ],
+                          children: [Expanded(child: _buildNumberCell(0))],
                         ),
                       ),
                       const SizedBox(height: 8),
                       Expanded(
                         child: GridView.builder(
-                          physics: const BouncingScrollPhysics(),
-                          itemCount: restNumbers.length,
+                          itemCount: numbers.length,
                           gridDelegate:
                               const SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: 4,
@@ -552,10 +603,8 @@ class _RouletteScreenState extends State<RouletteScreen>
                             crossAxisSpacing: 8,
                             childAspectRatio: 1,
                           ),
-                          itemBuilder: (context, index) {
-                            final number = restNumbers[index];
-                            return _buildNumberCell(number);
-                          },
+                          itemBuilder: (context, i) =>
+                              _buildNumberCell(numbers[i]),
                         ),
                       ),
                     ],
@@ -564,34 +613,35 @@ class _RouletteScreenState extends State<RouletteScreen>
               ),
               const SizedBox(height: 10),
               Row(
-                children: [
-                  _buildChipButton(10),
-                  _buildChipButton(50),
-                  _buildChipButton(100),
-                ],
+                children: [_buildChip(10), _buildChip(50), _buildChip(100)],
               ),
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _canSpin ? _startSpin : null,
+                  onPressed: _canSpin ? _spin : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
                     disabledBackgroundColor: Colors.transparent,
                     padding: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
                     elevation: 0,
                   ),
                   child: Ink(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: _canSpin
-                            ? const [Color(0xFFA855F7), Color(0xFF6D28D9)]
+                            ? const [Color(0xFFB266FF), Color(0xFF6D28D9)]
                             : [Colors.grey.shade700, Colors.grey.shade800],
                       ),
                       borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        if (_canSpin)
+                          BoxShadow(
+                            color: Colors.purpleAccent.withOpacity(0.45),
+                            blurRadius: 18,
+                            spreadRadius: 1,
+                          ),
+                      ],
                     ),
                     child: Container(
                       alignment: Alignment.center,
@@ -601,21 +651,21 @@ class _RouletteScreenState extends State<RouletteScreen>
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
                           fontSize: 16,
+                          letterSpacing: 1,
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'آخر النتائج',
+                  'آخر 10 نتائج',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.9),
+                    color: Colors.white.withOpacity(0.9),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -627,22 +677,21 @@ class _RouletteScreenState extends State<RouletteScreen>
                     ? Center(
                         child: Text(
                           'لا يوجد نتائج بعد',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.6),
-                          ),
+                          style: TextStyle(color: Colors.white.withOpacity(0.55)),
                         ),
                       )
                     : ListView.separated(
                         scrollDirection: Axis.horizontal,
-                        itemBuilder: (context, index) {
-                          final item = _history[index];
-                          final color = _getColorFromKey(item['color'] as String);
+                        itemCount: _history.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, i) {
+                          final item = _history[i];
                           return Container(
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                              color: color,
                               shape: BoxShape.circle,
+                              color: _colorFromKey(item['color'] as String),
                               border: Border.all(color: Colors.white24),
                             ),
                             alignment: Alignment.center,
@@ -650,14 +699,12 @@ class _RouletteScreenState extends State<RouletteScreen>
                               '${item['number']}',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontWeight: FontWeight.bold,
                                 fontSize: 12,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           );
                         },
-                        separatorBuilder: (_, _) => const SizedBox(width: 8),
-                        itemCount: _history.length,
                       ),
               ),
             ],
