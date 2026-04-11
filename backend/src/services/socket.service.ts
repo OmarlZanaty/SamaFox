@@ -105,6 +105,7 @@ const locked = getLockedSeats(rid);
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
   activeFrameId: true,
+  activeFrame: { select: { assetUrl: true } },
   level: true,
 }
       })
@@ -116,7 +117,7 @@ const locked = getLockedSeats(rid);
 
 await Promise.all(
   seatedUsers.map(async (u) => {
-    const frame = u.avatarFrameUrl ?? null;
+    const frame = u.activeFrame?.assetUrl ?? u.avatarFrameUrl ?? null;
     frameMap.set(u.id, frame);
   })
 );
@@ -361,10 +362,11 @@ socket.emit('seat_error', {
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
+  activeFrame: { select: { assetUrl: true } },
   level: true,
 }
   });
-      const avatarFrameUrl = u?.avatarFrameUrl ?? null;
+      const avatarFrameUrl = u?.activeFrame?.assetUrl ?? u?.avatarFrameUrl ?? null;
 
       console.log("🧪 BACKEND seat_occupied:", {
   seatNumber: sn,
@@ -380,6 +382,7 @@ socket.emit('seat_error', {
     username: u?.name ?? null,
     avatarUrl: u?.avatarUrl ?? null,
     avatarFrameUrl, // ✅ ADD THIS
+    frameImageUrl: avatarFrameUrl,
     level: u?.level ?? 1,
     isMuted: true,
   });
@@ -497,10 +500,11 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
+  activeFrame: { select: { assetUrl: true } },
   level: true,
 }
           });
-            const avatarFrameUrl = user?.avatarFrameUrl ?? null;
+            const avatarFrameUrl = user?.activeFrame?.assetUrl ?? user?.avatarFrameUrl ?? null;
           console.log('[auto-seat assigned]', { uid, rid, seatNum });
 
           io.to(`room:${rid}`).emit('seat_occupied', {
@@ -509,6 +513,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   username: user?.name ?? null,
   avatarUrl: user?.avatarUrl ?? null,
   avatarFrameUrl, // ✅ ADD
+  frameImageUrl: avatarFrameUrl,
   level: user?.level ?? 1,
   isMuted: false,
 });

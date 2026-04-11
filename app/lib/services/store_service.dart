@@ -70,12 +70,43 @@ class StoreService {
         "Content-Type": "application/json",
       },
       body: jsonEncode({
-        "inventoryId": inventoryId,
+        "itemId": inventoryId,
       }),
     );
 
     if (res.statusCode != 200) {
       throw Exception("Frame activation failed");
     }
+  }
+
+  Future<void> deactivateFrame(String token) async {
+    final res = await http.post(
+      Uri.parse("$baseUrl/store/deactivate-frame"),
+      headers: {
+        "Authorization": "Bearer $token",
+        "Content-Type": "application/json",
+      },
+    );
+
+    if (res.statusCode != 200) {
+      throw Exception("Frame deactivation failed");
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getMyFrames(String token) async {
+    final res = await http.get(
+      Uri.parse("$baseUrl/store/my-frames"),
+      headers: {
+        "Authorization": "Bearer $token",
+      },
+    );
+
+    if (res.statusCode != 200) {
+      throw Exception("Failed to load frames");
+    }
+
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    final raw = (body['data'] as List?) ?? const [];
+    return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 }
