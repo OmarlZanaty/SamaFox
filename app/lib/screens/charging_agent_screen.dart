@@ -16,7 +16,6 @@ import 'package:dio/dio.dart';
 class ChargingAgentScreen extends ConsumerWidget {
   const ChargingAgentScreen({super.key});
 
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final balanceAsync = ref.watch(agencyBalanceProvider);
@@ -40,37 +39,6 @@ class ChargingAgentScreen extends ConsumerWidget {
         centerTitle: true,
       ),
 
-      floatingActionButton: _CreateAgencyButton(
-        onTap: () async {
-          final result = await showDialog<CreateChargingAgencyPayload?>(
-            context: context,
-            barrierDismissible: true,
-            builder: (_) => const _CreateChargingAgencyDialog(),
-          );
-
-          if (result == null) return;
-
-          final ok = await ref.read(createAgencyControllerProvider.notifier).submit(result);
-
-          if (!context.mounted) return;
-
-          if (ok) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('✅ تم إرسال طلب إنشاء الوكالة (Pending)')),
-            );
-            ref.invalidate(myAgenciesProvider);
-            ref.invalidate(chargingAgenciesProvider);
-            ref.invalidate(hostingAgenciesProvider);
-            ref.invalidate(agencyBalanceProvider);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت')),
-            );
-          }
-        },
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -90,7 +58,7 @@ class ChargingAgentScreen extends ConsumerWidget {
             ref.invalidate(hostingAgenciesProvider);
           },
           child: ListView(
-            padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 120),
+            padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 30),
             children: [
               // ================== Balance Card ==================
               Container(
@@ -151,125 +119,143 @@ class ChargingAgentScreen extends ConsumerWidget {
               ),
 
               const SizedBox(height: 22),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth > 860;
+                  final chargingSection = _AgencySidePanel(
+                    title: 'قسم وكالات الشحن',
+                    subtitle: 'طلبات الإنشاء، الموافقات، وإدارة رصيد الوكالة.',
+                    children: [
+                      _CreateAgencyButton(
+                        onTap: () => _handleCreateAgencyRequest(context, ref),
+                      ),
+                      const SizedBox(height: 12),
+                      const _FeatureLine('طلب إنشاء وكالة جديدة باسم وصورة.'),
+                      const _FeatureLine('يظهر الطلب داخل لوحة تحكم الأدمن للمراجعة والقبول.'),
+                      const _FeatureLine('بعد القبول، صاحب الوكالة يطلب كوينز من الأدمن.'),
+                      const _FeatureLine('الأدمن يرسل الكوينز للوكالة من لوحة التحكم.'),
+                      const _FeatureLine('شاشة الوكالة (للأدمن فقط) ترسل كوينز لأي مستخدم.'),
+                      const _FeatureLine('بيانات التواصل متاحة لأي مستخدم يريد شحن كوينز.'),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'طلباتك',
+                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.right,
+                      ),
+                      const SizedBox(height: 8),
+                      myAsync.when(
+                        data: (items) {
+                          if (items.isEmpty) {
+                            return Text(
+                              'لا توجد طلبات حتى الآن',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                            );
+                          }
+                          return Column(children: items.map((a) => _MyAgencyTile(a)).toList());
+                        },
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (e, _) => Text(
+                          'خطأ في تحميل طلباتك: $e',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'وكالات الشحن المعتمدة',
+                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.right,
+                      ),
+                      const SizedBox(height: 10),
+                      chargingAsync.when(
+                        data: (items) {
+                          if (items.isEmpty) {
+                            return Text(
+                              'لا توجد وكالات معتمدة حالياً',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                            );
+                          }
+                          return _AgencyGrid(items: items);
+                        },
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (e, _) => Text(
+                          'خطأ في تحميل وكالات الشحن: $e',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    ],
+                  );
 
-              // ================== My Requests ==================
-              const Text(
-                'طلباتك',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.right,
-              ),
-              const SizedBox(height: 12),
+                  final hostingSection = _AgencySidePanel(
+                    title: 'قسم وكالات الاستضافة',
+                    subtitle: 'نظام الوكالات الاستضافية بالتفعيل والدعوات والتارجت.',
+                    children: [
+                      const _FeatureLine('اسم و شعار و صورة'),
+                      const _FeatureLine('التفعيل بالموافقة'),
+                      const _FeatureLine('دعوة انضمام للوكالة'),
+                      const _FeatureLine('اسم الوكالة تحت بياناته'),
+                      const _FeatureLine('صاحب الوكالة بشوف الكوينز اللى خادها من الناس'),
+                      const _FeatureLine('نظام التارجت'),
+                      const _FeatureLine('فى الصفحة الشخصية يظهر اللى اشتريته و التارجت و اللى جالى'),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'وكالات الاستضافة',
+                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.right,
+                      ),
+                      const SizedBox(height: 10),
+                      hostingAsync.when(
+                        data: (items) {
+                          if (items.isEmpty) {
+                            return Text(
+                              'لا توجد وكالات استضافة حالياً',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                            );
+                          }
+                          return _AgencyGrid(items: items);
+                        },
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (e, _) => Text(
+                          'خطأ في تحميل وكالات الاستضافة: $e',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    ],
+                  );
 
-              myAsync.when(
-                data: (items) {
-                  if (items.isEmpty) {
-                    return Text(
-                      'لا توجد طلبات حتى الآن',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                  if (isWide) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: chargingSection),
+                        const SizedBox(width: 14),
+                        Expanded(child: hostingSection),
+                      ],
                     );
                   }
 
                   return Column(
-                    children: items.map((a) => _MyAgencyTile(a)).toList(),
+                    children: [
+                      chargingSection,
+                      const SizedBox(height: 14),
+                      hostingSection,
+                    ],
                   );
                 },
-                loading: () => const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-                error: (e, _) => Text(
-                  'خطأ في تحميل طلباتك: $e',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(color: Colors.redAccent),
-                ),
-              ),
-
-              const SizedBox(height: 26),
-
-              // ================== Charging Agencies Grid ==================
-              const Text(
-                'وكالات الشحن المعتمدة',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.right,
-              ),
-              const SizedBox(height: 12),
-
-              chargingAsync.when(
-                data: (items) {
-                  if (items.isEmpty) {
-                    return Text(
-                      'لا توجد وكالات معتمدة حالياً',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(color: Colors.white.withOpacity(0.7)),
-                    );
-                  }
-
-                  return GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: items.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 0.92,
-                    ),
-                    itemBuilder: (_, i) => _AgencyGridCard(items[i]),
-                  );
-                },
-                loading: () => const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-                error: (e, _) => Text(
-                  'خطأ في تحميل وكالات الشحن: $e',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(color: Colors.redAccent),
-                ),
-              ),
-
-              const SizedBox(height: 26),
-
-              const Text(
-                'وكالات الاستضافة',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.right,
-              ),
-              const SizedBox(height: 12),
-
-              hostingAsync.when(
-                data: (items) {
-                  if (items.isEmpty) {
-                    return Text(
-                      'لا توجد وكالات استضافة حالياً',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(color: Colors.white.withOpacity(0.7)),
-                    );
-                  }
-
-                  return GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: items.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 0.92,
-                    ),
-                    itemBuilder: (_, i) => _AgencyGridCard(items[i]),
-                  );
-                },
-                loading: () => const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-                error: (e, _) => Text(
-                  'خطأ في تحميل وكالات الاستضافة: $e',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(color: Colors.redAccent),
-                ),
               ),
 
               const SizedBox(height: 30),
@@ -287,6 +273,122 @@ class ChargingAgentScreen extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+Future<void> _handleCreateAgencyRequest(BuildContext context, WidgetRef ref) async {
+  final result = await showDialog<CreateChargingAgencyPayload?>(
+    context: context,
+    barrierDismissible: true,
+    builder: (_) => const _CreateChargingAgencyDialog(),
+  );
+
+  if (result == null) return;
+
+  final ok = await ref.read(createAgencyControllerProvider.notifier).submit(result);
+  if (!context.mounted) return;
+
+  if (ok) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('✅ تم إرسال طلب إنشاء الوكالة (Pending)')),
+    );
+    ref.invalidate(myAgenciesProvider);
+    ref.invalidate(chargingAgenciesProvider);
+    ref.invalidate(hostingAgenciesProvider);
+    ref.invalidate(agencyBalanceProvider);
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت')),
+    );
+  }
+}
+
+class _AgencySidePanel extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  const _AgencySidePanel({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A1A5E).withOpacity(0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF6B4CE6).withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.right,
+            style: TextStyle(color: Colors.white.withOpacity(0.7)),
+          ),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _FeatureLine extends StatelessWidget {
+  final String text;
+  const _FeatureLine(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(Icons.check_circle, size: 16, color: Color(0xFF9D88FF)),
+        ],
+      ),
+    );
+  }
+}
+
+class _AgencyGrid extends StatelessWidget {
+  final List<ChargingAgency> items;
+  const _AgencyGrid({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.92,
+      ),
+      itemBuilder: (_, i) => _AgencyGridCard(items[i]),
     );
   }
 }
