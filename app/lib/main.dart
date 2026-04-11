@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'dart:async';
 import 'package:samafox/screens/chat_screen.dart';
 import 'package:samafox/screens/feature_screens.dart';
 import 'package:samafox/screens/store_screen.dart';
@@ -23,6 +24,9 @@ import 'utils/storage_service.dart';
 import 'providers/localization_provider.dart';
 import 'package:samafox/screens/games_hub_screen.dart';
 import 'widgets/pip_overlay.dart';
+import 'services/socket_service.dart';
+import 'models/mega_gift_payload.dart';
+import 'widgets/mega_gift_overlay.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,8 +52,32 @@ void main() async {
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-class SamaFoxApp extends ConsumerWidget {
+class SamaFoxApp extends ConsumerStatefulWidget {
   const SamaFoxApp({super.key});
+
+  @override
+  ConsumerState<SamaFoxApp> createState() => _SamaFoxAppState();
+}
+
+class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
+  StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _globalGiftSub = SocketService().globalGiftBroadcastStream.listen((data) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      final payload = MegaGiftPayload.fromJson(data);
+      MegaGiftOverlay.show(context, payload);
+    });
+  }
+
+  @override
+  void dispose() {
+    _globalGiftSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
