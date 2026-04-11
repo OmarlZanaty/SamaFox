@@ -61,15 +61,29 @@ class SamaFoxApp extends ConsumerStatefulWidget {
 
 class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
   StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
+  late final SocketService _socketService;
 
   @override
   void initState() {
     super.initState();
+    _socketService = SocketService();
     _globalGiftSub = SocketService().globalGiftBroadcastStream.listen((data) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
       final payload = MegaGiftPayload.fromJson(data);
       MegaGiftOverlay.show(context, payload);
+    });
+    _socketService.on('follow_request', (data) {
+      debugPrint('New follow request event: $data');
+    });
+    _socketService.on('follow_accepted', (data) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      final byUser = (data is Map ? data['byUser'] : null) as Map?;
+      final name = byUser?['name']?.toString() ?? 'مستخدم';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$name قبل طلب متابعتك')),
+      );
     });
   }
 
