@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -7,6 +8,9 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../providers/auth_provider.dart';
 import '../providers/room_provider.dart';
 import '../providers/localization_provider.dart';
+import '../services/dio_client.dart';
+import 'room_screen.dart';
+import 'user_profile_screen.dart';
 import 'create_room_dialog.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 class HomeScreen extends ConsumerStatefulWidget {
@@ -17,6 +21,11 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProviderStateMixin {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+  List<SearchResult> _results = [];
+  bool _isSearching = false;
+
   Future<void> _showCreateRoomDialog() async {
     await showDialog(
       context: context,
@@ -39,16 +48,62 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
 
   late final AnimationController _pulseCtrl;
 
+  void _onChanged() {
+    _debounce?.cancel();
+    final q = _controller.text.trim();
+
+    if (q.isEmpty) {
+      setState(() {
+        _results = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    _debounce = Timer(const Duration(milliseconds: 400), () => _search(q));
+  }
+
+  Future<void> _search(String q) async {
+    if (!mounted) return;
+    setState(() => _isSearching = true);
+
+    try {
+      final response = await DioClient.dio.get(
+        '/search',
+        queryParameters: {'q': q, 'type': 'all'},
+      );
+
+      final data = response.data;
+      final list = (data is Map<String, dynamic> ? data['data'] : null) as List?;
+      final parsed = (list ?? [])
+          .whereType<Map>()
+          .map((e) => SearchResult.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _results = parsed;
+        _isSearching = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isSearching = false);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
       ..repeat(reverse: true);
+    _controller.addListener(_onChanged);
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _controller.removeListener(_onChanged);
+    _controller.dispose();
     _pulseCtrl.dispose();
     super.dispose();
   }
@@ -58,6 +113,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     final authState = ref.watch(authStateProvider);
     final roomsState = ref.watch(roomsProvider);
     final strings = ref.watch(appStringsProvider);
+    final isSearchMode = _controller.text.trim().isNotEmpty;
 
     final rooms = List.of(roomsState.rooms);
     rooms.shuffle(Random(7));
@@ -125,6 +181,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
 
                       ),
                     ),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: TextField(
+                          controller: _controller,
+                          decoration: InputDecoration(
+                            hintText: 'ابحث بالاسم أو الرقم...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _isSearching
+                                ? const Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                  )
+                                : (_controller.text.isNotEmpty
+                                    ? IconButton(
+                                        onPressed: () => _controller.clear(),
+                                        icon: const Icon(Icons.close),
+                                      )
+                                    : null),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.08),
+                          ),
+                        ),
+                      ),
+                    ),
 
                     // 🔥 ADD HERE
                     SliverToBoxAdapter(child: SizedBox(height: 10)),
@@ -132,6 +220,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                     SliverToBoxAdapter(child: SizedBox(height: 10)),
                     // ✅ removed the top bubbles row (plus icon + people icons)
 
+                    if (isSearchMode)
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 130),
+                        sliver: _results.isNotEmpty
+                            ? SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (context, index) => SearchResultTile(result: _results[index]),
+                                  childCount: _results.length,
+                                ),
+                              )
+                            : const SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: EdgeInsets.only(top: 24),
+                                  child: Center(
+                                    child: Text(
+                                      'لا توجد نتائج',
+                                      style: TextStyle(color: Colors.white70),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                      )
+                    else
                     SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -167,14 +278,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                       ),
                     ),
 
-                    if (roomsState.isLoading && roomsState.rooms.isEmpty)
+                    if (!isSearchMode && roomsState.isLoading && roomsState.rooms.isEmpty)
                       const SliverFillRemaining(
                         hasScrollBody: false,
                         child: Center(
                           child: CircularProgressIndicator(color: _brand),
                         ),
                       )
-                    else if (roomsState.error != null && roomsState.rooms.isEmpty)
+                    else if (!isSearchMode && roomsState.error != null && roomsState.rooms.isEmpty)
                       SliverFillRemaining(
                         hasScrollBody: false,
                         child: _ErrorPanel(
@@ -184,7 +295,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                           onRetry: () => ref.read(roomsProvider.notifier).loadRooms(),
                         ),
                       )
-                    else if (rooms.isEmpty)
+                    else if (!isSearchMode && rooms.isEmpty)
                         SliverFillRemaining(
                           hasScrollBody: false,
                           child: _EmptyPanel(
@@ -192,7 +303,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                             subtitle: strings.createFirstRoom,
                           ),
                         )
-                      else
+                      else if (!isSearchMode)
 
                         SliverPadding(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 130),
@@ -325,6 +436,86 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+class SearchResult {
+  final String type;
+  final String name;
+  final int id;
+  final String? imageUrl;
+  final String? subtitle;
+  final int? level;
+
+  SearchResult({
+    required this.type,
+    required this.name,
+    required this.id,
+    this.imageUrl,
+    this.subtitle,
+    this.level,
+  });
+
+  factory SearchResult.fromJson(Map<String, dynamic> j) {
+    return SearchResult(
+      type: (j['type'] ?? '').toString(),
+      id: (j['id'] as num?)?.toInt() ?? 0,
+      name: (j['name'] ?? '').toString(),
+      imageUrl: j['imageUrl']?.toString(),
+      subtitle: j['subtitle']?.toString(),
+      level: (j['level'] as num?)?.toInt(),
+    );
+  }
+}
+
+class SearchResultTile extends StatelessWidget {
+  const SearchResultTile({super.key, required this.result});
+
+  final SearchResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.white.withOpacity(0.08),
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: ListTile(
+        onTap: () {
+          if (result.type == 'room') {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => RoomScreen(roomId: result.id)),
+            );
+          } else {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => UserProfileScreen(userId: result.id)),
+            );
+          }
+        },
+        leading: CircleAvatar(
+          backgroundColor: Colors.white24,
+          backgroundImage: (result.imageUrl != null && result.imageUrl!.isNotEmpty)
+              ? NetworkImage(result.imageUrl!)
+              : null,
+          child: (result.imageUrl == null || result.imageUrl!.isEmpty)
+              ? Icon(
+                  result.type == 'room' ? Icons.meeting_room : Icons.person,
+                  color: Colors.white,
+                )
+              : null,
+        ),
+        title: Text(
+          result.name,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        subtitle: result.subtitle == null
+            ? null
+            : Text(
+                result.subtitle!,
+                style: const TextStyle(color: Colors.white70),
+              ),
       ),
     );
   }
