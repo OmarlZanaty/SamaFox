@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+    width="512" height="512" viewBox="0 0 512 512">
+
+    <defs>
+        <!-- Purple -> Pink gradient -->
+        <linearGradient id="ringGrad" x1="86" y1="86" x2="426" y2="426" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#7C3AED"/>
+            <stop offset="1" stop-color="#EC4899"/>
+        </linearGradient>
+
+        <!-- Soft glow (safe for flutter_svg) -->
+        <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="2.5" result="b"/>
+            <feMerge>
+                <feMergeNode in="b"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+
+        <!-- Subtle shadow for bottom badge -->
+        <filter id="badgeShadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="3" result="bb"/>
+            <feOffset dx="0" dy="2" result="o"/>
+            <feMerge>
+                <feMergeNode in="o"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+    </defs>
+
+    <!-- ===== BOLD OUTER RING ===== -->
+    <!-- Radius chosen to avoid clipping with thick stroke -->
+    <circle cx="256" cy="256" r="190"
+        fill="none"
+        stroke="url(#ringGrad)"
+        stroke-width="30"
+        stroke-linecap="round"
+        filter="url(#softGlow)"/>
+
+    <!-- ===== INNER THIN RING ===== -->
+    <circle cx="256" cy="256" r="158"
+        fill="none"
+        stroke="#FFFFFF"
+        stroke-opacity="0.14"
+        stroke-width="8"/>
+
+    <!-- ===== Bottom brand badge (Sama [wolf] Fox) ===== -->
+    <!-- You can move it up/down by changing translateY value -->
+    <g transform="translate(0 0)" >
+
+        <!-- Optional soft background behind the text (looks premium) -->
+
+
+        <!-- "Sama" -->
+        <text x="230" y="416"
+            text-anchor="end"
+            font-family="Poppins, Arial"
+            font-size="36"
+            font-weight="800"
+            fill="black"
+            opacity="0.95">Sama</text>
+
+        <!-- Wolf icon (pure SVG paths) -->
+        <!-- Centered between words -->
+        <g transform="translate(256 405) scale(1)">
+            <!-- Outer circle behind wolf (optional, remove if you don't want it) -->
+            <circle cx="0" cy="0" r="16" fill="#FFFFFF" opacity="0.12"/>
+
+            <!-- Wolf head silhouette -->
+            <!-- Simple clean wolf mark that works great as a logo insert -->
+            <path d="
+        M -16 -6
+        L -7 -16
+        L -4 -9
+        L 0 -14
+        L 4 -9
+        L 7 -16
+        L 16 -6
+        L 9 -5
+        L 6 3
+        L 0 10
+        L -6 3
+        L -9 -5
+        Z"
+                fill="#FFFFFF" opacity="0.92"/>
+
+            <!-- Inner cut (eyes/nose hint) using same gradient for style -->
+            <path d="
+        M -6 -1
+        Q 0 4 6 -1
+        Q 2 7 0 8
+        Q -2 7 -6 -1
+        Z"
+                fill="url(#ringGrad)" opacity="0.95"/>
+        </g>
+
+        <!-- "Fox" -->
+        <text x="286" y="416"
+            text-anchor="start"
+            font-family="Poppins, Arial"
+            font-size="36"
+            font-weight="800"
+            fill="black"
+            opacity="0.95">Fox</text>
+    </g>
+
+</svg>

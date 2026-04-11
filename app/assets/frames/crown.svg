@@ -1,0 +1,32 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="goldGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#FFD54F"/>
+            <stop offset="100%" stop-color="#FF8F00"/>
+        </linearGradient>
+    </defs>
+
+    <!-- Outer ring -->
+    <circle cx="256" cy="256" r="240"
+        fill="none"
+        stroke="url(#goldGradient)"
+        stroke-width="24"/>
+
+    <!-- Crown -->
+    <path d="M140 210
+           L200 150
+           L256 210
+           L312 150
+           L372 210
+           L360 260
+           L152 260 Z"
+        fill="url(#goldGradient)"
+        stroke="#FFF3C4"
+        stroke-width="4"/>
+
+    <!-- Crown jewels -->
+    <circle cx="200" cy="170" r="10" fill="#FFF3C4"/>
+    <circle cx="256" cy="190" r="10" fill="#FFF3C4"/>
+    <circle cx="312" cy="170" r="10" fill="#FFF3C4"/>
+
+</svg>

@@ -1,0 +1,50 @@
+﻿# === Flutter ===
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# === Android / Gradle ===
+android/.gradle/
+android/.gradle-local/
+android/build/
+**/build/
+**/.gradle/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local caches
+local-m2/
+android/local-m2/
+
+# Secrets / local config
+**/local.properties
+**/key.properties
+*.jks
+*.keystore
+
+# Firebase config (recommended not public)
+android/app/google-services.json
+
+# === Backend ===
+samafox-backend/node_modules/
+samafox-backend/dist/
+samafox-backend/logs/
+samafox-backend/uploads/
+samafox-backend/server.log
+samafox-backend/*.log
+
+# Prisma local DB
+samafox-backend/prisma/dev.db
+samafox-backend/prisma/*.db
+samafox-backend/prisma/*.db.backup
+
+# Env files
+samafox-backend/.env
+samafox-backend/.env.*
+
+# Archives
+*.zip

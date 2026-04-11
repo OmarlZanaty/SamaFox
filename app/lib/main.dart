@@ -1,0 +1,129 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:samafox/screens/chat_screen.dart';
+import 'package:samafox/screens/feature_screens.dart';
+import 'package:samafox/screens/store_screen.dart';
+import 'package:samafox/services/dio_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'screens/splash_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/register_screen.dart';
+import 'screens/main_navigation_screen.dart';
+import 'screens/room_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/profile_screen.dart';
+import 'screens/messages_screen.dart';
+import 'screens/gifts_screen.dart';
+import 'screens/charging_agent_screen.dart';
+import 'screens/search_screen.dart';
+import 'theme/app_theme.dart';
+import 'utils/storage_service.dart';
+import 'providers/localization_provider.dart';
+import 'package:samafox/screens/games_hub_screen.dart';
+import 'widgets/pip_overlay.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize storage
+  await StorageService.init();
+
+  // Initialize SharedPreferences
+  final sharedPreferences = await SharedPreferences.getInstance();
+  final _ = DioClient.dio; // forces dio creation + interceptors attached
+  DioClient.init();
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        // Override the sharedPreferencesProvider with the actual instance
+        sharedPreferencesProvider.overrideWithValue(sharedPreferences),
+      ],
+      child: const SamaFoxApp(),
+    ),
+  );
+}
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+class SamaFoxApp extends ConsumerWidget {
+  const SamaFoxApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locale = ref.watch(localizationProvider);
+
+    return MaterialApp(
+      navigatorKey: navigatorKey,
+      title: 'SamaFox',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.dark,
+
+
+      // Localization settings
+      locale: locale,
+      supportedLocales: const [
+        Locale('ar', ''), // Arabic (default)
+        Locale('en', ''), // English
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const SplashScreen(),
+        '/login': (context) => const LoginScreen(),
+        '/register': (context) => const RegisterScreen(),
+        '/home': (context) => const MainNavigationScreen(),
+        '/settings': (context) => const SettingsScreen(),
+        '/profile': (context) => const ProfileScreen(),
+        '/messages': (_) => const MessagesScreen(),
+        '/chat': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map;
+
+          return ChatScreen(
+            partnerId: args['partnerId'],
+            partnerName: args['partnerName'],
+            partnerAvatarUrl: args['partnerAvatarUrl'],
+            partnerOnline: args['partnerOnline'],
+          );
+        },
+        '/store': (context) => const StoreScreen(),
+        '/charging-agent': (_) => const ChargingAgentScreen(),
+        '/search': (context) => const SearchScreen(),
+        '/games': (_) => const GamesHubScreen(),
+      },
+      onGenerateRoute: (settings) {
+        if (settings.name == '/room') {
+          final roomId = settings.arguments as int;
+          return MaterialPageRoute(
+            builder: (context) => RoomScreen(roomId: roomId),
+          );
+        }
+        return null;
+      },
+
+      builder: (context, child) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Stack(
+            children: [
+              child!,
+              Consumer(
+                builder: (context, ref, _) => const PipOverlay(),
+              ),
+            ],
+          ),
+        );
+      },
+
+    );
+  }
+}
