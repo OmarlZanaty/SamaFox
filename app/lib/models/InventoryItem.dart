@@ -18,30 +18,37 @@ class InventoryItem {
   });
 
   factory InventoryItem.fromJson(Map<String, dynamic> json) {
-    String rawType = json['type'];
+    final rawType = (json['type'] ?? json['itemType'] ?? '').toString();
 
     String normalizedType;
 
     switch (rawType) {
       case "ENTRANCE_EFFECT":
+      case "SEAT_EFFECT":
+      case "seat_effect":
         normalizedType = "seat_effect";
         break;
       case "PROFILE_FRAME":
       case "FRAME":
+      case "AVATAR_FRAME":
+      case "avatar_frame":
         normalizedType = "avatar_frame";
         break;
       default:
         normalizedType = rawType;
     }
 
+    final dynamic activeRaw = json['is_active'] ?? json['isActive'] ?? json['active'] ?? false;
+    final bool isActive = activeRaw == true || activeRaw.toString() == '1' || activeRaw.toString().toLowerCase() == 'true';
+
     return InventoryItem(
-      id: json['id'],
-      productId: json['product_id'],
-      name: json['name'],
+      id: (json['id'] ?? '').toString(),
+      productId: (json['product_id'] ?? json['productId'] ?? json['itemId'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
       type: normalizedType,
-      previewUrl: json['preview_url'] ?? json['file_url'],
-      fileUrl: json['file_url'] ?? json['preview_url'],
-      isActive: json['is_active'],
+      previewUrl: (json['preview_url'] ?? json['file_url'] ?? json['assetUrl'] ?? '').toString(),
+      fileUrl: (json['file_url'] ?? json['preview_url'] ?? json['assetUrl'] ?? '').toString(),
+      isActive: isActive,
     );
   }
 }
