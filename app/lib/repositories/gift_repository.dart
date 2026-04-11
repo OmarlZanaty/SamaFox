@@ -27,6 +27,11 @@ class GiftRepository {
     }
   }
 
+  Future<List<GiftModel>> fetchGifts() async {
+    final resp = await DioClient.dio.get('/gifts');
+    return (resp.data['data'] as List).map((g) => GiftModel.fromJson(g as Map<String, dynamic>)).toList();
+  }
+
   Future<Result<void>> sendGift(SendGiftRequest request) async {
     try {
       await _apiService.sendGift(request);
@@ -47,4 +52,19 @@ class GiftRepository {
       return Result.error(e.toString());
     }
   }
+}
+
+class GiftModel {
+  final int id;
+  final String nameAr;
+  final String imageUrl;
+  final String? animationUrl;
+  final int coinsValue;
+
+  GiftModel.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as int,
+        nameAr = j['nameAr'] as String,
+        imageUrl = j['imageUrl'] as String,
+        animationUrl = j['animationUrl'] as String?,
+        coinsValue = j['coinsValue'] as int;
 }

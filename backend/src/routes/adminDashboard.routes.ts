@@ -20,10 +20,10 @@ import {
   adminDashboardTransactions,
   adminDashboardUpdateAgencyStatus,
   adminDashboardUpdateReport,
-  adminDashboardCreateGift,
-  adminDashboardDeleteGift,
-  adminDashboardListGifts,
-  adminDashboardUpdateGift,
+  adminCreateGift,
+  adminDeleteGift,
+  adminListGifts,
+  adminUpdateGift,
 } from '../controllers/adminDashboard.controller';
 
 const router = express.Router();
@@ -50,9 +50,9 @@ router.get('/leaderboard', adminDashboardLeaderboard);
 
 router.get('/charging-agencies', adminDashboardListChargingAgencies);
 router.patch('/charging-agencies/:id/status', adminDashboardUpdateAgencyStatus);
-router.get('/gifts', adminDashboardListGifts);
-router.post('/gifts', adminDashboardCreateGift);
-router.patch('/gifts/:id', adminDashboardUpdateGift);
-router.delete('/gifts/:id', adminDashboardDeleteGift);
+router.get('/gifts', authenticate, adminListGifts);
+router.post('/gifts', authenticate, adminCreateGift);
+router.patch('/gifts/:id', authenticate, adminUpdateGift);
+router.delete('/gifts/:id', authenticate, adminDeleteGift);
 
 export default router;

@@ -15,7 +15,8 @@ import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import roomRoutes from './routes/room.routes';
-import giftRoutes from './routes/gift.routes';
+import giftActionRoutes from './routes/gift.routes';
+import giftRoutes from './gifts/gift.routes';
 import messageRoutes from './routes/messages.routes';
 import uploadRoutes from './routes/upload.routes';
 import gameRoutes from './routes/game.routes';
@@ -98,6 +99,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/rooms', roomRoutes);
 app.use('/api/v1/gifts', giftRoutes);
+app.use('/api/v1/gift-actions', giftActionRoutes);
 app.use('/api/v1/messages', messageRoutes);
 
 app.use('/api/v1/upload', uploadRoutes);

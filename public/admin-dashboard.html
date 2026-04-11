@@ -414,13 +414,6 @@
       <div class="form-card" style="margin-top:16px">
         <div class="form-card-title">إدارة الهدايا</div>
         <div class="form-row">
-          <input id="g_nameAr" class="form-input" placeholder="اسم الهدية (عربي)" />
-          <input id="g_imageUrl" class="form-input" placeholder="رابط الصورة (اختياري عند الرفع)" />
-          <input id="g_image_file" type="file" class="form-input" accept="image/*" />
-        </div>
-        <div class="form-row">
-          <input id="g_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
-          <input id="g_sortOrder" type="number" class="form-input" placeholder="الترتيب" />
           <button class="btn btn-primary" id="btnAddGift">إضافة هدية</button>
           <button class="btn btn-outline" id="btnLoadGifts">تحميل الهدايا</button>
         </div>
@@ -428,7 +421,7 @@
           <table id="giftsTable">
             <thead>
               <tr>
-                <th>ID</th><th>الاسم</th><th>الصورة</th><th>القيمة</th><th>الترتيب</th><th>نشط</th><th>إجراءات</th>
+                <th>ID</th><th>الاسم العربي</th><th>الصورة</th><th>القيمة</th><th>الترتيب</th><th>نشط</th><th>إجراءات</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -495,6 +488,26 @@
     <div class="modal-actions">
       <button class="btn btn-primary" id="confirmYesBtn">تأكيد</button>
       <button class="btn btn-outline" onclick="closeConfirmModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-overlay hidden" id="giftModal" onclick="closeGiftModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header"><div><h3 class="modal-title" id="giftModalTitle">إضافة هدية</h3></div></div>
+    <form id="giftForm" class="form-row" style="display:flex;flex-direction:column;gap:10px;">
+      <input id="gift_id" type="hidden" />
+      <input id="gift_nameAr" class="form-input" placeholder="الاسم العربي" />
+      <input id="gift_imageUrl" class="form-input" placeholder="رابط الصورة" />
+      <input id="gift_animationUrl" class="form-input" placeholder="رابط الأنيميشن (اختياري)" />
+      <input id="gift_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
+      <input id="gift_sortOrder" type="number" class="form-input" placeholder="الترتيب" />
+      <label style="display:flex;align-items:center;gap:8px;color:#fff;"><input id="gift_isActive" type="checkbox" checked /> نشط</label>
+    </form>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="giftSaveBtn">حفظ</button>
+      <button class="btn btn-outline" onclick="closeGiftModal()">إلغاء</button>
     </div>
   </div>
 </div>
