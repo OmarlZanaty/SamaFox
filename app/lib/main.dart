@@ -86,13 +86,14 @@ class SamaFoxApp extends ConsumerWidget {
         '/profile': (context) => const ProfileScreen(),
         '/messages': (_) => const MessagesScreen(),
         '/chat': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments as Map;
+          final args = ModalRoute.of(context)?.settings.arguments;
+          final data = (args is Map) ? Map<String, dynamic>.from(args) : <String, dynamic>{};
 
           return ChatScreen(
-            partnerId: args['partnerId'],
-            partnerName: args['partnerName'],
-            partnerAvatarUrl: args['partnerAvatarUrl'],
-            partnerOnline: args['partnerOnline'],
+            partnerId: data['partnerId'] as int? ?? 0,
+            partnerName: data['partnerName'] as String? ?? '',
+            partnerAvatarUrl: data['partnerAvatarUrl'] as String?,
+            partnerOnline: data['partnerOnline'] as bool? ?? false,
           );
         },
         '/store': (context) => const StoreScreen(),
@@ -111,8 +112,9 @@ class SamaFoxApp extends ConsumerWidget {
       },
 
       builder: (context, child) {
+        final isArabic = locale.languageCode.toLowerCase() == 'ar';
         return Directionality(
-          textDirection: TextDirection.rtl,
+          textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
           child: Stack(
             children: [
               child!,

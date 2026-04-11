@@ -1,8 +1,17 @@
 class AppConfig {
   // API Configuration
-  static const String apiBaseUrl = 'http://54.254.79.239:3000/api/v1/';
-  static const String socketUrl = 'http://54.254.79.239:3000';
-  static const String googleOAuthUrl = 'http://samafox.duckdns.org:3000/api/v1/auth/google';
+  static const String apiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:3000/api/v1/',
+  );
+  static const String socketUrl = String.fromEnvironment(
+    'SOCKET_URL',
+    defaultValue: 'http://localhost:3000',
+  );
+  static const String googleOAuthUrl = String.fromEnvironment(
+    'GOOGLE_OAUTH_URL',
+    defaultValue: 'http://localhost:3000/api/v1/auth/google',
+  );
 
 
   // App Configuration
