@@ -1,10 +1,12 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../services/dio_client.dart';
-import '../models/user.dart';
-import 'user_profile_screen.dart';
 
-/// Search Screen - Search users by ID
+import '../services/dio_client.dart';
+
+/// Search Screen - Search users and rooms by name or ID
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
 
@@ -13,60 +15,186 @@ class SearchScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
-  final TextEditingController _searchController = TextEditingController();
-  User? _searchedUser;
+  final TextEditingController _controller = TextEditingController();
+  Timer? _debounce;
+  List<Map<String, dynamic>> _results = [];
   bool _isSearching = false;
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onChanged);
+  }
+
+  @override
   void dispose() {
-    _searchController.dispose();
+    _debounce?.cancel();
+    _controller.dispose();
     super.dispose();
   }
 
-  /// Search for user by ID
-  Future<void> _searchUserById() async {
-    final searchText = _searchController.text.trim();
-
-    if (searchText.isEmpty) {
+  void _onChanged() {
+    _debounce?.cancel();
+    final q = _controller.text.trim();
+    if (q.isEmpty) {
       setState(() {
-        _errorMessage = 'الرجاء إدخال معرف المستخدم';
+        _results = [];
+        _errorMessage = null;
       });
       return;
     }
 
-    final userId = int.tryParse(searchText);
-    if (userId == null) {
-      setState(() {
-        _errorMessage = 'معرف المستخدم يجب أن يكون رقماً';
-      });
-      return;
-    }
+    _debounce = Timer(const Duration(milliseconds: 400), () => _doSearch(q));
+  }
 
+  Future<void> _doSearch(String q) async {
     setState(() {
       _isSearching = true;
       _errorMessage = null;
-      _searchedUser = null;
     });
 
     try {
-      final response = await DioClient.dio.get('/users/$userId');
+      final list = await _searchWithFallback(q);
 
-      if (response.statusCode == 200) {
-        setState(() {
-          _searchedUser = User.fromJson(response.data);
-          _isSearching = false;
-        });
-      }
-    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _results = list;
+        _isSearching = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _isSearching = false;
-        if (e.toString().contains('404')) {
-          _errorMessage = 'المستخدم غير موجود';
-        } else {
-          _errorMessage = 'حدث خطأ أثناء البحث';
-        }
+        _errorMessage = 'حدث خطأ أثناء البحث';
       });
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _searchWithFallback(String q) async {
+    final results = <Map<String, dynamic>>[];
+
+    // A: users search endpoint (old backend)
+    try {
+      final usersResp = await DioClient.dio.get(
+        '/users/search',
+        queryParameters: {'query': q},
+      );
+      final usersRaw = (usersResp.data is Map)
+          ? ((usersResp.data['users'] as List?) ?? const [])
+          : const [];
+      results.addAll(
+        usersRaw.map((e) {
+          final m = Map<String, dynamic>.from(e as Map);
+          return <String, dynamic>{
+            'type': 'user',
+            'id': m['id'],
+            'name': m['name'],
+            'imageUrl': m['avatarUrl'],
+            'subtitle': m['displayId'] != null ? '#${m['displayId']}' : null,
+          };
+        }),
+      );
+    } catch (_) {
+      // Ignore and continue with other fallbacks.
+    }
+
+    // Fallback A2: direct numeric user lookup
+    final numericId = int.tryParse(q);
+    if (numericId != null && numericId > 0) {
+      try {
+        final userResp = await DioClient.dio.get('/users/$numericId');
+        final payload = userResp.data;
+        final user = payload is Map ? (payload['user'] ?? payload) : null;
+        if (user is Map) {
+          results.add({
+            'type': 'user',
+            'id': user['id'],
+            'name': user['name'],
+            'imageUrl': user['avatarUrl'],
+            'subtitle': user['displayId'] != null ? '#${user['displayId']}' : null,
+          });
+        }
+      } catch (_) {
+        // Ignore numeric fallback failure.
+      }
+    }
+
+    // Fallback B: rooms list + client-side filter (old backend has no search route)
+    try {
+      final roomsResp = await DioClient.dio.get('/rooms', queryParameters: {'limit': 100});
+      final roomsRaw = (roomsResp.data is Map)
+          ? ((roomsResp.data['rooms'] as List?) ?? const [])
+          : const [];
+      final queryLower = q.toLowerCase();
+      results.addAll(
+        roomsRaw
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .where((r) {
+              final name = (r['name'] ?? '').toString().toLowerCase();
+              final id = (r['id'] ?? '').toString();
+              return name.contains(queryLower) || id == q;
+            })
+            .map((r) => <String, dynamic>{
+                  'type': 'room',
+                  'id': r['id'],
+                  'name': r['name'],
+                  'imageUrl': r['coverImageUrl'],
+                  'subtitle': null,
+                }),
+      );
+    } catch (_) {
+      // Ignore room fallback failure.
+    }
+
+    // Fallback C: derive user candidates from conversations when user search route
+    // is unavailable on older servers.
+    try {
+      final convResp = await DioClient.dio.get('/messages/conversations');
+      final raw = (convResp.data is Map)
+          ? ((convResp.data['data'] as List?) ??
+              (convResp.data['conversations'] as List?) ??
+              const [])
+          : const [];
+      final queryLower = q.toLowerCase();
+      for (final row in raw) {
+        if (row is! Map) continue;
+        final m = Map<String, dynamic>.from(row);
+        final uid = m['partnerId'] ?? m['userId'] ?? m['id'];
+        final name = (m['partnerName'] ?? m['name'] ?? '').toString();
+        if (uid == null || name.isEmpty) continue;
+        if (!name.toLowerCase().contains(queryLower)) continue;
+        results.add({
+          'type': 'user',
+          'id': uid,
+          'name': name,
+          'imageUrl': m['partnerAvatarUrl'] ?? m['avatarUrl'],
+          'subtitle': null,
+        });
+      }
+    } catch (_) {
+      // Ignore conversations fallback failure.
+    }
+
+    final deduped = <String, Map<String, dynamic>>{};
+    for (final r in results) {
+      final key = '${r['type']}:${r['id']}';
+      deduped[key] = r;
+    }
+    return deduped.values.toList();
+  }
+
+  void _onTapResult(Map<String, dynamic> result) {
+    final id = result['id'];
+    final type = (result['type'] ?? '').toString();
+
+    if (type == 'room') {
+      Navigator.pushNamed(context, '/room', arguments: id);
+      return;
+    }
+
+    if (type == 'user') {
+      Navigator.pushNamed(context, '/user-profile', arguments: id);
     }
   }
 
@@ -75,189 +203,119 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF1A0E3E),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              const Color(0xFF2A1A5E),
-              const Color(0xFF1A0E3E),
-              const Color(0xFF0D0620),
+              Color(0xFF2A1A5E),
+              Color(0xFF1A0E3E),
+              Color(0xFF0D0620),
             ],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
-              // App bar
               _buildAppBar(),
-
-              // Search content
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 20),
-
-                      // Search icon
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2A1A5E),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: const Color(0xFF4ECDC4),
-                            width: 3,
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.search,
-                          size: 50,
-                          color: Color(0xFF4ECDC4),
-                        ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A1A5E).withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: const Color(0xFF5E35B1).withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: TextField(
+                    controller: _controller,
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                    decoration: InputDecoration(
+                      hintText: 'ابحث بالاسم أو الرقم...',
+                      hintStyle: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
                       ),
-
-                      const SizedBox(height: 24),
-
-                      // Title
-                      const Text(
-                        'البحث عن مستخدم',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        color: Color(0xFF4ECDC4),
                       ),
-
-                      const SizedBox(height: 8),
-
-                      // Subtitle
-                      Text(
-                        'ابحث عن المستخدمين باستخدام معرفهم',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 16,
-                        ),
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // Search field
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2A1A5E).withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(
-                            color: const Color(0xFF5E35B1).withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: TextField(
-                          controller: _searchController,
-                          keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white, fontSize: 18),
-                          decoration: InputDecoration(
-                            hintText: 'أدخل معرف المستخدم (ID)',
-                            hintStyle: TextStyle(
-                              color: Colors.white.withOpacity(0.5),
-                            ),
-                            prefixIcon: const Icon(
-                              Icons.person_search,
-                              color: Color(0xFF4ECDC4),
-                            ),
-                            suffixIcon: _searchController.text.isNotEmpty
-                                ? IconButton(
+                      suffixIcon: _controller.text.isNotEmpty
+                          ? IconButton(
                               icon: const Icon(Icons.clear, color: Colors.white),
                               onPressed: () {
                                 setState(() {
-                                  _searchController.clear();
-                                  _searchedUser = null;
+                                  _controller.clear();
+                                  _results = [];
                                   _errorMessage = null;
                                 });
                               },
                             )
-                                : null,
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.all(20),
-                          ),
-                          onChanged: (value) {
-                            setState(() {
-                              _errorMessage = null;
-                            });
-                          },
-                          onSubmitted: (value) => _searchUserById(),
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // Search button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: _isSearching ? null : _searchUserById,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF4ECDC4),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                            elevation: 5,
-                          ),
-                          child: _isSearching
-                              ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                              : const Text(
-                            'بحث',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 32),
-
-                      // Error message
-                      if (_errorMessage != null)
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.red, width: 1),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.error_outline, color: Colors.red),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _errorMessage!,
-                                  style: const TextStyle(
-                                    color: Colors.red,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      // User result card
-                      if (_searchedUser != null) _buildUserCard(_searchedUser!),
-                    ],
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.all(20),
+                    ),
                   ),
+                ),
+              ),
+              if (_isSearching)
+                const Padding(
+                  padding: EdgeInsets.only(top: 16),
+                  child: CircularProgressIndicator(color: Color(0xFF4ECDC4)),
+                ),
+              if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 16),
+                  ),
+                ),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                  itemCount: _results.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final result = _results[index];
+                    final type = (result['type'] ?? '').toString();
+                    final isRoom = type == 'room';
+                    final title =
+                        (result['name'] ?? result['username'] ?? 'بدون اسم').toString();
+                    final subtitle = isRoom
+                        ? 'غرفة • #${result['id'] ?? ''}'
+                        : 'مستخدم • #${result['id'] ?? ''}';
+
+                    return Material(
+                      color: const Color(0xFF2A1A5E).withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(14),
+                      child: ListTile(
+                        onTap: () => _onTapResult(result),
+                        leading: CircleAvatar(
+                          backgroundColor: isRoom
+                              ? const Color(0xFFFFA726)
+                              : const Color(0xFF4ECDC4),
+                          child: Icon(
+                            isRoom ? Icons.meeting_room : Icons.person,
+                            color: Colors.white,
+                          ),
+                        ),
+                        title: Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: Text(
+                          subtitle,
+                          style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                        ),
+                        trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -287,155 +345,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 48), // Balance the back button
+          const SizedBox(width: 48),
         ],
       ),
-    );
-  }
-
-  Widget _buildUserCard(User user) {
-    return Container(
-      margin: const EdgeInsets.only(top: 20),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF8E24AA),
-            const Color(0xFFD81B60),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF8E24AA).withOpacity(0.5),
-            blurRadius: 20,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Avatar
-          Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 10,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: CircleAvatar(
-              radius: 48,
-              backgroundImage: user.avatarUrl != null && user.avatarUrl!.isNotEmpty
-                  ? NetworkImage(user.avatarUrl!)
-                  : null,
-              child: user.avatarUrl == null || user.avatarUrl!.isEmpty
-                  ? const Icon(Icons.person, size: 50, color: Colors.white)
-                  : null,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Name
-          Text(
-            user.name,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          // ID
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '#${user.publicDisplayId}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Stats row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildStatItem('Level', '${user.userLevel ?? 1}'),
-              _buildStatItem('VIP', '${user.vipLevel ?? 0}'),
-              _buildStatItem('Coins', '${user.coinsBalance ?? 0}'),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          // View Profile button
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                // Navigate to user profile
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => UserProfileScreen(userId: user.id ?? 0),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.person),
-              label: const Text('عرض الملف الشخصي'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF8E24AA),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 14,
-          ),
-        ),
-      ],
     );
   }
 }
