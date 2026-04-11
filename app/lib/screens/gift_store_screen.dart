@@ -32,12 +32,7 @@ class _GiftStoreScreenState extends ConsumerState<GiftStoreScreen> {
   Future<void> _loadGifts() async {
     setState(() => _isLoading = true);
     final result = await _repository.getGifts();
-    if (result.isSuccess && result.data != null) {
-      _gifts = result.data!;
-    } else {
-      // Fallback to mock gifts on error
-      _gifts = _repository.getMockGifts();
-    }
+    _gifts = result.isSuccess && result.data != null ? result.data! : [];
     setState(() => _isLoading = false);
   }
 
@@ -136,7 +131,7 @@ class _GiftStoreScreenState extends ConsumerState<GiftStoreScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    gift.name,
+                    gift.displayName,
                     style: TextStyle(
                       color: theme.textTheme.bodyLarge?.color,
                       fontWeight: FontWeight.w600,
@@ -145,7 +140,7 @@ class _GiftStoreScreenState extends ConsumerState<GiftStoreScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${gift.priceCoins}',
+                    '${gift.displayCoinsValue}',
                     style: TextStyle(
                       color: isDark
                           ? const Color(0xFFFFD700)

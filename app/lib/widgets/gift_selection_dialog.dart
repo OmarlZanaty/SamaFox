@@ -105,11 +105,13 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
       });
     } else {
       setState(() {
-        _gifts = _repository.getMockGifts();
-        _filtered = _gifts;
+        _gifts = [];
+        _megaGifts = [];
+        _normalGifts = [];
+        _filtered = [];
         _isLoading = false;
 
-        print("Using mock gifts"); // Debug print
+        print("Failed to load gifts: ${result.error}");
       });
     }
   }
@@ -401,7 +403,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
           const SizedBox(height: 4),
 
           Text(
-            _selectedGift!.name,
+            _selectedGift!.displayName,
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -460,7 +462,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
           const SizedBox(height: 6),
 
           Text(
-            gift.name,
+            gift.displayName,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -485,7 +487,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
               const SizedBox(width: 2),
 
               Text(
-                "${gift.priceCoins}",
+                "${gift.displayCoinsValue}",
                 style: TextStyle(
                   color: Colors.amber,
                   fontSize: 10 * scale,
@@ -665,7 +667,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          "Sent ${_selectedGift!.name} x$quantity",
+          "Sent ${_selectedGift!.displayName} x$quantity",
         ),
       ),
     );
@@ -678,7 +680,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
 
     if (raw.isEmpty) {
       return Icon(
-        _getGiftIcon(gift.name),
+        _getGiftIcon(gift.displayName),
         color: _getCategoryColor(gift.category ?? 'common'),
         size: max(100.0 * scale, 150.0),  // Ensure a larger minimum size
       );
@@ -709,7 +711,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
       fit: BoxFit.cover,
       placeholder: (_, __) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       errorWidget: (_, __, ___) => Icon(
-        _getGiftIcon(gift.name),
+        _getGiftIcon(gift.displayName),
         color: _getCategoryColor(gift.category ?? 'common'),
         size: 150,  // Ensure icon size is large for fallback
       ),

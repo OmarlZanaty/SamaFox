@@ -70,8 +70,8 @@ model User {
   conversationParticipants ConversationParticipant[]
   directMessagesSent       DirectMessage[]
   avatarFrameUrl String?
-  activeFrameId String?
-  activeFrame   Item? @relation("ActiveUserFrame", fields: [activeFrameId], references: [id])
+  activeFrameId  String?
+  activeFrame    Item?   @relation("ActiveUserFrame", fields: [activeFrameId], references: [id])
   @@map("users")
 }
 
@@ -532,7 +532,7 @@ model Item {
   id            String   @id @default(cuid())
   name          String
   description   String
-  type          String // "PROFILE_FRAME", "ROOM_THEME", "ENTRANCE_EFFECT"
+  type          String // "FRAME", "PROFILE_FRAME", "ROOM_THEME", "ENTRANCE_EFFECT"
   assetUrl      String
   priceCoins    Int      @default(0)
   isPurchasable Boolean  @default(true)

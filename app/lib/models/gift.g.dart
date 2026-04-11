@@ -9,12 +9,17 @@ part of 'gift.dart';
 Gift _$GiftFromJson(Map<String, dynamic> json) => Gift(
       id: (json['id'] as num).toInt(),
       name: json['name'] as String,
+      nameAr: json['nameAr'] as String?,
       description: json['description'] as String?,
       imageUrl: json['imageUrl'] as String?,
       animationUrl: json['animationUrl'] as String?,
       category: json['category'] as String?,
       rarity: json['rarity'] as String?,
-      priceCoins: (json['priceCoins'] as num).toInt(),
+      priceCoins:
+          ((json['priceCoins'] as num?) ?? (json['coinsValue'] as num?) ?? 0)
+              .toInt(),
+      coinsValue: (json['coinsValue'] as num?)?.toInt(),
+      sortOrder: (json['sortOrder'] as num?)?.toInt(),
       animationKey: json['animationKey'] as String?,
       isActive: json['isActive'] as bool? ?? true,
     );
@@ -22,12 +27,15 @@ Gift _$GiftFromJson(Map<String, dynamic> json) => Gift(
 Map<String, dynamic> _$GiftToJson(Gift instance) => <String, dynamic>{
       'id': instance.id,
       'name': instance.name,
+      'nameAr': instance.nameAr,
       'description': instance.description,
       'imageUrl': instance.imageUrl,
       'animationUrl': instance.animationUrl,
       'category': instance.category,
       'rarity': instance.rarity,
       'priceCoins': instance.priceCoins,
+      'coinsValue': instance.coinsValue,
+      'sortOrder': instance.sortOrder,
       'animationKey': instance.animationKey,
       'isActive': instance.isActive,
     };

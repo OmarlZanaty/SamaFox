@@ -10,9 +10,11 @@ class GiftSentEvent {
 
   final int? fromUserId;
   final String? fromUserName;
+  final String? fromUserAvatar;
 
   final int? toUserId;
   final String? toUserName;
+  final String? toUserAvatar;
 
   final int? coinsSpent;
   final int? quantity;
@@ -30,8 +32,10 @@ class GiftSentEvent {
     this.giftImageUrl,
     this.fromUserId,
     this.fromUserName,
+    this.fromUserAvatar,
     this.toUserId,
     this.toUserName,
+    this.toUserAvatar,
     this.coinsSpent,
     this.quantity,
     this.message,
@@ -79,10 +83,12 @@ class GiftSentEvent {
       giftImageUrl: (json['giftImageUrl'] ?? gift?['imageUrl'])?.toString(),
 
       fromUserId: _toInt(json['fromUserId'] ?? json['senderId'] ?? sender?['id']),
-      fromUserName: (json['fromUserName'] ?? sender?['name'])?.toString(),
+      fromUserName: (json['fromUserName'] ?? json['senderName'] ?? sender?['name'])?.toString(),
+      fromUserAvatar: (json['fromUserAvatar'] ?? json['senderAvatar'] ?? sender?['avatarUrl'])?.toString(),
 
       toUserId: _toInt(json['toUserId'] ?? json['receiverId'] ?? receiver?['id']),
-      toUserName: (json['toUserName'] ?? receiver?['name'])?.toString(),
+      toUserName: (json['toUserName'] ?? json['receiverName'] ?? receiver?['name'])?.toString(),
+      toUserAvatar: (json['toUserAvatar'] ?? json['receiverAvatar'] ?? receiver?['avatarUrl'])?.toString(),
 
       coinsSpent: _toInt(json['coinsSpent']),
       quantity: _toInt(json['quantity']) ?? 1,

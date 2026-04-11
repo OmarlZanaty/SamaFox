@@ -508,7 +508,11 @@ export const adminDashboardDeleteGift = async (req: Request, res: Response) => {
     if (!id) return fail(res, 400, 'Invalid gift id');
     await prisma.gift.delete({ where: { id } });
     return ok(res, { message: 'Gift deleted' });
-  } catch {
+  } catch (error: any) {
+    if (error?.code === 'P2003') {
+      const data = await prisma.gift.update({ where: { id: Number(req.params.id) }, data: { isActive: false } });
+      return ok(res, { message: 'Gift deactivated because it has logs', data });
+    }
     return fail(res, 500, 'Server error');
   }
 };
