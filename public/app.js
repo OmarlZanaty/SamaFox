@@ -467,7 +467,7 @@ window.loadProducts = async function () {
         <td><span class="cell-muted">${p.type}</span></td>
         <td><strong>${p.price_coins}</strong></td>
         <td>
-          ${p.type === "PROFILE_FRAME"
+          ${p.type === "PROFILE_FRAME" || p.type === "FRAME"
             ? `<img src="${p.file_url}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
             : "—"}
         </td>
@@ -531,13 +531,83 @@ window.addProduct = async function () {
   }
 };
 
+window.loadGifts = async function () {
+  const d = await apiFetch("/admin-dashboard/gifts");
+  const rows = d.data || [];
+  const tbody = document.querySelector("#giftsTable tbody");
+  tbody.innerHTML = "";
+  rows.forEach((g) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${g.id}</td>
+      <td>${escapeHtml(g.nameAr || g.name)}</td>
+      <td><img src="${g.imageUrl}" width="44" height="44" style="border-radius:8px;object-fit:cover;" /></td>
+      <td>${g.coinsValue ?? g.priceCoins}</td>
+      <td>${g.sortOrder ?? 0}</td>
+      <td>${g.isActive ? "✅" : "⛔"}</td>
+      <td>
+        <button class="btn btn-outline" onclick="toggleGift(${g.id}, ${!g.isActive})">تبديل</button>
+        <button class="btn-bad" onclick="deleteGift(${g.id})">حذف</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+};
+
+window.addGift = async function () {
+  const imageFile = document.getElementById("g_image_file").files?.[0];
+  let imageUrl = document.getElementById("g_imageUrl").value.trim();
+  const nameAr = document.getElementById("g_nameAr").value.trim();
+  const coinsValue = Number(document.getElementById("g_coinsValue").value || 0);
+  const sortOrder = Number(document.getElementById("g_sortOrder").value || 0);
+
+  if (!nameAr || !coinsValue) return showToast("❗ الاسم والقيمة مطلوبان");
+
+  if (!imageUrl && imageFile) {
+    const form = new FormData();
+    form.append("image", imageFile);
+    const uploadRes = await fetch(getApiBase() + "/upload/image", {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    const uploadData = await uploadRes.json();
+    if (!uploadRes.ok) throw new Error(uploadData.message || "فشل رفع الصورة");
+    imageUrl = uploadData.imageUrl;
+  }
+  if (!imageUrl) return showToast("❗ أضف رابط صورة أو ارفع ملفاً");
+
+  await apiFetch("/admin-dashboard/gifts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nameAr, imageUrl, coinsValue, sortOrder }),
+  });
+  showToast("✓ تم إضافة الهدية");
+  await loadGifts();
+};
+
+window.toggleGift = async function (id, isActive) {
+  await apiFetch(`/admin-dashboard/gifts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isActive }),
+  });
+  await loadGifts();
+};
+
+window.deleteGift = async function (id) {
+  await apiFetch(`/admin-dashboard/gifts/${id}`, { method: "DELETE" });
+  showToast("✓ تم حذف الهدية");
+  await loadGifts();
+};
+
 // File input type switching
 const typeSelect   = document.getElementById("p_type");
 const fileLabelText = document.getElementById("fileLabelText");
 const p_fileInput  = document.getElementById("p_file");
 
 typeSelect.addEventListener("change", () => {
-  if (typeSelect.value === "avatar_frame") {
+  if (typeSelect.value === "avatar_frame" || typeSelect.value === "frame") {
     p_fileInput.accept     = "image/*";
     fileLabelText.textContent = "اختر صورة الإطار";
   } else {
@@ -680,6 +750,8 @@ document.getElementById("btnBroadcast")?.addEventListener("click", () => sendBro
 document.getElementById("btnQuests")?.addEventListener("click", () => loadQuests().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnQuestCreate")?.addEventListener("click", () => createQuest().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnAdvancedRefresh")?.addEventListener("click", () => loadAdvanced().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnLoadGifts")?.addEventListener("click", () => loadGifts().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnAddGift")?.addEventListener("click", () => addGift().catch(e => showToast("خطأ: " + e.message)));
 
 
 document.getElementById("btnUsersExport")?.addEventListener("click", () => downloadCSV("users.csv", lastUsersRows));

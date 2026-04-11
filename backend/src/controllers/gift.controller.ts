@@ -6,23 +6,23 @@ import type { Prisma } from '@prisma/client';
 
 export const getGifts = async (req: Request, res: Response) => {
   try {
-    const { category } = req.query;
-
-    const where = {
-      isActive: true,
-      ...(category && { category: String(category) })
-    };
+    const where = { isActive: true };
 
     const [gifts, total] = await prisma.$transaction([
       prisma.gift.findMany({
         where,
-        orderBy: { priceCoins: 'asc' }
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }]
       }),
       prisma.gift.count({ where })
     ]);
 
-    // Flutter compatibility (expects total sometimes)
-    res.json({ gifts, total });
+    res.json({
+      gifts: gifts.map((gift) => ({
+        ...gift,
+        coinsValue: gift.coinsValue || gift.priceCoins,
+      })),
+      total,
+    });
   } catch (error) {
     console.error('Get gifts error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -115,7 +115,8 @@ export const sendGift = async (req: Request, res: Response) => {
       receiver = { id: r.id, name: r.name, avatarUrl: r.avatarUrl };
     }
 
-    const price = BigInt(gift.priceCoins ?? 0);
+    const unitCoins = gift.coinsValue || gift.priceCoins;
+    const price = BigInt(unitCoins ?? 0);
     const totalCost = price * BigInt(qty);
 
     if (totalCost <= BigInt(0)) {
@@ -207,15 +208,20 @@ export const sendGift = async (req: Request, res: Response) => {
 
     // ✅ Socket emit for RoomScreen realtime overlay
     if (rid && io) {
-      io.to(`room:${rid}`).emit('gift', {
+      const roomInfo = rid ? await prisma.room.findUnique({ where: { id: rid }, select: { id: true, name: true } }) : null;
+      const giftPayload = {
         roomId: rid,
         type: 'sent',
+        senderName: createdLog.sender.name,
+        senderAvatar: createdLog.sender.avatarUrl,
+        receiverName: createdLog.receiver.name,
+        receiverAvatar: createdLog.receiver.avatarUrl,
 
         giftEvent: {
   id: createdLog.id,
 
   giftId: createdLog.giftId,
-  giftName: createdLog.gift.name,
+  giftName: createdLog.gift.nameAr || createdLog.gift.name,
   giftImageUrl: createdLog.gift.imageUrl,
 
   coinsSpent: Number(totalCost),
@@ -233,7 +239,23 @@ export const sendGift = async (req: Request, res: Response) => {
 
   createdAt: createdLog.createdAt,
 }
-      });
+      };
+
+      io.to(`room:${rid}`).emit('gift', giftPayload);
+
+      if ((gift.coinsValue || gift.priceCoins) >= 5000) {
+        io.emit('global_gift_broadcast', {
+          senderName: createdLog.sender.name,
+          receiverName: createdLog.receiver.name,
+          giftNameAr: createdLog.gift.nameAr || createdLog.gift.name,
+          coinsValue: gift.coinsValue || gift.priceCoins,
+          roomName: roomInfo?.name ?? null,
+          roomId: rid || null,
+          giftImageUrl: createdLog.gift.imageUrl,
+          senderAvatar: createdLog.sender.avatarUrl,
+          receiverAvatar: createdLog.receiver.avatarUrl,
+        });
+      }
     }
 
     // ✅ REST response
@@ -242,8 +264,9 @@ export const sendGift = async (req: Request, res: Response) => {
       gift: {
         id: gift.id,
         name: gift.name,
+        nameAr: gift.nameAr || gift.name,
         imageUrl: gift.imageUrl,
-        unitPriceCoins: gift.priceCoins?.toString?.() ?? String(gift.priceCoins),
+        unitPriceCoins: (gift.coinsValue || gift.priceCoins)?.toString?.() ?? String(gift.priceCoins),
         quantity: qty,
         message: message ?? null,
         coinsSpent: Number(totalCost),
@@ -263,4 +286,3 @@ export const sendGift = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
-

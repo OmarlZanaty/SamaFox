@@ -19,7 +19,7 @@ export const createProduct = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "يجب رفع فيديو لهذا النوع" });
     }
 
-    if (type === "avatar_frame" && !isImage) {
+    if ((type === "avatar_frame" || type === "frame") && !isImage) {
       return res.status(400).json({ message: "يجب رفع صورة لهذا النوع" });
     }
 
@@ -29,8 +29,8 @@ export const createProduct = async (req: Request, res: Response) => {
     const mappedType =
       type === "seat_effect"
         ? "ENTRANCE_EFFECT"
-        : type === "avatar_frame"
-          ? "PROFILE_FRAME"
+        : type === "avatar_frame" || type === "frame"
+          ? "FRAME"
           : type;
 
     const product = await prisma.item.create({

@@ -377,6 +377,7 @@
           <select id="p_type" class="form-select">
             <option value="seat_effect">Seat Effect</option>
             <option value="avatar_frame">Avatar Frame</option>
+            <option value="frame">Frame</option>
           </select>
           <input id="p_price" type="number" class="form-input" placeholder="السعر (coins)" />
         </div>
@@ -408,6 +409,31 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <div class="form-card" style="margin-top:16px">
+        <div class="form-card-title">إدارة الهدايا</div>
+        <div class="form-row">
+          <input id="g_nameAr" class="form-input" placeholder="اسم الهدية (عربي)" />
+          <input id="g_imageUrl" class="form-input" placeholder="رابط الصورة (اختياري عند الرفع)" />
+          <input id="g_image_file" type="file" class="form-input" accept="image/*" />
+        </div>
+        <div class="form-row">
+          <input id="g_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
+          <input id="g_sortOrder" type="number" class="form-input" placeholder="الترتيب" />
+          <button class="btn btn-primary" id="btnAddGift">إضافة هدية</button>
+          <button class="btn btn-outline" id="btnLoadGifts">تحميل الهدايا</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="giftsTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>الاسم</th><th>الصورة</th><th>القيمة</th><th>الترتيب</th><th>نشط</th><th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 

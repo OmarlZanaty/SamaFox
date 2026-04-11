@@ -95,15 +95,50 @@ export const getRoomById = async (req: Request, res: Response) => {
     const room = await prisma.room.findUnique({
       where: { id: roomIdNum },
       include: {
-        owner: { select: { id: true, name: true, avatarUrl: true, level: true, vipLevel: true } },
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            level: true,
+            vipLevel: true,
+            activeFrameId: true,
+            avatarFrameUrl: true,
+          },
+        },
         members: {
-          include: { user: { select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true,  level: true, vipLevel: true } } },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                avatarUrl: true,
+                avatarFrameUrl: true,
+                activeFrameId: true,
+                level: true,
+                vipLevel: true,
+              },
+            },
+          },
         },
         _count: { select: { members: true } },
       },
     });
 
     if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    const seats = room.members.map((m, i) => ({
+      seatNumber: i + 1,
+      userId: m.userId,
+      role: m.role,
+      owner: {
+        id: m.user.id,
+        name: m.user.name,
+        avatarUrl: m.user.avatarUrl,
+        activeFrameId: m.user.activeFrameId,
+        frameImageUrl: m.user.avatarFrameUrl,
+      },
+    }));
 
     return res.json({
       id: room.id,
@@ -114,6 +149,7 @@ export const getRoomById = async (req: Request, res: Response) => {
       type: room.type,
       maxSeats: room.maxSeats,
       owner: room.owner,
+      ownerFrameImageUrl: room.owner.avatarFrameUrl,
       membersCount: room._count.members,
       members: room.members.map(m => ({
         userId: m.userId,
@@ -122,6 +158,7 @@ export const getRoomById = async (req: Request, res: Response) => {
         joinedAt: m.joinedAt,
         user: m.user,
       })),
+      seats,
       createdAt: room.createdAt,
     });
   } catch (error) {
@@ -326,4 +363,3 @@ export const leaveRoom = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
-
