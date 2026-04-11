@@ -496,6 +496,31 @@ class _AgencyGrid extends StatelessWidget {
   }
 }
 
+class _AgencyGrid extends StatelessWidget {
+  final List<ChargingAgency> items;
+  final void Function(ChargingAgency agency)? onTap;
+
+  const _AgencyGrid({required this.items, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.92,
+      ),
+      itemBuilder: (context, index) {
+        return _AgencyGridCard(items[index], onTap: onTap);
+      },
+    );
+  }
+}
+
 // ========================== Coin Icon (SVG with fallback) ==========================
 class _CoinIcon extends StatelessWidget {
   final double size;
