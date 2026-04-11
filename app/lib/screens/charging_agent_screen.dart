@@ -495,6 +495,122 @@ class _AgencyGrid extends StatelessWidget {
   }
 }
 
+Future<void> _handleCreateAgencyRequest(BuildContext context, WidgetRef ref) async {
+  final result = await showDialog<CreateChargingAgencyPayload?>(
+    context: context,
+    barrierDismissible: true,
+    builder: (_) => const _CreateChargingAgencyDialog(),
+  );
+
+  if (result == null) return;
+
+  final ok = await ref.read(createAgencyControllerProvider.notifier).submit(result);
+  if (!context.mounted) return;
+
+  if (ok) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('✅ تم إرسال طلب إنشاء الوكالة (Pending)')),
+    );
+    ref.invalidate(myAgenciesProvider);
+    ref.invalidate(chargingAgenciesProvider);
+    ref.invalidate(hostingAgenciesProvider);
+    ref.invalidate(agencyBalanceProvider);
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت')),
+    );
+  }
+}
+
+class _AgencySidePanel extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  const _AgencySidePanel({
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A1A5E).withOpacity(0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF6B4CE6).withOpacity(0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.right,
+            style: TextStyle(color: Colors.white.withOpacity(0.7)),
+          ),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _FeatureLine extends StatelessWidget {
+  final String text;
+  const _FeatureLine(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(Icons.check_circle, size: 16, color: Color(0xFF9D88FF)),
+        ],
+      ),
+    );
+  }
+}
+
+class _AgencyGrid extends StatelessWidget {
+  final List<ChargingAgency> items;
+  const _AgencyGrid({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.92,
+      ),
+      itemBuilder: (_, i) => _AgencyGridCard(items[i]),
+    );
+  }
+}
+
 // ========================== Coin Icon (SVG with fallback) ==========================
 class _CoinIcon extends StatelessWidget {
   final double size;
