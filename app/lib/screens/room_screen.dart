@@ -23,6 +23,7 @@ import '../services/api_service.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/gift_animation_overlay.dart';
+import '../widgets/gift_notification_banner.dart';
 import '../widgets/gift_rain_overlay.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
 import '../widgets/room/room_activity_panel.dart';
@@ -42,6 +43,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../models/gift_sent_event.dart';
+import '../models/gift_event.dart';
 import '../repositories/message_repository.dart';
 import '../repositories/room_repository.dart';
 import '../widgets/room/seats_grid.dart';
@@ -1824,8 +1826,34 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
       _showGlobalGiftBroadcast(payload);
     });
 
+    SocketService().on('gift_received', (data) {
+      if (!mounted || data is! Map) return;
+      try {
+        final event = GiftEvent.fromJson(Map<String, dynamic>.from(data));
+        _showGiftBanner(context, event);
+      } catch (_) {}
+    });
+
 
   }
+
+  void _showGiftBanner(BuildContext context, GiftEvent event) {
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        top: MediaQuery.of(context).padding.top + 10,
+        left: 0,
+        right: 0,
+        child: Center(child: GiftNotificationBanner(event: event)),
+      ),
+    );
+
+    Overlay.of(context).insert(entry);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (entry.mounted) entry.remove();
+    });
+  }
+
   late final RoomLiveNotifier _live;
 
   void _showGlobalGiftBroadcast(Map<String, dynamic> payload) {
@@ -1853,6 +1881,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     _socketErrSub?.cancel();
     _giftSub?.cancel();
     _globalGiftSub?.cancel();
+    SocketService().off('gift_received');
     _giftAnim.dispose();
     _audioService.dispose();
     _seatVideoController?.dispose();

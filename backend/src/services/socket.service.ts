@@ -881,10 +881,27 @@ await emitRoomState(io, rid);
   if (!senderId || !rid || !gid) return;
 
   const isSelfGift = recvId != null && recvId === senderId;
+  const resolvedReceiverId = recvId ?? senderId;
 
   const gift = await prisma.gift.findUnique({ where: { id: gid } });
   if (!gift || !gift.isActive) {
     socket.emit('error', { message: 'Invalid gift' });
+    return;
+  }
+
+  const [sender, receiver] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: senderId },
+      select: { id: true, name: true, avatarUrl: true, displayId: true },
+    } as any),
+    prisma.user.findUnique({
+      where: { id: resolvedReceiverId },
+      select: { id: true, name: true, avatarUrl: true, displayId: true },
+    } as any),
+  ]);
+
+  if (!sender || !receiver) {
+    socket.emit('error', { message: 'User not found' });
     return;
   }
 
@@ -990,30 +1007,44 @@ await emitRoomState(io, rid);
 // broadcast to everyone in room
 io.to(`room:${rid}`).emit('gift', payload);
 
-const senderName = createdLog.sender.name;
-const senderAvatarUrl = createdLog.sender.avatarUrl;
-const receiverId = recvId ?? senderId;
-const receiverName = createdLog.receiver.name;
-const receiverAvatarUrl = createdLog.receiver.avatarUrl;
+const senderName = sender.name;
+const senderDisplayId = (sender as any).displayId ?? null;
+const receiverDisplayId = (receiver as any).displayId ?? null;
+const senderAvatarUrl = sender.avatarUrl ?? null;
+const receiverId = receiver.id;
+const receiverName = receiver.name;
+const receiverAvatarUrl = receiver.avatarUrl ?? null;
+
+const sentAt = new Date().toISOString();
 
 const giftReceivedPayload = {
   giftId: gift.id,
   giftNameAr: gift.nameAr,
   giftImageUrl: gift.imageUrl,
-  giftAnimationUrl: gift.animationUrl,
+  giftAnimationUrl: gift.animationUrl ?? null,
   coinsValue: gift.coinsValue,
-  senderId,
-  senderName,
-  senderAvatarUrl,
-  receiverId,
-  receiverName,
-  receiverAvatarUrl,
+  senderId: sender.id,
+  senderName: sender.name,
+  senderAvatarUrl: sender.avatarUrl ?? null,
+  senderDisplayId,
+  receiverId: receiver.id,
+  receiverName: receiver.name,
+  receiverAvatarUrl: receiver.avatarUrl ?? null,
+  receiverDisplayId,
   roomId: rid,
-  sentAt: new Date().toISOString(),
+  sentAt,
 };
 
 io.to(`room:${rid}`).emit('gift_received', giftReceivedPayload);
-io.to(`user:${receiverId}`).emit('gift_received', giftReceivedPayload);
+
+io.to(`user:${receiverId}`).emit('gift_received_personal', {
+  giftNameAr: gift.nameAr,
+  giftImageUrl: gift.imageUrl,
+  coinsValue: gift.coinsValue,
+  senderName: sender.name,
+  senderAvatarUrl: sender.avatarUrl ?? null,
+  sentAt,
+});
 
 // ALSO send directly to receiver (important for reliability)
 if (recvId) {

@@ -1,47 +1,43 @@
 class GiftEvent {
   final int giftId;
-  final String giftName;
+  final String giftNameAr;
   final String giftImageUrl;
-  final int giftPrice;
-
+  final String? giftAnimationUrl;
+  final int coinsValue;
   final int senderId;
-  final String senderName;
-  final String? senderAvatar;
-
   final int receiverId;
+  final String senderName;
   final String receiverName;
-  final String? receiverAvatar;
-
-  final int roomId;
-  final int timestamp;
+  final String? senderAvatarUrl;
+  final String? receiverAvatarUrl;
 
   GiftEvent({
     required this.giftId,
-    required this.giftName,
+    required this.giftNameAr,
     required this.giftImageUrl,
-    required this.giftPrice,
+    this.giftAnimationUrl,
+    required this.coinsValue,
     required this.senderId,
-    required this.senderName,
-    this.senderAvatar,
     required this.receiverId,
+    required this.senderName,
     required this.receiverName,
-    this.receiverAvatar,
-    required this.roomId,
-    required this.timestamp,
+    this.senderAvatarUrl,
+    this.receiverAvatarUrl,
   });
 
-  factory GiftEvent.fromJson(Map<String, dynamic> json) => GiftEvent(
-    giftId: json['giftId'] ?? 0,
-    giftName: json['giftName'] ?? '',
-    giftImageUrl: json['giftImageUrl'] ?? '',
-    giftPrice: json['giftPrice'] ?? 0,
-    senderId: json['senderId'] ?? 0,
-    senderName: json['senderName'] ?? '',
-    senderAvatar: json['senderAvatar'],
-    receiverId: json['receiverId'] ?? 0,
-    receiverName: json['receiverName'] ?? '',
-    receiverAvatar: json['receiverAvatar'],
-    roomId: json['roomId'] ?? 0,
-    timestamp: json['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
-  );
+  static int _toInt(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+
+  factory GiftEvent.fromJson(Map<dynamic, dynamic> j) => GiftEvent(
+        giftId: _toInt(j['giftId']),
+        giftNameAr: (j['giftNameAr'] ?? '').toString(),
+        giftImageUrl: (j['giftImageUrl'] ?? '').toString(),
+        giftAnimationUrl: j['giftAnimationUrl']?.toString(),
+        coinsValue: _toInt(j['coinsValue']),
+        senderId: _toInt(j['senderId']),
+        senderName: (j['senderName'] ?? '').toString(),
+        senderAvatarUrl: j['senderAvatarUrl']?.toString(),
+        receiverId: _toInt(j['receiverId']),
+        receiverName: (j['receiverName'] ?? '').toString(),
+        receiverAvatarUrl: j['receiverAvatarUrl']?.toString(),
+      );
 }
