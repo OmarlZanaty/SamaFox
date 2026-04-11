@@ -45,8 +45,12 @@ model User {
   receivedGifts            GiftLog[]                 @relation("GiftReceiver")
   sentMessages             Message[]                 @relation("MessageSender")
   receivedMessages         Message[]                 @relation("MessageReceiver")
-  followers                Relationship[]            @relation("Following")
-  following                Relationship[]            @relation("Follower")
+  relationshipFollowers    Relationship[]            @relation("Following")
+  relationshipFollowing    Relationship[]            @relation("Follower")
+  followers                Follow[]                  @relation("UserFollowers")
+  following                Follow[]                  @relation("UserFollowing")
+  relationsAsUser1         Relation[]                @relation("RelationUser1")
+  relationsAsUser2         Relation[]                @relation("RelationUser2")
   transactions             Transaction[]
   reportsMade              Report[]                  @relation("Reporter")
   reportsReceived          Report[]                  @relation("Reported")
@@ -63,16 +67,26 @@ model User {
   bannedFromRooms          RoomBan[]                 @relation("BannedFromRoom")
   roomBans                 RoomBan[]                 @relation("RoomBanner")
   chargingAgencies         ChargingAgency[]
+  agencyRequests           AgencyRequest[]
+  agencyMembers            AgencyMember[]
   reviewedTopups           AgencyTopupRequest[]      @relation("TopupReviewedBy")
   AgencyTransfer           AgencyTransfer[]
   conversationsA           Conversation[]            @relation("ConvUserA")
   conversationsB           Conversation[]            @relation("ConvUserB")
   conversationParticipants ConversationParticipant[]
   directMessagesSent       DirectMessage[]
-  avatarFrameUrl String?
-  activeFrameId  String?
-  activeFrame    Item?   @relation("ActiveUserFrame", fields: [activeFrameId], references: [id])
+  avatarFrameUrl           String?
+  displayId                Int?                      @unique
+  activeFrameId            String?
+  activeFrame              Item?                     @relation("UserActiveFrame", fields: [activeFrameId], references: [id])
+  relationId               Int?
+
   @@map("users")
+}
+
+model UserIdSequence {
+  id     Int @id @default(1)
+  nextId Int @default(10000)
 }
 
 // ============================================
@@ -182,21 +196,22 @@ model RoomBan {
 // ============================================
 
 model Gift {
-  id              Int     @id @default(autoincrement())
-  name            String
-  nameAr          String  @default("")
+  id              Int      @id @default(autoincrement())
+  name            String   @default("")
+  nameAr          String
   imageUrl        String
   animationUrl    String?
-  coinsValue      Int     @default(0)
-  sortOrder       Int     @default(0)
-  priceCoins      Int
-  category        String
-  isActive        Boolean @default(true)
-  xp              Int     @default(0)
-  level           Int     @default(1)
-  isComboFriendly Boolean @default(false)
+  coinsValue      Int
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  priceCoins      Int      @default(0)
+  category        String   @default("GENERAL")
+  xp              Int      @default(0)
+  level           Int      @default(1)
+  isComboFriendly Boolean  @default(false)
+  createdAt       DateTime @default(now())
 
-  logs GiftLog[]
+  giftLogs GiftLog[]
 
   @@map("gifts")
 }
@@ -259,6 +274,31 @@ model Relationship {
 
   @@id([followerId, followingId])
   @@map("relationships")
+}
+
+model Follow {
+  id          Int      @id @default(autoincrement())
+  followerId  Int
+  follower    User     @relation("UserFollowers", fields: [followerId], references: [id])
+  followingId Int
+  following   User     @relation("UserFollowing", fields: [followingId], references: [id])
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+}
+
+model Relation {
+  id          Int       @id @default(autoincrement())
+  user1Id     Int
+  user1       User      @relation("RelationUser1", fields: [user1Id], references: [id])
+  user2Id     Int
+  user2       User      @relation("RelationUser2", fields: [user2Id], references: [id])
+  status      String    @default("PENDING")
+  requestedAt DateTime  @default(now())
+  acceptedAt  DateTime?
+
+  @@unique([user1Id, user2Id])
 }
 
 // ============================================
@@ -533,14 +573,15 @@ model Item {
   name          String
   description   String
   type          String // "FRAME", "PROFILE_FRAME", "ROOM_THEME", "ENTRANCE_EFFECT"
+  itemType      String   @default("AVATAR")
   assetUrl      String
   priceCoins    Int      @default(0)
   isPurchasable Boolean  @default(true)
   createdAt     DateTime @default(now())
 
-  userItems UserItem[]
-  rooms     Room[]
-  frameUsers User[] @relation("ActiveUserFrame")
+  userItems  UserItem[]
+  rooms      Room[]
+  frameUsers User[]     @relation("UserActiveFrame")
 
   @@map("items")
 }
@@ -666,7 +707,14 @@ model ChargingAgency {
   idFrontUrl     String
   idBackUrl      String
   status         String               @default("pending") // pending/approved/rejected
+  type           String               @default("CHARGING")
+  contactInfo    String?
+  logoUrl        String?
+  targetCoins    BigInt               @default(0)
+  earnedCoins    BigInt               @default(0)
   topupRequests  AgencyTopupRequest[]
+  members        AgencyMember[]
+  invites        AgencyInvite[]
 
   // ✅ NEW: agency wallet
   balanceCoins Int @default(0)
@@ -721,6 +769,44 @@ model AgencyTopupRequest {
   @@index([agencyId])
   @@index([status])
   @@map("agency_topup_requests")
+}
+
+model AgencyRequest {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  type        String
+  agencyName  String
+  imageUrl    String?
+  contactInfo String?
+  status      String    @default("pending")
+  reviewedBy  Int?
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model AgencyMember {
+  id       Int            @id @default(autoincrement())
+  agencyId Int
+  agency   ChargingAgency @relation(fields: [agencyId], references: [id])
+  userId   Int
+  user     User           @relation(fields: [userId], references: [id])
+  role     String         @default("MEMBER")
+  joinedAt DateTime       @default(now())
+
+  @@unique([agencyId, userId])
+}
+
+model AgencyInvite {
+  id        Int            @id @default(autoincrement())
+  agencyId  Int
+  agency    ChargingAgency @relation(fields: [agencyId], references: [id])
+  inviterId Int
+  inviteeId Int
+  status    String         @default("pending")
+  createdAt DateTime       @default(now())
+
+  @@unique([agencyId, inviteeId])
 }
 
 model Conversation {
