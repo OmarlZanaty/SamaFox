@@ -3915,7 +3915,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                         child: Row(children: [
                           const Icon(Icons.badge_outlined, size: 14, color: Colors.white54),
                           const SizedBox(width: 6),
-                          Text('ID: ${seat.userId ?? ''}',
+                          Text('ID: #${seat.displayId ?? seat.userId ?? ''}',
                               style: const TextStyle(fontSize: 12, color: Colors.white60)),
                           const SizedBox(width: 6),
                           const Icon(Icons.copy, size: 12, color: Colors.white38),

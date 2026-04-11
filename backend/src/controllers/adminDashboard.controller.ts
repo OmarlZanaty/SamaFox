@@ -66,7 +66,7 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
     const total = Number(countRows[0]?.total || 0);
 
     const data = await prisma.$queryRawUnsafe<Array<any>>(
-      `SELECT id, name, email, phone, avatarUrl, isAdmin, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
+      `SELECT id, displayId, name, email, phone, avatarUrl, isAdmin, isBanned, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
        FROM users
        ${whereSql}
        ORDER BY createdAt DESC
@@ -82,6 +82,33 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
     });
   } catch {
     return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => {
+  try {
+    const userId = Number(req.params.id);
+    const newDisplayId = Number(req.body?.newDisplayId);
+
+    if (!userId) return res.status(400).json({ success: false, message: 'Invalid user id' });
+    if (!newDisplayId || newDisplayId < 10000) {
+      return res.status(400).json({ success: false, message: 'displayId must be >= 10000' });
+    }
+
+    const taken = await prisma.user.findFirst({
+      where: { displayId: newDisplayId, NOT: { id: userId } },
+    });
+    if (taken) return res.status(400).json({ success: false, message: 'ID already in use' });
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { displayId: newDisplayId },
+      select: { id: true, name: true, displayId: true },
+    });
+
+    return res.json({ success: true, data: updated });
+  } catch {
+    return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 

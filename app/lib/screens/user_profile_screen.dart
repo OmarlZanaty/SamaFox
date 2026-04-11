@@ -146,7 +146,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'ID: ${user.id}',
+                        '#${user.publicDisplayId}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[300],

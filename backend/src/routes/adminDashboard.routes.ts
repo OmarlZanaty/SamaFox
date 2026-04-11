@@ -5,6 +5,7 @@ import {
   adminDashboardAnalytics,
   adminDashboardBanUser,
   adminDashboardBroadcast,
+  adminChangeUserDisplayId,
   adminDashboardCreateQuest,
   adminDashboardDeleteQuest,
   adminDashboardForceCloseRoom,
@@ -38,6 +39,7 @@ router.use(requireAdminDashboard);
 router.get('/overview', adminDashboardOverview);
 router.get('/users', adminDashboardListUsers);
 router.patch('/users/:id/ban', adminDashboardBanUser);
+router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);

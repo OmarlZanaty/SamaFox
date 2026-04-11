@@ -5,6 +5,7 @@ part 'user.g.dart';
 @JsonSerializable()
 class User {
   final int id;
+  final int? displayId;
   final String name;
   final String? email;
   final String? phone;
@@ -49,6 +50,7 @@ class User {
 
   User({
     required this.id,
+    this.displayId,
     required this.name,
     this.email,
     this.phone,
@@ -86,9 +88,11 @@ class User {
   bool get userIsOnline => isOnline ?? false;
   int get userFollowersCount => followersCount ?? 0;
   int get userFollowingCount => followingCount ?? 0;
+  int get publicDisplayId => (displayId != null && displayId! >= 10000) ? displayId! : id;
 
   User copyWith({
     int? id,
+    int? displayId,
     String? name,
     String? email,
     String? phone,
@@ -113,6 +117,7 @@ class User {
   }) {
     return User(
       id: id ?? this.id,
+      displayId: displayId ?? this.displayId,
       name: name ?? this.name,
       email: email ?? this.email,
       phone: phone ?? this.phone,
