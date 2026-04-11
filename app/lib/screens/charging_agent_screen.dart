@@ -480,17 +480,16 @@ Widget _buildAgencyGrid(
   List<ChargingAgency> items, {
   void Function(ChargingAgency agency)? onTap,
 }) {
-  return GridView.builder(
+  return GridView.count(
     shrinkWrap: true,
     physics: const NeverScrollableScrollPhysics(),
-    itemCount: items.length,
-    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-      crossAxisCount: 2,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: 0.92,
-    ),
-    itemBuilder: (context, index) => _AgencyGridCard(items[index], onTap: onTap),
+    crossAxisCount: 2,
+    mainAxisSpacing: 12,
+    crossAxisSpacing: 12,
+    childAspectRatio: 0.92,
+    children: [
+      for (final item in items) _AgencyGridCard(item, onTap: onTap),
+    ],
   );
 }
 
