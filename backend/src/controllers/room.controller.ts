@@ -122,6 +122,7 @@ export const getRoomById = async (req: Request, res: Response) => {
                 name: true,
                 avatarUrl: true,
                 displayId: true,
+                relationId: true,
                 activeFrameId: true,
                 activeFrame: {
                   select: {
@@ -142,6 +143,20 @@ export const getRoomById = async (req: Request, res: Response) => {
 
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
+    const relationIds = Array.from(
+      new Set(room.members.map((m) => m.user.relationId).filter((id): id is number => !!id)),
+    );
+    const relations = relationIds.length
+      ? await prisma.relation.findMany({
+          where: { id: { in: relationIds } },
+          include: {
+            user1: { select: { id: true, name: true, avatarUrl: true } },
+            user2: { select: { id: true, name: true, avatarUrl: true } },
+          },
+        })
+      : [];
+    const relationById = new Map(relations.map((r) => [r.id, r]));
+
     const seats = room.members.map((m, i) => ({
       seatNumber: i + 1,
       userId: m.userId,
@@ -153,6 +168,12 @@ export const getRoomById = async (req: Request, res: Response) => {
         displayId: m.user.displayId,
         activeFrameId: m.user.activeFrameId,
         frameImageUrl: m.user.activeFrame?.assetUrl ?? null,
+        relationPartner:
+          m.user.relationId && relationById.get(m.user.relationId)
+            ? relationById.get(m.user.relationId)!.user1Id === m.user.id
+              ? relationById.get(m.user.relationId)!.user2
+              : relationById.get(m.user.relationId)!.user1
+            : null,
       },
     }));
 

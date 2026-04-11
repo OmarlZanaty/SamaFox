@@ -89,6 +89,24 @@ class SeatCard extends StatelessWidget {
                   ),
                 ),
 
+              if (seat.relationPartner?.avatarUrl != null &&
+                  seat.relationPartner!.avatarUrl!.isNotEmpty)
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: CircleAvatar(
+                      radius: 10,
+                      backgroundImage:
+                          NetworkImage(seat.relationPartner!.avatarUrl!),
+                    ),
+                  ),
+                ),
+
 // 🔢 SEAT NUMBER → BELOW SEAT
               Positioned(
                 bottom: -16,

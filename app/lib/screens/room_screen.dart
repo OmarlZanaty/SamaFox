@@ -3824,6 +3824,39 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                   ),
                   const SizedBox(height: 18),
 
+                  if (seat.relationPartner?.avatarUrl != null &&
+                      seat.relationPartner!.avatarUrl!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 30,
+                            backgroundImage: seat.avatarUrl != null
+                                ? NetworkImage(seat.avatarUrl!)
+                                : null,
+                            child: seat.avatarUrl == null
+                                ? const Icon(Icons.person)
+                                : null,
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 10),
+                            child: Icon(
+                              Icons.favorite,
+                              color: Colors.amber,
+                              size: 20,
+                            ),
+                          ),
+                          CircleAvatar(
+                            radius: 30,
+                            backgroundImage:
+                                NetworkImage(seat.relationPartner!.avatarUrl!),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   // AVATAR + FRAME
                   SizedBox(
                     height: 160,

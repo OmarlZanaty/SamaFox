@@ -104,6 +104,7 @@ const locked = getLockedSeats(rid);
   id: true,
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
+  relationId: true,
   avatarFrameUrl: true,
   activeFrameId: true,
   activeFrame: { select: { assetUrl: true } },
@@ -113,6 +114,17 @@ const locked = getLockedSeats(rid);
     : [];
 
   const usersById = new Map(seatedUsers.map(u => [u.id, u]));
+  const relationIds = Array.from(new Set(seatedUsers.map((u: any) => u.relationId).filter((id: any) => !!id)));
+  const relations = relationIds.length
+    ? await prisma.relation.findMany({
+      where: { id: { in: relationIds } },
+      include: {
+        user1: { select: { id: true, name: true, avatarUrl: true } },
+        user2: { select: { id: true, name: true, avatarUrl: true } },
+      },
+    })
+    : [];
+  const relationsById = new Map(relations.map((rel) => [rel.id, rel]));
 
   const frameMap = new Map<number, string | null>();
 
@@ -127,6 +139,10 @@ await Promise.all(
     const seatNumber = i + 1;
     const occupant = seatsMap.get(seatNumber) ?? null;
     const u = occupant ? usersById.get(occupant) : null;
+    const rel = u?.relationId ? relationsById.get(u.relationId) : null;
+    const relationPartner = rel
+      ? (rel.user1Id === u?.id ? rel.user2 : rel.user1)
+      : null;
 
     return {
       seatNumber,
@@ -136,6 +152,7 @@ await Promise.all(
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
       frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,
       activeFrameId: u?.activeFrameId ?? null,
+      relationPartner,
       level: u?.level ?? 1,
       isMuted: occupant ? (mutedMap.get(occupant) ?? true) : true,
       isLocked: locked.has(seatNumber),
@@ -935,9 +952,23 @@ await emitRoomState(io, rid);
     return;
   }
 
-  const receiverCoins = recvId != null ? totalCost / BigInt(2) : BigInt(0);
-
   try {
+    const receiverUser = recvId != null
+      ? await prisma.user.findUnique({ where: { id: recvId }, select: { relationId: true } } as any)
+      : null;
+    const relation = receiverUser?.relationId
+      ? await prisma.relation.findUnique({ where: { id: receiverUser.relationId } })
+      : null;
+
+    const hasActiveRelationSplit = !!(recvId != null && relation && relation.status === 'ACTIVE');
+    const partnerId = hasActiveRelationSplit && relation
+      ? (relation.user1Id === recvId ? relation.user2Id : relation.user1Id)
+      : null;
+    const receiverCoins = recvId != null
+      ? (hasActiveRelationSplit ? totalCost / BigInt(2) : totalCost)
+      : BigInt(0);
+    const partnerCoins = hasActiveRelationSplit ? (totalCost - receiverCoins) : BigInt(0);
+
     const result = await prisma.$transaction(async (tx) => {
       // ✅ race-safe sender decrement
       const updated = await tx.user.updateMany({
@@ -954,6 +985,13 @@ await emitRoomState(io, rid);
           select: { coinsBalance: true },
         });
         receiverNewBalance = BigInt(ur.coinsBalance);
+      }
+
+      if (partnerId != null && partnerCoins > BigInt(0)) {
+        await tx.user.update({
+          where: { id: partnerId },
+          data: { coinsBalance: { increment: Number(partnerCoins) } },
+        });
       }
 
       const senderNew = await tx.user.findUnique({
@@ -990,10 +1028,19 @@ await emitRoomState(io, rid);
         });
       }
 
+      if (partnerId != null && partnerCoins > BigInt(0)) {
+        await tx.transaction.create({
+          data: { userId: partnerId, type: 'gift_receive', amountCoins: Number(partnerCoins), status: 'completed' },
+        });
+      }
+
       return {
         createdLog,
         senderNewBalance: BigInt(senderNew?.coinsBalance ?? 0),
         receiverNewBalance,
+        receiverCoins,
+        partnerId,
+        partnerCoins,
       };
     });
 
@@ -1029,7 +1076,7 @@ await emitRoomState(io, rid);
     senderId,
     receiverId: recvId ?? senderId,
     senderNewBalance: result.senderNewBalance.toString(),
-    receiverCoins: receiverCoins.toString(),
+    receiverCoins: result.receiverCoins.toString(),
     receiverNewBalance: result.receiverNewBalance?.toString() ?? null,
     createdAt: createdLog.createdAt.toISOString()
   }
@@ -1080,6 +1127,15 @@ io.to(`user:${receiverId}`).emit('gift_received_personal', {
 // ALSO send directly to receiver (important for reliability)
 if (recvId) {
   io.to(`user:${recvId}`).emit('gift', payload);
+}
+
+if (result.partnerId != null && result.partnerCoins > BigInt(0)) {
+  io.to(`user:${result.partnerId}`).emit('relation_coins_received', {
+    fromGift: gift.nameAr,
+    senderName,
+    receiverName,
+    coinsReceived: result.partnerCoins.toString(),
+  });
 }
 
 if (gift.coinsValue >= MEGA_GIFT_THRESHOLD) {
