@@ -20,6 +20,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   List<Map<String, dynamic>> _results = [];
   bool _isSearching = false;
   String? _errorMessage;
+  bool _searchRouteUnavailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onChanged);
+  }
 
   @override
   void initState() {
@@ -72,80 +79,114 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Future<List<Map<String, dynamic>>> _searchWithFallback(String q) async {
+    final results = <Map<String, dynamic>>[];
+
     // Primary endpoint (new backend)
-    try {
-      final resp = await DioClient.dio.get(
-        '/search',
-        queryParameters: {'q': q, 'type': 'all'},
-      );
-      final data = resp.data;
-      if (data is Map) {
-        final raw = data['data'];
-        if (raw is List) {
-          return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    if (!_searchRouteUnavailable) {
+      try {
+        final resp = await DioClient.dio.get(
+          '/search',
+          queryParameters: {'q': q, 'type': 'all'},
+        );
+        final data = resp.data;
+        if (data is Map) {
+          final raw = data['data'];
+          if (raw is List) {
+            results.addAll(
+              raw.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+            );
+            return results;
+          }
+        }
+      } on DioException catch (e) {
+        // fallback below when endpoint is unavailable (404 in production logs)
+        if ((e.response?.statusCode ?? 0) == 404) {
+          _searchRouteUnavailable = true;
+        } else {
+          rethrow;
         }
       }
-    } on DioException catch (e) {
-      // fallback below when endpoint is unavailable (404 in production logs)
-      if ((e.response?.statusCode ?? 0) != 404) rethrow;
     }
 
     // Fallback A: users endpoint available on old backend
-    final usersResp = await DioClient.dio.get(
-      '/users/search',
-      queryParameters: {'query': q},
-    );
-    final usersRaw = (usersResp.data is Map)
-        ? ((usersResp.data['users'] as List?) ?? const [])
-        : const [];
-    final users = usersRaw.map((e) {
-      final m = Map<String, dynamic>.from(e as Map);
-      return <String, dynamic>{
-        'type': 'user',
-        'id': m['id'],
-        'name': m['name'],
-        'imageUrl': m['avatarUrl'],
-        'subtitle': m['displayId'] != null ? '#${m['displayId']}' : null,
-      };
-    }).toList();
+    try {
+      final usersResp = await DioClient.dio.get(
+        '/users/search',
+        queryParameters: {'query': q},
+      );
+      final usersRaw = (usersResp.data is Map)
+          ? ((usersResp.data['users'] as List?) ?? const [])
+          : const [];
+      results.addAll(
+        usersRaw.map((e) {
+          final m = Map<String, dynamic>.from(e as Map);
+          return <String, dynamic>{
+            'type': 'user',
+            'id': m['id'],
+            'name': m['name'],
+            'imageUrl': m['avatarUrl'],
+            'subtitle': m['displayId'] != null ? '#${m['displayId']}' : null,
+          };
+        }),
+      );
+    } catch (_) {
+      // Ignore and continue with other fallbacks.
+    }
+
+    // Fallback A2: direct numeric user lookup
+    final numericId = int.tryParse(q);
+    if (numericId != null && numericId > 0) {
+      try {
+        final userResp = await DioClient.dio.get('/users/$numericId');
+        final payload = userResp.data;
+        final user = payload is Map ? (payload['user'] ?? payload) : null;
+        if (user is Map) {
+          results.add({
+            'type': 'user',
+            'id': user['id'],
+            'name': user['name'],
+            'imageUrl': user['avatarUrl'],
+            'subtitle': user['displayId'] != null ? '#${user['displayId']}' : null,
+          });
+        }
+      } catch (_) {
+        // Ignore numeric fallback failure.
+      }
+    }
 
     // Fallback B: rooms list + client-side filter (old backend has no search route)
-    final roomsResp = await DioClient.dio.get('/rooms', queryParameters: {'limit': 100});
-    final roomsRaw = (roomsResp.data is Map)
-        ? ((roomsResp.data['rooms'] as List?) ?? const [])
-        : const [];
-    final queryLower = q.toLowerCase();
-    final rooms = roomsRaw
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .where((r) {
-          final name = (r['name'] ?? '').toString().toLowerCase();
-          final id = (r['id'] ?? '').toString();
-          return name.contains(queryLower) || id == q;
-        })
-        .map((r) => <String, dynamic>{
-              'type': 'room',
-              'id': r['id'],
-              'name': r['name'],
-              'imageUrl': r['coverImageUrl'],
-              'subtitle': null,
+    try {
+      final roomsResp = await DioClient.dio.get('/rooms', queryParameters: {'limit': 100});
+      final roomsRaw = (roomsResp.data is Map)
+          ? ((roomsResp.data['rooms'] as List?) ?? const [])
+          : const [];
+      final queryLower = q.toLowerCase();
+      results.addAll(
+        roomsRaw
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .where((r) {
+              final name = (r['name'] ?? '').toString().toLowerCase();
+              final id = (r['id'] ?? '').toString();
+              return name.contains(queryLower) || id == q;
             })
-        .toList();
-
-    return [...rooms, ...users];
-  }
-
-  void _onTapResult(Map<String, dynamic> result) {
-    final id = result['id'];
-    final type = (result['type'] ?? '').toString();
-
-    if (type == 'room') {
-      Navigator.pushNamed(context, '/room', arguments: id);
-      return;
+            .map((r) => <String, dynamic>{
+                  'type': 'room',
+                  'id': r['id'],
+                  'name': r['name'],
+                  'imageUrl': r['coverImageUrl'],
+                  'subtitle': null,
+                }),
+      );
+    } catch (_) {
+      // Ignore room fallback failure.
     }
 
-    if (type == 'user') {
-      Navigator.pushNamed(context, '/user-profile', arguments: id);
+    final deduped = <String, Map<String, dynamic>>{};
+    for (final r in results) {
+      final key = '${r['type']}:${r['id']}';
+      deduped[key] = r;
     }
+    return deduped.values.toList();
   }
 
   void _onTapResult(Map<String, dynamic> result) {
