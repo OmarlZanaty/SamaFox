@@ -327,6 +327,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _socket.off('mic_queue_updated');
     _socket.off('seat_occupied');
     _socket.off('seat_released');
+    _socket.off('seat_updated');
 
     state = state.copyWith(isOpen: false);
 
@@ -595,6 +596,13 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       }
     });
 
+    _socket.on('seat_updated', (data) {
+      if (data is Map) {
+        final map = Map<String, dynamic>.from(data);
+        _applySeatUpdatedFromRaw(map);
+      }
+    });
+
     _socket.on('seat_mute_changed', (data) {
       print('🧪 RAW seat_mute_changed => $data');
     });
@@ -806,6 +814,35 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       isLocked: old.isLocked,
     );
 
+
+    state = state.copyWith(seats: current);
+  }
+
+  void _applySeatUpdatedFromRaw(Map<String, dynamic> map) {
+    final seatNumber = _safeInt(map['seatNumber']) ??
+        _safeInt(map['seat_number']) ??
+        _safeInt(map['seatId']) ??
+        _safeInt(map['seat_id']);
+    if (seatNumber == null || seatNumber <= 0) return;
+
+    final userId = _safeInt(map['userId']) ?? _safeInt(map['user_id']);
+    final micEnabled = map['micEnabled'] == true;
+    final isSpeaking = map['isSpeaking'] == true;
+
+    final current = Map<int, SeatData>.from(state.seats);
+    final old = current[seatNumber] ?? SeatData.empty(seatNumber);
+
+    current[seatNumber] = SeatData(
+      seatNumber: seatNumber,
+      userId: userId,
+      username: userId == null ? null : old.username,
+      avatarUrl: userId == null ? null : old.avatarUrl,
+      avatarFrameUrl: userId == null ? null : old.avatarFrameUrl,
+      level: userId == null ? 0 : old.level,
+      isMuted: !micEnabled,
+      isLocked: old.isLocked,
+      isSpeaking: isSpeaking,
+    );
 
     state = state.copyWith(seats: current);
   }

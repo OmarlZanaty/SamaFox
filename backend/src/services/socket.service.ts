@@ -813,28 +813,50 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
     // ----------------------------
     // Seat controls
     // ----------------------------
-    socket.on('leave_seat', async ({ roomId, seatNumber }: any) => {
-      const rid = toInt(roomId);
-      const seatNum = toInt(seatNumber);
-      const uid = socket.userId;
-      if (!uid || !rid || !seatNum) return;
+    socket.on('leave_seat', async ({ roomId, seatNumber, seatId }: any) => {
+      try {
+        const rid = toInt(roomId);
+        const seatNum = toInt(seatNumber ?? seatId);
+        const uid = socket.userId;
+        if (!uid || !rid || !seatNum) return;
 
-      const seats = getSeats(rid);
-      if (seats.get(seatNum) === uid) {
+        const seats = getSeats(rid);
+        const occupiedUserId = seats.get(seatNum);
+
+        if (occupiedUserId == null) {
+          return socket.emit('error', { message: 'Seat not found' });
+        }
+        if (occupiedUserId !== uid) {
+          return socket.emit('error', { message: 'Not your seat' });
+        }
+
         seats.delete(seatNum);
         getMuted(rid).delete(uid);
+        getVoiceSet(rid).delete(uid);
 
         console.log('[leave_seat]', { uid, rid, seatNum });
+
+        io.to(`room:${rid}`).emit('seat_updated', {
+          seatId: seatNum,
+          seatNumber: seatNum,
+          userId: null,
+          micEnabled: false,
+          isSpeaking: false,
+          isMuted: true,
+        });
 
         io.to(`room:${rid}`).emit('seat_released', {
           seatNumber: seatNum,
           userId: uid,
         });
 
-        getVoiceSet(rid).delete(uid);
+        socket.emit('left_seat', { seatId: seatNum, seatNumber: seatNum, roomId: rid });
+
         await emitVoiceUsers(io, rid);
         await emitRoomState(io, rid);
-
+      } catch (err) {
+        console.error('leave_seat error:', err);
+        socket.emit('error', { message: 'Could not leave seat' });
       }
     });
 

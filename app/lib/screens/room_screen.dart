@@ -3776,6 +3776,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     }
 
     final isMine = seat.userId == myUserId;
+    if (isMine) {
+      _showLeaveSeatSheet(context, seatNumber);
+      return;
+    }
 
     final frame = (seat.avatarFrameUrl != null &&
         seat.avatarFrameUrl!.isNotEmpty)
@@ -4040,6 +4044,79 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
         );
       },
     );
+  }
+
+  void _showLeaveSeatSheet(BuildContext context, int seatNumber) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        margin: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'مغادرة المقعد',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'هل تريد مغادرة مقعدك الحالي؟',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 28),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('إلغاء'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red[600],
+                        ),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _emitLeaveSeat(seatNumber);
+                        },
+                        child: const Text(
+                          'مغادرة',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _emitLeaveSeat(int seatNumber) {
+    ref.read(roomControllerProvider(widget.roomId).notifier).leaveSeat(seatNumber: seatNumber);
   }
 
   Widget _badgePill(String label, Color color, IconData icon) {
