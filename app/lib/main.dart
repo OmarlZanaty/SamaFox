@@ -74,8 +74,23 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       final payload = MegaGiftPayload.fromJson(data);
       MegaGiftOverlay.show(context, payload);
     });
-    _socketService.on('follow_request', (data) {
-      debugPrint('New follow request event: $data');
+    SocketService().on('follow_request', (data) {
+      final ctx = navigatorKey.currentContext;
+      if (ctx == null) return;
+      final from = (data is Map ? data['fromUser'] : null) as Map?;
+      final name = from?['name']?.toString() ?? 'مستخدم';
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF1A2744),
+          content: Text('👤 $name أرسل طلب متابعة'),
+          action: SnackBarAction(
+            label: 'الإشعارات',
+            textColor: Colors.lightBlueAccent,
+            onPressed: () => Navigator.pushNamed(ctx, '/notifications'),
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
     });
     _socketService.on('follow_accepted', (data) {
       final context = navigatorKey.currentContext;
@@ -132,6 +147,8 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
   @override
   void dispose() {
     _globalGiftSub?.cancel();
+    _socketService.off('follow_request');
+    _socketService.off('follow_accepted');
     _socketService.off('relation_request');
     _socketService.off('relation_accepted');
     _socketService.off('relation_ended');

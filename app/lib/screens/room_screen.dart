@@ -1407,6 +1407,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     final seat = state.seats[seatNumber];
     if (seat == null) return;
 
+    final isMicTurningOn = seat.isMuted;
+    await AudioController.instance.setMicEnabled(isMicTurningOn);
     ref.read(roomControllerProvider(widget.roomId).notifier).toggleMute(
       seatNumber: seatNumber,
       isMuted: !seat.isMuted,
@@ -1833,11 +1835,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     });
 
     SocketService().on('gift_received', (data) {
-      if (!mounted || data is! Map) return;
+      if (!mounted) return;
       try {
-        final event = GiftEvent.fromJson(Map<String, dynamic>.from(data));
+        final map = Map.from(data as Map);
+        final event = GiftEvent.fromJson(Map<String, dynamic>.from(map));
         _showGiftBanner(context, event);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('gift_received parse error: $e');
+      }
     });
 
 
@@ -3202,9 +3207,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
                         if (_currentSeatNumber != null)
                           GestureDetector(
-                            onTap: () {
+                            onTap: () async {
                               final userId = ref.read(authStateProvider).user?.id;
                               if (userId == null) return;
+                              final isMicTurningOn = _currentSeatMuted;
+                              await AudioController.instance.setMicEnabled(isMicTurningOn);
 
                               ref.read(roomControllerProvider(widget.roomId).notifier).toggleMute(
                                 seatNumber: _currentSeatNumber!,
