@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthReq } from '../types';
 import { io } from '../index';
+import { createNotification } from '../services/notification.service';
 
 export const sendFollowRequest = async (req: AuthReq, res: Response) => {
   const followerId = req.userId!;
@@ -12,16 +13,29 @@ export const sendFollowRequest = async (req: AuthReq, res: Response) => {
   if (block) return res.status(403).json({ success: false, message: 'Cannot follow this user' });
 
   const existing = await prisma.follow.findFirst({ where: { followerId, followingId } });
+  let followId = existing?.id ?? null;
   if (existing) {
     if (existing.status === 'PENDING') return res.status(400).json({ success: false, message: 'Request already sent' });
     if (existing.status === 'ACCEPTED') return res.status(400).json({ success: false, message: 'Already following' });
-    await prisma.follow.update({ where: { id: existing.id }, data: { status: 'PENDING', createdAt: new Date() } });
+    const updated = await prisma.follow.update({ where: { id: existing.id }, data: { status: 'PENDING', createdAt: new Date() } });
+    followId = updated.id;
   } else {
-    await prisma.follow.create({ data: { followerId, followingId, status: 'PENDING' } });
+    const created = await prisma.follow.create({ data: { followerId, followingId, status: 'PENDING' } });
+    followId = created.id;
   }
 
   const follower = await prisma.user.findUnique({ where: { id: followerId }, select: { id: true, name: true, avatarUrl: true, displayId: true } });
   io.to(`user:${followingId}`).emit('follow_request', { fromUser: follower });
+  if (follower) {
+    await createNotification({
+      userId: followingId,
+      actorId: followerId,
+      type: 'follow_request',
+      title: 'New follow request',
+      body: `${follower.name} sent you a follow request`,
+      data: { followerId, followId },
+    });
+  }
   return res.status(201).json({ success: true, message: 'Follow request sent' });
 };
 
@@ -40,6 +54,28 @@ export const respondToFollow = async (req: AuthReq, res: Response) => {
   if (action === 'accept') {
     const acceptor = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, avatarUrl: true, displayId: true } });
     io.to(`user:${follow.followerId}`).emit('follow_accepted', { byUser: acceptor });
+    if (acceptor) {
+      await createNotification({
+        userId: follow.followerId,
+        actorId: userId,
+        type: 'follow_accepted',
+        title: 'Follow request accepted',
+        body: `${acceptor.name} accepted your follow request`,
+        data: { followId },
+      });
+    }
+  } else if (action === 'reject') {
+    const rejector = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+    if (rejector) {
+      await createNotification({
+        userId: follow.followerId,
+        actorId: userId,
+        type: 'follow_rejected',
+        title: 'Follow request rejected',
+        body: `${rejector.name} rejected your follow request`,
+        data: { followId },
+      });
+    }
   }
   return res.json({ success: true });
 };

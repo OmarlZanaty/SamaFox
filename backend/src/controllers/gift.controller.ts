@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { io } from '../index';
+import { createNotification } from '../services/notification.service';
 import type { Prisma } from '@prisma/client';
 
 
@@ -205,6 +206,21 @@ export const sendGift = async (req: Request, res: Response) => {
     });
 
     const createdLog = result.createdLog;
+    if (receiverNum != null && receiverNum !== senderId) {
+      await createNotification({
+        userId: receiverNum,
+        actorId: senderId,
+        type: 'gift_received',
+        title: 'You received a gift',
+        body: `${createdLog.sender.name} sent you ${qty} × ${createdLog.gift.nameAr || createdLog.gift.name}`,
+        data: {
+          giftId: createdLog.giftId,
+          giftLogId: createdLog.id,
+          quantity: qty,
+          roomId: rid || null,
+        },
+      });
+    }
 
     // ✅ Socket emit for RoomScreen realtime overlay
     if (rid && io) {

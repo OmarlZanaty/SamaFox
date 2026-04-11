@@ -49,6 +49,8 @@ model User {
   relationshipFollowing    Relationship[]            @relation("Follower")
   followers                Follow[]                  @relation("UserFollowers")
   following                Follow[]                  @relation("UserFollowing")
+  notifications            Notification[]            @relation("UserNotifications")
+  actedNotifications       Notification[]            @relation("NotificationActor")
   relationsAsUser1         Relation[]                @relation("RelationUser1")
   relationsAsUser2         Relation[]                @relation("RelationUser2")
   transactions             Transaction[]
@@ -286,6 +288,25 @@ model Follow {
   createdAt   DateTime @default(now())
 
   @@unique([followerId, followingId])
+}
+
+model Notification {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  actorId     Int?
+  actor       User?     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type        String
+  title       String
+  body        String
+  isRead      Boolean   @default(false)
+  data        Json?
+  createdAt   DateTime  @default(now())
+  readAt      DateTime?
+
+  @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
 
 model Relation {
