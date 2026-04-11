@@ -39,7 +39,15 @@ export const getMe = async (req: Request, res: Response) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    return res.status(200).json({ success: true, user: formatUserResponse(user) });
+    const [followerCount, followingCount] = await Promise.all([
+      prisma.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
+      prisma.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      user: { ...formatUserResponse(user), followerCount, followingCount, followersCount: followerCount },
+    });
   } catch (e: any) {
     console.error('getMe error:', e);
     return res.status(500).json({ success: false, message: 'Failed', error: e?.message || 'Unknown' });
@@ -62,7 +70,15 @@ export const getUserById = async (req: Request, res: Response) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    return res.status(200).json({ success: true, user: formatUserResponse(user) });
+    const [followerCount, followingCount] = await Promise.all([
+      prisma.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
+      prisma.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      user: { ...formatUserResponse(user), followerCount, followingCount, followersCount: followerCount },
+    });
   } catch (e: any) {
     console.error('getUserById error:', e);
     return res.status(500).json({ success: false, message: 'Failed', error: e?.message || 'Unknown' });

@@ -11,6 +11,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/user.dart';
 import '../../services/api_service.dart';
 import '../../services/dio_client.dart';
+import '../../services/follow_service.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   final int userId;
@@ -29,12 +30,75 @@ class UserProfileScreen extends ConsumerStatefulWidget {
 class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   late Future<User> _userFuture;
   late ApiService _apiService;
+  String _followStatus = 'none';
+  bool _updatingFollow = false;
 
   @override
   void initState() {
     super.initState();
     _apiService = ApiService(DioClient.dio);
     _userFuture = _apiService.getUserById(widget.userId);
+    if (!widget.isCurrentUser) {
+      _loadFollowStatus();
+    }
+  }
+
+  Future<void> _loadFollowStatus() async {
+    try {
+      final status = await FollowService.getFollowStatus(widget.userId);
+      if (mounted) setState(() => _followStatus = status);
+    } catch (_) {}
+  }
+
+  Future<void> _followAction(Future<void> Function() action) async {
+    if (_updatingFollow) return;
+    setState(() => _updatingFollow = true);
+    try {
+      await action();
+      await _loadFollowStatus();
+      setState(() => _userFuture = _apiService.getUserById(widget.userId));
+    } finally {
+      if (mounted) setState(() => _updatingFollow = false);
+    }
+  }
+
+  Widget _buildFollowActions() {
+    if (widget.isCurrentUser) return const SizedBox.shrink();
+    switch (_followStatus) {
+      case 'pending_sent':
+        return OutlinedButton(
+          onPressed: _updatingFollow ? null : () => _followAction(() => FollowService.unfollow(widget.userId)),
+          child: const Text('في الانتظار'),
+        );
+      case 'following':
+        return OutlinedButton(
+          onPressed: null,
+          onLongPress: _updatingFollow ? null : () => _followAction(() => FollowService.unfollow(widget.userId)),
+          child: const Text('تتابعه'),
+        );
+      case 'mutual':
+        return const Chip(
+          backgroundColor: Colors.green,
+          label: Text('أصدقاء', style: TextStyle(color: Colors.white)),
+        );
+      case 'followed_by':
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Chip(label: Text('يتابعك')),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _updatingFollow ? null : () => _followAction(() => FollowService.sendFollowRequest(widget.userId)),
+              child: const Text('تابعه'),
+            ),
+          ],
+        );
+      default:
+        return ElevatedButton(
+          onPressed: _updatingFollow ? null : () => _followAction(() => FollowService.sendFollowRequest(widget.userId)),
+          child: const Text('متابعة'),
+        );
+    }
   }
 
   /// Get gender icon based on gender value
@@ -172,6 +236,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      _buildFollowActions(),
                     ],
                   ),
                 ),

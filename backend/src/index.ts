@@ -29,6 +29,7 @@ import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
 import searchRoutes from './search/search.routes';
 import { resolvePublicDir } from './utils/publicDir';
+import followRoutes from './follow/follow.routes';
 
 const app: Application = express();
 
@@ -105,6 +106,7 @@ app.use('/api/v1/gifts', giftRoutes);
 app.use('/api/v1/gift-actions', giftActionRoutes);
 app.use('/api/v1/messages', messageRoutes);
 app.use('/api/v1/search', searchRoutes);
+app.use('/api/v1/follow', followRoutes);
 
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/api/v1/room-admin', roomAdminRoutes);
