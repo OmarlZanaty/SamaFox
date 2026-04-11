@@ -20,6 +20,10 @@ import {
   adminDashboardTransactions,
   adminDashboardUpdateAgencyStatus,
   adminDashboardUpdateReport,
+  adminListAgencyRequests,
+  adminReviewAgencyRequest,
+  adminTopupAgency,
+  adminSetAgencyTarget,
   adminCreateGift,
   adminDeleteGift,
   adminListGifts,
@@ -50,6 +54,10 @@ router.get('/leaderboard', adminDashboardLeaderboard);
 
 router.get('/charging-agencies', adminDashboardListChargingAgencies);
 router.patch('/charging-agencies/:id/status', adminDashboardUpdateAgencyStatus);
+router.get('/agency-requests', adminListAgencyRequests);
+router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
+router.patch('/agencies/:id/topup', adminTopupAgency);
+router.patch('/agencies/:id/target', adminSetAgencyTarget);
 router.get('/gifts', authenticate, adminListGifts);
 router.post('/gifts', authenticate, adminCreateGift);
 router.patch('/gifts/:id', authenticate, adminUpdateGift);

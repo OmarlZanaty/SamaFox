@@ -26,6 +26,7 @@ import adminDashAuthRoutes from './routes/admin-dashboard-auth.routes';
 import storeRoutes from "./routes/store.routes";
 import { initializeSocketHandlers } from './services/socket.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
+import agencyRoutes from './agencies/agency.routes';
 import { resolvePublicDir } from './utils/publicDir';
 
 const app: Application = express();
@@ -95,6 +96,7 @@ app.use('/api/v1/admin-dashboard', adminDashboardRoutes);
 // other routes
 app.use('/api/v1/games', gameRoutes);
 app.use('/api/v1/charging-agencies', chargingAgencyRoutes);
+app.use('/api/v1/agencies', agencyRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/rooms', roomRoutes);

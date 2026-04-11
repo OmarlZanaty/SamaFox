@@ -3,6 +3,8 @@ import { Request, Response } from 'express';
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
 
+const db = prisma as any;
+
 const parsePage = (v: unknown, d = 1) => {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : d;
@@ -180,7 +182,7 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
     if (!id || !['approved', 'rejected'].includes(status)) return fail(res, 400, 'Invalid payload');
     const adminId = req.userId!;
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx: any) => {
       const topup = await tx.agencyTopupRequest.findUnique({ where: { id } });
       if (!topup) return { ok: false as const, status: 404, message: 'Topup request not found' };
       if (topup.status !== 'pending') return { ok: false as const, status: 409, message: 'Already reviewed' };
@@ -440,6 +442,114 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
 
     const updated = await prisma.chargingAgency.update({ where: { id }, data: { status } });
     return ok(res, { data: serialize(updated) });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+
+export const adminListAgencyRequests = async (req: AdminReq, res: Response) => {
+  try {
+    const { type, status = 'pending' } = req.query;
+    const requests = await db.agencyRequest.findMany({
+      where: {
+        ...(type ? { type: String(type) } : {}),
+        status: String(status),
+      },
+      include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return ok(res, { data: requests });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminReviewAgencyRequest = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { status } = req.body as { status?: string };
+    if (!['approved', 'rejected'].includes(String(status))) return fail(res, 400, 'Invalid status');
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+
+    const result = await db.$transaction(async (tx: any) => {
+      const request = await tx.agencyRequest.findUnique({ where: { id } });
+      if (!request || request.status !== 'pending') {
+        return { ok: false as const, status: 404, message: 'Not found or already processed' };
+      }
+
+      await tx.agencyRequest.update({
+        where: { id },
+        data: { status, reviewedBy: req.userId, reviewedAt: new Date() },
+      });
+
+      if (status === 'approved') {
+        const agency = await tx.chargingAgency.create({
+          data: {
+            userId: request.userId,
+            agencyName: request.agencyName,
+            phoneNumber: request.contactInfo || '-',
+            agencyImageUrl: request.imageUrl || '',
+            idFrontUrl: request.imageUrl || '',
+            idBackUrl: request.imageUrl || '',
+            type: request.type,
+            logoUrl: request.imageUrl,
+            contactInfo: request.contactInfo,
+            status: 'approved',
+          },
+        });
+
+        await tx.agencyMember.create({
+          data: { agencyId: agency.id, userId: request.userId, role: 'OWNER' },
+        });
+
+        return { ok: true as const, data: serialize(agency) };
+      }
+
+      return { ok: true as const, data: null };
+    });
+
+    if (!result.ok) return fail(res, result.status, result.message);
+    return ok(res, { data: result.data });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminTopupAgency = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { amount } = req.body as { amount?: number | string };
+    const numericAmount = Number(amount);
+
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return fail(res, 400, 'Positive amount required');
+    }
+
+    const agency = await db.chargingAgency.update({
+      where: { id },
+      data: {
+        balanceCoins: { increment: numericAmount },
+        totalTopupCoins: { increment: numericAmount },
+      },
+    });
+
+    return ok(res, { data: { balanceCoins: String(agency.balanceCoins) } });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSetAgencyTarget = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { targetCoins } = req.body as { targetCoins?: number | string };
+    const numericTarget = Number(targetCoins);
+    if (!Number.isFinite(numericTarget) || numericTarget < 0) return fail(res, 400, 'targetCoins must be >= 0');
+
+    const agency = await db.chargingAgency.update({ where: { id }, data: { targetCoins: BigInt(Math.floor(numericTarget)) } });
+    return ok(res, { data: { targetCoins: agency.targetCoins.toString() } });
   } catch {
     return fail(res, 500, 'Server error');
   }
