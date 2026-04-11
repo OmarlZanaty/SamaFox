@@ -16,6 +16,7 @@ import 'screens/room_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/messages_screen.dart';
+import 'screens/notifications_screen.dart';
 import 'screens/gifts_screen.dart';
 import 'screens/charging_agent_screen.dart';
 import 'screens/search_screen.dart';
@@ -73,8 +74,23 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       final payload = MegaGiftPayload.fromJson(data);
       MegaGiftOverlay.show(context, payload);
     });
-    _socketService.on('follow_request', (data) {
-      debugPrint('New follow request event: $data');
+    SocketService().on('follow_request', (data) {
+      final ctx = navigatorKey.currentContext;
+      if (ctx == null) return;
+      final from = (data is Map ? data['fromUser'] : null) as Map?;
+      final name = from?['name']?.toString() ?? 'مستخدم';
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF1A2744),
+          content: Text('👤 $name أرسل طلب متابعة'),
+          action: SnackBarAction(
+            label: 'الإشعارات',
+            textColor: Colors.lightBlueAccent,
+            onPressed: () => Navigator.pushNamed(ctx, '/notifications'),
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
     });
     _socketService.on('follow_accepted', (data) {
       final context = navigatorKey.currentContext;
@@ -85,11 +101,57 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
         SnackBar(content: Text('$name قبل طلب متابعتك')),
       );
     });
+    _socketService.on('relation_request', (data) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      final fromUser = (data is Map ? data['fromUser'] : null) as Map?;
+      final name = fromUser?['name']?.toString() ?? 'مستخدم';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF2D1B69),
+          content: Text('💍 $name يريد أن يكون في علاقة معك'),
+          action: SnackBarAction(
+            label: 'عرض',
+            textColor: Colors.amber,
+            onPressed: () => Navigator.pushNamed(context, '/notifications'),
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    });
+    _socketService.on('relation_accepted', (data) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      final byUser = (data is Map ? data['byUser'] : null) as Map?;
+      final name = byUser?['name']?.toString() ?? 'مستخدم';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF1a3a1a),
+          content: Text('💍 $name قبل طلب العلاقة!'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
+    _socketService.on('relation_ended', (_) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('انتهت العلاقة'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    });
   }
 
   @override
   void dispose() {
     _globalGiftSub?.cancel();
+    _socketService.off('follow_request');
+    _socketService.off('follow_accepted');
+    _socketService.off('relation_request');
+    _socketService.off('relation_accepted');
+    _socketService.off('relation_ended');
     super.dispose();
   }
 
@@ -127,6 +189,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
         '/settings': (context) => const SettingsScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/messages': (_) => const MessagesScreen(),
+        '/notifications': (_) => const NotificationsScreen(),
         '/chat': (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
           final data = (args is Map) ? Map<String, dynamic>.from(args) : <String, dynamic>{};
