@@ -96,6 +96,22 @@ class StoreService {
                 'isActive': m['isActive'] ?? m['is_active'] ?? false,
               })
           .toList();
+    } on DioException catch (e) {
+      // Older backend may not have /store/my-frames.
+      if (e.response?.statusCode == 404) {
+        final inv = await getInventory(token);
+        return inv
+            .where((i) => i.type == 'avatar_frame')
+            .map((i) => <String, dynamic>{
+                  'id': i.productId,
+                  'name': i.name,
+                  'imageUrl': i.fileUrl,
+                  'isActive': i.isActive,
+                })
+            .toList();
+      }
+      print('StoreService.getMyFrames error: $e');
+      return <Map<String, dynamic>>[];
     } catch (e) {
       print('StoreService.getMyFrames error: $e');
       return <Map<String, dynamic>>[];

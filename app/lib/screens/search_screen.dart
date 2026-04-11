@@ -29,6 +29,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onChanged);
+  }
+
+  @override
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
@@ -75,34 +81,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Future<List<Map<String, dynamic>>> _searchWithFallback(String q) async {
     final results = <Map<String, dynamic>>[];
 
-    // Primary endpoint (new backend)
-    if (!_searchRouteUnavailable) {
-      try {
-        final resp = await DioClient.dio.get(
-          '/search',
-          queryParameters: {'q': q, 'type': 'all'},
-        );
-        final data = resp.data;
-        if (data is Map) {
-          final raw = data['data'];
-          if (raw is List) {
-            results.addAll(
-              raw.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
-            );
-            return results;
-          }
-        }
-      } on DioException catch (e) {
-        // fallback below when endpoint is unavailable (404 in production logs)
-        if ((e.response?.statusCode ?? 0) == 404) {
-          _searchRouteUnavailable = true;
-        } else {
-          rethrow;
-        }
-      }
-    }
-
-    // Fallback A: users endpoint available on old backend
+    // A: users search endpoint (old backend)
     try {
       final usersResp = await DioClient.dio.get(
         '/users/search',
