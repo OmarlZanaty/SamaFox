@@ -1127,6 +1127,7 @@ class SeatData {
   final String? username;
   final String? avatarUrl;
   final String? avatarFrameUrl; // ✅ NEW
+  final RelationPartner? relationPartner;
   final int level;
   final bool isMuted;
   final bool isLocked;
@@ -1139,6 +1140,7 @@ class SeatData {
     required this.username,
     required this.avatarUrl,
     this.avatarFrameUrl, // ✅ NEW
+    this.relationPartner,
     required this.level,
     required this.isMuted,
     required this.isLocked,
@@ -1152,6 +1154,7 @@ class SeatData {
     username: null,
     avatarUrl: null,
     avatarFrameUrl: null, // ✅ NEW
+    relationPartner: null,
     level: 0,
     isMuted: true,
     isLocked: false,
@@ -1164,6 +1167,7 @@ class SeatData {
     String? username,
     String? avatarUrl,
     String? avatarFrameUrl,
+    RelationPartner? relationPartner,
     int? level,
     bool? isMuted,
     bool? isLocked,
@@ -1176,6 +1180,7 @@ class SeatData {
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
+      relationPartner: relationPartner ?? this.relationPartner,
       level: level ?? this.level,
       isMuted: isMuted ?? this.isMuted,
       isLocked: isLocked ?? this.isLocked,
@@ -1200,10 +1205,35 @@ class SeatData {
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
       avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),
+      relationPartner: json['relationPartner'] is Map<String, dynamic>
+          ? RelationPartner.fromJson(json['relationPartner'] as Map<String, dynamic>)
+          : null,
       level: toInt(json['level']),
       isMuted: rawMuted == true || rawMuted?.toString() == 'true',
       isLocked: rawLocked == true || rawLocked?.toString() == 'true',
 
+    );
+  }
+}
+
+class RelationPartner {
+  final int id;
+  final String name;
+  final String? avatarUrl;
+
+  const RelationPartner({
+    required this.id,
+    required this.name,
+    required this.avatarUrl,
+  });
+
+  factory RelationPartner.fromJson(Map<String, dynamic> json) {
+    int toInt(dynamic v) => v is int ? v : int.tryParse('$v') ?? 0;
+
+    return RelationPartner(
+      id: toInt(json['id']),
+      name: (json['name'] ?? '').toString(),
+      avatarUrl: json['avatarUrl']?.toString(),
     );
   }
 }

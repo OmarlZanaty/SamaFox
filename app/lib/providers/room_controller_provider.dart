@@ -381,6 +381,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
           userId: seat.userId,
           username: seat.username,
           avatarUrl: seat.avatarUrl,
+          relationPartner: seat.relationPartner ?? old?.relationPartner,
 
           // ✅ KEEP OLD FRAME IF SNAPSHOT IS NULL
           avatarFrameUrl: seat.avatarFrameUrl ?? old?.avatarFrameUrl,
