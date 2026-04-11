@@ -11,6 +11,7 @@ const roomSeats = new Map<number, Map<number, number>>();
 const roomMuted = new Map<number, Map<number, boolean>>();
 const roomMicQueue = new Map<number, number[]>();
 const roomAdmins = new Map<number, Set<number>>();
+const MEGA_GIFT_THRESHOLD = Number(process.env.MEGA_GIFT_THRESHOLD ?? 5000);
 
 function toInt(v: any): number | null {
   const n = Number(v);
@@ -1019,18 +1020,28 @@ if (recvId) {
   io.to(`user:${recvId}`).emit('gift', payload);
 }
 
-if ((gift.coinsValue || gift.priceCoins) >= 5000) {
-  const roomInfo = await prisma.room.findUnique({ where: { id: rid }, select: { id: true, name: true } });
+if (gift.coinsValue >= MEGA_GIFT_THRESHOLD) {
+  const room = await prisma.room.findUnique({
+    where: { id: rid },
+    select: { id: true, name: true },
+  });
+
   io.emit('global_gift_broadcast', {
-    senderName: createdLog.sender.name,
-    receiverName: createdLog.receiver.name,
-    giftNameAr: createdLog.gift.nameAr || createdLog.gift.name,
-    coinsValue: gift.coinsValue || gift.priceCoins,
-    roomName: roomInfo?.name ?? null,
-    roomId: rid,
-    giftImageUrl: createdLog.gift.imageUrl,
-    senderAvatar: createdLog.sender.avatarUrl,
-    receiverAvatar: createdLog.receiver.avatarUrl,
+    type: 'MEGA_GIFT',
+    giftId: gift.id,
+    giftNameAr: gift.nameAr,
+    giftImageUrl: gift.imageUrl,
+    giftAnimationUrl: gift.animationUrl ?? null,
+    coinsValue: gift.coinsValue,
+    senderId,
+    senderName,
+    senderAvatarUrl,
+    receiverId,
+    receiverName,
+    receiverAvatarUrl,
+    roomId: room?.id ?? rid,
+    roomName: room?.name ?? 'غرفة',
+    sentAt: new Date().toISOString(),
   });
 }
   } catch (e: any) {
