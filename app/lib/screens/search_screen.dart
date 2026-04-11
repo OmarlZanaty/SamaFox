@@ -29,12 +29,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    _controller.addListener(_onChanged);
-  }
-
-  @override
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
@@ -179,6 +173,35 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       );
     } catch (_) {
       // Ignore room fallback failure.
+    }
+
+    // Fallback C: derive user candidates from conversations when user search route
+    // is unavailable on older servers.
+    try {
+      final convResp = await DioClient.dio.get('/messages/conversations');
+      final raw = (convResp.data is Map)
+          ? ((convResp.data['data'] as List?) ??
+              (convResp.data['conversations'] as List?) ??
+              const [])
+          : const [];
+      final queryLower = q.toLowerCase();
+      for (final row in raw) {
+        if (row is! Map) continue;
+        final m = Map<String, dynamic>.from(row);
+        final uid = m['partnerId'] ?? m['userId'] ?? m['id'];
+        final name = (m['partnerName'] ?? m['name'] ?? '').toString();
+        if (uid == null || name.isEmpty) continue;
+        if (!name.toLowerCase().contains(queryLower)) continue;
+        results.add({
+          'type': 'user',
+          'id': uid,
+          'name': name,
+          'imageUrl': m['partnerAvatarUrl'] ?? m['avatarUrl'],
+          'subtitle': null,
+        });
+      }
+    } catch (_) {
+      // Ignore conversations fallback failure.
     }
 
     final deduped = <String, Map<String, dynamic>>{};

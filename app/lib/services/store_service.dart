@@ -14,7 +14,7 @@ class StoreService {
 
       final body = res.data;
       final list = (body is Map)
-          ? (body['data'] ?? body['products'] ?? const [])
+          ? (body['data'] ?? body['products'] ?? body['items'] ?? const [])
           : const [];
 
       return List.from(list)
@@ -84,8 +84,18 @@ class StoreService {
             : null,
       );
       final body = res.data;
-      final raw = (body is Map) ? ((body['data'] as List?) ?? const []) : const [];
-      return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final raw = (body is Map)
+          ? ((body['data'] as List?) ?? (body['frames'] as List?) ?? const [])
+          : const [];
+      return raw
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .map((m) => <String, dynamic>{
+                'id': m['id'] ?? m['itemId'],
+                'name': m['name'] ?? m['title'],
+                'imageUrl': m['imageUrl'] ?? m['assetUrl'] ?? m['file_url'],
+                'isActive': m['isActive'] ?? m['is_active'] ?? false,
+              })
+          .toList();
     } catch (e) {
       print('StoreService.getMyFrames error: $e');
       return <Map<String, dynamic>>[];
