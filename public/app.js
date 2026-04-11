@@ -546,61 +546,86 @@ window.loadGifts = async function () {
       <td>${g.sortOrder ?? 0}</td>
       <td>${g.isActive ? "✅" : "⛔"}</td>
       <td>
-        <button class="btn btn-outline" onclick="toggleGift(${g.id}, ${!g.isActive})">تبديل</button>
-        <button class="btn-bad" onclick="deleteGift(${g.id})">حذف</button>
+        <button class="btn btn-outline" onclick="openGiftModal(${g.id})">تعديل</button>
+        <button class="btn-bad" onclick="deactivateGift(${g.id})">تعطيل</button>
       </td>
     `;
     tbody.appendChild(tr);
   });
 };
 
-window.addGift = async function () {
-  const imageFile = document.getElementById("g_image_file").files?.[0];
-  let imageUrl = document.getElementById("g_imageUrl").value.trim();
-  const nameAr = document.getElementById("g_nameAr").value.trim();
-  const coinsValue = Number(document.getElementById("g_coinsValue").value || 0);
-  const sortOrder = Number(document.getElementById("g_sortOrder").value || 0);
+window.openGiftModal = async function (id = null) {
+  const modal = document.getElementById('giftModal');
+  const title = document.getElementById('giftModalTitle');
+  const form = document.getElementById('giftForm');
+  const idInput = document.getElementById('gift_id');
 
-  if (!nameAr || !coinsValue) return showToast("❗ الاسم والقيمة مطلوبان");
+  form.reset();
+  idInput.value = '';
+  title.textContent = id ? 'تعديل هدية' : 'إضافة هدية';
 
-  if (!imageUrl && imageFile) {
-    const form = new FormData();
-    form.append("image", imageFile);
-    const uploadRes = await fetch(getApiBase() + "/upload/image", {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
-    const uploadData = await uploadRes.json();
-    if (!uploadRes.ok) throw new Error(uploadData.message || "فشل رفع الصورة");
-    imageUrl = uploadData.imageUrl;
+  if (id) {
+    const d = await apiFetch('/admin-dashboard/gifts');
+    const gift = (d.data || []).find((g) => Number(g.id) === Number(id));
+    if (!gift) throw new Error('الهدية غير موجودة');
+    idInput.value = String(gift.id);
+    document.getElementById('gift_nameAr').value = gift.nameAr || gift.name || '';
+    document.getElementById('gift_imageUrl').value = gift.imageUrl || '';
+    document.getElementById('gift_animationUrl').value = gift.animationUrl || '';
+    document.getElementById('gift_coinsValue').value = gift.coinsValue ?? gift.priceCoins ?? 0;
+    document.getElementById('gift_sortOrder').value = gift.sortOrder ?? 0;
+    document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
+  } else {
+    document.getElementById('gift_isActive').checked = true;
   }
-  if (!imageUrl) return showToast("❗ أضف رابط صورة أو ارفع ملفاً");
 
-  await apiFetch("/admin-dashboard/gifts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nameAr, imageUrl, coinsValue, sortOrder }),
-  });
-  showToast("✓ تم إضافة الهدية");
+  modal.classList.remove('hidden');
+};
+
+window.closeGiftModal = function () {
+  document.getElementById('giftModal').classList.add('hidden');
+};
+
+window.saveGift = async function () {
+  const id = document.getElementById('gift_id').value.trim();
+  const payload = {
+    nameAr: document.getElementById('gift_nameAr').value.trim(),
+    imageUrl: document.getElementById('gift_imageUrl').value.trim(),
+    animationUrl: document.getElementById('gift_animationUrl').value.trim() || null,
+    coinsValue: Number(document.getElementById('gift_coinsValue').value || 0),
+    sortOrder: Number(document.getElementById('gift_sortOrder').value || 0),
+    isActive: document.getElementById('gift_isActive').checked,
+  };
+
+  if (!payload.nameAr || !payload.imageUrl || payload.coinsValue <= 0) {
+    return showToast('❗ nameAr / imageUrl / coinsValue مطلوبة');
+  }
+
+  if (id) {
+    await apiFetch(`/admin-dashboard/gifts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    showToast('✓ تم تعديل الهدية');
+  } else {
+    await apiFetch('/admin-dashboard/gifts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    showToast('✓ تم إضافة الهدية');
+  }
+
+  closeGiftModal();
   await loadGifts();
 };
 
-window.toggleGift = async function (id, isActive) {
-  await apiFetch(`/admin-dashboard/gifts/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ isActive }),
-  });
+window.deactivateGift = async function (id) {
+  await apiFetch(`/admin-dashboard/gifts/${id}`, { method: 'DELETE' });
+  showToast('✓ تم تعطيل الهدية');
   await loadGifts();
 };
-
-window.deleteGift = async function (id) {
-  await apiFetch(`/admin-dashboard/gifts/${id}`, { method: "DELETE" });
-  showToast("✓ تم حذف الهدية");
-  await loadGifts();
-};
-
 // File input type switching
 const typeSelect   = document.getElementById("p_type");
 const fileLabelText = document.getElementById("fileLabelText");
@@ -751,7 +776,8 @@ document.getElementById("btnQuests")?.addEventListener("click", () => loadQuests
 document.getElementById("btnQuestCreate")?.addEventListener("click", () => createQuest().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnAdvancedRefresh")?.addEventListener("click", () => loadAdvanced().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnLoadGifts")?.addEventListener("click", () => loadGifts().catch(e => showToast("خطأ: " + e.message)));
-document.getElementById("btnAddGift")?.addEventListener("click", () => addGift().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("giftSaveBtn")?.addEventListener("click", () => saveGift().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnAddGift")?.addEventListener("click", () => openGiftModal().catch(e => showToast("خطأ: " + e.message)));
 
 
 document.getElementById("btnUsersExport")?.addEventListener("click", () => downloadCSV("users.csv", lastUsersRows));

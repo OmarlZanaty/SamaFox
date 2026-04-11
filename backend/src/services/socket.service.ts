@@ -883,7 +883,7 @@ await emitRoomState(io, rid);
 
   const gift = await prisma.gift.findUnique({ where: { id: gid } });
   if (!gift || !gift.isActive) {
-    socket.emit('gift_error', { message: 'Gift not found or inactive' });
+    socket.emit('error', { message: 'Invalid gift' });
     return;
   }
 
@@ -988,6 +988,31 @@ await emitRoomState(io, rid);
 
 // broadcast to everyone in room
 io.to(`room:${rid}`).emit('gift', payload);
+
+const senderName = createdLog.sender.name;
+const senderAvatarUrl = createdLog.sender.avatarUrl;
+const receiverId = recvId ?? senderId;
+const receiverName = createdLog.receiver.name;
+const receiverAvatarUrl = createdLog.receiver.avatarUrl;
+
+const giftReceivedPayload = {
+  giftId: gift.id,
+  giftNameAr: gift.nameAr,
+  giftImageUrl: gift.imageUrl,
+  giftAnimationUrl: gift.animationUrl,
+  coinsValue: gift.coinsValue,
+  senderId,
+  senderName,
+  senderAvatarUrl,
+  receiverId,
+  receiverName,
+  receiverAvatarUrl,
+  roomId: rid,
+  sentAt: new Date().toISOString(),
+};
+
+io.to(`room:${rid}`).emit('gift_received', giftReceivedPayload);
+io.to(`user:${receiverId}`).emit('gift_received', giftReceivedPayload);
 
 // ALSO send directly to receiver (important for reliability)
 if (recvId) {
