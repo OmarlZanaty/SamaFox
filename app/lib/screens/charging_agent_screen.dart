@@ -184,7 +184,13 @@ Future<void> _handleCreateAgencyRequest(
     ref.invalidate(agencyBalanceProvider);
   } else {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت')),
+      SnackBar(
+        content: Text(
+          type == 'HOSTING'
+              ? '❌ فشل إنشاء وكالة الاستضافة. تأكد أن السيرفر يدعم /agencies/request'
+              : '❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت',
+        ),
+      ),
     );
   }
 }
@@ -1073,7 +1079,16 @@ final chargingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) asyn
     final list = (resp.data['data'] as List? ?? const []).cast<Map<String, dynamic>>();
     return list.map((e) => ChargingAgency.fromJson(e)).toList();
   } on DioException catch (e) {
-    if (e.response?.statusCode == 404) return [];
+    if (e.response?.statusCode == 404) {
+      try {
+        final resp = await dio.get('/charging-agencies', queryParameters: {'status': 'approved'});
+        final list = (resp.data is List ? resp.data as List : (resp.data['data'] as List? ?? const []))
+            .cast<Map<String, dynamic>>();
+        return list.map((e) => ChargingAgency.fromJson(e)).toList();
+      } on DioException {
+        return [];
+      }
+    }
     rethrow;
   }
 });
@@ -1098,7 +1113,16 @@ final myAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
     if (data == null || data.isEmpty) return [];
     return [ChargingAgency.fromJson(data)];
   } on DioException catch (e) {
-    if (e.response?.statusCode == 404) return [];
+    if (e.response?.statusCode == 404) {
+      try {
+        final resp = await dio.get('/charging-agencies/me');
+        final list = (resp.data is List ? resp.data as List : (resp.data['data'] as List? ?? const []))
+            .cast<Map<String, dynamic>>();
+        return list.map((e) => ChargingAgency.fromJson(e)).toList();
+      } on DioException {
+        return [];
+      }
+    }
     rethrow;
   }
 });
@@ -1127,12 +1151,23 @@ class CreateAgencyController extends StateNotifier<bool> {
       }
 
       final dio = DioClient.dio;
-      await dio.post('/agencies/request', data: {
-        'type': payload.type,
-        'agencyName': payload.agencyName,
-        'contactInfo': payload.phoneNumber,
-        'imageUrl': agencyUrl,
-      });
+      try {
+        await dio.post('/agencies/request', data: {
+          'type': payload.type,
+          'agencyName': payload.agencyName,
+          'contactInfo': payload.phoneNumber,
+          'imageUrl': agencyUrl,
+        });
+      } on DioException catch (e) {
+        if (e.response?.statusCode != 404 || payload.type != 'CHARGING') rethrow;
+        await dio.post('/charging-agencies', data: {
+          'agencyName': payload.agencyName,
+          'phoneNumber': payload.phoneNumber,
+          'agencyImageUrl': agencyUrl,
+          'idFrontUrl': agencyUrl,
+          'idBackUrl': agencyUrl,
+        });
+      }
 
       // ✅ refresh UI after create
       ref.invalidate(myAgenciesProvider);
