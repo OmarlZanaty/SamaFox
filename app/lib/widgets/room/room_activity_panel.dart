@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../models/room_event.dart';
 import '../../providers/room_controller_provider.dart';
 
 class RoomActivityPanel extends ConsumerStatefulWidget {
@@ -29,7 +30,9 @@ class _RoomActivityPanelState
   Widget build(BuildContext context) {
     final state =
     ref.watch(roomControllerProvider(widget.roomId));
-    final events = state.events;
+    final giftEvents = state.events
+        .where((event) => event.type == RoomEventType.gift)
+        .toList();
 
     // ✅ النزول تلقائياً لآخر نشاط
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -67,9 +70,9 @@ class _RoomActivityPanelState
           Expanded(
             child: ListView.builder(
               controller: _scroll,
-              itemCount: events.length,
+              itemCount: giftEvents.length,
               itemBuilder: (_, i) {
-                final e = events[events.length - 1 - i];
+                final e = giftEvents[giftEvents.length - 1 - i];
                 final hh = e.at.hour.toString().padLeft(2, '0');
                 final mm = e.at.minute.toString().padLeft(2, '0');
 
@@ -114,7 +117,7 @@ class _RoomActivityPanelState
               },
             ),
           ),
-          if (events.isEmpty)
+          if (giftEvents.isEmpty)
             const Padding(
               padding: EdgeInsets.only(top: 16),
               child: Text(
