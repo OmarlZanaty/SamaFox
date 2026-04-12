@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,17 +24,42 @@ class ProfileScreen extends ConsumerStatefulWidget {
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindingObserver {
 
   late final StoreService _service = StoreService();
+  Timer? _coinsRefreshTimer;
   String selectedType = "seat_effect";
   InventoryItem? activeFrame;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     loadInventory();
+    _refreshCoins();
+    _coinsRefreshTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => _refreshCoins(),
+    );
+  }
+
+  Future<void> _refreshCoins() async {
+    await ref.read(authStateProvider.notifier).refreshUser();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshCoins();
+    }
+  }
+
+  @override
+  void dispose() {
+    _coinsRefreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   void _applyAvatarFrame(InventoryItem item) {
@@ -453,7 +479,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     _buildStatsRow(user),
                     const SizedBox(height: 10),
 
-                    _buildCoinsCard(user.coinsBalance ?? 0, context),
+                    _buildCoinsCard(_displayCoins(user), context),
                     const SizedBox(height: 10),
 
                     _buildVIPCard(
@@ -685,6 +711,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
+  int _displayCoins(User user) {
+    final coinsBalance = user.coinsBalance ?? 0;
+    final fallbackCoins = user.coins ?? 0;
+    if (coinsBalance > 0) return coinsBalance;
+    return fallbackCoins;
+  }
+
   /// Build coins card with integrated recharge button
   Widget _buildCoinsCard(int coinsBalance, BuildContext context) {
     return Container(
@@ -758,7 +791,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             bottom: 0,
             child: GestureDetector(
               onTap: () {
-                Navigator.pushNamed(context, '/charging_agent');
+                Navigator.pushNamed(context, '/charging-agent').then((_) => _refreshCoins());
               },
               child: Container(
                 width: 140,
