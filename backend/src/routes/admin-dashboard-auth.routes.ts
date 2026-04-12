@@ -1,28 +1,31 @@
 import express from 'express';
+import bcrypt from 'bcrypt';
 import prisma from '../utils/prisma';
-import jwt from 'jsonwebtoken';
-import { verifyAccessToken } from '../utils/jwt';
+import { signAccessToken, verifyAccessToken } from '../utils/jwt';
 
 const router = express.Router();
 
 function pickToken(resp: any): string | null {
-  // common shapes:
-  // { token: "..." }
-  // { accessToken: "..." }
-  // { data: { token: "..." } }
-  // { data: { accessToken: "..." } }
-  // { data: { jwt: "..." } }
   const t =
     resp?.token ||
     resp?.accessToken ||
     resp?.jwt ||
     resp?.data?.token ||
     resp?.data?.accessToken ||
-    resp?.data?.jwt ||
-    resp?.data?.data?.token ||
-    resp?.data?.data?.accessToken;
-
+    resp?.data?.jwt;
   return typeof t === 'string' && t.length > 10 ? t : null;
+}
+
+async function loginViaPublicAuth(base: string, email: string, password: string) {
+  const authRes = await fetch(`${base}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const text = await authRes.text();
+  let body: any = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = null; }
+  return { ok: authRes.ok, token: pickToken(body) };
 }
 
 router.post('/login', async (req, res) => {
@@ -31,50 +34,71 @@ router.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ message: 'email/password required' });
     }
+    const emailRaw = String(email).trim();
+    const pass = String(password);
+    const base = `${req.protocol}://${req.get('host')}`;
 
-    // Call your existing auth login route (it knows how to validate password)
-    const port = process.env.PORT || 3000;
-    const base = process.env.INTERNAL_BASE_URL || `http://127.0.0.1:${port}`;
-
-    const r = await fetch(`${base}/api/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const text = await r.text();
-    let body: any = null;
-    try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
-
-    if (!r.ok) {
-      const msg = body?.message || body?.error || `Login failed (HTTP ${r.status})`;
-      return res.status(r.status).json({ success: false, message: msg });
+    // Primary compatibility path: reuse existing /auth/login if available.
+    try {
+      const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
+      if (publicAuth.ok && publicAuth.token) {
+        res.cookie('access_token', publicAuth.token, {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+        return res.json({ success: true });
+      }
+    } catch {
+      // fallback to direct DB auth below
     }
 
-    const token = pickToken(body);
-    if (!token) {
-      return res.status(500).json({
-        message: 'Auth login succeeded but token not found in response',
-        debugKeys: Object.keys(body || {}),
+    const user =
+      await prisma.user.findFirst({
+      where: { email: emailRaw },
+      select: { id: true, isAdmin: true, passwordHash: true },
+      }) ||
+      await prisma.user.findFirst({
+        where: { email: emailRaw.toLowerCase() },
+        select: { id: true, isAdmin: true, passwordHash: true },
       });
+
+    if (!user?.passwordHash) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // decode to get userId (your JWT uses { userId })
-    const decoded = jwt.decode(token) as any;
-    const userId = Number(decoded?.userId || decoded?.id);
-    if (!userId) {
-      return res.status(500).json({ message: 'Token decoded but userId missing' });
+    let ok = false;
+    try {
+      ok = await bcrypt.compare(pass, user.passwordHash);
+    } catch {
+      ok = user.passwordHash === pass;
+    }
+    if (!ok) {
+      // Compatibility fallback: ask existing auth endpoint for token shape variations.
+      try {
+        const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
+        if (publicAuth.ok && publicAuth.token) {
+          const token = publicAuth.token;
+          res.cookie('access_token', token, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+          });
+          return res.json({ success: true });
+        }
+      } catch {
+        // fall through to 401 below
+      }
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // verify admin from prisma
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, isAdmin: true },
-    });
-
-    if (!user?.isAdmin) {
-      return res.status(403).json({ message: 'Not admin' });
+    if (!user.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Not admin' });
     }
+
+    const token = signAccessToken({ userId: user.id });
 
     // ✅ set HttpOnly cookie
     res.cookie('access_token', token, {
@@ -84,7 +108,7 @@ router.post('/login', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, user: { id: user.id, isAdmin: true } });
   } catch (e) {
     console.error('admin-dashboard-auth login error', e);
     return res.status(500).json({ message: 'Server error' });

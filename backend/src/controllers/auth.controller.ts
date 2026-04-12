@@ -160,7 +160,13 @@ export const login = async (req: Request, res: Response) => {
       }
     }
 
-    const ok = await bcrypt.compare(password, user.passwordHash);
+    let ok = false;
+    try {
+      ok = await bcrypt.compare(password, user.passwordHash);
+    } catch {
+      // Legacy compatibility: tolerate plaintext stored passwords
+      ok = user.passwordHash === password;
+    }
     if (!ok) return res.status(401).json({ success: false, message: 'Invalid email or password' });
 
     await prisma.user.update({

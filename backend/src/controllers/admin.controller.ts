@@ -63,9 +63,13 @@ export const addCoins = async (req: Request, res: Response) => {
       data: { coinsBalance: { increment: Number(amtBig) } },
     });
 
-    await prisma.transaction.create({
-      data: { userId: userIdNum, type: 'admin_add', amountCoins: Number(amtBig), status: 'completed' },
-    });
+    try {
+      await prisma.transaction.create({
+        data: { userId: userIdNum, type: 'admin_add', amountCoins: Number(amtBig), status: 'completed' },
+      });
+    } catch (txErr) {
+      console.warn('addCoins transaction log skipped:', txErr);
+    }
 
     return res.json({
       message: 'Coins added successfully',
@@ -109,9 +113,13 @@ export const removeCoins = async (req: Request, res: Response) => {
       data: { coinsBalance: { decrement: Number(amtBig) } },
     });
 
-    await prisma.transaction.create({
-      data: { userId: userIdNum, type: 'admin_remove', amountCoins: -Number(amtBig), status: 'completed' },
-    });
+    try {
+      await prisma.transaction.create({
+        data: { userId: userIdNum, type: 'admin_remove', amountCoins: -Number(amtBig), status: 'completed' },
+      });
+    } catch (txErr) {
+      console.warn('removeCoins transaction log skipped:', txErr);
+    }
 
     return res.json({
       message: 'Coins removed successfully',
