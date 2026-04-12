@@ -37,26 +37,40 @@ const app: Application = express();
 
 app.set('trust proxy', true);
 
+const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase();
+
 const allowedOrigins = (process.env.CORS_ORIGIN ?? '')
   .split(',')
-  .map((origin) => origin.trim())
+  .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
 
 const isOriginAllowed = (origin?: string) => {
   if (!origin) return true; // non-browser clients / same-origin calls
+  const normalizedOrigin = normalizeOrigin(origin);
   if (allowedOrigins.length === 0) {
     // If CORS_ORIGIN is not configured, do not block browser requests by default.
     // This prevents accidental 500s from the CORS middleware when dashboard is served from server IP/domain.
     return true;
   }
-  return allowedOrigins.includes(origin);
+  if (allowedOrigins.includes('*') || allowedOrigins.includes(normalizedOrigin)) return true;
+
+  try {
+    const originHost = new URL(normalizedOrigin).host;
+    return allowedOrigins.some((allowed) => {
+      if (!allowed) return false;
+      if (allowed.includes('://')) return new URL(allowed).host === originHost;
+      return allowed === originHost || allowed === originHost.split(':')[0];
+    });
+  } catch {
+    return allowedOrigins.includes(normalizedOrigin);
+  }
 };
 
 // ✅ CORS FIRST (and allow credentials for cookies)
 app.use(cors({
   origin: (origin, callback) => {
     if (isOriginAllowed(origin)) return callback(null, true);
-    return callback(new Error('CORS origin not allowed'));
+    return callback(null, false);
   },
   credentials: true,
 }));
@@ -130,7 +144,7 @@ const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
       if (isOriginAllowed(origin)) return callback(null, true);
-      return callback(new Error('CORS origin not allowed'));
+      return callback(null, false);
     },
     methods: ['GET', 'POST'],
     credentials: true,
