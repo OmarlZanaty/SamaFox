@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 import '../services/follow_service.dart';
 import '../services/notification_service.dart';
+import '../services/relation_service.dart';
 import '../services/socket_service.dart';
 
 class NotificationsScreen extends ConsumerStatefulWidget {
@@ -67,8 +68,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     await _load();
   }
 
+  Future<void> _respondRelation(int relationId, String action) async {
+    await RelationService.respondToRelation(relationId, action);
+    await _load();
+  }
+
   IconData _iconForType(String type) {
     if (type.contains('follow')) return Icons.person_add_alt_1_rounded;
+    if (type.contains('relation')) return Icons.favorite_rounded;
     if (type.contains('gift')) return Icons.card_giftcard_rounded;
     if (type.contains('message')) return Icons.message_rounded;
     return Icons.notifications_active_rounded;
@@ -109,18 +116,38 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                             final id = (item['id'] as num?)?.toInt() ?? 0;
                             final isRead = item['isRead'] == true;
                             final type = (item['type'] as String?) ?? 'system';
+                            final data = Map<String, dynamic>.from((item['data'] as Map?) ?? const {});
+                            final relationId = (data['relationId'] as num?)?.toInt() ?? 0;
+                            final isRelationRequest = type == 'relation_request' && relationId > 0;
                             return Card(
                               color: isRead ? null : Colors.deepPurple.withOpacity(0.2),
                               child: ListTile(
                                 leading: Icon(_iconForType(type)),
                                 title: Text((item['title'] as String?) ?? 'Notification'),
                                 subtitle: Text((item['body'] as String?) ?? ''),
-                                trailing: isRead
-                                    ? null
-                                    : TextButton(
-                                        onPressed: id == 0 ? null : () => _markRead(id),
-                                        child: const Text('مقروء'),
-                                      ),
+                                trailing: isRelationRequest
+                                    ? SizedBox(
+                                        width: 170,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            TextButton(
+                                              onPressed: () => _respondRelation(relationId, 'accept'),
+                                              child: const Text('قبول'),
+                                            ),
+                                            TextButton(
+                                              onPressed: () => _respondRelation(relationId, 'reject'),
+                                              child: const Text('رفض'),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : (isRead
+                                        ? null
+                                        : TextButton(
+                                            onPressed: id == 0 ? null : () => _markRead(id),
+                                            child: const Text('مقروء'),
+                                          )),
                               ),
                             );
                           },

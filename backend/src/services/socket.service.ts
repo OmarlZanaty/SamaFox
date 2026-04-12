@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
+import { ensureRelationRingGift, maybeCreateRelationRequestFromRing } from './relationRing.service';
 
 
 interface AuthenticatedSocket extends Socket {
@@ -923,6 +924,7 @@ await emitRoomState(io, rid);
   const isSelfGift = recvId != null && recvId === senderId;
   const resolvedReceiverId = recvId ?? senderId;
 
+  await ensureRelationRingGift();
   const gift = await prisma.gift.findUnique({ where: { id: gid } });
   if (!gift || !gift.isActive) {
     socket.emit('error', { message: 'Invalid gift' });
@@ -1054,6 +1056,12 @@ await emitRoomState(io, rid);
         title: 'You received a gift',
         body: `${createdLog.sender.name} sent you ${qty} × ${createdLog.gift.nameAr || createdLog.gift.name}`,
         data: { giftId: gid, giftLogId: createdLog.id, quantity: qty, roomId: rid },
+      });
+
+      await maybeCreateRelationRequestFromRing({
+        senderId,
+        receiverId: recvId,
+        giftId: gid,
       });
     }
 
