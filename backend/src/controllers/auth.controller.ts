@@ -133,7 +133,51 @@ export const login = async (req: Request, res: Response) => {
     const { email, password } = req.body as LoginRequest;
     if (!email || !password) return res.status(400).json({ success: false, message: 'email and password required' });
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({ where: { email } });
+    } catch (userLookupError: any) {
+      const message = String(userLookupError?.message || '');
+      const missingPasswordHashColumn =
+        message.includes('no such column') ||
+        message.includes('Unknown column') ||
+        (message.toLowerCase().includes('column') && message.toLowerCase().includes('does not exist')) ||
+        message.includes('passwordHash');
+
+      if (!missingPasswordHashColumn) {
+        throw userLookupError;
+      }
+
+      try {
+        const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+          SELECT id, "passwordHash" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+        `;
+        user = rows[0] ?? null;
+      } catch {
+        try {
+          const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+            SELECT id, "password" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+          `;
+          user = rows[0] ?? null;
+        } catch {
+          try {
+            const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+              SELECT id, passwordHash AS passwordHash FROM users WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+            `;
+            user = rows[0] ?? null;
+          } catch {
+            try {
+              const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+                SELECT id, password AS passwordHash FROM users WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+              `;
+              user = rows[0] ?? null;
+            } catch {
+              user = null;
+            }
+          }
+        }
+      }
+    }
     if (!user || !user.passwordHash) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
@@ -169,10 +213,21 @@ export const login = async (req: Request, res: Response) => {
     }
     if (!ok) return res.status(401).json({ success: false, message: 'Invalid email or password' });
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+    } catch (updateError: any) {
+      const message = String(updateError?.message || '');
+      const missingLastLoginColumn =
+        message.includes('no such column') ||
+        message.includes('Unknown column') ||
+        message.includes('lastLoginAt');
+      if (!missingLastLoginColumn) {
+        throw updateError;
+      }
+    }
 
     const { accessToken, refreshToken } = generateTokens(user.id);
 
