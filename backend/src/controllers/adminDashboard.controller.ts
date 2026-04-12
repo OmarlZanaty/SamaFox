@@ -629,11 +629,17 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
 };
 
 export const adminDeleteGift = async (req: AdminReq, res: Response) => {
-  await prisma.gift.update({
-    where: { id: Number(req.params.id) },
-    data: { isActive: false },
-  });
-  return res.json({ success: true, message: 'Gift deactivated' });
+  const id = Number(req.params.id);
+  try {
+    await prisma.gift.delete({ where: { id } });
+    return res.json({ success: true, message: 'Gift deleted' });
+  } catch {
+    await prisma.gift.update({
+      where: { id },
+      data: { isActive: false },
+    });
+    return res.json({ success: true, message: 'Gift deactivated (used in history)' });
+  }
 };
 
 export const adminDashboardListGifts = adminListGifts;
