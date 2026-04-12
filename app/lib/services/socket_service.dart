@@ -722,26 +722,13 @@ class SocketService {
         });
       }
     });
-    _socket!.on('relation_request', (data) {
-      if (data is Map) {
-        _notificationController.add({
-          'type': 'relation_request',
-          'title': 'Relationship request',
-          'body': '${(data['fromUser'] as Map?)?['name'] ?? 'Someone'} sent you a relationship request',
-          'data': {'relationId': data['relationId']},
-          'payload': data,
-        });
-      }
-    });
-    _socket!.on('relation_accepted', (data) {
-      if (data is Map) {
-        _notificationController.add({
-          'type': 'relation_accepted',
-          'title': 'Relationship accepted',
-          'body': '${(data['byUser'] as Map?)?['name'] ?? 'Someone'} accepted your relationship request',
-          'payload': data,
-        });
-      }
+    _socket!.on('follow_rejected', (data) {
+      _notificationController.add({
+        'type': 'follow_rejected',
+        'title': 'Follow request rejected',
+        'body': 'Your follow request was rejected',
+        'payload': data is Map ? Map<String, dynamic>.from(data) : {},
+      });
     });
 
     // Chat

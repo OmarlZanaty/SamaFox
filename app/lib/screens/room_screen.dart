@@ -21,6 +21,7 @@ import '../services/store_service.dart';
 import '../services/webrtc_audio_service.dart';
 import '../services/api_service.dart';
 import '../services/audio_controller.dart';
+import '../services/follow_service.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/gift_animation_overlay.dart';
@@ -536,6 +537,43 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
   }
 
   ApiService get _api => ApiService(DioClient.dio);
+
+  Future<void> _handleFollowFromRoom(int targetUserId) async {
+    final myUserId = ref.read(authStateProvider).user?.id;
+    if (myUserId == null) {
+      _showRoomSnack('يجب تسجيل الدخول أولاً', error: true);
+      return;
+    }
+    if (targetUserId == myUserId) {
+      _showRoomSnack('لا يمكنك متابعة نفسك', error: true);
+      return;
+    }
+
+    try {
+      final status = await FollowService.getFollowStatus(targetUserId);
+      if (status == 'following' || status == 'mutual') {
+        _showRoomSnack('أنت تتابع هذا المستخدم بالفعل');
+        return;
+      }
+      if (status == 'pending_sent') {
+        _showRoomSnack('تم إرسال طلب المتابعة مسبقاً');
+        return;
+      }
+      if (status == 'blocked') {
+        _showRoomSnack('لا يمكن إرسال طلب متابعة لهذا المستخدم', error: true);
+        return;
+      }
+
+      await FollowService.sendFollowRequest(targetUserId);
+      _showRoomSnack('تم إرسال طلب المتابعة');
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      final msg = data is Map ? (data['message']?.toString() ?? 'تعذر إرسال طلب المتابعة') : 'تعذر إرسال طلب المتابعة';
+      _showRoomSnack(msg, error: true);
+    } catch (_) {
+      _showRoomSnack('تعذر إرسال طلب المتابعة', error: true);
+    }
+  }
 
   Future<void> _refreshRoomData() async {
     await ref.read(roomsProvider.notifier).loadRooms();
@@ -3928,7 +3966,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                     const SizedBox(width: 8),
                     _actionBtn(Icons.person_add_rounded, const Color(0xFF22D3EE), () {
                       Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Followed')));
+                      unawaited(_handleFollowFromRoom(seat.userId!));
                     }),
                     const SizedBox(width: 8),
                     _actionBtn(Icons.alternate_email_rounded, const Color(0xFF4ADE80), () {
