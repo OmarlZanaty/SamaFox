@@ -93,9 +93,11 @@ app.get('/public/admin-dashboard.html', (_req, res) => {
 
 // ✅ dashboard auth first (sets cookie)
 app.use('/api/v1/admin-dashboard-auth', adminDashAuthRoutes);
+app.use('/admin-dashboard-auth', adminDashAuthRoutes); // backward-compatible path
 
 // ✅ admin dashboard routes (reads cookie)
 app.use('/api/v1/admin-dashboard', adminDashboardRoutes);
+app.use('/admin-dashboard', adminDashboardRoutes); // backward-compatible path
 
 // other routes
 app.use('/api/v1/games', gameRoutes);
@@ -113,6 +115,7 @@ app.use('/api/v1/relations', relationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 
 app.use('/api/v1/upload', uploadRoutes);
+app.use('/upload', uploadRoutes); // backward-compatible path
 app.use('/api/v1/room-admin', roomAdminRoutes);
 app.use('/api/messages', messageRoutes); // ✅ same router
 

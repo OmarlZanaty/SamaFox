@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import * as adminController from '../controllers/admin.controller';
+import {
+  adminChangeUserDisplayId,
+  adminCreateGift,
+  adminDeleteGift,
+  adminListGifts,
+  adminUpdateGift,
+} from '../controllers/adminDashboard.controller';
 
 const router = Router();
 
@@ -35,6 +42,7 @@ router.post('/users/:userId/coins/add', adminController.addCoins);
 router.post('/users/:userId/coins/remove', adminController.removeCoins);
 router.put('/users/:userId/admin', adminController.toggleAdminStatus);
 router.put('/users/:userId/ban', adminController.toggleUserBan);
+router.patch('/users/:id/display-id', adminChangeUserDisplayId);
 
 // Room management
 router.delete('/rooms/:roomId', adminController.deleteRoom);
@@ -45,5 +53,10 @@ router.delete('/products/:id', adminController.deleteProduct);
 // Transactions
 router.get('/transactions', adminController.getAllTransactions);
 
-export default router;
+// Legacy-compatible gift management under /api/v1/admin/*
+router.get('/gifts', adminListGifts);
+router.post('/gifts', adminCreateGift);
+router.patch('/gifts/:id', adminUpdateGift);
+router.delete('/gifts/:id', adminDeleteGift);
 
+export default router;
