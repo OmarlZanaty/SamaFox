@@ -141,26 +141,40 @@ export const login = async (req: Request, res: Response) => {
       const missingPasswordHashColumn =
         message.includes('no such column') ||
         message.includes('Unknown column') ||
+        (message.toLowerCase().includes('column') && message.toLowerCase().includes('does not exist')) ||
         message.includes('passwordHash');
 
       if (!missingPasswordHashColumn) {
         throw userLookupError;
       }
 
-      const fallbackQueries = [
-        `SELECT id, "passwordHash" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(?) LIMIT 1`,
-        `SELECT id, "password" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(?) LIMIT 1`,
-        `SELECT id, passwordHash AS passwordHash FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
-        `SELECT id, password AS passwordHash FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
-      ];
-
-      for (const sql of fallbackQueries) {
+      try {
+        const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+          SELECT id, "passwordHash" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+        `;
+        user = rows[0] ?? null;
+      } catch {
         try {
-          const rawRows = await prisma.$queryRawUnsafe<Array<{ id: number; passwordHash: string | null }>>(sql, email);
-          user = rawRows[0] ?? null;
-          if (user) break;
+          const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+            SELECT id, "password" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+          `;
+          user = rows[0] ?? null;
         } catch {
-          // try next SQL variant
+          try {
+            const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+              SELECT id, passwordHash AS passwordHash FROM users WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+            `;
+            user = rows[0] ?? null;
+          } catch {
+            try {
+              const rows = await prisma.$queryRaw<Array<{ id: number; passwordHash: string | null }>>`
+                SELECT id, password AS passwordHash FROM users WHERE LOWER(email) = LOWER(${email}) LIMIT 1
+              `;
+              user = rows[0] ?? null;
+            } catch {
+              user = null;
+            }
+          }
         }
       }
     }

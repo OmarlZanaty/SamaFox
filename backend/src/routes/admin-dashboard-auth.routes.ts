@@ -70,28 +70,53 @@ router.post('/login', async (req, res) => {
       const missingPasswordHashColumn =
         message.includes('no such column') ||
         message.includes('Unknown column') ||
+        (message.toLowerCase().includes('column') && message.toLowerCase().includes('does not exist')) ||
         message.includes('passwordHash');
       if (!missingPasswordHashColumn) throw userLookupError;
 
-      const fallbackQueries = [
-        `SELECT id, "isAdmin" AS "isAdmin", "passwordHash" AS "passwordHash" FROM "users" WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
-        `SELECT id, "isAdmin" AS "isAdmin", "password" AS "passwordHash" FROM "users" WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
-        `SELECT id, isAdmin AS isAdmin, passwordHash AS passwordHash FROM users WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
-        `SELECT id, isAdmin AS isAdmin, password AS passwordHash FROM users WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
-      ];
-
-      for (const sql of fallbackQueries) {
+      try {
+        const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+          SELECT id, "isAdmin" AS "isAdmin", "passwordHash" AS "passwordHash"
+          FROM "users"
+          WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+          LIMIT 1
+        `;
+        const row = rows[0];
+        user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+      } catch {
         try {
-          const rows = await prisma.$queryRawUnsafe<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>(
-            sql,
-            emailRaw,
-            emailRaw.toLowerCase(),
-          );
+          const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+            SELECT id, "isAdmin" AS "isAdmin", "password" AS "passwordHash"
+            FROM "users"
+            WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+            LIMIT 1
+          `;
           const row = rows[0];
           user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
-          if (user) break;
         } catch {
-          // try next SQL variant
+          try {
+            const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+              SELECT id, isAdmin AS isAdmin, passwordHash AS passwordHash
+              FROM users
+              WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+              LIMIT 1
+            `;
+            const row = rows[0];
+            user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+          } catch {
+            try {
+              const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+                SELECT id, isAdmin AS isAdmin, password AS passwordHash
+                FROM users
+                WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+                LIMIT 1
+              `;
+              const row = rows[0];
+              user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+            } catch {
+              user = null;
+            }
+          }
         }
       }
     }
