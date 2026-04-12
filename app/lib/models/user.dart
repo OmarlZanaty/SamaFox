@@ -1,5 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import '../utils/json_utils.dart';
+
 part 'user.g.dart';
 
 @JsonSerializable()
@@ -75,7 +77,40 @@ class User {
     this.avatarFrameUrl,
   });
 
-  factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);
+  factory User.fromJson(Map<String, dynamic> json) {
+    final source = json['user'] is Map<String, dynamic>
+        ? json['user'] as Map<String, dynamic>
+        : json;
+
+    return User(
+      id: asInt(source['id']),
+      displayId: source['displayId'] == null ? null : asInt(source['displayId']),
+      name: (source['name'] ?? '').toString(),
+      email: source['email']?.toString(),
+      phone: source['phone']?.toString(),
+      avatarUrl: source['avatarUrl']?.toString(),
+      countryCode: source['countryCode']?.toString(),
+      country: source['country']?.toString(),
+      gender: source['gender']?.toString(),
+      birthday: source['birthday']?.toString(),
+      bio: source['bio']?.toString(),
+      level: asInt(source['level'], fallback: 1),
+      xp: asInt(source['xp']),
+      coins: asInt(source['coins']),
+      coinsBalance: asInt(
+        source['coinsBalance'] ?? source['coins_balance'] ?? source['userBalance'],
+      ),
+      vipLevel: asInt(source['vipLevel']),
+      vipExpiresAt: source['vipExpiresAt']?.toString(),
+      isAdmin: asBool(source['isAdmin']),
+      isOnline: asBool(source['isOnline']),
+      followersCount: asInt(source['followersCount'] ?? source['followerCount']),
+      followingCount: asInt(source['followingCount']),
+      createdAt: source['createdAt']?.toString(),
+      updatedAt: source['updatedAt']?.toString(),
+      avatarFrameUrl: source['avatarFrameUrl']?.toString(),
+    );
+  }
   Map<String, dynamic> toJson() => _$UserToJson(this);
 
   // Helper getters with defaults
@@ -114,6 +149,7 @@ class User {
     int? followingCount,
     String? createdAt,
     String? updatedAt,
+    String? avatarFrameUrl,
   }) {
     return User(
       id: id ?? this.id,
@@ -139,6 +175,7 @@ class User {
       followingCount: followingCount ?? this.followingCount,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
 
     );
   }

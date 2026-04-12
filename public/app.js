@@ -962,6 +962,7 @@ async function loadAll() {
   await loadRooms();
   await loadAgencies();
   if (document.getElementById("section-advanced")) await loadAdvanced();
+  if (document.getElementById("giftsTable")) await loadGifts();
 }
 
 // ============================================================
