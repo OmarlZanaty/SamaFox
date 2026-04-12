@@ -195,7 +195,10 @@ window.confirmDisplayIdChange = async function() {
     return;
   }
   try {
-    await apiFetch(`/admin-dashboard/users/${changeIdUserId}/display-id`, 'PATCH', { newDisplayId });
+    await apiFetchAny([
+      `/admin-dashboard/users/${changeIdUserId}/display-id`,
+      `/admin/users/${changeIdUserId}/display-id`,
+    ], 'PATCH', { newDisplayId });
     if (changeIdTargetCell) changeIdTargetCell.textContent = `#${newDisplayId}`;
     showToast('تم تحديث رقم المستخدم');
     closeDisplayIdModal();
@@ -233,6 +236,22 @@ async function apiFetch(path, methodOrOpts = {}, body) {
     });
   }
   return fetchWithBaseFallback(path, methodOrOpts);
+}
+
+async function apiFetchAny(paths, methodOrOpts = {}, body) {
+  const list = Array.isArray(paths) ? paths : [paths];
+  let lastErr = null;
+
+  for (const path of list) {
+    try {
+      return await apiFetch(path, methodOrOpts, body);
+    } catch (e) {
+      lastErr = e;
+      if (e?.status !== 404) throw e;
+    }
+  }
+
+  throw lastErr || new Error("تعذر الوصول إلى المسار");
 }
 
 // ============================================================
@@ -438,10 +457,11 @@ async function loadTransactions() {
   const userId = (document.getElementById("txUserId")?.value || "").trim();
   const type = (document.getElementById("txType")?.value || "").trim();
   const q = `?page=1&limit=30${userId ? `&userId=${encodeURIComponent(userId)}` : ""}${type ? `&type=${encodeURIComponent(type)}` : ""}`;
-  const d = await apiFetch('/admin-dashboard/transactions' + q);
+  const d = await apiFetchAny(['/admin-dashboard/transactions' + q, '/admin/transactions' + q]);
   const tb = document.querySelector('#transactionsTable tbody'); tb.innerHTML = '';
-  lastTransactionsRows = (d.data || []);
-  (d.data || []).forEach((x) => {
+  const txRows = d.data || d.transactions || [];
+  lastTransactionsRows = txRows;
+  txRows.forEach((x) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${x.id}</td><td>${escapeHtml(x.user?.name || x.userId)}</td><td>${escapeHtml(x.type || '')}</td><td>${escapeHtml(x.status || '')}</td><td>${escapeHtml(x.amountCoins || '')}</td><td>${fmtDate(x.createdAt)}</td>`;
     tb.appendChild(tr);
@@ -574,8 +594,8 @@ window.addProduct = async function () {
 };
 
 window.loadGifts = async function () {
-  const d = await apiFetch("/admin-dashboard/gifts");
-  const rows = d.data || [];
+  const d = await apiFetchAny(["/admin-dashboard/gifts", "/admin/gifts"]);
+  const rows = d.data || d.gifts || [];
   const tbody = document.querySelector("#giftsTable tbody");
   tbody.innerHTML = "";
   rows.forEach((g) => {
@@ -630,8 +650,8 @@ window.openGiftModal = async function (id = null) {
   title.textContent = id ? 'تعديل هدية' : 'إضافة هدية';
 
   if (id) {
-    const d = await apiFetch('/admin-dashboard/gifts');
-    const gift = (d.data || []).find((g) => Number(g.id) === Number(id));
+    const d = await apiFetchAny(['/admin-dashboard/gifts', '/admin/gifts']);
+    const gift = (d.data || d.gifts || []).find((g) => Number(g.id) === Number(id));
     if (!gift) throw new Error('الهدية غير موجودة');
     idInput.value = String(gift.id);
     document.getElementById('gift_nameAr').value = gift.nameAr || gift.name || '';
@@ -674,14 +694,14 @@ window.saveGift = async function () {
   }
 
   if (id) {
-    await apiFetch(`/admin-dashboard/gifts/${id}`, {
+    await apiFetchAny([`/admin-dashboard/gifts/${id}`, `/admin/gifts/${id}`], {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     showToast('✓ تم تعديل الهدية');
   } else {
-    await apiFetch('/admin-dashboard/gifts', {
+    await apiFetchAny(['/admin-dashboard/gifts', '/admin/gifts'], {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -694,7 +714,7 @@ window.saveGift = async function () {
 };
 
 window.removeGift = async function (id) {
-  await apiFetch(`/admin-dashboard/gifts/${id}`, { method: 'DELETE' });
+  await apiFetchAny([`/admin-dashboard/gifts/${id}`, `/admin/gifts/${id}`], { method: 'DELETE' });
   showToast('✓ تم حذف الهدية');
   await loadGifts();
 };
