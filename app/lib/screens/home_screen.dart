@@ -254,7 +254,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                           appName: strings.appName,
                           welcomeLine: '${strings.welcomeBack}, ${authState.user?.name ?? strings.guest}',
                           pulse: _pulseCtrl,
-                          onTapSearch: () => Navigator.pushNamed(context, '/search'),
+                          onTapNotifications: () => Navigator.pushNamed(context, '/notifications'),
                           onTapLeaderboard: () => Navigator.pushNamed(context, '/leaderboard'),
                         ),
 
@@ -795,14 +795,14 @@ class _TopHeader extends StatelessWidget {
     required this.appName,
     required this.welcomeLine,
     required this.pulse,
-    required this.onTapSearch,
+    required this.onTapNotifications,
     required this.onTapLeaderboard,
   });
 
   final String appName;
   final String welcomeLine;
   final AnimationController pulse;
-  final VoidCallback onTapSearch;
+  final VoidCallback onTapNotifications;
   final VoidCallback onTapLeaderboard;
 
   static const _gold = Color(0xFFFFD36E);
@@ -877,9 +877,9 @@ class _TopHeader extends StatelessWidget {
               onTap: onTapLeaderboard,
             ),
             _IconPill(
-              icon: Icons.search,
+              icon: Icons.notifications_none_rounded,
               color: Colors.white,
-              onTap: onTapSearch,
+              onTap: onTapNotifications,
             ),
           ],
         ),
