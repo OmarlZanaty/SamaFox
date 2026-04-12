@@ -16,6 +16,18 @@ function pickToken(resp: any): string | null {
   return typeof t === 'string' && t.length > 10 ? t : null;
 }
 
+async function loginViaPublicAuth(base: string, email: string, password: string) {
+  const authRes = await fetch(`${base}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const text = await authRes.text();
+  let body: any = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = null; }
+  return { ok: authRes.ok, token: pickToken(body) };
+}
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
@@ -23,12 +35,31 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'email/password required' });
     }
     const emailRaw = String(email).trim();
+    const pass = String(password);
+    const base = `${req.protocol}://${req.get('host')}`;
+
+    // Primary compatibility path: reuse existing /auth/login if available.
+    try {
+      const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
+      if (publicAuth.ok && publicAuth.token) {
+        res.cookie('access_token', publicAuth.token, {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+        return res.json({ success: true });
+      }
+    } catch {
+      // fallback to direct DB auth below
+    }
+
     const user =
-      await prisma.user.findUnique({
+      await prisma.user.findFirst({
       where: { email: emailRaw },
       select: { id: true, isAdmin: true, passwordHash: true },
       }) ||
-      await prisma.user.findUnique({
+      await prisma.user.findFirst({
         where: { email: emailRaw.toLowerCase() },
         select: { id: true, isAdmin: true, passwordHash: true },
       });
@@ -37,7 +68,6 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    const pass = String(password);
     let ok = false;
     try {
       ok = await bcrypt.compare(pass, user.passwordHash);
@@ -47,25 +77,16 @@ router.post('/login', async (req, res) => {
     if (!ok) {
       // Compatibility fallback: ask existing auth endpoint for token shape variations.
       try {
-        const base = `${req.protocol}://${req.get('host')}`;
-        const authRes = await fetch(`${base}/api/v1/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ email: emailRaw, password: pass }),
-        });
-        const text = await authRes.text();
-        let body: any = null;
-        try { body = text ? JSON.parse(text) : null; } catch { body = null; }
-        const fallbackToken = pickToken(body);
-        if (authRes.ok && fallbackToken) {
-          const token = fallbackToken;
+        const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
+        if (publicAuth.ok && publicAuth.token) {
+          const token = publicAuth.token;
           res.cookie('access_token', token, {
             httpOnly: true,
             sameSite: 'lax',
             secure: process.env.NODE_ENV === "production",
             maxAge: 7 * 24 * 60 * 60 * 1000,
           });
-          return res.json({ success: true, user: { id: user.id, isAdmin: true } });
+          return res.json({ success: true });
         }
       } catch {
         // fall through to 401 below
