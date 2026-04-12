@@ -146,6 +146,14 @@ function escapeHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
+function normalizeGiftImageUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("/uploads/")) return value;
+  return "";
+}
+
 function downloadCSV(filename, rows) {
   if (!rows || !rows.length) return showToast("لا توجد بيانات للتصدير");
   const headers = Object.keys(rows[0]);
@@ -603,7 +611,11 @@ window.loadGifts = async function () {
     tr.innerHTML = `
       <td>${g.id}</td>
       <td>${escapeHtml(g.nameAr || g.name)}</td>
-      <td><img src="${g.imageUrl}" width="44" height="44" style="border-radius:8px;object-fit:cover;" /></td>
+      <td>${
+        normalizeGiftImageUrl(g.imageUrl)
+          ? `<img src="${normalizeGiftImageUrl(g.imageUrl)}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
+          : '<span class="cell-muted">—</span>'
+      }</td>
       <td>${g.coinsValue ?? g.priceCoins}</td>
       <td>${g.sortOrder ?? 0}</td>
       <td>${g.isActive ? "✅" : "⛔"}</td>
@@ -661,9 +673,12 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_sortOrder').value = gift.sortOrder ?? 0;
     document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
     const preview = document.getElementById("giftImagePreview");
-    if (gift.imageUrl) {
-      preview.src = gift.imageUrl;
+    const safeGiftImage = normalizeGiftImageUrl(gift.imageUrl);
+    if (safeGiftImage) {
+      preview.src = safeGiftImage;
       preview.style.display = "block";
+    } else {
+      preview.style.display = "none";
     }
   } else {
     document.getElementById('gift_isActive').checked = true;
