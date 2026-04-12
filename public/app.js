@@ -589,11 +589,34 @@ window.loadGifts = async function () {
       <td>${g.isActive ? "✅" : "⛔"}</td>
       <td>
         <button class="btn btn-outline" onclick="openGiftModal(${g.id})">تعديل</button>
-        <button class="btn-bad" onclick="deactivateGift(${g.id})">تعطيل</button>
+        <button class="btn-bad" onclick="removeGift(${g.id})">حذف</button>
       </td>
     `;
     tbody.appendChild(tr);
   });
+};
+
+window.uploadGiftImage = async function () {
+  const fileInput = document.getElementById("gift_imageFile");
+  const file = fileInput?.files?.[0];
+  if (!file) return showToast("اختر صورة من الجهاز أولاً");
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const d = await apiFetch("/upload/image", {
+    method: "POST",
+    body: formData,
+  });
+
+  const imageUrl = d?.url || d?.imageUrl;
+  if (!imageUrl) throw new Error("لم يتم إرجاع رابط الصورة");
+
+  document.getElementById("gift_imageUrl").value = imageUrl;
+  const preview = document.getElementById("giftImagePreview");
+  preview.src = imageUrl;
+  preview.style.display = "block";
+  showToast("✓ تم رفع صورة الهدية");
 };
 
 window.openGiftModal = async function (id = null) {
@@ -617,9 +640,16 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_coinsValue').value = gift.coinsValue ?? gift.priceCoins ?? 0;
     document.getElementById('gift_sortOrder').value = gift.sortOrder ?? 0;
     document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
+    const preview = document.getElementById("giftImagePreview");
+    if (gift.imageUrl) {
+      preview.src = gift.imageUrl;
+      preview.style.display = "block";
+    }
   } else {
     document.getElementById('gift_isActive').checked = true;
+    document.getElementById("giftImagePreview").style.display = "none";
   }
+  document.getElementById("gift_imageFile").value = "";
 
   modal.classList.remove('hidden');
 };
@@ -663,9 +693,9 @@ window.saveGift = async function () {
   await loadGifts();
 };
 
-window.deactivateGift = async function (id) {
+window.removeGift = async function (id) {
   await apiFetch(`/admin-dashboard/gifts/${id}`, { method: 'DELETE' });
-  showToast('✓ تم تعطيل الهدية');
+  showToast('✓ تم حذف الهدية');
   await loadGifts();
 };
 // File input type switching
@@ -819,6 +849,7 @@ document.getElementById("btnQuestCreate")?.addEventListener("click", () => creat
 document.getElementById("btnAdvancedRefresh")?.addEventListener("click", () => loadAdvanced().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnLoadGifts")?.addEventListener("click", () => loadGifts().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("giftSaveBtn")?.addEventListener("click", () => saveGift().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("giftUploadImageBtn")?.addEventListener("click", () => uploadGiftImage().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnAddGift")?.addEventListener("click", () => openGiftModal().catch(e => showToast("خطأ: " + e.message)));
 
 
@@ -855,6 +886,7 @@ async function loadAll() {
   await loadRooms();
   await loadAgencies();
   if (document.getElementById("section-advanced")) await loadAdvanced();
+  if (document.getElementById("giftsTable")) await loadGifts();
 }
 
 // ============================================================
