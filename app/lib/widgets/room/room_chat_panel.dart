@@ -247,15 +247,22 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                       );
                     }
 
-                    // ===== ACTIVITY =====
-                    // In _RoomChatPanelState build(), replace the activity item builder:
-
-// ===== ACTIVITY ITEM =====
+                    // ===== ACTIVITY ITEM =====
                     final e = item.event!;
+                    final username = (e.username == null || e.username!.trim().isEmpty) ? 'Unknown' : e.username!.trim();
+                    final nationality = (e.countryCode == null || e.countryCode!.trim().isEmpty) ? '--' : e.countryCode!.trim().toUpperCase();
+                    final genderRaw = (e.gender ?? '').trim().toLowerCase();
+                    final gender = genderRaw == 'male'
+                        ? '♂'
+                        : genderRaw == 'female'
+                            ? '♀'
+                            : '--';
+                    final line = '$username | $nationality | $gender | ${e.text}';
+
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [Color(0xFF1a4a1a), Color(0xFF2d7a2d), Color(0xFF1a4a1a)],
@@ -266,78 +273,20 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                           borderRadius: BorderRadius.circular(28),
                         ),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Right side: badge + name + coins
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Kingdom/team badge (if available)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFf9a825),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    e.badge ?? 'نشاط', // replace with actual badge if available
-                                    style: const TextStyle(
-                                      color: Color(0xFF4e2d00),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
+                            const Icon(Icons.bolt_rounded, color: Colors.amber, size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                line,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                const SizedBox(width: 8),
-                                // Name
-                                Text(
-                                  e.username ?? '',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                // Coins
-                                const Icon(Icons.monetization_on, color: Color(0xFFffe082), size: 14),
-                                const SizedBox(width: 2),
-                                Text(
-                                  '${e.coins ?? 0}',
-                                  style: const TextStyle(color: Color(0xFFffe082), fontSize: 12),
-                                ),
-                              ],
-                            ),
-                            // Left side: action buttons
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Gift button
-                                GestureDetector(
-                                  onTap: () {/* open gift sheet */},
-                                  child: Container(
-                                    width: 28, height: 28,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF388e3c),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(Icons.card_giftcard, color: Colors.white, size: 14),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                // Message button
-                                GestureDetector(
-                                  onTap: () {/* open chat */},
-                                  child: Container(
-                                    width: 28, height: 28,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF1565c0),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(Icons.chat_bubble, color: Colors.white, size: 14),
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ],
                         ),

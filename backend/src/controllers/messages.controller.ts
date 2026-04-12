@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { createNotification } from '../services/notification.service';
 
 type AuthedRequest = Request & { userId?: number };
 
@@ -171,7 +172,7 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
   });
   if (!part) return res.status(403).json({ message: 'Not a participant' });
 
-    const created = await prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     // Build data without triggering TS "unknown property" errors
     const data: any = {
       conversationId,
@@ -207,6 +208,28 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
 
     return full as any;
   });
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { userAId: true, userBId: true },
+  });
+  const targetUserId = conversation
+      ? (conversation.userAId === me ? conversation.userBId : conversation.userAId)
+      : null;
+  if (targetUserId != null) {
+    await createNotification({
+      userId: targetUserId,
+      actorId: me,
+      type: 'message_received',
+      title: 'New message',
+      body: created.type === 'text' ? (created.text || 'You received a new message') : 'You received a media message',
+      data: {
+        conversationId: created.conversationId,
+        messageId: created.id,
+        messageType: created.type,
+      },
+    });
+  }
 
   return res.json({
     id: created.id,
