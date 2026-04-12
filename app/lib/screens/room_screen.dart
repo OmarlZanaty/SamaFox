@@ -27,7 +27,6 @@ import '../widgets/gift_animation_overlay.dart';
 import '../widgets/gift_notification_banner.dart';
 import '../widgets/gift_rain_overlay.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
-import '../widgets/room/room_activity_panel.dart';
 // import '../widgets/room/seats_grid.dart';
 import '../widgets/room/mic_queue_panel.dart';
 import '../widgets/room/room_chat_panel.dart';
