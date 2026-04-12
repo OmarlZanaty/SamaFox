@@ -133,7 +133,37 @@ export const login = async (req: Request, res: Response) => {
     const { email, password } = req.body as LoginRequest;
     if (!email || !password) return res.status(400).json({ success: false, message: 'email and password required' });
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({ where: { email } });
+    } catch (userLookupError: any) {
+      const message = String(userLookupError?.message || '');
+      const missingPasswordHashColumn =
+        message.includes('no such column') ||
+        message.includes('Unknown column') ||
+        message.includes('passwordHash');
+
+      if (!missingPasswordHashColumn) {
+        throw userLookupError;
+      }
+
+      const fallbackQueries = [
+        `SELECT id, "passwordHash" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+        `SELECT id, "password" AS "passwordHash" FROM "users" WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+        `SELECT id, passwordHash AS passwordHash FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+        `SELECT id, password AS passwordHash FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+      ];
+
+      for (const sql of fallbackQueries) {
+        try {
+          const rawRows = await prisma.$queryRawUnsafe<Array<{ id: number; passwordHash: string | null }>>(sql, email);
+          user = rawRows[0] ?? null;
+          if (user) break;
+        } catch {
+          // try next SQL variant
+        }
+      }
+    }
     if (!user || !user.passwordHash) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
@@ -169,10 +199,21 @@ export const login = async (req: Request, res: Response) => {
     }
     if (!ok) return res.status(401).json({ success: false, message: 'Invalid email or password' });
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    try {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+    } catch (updateError: any) {
+      const message = String(updateError?.message || '');
+      const missingLastLoginColumn =
+        message.includes('no such column') ||
+        message.includes('Unknown column') ||
+        message.includes('lastLoginAt');
+      if (!missingLastLoginColumn) {
+        throw updateError;
+      }
+    }
 
     const { accessToken, refreshToken } = generateTokens(user.id);
 
