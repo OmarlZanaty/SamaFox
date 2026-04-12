@@ -73,26 +73,27 @@ router.post('/login', async (req, res) => {
         message.includes('passwordHash');
       if (!missingPasswordHashColumn) throw userLookupError;
 
-      const columns = await prisma.$queryRaw<Array<{ name: string }>>`PRAGMA table_info(users)`;
-      const columnNames = new Set(columns.map((c) => String(c.name)));
-      const passwordColumn = columnNames.has('passwordHash')
-        ? 'passwordHash'
-        : (columnNames.has('password') ? 'password' : null);
+      const fallbackQueries = [
+        `SELECT id, "isAdmin" AS "isAdmin", "passwordHash" AS "passwordHash" FROM "users" WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
+        `SELECT id, "isAdmin" AS "isAdmin", "password" AS "passwordHash" FROM "users" WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
+        `SELECT id, isAdmin AS isAdmin, passwordHash AS passwordHash FROM users WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
+        `SELECT id, isAdmin AS isAdmin, password AS passwordHash FROM users WHERE LOWER(email) IN (LOWER(?), LOWER(?)) LIMIT 1`,
+      ];
 
-      if (!passwordColumn) {
-        return res.status(401).json({ success: false, message: 'Invalid email or password' });
+      for (const sql of fallbackQueries) {
+        try {
+          const rows = await prisma.$queryRawUnsafe<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>(
+            sql,
+            emailRaw,
+            emailRaw.toLowerCase(),
+          );
+          const row = rows[0];
+          user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+          if (user) break;
+        } catch {
+          // try next SQL variant
+        }
       }
-
-      const rows = await prisma.$queryRawUnsafe<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>(
-        `SELECT id, isAdmin, ${passwordColumn} AS passwordHash
-         FROM users
-         WHERE email IN (?, ?)
-         LIMIT 1`,
-        emailRaw,
-        emailRaw.toLowerCase(),
-      );
-      const row = rows[0];
-      user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
     }
 
     if (!user?.passwordHash) {
