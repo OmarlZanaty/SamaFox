@@ -28,7 +28,6 @@ import '../widgets/gift_animation_overlay.dart';
 import '../widgets/gift_notification_banner.dart';
 import '../widgets/gift_rain_overlay.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
-import '../widgets/room/room_activity_panel.dart';
 // import '../widgets/room/seats_grid.dart';
 import '../widgets/room/mic_queue_panel.dart';
 import '../widgets/room/room_chat_panel.dart';
@@ -1765,6 +1764,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     });
 
     _giftSub = SocketService().giftStream.listen((event) {
+      final fromUserId = event.fromUserId;
+      final toUserId = event.toUserId;
+      final isGiftToOtherUser = fromUserId != null &&
+          toUserId != null &&
+          fromUserId != toUserId;
 
       // ✅🔥 STEP 4 FIX — ADD ACTIVITY EVENT
       final key = "${event.fromUserId}-${event.giftId}-${DateTime.now().millisecondsSinceEpoch}";
@@ -1772,13 +1776,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
       if (_receivedGiftEvents.contains(key)) return;
       _receivedGiftEvents.add(key);
 
-      // AFTER:
-      ref.read(roomControllerProvider(widget.roomId).notifier).addActivity(
-        "${event.fromUserName ?? 'Someone'} sent ${event.giftName ?? 'a gift'} 🎁",
-        RoomEventType.gift,
-        username: event.fromUserName,          // ✅ ADD
-       // coins: event.giftPriceCoins,           // ✅ ADD (if field exists on your event model)
-      );
+      if (isGiftToOtherUser) {
+        ref.read(roomControllerProvider(widget.roomId).notifier).addActivity(
+          "${event.fromUserName ?? 'Someone'} sent ${event.giftName ?? 'a gift'} 🎁",
+          RoomEventType.gift,
+          username: event.fromUserName,          // ✅ ADD
+          // coins: event.giftPriceCoins,           // ✅ ADD (if field exists on your event model)
+        );
+      }
 
       // ===== YOUR EXISTING ANIMATION CODE (UNCHANGED) =====
       WidgetsBinding.instance.addPostFrameCallback((_) {

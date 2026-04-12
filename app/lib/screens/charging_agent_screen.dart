@@ -469,9 +469,6 @@ class _AgencySidePanel extends StatelessWidget {
           ...children,
         ],
       ),
-      itemBuilder: (context, index) {
-        return _AgencyGridCard(items[index], onTap: onTap);
-      },
     );
   }
 }

@@ -28,6 +28,8 @@ import 'widgets/pip_overlay.dart';
 import 'services/socket_service.dart';
 import 'models/mega_gift_payload.dart';
 import 'widgets/mega_gift_overlay.dart';
+import 'services/global_notification_service.dart';
+import 'widgets/global_notification_bar.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,12 +75,26 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       if (context == null) return;
       final payload = MegaGiftPayload.fromJson(data);
       MegaGiftOverlay.show(context, payload);
+      GlobalNotificationService.instance.show(
+        GlobalNotificationEvent(
+          title: 'هدية عالمية ضخمة',
+          message: '${payload.senderName} أرسل ${payload.giftNameAr} بقيمة ${payload.coinsValue}',
+          routeName: '/notifications',
+        ),
+      );
     });
     SocketService().on('follow_request', (data) {
       final ctx = navigatorKey.currentContext;
       if (ctx == null) return;
       final from = (data is Map ? data['fromUser'] : null) as Map?;
       final name = from?['name']?.toString() ?? 'مستخدم';
+      GlobalNotificationService.instance.show(
+        GlobalNotificationEvent(
+          title: 'طلب متابعة',
+          message: '$name أرسل طلب متابعة جديد',
+          routeName: '/notifications',
+        ),
+      );
       ScaffoldMessenger.of(ctx).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF1A2744),
@@ -113,6 +129,13 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       if (context == null) return;
       final fromUser = (data is Map ? data['fromUser'] : null) as Map?;
       final name = fromUser?['name']?.toString() ?? 'مستخدم';
+      GlobalNotificationService.instance.show(
+        GlobalNotificationEvent(
+          title: 'طلب علاقة',
+          message: '$name يريد أن يكون في علاقة معك',
+          routeName: '/notifications',
+        ),
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF2D1B69),
@@ -131,6 +154,13 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       if (context == null) return;
       final byUser = (data is Map ? data['byUser'] : null) as Map?;
       final name = byUser?['name']?.toString() ?? 'مستخدم';
+      GlobalNotificationService.instance.show(
+        GlobalNotificationEvent(
+          title: 'تم قبول طلب العلاقة',
+          message: '$name قبل طلب العلاقة',
+          routeName: '/notifications',
+        ),
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF1a3a1a),
@@ -234,6 +264,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
               Consumer(
                 builder: (context, ref, _) => const PipOverlay(),
               ),
+              const GlobalNotificationBar(),
             ],
           ),
         );
