@@ -44,16 +44,14 @@ export const sendRelationRequest = async (req: AuthReq, res: Response) => {
   });
 
   io.to(`user:${user2Id}`).emit('relation_request', { relationId: relation.id, fromUser: sender });
-  if (sender) {
-    await createNotification({
-      userId: user2Id,
-      actorId: user1Id,
-      type: 'relation_request',
-      title: 'New relation request',
-      body: `${sender.name} sent you a relation request`,
-      data: { relationId: relation.id, fromUserId: user1Id },
-    });
-  }
+  await createNotification({
+    userId: user2Id,
+    actorId: user1Id,
+    type: 'relation_request',
+    title: 'Relationship request',
+    body: `${sender?.name ?? 'Someone'} wants to be in a relation with you`,
+    data: { relationId: relation.id, fromUser: sender },
+  });
 
   return res.status(201).json({ success: true, data: relation });
 };
@@ -88,19 +86,25 @@ export const respondToRelation = async (req: AuthReq, res: Response) => {
     });
 
     io.to(`user:${relation.user1Id}`).emit('relation_accepted', { byUser: acceptor, relationId });
-    if (acceptor) {
-      await createNotification({
-        userId: relation.user1Id,
-        actorId: userId,
-        type: 'relation_accepted',
-        title: 'Relation request accepted',
-        body: `${acceptor.name} accepted your relation request`,
-        data: { relationId },
-      });
-    }
+    await createNotification({
+      userId: relation.user1Id,
+      actorId: userId,
+      type: 'relation_accepted',
+      title: 'Relationship accepted',
+      body: `${acceptor?.name ?? 'Someone'} accepted your relationship request`,
+      data: { relationId },
+    });
     io.emit('relation_formed', { user1Id: relation.user1Id, user2Id: relation.user2Id, relationId });
   } else {
     await prisma.relation.update({ where: { id: relationId }, data: { status: 'ENDED' } });
+    await createNotification({
+      userId: relation.user1Id,
+      actorId: userId,
+      type: 'relation_rejected',
+      title: 'Relationship request refused',
+      body: 'Your relationship request was refused',
+      data: { relationId },
+    });
   }
 
   return res.json({ success: true });
