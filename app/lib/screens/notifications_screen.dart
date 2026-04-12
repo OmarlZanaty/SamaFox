@@ -40,7 +40,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     setState(() => _loading = true);
     try {
       final data = await FollowService.getPendingRequests();
-      final relationData = await RelationService.getPendingRequests();
+      final relationData = await RelationService.getPendingRelationRequests();
       final notificationsRes = await NotificationService.getNotifications();
       final notificationsRaw = ((notificationsRes['data'] as List?) ?? const []);
       if (mounted) {
@@ -61,7 +61,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     await _load();
   }
 
-  Future<void> _respondRelation(int relationId, String action) async {
+  Future<void> _handleRelationResponse(int relationId, String action) async {
     await RelationService.respondToRelation(relationId, action);
     await _load();
   }
@@ -240,11 +240,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                                 subtitle: Row(
                                   children: [
                                     TextButton(
-                                      onPressed: () => _respondRelation(relationId, 'accept'),
+                                      onPressed: () => _handleRelationResponse(relationId, 'accept'),
                                       child: const Text('قبول'),
                                     ),
                                     TextButton(
-                                      onPressed: () => _respondRelation(relationId, 'reject'),
+                                      onPressed: () => _handleRelationResponse(relationId, 'reject'),
                                       child: const Text('رفض'),
                                     ),
                                   ],
