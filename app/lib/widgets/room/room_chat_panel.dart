@@ -89,7 +89,9 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     final st = ref.watch(roomControllerProvider(widget.roomId));
 
     final messages = st.messages;
-    final events = st.events;
+    final events = st.events
+        .where((event) => event.type == RoomEventType.gift)
+        .toList();
 
     // ==========================
     // 🔥 MERGE CHAT + ACTIVITY
