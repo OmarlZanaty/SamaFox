@@ -65,16 +65,30 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
     );
     const total = Number(countRows[0]?.total || 0);
 
-    const data = await prisma.$queryRawUnsafe<Array<any>>(
-      `SELECT id, displayId, name, email, phone, avatarUrl, isAdmin, isBanned, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
-       FROM users
-       ${whereSql}
-       ORDER BY createdAt DESC
-       LIMIT ? OFFSET ?`,
-      ...params,
-      limit,
-      skip,
-    );
+    let data: Array<any> = [];
+    try {
+      data = await prisma.$queryRawUnsafe<Array<any>>(
+        `SELECT id, displayId, name, email, phone, avatarUrl, isAdmin, isBanned, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
+         FROM users
+         ${whereSql}
+         ORDER BY createdAt DESC
+         LIMIT ? OFFSET ?`,
+        ...params,
+        limit,
+        skip,
+      );
+    } catch {
+      data = await prisma.$queryRawUnsafe<Array<any>>(
+        `SELECT id, NULL as displayId, name, email, phone, avatarUrl, isAdmin, 0 as isBanned, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
+         FROM users
+         ${whereSql}
+         ORDER BY createdAt DESC
+         LIMIT ? OFFSET ?`,
+        ...params,
+        limit,
+        skip,
+      );
+    }
 
     return ok(res, {
       data: data.map((u) => ({ ...u, isAdmin: Boolean(u.isAdmin), coinsBalance: String(u.coinsBalance ?? '0') })),
@@ -125,13 +139,27 @@ export const adminDashboardBanUser = async (req: Request, res: Response) => {
     const bannedAt = isBanned ? new Date().toISOString() : null;
 
     // NOTE: Prisma client in production may lag behind schema generation; use SQL to avoid TS type breakage.
-    await prisma.$executeRawUnsafe(
-      'UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?',
-      isBanned ? 1 : 0,
-      bannedAt,
-      isBanned ? reason : null,
-      id,
-    );
+    try {
+      await prisma.$executeRawUnsafe(
+        'UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?',
+        isBanned ? 1 : 0,
+        bannedAt,
+        isBanned ? reason : null,
+        id,
+      );
+    } catch (banError: any) {
+      const message = String(banError?.message || '');
+      const missingBanColumns =
+        message.includes('no such column') ||
+        message.includes('Unknown column') ||
+        message.includes('isBanned') ||
+        message.includes('bannedAt') ||
+        message.includes('banReason');
+      if (missingBanColumns) {
+        return fail(res, 409, 'User ban fields are missing in DB. Run latest migrations.');
+      }
+      throw banError;
+    }
 
     return ok(res, { data: { id, isBanned, bannedAt, banReason: isBanned ? reason : null } });
   } catch {
@@ -351,7 +379,10 @@ export const adminDashboardForceCloseRoom = async (req: Request, res: Response) 
     io.to(`room:${id}`).emit('room_force_closed', { roomId: id, reason });
 
     return ok(res, { data: room });
-  } catch {
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return fail(res, 404, 'Room not found');
+    }
     return fail(res, 500, 'Server error');
   }
 };
