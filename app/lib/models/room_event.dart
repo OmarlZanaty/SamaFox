@@ -11,6 +11,8 @@ class RoomEvent {
   final String? username;
   final String? badge;
   final int? coins;
+  final String? countryCode;
+  final String? gender;
 
   const RoomEvent({
     required this.type,
@@ -19,6 +21,8 @@ class RoomEvent {
     this.username,
     this.badge,
     this.coins,
+    this.countryCode,
+    this.gender,
   });
 
   IconData get icon {

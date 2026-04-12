@@ -156,7 +156,15 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     state = state.copyWith(onlineUsers: updated);
   }
 
-  void addActivity(String text, RoomEventType type, {String? username, String? badge, int? coins}) {
+  void addActivity(
+    String text,
+    RoomEventType type, {
+    String? username,
+    String? badge,
+    int? coins,
+    String? countryCode,
+    String? gender,
+  }) {
     final newEvent = RoomEvent(
       type: type,
       text: text,
@@ -164,6 +172,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       username: username,  // ✅ ADD
       badge: badge,        // ✅ ADD
       coins: coins,        // ✅ ADD
+      countryCode: countryCode,
+      gender: gender,
     );
 
     final updated = [...state.events, newEvent];
@@ -355,6 +365,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       addActivity(
         "$username joined the room",
         RoomEventType.join,
+        username: username?.toString(),
+        countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
+        gender: data['gender']?.toString(),
       );
     });
 
@@ -366,6 +379,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       addActivity(
         "$username left the room",
         RoomEventType.leave,
+        username: username?.toString(),
+        countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
+        gender: data['gender']?.toString(),
       );
     });
 
@@ -580,6 +596,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
           username: username,
           badge: map['badge']?.toString(),
           coins: _safeInt(map['coins']),
+          countryCode: map['countryCode']?.toString() ?? map['country']?.toString(),
+          gender: map['gender']?.toString(),
         );
       }
     });
@@ -593,6 +611,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         addActivity(
           "اصبح المقعد متاح الأن",
           RoomEventType.seat,
+          username: map['username']?.toString() ?? map['name']?.toString(),
+          countryCode: map['countryCode']?.toString() ?? map['country']?.toString(),
+          gender: map['gender']?.toString(),
         );
       }
     });
@@ -958,6 +979,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     addActivity(
       "لقد تركت مقعدك",
       RoomEventType.seat,
+      username: ref.read(authStateProvider).user?.name,
+      countryCode: ref.read(authStateProvider).user?.countryCode,
+      gender: ref.read(authStateProvider).user?.gender,
     );
 
     // ✅ backend
@@ -1037,6 +1061,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       "${me.name} أخد مقعد",
       RoomEventType.seat,
       username: me.name,   // ✅ ADD
+      countryCode: me.countryCode,
+      gender: me.gender,
     );
 
     // ✅ Emit ONLY after connected
