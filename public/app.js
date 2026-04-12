@@ -6,6 +6,7 @@
 
 // ---- CONSTANTS ----
 const LS_API = "sf_admin_dashboard_api";
+const LS_AUTH_TOKEN = "sf_admin_dashboard_token";
 
 // ---- DOM REFS ----
 const apiEl          = document.getElementById("apiBase");
@@ -82,6 +83,15 @@ function getApiBase() {
   return base;
 }
 
+function getStoredToken() {
+  return localStorage.getItem(LS_AUTH_TOKEN) || "";
+}
+
+function setStoredToken(token) {
+  if (token) localStorage.setItem(LS_AUTH_TOKEN, token);
+  else localStorage.removeItem(LS_AUTH_TOKEN);
+}
+
 function getApiBaseCandidates() {
   const base = getApiBase();
   if (!base) return [];
@@ -105,10 +115,12 @@ async function fetchWithBaseFallback(path, opts = {}) {
   let lastError = null;
 
   for (const base of candidates) {
+    const token = getStoredToken();
+    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
     const res = await fetch(base + path, {
       ...opts,
       credentials: "include",
-      headers: Object.assign({ Accept: "application/json" }, opts.headers || {}),
+      headers: Object.assign({ Accept: "application/json" }, authHeaders, opts.headers || {}),
     });
 
     const text = await res.text();
@@ -266,18 +278,37 @@ async function apiFetchAny(paths, methodOrOpts = {}, body) {
 // AUTH
 // ============================================================
 async function doLogin(email, password) {
-  return fetchWithBaseFallback("/admin-dashboard-auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  try {
+    const d = await fetchWithBaseFallback("/admin-dashboard-auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    setStoredToken("");
+    return d;
+  } catch (_err) {
+    const d = await fetchWithBaseFallback("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const token = d?.accessToken || d?.token || d?.data?.accessToken || d?.data?.token;
+    if (!token) throw new Error("Login succeeded but token missing");
+    setStoredToken(token);
+    return d;
+  }
 }
 
 async function doLogout() {
-  await fetchWithBaseFallback("/admin-dashboard-auth/logout", {
-    method: "POST",
-    headers: { Accept: "application/json" },
-  });
+  setStoredToken("");
+  try {
+    await fetchWithBaseFallback("/admin-dashboard-auth/logout", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    // ignore cookie logout failures in token mode
+  }
 }
 
 function setAuthState(online, label) {
@@ -286,6 +317,16 @@ function setAuthState(online, label) {
 }
 
 async function checkAuth() {
+  const token = getStoredToken();
+  if (token) {
+    try {
+      await apiFetch("/admin/users?page=1&limit=1");
+      setAuthState(true, "متصل ✓");
+      return true;
+    } catch {
+      setStoredToken("");
+    }
+  }
   try {
     await apiFetch("/admin-dashboard-auth/status");
     setAuthState(true, "متصل ✓");
