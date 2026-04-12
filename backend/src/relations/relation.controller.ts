@@ -101,6 +101,14 @@ export const respondToRelation = async (req: AuthReq, res: Response) => {
     io.emit('relation_formed', { user1Id: relation.user1Id, user2Id: relation.user2Id, relationId });
   } else {
     await prisma.relation.update({ where: { id: relationId }, data: { status: 'ENDED' } });
+    await createNotification({
+      userId: relation.user1Id,
+      actorId: userId,
+      type: 'relation_rejected',
+      title: 'Relationship request refused',
+      body: 'Your relationship request was refused',
+      data: { relationId },
+    });
   }
 
   return res.json({ success: true });

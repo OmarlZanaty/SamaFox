@@ -2,11 +2,13 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { io } from '../index';
 import { createNotification } from '../services/notification.service';
+import { ensureRelationRingGift, maybeCreateRelationRequestFromRing } from '../services/relationRing.service';
 import type { Prisma } from '@prisma/client';
 
 
 export const getGifts = async (req: Request, res: Response) => {
   try {
+    await ensureRelationRingGift();
     const where = { isActive: true };
 
     const [gifts, total] = await prisma.$transaction([
@@ -219,6 +221,12 @@ export const sendGift = async (req: Request, res: Response) => {
           quantity: qty,
           roomId: rid || null,
         },
+      });
+
+      await maybeCreateRelationRequestFromRing({
+        senderId,
+        receiverId: receiverNum,
+        giftId: gid,
       });
     }
 

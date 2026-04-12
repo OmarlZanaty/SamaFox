@@ -117,6 +117,13 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
         SnackBar(content: Text('$name قبل طلب متابعتك')),
       );
     });
+    _socketService.on('follow_rejected', (_) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم رفض طلب المتابعة')),
+      );
+    });
     _socketService.on('relation_request', (data) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
@@ -179,6 +186,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
     _globalGiftSub?.cancel();
     _socketService.off('follow_request');
     _socketService.off('follow_accepted');
+    _socketService.off('follow_rejected');
     _socketService.off('relation_request');
     _socketService.off('relation_accepted');
     _socketService.off('relation_ended');
