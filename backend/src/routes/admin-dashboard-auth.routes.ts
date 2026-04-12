@@ -54,15 +54,72 @@ router.post('/login', async (req, res) => {
       // fallback to direct DB auth below
     }
 
-    const user =
-      await prisma.user.findFirst({
-      where: { email: emailRaw },
-      select: { id: true, isAdmin: true, passwordHash: true },
-      }) ||
-      await prisma.user.findFirst({
-        where: { email: emailRaw.toLowerCase() },
-        select: { id: true, isAdmin: true, passwordHash: true },
-      });
+    let user: { id: number; isAdmin: boolean; passwordHash: string | null } | null = null;
+    try {
+      user =
+        await prisma.user.findFirst({
+          where: { email: emailRaw },
+          select: { id: true, isAdmin: true, passwordHash: true },
+        }) ||
+        await prisma.user.findFirst({
+          where: { email: emailRaw.toLowerCase() },
+          select: { id: true, isAdmin: true, passwordHash: true },
+        });
+    } catch (userLookupError: any) {
+      const message = String(userLookupError?.message || '');
+      const missingPasswordHashColumn =
+        message.includes('no such column') ||
+        message.includes('Unknown column') ||
+        (message.toLowerCase().includes('column') && message.toLowerCase().includes('does not exist')) ||
+        message.includes('passwordHash');
+      if (!missingPasswordHashColumn) throw userLookupError;
+
+      try {
+        const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+          SELECT id, "isAdmin" AS "isAdmin", "passwordHash" AS "passwordHash"
+          FROM "users"
+          WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+          LIMIT 1
+        `;
+        const row = rows[0];
+        user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+      } catch {
+        try {
+          const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+            SELECT id, "isAdmin" AS "isAdmin", "password" AS "passwordHash"
+            FROM "users"
+            WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+            LIMIT 1
+          `;
+          const row = rows[0];
+          user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+        } catch {
+          try {
+            const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+              SELECT id, isAdmin AS isAdmin, passwordHash AS passwordHash
+              FROM users
+              WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+              LIMIT 1
+            `;
+            const row = rows[0];
+            user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+          } catch {
+            try {
+              const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
+                SELECT id, isAdmin AS isAdmin, password AS passwordHash
+                FROM users
+                WHERE LOWER(email) IN (LOWER(${emailRaw}), LOWER(${emailRaw.toLowerCase()}))
+                LIMIT 1
+              `;
+              const row = rows[0];
+              user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
+            } catch {
+              user = null;
+            }
+          }
+        }
+      }
+    }
 
     if (!user?.passwordHash) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
@@ -111,7 +168,8 @@ router.post('/login', async (req, res) => {
     return res.json({ success: true, user: { id: user.id, isAdmin: true } });
   } catch (e) {
     console.error('admin-dashboard-auth login error', e);
-    return res.status(500).json({ message: 'Server error' });
+    const detail = (e as any)?.message || 'Unknown';
+    return res.status(500).json({ success: false, message: `Admin login failed: ${detail}`, error: detail });
   }
 });
 

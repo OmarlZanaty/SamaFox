@@ -129,9 +129,14 @@ async function fetchWithBaseFallback(path, opts = {}) {
 
     if (res.ok) return data;
 
-    const msg = data && (data.message || data.error)
-      ? (data.message || data.error)
-      : `HTTP ${res.status}`;
+    const apiError =
+      typeof data?.error === "string"
+        ? data.error
+        : (data?.error && typeof data.error.message === "string" ? data.error.message : "");
+    const apiMessage = typeof data?.message === "string" ? data.message : "";
+    const rawText = typeof data?.raw === "string" ? data.raw.trim() : "";
+    const detail = apiMessage || apiError || rawText || "";
+    const msg = detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`;
 
     lastError = Object.assign(new Error(msg), { status: res.status });
 
