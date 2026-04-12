@@ -45,8 +45,9 @@ const allowedOrigins = (process.env.CORS_ORIGIN ?? '')
 const isOriginAllowed = (origin?: string) => {
   if (!origin) return true; // non-browser clients / same-origin calls
   if (allowedOrigins.length === 0) {
-    // Safe local fallback only.
-    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    // If CORS_ORIGIN is not configured, do not block browser requests by default.
+    // This prevents accidental 500s from the CORS middleware when dashboard is served from server IP/domain.
+    return true;
   }
   return allowedOrigins.includes(origin);
 };
