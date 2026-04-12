@@ -168,7 +168,8 @@ router.post('/login', async (req, res) => {
     return res.json({ success: true, user: { id: user.id, isAdmin: true } });
   } catch (e) {
     console.error('admin-dashboard-auth login error', e);
-    return res.status(500).json({ message: 'Server error' });
+    const detail = (e as any)?.message || 'Unknown';
+    return res.status(500).json({ success: false, message: `Admin login failed: ${detail}`, error: detail });
   }
 });
 

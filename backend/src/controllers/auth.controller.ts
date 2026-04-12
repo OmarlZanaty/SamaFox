@@ -240,7 +240,8 @@ export const login = async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     console.error('login error:', e);
-    return res.status(500).json({ success: false, message: 'Login failed', error: e?.message || 'Unknown' });
+    const detail = e?.message || 'Unknown';
+    return res.status(500).json({ success: false, message: `Login failed: ${detail}`, error: detail });
   }
 };
 
