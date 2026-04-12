@@ -722,6 +722,14 @@ class SocketService {
         });
       }
     });
+    _socket!.on('follow_rejected', (data) {
+      _notificationController.add({
+        'type': 'follow_rejected',
+        'title': 'Follow request rejected',
+        'body': 'Your follow request was rejected',
+        'payload': data is Map ? Map<String, dynamic>.from(data) : {},
+      });
+    });
 
     // Chat
     _socket!.on('new_message', (data) {
