@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthReq } from '../types';
 import { io } from '../index';
+import { createNotification } from '../services/notification.service';
 
 export const sendRelationRequest = async (req: AuthReq, res: Response) => {
   const user1Id = req.userId!;
@@ -43,6 +44,16 @@ export const sendRelationRequest = async (req: AuthReq, res: Response) => {
   });
 
   io.to(`user:${user2Id}`).emit('relation_request', { relationId: relation.id, fromUser: sender });
+  if (sender) {
+    await createNotification({
+      userId: user2Id,
+      actorId: user1Id,
+      type: 'relation_request',
+      title: 'New relation request',
+      body: `${sender.name} sent you a relation request`,
+      data: { relationId: relation.id, fromUserId: user1Id },
+    });
+  }
 
   return res.status(201).json({ success: true, data: relation });
 };
@@ -77,6 +88,16 @@ export const respondToRelation = async (req: AuthReq, res: Response) => {
     });
 
     io.to(`user:${relation.user1Id}`).emit('relation_accepted', { byUser: acceptor, relationId });
+    if (acceptor) {
+      await createNotification({
+        userId: relation.user1Id,
+        actorId: userId,
+        type: 'relation_accepted',
+        title: 'Relation request accepted',
+        body: `${acceptor.name} accepted your relation request`,
+        data: { relationId },
+      });
+    }
     io.emit('relation_formed', { user1Id: relation.user1Id, user2Id: relation.user2Id, relationId });
   } else {
     await prisma.relation.update({ where: { id: relationId }, data: { status: 'ENDED' } });
@@ -126,4 +147,16 @@ export const getMyRelation = async (req: AuthReq, res: Response) => {
 
   const partner = relation?.user1Id === req.userId ? relation?.user2 : relation?.user1;
   return res.json({ success: true, data: { relation, partner } });
+};
+
+export const getPendingRelationRequests = async (req: AuthReq, res: Response) => {
+  const requests = await prisma.relation.findMany({
+    where: { user2Id: req.userId!, status: 'PENDING' },
+    orderBy: { requestedAt: 'desc' },
+    include: {
+      user1: { select: { id: true, name: true, avatarUrl: true, displayId: true } },
+    },
+  });
+
+  return res.json({ success: true, data: requests });
 };
