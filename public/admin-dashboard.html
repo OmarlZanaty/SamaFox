@@ -518,7 +518,12 @@
     <form id="giftForm" class="form-row" style="display:flex;flex-direction:column;gap:10px;">
       <input id="gift_id" type="hidden" />
       <input id="gift_nameAr" class="form-input" placeholder="الاسم العربي" />
-      <input id="gift_imageUrl" class="form-input" placeholder="رابط الصورة" />
+      <input id="gift_imageUrl" class="form-input" placeholder="رابط الصورة بعد الرفع" readonly />
+      <div class="form-row" style="gap:8px;">
+        <input id="gift_imageFile" type="file" accept="image/*" class="form-input" />
+        <button type="button" class="btn btn-outline" id="giftUploadImageBtn">رفع الصورة من الجهاز</button>
+      </div>
+      <img id="giftImagePreview" alt="gift preview" style="display:none;width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--card-border);" />
       <input id="gift_animationUrl" class="form-input" placeholder="رابط الأنيميشن (اختياري)" />
       <input id="gift_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
       <input id="gift_sortOrder" type="number" class="form-input" placeholder="الترتيب" />
