@@ -147,18 +147,24 @@ export const login = async (req: Request, res: Response) => {
         throw userLookupError;
       }
 
+      const columns = await prisma.$queryRaw<Array<{ name: string }>>`PRAGMA table_info(users)`;
+      const columnNames = new Set(columns.map((c) => String(c.name)));
+      const passwordColumn = columnNames.has('passwordHash')
+        ? 'passwordHash'
+        : (columnNames.has('password') ? 'password' : null);
+
+      if (!passwordColumn) {
+        return res.status(401).json({ success: false, message: 'Invalid email or password' });
+      }
+
       // Backward compatibility for older schemas that still store plaintext `password`.
-      const rawRows = await prisma.$queryRaw<Array<{
+      const rawRows = await prisma.$queryRawUnsafe<Array<{
         id: number;
         passwordHash: string | null;
-        isBanned?: number | boolean | null;
-        banReason?: string | null;
-      }>>`
-        SELECT id, password AS passwordHash
-        FROM users
-        WHERE email = ${email}
-        LIMIT 1
-      `;
+      }>>(
+        `SELECT id, ${passwordColumn} AS passwordHash FROM users WHERE email = ? LIMIT 1`,
+        email,
+      );
       user = rawRows[0] ?? null;
     }
     if (!user || !user.passwordHash) {

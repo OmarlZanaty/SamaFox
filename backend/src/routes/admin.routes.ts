@@ -16,7 +16,8 @@ const adminMiddleware = async (req: any, res: any, next: any) => {
   try {
     const prisma = require('../utils/prisma').default;
     const user = await prisma.user.findUnique({
-    where: { id: req.userId }
+      where: { id: req.userId },
+      select: { id: true, isAdmin: true },
     });
 
     if (!user || !user.isAdmin) {

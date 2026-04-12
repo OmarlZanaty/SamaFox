@@ -73,12 +73,24 @@ router.post('/login', async (req, res) => {
         message.includes('passwordHash');
       if (!missingPasswordHashColumn) throw userLookupError;
 
-      const rows = await prisma.$queryRaw<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>`
-        SELECT id, isAdmin, password AS passwordHash
-        FROM users
-        WHERE email IN (${emailRaw}, ${emailRaw.toLowerCase()})
-        LIMIT 1
-      `;
+      const columns = await prisma.$queryRaw<Array<{ name: string }>>`PRAGMA table_info(users)`;
+      const columnNames = new Set(columns.map((c) => String(c.name)));
+      const passwordColumn = columnNames.has('passwordHash')
+        ? 'passwordHash'
+        : (columnNames.has('password') ? 'password' : null);
+
+      if (!passwordColumn) {
+        return res.status(401).json({ success: false, message: 'Invalid email or password' });
+      }
+
+      const rows = await prisma.$queryRawUnsafe<Array<{ id: number; isAdmin: number; passwordHash: string | null }>>(
+        `SELECT id, isAdmin, ${passwordColumn} AS passwordHash
+         FROM users
+         WHERE email IN (?, ?)
+         LIMIT 1`,
+        emailRaw,
+        emailRaw.toLowerCase(),
+      );
       const row = rows[0];
       user = row ? { id: row.id, isAdmin: Number(row.isAdmin) === 1, passwordHash: row.passwordHash } : null;
     }
