@@ -152,3 +152,15 @@ export const getMyRelation = async (req: AuthReq, res: Response) => {
   const partner = relation?.user1Id === req.userId ? relation?.user2 : relation?.user1;
   return res.json({ success: true, data: { relation, partner } });
 };
+
+export const getPendingRelationRequests = async (req: AuthReq, res: Response) => {
+  const requests = await prisma.relation.findMany({
+    where: { user2Id: req.userId!, status: 'PENDING' },
+    orderBy: { requestedAt: 'desc' },
+    include: {
+      user1: { select: { id: true, name: true, avatarUrl: true, displayId: true } },
+    },
+  });
+
+  return res.json({ success: true, data: requests });
+};
