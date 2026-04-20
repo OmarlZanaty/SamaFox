@@ -17,12 +17,13 @@ import '../models/user.dart';
 import '../utils/storage_service.dart';
 import '../utils/result.dart';
 import '../services/socket_service.dart';
+import '../config/app_config.dart';
 
 class AuthRepository {
   late final ApiService _apiService;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
-    serverClientId: '62771458278-73dh3jp1t12udcs1gp1e6atuga6ie5lg.apps.googleusercontent.com',
+    serverClientId: AppConfig.googleServerClientId,
   );
 
 
