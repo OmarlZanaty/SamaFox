@@ -47,6 +47,22 @@ const getGoogleAudiences = (): string[] => {
   return [...new Set(ids)];
 };
 
+
+const getTokenAudience = (idToken: string): string | null => {
+  try {
+    const parts = idToken.split('.');
+    if (parts.length < 2) return null;
+
+    const payloadPart = parts[1];
+    if (!payloadPart) return null;
+
+    const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as { aud?: string };
+    return typeof payload.aud === 'string' ? payload.aud : null;
+  } catch {
+    return null;
+  }
+};
+
 const generateTokens = (userId: number) => {
   const accessToken = jwt.sign({ userId } satisfies JwtPayload, JWT_SECRET, { expiresIn: '24h' });
   const refreshToken = jwt.sign({ userId } satisfies JwtPayload, JWT_REFRESH_SECRET, { expiresIn: '7d' });
@@ -250,8 +266,9 @@ export const login = async (req: Request, res: Response) => {
 // Google login (mobile)
 // ------------------------------------
 export const googleLogin = async (req: Request, res: Response) => {
+  const { idToken } = req.body as GoogleLoginRequest;
+
   try {
-    const { idToken } = req.body as GoogleLoginRequest;
     if (!idToken) return res.status(400).json({ success: false, message: 'idToken required' });
 
     const audiences = getGoogleAudiences();
@@ -316,10 +333,17 @@ export const googleLogin = async (req: Request, res: Response) => {
       errorMessage.includes('requiredAudience');
 
     if (invalidAudience) {
+      const tokenAudience = getTokenAudience(idToken);
+      const allowedAudiences = getGoogleAudiences();
+
       return res.status(401).json({
         success: false,
         message: 'Google token audience mismatch',
         error: errorMessage,
+        details: {
+          tokenAudience,
+          allowedAudiences,
+        },
       });
     }
 
