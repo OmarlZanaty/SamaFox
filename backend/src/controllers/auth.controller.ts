@@ -36,15 +36,32 @@ if (!process.env.JWT_REFRESH_SECRET) throw new Error('JWT_REFRESH_SECRET env var
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
+const DEFAULT_GOOGLE_SERVER_CLIENT_ID = '62771458278-73dh3jp1t12udcs1gp1e6atuga6ie5lg.apps.googleusercontent.com';
+
+const isConfiguredGoogleClientId = (value?: string): value is string => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  const normalized = trimmed.toLowerCase();
+  if (normalized.includes('your-google-client-id') || normalized.startsWith('your-google-')) return false;
+
+  return true;
+};
+
 const getGoogleAudiences = (): string[] => {
   const ids = [
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_WEB_CLIENT_ID,
     process.env.GOOGLE_ANDROID_CLIENT_ID,
     process.env.GOOGLE_IOS_CLIENT_ID,
-  ].filter((id): id is string => Boolean(id && id.trim()));
+    process.env.GOOGLE_SERVER_CLIENT_ID,
+  ].filter(isConfiguredGoogleClientId);
 
-  return [...new Set(ids)];
+  if (ids.length > 0) return [...new Set(ids)];
+
+  // Development-safe fallback to avoid broken auth when env is accidentally left as placeholder values.
+  return [DEFAULT_GOOGLE_SERVER_CLIENT_ID];
 };
 
 
@@ -276,7 +293,7 @@ export const googleLogin = async (req: Request, res: Response) => {
       return res.status(500).json({
         success: false,
         message: 'Google auth is not configured',
-        error: 'Missing GOOGLE_CLIENT_ID / GOOGLE_WEB_CLIENT_ID / GOOGLE_ANDROID_CLIENT_ID / GOOGLE_IOS_CLIENT_ID',
+        error: 'Missing valid GOOGLE_CLIENT_ID / GOOGLE_WEB_CLIENT_ID / GOOGLE_ANDROID_CLIENT_ID / GOOGLE_IOS_CLIENT_ID / GOOGLE_SERVER_CLIENT_ID',
       });
     }
 
