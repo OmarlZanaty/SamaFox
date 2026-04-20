@@ -7,7 +7,9 @@ import bcrypt from 'bcrypt';
 export const getRooms = async (req: Request, res: Response) => {
   try {
     const { page = 1, limit = 20, type } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const safePage = Math.max(1, Math.floor(Number(page) || 1));
+    const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 20)));
+    const skip = (safePage - 1) * safeLimit;
 
     const where = {
       isActive: true,
@@ -46,7 +48,7 @@ export const getRooms = async (req: Request, res: Response) => {
         }
       },
       skip,
-      take: Number(limit),
+      take: safeLimit,
       orderBy: {
         createdAt: 'desc'
       }
@@ -76,10 +78,10 @@ members: room.members.map(m => ({
         createdAt: room.createdAt
       })),
       pagination: {
-        page: Number(page),
-        limit: Number(limit),
+        page: safePage,
+        limit: safeLimit,
         total,
-        totalPages: Math.ceil(total / Number(limit))
+        totalPages: Math.ceil(total / safeLimit)
       }
     });
   } catch (error) {

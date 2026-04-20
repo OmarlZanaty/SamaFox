@@ -200,13 +200,7 @@ export const login = async (req: Request, res: Response) => {
       }
     }
 
-    let ok = false;
-    try {
-      ok = await bcrypt.compare(password, user.passwordHash);
-    } catch {
-      // Legacy compatibility: tolerate plaintext stored passwords
-      ok = user.passwordHash === password;
-    }
+    const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ success: false, message: 'Invalid email or password' });
 
     try {

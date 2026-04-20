@@ -55,6 +55,24 @@ function getAdmins(roomId: number): Set<number> {
   return roomAdmins.get(roomId)!;
 }
 
+function cleanupRoomStateIfEmpty(roomId: number) {
+  const seats = roomSeats.get(roomId);
+  const queue = roomMicQueue.get(roomId);
+  const voice = voiceUsers.get(roomId);
+  const hasSeats = (seats?.size ?? 0) > 0;
+  const hasQueue = (queue?.length ?? 0) > 0;
+  const hasVoice = (voice?.size ?? 0) > 0;
+  if (hasSeats || hasQueue || hasVoice) return;
+
+  roomSeats.delete(roomId);
+  roomMuted.delete(roomId);
+  roomMicQueue.delete(roomId);
+  roomAdmins.delete(roomId);
+  roomLockedSeats.delete(roomId);
+  voiceUsers.delete(roomId);
+  adminCacheTTL.delete(roomId);
+}
+
 const adminCacheTTL = new Map<number, number>(); // rid -> timestamp
 const ADMIN_CACHE_DURATION_MS = 30_000; // 30 seconds
 
@@ -199,8 +217,6 @@ export const initializeSocketHandlers = (io: Server) => {
     token = token.trim().replace(/^["']|["']$/g, '');
     
     if (!token) return next(new Error('no token'));
-    
-    console.log('[socket auth] token prefix:', token.substring(0, 20));
     
     const payload = verifyAccessToken(token);
     socket.userId = payload.userId;
@@ -650,6 +666,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   // ✅ ONE strong snapshot after all cleanup
   await emitRoomState(io, rid);
+  cleanupRoomStateIfEmpty(rid);
 
   io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
 
@@ -1390,6 +1407,7 @@ roomSeats.forEach((seats, rid) => {
   }
   if (changed) {
     emitRoomState(io, rid).catch(console.error);
+    cleanupRoomStateIfEmpty(rid);
   }
 });
 

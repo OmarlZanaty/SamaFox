@@ -51,7 +51,7 @@ router.post("/upload-audio", requireAuth, upload.single("file"), async (req, res
   return res.json({ audioUrl });
 });
 
-router.post("/:id/react", async (req, res) => {
+router.post("/:id/react", requireAuth, async (req, res) => {
   const messageId = Number(req.params.id);
   const { emoji } = req.body;
 

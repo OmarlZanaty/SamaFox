@@ -28,6 +28,8 @@ async function loginViaPublicAuth(base: string, email: string, password: string)
   return { ok: authRes.ok, token: pickToken(body) };
 }
 
+const internalAuthBase = process.env.INTERNAL_API_BASE_URL?.trim();
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
@@ -36,22 +38,24 @@ router.post('/login', async (req, res) => {
     }
     const emailRaw = String(email).trim();
     const pass = String(password);
-    const base = `${req.protocol}://${req.get('host')}`;
+    const base = internalAuthBase;
 
     // Primary compatibility path: reuse existing /auth/login if available.
-    try {
-      const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
-      if (publicAuth.ok && publicAuth.token) {
-        res.cookie('access_token', publicAuth.token, {
-          httpOnly: true,
-          sameSite: 'lax',
-          secure: process.env.NODE_ENV === "production",
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
-        return res.json({ success: true });
+    if (base) {
+      try {
+        const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
+        if (publicAuth.ok && publicAuth.token) {
+          res.cookie('access_token', publicAuth.token, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+          });
+          return res.json({ success: true });
+        }
+      } catch {
+        // fallback to direct DB auth below
       }
-    } catch {
-      // fallback to direct DB auth below
     }
 
     let user: { id: number; isAdmin: boolean; passwordHash: string | null } | null = null;
@@ -125,28 +129,25 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    let ok = false;
-    try {
-      ok = await bcrypt.compare(pass, user.passwordHash);
-    } catch {
-      ok = user.passwordHash === pass;
-    }
+    const ok = await bcrypt.compare(pass, user.passwordHash);
     if (!ok) {
       // Compatibility fallback: ask existing auth endpoint for token shape variations.
-      try {
-        const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
-        if (publicAuth.ok && publicAuth.token) {
-          const token = publicAuth.token;
-          res.cookie('access_token', token, {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === "production",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-          });
-          return res.json({ success: true });
+      if (base) {
+        try {
+          const publicAuth = await loginViaPublicAuth(base, emailRaw, pass);
+          if (publicAuth.ok && publicAuth.token) {
+            const token = publicAuth.token;
+            res.cookie('access_token', token, {
+              httpOnly: true,
+              sameSite: 'lax',
+              secure: process.env.NODE_ENV === "production",
+              maxAge: 7 * 24 * 60 * 60 * 1000,
+            });
+            return res.json({ success: true });
+          }
+        } catch {
+          // fall through to 401 below
         }
-      } catch {
-        // fall through to 401 below
       }
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
