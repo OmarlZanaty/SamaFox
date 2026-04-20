@@ -106,9 +106,9 @@ flutter:
     - assets/icons/
     - assets/mega/
     - assets/seat_effect.mp4
+    - android/app/src/main/assets/adi-registration.properties
   fonts:
         - family: ElMessiri
           fonts:
             - asset: assets/fonts/ElMessiri-Regular.ttf
-            - asset: assets/fonts/ElMessiri-Bold.ttf
               weight: 700

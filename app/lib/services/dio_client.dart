@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
+import 'package:samafox/services/socket_service.dart';
 
 import '../config/app_config.dart';
 import '../utils/storage_service.dart';
@@ -57,22 +58,82 @@ class DioClient {
 }
 
 class AuthInterceptor extends Interceptor {
+  bool _isRefreshing = false;
+  final List<RequestOptions> _pendingRequests = [];
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    String? token = await StorageService.getAccessToken();
+    token = token?.trim().replaceAll('"', '').replaceAll("'", '');
+    if (token != null && token.isNotEmpty) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    handler.next(options);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    if (err.response?.statusCode != 401) {
+      handler.next(err);
+      return;
+    }
+
+    // Don't retry the refresh endpoint itself
+    if (err.requestOptions.path.contains('/auth/refresh')) {
+      handler.next(err);
+      return;
+    }
+
+    if (_isRefreshing) {
+      _pendingRequests.add(err.requestOptions);
+      return;
+    }
+
+    _isRefreshing = true;
     try {
-      String? token = await StorageService.getAccessToken();
-
-      token = token?.trim();
-      if (token != null && token.isNotEmpty) {
-        // ✅ remove accidental quotes if stored like "token"
-        token = token.replaceAll('"', '').replaceAll("'", '').trim();
-
-        options.headers['Authorization'] = 'Bearer $token';
+      final refreshToken = await StorageService.getRefreshToken();
+      if (refreshToken == null) {
+        handler.next(err);
+        return;
       }
 
-      handler.next(options);
-    } catch (_) {
-      handler.next(options);
+      final refreshDio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
+      final response = await refreshDio.post('/auth/refresh',
+          data: {'refreshToken': refreshToken});
+
+      final newAccessToken = response.data['accessToken'] as String?;
+      final newRefreshToken = response.data['refreshToken'] as String?;
+
+      if (newAccessToken == null) {
+        handler.next(err);
+        return;
+      }
+
+      await StorageService.saveTokens(
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken ?? refreshToken,
+      );
+      SocketService().updateToken(newAccessToken);
+
+      // Retry original request
+      final retryOptions = err.requestOptions;
+      retryOptions.headers['Authorization'] = 'Bearer $newAccessToken';
+      final retryResponse = await DioClient.dio.fetch(retryOptions);
+      handler.resolve(retryResponse);
+
+      // Retry any queued requests
+      for (final pending in _pendingRequests) {
+        pending.headers['Authorization'] = 'Bearer $newAccessToken';
+        DioClient.dio.fetch(pending);
+      }
+      _pendingRequests.clear();
+    } catch (e) {
+      // Refresh failed — force logout
+      await StorageService.clearTokens();
+      SocketService().disconnect();
+      handler.next(err);
+    } finally {
+      _isRefreshing = false;
     }
   }
 }

@@ -27,7 +27,7 @@ class GiftEvent {
 
   static int _toInt(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
 
-  factory GiftEvent.fromJson(Map<dynamic, dynamic> j) => GiftEvent(
+  factory GiftEvent.fromJson(Map<String, dynamic> j) => GiftEvent(
         giftId: _toInt(j['giftId']),
         giftNameAr: (j['giftNameAr'] ?? '').toString(),
         giftImageUrl: (j['giftImageUrl'] ?? '').toString(),

@@ -99,7 +99,13 @@ export const respondToFollow = async (req: AuthReq, res: Response) => {
 };
 
 export const unfollow = async (req: AuthReq, res: Response) => {
-  await prisma.follow.deleteMany({ where: { followerId: req.userId!, followingId: Number(req.params.userId) } });
+  await prisma.follow.deleteMany({
+    where: {
+      followerId: req.userId!,
+      followingId: Number(req.params.userId),
+      status: { not: 'BLOCKED' }, // ✅ preserve blocks
+    },
+  });
   return res.json({ success: true });
 };
 
@@ -109,8 +115,8 @@ export const removeFollower = async (req: AuthReq, res: Response) => {
 };
 
 export const getFollowers = async (req: AuthReq, res: Response) => {
-  const { page = 1, limit = 30 } = req.query;
-  const p = Number(page), l = Number(limit);
+const p = Math.max(1, Number.isFinite(Number(req.query.page)) ? Number(req.query.page) : 1);
+const l = Math.min(100, Math.max(1, Number.isFinite(Number(req.query.limit)) ? Number(req.query.limit) : 30));
   const [total, follows] = await Promise.all([
     prisma.follow.count({ where: { followingId: req.userId!, status: 'ACCEPTED' } }),
     prisma.follow.findMany({
@@ -123,8 +129,8 @@ export const getFollowers = async (req: AuthReq, res: Response) => {
 };
 
 export const getFollowing = async (req: AuthReq, res: Response) => {
-  const { page = 1, limit = 30 } = req.query;
-  const p = Number(page), l = Number(limit);
+const p = Math.max(1, Number.isFinite(Number(req.query.page)) ? Number(req.query.page) : 1);
+const l = Math.min(100, Math.max(1, Number.isFinite(Number(req.query.limit)) ? Number(req.query.limit) : 30));
   const [total, follows] = await Promise.all([
     prisma.follow.count({ where: { followerId: req.userId!, status: 'ACCEPTED' } }),
     prisma.follow.findMany({

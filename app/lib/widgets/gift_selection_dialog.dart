@@ -58,6 +58,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
     'common': Icons.star_border,
     'rare': Icons.star_half,
     'epic': Icons.star,
+    'RELATION_RING': Icons.favorite,
     'legendary': Icons.workspace_premium,
   };
 
@@ -781,6 +782,9 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
 
       case 'rare':
         return Colors.blue;
+
+      case 'relation_ring':
+        return const Color(0xFFFF4D8B); // pink/red special
 
       case 'epic':
         return Colors.purple;

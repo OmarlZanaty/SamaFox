@@ -93,6 +93,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   final int roomId;
   final SocketService _socket = SocketService();
 
+  StreamSubscription? _reconnectSub;
+
   StreamSubscription<SocketMessage>? _msgSub;
   StreamSubscription<SeatUpdate>? _seatSub;
   StreamSubscription<RoomSeatsState>? _seatsStateSub;
@@ -333,6 +335,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _approveMicSub?.cancel();
     _approveMicSub = null;
 
+    _reconnectSub?.cancel(); // ✅ ADD
+    _reconnectSub = null;    // ✅ ADD
+
     // remove raw listeners to avoid duplicates
     _socket.off('mic_queue_updated');
     _socket.off('seat_occupied');
@@ -530,14 +535,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       _socket.emit('request_room_seats_state', {'roomId': roomId});
     });
 
-    _socket.reconnectStream.listen((_) async {
+    _reconnectSub?.cancel(); // ✅ cancel any previous subscription first
+    _reconnectSub = _socket.reconnectStream.listen((_) async {
       final user = ref.read(authStateProvider).user;
       if (user == null) return;
-
       print('🔁 reconnect -> rejoin room=$roomId');
-
       _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name);
-
       _socket.emit('get_room_seats_state', {'roomId': roomId});
       _socket.emit('request_room_seats_state', {'roomId': roomId});
       _socket.getVoiceUsers(roomId: roomId);
@@ -627,6 +630,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     _socket.on('seat_mute_changed', (data) {
       print('🧪 RAW seat_mute_changed => $data');
+    });
+
+    // In initSubscriptions / wherever you handle socket events:
+    _socket.on('relation_ended', (_) {
+      // Force reload room state so relation badge clears
+      _socket.emit('init_room_seats', {'roomId': roomId});
     });
 
     _socket.on('mic_queue_updated', (data) {
@@ -1181,10 +1190,17 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   @override
   void dispose() {
-    print('🧹 RoomControllerNotifier.dispose room=$roomId');
+    _msgSub?.cancel();
+    _seatSub?.cancel();
+    _seatsStateSub?.cancel();
+    _voiceUsersSub?.cancel();
+    _approveMicSub?.cancel();
+    _seatLockSub?.cancel();
+    _reconnectSub?.cancel(); // ✅ ADD
     closeRoom();
     super.dispose();
   }
+
 
 
 }

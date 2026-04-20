@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'samafox-api',
       script: 'dist/index.js',
-      cwd: '/home/ubuntu/samafox-backend',
+      cwd: '/home/ubuntu/apps/SamaFox/backend',
       instances: 1,
       exec_mode: 'fork',
       env_file: '.env',

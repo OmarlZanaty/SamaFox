@@ -56,24 +56,20 @@ async function createUserWithDisplayId(
   tx: Prisma.TransactionClient,
   userData: Omit<Prisma.UserCreateInput, 'displayId'>,
 ) {
-  const seq = await tx.userIdSequence.upsert({
+  // Atomic increment — returns the PREVIOUS value, which becomes our unique ID
+  const seq = await tx.userIdSequence.update({
     where: { id: 1 },
-    update: {},
-    create: { id: 1, nextId: 10000 },
+    data: { nextId: { increment: 1 } },
+  }).catch(async () => {
+    // First-time create if row doesn't exist yet
+    await tx.userIdSequence.create({ data: { id: 1, nextId: 10001 } });
+    return tx.userIdSequence.update({
+      where: { id: 1 },
+      data: { nextId: { increment: 1 } },
+    });
   });
 
-  let candidate = seq.nextId;
-  for (let attempts = 0; attempts < 200; attempts++) {
-    const taken = await tx.user.findUnique({ where: { displayId: candidate } });
-    if (!taken) break;
-    candidate++;
-  }
-
-  await tx.userIdSequence.update({
-    where: { id: 1 },
-    data: { nextId: candidate + 1 },
-  });
-
+  const candidate = seq.nextId - 1; // value before increment
   return tx.user.create({ data: { ...userData, displayId: candidate } });
 }
 

@@ -7,13 +7,13 @@
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-    "module": "commonjs",
+   "module": "commonjs",
+    "moduleResolution": "node",
     "target": "esnext",
     "types": ["node"],
     "lib": ["ES2020"],
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node",
     "removeComments": true,
 
     // Other Outputs

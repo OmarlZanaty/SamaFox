@@ -65,8 +65,15 @@ class GiftsResponse {
 
   int get safeTotal => total == 0 ? gifts.length : total;
 
-  factory GiftsResponse.fromJson(Map<String, dynamic> json) =>
-      _$GiftsResponseFromJson(json);
+  factory GiftsResponse.fromJson(Map<String, dynamic> json) {
+    final raw = json['gifts'] ?? json['data'] ?? json['items'] ?? <dynamic>[];
+    return GiftsResponse(
+      gifts: (raw as List<dynamic>)
+          .map((e) => Gift.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      total: (json['total'] as num?)?.toInt() ?? 0,
+    );
+  }
 
   Map<String, dynamic> toJson() => _$GiftsResponseToJson(this);
 }

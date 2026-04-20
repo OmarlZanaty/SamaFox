@@ -40,6 +40,20 @@ class StorageService {
     await prefs.setString(AppConfig.userDataKey, jsonEncode(user.toJson()));
   }
 
+  /// Save only tokens (no user object needed) — used by token refresh interceptor
+  static Future<void> saveTokens({
+    required String accessToken,
+    required String refreshToken,
+  }) async {
+    String cleanToken = accessToken.trim()
+        .replaceAll('"', '')
+        .replaceAll("'", '');
+
+    await prefs.setString(AppConfig.accessTokenKey, cleanToken);
+    await prefs.setString('access_token', cleanToken); // both keys
+    await prefs.setString(AppConfig.refreshTokenKey, refreshToken);
+  }
+
   static Future<String?> getAccessToken() async {
     final p = await SharedPreferences.getInstance();
 

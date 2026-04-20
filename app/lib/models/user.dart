@@ -98,8 +98,12 @@ class User {
       xp: asInt(source['xp']),
       coins: asInt(source['coins']),
       coinsBalance: asInt(
-        source['coinsBalance'] ?? source['coins_balance'] ?? source['userBalance'],
+        source['coinsBalance']
+            ?? source['coins_balance']
+            ?? source['userBalance']
+            ?? source['coins'],  // ✅ ADD THIS as last fallback
       ),
+
       vipLevel: asInt(source['vipLevel']),
       vipExpiresAt: source['vipExpiresAt']?.toString(),
       isAdmin: asBool(source['isAdmin']),

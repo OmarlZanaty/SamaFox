@@ -98,7 +98,10 @@ export const respondToRelation = async (req: AuthReq, res: Response) => {
         data: { relationId },
       });
     }
-    io.emit('relation_formed', { user1Id: relation.user1Id, user2Id: relation.user2Id, relationId });
+    // Only notify the two users
+io.to(`user:${relation.user1Id}`).emit('relation_formed', { user1Id: relation.user1Id, user2Id: relation.user2Id, relationId });
+io.to(`user:${relation.user2Id}`).emit('relation_formed', { user1Id: relation.user1Id, user2Id: relation.user2Id, relationId });
+
   } else {
     await prisma.relation.update({ where: { id: relationId }, data: { status: 'ENDED' } });
     await createNotification({

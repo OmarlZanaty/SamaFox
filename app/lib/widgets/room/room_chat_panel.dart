@@ -90,7 +90,8 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
 
     final messages = st.messages;
     final events = st.events
-        .where((event) => event.type == RoomEventType.gift)
+        .where((event) => event.type == RoomEventType.gift||
+        event.type == RoomEventType.join)
         .toList();
 
     // ==========================

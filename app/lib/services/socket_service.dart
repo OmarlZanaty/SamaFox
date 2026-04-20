@@ -14,6 +14,10 @@ class SocketService {
   IO.Socket? _socket;
   String? _token;
 
+  final _dmConversationController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get dmConversationStream => _dmConversationController.stream;
+
+
   final _connectionController = StreamController<bool>.broadcast();
   final _messageController = StreamController<SocketMessage>.broadcast();
   final _userEventController = StreamController<SocketUserEvent>.broadcast();
@@ -138,25 +142,13 @@ class SocketService {
   }
 
   void connect(String token) {
-
     final jwt = _cleanJwt(token);
-    if (jwt.isEmpty) return;
-
-    // Verify it looks like a JWT before connecting
     final parts = jwt.split('.');
-    if (parts.length != 3) {
-      AppLogger.error('Token malformed: ${parts.length} parts');
+    if (jwt.isEmpty || parts.length != 3) {
+      AppLogger.error('Socket connect aborted: invalid token');
       return;
     }
-
-    _token = jwt;
-
-    if (jwt.isEmpty) {
-      AppLogger.error('Socket connect aborted: empty token');
-      return;
-    }
-
-    _token = jwt;
+    _token = jwt; // ✅ set exactly once
 
     // dispose old socket
     if (_socket != null) {
@@ -300,26 +292,11 @@ class SocketService {
     required int seatNumber,
     required int targetUserId,
   }) {
-    // try multiple event names (backend will ignore unknown)
-    emit('kick_from_seat', {
-      'roomId': roomId,
-      'seatNumber': seatNumber,
-      'targetUserId': targetUserId,
-      'userId': targetUserId,
-    });
-
+    // Only emit the handler that actually exists on backend
     emit('remove_from_seat', {
       'roomId': roomId,
       'seatNumber': seatNumber,
       'targetUserId': targetUserId,
-      'userId': targetUserId,
-    });
-
-    emit('admin_remove_from_seat', {
-      'roomId': roomId,
-      'seatNumber': seatNumber,
-      'targetUserId': targetUserId,
-      'userId': targetUserId,
     });
   }
 
@@ -447,6 +424,15 @@ class SocketService {
       _seatEffectController.add(Map<String, dynamic>.from(data));
     });
 
+    _socket!.on('relation_ended', (data) {
+      _notificationController.add({
+        'type': 'relation_ended',
+        'title': 'Relation ended',
+        'body': 'Your relation has ended',
+        'payload': data is Map ? Map<String, dynamic>.from(data) : {},
+      });
+    });
+
 // ✅ DM receipts (delivered/read)
     _socket?.on('dm_receipt', (data) {
       try {
@@ -532,9 +518,9 @@ class SocketService {
 
 // ✅ optional: conversation list patch event
     _socket?.on('dm_conversation_updated', (data) {
-      // We'll handle this in provider using a new stream/controller below,
-      // OR you can just fallback to incomingMessage (dm_new_message) to patch list.
-      // If you want, I can add a dedicated stream for this too.
+      if (data is Map) {
+        _dmConversationController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket?.on('message:new', (data) {
@@ -623,15 +609,7 @@ class SocketService {
     _socket!.on('webrtc_ice_candidate', (data) {
       AppLogger.info('🎧 webrtc_ice_candidate raw=$data');
     });
-    _socket!.on('approveMic', (data) {
-      try {
-        final map = (data is Map) ? Map<String, dynamic>.from(data) : <String, dynamic>{};
-        _approveMicController.add(map);
-        AppLogger.info('🎧 approveMic parsed=$map');
-      } catch (e) {
-        AppLogger.error('approveMic parse error: $e');
-      }
-    });
+
 
 
 
@@ -999,8 +977,7 @@ class SocketService {
     _receiptController.close();
     _reactionController.close();
     _notificationController.close();
-
-    disconnect();
+    disconnect(); // ✅ call disconnect, NOT dispose()
   }
 }
 

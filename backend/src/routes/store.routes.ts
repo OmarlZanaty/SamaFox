@@ -95,122 +95,47 @@ router.get("/inventory", async (req: any, res) => {
   }
 });
 
-router.post("/activate", async (req: any, res) => {
-  try {
-    const userId = req.userId!;
-    const { inventoryId } = req.body;
+router.post('/activate', async (req: any, res) => {
+  const userId = req.userId!;
+  const { inventoryId } = req.body;
+  if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
 
-    const userItem = await prisma.userItem.findUnique({
-      where: { id: inventoryId },
-      include: { item: true },
-    });
-
-    if (!userItem || userItem.userId !== userId) {
-      return res.status(400).json({ message: "غير مملوك" });
-    }
-
-    const isTogglingOff = userItem.isActive;
-    if (
-      isTogglingOff &&
-      (userItem.item.type === "AVATAR_FRAME" ||
-        userItem.item.type === "avatar_frame" ||
-        userItem.item.type === "FRAME")
-    ) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { avatarFrameUrl: null, activeFrameId: null },
-      });
-      await prisma.userItem.update({
-        where: { id: inventoryId },
-        data: { isActive: false },
-      });
-      return res.json({ success: true, deactivated: true });
-    }
-
-    await prisma.userItem.updateMany({
-      where: {
-        userId,
-        item: { type: userItem.item.type },
-      },
-      data: { isActive: false },
-    });
-
-    await prisma.userItem.update({
-      where: { id: inventoryId },
-      data: { isActive: true },
-    });
-
-    if (
-      userItem.item.type === "AVATAR_FRAME" ||
-      userItem.item.type === "avatar_frame" ||
-      userItem.item.type === "FRAME"
-    ) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          avatarFrameUrl: userItem.item.assetUrl,
-          activeFrameId: userItem.item.id,
-        },
-      });
-    }
-
-    res.json({ success: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ message: "خطأ في التفعيل" });
-  }
+  await prisma.userItem.updateMany({
+    where: { userId },
+    data: { isActive: false },
+  });
+  await prisma.userItem.update({
+    where: { id: String(inventoryId) },
+    data: { isActive: true },
+  });
+  return res.json({ success: true });
 });
 
-router.post("/activate-frame", async (req: any, res) => {
-  try {
-    const userId = req.userId!;
-    const { itemId } = req.body;
+router.post('/activate-frame', async (req: any, res) => {
+  const userId = req.userId!;
+  const { itemId } = req.body;
+  if (!itemId) return res.status(400).json({ message: 'itemId required' });
 
-    if (!itemId) {
-      return res.status(400).json({ success: false, message: "itemId required" });
-    }
+  const userItem = await prisma.userItem.findFirst({
+    where: { userId, itemId: String(itemId) },
+    include: { item: true },
+  });
+  if (!userItem) return res.status(404).json({ message: 'Item not in inventory' });
 
-    const userItem = await prisma.userItem.findFirst({
-      where: {
-        userId,
-        itemId: String(itemId),
-      },
-      include: { item: true },
-    });
-
-    if (!userItem) return res.status(404).json({ success: false, message: "Item not owned" });
-    if (userItem.item.itemType !== "FRAME") {
-      return res.status(400).json({ success: false, message: "Item is not a frame" });
-    }
-
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        activeFrameId: String(itemId),
-        avatarFrameUrl: userItem.item.assetUrl,
-      },
-      select: { id: true, activeFrameId: true },
-    });
-
-    return res.json({ success: true, data: updated });
-  } catch (e) {
-    console.error("ACTIVATE FRAME ERROR:", e);
-    return res.status(500).json({ message: "خطأ في تفعيل الإطار" });
-  }
+  await prisma.user.update({
+    where: { id: userId },
+    data: { activeFrameId: String(itemId), avatarFrameUrl: userItem.item.assetUrl },
+  });
+  return res.json({ success: true });
 });
 
-router.post("/deactivate-frame", async (req: any, res) => {
-  try {
-    const userId = req.userId!;
-    await prisma.user.update({
-      where: { id: userId },
-      data: { activeFrameId: null, avatarFrameUrl: null },
-    });
-    return res.json({ success: true });
-  } catch (e) {
-    console.error("DEACTIVATE FRAME ERROR:", e);
-    return res.status(500).json({ success: false, message: "Failed to deactivate frame" });
-  }
+router.post('/deactivate-frame', async (req: any, res) => {
+  const userId = req.userId!;
+  await prisma.user.update({
+    where: { id: userId },
+    data: { activeFrameId: null, avatarFrameUrl: null },
+  });
+  return res.json({ success: true });
 });
 
 router.get("/my-frames", async (req: any, res) => {

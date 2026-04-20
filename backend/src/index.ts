@@ -85,7 +85,6 @@ app.use('/api/v1/admin', adminRoutes);
 app.use("/api/v1/store", storeRoutes);
 app.use("/api/v1/admin-products", adminProductRoutes);
 
-app.use("/uploads", express.static("uploads"));
 // passport (if you still use it elsewhere)
 app.use(passport.initialize());
 

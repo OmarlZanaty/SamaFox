@@ -127,7 +127,22 @@ export const sendGift = async (req: Request, res: Response) => {
     }
 
     // Receiver share (50% of total cost) only if receiver exists
-    const receiverCoins = receiverNum != null ? totalCost / BigInt(2) : BigInt(0);
+    // CORRECT - match socket logic
+const receiverUser = receiverNum != null
+  ? await prisma.user.findUnique({ where: { id: receiverNum }, select: { relationId: true } as any })
+  : null;
+
+  const relationId = typeof receiverUser?.relationId === 'number' 
+  ? receiverUser.relationId 
+  : null;
+const relation = relationId
+  ? await prisma.relation.findUnique({ where: { id: relationId } })
+  : null;
+  
+const hasActiveRelationSplit = !!(receiverNum != null && relation && relation.status === 'ACTIVE');
+const receiverCoins = receiverNum != null
+  ? (hasActiveRelationSplit ? totalCost / BigInt(2) : totalCost)
+  : BigInt(0);
 
     // ✅ Transaction (race-safe): decrement sender only if balance is enough AT UPDATE TIME
     const result = await prisma.$transaction(async (tx) => {

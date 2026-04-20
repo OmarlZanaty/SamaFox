@@ -86,6 +86,13 @@ class GiftSentEvent {
       fromUserName: (json['fromUserName'] ?? json['senderName'] ?? sender?['name'])?.toString(),
       fromUserAvatar: (json['fromUserAvatar'] ?? json['senderAvatar'] ?? sender?['avatarUrl'])?.toString(),
 
+      senderNewBalance: json['senderNewBalance'] != null
+          ? int.tryParse(json['senderNewBalance'].toString()) ?? _toInt(json['senderNewBalance'])
+          : null,
+      receiverNewBalance: json['receiverNewBalance'] != null
+          ? int.tryParse(json['receiverNewBalance'].toString()) ?? _toInt(json['receiverNewBalance'])
+          : null,
+
       toUserId: _toInt(json['toUserId'] ?? json['receiverId'] ?? receiver?['id']),
       toUserName: (json['toUserName'] ?? json['receiverName'] ?? receiver?['name'])?.toString(),
       toUserAvatar: (json['toUserAvatar'] ?? json['receiverAvatar'] ?? receiver?['avatarUrl'])?.toString(),

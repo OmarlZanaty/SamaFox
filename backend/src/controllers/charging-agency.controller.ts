@@ -7,6 +7,12 @@ function getUserId(req: Request): number | null {
   return typeof req.userId === 'number' ? req.userId : null;
 }
 
+const AGENCY_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+} as const;
+
 // Helper: admin check
 async function assertAdmin(userId: number) {
   const u = await prisma.user.findUnique({

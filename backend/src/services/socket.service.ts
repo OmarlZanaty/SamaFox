@@ -55,7 +55,14 @@ function getAdmins(roomId: number): Set<number> {
   return roomAdmins.get(roomId)!;
 }
 
+const adminCacheTTL = new Map<number, number>(); // rid -> timestamp
+const ADMIN_CACHE_DURATION_MS = 30_000; // 30 seconds
+
 async function populateAdmins(roomId: number) {
+  const now = Date.now();
+  const lastPopulated = adminCacheTTL.get(roomId) ?? 0;
+  if (now - lastPopulated < ADMIN_CACHE_DURATION_MS && getAdmins(roomId).size > 0) return;
+  
   const admins = new Set<number>();
 
   // ✅ include real room owner always
@@ -284,6 +291,53 @@ socket.on('send_dm', async ({ toUserId, text }: any) => {
   });
 });
 
+socket.on('set_seat_count', async ({ roomId, seatCount }: any) => {
+  const rid = toInt(roomId);
+  const count = toInt(seatCount);
+  const uid = socket.userId;
+  if (rid === null || count === null || !uid) return; // ✅ correct
+
+  await populateAdmins(rid);
+  if (!getAdmins(rid).has(uid)) return;
+
+  const safe = Math.max(1, Math.min(24, count)); // ✅ no ! needed
+  await prisma.room.update({ where: { id: rid }, data: { maxSeats: safe } });
+  await emitRoomState(io, rid);
+});
+
+socket.on('moveSeat', async ({ roomId, fromSeat, toSeat }: any) => {
+  const rid = toInt(roomId);
+  const from = toInt(fromSeat);
+  const to = toInt(toSeat);
+  const uid = socket.userId;
+  if (!rid || !from || !to || !uid) return;
+
+  const seats = getSeats(rid);
+  const lockedSet = getLockedSeats(rid);
+
+  // Verify the user is in fromSeat
+  if (seats.get(from) !== uid) {
+    socket.emit('seat_error', { message: 'Not your seat' });
+    return;
+  }
+
+  // Target seat must be free and not locked
+  if (seats.has(to) || lockedSet.has(to)) {
+    socket.emit('seat_error', { message: 'Target seat unavailable' });
+    return;
+  }
+
+  const room = await prisma.room.findUnique({ where: { id: rid }, select: { maxSeats: true } });
+  const maxSeats = room?.maxSeats ?? 8;
+  if (to < 1 || to > maxSeats) return;
+
+  seats.delete(from);
+  seats.set(to, uid);
+
+  await emitRoomState(io, rid);
+});
+
+
 
 socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
   const rid = toInt(roomId);
@@ -373,6 +427,17 @@ socket.emit('seat_error', {
   }
 
   seats.set(sn, uid);
+
+// Persist seat to DB — composite PK @@id([userId, roomId])
+await prisma.roomMember.upsert({
+  where: { userId_roomId: { userId: uid, roomId: rid } },
+  create: { roomId: rid, userId: uid, role: 'member' },
+  update: { joinedAt: new Date() },
+}).catch((err) => {
+  // Non-fatal: in-memory seat state already set above
+  console.error('RoomMember upsert error (non-fatal):', err);
+});
+
   getMuted(rid).set(uid, true); // start muted
 
   const u = await prisma.user.findUnique({
@@ -409,26 +474,21 @@ socket.emit('seat_error', {
 
   try {
 
-  const effect: any[] = await prisma.$queryRaw`
-    SELECT 
-      ui.product_id,
-      p.file_url
-    FROM user_items  ui
-    JOIN products p ON ui.product_id = p.id
-    WHERE ui.user_id = ${uid} AND ui.is_active = 1
-  `;
+  const effects = await prisma.userItem.findMany({
+  where: { userId: uid, isActive: true },
+  include: { item: { select: { assetUrl: true } } },
+});
 
-  if (effect.length > 0) {
+if (effects.length > 0) {
+  const videoUrl = effects[0]?.item.assetUrl;
+  io.to(`room:${rid}`).emit('seat_effect', {
+    userId: uid,
+    seatNumber: sn,
+    video: videoUrl,
+  });
+}
 
-    const videoUrl = effect[0].file_url;
 
-    io.to(`room:${rid}`).emit("seat_effect", {
-      userId: uid,
-      seatNumber: sn,
-      video: videoUrl
-    });
-
-  }
 console.log("DEBUG USER:", u);
 } catch (err) {
   console.error("Seat effect error:", err);
@@ -545,7 +605,7 @@ io.to(`room:${rid}`).emit('user_joined', {
 
 getVoiceSet(rid).add(uid);
 await emitVoiceUsers(io, rid);
-await emitRoomState(io, rid);
+//await emitRoomState(io, rid);
 
 
         } else {
@@ -950,6 +1010,13 @@ await emitRoomState(io, rid);
   const unitCoins = gift.coinsValue || gift.priceCoins;
   const price = BigInt(unitCoins ?? 0);
   const totalCost = price * BigInt(qty);
+
+  const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+if (totalCost > MAX_SAFE) {
+  socket.emit('gift_error', { message: 'Gift amount too large' });
+  return;
+}
+
   if (totalCost <= BigInt(0)) {
     socket.emit('gift_error', { message: 'Invalid gift price' });
     return;
@@ -976,7 +1043,7 @@ await emitRoomState(io, rid);
       // ✅ race-safe sender decrement
       const updated = await tx.user.updateMany({
         where: { id: senderId, coinsBalance: { gte: Number(totalCost) } },
-        data: { coinsBalance: { decrement: Number(totalCost) } },
+        data: { coinsBalance: { decrement: totalCost <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(totalCost) : (() => { throw new Error('AMOUNT_TOO_LARGE'); })() } },
       });
       if (updated.count === 0) throw new Error('INSUFFICIENT_COINS');
 
@@ -1019,7 +1086,22 @@ await emitRoomState(io, rid);
         },
       });
 
-      
+      // After the existing MEGA_GIFT_THRESHOLD check, add:
+if (gift.category === 'RELATION_RING') {
+  io.emit('global_gift_broadcast', {
+    type: 'RELATION_RING',
+    giftId: gift.id,
+    giftNameAr: gift.nameAr,
+    giftImageUrl: gift.imageUrl,
+    senderId,
+    senderName: sender.name,
+    senderAvatarUrl: sender.avatarUrl ?? null,
+    receiverId: receiver.id,
+    receiverName: receiver.name,
+    roomId: rid,
+    sentAt: new Date().toISOString(),
+  });
+}
 
       await tx.transaction.create({
         data: { userId: senderId, type: 'gift_send', amountCoins: -Number(totalCost), status: 'completed' },
@@ -1293,18 +1375,19 @@ socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
       });
 
       // remove from all seats
-      roomSeats.forEach((seats, rid) => {
+      // Inside the disconnect handler, after the roomSeats.forEach loop:
+roomSeats.forEach((seats, rid) => {
   let changed = false;
-
   for (const [num, occupant] of seats.entries()) {
     if (occupant === uid) {
       seats.delete(num);
       roomMuted.get(rid)?.delete(uid);
       io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
+      // ✅ ADD THIS:
+      io.to(`room:${rid}`).emit('user_left', { userId: uid, roomId: rid });
       changed = true;
     }
   }
-
   if (changed) {
     emitRoomState(io, rid).catch(console.error);
   }

@@ -2,11 +2,11 @@ class AppConfig {
   // API Configuration
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://54.254.79.239:3000/api/v1/',
+    defaultValue: 'http://108.131.29.149:3000/api/v1/',
   );
   static const String socketUrl = String.fromEnvironment(
     'SOCKET_URL',
-    defaultValue: 'http://54.254.79.239:3000',
+    defaultValue: 'http://108.131.29.149:3000',
   );
   static const String googleOAuthUrl = String.fromEnvironment(
     'GOOGLE_OAUTH_URL',

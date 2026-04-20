@@ -1931,6 +1931,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     print('🟣 RoomScreen.dispose room=${widget.roomId}');
     AudioController.instance.deactivate();
 
+    _audioPlayer.dispose();  // ✅ ADD
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
     _socketErrSub?.cancel();

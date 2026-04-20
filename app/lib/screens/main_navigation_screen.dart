@@ -24,6 +24,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   // List of screens for each tab
   late final List<Widget> _screens;
 
+
   @override
   void initState() {
     super.initState();
@@ -40,6 +41,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       _selectedIndex = index;
     });
   }
+
 
   @override
   Widget build(BuildContext context) {
