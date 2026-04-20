@@ -7,7 +7,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client();
 
 type JwtPayload = { userId: number };
 
@@ -35,6 +35,50 @@ if (!process.env.JWT_REFRESH_SECRET) throw new Error('JWT_REFRESH_SECRET env var
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
+const DEFAULT_GOOGLE_SERVER_CLIENT_ID = '62771458278-73dh3jp1t12udcs1gp1e6atuga6ie5lg.apps.googleusercontent.com';
+
+const isConfiguredGoogleClientId = (value?: string): value is string => {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  const normalized = trimmed.toLowerCase();
+  if (normalized.includes('your-google-client-id') || normalized.startsWith('your-google-')) return false;
+
+  return true;
+};
+
+const getGoogleAudiences = (): string[] => {
+  const ids = [
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_WEB_CLIENT_ID,
+    process.env.GOOGLE_ANDROID_CLIENT_ID,
+    process.env.GOOGLE_IOS_CLIENT_ID,
+    process.env.GOOGLE_SERVER_CLIENT_ID,
+  ].filter(isConfiguredGoogleClientId);
+
+  if (ids.length > 0) return [...new Set(ids)];
+
+  // Development-safe fallback to avoid broken auth when env is accidentally left as placeholder values.
+  return [DEFAULT_GOOGLE_SERVER_CLIENT_ID];
+};
+
+
+const getTokenAudience = (idToken: string): string | null => {
+  try {
+    const parts = idToken.split('.');
+    if (parts.length < 2) return null;
+
+    const payloadPart = parts[1];
+    if (!payloadPart) return null;
+
+    const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as { aud?: string };
+    return typeof payload.aud === 'string' ? payload.aud : null;
+  } catch {
+    return null;
+  }
+};
 
 const generateTokens = (userId: number) => {
   const accessToken = jwt.sign({ userId } satisfies JwtPayload, JWT_SECRET, { expiresIn: '24h' });
@@ -239,11 +283,21 @@ export const login = async (req: Request, res: Response) => {
 // Google login (mobile)
 // ------------------------------------
 export const googleLogin = async (req: Request, res: Response) => {
+  const { idToken } = req.body as GoogleLoginRequest;
+
   try {
-    const { idToken } = req.body as GoogleLoginRequest;
     if (!idToken) return res.status(400).json({ success: false, message: 'idToken required' });
 
-    const ticket = await googleClient.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
+    const audiences = getGoogleAudiences();
+    if (audiences.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: 'Google auth is not configured',
+        error: 'Missing valid GOOGLE_CLIENT_ID / GOOGLE_WEB_CLIENT_ID / GOOGLE_ANDROID_CLIENT_ID / GOOGLE_IOS_CLIENT_ID / GOOGLE_SERVER_CLIENT_ID',
+      });
+    }
+
+    const ticket = await googleClient.verifyIdToken({ idToken, audience: audiences });
     const payload = ticket.getPayload();
 
     if (!payload?.email) return res.status(400).json({ success: false, message: 'Invalid Google token' });
@@ -289,7 +343,28 @@ export const googleLogin = async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     console.error('googleLogin error:', e);
-    return res.status(500).json({ success: false, message: 'Google login failed', error: e?.message || 'Unknown' });
+    const errorMessage = String(e?.message || 'Unknown');
+    const invalidAudience =
+      errorMessage.includes('Wrong recipient') ||
+      errorMessage.includes('payload audience') ||
+      errorMessage.includes('requiredAudience');
+
+    if (invalidAudience) {
+      const tokenAudience = getTokenAudience(idToken);
+      const allowedAudiences = getGoogleAudiences();
+
+      return res.status(401).json({
+        success: false,
+        message: 'Google token audience mismatch',
+        error: errorMessage,
+        details: {
+          tokenAudience,
+          allowedAudiences,
+        },
+      });
+    }
+
+    return res.status(500).json({ success: false, message: 'Google login failed', error: errorMessage });
   }
 };
 
