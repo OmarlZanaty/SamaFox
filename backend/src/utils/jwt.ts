@@ -3,9 +3,16 @@ import * as jwt from 'jsonwebtoken';
 
 export type TokenPayload = { userId: number };
 
-const accessSecret = (): jwt.Secret => process.env.JWT_SECRET ?? 'your-secret-key';
-const refreshSecret = (): jwt.Secret =>
-  process.env.JWT_REFRESH_SECRET ?? 'your-refresh-secret-key';
+function requireEnvSecret(name: 'JWT_SECRET' | 'JWT_REFRESH_SECRET'): jwt.Secret {
+  const value = process.env[name];
+  if (!value || value.trim().length < 32) {
+    throw new Error(`${name} is required and must be at least 32 characters`);
+  }
+  return value;
+}
+
+const accessSecret = (): jwt.Secret => requireEnvSecret('JWT_SECRET');
+const refreshSecret = (): jwt.Secret => requireEnvSecret('JWT_REFRESH_SECRET');
 
 const accessExpiresIn: jwt.SignOptions['expiresIn'] =
   (process.env.JWT_EXPIRES_IN ?? '1d') as jwt.SignOptions['expiresIn'];

@@ -8,5 +8,5 @@ const router = Router();
 router.get('/', getGifts);
 router.post('/send', authMiddleware, sendGift);
 router.get('/history', authMiddleware, getGiftHistory);
-router.post("/sendGift", giftLimiter, sendGift);
+router.post("/sendGift", authMiddleware, giftLimiter, sendGift);
 export default router;

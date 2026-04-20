@@ -114,7 +114,16 @@ export const deleteImage = async (req: Request, res: Response) => {
 const filenameStr = firstStr(req.params.filename);
 if (!filenameStr) return res.status(400).json({ success:false, message:'Filename is required' });
 
-const filePath = path.join(uploadsDir, filenameStr);
+const normalizedName = path.basename(filenameStr);
+if (normalizedName !== filenameStr || filenameStr.includes('..')) {
+  return res.status(400).json({ success: false, message: 'Invalid filename' });
+}
+
+const filePath = path.join(uploadsDir, normalizedName);
+const normalizedPath = path.normalize(filePath);
+if (!normalizedPath.startsWith(path.normalize(uploadsDir + path.sep))) {
+  return res.status(400).json({ success: false, message: 'Invalid filename path' });
+}
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         success: false,

@@ -42,8 +42,10 @@ router.post('/:roomId/leave', authMiddleware, leaveRoom);
 router.get('/:roomId/messages', authMiddleware, async (req, res) => {
   try {
     const roomId = Number(req.params.roomId);
-    const limit = Number(req.query.limit ?? 50);
-    const offset = Number(req.query.offset ?? 0);
+    const rawLimit = Number(req.query.limit ?? 50);
+    const rawOffset = Number(req.query.offset ?? 0);
+    const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50));
+    const offset = Math.max(0, Number.isFinite(rawOffset) ? Math.floor(rawOffset) : 0);
 
     if (isNaN(roomId)) {
       return res.status(400).json({ error: 'Invalid roomId' });

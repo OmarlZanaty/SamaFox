@@ -48,9 +48,8 @@ const isOriginAllowed = (origin?: string) => {
   if (!origin) return true; // non-browser clients / same-origin calls
   const normalizedOrigin = normalizeOrigin(origin);
   if (allowedOrigins.length === 0) {
-    // If CORS_ORIGIN is not configured, do not block browser requests by default.
-    // This prevents accidental 500s from the CORS middleware when dashboard is served from server IP/domain.
-    return true;
+    // Secure-by-default: block browser cross-origin requests unless explicitly configured.
+    return false;
   }
   if (allowedOrigins.includes('*') || allowedOrigins.includes(normalizedOrigin)) return true;
 
@@ -155,8 +154,13 @@ initializeSocketHandlers(io);
 // error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err.stack);
+  const status = err.status || 500;
+  const isServerError = status >= 500;
   res.status(err.status || 500).json({
-    error: { message: err.message || 'Internal Server Error', status: err.status || 500 }
+    error: {
+      message: isServerError ? 'Internal Server Error' : (err.message || 'Request failed'),
+      status,
+    }
   });
 });
 

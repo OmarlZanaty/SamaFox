@@ -206,19 +206,20 @@ export const followUser = async (req: Request, res: Response) => {
     if (!targetUserId || targetUserId <= 0) return res.status(400).json({ success: false, message: 'Invalid targetUserId' });
     if (followerId === targetUserId) return res.status(400).json({ success: false, message: 'Cannot follow yourself' });
 
-    const existing = await prisma.relationship.findUnique({
+    const existing = await prisma.follow.findUnique({
       where: { followerId_followingId: { followerId, followingId: targetUserId } },
     });
 
-    if (existing) return res.status(400).json({ success: false, message: 'Already following' });
+    if (existing?.status === 'ACCEPTED') return res.status(400).json({ success: false, message: 'Already following' });
 
-    await prisma.relationship.create({
-      data: {
+    await prisma.follow.upsert({
+      where: { followerId_followingId: { followerId, followingId: targetUserId } },
+      create: {
         followerId,
         followingId: targetUserId,
-        status: 'accepted',
-        type: 'fan',
+        status: 'ACCEPTED',
       },
+      update: { status: 'ACCEPTED' },
     });
 
     return res.status(200).json({ success: true, message: 'Followed' });
@@ -239,7 +240,7 @@ export const unfollowUser = async (req: Request, res: Response) => {
     if (!followerId) return res.status(401).json({ success: false, message: 'Unauthorized' });
     if (!targetUserId || targetUserId <= 0) return res.status(400).json({ success: false, message: 'Invalid targetUserId' });
 
-    await prisma.relationship.delete({
+    await prisma.follow.delete({
       where: { followerId_followingId: { followerId, followingId: targetUserId } },
     });
 
@@ -259,8 +260,8 @@ export const getFollowers = async (req: Request, res: Response) => {
     const userId = Number(req.params.userId);
     if (!userId || userId <= 0) return res.status(400).json({ success: false, message: 'Invalid userId' });
 
-    const rel = await prisma.relationship.findMany({
-      where: { followingId: userId },
+    const rel = await prisma.follow.findMany({
+      where: { followingId: userId, status: 'ACCEPTED' },
       include: { follower: true },
       take: 200,
       orderBy: { createdAt: 'desc' },
@@ -282,8 +283,8 @@ export const getFollowing = async (req: Request, res: Response) => {
     const userId = Number(req.params.userId);
     if (!userId || userId <= 0) return res.status(400).json({ success: false, message: 'Invalid userId' });
 
-    const rel = await prisma.relationship.findMany({
-      where: { followerId: userId },
+    const rel = await prisma.follow.findMany({
+      where: { followerId: userId, status: 'ACCEPTED' },
       include: { following: true },
       take: 200,
       orderBy: { createdAt: 'desc' },
