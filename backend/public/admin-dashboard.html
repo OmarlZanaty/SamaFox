@@ -148,7 +148,7 @@
           إعدادات الاتصال بالـ API
         </div>
         <div class="config-row">
-          <input id="apiBase" class="form-input" placeholder="قاعدة الـ API مثال: http://108.131.29.149:3000/api/v1" />
+          <input id="apiBase" class="form-input" placeholder="قاعدة الـ API مثال: http://54.254.79.239:3000/api/v1" />
           <button class="btn btn-primary" id="btnSave">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
             حفظ
@@ -219,12 +219,6 @@
           <h2 class="section-title">الغرف</h2>
           <p class="section-sub">جميع الغرف المنشأة على المنصة</p>
         </div>
-
-        <div class="section-actions">
-  <button class="btn btn-primary" onclick="openCreateRoomModal()">+ إنشاء غرفة</button>
-  <button class="btn btn-outline" id="btnRooms">تحميل الغرف</button>
-</div>
-
         <div class="section-actions">
           <button class="btn btn-outline" id="btnRooms">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -542,25 +536,6 @@
   </div>
 </div>
 
-<div class="modal-overlay hidden" id="createRoomModal" onclick="event.target===this&&closeCreateRoomModal()">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div class="modal-header"><h3>إنشاء غرفة</h3></div>
-    <div style="display:flex;flex-direction:column;gap:10px;padding:16px">
-      <input id="cr_name" class="form-input" placeholder="اسم الغرفة" />
-      <input id="cr_ownerId" class="form-input" type="number" placeholder="Owner User ID" />
-      <input id="cr_maxSeats" class="form-input" type="number" value="8" placeholder="عدد المقاعد" />
-      <select id="cr_type" class="form-select">
-        <option value="public">عام</option>
-        <option value="private">خاص</option>
-      </select>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-outline" onclick="closeCreateRoomModal()">إلغاء</button>
-        <button class="btn btn-primary" onclick="createRoom()">إنشاء</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script src="app.js?v=20260412-7"></script>
+<script src="app.js?v=20260422-1"></script>
 </body>
 </html>

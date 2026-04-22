@@ -77,56 +77,33 @@ function showToast(msg, type = "default") {
   toastTimer = setTimeout(() => toast.classList.remove("show"), 2800);
 }
 
-window.openCreateRoomModal = function() {
-  document.getElementById('createRoomModal').classList.remove('hidden');
-};
-window.closeCreateRoomModal = function() {
-  document.getElementById('createRoomModal').classList.add('hidden');
-};
-window.createRoom = async function() {
-  const name = document.getElementById('cr_name').value.trim();
-  const ownerId = Number(document.getElementById('cr_ownerId').value);
-  const maxSeats = Number(document.getElementById('cr_maxSeats').value) || 8;
-  const type = document.getElementById('cr_type').value;
-  if (!name || !ownerId) return showToast('اسم الغرفة ومعرف المالك مطلوبان');
-  await apiFetch('/admin-dashboard/rooms', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, ownerId, maxSeats, type }),
-  });
-  closeCreateRoomModal();
-  showToast('✓ تم إنشاء الغرفة');
-  await loadRooms();
-};
-window.deleteRoom = async function(roomId) {
-  if (!confirm('هل أنت متأكد من حذف هذه الغرفة؟')) return;
-  await apiFetch(`/admin-dashboard/rooms/${roomId}`, { method: 'DELETE' });
-  showToast('✓ تم حذف الغرفة');
-  await loadRooms();
-};
-
-function getApiBase() {
-  let base = apiEl.value.trim();
-  if (base.endsWith("/")) base = base.slice(0, -1);
-  // ✅ Auto-prepend http:// if missing
-  if (base && !base.startsWith("http://") && !base.startsWith("https://")) {
+function normalizeApiBase(raw) {
+  let base = (raw || "").trim();
+  if (!base) return "";
+  // Fix corrupted "http://host/:port" → "http://host:port"
+  base = base.replace(/^(https?:\/\/[^/]+)\/:(\d+)/, "$1:$2");
+  // Strip trailing slashes
+  base = base.replace(/\/+$/, "");
+  // Add http:// if missing
+  if (base && !/^https?:\/\//i.test(base)) {
     base = "http://" + base;
   }
   return base;
 }
 
-function saveApiBase() {
-  let val = document.getElementById("apiBaseSettings").value.trim();
-  if (val && !val.startsWith("http://") && !val.startsWith("https://")) {
-    val = "http://" + val;
+function normalizeApiBase(raw) {
+  let base = (raw || "").trim();
+  if (!base) return "";
+  base = base.replace(/\/+$/, "");
+  if (base && !/^https?:\/\//i.test(base)) {
+    base = "http://" + base;
   }
-  if (val.endsWith("/")) val = val.slice(0, -1);
-  localStorage.setItem(LS_API, val);
-  apiEl.value = val;
-  apiBaseText.textContent = val || "--";
-  showToast("✓ تم حفظ قاعدة الـ API");
+  return base;
 }
 
+function getApiBase() {
+  return normalizeApiBase(apiEl.value);
+}
 function getStoredToken() {
   return localStorage.getItem(LS_AUTH_TOKEN) || "";
 }
@@ -461,11 +438,6 @@ async function loadRooms() {
       <td>${r.maxSeats ?? "—"}</td>
       <td>${ownerName} <span class="cell-muted">#${r.owner?.id ?? ""}</span></td>
       <td>${cover}</td>
-      <td>
-  <button class="btn-bad" onclick="forceCloseRoom(${r.id})">إغلاق</button>
-  <button class="btn-bad" onclick="deleteRoom(${r.id})" style="margin-left:4px">حذف</button>
-</td>
-
       <td><span class="cell-muted">${fmtDate(r.createdAt)}</span></td>
       <td><button class="btn-bad" onclick="forceCloseRoom(${r.id})">إغلاق</button></td>
     `;
@@ -896,19 +868,23 @@ window.confirmAddCoins = async function () {
 // EVENT LISTENERS
 // ============================================================
 document.getElementById("btnSave").addEventListener("click", () => {
-  localStorage.setItem(LS_API, apiEl.value.trim());
-  apiBaseText.textContent = getApiBase() || "--";
+  const normalized = normalizeApiBase(apiEl.value);
+  apiEl.value = normalized;
+  localStorage.setItem(LS_API, normalized);
+  apiBaseText.textContent = normalized || "--";
   // sync settings input
   const settingsInput = document.getElementById("apiBaseSettings");
-  if (settingsInput) settingsInput.value = apiEl.value.trim();
+  if (settingsInput) settingsInput.value = normalized;
   showToast("✓ تم حفظ قاعدة الـ API");
 });
 
 document.getElementById("btnSaveSettings")?.addEventListener("click", () => {
-  const val = document.getElementById("apiBaseSettings").value.trim();
-  apiEl.value = val;
-  localStorage.setItem(LS_API, val);
-  apiBaseText.textContent = val || "--";
+  const normalized = normalizeApiBase(document.getElementById("apiBaseSettings").value);
+  apiEl.value = normalized;
+  localStorage.setItem(LS_API, normalized);
+  apiBaseText.textContent = normalized || "--";
+  const settingsInput = document.getElementById("apiBaseSettings");
+  if (settingsInput) settingsInput.value = normalized;
   showToast("✓ تم حفظ الإعدادات");
 });
 
@@ -1023,8 +999,11 @@ async function loadAll() {
 // BOOT
 // ============================================================
 (function init() {
-  const saved = localStorage.getItem(LS_API) || getApiBase();
+  const raw = localStorage.getItem(LS_API) || "";
+  const saved = normalizeApiBase(raw) || normalizeApiBase(apiEl.value);
+  if (saved && saved !== raw) localStorage.setItem(LS_API, saved);
   apiEl.value = saved;
+
   const settingsInput = document.getElementById("apiBaseSettings");
   if (settingsInput) settingsInput.value = saved;
   apiBaseText.textContent = saved || "--";
