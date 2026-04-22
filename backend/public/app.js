@@ -80,26 +80,33 @@ function showToast(msg, type = "default") {
 function normalizeApiBase(raw) {
   let base = (raw || "").trim();
   if (!base) return "";
-  // Fix corrupted "http://host/:port" → "http://host:port"
-  base = base.replace(/^(https?:\/\/[^/]+)\/:(\d+)/, "$1:$2");
-  // Strip trailing slashes
-  base = base.replace(/\/+$/, "");
-  // Add http:// if missing
-  if (base && !/^https?:\/\//i.test(base)) {
+
+  if (!/^https?:\/\//i.test(base)) {
     base = "http://" + base;
   }
-  return base;
+
+  // Repair frequent malformed inputs:
+  // - "http://host/:3000" -> "http://host:3000"
+  // - "http://host/3000"  -> "http://host:3000"
+  base = base.replace(/^(https?:\/\/[^/]+)\/:(\d+)(.*)$/i, "$1:$2$3");
+  base = base.replace(/^(https?:\/\/[^/:?#]+)\/(\d{2,5})(?=\/|$)(.*)$/i, "$1:$2$3");
+
+  try {
+    const u = new URL(base);
+    const cleanPath = (u.pathname || "").replace(/\/+$/, "");
+    return `${u.protocol}//${u.host}${cleanPath}`;
+  } catch {
+    return base.replace(/\/+$/, "");
+  }
 }
 
-function normalizeApiBase(raw) {
-  let base = (raw || "").trim();
-  if (!base) return "";
-  base = base.replace(/\/+$/, "");
-  if (base && !/^https?:\/\//i.test(base)) {
-    base = "http://" + base;
-  }
-  return base;
+function getDefaultApiBase() {
+  const origin = String(window.location.origin || "").replace(/\/+$/, "");
+  if (!origin) return "";
+  if (origin.endsWith("/api/v1")) return origin;
+  return origin + "/api/v1";
 }
+
 
 function getApiBase() {
   return normalizeApiBase(apiEl.value);
@@ -138,11 +145,18 @@ async function fetchWithBaseFallback(path, opts = {}) {
   for (const base of candidates) {
     const token = getStoredToken();
     const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
-    const res = await fetch(base + path, {
-      ...opts,
-      credentials: "include",
-      headers: Object.assign({ Accept: "application/json" }, authHeaders, opts.headers || {}),
-    });
+    let res;
+
+    try {
+      res = await fetch(base + path, {
+        ...opts,
+        credentials: "include",
+        headers: Object.assign({ Accept: "application/json" }, authHeaders, opts.headers || {}),
+      });
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      continue;
+    }
 
     const text = await res.text();
     let data = null;
@@ -1000,7 +1014,7 @@ async function loadAll() {
 // ============================================================
 (function init() {
   const raw = localStorage.getItem(LS_API) || "";
-  const saved = normalizeApiBase(raw) || normalizeApiBase(apiEl.value);
+  const saved = normalizeApiBase(raw) || normalizeApiBase(apiEl.value) || getDefaultApiBase();
   if (saved && saved !== raw) localStorage.setItem(LS_API, saved);
   apiEl.value = saved;
 
