@@ -81,21 +81,32 @@ function normalizeApiBase(raw) {
   let base = (raw || "").trim();
   if (!base) return "";
 
-  // Add protocol when missing, then parse as URL for robust normalization.
   if (!/^https?:\/\//i.test(base)) {
     base = "http://" + base;
   }
+
+  // Repair frequent malformed inputs:
+  // - "http://host/:3000" -> "http://host:3000"
+  // - "http://host/3000"  -> "http://host:3000"
+  base = base.replace(/^(https?:\/\/[^/]+)\/:(\d+)(.*)$/i, "$1:$2$3");
+  base = base.replace(/^(https?:\/\/[^/:?#]+)\/(\d{2,5})(?=\/|$)(.*)$/i, "$1:$2$3");
 
   try {
     const u = new URL(base);
     const cleanPath = (u.pathname || "").replace(/\/+$/, "");
     return `${u.protocol}//${u.host}${cleanPath}`;
   } catch {
-    // Fix the corrupted pattern "http://host/:port" -> "http://host:port".
-    base = base.replace(/^(https?:\/\/[^/]+)\/:(\d+)(.*)$/i, "$1:$2$3");
     return base.replace(/\/+$/, "");
   }
 }
+
+function getDefaultApiBase() {
+  const origin = String(window.location.origin || "").replace(/\/+$/, "");
+  if (!origin) return "";
+  if (origin.endsWith("/api/v1")) return origin;
+  return origin + "/api/v1";
+}
+
 
 function getApiBase() {
   return normalizeApiBase(apiEl.value);
@@ -1003,7 +1014,7 @@ async function loadAll() {
 // ============================================================
 (function init() {
   const raw = localStorage.getItem(LS_API) || "";
-  const saved = normalizeApiBase(raw) || normalizeApiBase(apiEl.value);
+  const saved = normalizeApiBase(raw) || normalizeApiBase(apiEl.value) || getDefaultApiBase();
   if (saved && saved !== raw) localStorage.setItem(LS_API, saved);
   apiEl.value = saved;
 
