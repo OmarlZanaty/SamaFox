@@ -858,23 +858,19 @@ window.closeCoinsModal = function () {
 window.confirmAddCoins = async function () {
   try {
     const amount = Number(document.getElementById("coinsAmount").value);
-    if (!amount || amount <= 0) return showToast("❗ أدخل رقماً صحيحاً");
+    if (!selectedUserId) return showToast("❗ اختر مستخدماً أولاً");
+    if (!Number.isFinite(amount) || amount <= 0) return showToast("❗ أدخل رقماً صحيحاً");
 
-    const res = await fetch(getApiBase() + "/admin/users/" + selectedUserId + "/coins/add", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount }),
-    });
-
-    const text = await res.text();
-    if (!res.ok) throw new Error(text);
+    await apiFetchAny([
+      `/admin/users/${selectedUserId}/coins/add`,
+      `/api/v1/admin/users/${selectedUserId}/coins/add`,
+    ], "POST", { amount });
 
     showToast("✓ تم إضافة الكوينز بنجاح");
     closeCoinsModal();
     await loadUsers();
   } catch (e) {
-    showToast("❌ خطأ: " + e.message);
+    showToast("❌ خطأ: " + (e?.message || "Failed to add coins"));
   }
 };
 
