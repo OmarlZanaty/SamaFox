@@ -80,25 +80,21 @@ function showToast(msg, type = "default") {
 function normalizeApiBase(raw) {
   let base = (raw || "").trim();
   if (!base) return "";
-  // Fix corrupted "http://host/:port" → "http://host:port"
-  base = base.replace(/^(https?:\/\/[^/]+)\/:(\d+)/, "$1:$2");
-  // Strip trailing slashes
-  base = base.replace(/\/+$/, "");
-  // Add http:// if missing
-  if (base && !/^https?:\/\//i.test(base)) {
-    base = "http://" + base;
-  }
-  return base;
-}
 
-function normalizeApiBase(raw) {
-  let base = (raw || "").trim();
-  if (!base) return "";
-  base = base.replace(/\/+$/, "");
-  if (base && !/^https?:\/\//i.test(base)) {
+  // Add protocol when missing, then parse as URL for robust normalization.
+  if (!/^https?:\/\//i.test(base)) {
     base = "http://" + base;
   }
-  return base;
+
+  try {
+    const u = new URL(base);
+    const cleanPath = (u.pathname || "").replace(/\/+$/, "");
+    return `${u.protocol}//${u.host}${cleanPath}`;
+  } catch {
+    // Fix the corrupted pattern "http://host/:port" -> "http://host:port".
+    base = base.replace(/^(https?:\/\/[^/]+)\/:(\d+)(.*)$/i, "$1:$2$3");
+    return base.replace(/\/+$/, "");
+  }
 }
 
 function getApiBase() {
@@ -138,11 +134,18 @@ async function fetchWithBaseFallback(path, opts = {}) {
   for (const base of candidates) {
     const token = getStoredToken();
     const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
-    const res = await fetch(base + path, {
-      ...opts,
-      credentials: "include",
-      headers: Object.assign({ Accept: "application/json" }, authHeaders, opts.headers || {}),
-    });
+    let res;
+
+    try {
+      res = await fetch(base + path, {
+        ...opts,
+        credentials: "include",
+        headers: Object.assign({ Accept: "application/json" }, authHeaders, opts.headers || {}),
+      });
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      continue;
+    }
 
     const text = await res.text();
     let data = null;
