@@ -64,6 +64,7 @@ class SamaFoxApp extends ConsumerStatefulWidget {
 
 class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
   StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
+  StreamSubscription<Map<String, dynamic>>? _globalNotificationSub;
   late final SocketService _socketService;
 
   int _extractGiftCoins(Map<String, dynamic> payload) {
@@ -92,6 +93,41 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
   void initState() {
     super.initState();
     _socketService = SocketService();
+    _globalNotificationSub = _socketService.notificationStream.listen((data) {
+      final type = (data['type'] as String? ?? '').toLowerCase();
+      final title = (data['title'] as String? ?? '').trim();
+      final body = (data['body'] as String? ?? '').trim();
+
+      String localizedTitle() {
+        if (title.isNotEmpty && !_looksEnglish(title)) return title;
+        if (type.contains('follow')) return 'طلب متابعة';
+        if (type.contains('relation')) return 'طلب علاقة';
+        if (type.contains('gift')) return 'هدية جديدة';
+        if (type.contains('message')) return 'رسالة جديدة';
+        return title.isNotEmpty ? title : 'إشعار جديد';
+      }
+
+      String localizedBody() {
+        if (body.isNotEmpty && !_looksEnglish(body)) return body;
+        if (type == 'follow_request') return 'لديك طلب متابعة جديد. افتح الإشعارات للرد.';
+        if (type == 'follow_accepted') return 'تم قبول طلب المتابعة الخاص بك.';
+        if (type == 'follow_rejected') return 'تم رفض طلب المتابعة الخاص بك.';
+        if (type == 'relation_request') return 'لديك طلب علاقة جديد. افتح الإشعارات للرد.';
+        if (type == 'relation_accepted') return 'تم قبول طلب العلاقة.';
+        if (type == 'relation_ended') return 'تم إنهاء العلاقة.';
+        if (type.contains('gift')) return 'وصلتك هدية جديدة.';
+        if (type.contains('message')) return 'لديك رسالة جديدة.';
+        return body.isNotEmpty ? body : 'لديك إشعار جديد في حسابك.';
+      }
+
+      GlobalNotificationService.instance.show(
+        GlobalNotificationEvent(
+          title: localizedTitle(),
+          message: localizedBody(),
+          routeName: '/notifications',
+        ),
+      );
+    });
     _globalGiftSub = SocketService().globalGiftBroadcastStream.listen((data) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
@@ -113,13 +149,6 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       if (ctx == null) return;
       final from = (data is Map ? data['fromUser'] : null) as Map?;
       final name = from?['name']?.toString() ?? 'مستخدم';
-      GlobalNotificationService.instance.show(
-        GlobalNotificationEvent(
-          title: 'طلب متابعة',
-          message: '$name أرسل طلب متابعة جديد',
-          routeName: '/notifications',
-        ),
-      );
       ScaffoldMessenger.of(ctx).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF1A2744),
@@ -154,13 +183,6 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       if (context == null) return;
       final fromUser = (data is Map ? data['fromUser'] : null) as Map?;
       final name = fromUser?['name']?.toString() ?? 'مستخدم';
-      GlobalNotificationService.instance.show(
-        GlobalNotificationEvent(
-          title: 'طلب علاقة',
-          message: '$name يريد أن يكون في علاقة معك',
-          routeName: '/notifications',
-        ),
-      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF2D1B69),
@@ -179,13 +201,6 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       if (context == null) return;
       final byUser = (data is Map ? data['byUser'] : null) as Map?;
       final name = byUser?['name']?.toString() ?? 'مستخدم';
-      GlobalNotificationService.instance.show(
-        GlobalNotificationEvent(
-          title: 'تم قبول طلب العلاقة',
-          message: '$name قبل طلب العلاقة',
-          routeName: '/notifications',
-        ),
-      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF1a3a1a),
@@ -209,6 +224,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
   @override
   void dispose() {
     _globalGiftSub?.cancel();
+    _globalNotificationSub?.cancel();
     _socketService.off('follow_request');
     _socketService.off('follow_accepted');
     _socketService.off('follow_rejected');
@@ -216,6 +232,12 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
     _socketService.off('relation_accepted');
     _socketService.off('relation_ended');
     super.dispose();
+  }
+
+  bool _looksEnglish(String value) {
+    final latin = RegExp(r'[A-Za-z]');
+    final arabic = RegExp(r'[\u0600-\u06FF]');
+    return latin.hasMatch(value) && !arabic.hasMatch(value);
   }
 
   @override
