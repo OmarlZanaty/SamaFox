@@ -365,10 +365,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _socket.on('user_joined', (data) {
       if (data is! Map) return;
 
-      final username = data['username'] ?? 'Someone';
+      final username = data['username'] ?? 'مستخدم';
 
       addActivity(
-        "$username joined the room",
+        'انضم إلى الغرفة',
         RoomEventType.join,
         username: username?.toString(),
         countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
@@ -379,10 +379,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _socket.on('user_left', (data) {
       if (data is! Map) return;
 
-      final username = data['username'] ?? 'Someone';
+      final username = data['username'] ?? 'مستخدم';
 
       addActivity(
-        "$username left the room",
+        'غادر الغرفة',
         RoomEventType.leave,
         username: username?.toString(),
         countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),

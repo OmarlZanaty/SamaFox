@@ -89,6 +89,36 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     return Icons.notifications_active_rounded;
   }
 
+  String _titleForNotification(Map<String, dynamic> item) {
+    final type = (item['type'] as String? ?? '').toLowerCase();
+    final title = (item['title'] as String? ?? '').trim();
+    if (title.isNotEmpty && !_looksEnglish(title)) return title;
+
+    if (type.contains('follow')) return 'طلب متابعة';
+    if (type.contains('relation')) return 'طلب علاقة';
+    if (type.contains('gift')) return 'هدية';
+    if (type.contains('message')) return 'رسالة جديدة';
+    return title.isNotEmpty ? title : 'إشعار';
+  }
+
+  String _bodyForNotification(Map<String, dynamic> item) {
+    final type = (item['type'] as String? ?? '').toLowerCase();
+    final body = (item['body'] as String? ?? '').trim();
+    if (body.isNotEmpty && !_looksEnglish(body)) return body;
+
+    if (type.contains('follow')) return 'لديك طلب متابعة جديد.';
+    if (type.contains('relation')) return 'لديك طلب علاقة جديد.';
+    if (type.contains('gift')) return 'تم استلام إشعار هدية جديد.';
+    if (type.contains('message')) return 'لديك رسالة جديدة.';
+    return body.isNotEmpty ? body : 'لا توجد تفاصيل إضافية.';
+  }
+
+  bool _looksEnglish(String value) {
+    final latin = RegExp(r'[A-Za-z]');
+    final arabic = RegExp(r'[\u0600-\u06FF]');
+    return latin.hasMatch(value) && !arabic.hasMatch(value);
+  }
+
   Future<void> _openNotification(Map<String, dynamic> item) async {
     final id = (item['id'] as num?)?.toInt() ?? 0;
     final type = (item['type'] as String?) ?? '';
@@ -166,8 +196,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                               child: ListTile(
                                 onTap: () => _openNotification(item),
                                 leading: Icon(_iconForType(type)),
-                                title: Text((item['title'] as String?) ?? 'Notification'),
-                                subtitle: Text((item['body'] as String?) ?? ''),
+                                title: Text(_titleForNotification(item)),
+                                subtitle: Text(_bodyForNotification(item)),
                                 trailing: isRelationRequest
                                     ? SizedBox(
                                         width: 170,

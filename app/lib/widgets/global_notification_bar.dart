@@ -13,6 +13,7 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
   StreamSubscription<GlobalNotificationEvent>? _sub;
   GlobalNotificationEvent? _current;
   Timer? _hideTimer;
+  static const Duration _visibleDuration = Duration(seconds: 7);
 
   @override
   void initState() {
@@ -20,7 +21,7 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
     _sub = GlobalNotificationService.instance.stream.listen((event) {
       setState(() => _current = event);
       _hideTimer?.cancel();
-      _hideTimer = Timer(const Duration(seconds: 5), () {
+      _hideTimer = Timer(_visibleDuration, () {
         if (!mounted) return;
         setState(() => _current = null);
       });
@@ -42,10 +43,10 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
       child: SafeArea(
         child: AnimatedSlide(
           offset: event == null ? const Offset(0, -1.2) : Offset.zero,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOut,
+          duration: const Duration(milliseconds: 360),
+          curve: Curves.easeOutBack,
           child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 220),
+            duration: const Duration(milliseconds: 320),
             opacity: event == null ? 0 : 1,
             child: event == null
                 ? const SizedBox.shrink()
