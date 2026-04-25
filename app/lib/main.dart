@@ -66,6 +66,28 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
   StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
   late final SocketService _socketService;
 
+  int _extractGiftCoins(Map<String, dynamic> payload) {
+    final candidates = <dynamic>[
+      payload['coinsValue'],
+      payload['giftCoins'],
+      payload['coins'],
+      payload['priceCoins'],
+      payload['price_coins'],
+      payload['totalCoins'],
+      payload['amount'],
+    ];
+
+    for (final raw in candidates) {
+      if (raw is int && raw > 0) return raw;
+      if (raw is num && raw > 0) return raw.toInt();
+      if (raw is String) {
+        final parsed = int.tryParse(raw.trim());
+        if (parsed != null && parsed > 0) return parsed;
+      }
+    }
+    return 0;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -75,13 +97,16 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       if (context == null) return;
       final payload = MegaGiftPayload.fromJson(data);
       MegaGiftOverlay.show(context, payload);
-      GlobalNotificationService.instance.show(
-        GlobalNotificationEvent(
-          title: 'هدية عالمية ضخمة',
-          message: '${payload.senderName} أرسل ${payload.giftNameAr} بقيمة ${payload.coinsValue}',
-          routeName: '/notifications',
-        ),
-      );
+      final giftCoins = _extractGiftCoins(data);
+      if (giftCoins > 5000) {
+        GlobalNotificationService.instance.show(
+          GlobalNotificationEvent(
+            title: 'هدية عالمية ضخمة',
+            message: '${payload.senderName} أرسل ${payload.giftNameAr} بقيمة $giftCoins',
+            routeName: '/notifications',
+          ),
+        );
+      }
     });
     SocketService().on('follow_request', (data) {
       final ctx = navigatorKey.currentContext;
