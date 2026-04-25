@@ -1740,8 +1740,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
       _socketErrSub = SocketService().errorStream.listen((msg) {
         if (!mounted) return;
 
+        final normalized = msg.trim().toLowerCase();
+        final isReconnectState = normalized.contains('connect') ||
+            normalized.contains('reconnect') ||
+            normalized.contains('transport close') ||
+            normalized.contains('ping timeout');
+
+        final text = isReconnectState
+            ? 'Connecting…'
+            : (msg.isNotEmpty ? msg : 'Socket error');
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Connecting…')),
+          SnackBar(content: Text(text)),
         );
       });
     });
