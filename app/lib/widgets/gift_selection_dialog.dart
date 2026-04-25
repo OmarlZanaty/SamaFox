@@ -58,17 +58,44 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
     'common': Icons.star_border,
     'rare': Icons.star_half,
     'epic': Icons.star,
+    'special': Icons.auto_awesome,
     'RELATION_RING': Icons.favorite,
+    'relation_ring': Icons.favorite,
     'legendary': Icons.workspace_premium,
   };
 
-  final List<String> _categories = [
+  final List<String> _baseCategories = [
     'all',
     'common',
     'rare',
     'epic',
-    'legendary'
+    'special',
+    'legendary',
+    'relation_ring',
   ];
+
+  final Map<String, String> _categoryLabelsAr = {
+    'all': 'الكل',
+    'common': 'عادية',
+    'rare': 'نادرة',
+    'epic': 'ملحمية',
+    'special': 'مميزة',
+    'legendary': 'أسطورية',
+    'relation_ring': 'خاتم الارتباط',
+  };
+
+  final Map<String, String> _giftNameArFallback = const {
+    'rose': 'وردة',
+    'coffee': 'قهوة',
+    'clap': 'تصفيق',
+    'crown': 'تاج',
+    'diamond': 'ماسة',
+    'rocket': 'صاروخ',
+    'heart balloon': 'بالون قلب',
+    'heart': 'قلب',
+    'car': 'سيارة',
+    'ring': 'خاتم',
+  };
 
   @override
   void initState() {
@@ -99,7 +126,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
         _gifts = result.data!;
         _megaGifts = _gifts.where((g) => g.animationKey != null).toList();
         _normalGifts = _gifts.where((g) => g.animationKey == null).toList();
-        _filtered = _normalGifts;
+        _filtered = _gifts;
 
         print("Mega Gifts Loaded: ${_megaGifts.length}"); // Debug print
         _isLoading = false;
@@ -236,14 +263,16 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
 
   /// CATEGORY TABS
   Widget _buildCategoryTabs() {
+    final categories = _buildCategories();
+
     return SizedBox(
       height: 46,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: _categories.length,
+        itemCount: categories.length,
         itemBuilder: (context, index) {
-          final category = _categories[index];
+          final category = categories[index];
           final selected = category == _selectedCategory;
 
           return GestureDetector(
@@ -254,8 +283,10 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
                 if (category == 'all') {
                   _filtered = _gifts;
                 } else {
-                  _filtered =
-                      _gifts.where((g) => g.category == category).toList();
+                  _filtered = _gifts.where((g) {
+                    final giftCategory = (g.category ?? '').toLowerCase().trim();
+                    return giftCategory == category;
+                  }).toList();
                 }
               });
             },
@@ -278,7 +309,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
               ),
               const SizedBox(width: 4),
               Text(
-                category.toUpperCase(),
+                _categoryLabelsAr[category] ?? category,
                 style: TextStyle(
                   color: selected ? Colors.black : Colors.white,
                   fontWeight: FontWeight.bold,
@@ -404,7 +435,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
           const SizedBox(height: 4),
 
           Text(
-            _selectedGift!.displayName,
+            _localizedGiftName(_selectedGift!),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -463,7 +494,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
           const SizedBox(height: 6),
 
           Text(
-            gift.displayName,
+            _localizedGiftName(gift),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -668,7 +699,7 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          "Sent ${_selectedGift!.displayName} x$quantity",
+          "تم إرسال ${_localizedGiftName(_selectedGift!)} ×$quantity",
         ),
       ),
     );
@@ -707,6 +738,15 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
 
     /// ✅ NETWORK IMAGE
     final url = raw.startsWith('/') ? '${AppConfig.apiBaseUrl}$raw' : raw;
+
+    if (url.toLowerCase().endsWith('.svga')) {
+      return Icon(
+        _getGiftIcon(gift.displayName),
+        color: _getCategoryColor(gift.category ?? 'common'),
+        size: 34,
+      );
+    }
+
     if (url.toLowerCase().endsWith('.svg')) {
       return SvgPicture.network(
         url,
@@ -729,6 +769,30 @@ class _GiftSelectionDialogState extends State<GiftSelectionDialog> {
         size: 34,
       ),
     );
+  }
+
+  List<String> _buildCategories() {
+    final fromApi = _gifts
+        .map((g) => (g.category ?? '').toLowerCase().trim())
+        .where((c) => c.isNotEmpty)
+        .toSet();
+
+    final merged = <String>{..._baseCategories, ...fromApi}.toList();
+    merged.sort((a, b) {
+      final ai = _baseCategories.indexOf(a);
+      final bi = _baseCategories.indexOf(b);
+      if (ai == -1 && bi == -1) return a.compareTo(b);
+      if (ai == -1) return 1;
+      if (bi == -1) return -1;
+      return ai.compareTo(bi);
+    });
+    return merged;
+  }
+
+  String _localizedGiftName(Gift gift) {
+    if (gift.nameAr?.trim().isNotEmpty == true) return gift.nameAr!.trim();
+    final fallback = _giftNameArFallback[gift.name.trim().toLowerCase()];
+    return fallback ?? gift.name;
   }
 
   /// detect emoji gifts
