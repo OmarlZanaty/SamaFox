@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 
@@ -203,7 +204,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 14),
                   const Text(
-                    'SoulStar',
+                    'SamaFox',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 48,
@@ -213,12 +214,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const Spacer(flex: 4),
                   _authButton(
                     text: 'Google',
-                    icon: Image.asset(
-                      'assets/images/google_logo.png',
-                      width: 34,
-                      height: 34,
-                      errorBuilder: (context, error, stackTrace) =>
-                          const Icon(Icons.login, size: 30),
+                    icon: SvgPicture.asset(
+                      'assets/images/google_icon.svg',
+                      width: 24,
+                      height: 24,
                     ),
                     onPressed: authState.isLoading ? null : _handleGoogleSignIn,
                   ),
@@ -255,7 +254,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }) {
     return SizedBox(
       width: double.infinity,
-      height: 74,
+      height: 58,
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
@@ -264,7 +263,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(40),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
         ),
         child: Stack(
           alignment: Alignment.center,
@@ -273,7 +272,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: Text(
                 text,
                 style: const TextStyle(
-                  fontSize: 26,
+                  fontSize: 20,
                   fontWeight: FontWeight.w700,
                 ),
               ),
