@@ -44,12 +44,21 @@ const allowedOrigins = (process.env.CORS_ORIGIN ?? '')
   .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
 
+const isLocalDevelopmentOrigin = (origin: string) => {
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === 'localhost' || hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+};
+
 const isOriginAllowed = (origin?: string) => {
   if (!origin) return true; // non-browser clients / same-origin calls
   const normalizedOrigin = normalizeOrigin(origin);
   if (allowedOrigins.length === 0) {
-    // Secure-by-default: block browser cross-origin requests unless explicitly configured.
-    return false;
+    // Keep production locked down, but allow local web testing when env is not production.
+    return process.env.NODE_ENV !== 'production' && isLocalDevelopmentOrigin(normalizedOrigin);
   }
   if (allowedOrigins.includes('*') || allowedOrigins.includes(normalizedOrigin)) return true;
 

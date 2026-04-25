@@ -162,7 +162,11 @@ class ErrorInterceptor extends Interceptor {
         break;
 
       case DioExceptionType.connectionError:
-        errorMessage = 'No internet connection';
+        if (kIsWeb && _looksLikeCorsError(err)) {
+          errorMessage = 'Request blocked by CORS. Allow this web origin on the backend (CORS_ORIGIN).';
+        } else {
+          errorMessage = 'No internet connection';
+        }
         break;
 
       default:
@@ -206,5 +210,18 @@ class ErrorInterceptor extends Interceptor {
       default:
         return 'Error: $statusCode';
     }
+  }
+
+  bool _looksLikeCorsError(DioException err) {
+    final message = [
+      err.message,
+      err.error?.toString(),
+      err.response?.statusMessage,
+    ].whereType<String>().join(' ').toLowerCase();
+
+    return message.contains('xmlhttprequest onerror') ||
+        message.contains('blocked by cors policy') ||
+        message.contains('access-control-allow-origin') ||
+        message.contains('net::err_failed');
   }
 }
