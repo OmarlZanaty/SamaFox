@@ -7,9 +7,11 @@ export const listGifts = async (_req: Request, res: Response) => {
     orderBy: { sortOrder: 'asc' },
     select: {
       id: true,
+      name: true,
       nameAr: true,
       imageUrl: true,
       animationUrl: true,
+      priceCoins: true,
       coinsValue: true,
       sortOrder: true,
     },
