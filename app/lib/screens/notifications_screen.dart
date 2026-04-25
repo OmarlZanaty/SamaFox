@@ -13,17 +13,19 @@ class NotificationsScreen extends ConsumerStatefulWidget {
   ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with SingleTickerProviderStateMixin {
   bool _loading = true;
   List<Map<String, dynamic>> _requests = const [];
   List<Map<String, dynamic>> _relationRequests = const [];
   List<Map<String, dynamic>> _notifications = const [];
   int _unreadCount = 0;
   StreamSubscription<Map<String, dynamic>>? _notificationSub;
+  late final TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     _load();
     _notificationSub = SocketService().notificationStream.listen((_) {
       _load();
@@ -33,6 +35,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   @override
   void dispose() {
     _notificationSub?.cancel();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -140,23 +143,19 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     }
 
     if (type.contains('follow')) {
-      if (!mounted) return;
-      Navigator.pushNamed(context, '/notifications');
+      _tabController.animateTo(1);
       return;
     }
 
     if (type.contains('relation')) {
-      if (!mounted) return;
-      Navigator.pushNamed(context, '/notifications');
+      _tabController.animateTo(2);
       return;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
+    return Scaffold(
         appBar: AppBar(
           title: Text('الإشعارات ${_unreadCount > 0 ? "($_unreadCount)" : ""}'),
           actions: [
@@ -165,7 +164,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               child: const Text('تحديد الكل كمقروء'),
             ),
           ],
-          bottom: const TabBar(
+          bottom: TabBar(
+            controller: _tabController,
             tabs: [
               Tab(text: 'الإشعارات'),
               Tab(text: 'طلبات المتابعة'),
@@ -176,6 +176,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : TabBarView(
+                controller: _tabController,
                 children: [
                   _notifications.isEmpty
                       ? const Center(child: Text('لا توجد إشعارات حالياً'))
@@ -189,6 +190,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                             final isRead = item['isRead'] == true;
                             final type = (item['type'] as String?) ?? 'system';
                             final data = Map<String, dynamic>.from((item['data'] as Map?) ?? const {});
+                            final followId = (data['followId'] as num?)?.toInt() ?? 0;
+                            final isFollowRequest = type == 'follow_request' && followId > 0;
                             final relationId = (data['relationId'] as num?)?.toInt() ?? 0;
                             final isRelationRequest = type == 'relation_request' && relationId > 0;
                             return Card(
@@ -198,29 +201,46 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                                 leading: Icon(_iconForType(type)),
                                 title: Text(_titleForNotification(item)),
                                 subtitle: Text(_bodyForNotification(item)),
-                                trailing: isRelationRequest
+                                trailing: isFollowRequest
                                     ? SizedBox(
                                         width: 170,
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             TextButton(
-                                              onPressed: () => _respondRelation(relationId, 'accept'),
+                                              onPressed: () => _respond(followId, 'accept'),
                                               child: const Text('قبول'),
                                             ),
                                             TextButton(
-                                              onPressed: () => _respondRelation(relationId, 'reject'),
+                                              onPressed: () => _respond(followId, 'reject'),
                                               child: const Text('رفض'),
                                             ),
                                           ],
                                         ),
                                       )
-                                    : (isRead
-                                        ? null
-                                        : TextButton(
-                                            onPressed: id == 0 ? null : () => _markRead(id),
-                                            child: const Text('مقروء'),
-                                          )),
+                                    : isRelationRequest
+                                        ? SizedBox(
+                                            width: 170,
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                TextButton(
+                                                  onPressed: () => _respondRelation(relationId, 'accept'),
+                                                  child: const Text('قبول'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => _respondRelation(relationId, 'reject'),
+                                                  child: const Text('رفض'),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        : (isRead
+                                            ? null
+                                            : TextButton(
+                                                onPressed: id == 0 ? null : () => _markRead(id),
+                                                child: const Text('مقروء'),
+                                              )),
                               ),
                             );
                           },
@@ -285,7 +305,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                         ),
                 ],
               ),
-      ),
-    );
+      );
   }
 }
