@@ -39,10 +39,14 @@ app.set('trust proxy', true);
 
 const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase();
 
-const allowedOrigins = (process.env.CORS_ORIGIN ?? '')
+const allowedOrigins = (process.env.CORS_ORIGIN ?? process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
+
+const allowLocalhostInProduction = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.CORS_ALLOW_LOCALHOST ?? '').toLowerCase()
+);
 
 const isLocalDevelopmentOrigin = (origin: string) => {
   try {
@@ -56,6 +60,9 @@ const isLocalDevelopmentOrigin = (origin: string) => {
 const isOriginAllowed = (origin?: string) => {
   if (!origin) return true; // non-browser clients / same-origin calls
   const normalizedOrigin = normalizeOrigin(origin);
+  if (isLocalDevelopmentOrigin(normalizedOrigin)) {
+    return process.env.NODE_ENV !== 'production' || allowLocalhostInProduction;
+  }
   if (allowedOrigins.length === 0) {
     // Keep production locked down, but allow local web testing when env is not production.
     return process.env.NODE_ENV !== 'production' && isLocalDevelopmentOrigin(normalizedOrigin);
