@@ -252,15 +252,13 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
 
                     // ===== ACTIVITY ITEM =====
                     final e = item.event!;
-                    final username = (e.username == null || e.username!.trim().isEmpty) ? 'مستخدم' : e.username!.trim();
-                    final nationality = (e.countryCode == null || e.countryCode!.trim().isEmpty) ? 'غير محدد' : e.countryCode!.trim().toUpperCase();
-                    final genderRaw = (e.gender ?? '').trim().toLowerCase();
-                    final gender = genderRaw == 'male'
-                        ? 'ذكر'
-                        : genderRaw == 'female'
-                            ? 'أنثى'
-                            : 'غير محدد';
-                    final line = '${e.text} | $gender | $nationality | $username';
+                    final username = (e.username == null || e.username!.trim().isEmpty)
+                        ? 'مستخدم'
+                        : e.username!.trim();
+                    final icon = e.type == RoomEventType.join
+                        ? Icons.login_rounded
+                        : Icons.card_giftcard_rounded;
+                    final line = '$username ${e.text}';
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
@@ -277,7 +275,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.bolt_rounded, color: Colors.amber, size: 16),
+                            Icon(icon, color: Colors.amber, size: 16),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
