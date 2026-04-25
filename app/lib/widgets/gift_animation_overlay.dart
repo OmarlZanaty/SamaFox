@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../config/app_config.dart';
 import '../services/gift_animation_service.dart';
 import 'package:confetti/confetti.dart';
@@ -233,14 +234,36 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     }
 
     if (raw.startsWith('assets/')) {
+      if (raw.toLowerCase().endsWith('.svg')) {
+        return SvgPicture.asset(raw, fit: BoxFit.contain);
+      }
       return Image.asset(raw, fit: BoxFit.cover);
     }
 
     final url = raw.startsWith('/') ? '${AppConfig.apiBaseUrl}$raw' : raw;
 
+    if (url.toLowerCase().endsWith('.svga')) {
+      return const Center(
+        child: Icon(Icons.card_giftcard, size: 78, color: Colors.white),
+      );
+    }
+
+    if (url.toLowerCase().endsWith('.svg')) {
+      return SvgPicture.network(
+        url,
+        fit: BoxFit.contain,
+        placeholderBuilder: (_) => const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
+      errorWidget: (_, __, ___) => const Center(
+        child: Icon(Icons.card_giftcard, size: 78, color: Colors.white),
+      ),
     );
   }
 
