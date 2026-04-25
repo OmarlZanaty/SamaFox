@@ -22,15 +22,25 @@ import '../config/app_config.dart';
 
 class AuthRepository {
   late final ApiService _apiService;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: ['email', 'profile'],
-    serverClientId: AppConfig.googleServerClientId,
-    clientId: kIsWeb ? AppConfig.googleWebClientId : null,
-  );
+  late final GoogleSignIn _googleSignIn = _buildGoogleSignIn();
 
 
   AuthRepository() {
     _apiService = ApiService(DioClient.dio);
+  }
+
+  GoogleSignIn _buildGoogleSignIn() {
+    if (kIsWeb) {
+      return GoogleSignIn(
+        scopes: ['email', 'profile'],
+        clientId: AppConfig.googleWebClientId,
+      );
+    }
+
+    return GoogleSignIn(
+      scopes: ['email', 'profile'],
+      serverClientId: AppConfig.googleServerClientId,
+    );
   }
 
   // ============================================
