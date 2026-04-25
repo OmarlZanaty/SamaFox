@@ -5,6 +5,7 @@
 // UPDATED VERSION - Integrates with existing code
 // Replace your existing auth_repository.dart with this version
 
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -24,6 +25,7 @@ class AuthRepository {
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
     serverClientId: AppConfig.googleServerClientId,
+    clientId: kIsWeb ? AppConfig.googleWebClientId : null,
   );
 
 
