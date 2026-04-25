@@ -13,7 +13,7 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
   StreamSubscription<GlobalNotificationEvent>? _sub;
   GlobalNotificationEvent? _current;
   Timer? _hideTimer;
-  static const Duration _visibleDuration = Duration(seconds: 7);
+  static const Duration _visibleDuration = Duration(seconds: 12);
 
   @override
   void initState() {
@@ -59,38 +59,71 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
                           Navigator.pushNamed(context, route);
                         }
                       },
-                      child: Container(
-                        margin: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xCC1C1B34),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.white24),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.notifications_active_rounded, color: Colors.amber),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    event.title,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                                  ),
-                                  Text(
-                                    event.message,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                  ),
-                                ],
-                              ),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 760),
+                        child: Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xEE2A255B), Color(0xEE1A2A4F)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
-                          ],
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white30),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x66000000),
+                                blurRadius: 12,
+                                offset: Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.notifications_active_rounded, color: Colors.amber, size: 24),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      event.title,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      event.message,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        height: 1.25,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'اضغط لفتح الإشعارات',
+                                      style: TextStyle(
+                                        color: Colors.amberAccent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
