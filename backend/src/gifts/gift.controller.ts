@@ -11,11 +11,18 @@ export const listGifts = async (_req: Request, res: Response) => {
       nameAr: true,
       imageUrl: true,
       animationUrl: true,
+      category: true,
+      isActive: true,
       priceCoins: true,
       coinsValue: true,
       sortOrder: true,
     },
   });
-
-  return res.json({ success: true, data: gifts });
+  return res.json({
+    success: true,
+    data: gifts.map((gift) => ({
+      ...gift,
+      coinsValue: gift.coinsValue > 0 ? gift.coinsValue : gift.priceCoins,
+    })),
+  });
 };

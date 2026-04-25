@@ -46,7 +46,11 @@ class Gift {
   });
 
   String get displayName => (nameAr?.trim().isNotEmpty == true) ? nameAr! : name;
-  int get displayCoinsValue => coinsValue ?? priceCoins;
+  int get displayCoinsValue {
+    final coins = coinsValue;
+    if (coins != null && coins > 0) return coins;
+    return priceCoins;
+  }
 
   factory Gift.fromJson(Map<String, dynamic> json) => _$GiftFromJson(json);
   Map<String, dynamic> toJson() => _$GiftToJson(this);
