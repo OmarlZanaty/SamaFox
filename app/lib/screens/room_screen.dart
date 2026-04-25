@@ -137,7 +137,31 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
   final Map<int, GlobalKey> _seatKeys = {};
   final GlobalKey _overlayKey = GlobalKey();
   DateTime? _lastGiftSent;
-  final Set<String> _receivedGiftEvents = {};
+  final Map<String, DateTime> _receivedGiftEvents = {};
+  static const Duration _giftEventDedupWindow = Duration(seconds: 2);
+
+  bool _isDuplicateGiftEvent(GiftSentEvent event) {
+    final now = DateTime.now();
+    _receivedGiftEvents.removeWhere(
+      (_, seenAt) => now.difference(seenAt) > _giftEventDedupWindow,
+    );
+
+    final key = [
+      event.fromUserId ?? 0,
+      event.toUserId ?? 0,
+      event.giftId ?? 0,
+      event.quantity ?? 1,
+      (event.giftName ?? '').trim().toLowerCase(),
+    ].join('|');
+
+    final seenAt = _receivedGiftEvents[key];
+    if (seenAt != null && now.difference(seenAt) <= _giftEventDedupWindow) {
+      return true;
+    }
+
+    _receivedGiftEvents[key] = now;
+    return false;
+  }
   VideoPlayerController? _seatVideoController;
   bool _showSeatVideo = false;
 
@@ -1782,10 +1806,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
     _giftSub = SocketService().giftStream.listen((event) {
       // ✅🔥 STEP 4 FIX — ADD ACTIVITY EVENT
-      final key = "${event.fromUserId}-${event.giftId}-${DateTime.now().millisecondsSinceEpoch}";
-
-      if (_receivedGiftEvents.contains(key)) return;
-      _receivedGiftEvents.add(key);
+      if (_isDuplicateGiftEvent(event)) return;
 
       final giftName = (event.giftName ?? '').trim();
       final senderName = (event.fromUserName ?? '').trim();
