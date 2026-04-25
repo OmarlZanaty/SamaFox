@@ -17,6 +17,11 @@ class AppConfig {
     defaultValue: '62771458278-73dh3jp1t12udcs1gp1e6atuga6ie5lg.apps.googleusercontent.com',
   );
 
+  static const String googleWebClientId = String.fromEnvironment(
+    'GOOGLE_WEB_CLIENT_ID',
+    defaultValue: '62771458278-73dh3jp1t12udcs1gp1e6atuga6ie5lg.apps.googleusercontent.com',
+  );
+
 
   // App Configuration
   static const String appName = 'SamaFox';
