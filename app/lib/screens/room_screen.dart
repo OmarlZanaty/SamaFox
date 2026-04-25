@@ -1757,6 +1757,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     });
 
     SocketService().userEventStream.listen((event) {
+      if (event.roomId != widget.roomId) return;
       final notifier = ref.read(roomControllerProvider(widget.roomId).notifier);
 
       if (event.type == UserEventType.joined) {
@@ -1766,6 +1767,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
             name: event.username,
           ),
         );
+        notifier.addActivity(
+          'انضم إلى الغرفة',
+          RoomEventType.join,
+          username: event.username,
+        );
       }
 
       if (event.type == UserEventType.left) {
@@ -1774,24 +1780,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     });
 
     _giftSub = SocketService().giftStream.listen((event) {
-      final fromUserId = event.fromUserId;
-      final toUserId = event.toUserId;
-      final isGiftToOtherUser = fromUserId != null &&
-          toUserId != null &&
-          fromUserId != toUserId;
-
       // ✅🔥 STEP 4 FIX — ADD ACTIVITY EVENT
       final key = "${event.fromUserId}-${event.giftId}-${DateTime.now().millisecondsSinceEpoch}";
 
       if (_receivedGiftEvents.contains(key)) return;
       _receivedGiftEvents.add(key);
 
-      if (isGiftToOtherUser) {
-        final giftName = (event.giftName ?? '').trim();
+      final giftName = (event.giftName ?? '').trim();
+      final senderName = (event.fromUserName ?? '').trim();
+      if (senderName.isNotEmpty) {
         ref.read(roomControllerProvider(widget.roomId).notifier).addActivity(
           giftName.isEmpty ? 'أرسل هدية 🎁' : 'أرسل هدية $giftName 🎁',
           RoomEventType.gift,
-          username: event.fromUserName,          // ✅ ADD
+          username: senderName,
           // coins: event.giftPriceCoins,           // ✅ ADD (if field exists on your event model)
         );
       }
@@ -1922,17 +1923,46 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
   late final RoomLiveNotifier _live;
 
   void _showGlobalGiftBroadcast(Map<String, dynamic> payload) {
+    final giftCoins = _extractGiftCoins(payload);
+    if (giftCoins <= 5000) return;
+
     final overlay = Overlay.of(context);
     late final OverlayEntry entry;
 
     entry = OverlayEntry(
       builder: (_) => _GlobalGiftBroadcastOverlay(
         payload: payload,
+        giftCoins: giftCoins,
         onDismissed: () => entry.remove(),
       ),
     );
 
     overlay.insert(entry);
+  }
+
+  int _extractGiftCoins(Map<String, dynamic> payload) {
+    final candidates = <dynamic>[
+      payload['coinsValue'],
+      payload['giftCoins'],
+      payload['coins'],
+      payload['priceCoins'],
+      payload['price_coins'],
+      payload['totalCoins'],
+      payload['amount'],
+    ];
+
+    for (final raw in candidates) {
+      final n = _toInt(raw);
+      if (n != null && n > 0) return n;
+    }
+    return 0;
+  }
+
+  int? _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
   }
 
 
@@ -4779,10 +4809,12 @@ Widget _gradientStat(String title, String subtitle, Color color) {
 
 class _GlobalGiftBroadcastOverlay extends StatefulWidget {
   final Map<String, dynamic> payload;
+  final int giftCoins;
   final VoidCallback onDismissed;
 
   const _GlobalGiftBroadcastOverlay({
     required this.payload,
+    required this.giftCoins,
     required this.onDismissed,
   });
 
@@ -4793,17 +4825,31 @@ class _GlobalGiftBroadcastOverlay extends StatefulWidget {
 class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final Animation<Offset> _slide;
+  late final Animation<double> _fade;
+  late final Animation<double> _pulse;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 450),
-      reverseDuration: const Duration(milliseconds: 300),
-    )..forward();
+      duration: const Duration(milliseconds: 700),
+      reverseDuration: const Duration(milliseconds: 420),
+    );
 
-    Future.delayed(const Duration(seconds: 4), () async {
+    _slide = Tween<Offset>(
+      begin: const Offset(0, -1.2),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _pulse = Tween<double>(begin: 0.96, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
+    );
+
+    _controller.forward();
+
+    Future.delayed(const Duration(seconds: 5), () async {
       if (!mounted) return;
       await _controller.reverse();
       if (mounted) widget.onDismissed();
@@ -4823,57 +4869,89 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
     final giftName = _text('giftNameAr', 'هدية');
     final roomName = _text('roomName', '');
     final giftImageUrl = _url(_text('giftImageUrl', ''));
-    final senderAvatar = _url(_text('senderAvatar', ''));
-    final receiverAvatar = _url(_text('receiverAvatar', ''));
+    final title = roomName.isEmpty ? 'إعلان عالمي' : 'إعلان عالمي • $roomName';
+    final body = '$senderName أرسل $giftName إلى $receiverName';
 
-    return Positioned.fill(
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 6,
+      left: 10,
+      right: 10,
       child: Material(
         color: Colors.transparent,
-        child: FadeTransition(
-          opacity: _controller,
-          child: Container(
-            color: Colors.black.withOpacity(0.72),
+        child: SlideTransition(
+          position: _slide,
+          child: FadeTransition(
+            opacity: _fade,
             child: ScaleTransition(
-              scale: CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-              child: Center(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 20),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF111827),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.amber.withOpacity(0.75)),
+              scale: _pulse,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF3D0A56), Color(0xFF7A1FA2), Color(0xFFF59E0B)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        roomName.isEmpty ? 'هدية كبيرة' : roomName,
-                        style: const TextStyle(color: Colors.white70, fontSize: 14),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    _gift(giftImageUrl),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          _avatar(senderAvatar, senderName),
-                          const SizedBox(width: 14),
-                          _gift(giftImageUrl),
-                          const SizedBox(width: 14),
-                          _avatar(receiverAvatar, receiverName),
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            body,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '$senderName أرسلت $giftName لـ $receiverName',
-                        textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white30),
+                      ),
+                      child: Text(
+                        '${widget.giftCoins} 🪙',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -4883,47 +4961,23 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
     );
   }
 
-  Widget _avatar(String url, String name) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        CircleAvatar(
-          radius: 28,
-          backgroundColor: Colors.white12,
-          backgroundImage: url.isEmpty ? null : NetworkImage(url),
-          child: url.isEmpty ? Text(name.isEmpty ? '?' : name[0]) : null,
-        ),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: 72,
-          child: Text(
-            name,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _gift(String url) {
     return Container(
-      width: 76,
-      height: 76,
-      padding: const EdgeInsets.all(8),
-      decoration: const BoxDecoration(
-        color: Colors.white10,
+      width: 44,
+      height: 44,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
         shape: BoxShape.circle,
+        border: Border.all(color: Colors.white70, width: 1),
       ),
       child: url.isEmpty
-          ? const Icon(Icons.card_giftcard, color: Colors.amber, size: 42)
+          ? const Icon(Icons.card_giftcard, color: Colors.amber, size: 24)
           : Image.network(
               url,
               fit: BoxFit.contain,
               errorBuilder: (_, __, ___) =>
-                  const Icon(Icons.card_giftcard, color: Colors.amber, size: 42),
+                  const Icon(Icons.card_giftcard, color: Colors.amber, size: 24),
             ),
     );
   }
