@@ -252,15 +252,15 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
 
                     // ===== ACTIVITY ITEM =====
                     final e = item.event!;
-                    final username = (e.username == null || e.username!.trim().isEmpty) ? 'Unknown' : e.username!.trim();
-                    final nationality = (e.countryCode == null || e.countryCode!.trim().isEmpty) ? '--' : e.countryCode!.trim().toUpperCase();
+                    final username = (e.username == null || e.username!.trim().isEmpty) ? 'مستخدم' : e.username!.trim();
+                    final nationality = (e.countryCode == null || e.countryCode!.trim().isEmpty) ? 'غير محدد' : e.countryCode!.trim().toUpperCase();
                     final genderRaw = (e.gender ?? '').trim().toLowerCase();
                     final gender = genderRaw == 'male'
-                        ? '♂'
+                        ? 'ذكر'
                         : genderRaw == 'female'
-                            ? '♀'
-                            : '--';
-                    final line = '$username | $nationality | $gender | ${e.text}';
+                            ? 'أنثى'
+                            : 'غير محدد';
+                    final line = '${e.text} | $gender | $nationality | $username';
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
