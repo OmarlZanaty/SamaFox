@@ -1757,7 +1757,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     });
 
     SocketService().userEventStream.listen((event) {
-      if (event.roomId != widget.roomId) return;
+      // Some backends omit roomId on user join/leave. Treat 0 as "current room".
+      if (event.roomId != 0 && event.roomId != widget.roomId) return;
       final notifier = ref.read(roomControllerProvider(widget.roomId).notifier);
 
       if (event.type == UserEventType.joined) {
