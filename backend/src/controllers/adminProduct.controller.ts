@@ -68,7 +68,24 @@ export const deleteProduct = async (req: Request, res: Response) => {
     const item = await prisma.item.findUnique({ where: { id } });
     if (!item) return res.status(404).json({ message: "Product not found" });
 
-    await prisma.item.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.user.updateMany({
+        where: { activeFrameId: id },
+        data: { activeFrameId: null, avatarFrameUrl: null },
+      });
+
+      await tx.room.updateMany({
+        where: { activeThemeId: id },
+        data: { activeThemeId: null },
+      });
+
+      await tx.userItem.deleteMany({
+        where: { itemId: id },
+      });
+
+      await tx.item.delete({ where: { id } });
+    });
+
     return res.json({ message: "Product deleted successfully" });
   } catch (error) {
     console.error("deleteProduct error:", error);
