@@ -7,12 +7,20 @@ import bcrypt from 'bcrypt';
 export const getRooms = async (req: Request, res: Response) => {
   try {
     const { page = 1, limit = 20, type } = req.query;
+    const userId = req.userId;
     const safePage = Math.max(1, Math.floor(Number(page) || 1));
     const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 20)));
     const skip = (safePage - 1) * safeLimit;
 
     const where = {
-      isActive: true,
+      ...(userId
+          ? {
+              OR: [
+                { isActive: true },
+                { ownerId: userId },
+              ],
+            }
+          : { isActive: true }),
       ...(type && { type: String(type) })
     };
 
@@ -65,6 +73,7 @@ export const getRooms = async (req: Request, res: Response) => {
         backgroundImageUrl: room.backgroundImageUrl,
         type: room.type,
         maxSeats: room.maxSeats,
+        ownerId: room.ownerId,
         owner: room.owner,
         membersCount: room._count.members,
 members: room.members.map(m => ({
