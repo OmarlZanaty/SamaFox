@@ -1810,9 +1810,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
       final giftName = (event.giftName ?? '').trim();
       final senderName = (event.fromUserName ?? '').trim();
+      final receiverName = (event.toUserName ?? '').trim();
       if (senderName.isNotEmpty) {
+        final giftText = giftName.isEmpty ? 'هدية 🎁' : 'هدية $giftName 🎁';
+        final activityText = receiverName.isEmpty
+            ? 'أرسل $giftText'
+            : 'أرسل $giftText إلى $receiverName';
         ref.read(roomControllerProvider(widget.roomId).notifier).addActivity(
-          giftName.isEmpty ? 'أرسل هدية 🎁' : 'أرسل هدية $giftName 🎁',
+          activityText,
           RoomEventType.gift,
           username: senderName,
           // coins: event.giftPriceCoins,           // ✅ ADD (if field exists on your event model)
