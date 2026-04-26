@@ -165,7 +165,8 @@ class FramedAvatar extends StatelessWidget {
 
   String _absoluteUrl(String raw) {
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    if (!raw.startsWith('/')) return raw;
-    return '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '')}$raw';
+    final base = AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+    if (raw.startsWith('/')) return '$base$raw';
+    return '$base/$raw';
   }
 }

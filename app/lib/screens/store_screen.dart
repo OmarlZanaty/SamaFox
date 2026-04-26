@@ -82,6 +82,8 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
         await service.activateFrame(token, frame['id'].toString());
       }
 
+      // Keep auth user in sync so room seat payload uses the latest active frame.
+      await ref.read(authStateProvider.notifier).refreshUser();
       await loadMyFrames();
 
       if (!mounted) return;
