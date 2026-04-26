@@ -4911,7 +4911,7 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF3D0A56), Color(0xFF7A1FA2), Color(0xFFF59E0B)],
+                    colors: [Color(0xFF3D0A56), Color(0xFF7A1FA2), Color(0xFF4C1D95)],
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                   ),
@@ -4940,6 +4940,7 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
                               color: Colors.white,
                               fontWeight: FontWeight.w800,
                               fontSize: 13,
+                              decoration: TextDecoration.none,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -4951,6 +4952,7 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
                               color: Colors.white,
                               fontWeight: FontWeight.w600,
                               fontSize: 13,
+                              decoration: TextDecoration.none,
                             ),
                           ),
                         ],
@@ -4970,6 +4972,7 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
                           fontSize: 12,
+                          decoration: TextDecoration.none,
                         ),
                       ),
                     ),
