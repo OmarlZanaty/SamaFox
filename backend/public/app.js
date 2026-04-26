@@ -641,12 +641,9 @@ window.loadProducts = async function () {
 window.deleteProduct = async function (id) {
   if (!confirm("هل أنت متأكد من حذف المنتج؟")) return;
   try {
-    const res = await fetch(getApiBase() + "/admin/products/" + id, {
+    await apiFetch("/admin/products/" + id, {
       method: "DELETE",
-      credentials: "include",
     });
-    const text = await res.text();
-    if (!res.ok) throw new Error(text);
     showToast("✓ تم حذف المنتج");
     await loadProducts();
   } catch (e) {
@@ -666,14 +663,10 @@ window.addProduct = async function () {
     formData.append("price_coins", document.getElementById("p_price").value);
     formData.append("file", file);
 
-    const res = await fetch(getApiBase() + "/admin-products/products", {
+    await apiFetch("/admin-products/products", {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-
-    const text = await res.text();
-    if (!res.ok) throw new Error(text);
 
     showToast("✓ تم رفع المنتج");
     await loadProducts();
