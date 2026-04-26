@@ -668,7 +668,21 @@ class SocketService {
     _socket!.on('global_gift_broadcast', (data) {
       try {
         if (data is Map) {
-          _globalGiftBroadcastController.add(Map<String, dynamic>.from(data));
+          final payload = Map<String, dynamic>.from(data);
+          final rawCoins = payload['coinsValue'] ??
+              payload['giftCoins'] ??
+              payload['coins'] ??
+              payload['priceCoins'] ??
+              payload['price_coins'] ??
+              (payload['giftEvent'] is Map
+                  ? (payload['giftEvent'] as Map)['coinsValue']
+                  : null);
+          final coins = rawCoins is num
+              ? rawCoins.toInt()
+              : int.tryParse(rawCoins?.toString() ?? '') ?? 0;
+          if (coins > 5000) {
+            _globalGiftBroadcastController.add(payload);
+          }
         }
       } catch (e) {
         AppLogger.error('Global gift broadcast parse error: $e');

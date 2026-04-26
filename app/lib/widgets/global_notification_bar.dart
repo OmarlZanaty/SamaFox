@@ -112,16 +112,6 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
                                         decoration: TextDecoration.none,
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    const Text(
-                                      'اضغط لفتح الإشعارات',
-                                      style: TextStyle(
-                                        color: Colors.amberAccent,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        decoration: TextDecoration.none,
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
