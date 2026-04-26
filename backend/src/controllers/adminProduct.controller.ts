@@ -23,7 +23,12 @@ export const createProduct = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "يجب رفع صورة لهذا النوع" });
     }
 
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const configuredBaseUrl = String(process.env.BASE_URL || "").trim().replace(/\/+$/, "");
+    const forwardedProto = (String(req.headers["x-forwarded-proto"] || "").split(",")[0] || "").trim();
+    const protocol = forwardedProto || req.protocol || "http";
+    const host = req.get("host") || "";
+    const requestBaseUrl = host ? `${protocol}://${host}` : "";
+    const baseUrl = configuredBaseUrl || requestBaseUrl || `http://localhost:${process.env.PORT || 3000}`;
     const assetUrl = `${baseUrl}/uploads/${file.filename}`;
 
     const mappedType =

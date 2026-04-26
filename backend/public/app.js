@@ -125,12 +125,16 @@ function getApiBaseCandidates() {
   if (!base) return [];
 
   const normalized = base.replace(/\/+$/, "");
-  const candidates = [normalized];
+  const candidates = [];
 
   if (normalized.endsWith("/api/v1")) {
+    candidates.push(normalized);
     candidates.push(normalized.slice(0, -"/api/v1".length));
   } else {
+    // Prefer versioned APIs first to avoid noisy 404s on deployments
+    // that only expose routes under /api/v1.
     candidates.push(normalized + "/api/v1");
+    candidates.push(normalized);
   }
 
   return [...new Set(candidates.filter(Boolean))];
