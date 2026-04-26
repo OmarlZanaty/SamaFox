@@ -726,7 +726,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     final userId = _safeInt(map['userId']) ?? _safeInt(map['user_id']);
     final username = (map['username'] ?? map['name'])?.toString();
     final avatarUrl = (map["avatarUrl"] ?? map["avatar_url"])?.toString();
-    final avatarFrameUrl = (map["avatarFrameUrl"] ?? map["avatar_frame_url"])?.toString(); // ADD THIS LINE
+    final avatarFrameUrl = (map["avatarFrameUrl"] ?? map["avatar_frame_url"] ?? map["frameImageUrl"])?.toString(); // ADD THIS LINE
     final level = _safeInt(map["level"]) ?? 0;
     final isMuted = (map["isMuted"] is bool) ? map["isMuted"] as bool : null;
     print("🔍 parsed avatarFrameUrl: $avatarFrameUrl"); // ADD THIS
