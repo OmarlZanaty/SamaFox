@@ -135,18 +135,17 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
     _globalGiftSub = SocketService().globalGiftBroadcastStream.listen((data) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
+      final giftCoins = _extractGiftCoins(data);
+      if (giftCoins <= 5000) return;
       final payload = MegaGiftPayload.fromJson(data);
       MegaGiftOverlay.show(context, payload);
-      final giftCoins = _extractGiftCoins(data);
-      if (giftCoins > 5000) {
-        GlobalNotificationService.instance.show(
-          GlobalNotificationEvent(
-            title: 'هدية عالمية ضخمة',
-            message: '${payload.senderName} أرسل ${payload.giftNameAr} بقيمة $giftCoins',
-            routeName: '/notifications',
-          ),
-        );
-      }
+      GlobalNotificationService.instance.show(
+        GlobalNotificationEvent(
+          title: 'هدية عالمية ضخمة',
+          message: '${payload.senderName} أرسل ${payload.giftNameAr} بقيمة $giftCoins',
+          routeName: '/notifications',
+        ),
+      );
     });
     SocketService().on('follow_request', (data) {
       final ctx = navigatorKey.currentContext;
