@@ -55,7 +55,7 @@ class SeatCard extends StatelessWidget {
                 fallbackText: username,
                 frame: (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
                     ? AvatarFrame.fromUrl(seat.avatarFrameUrl!)
-                    : AvatarFrame.fromAsset('assets/frames/default_seat_frame.png'),
+                    : AvatarFrame.fromAsset('assets/frames/gold_wings.png'),
                 glow: seat.isSpeaking,
               ),
               if (locked)
