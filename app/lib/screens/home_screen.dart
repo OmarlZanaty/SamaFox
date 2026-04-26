@@ -390,12 +390,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                           sliver: SliverList(
                             delegate: SliverChildListDelegate([
 
-                              // 🦊 SamaFox FULL 2x2 block
+                              // 🦊 SamaFox + top rooms block
                               LayoutBuilder(
                                 builder: (context, constraints) {
                                   final totalWidth = constraints.maxWidth;
                                   final spacing = 6.0;
                                   final itemWidth = (totalWidth - spacing * 2) / 3;
+
+                                  if (rooms.length == 1) {
+                                    return SizedBox(
+                                      height: itemWidth * 2 + spacing,
+                                      child: Row(
+                                        children: [
+                                          SizedBox(
+                                            width: itemWidth * 2 + spacing,
+                                            height: double.infinity,
+                                            child: _SamaFoxRoom(
+                                              onTap: () {
+                                                Navigator.pushNamed(context, '/room', arguments: "samafox");
+                                              },
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          SizedBox(
+                                            width: itemWidth,
+                                            height: itemWidth,
+                                            child: _RoomTile(
+                                              stringsOnline: strings.online,
+                                              room: rooms[0],
+                                              isFeatured: false,
+                                              onTap: () => Navigator.pushNamed(context, '/room', arguments: rooms[0].id),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
 
                                   return SizedBox(
                                     height: itemWidth * 2 + spacing,
@@ -449,7 +479,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                               GridView.builder(
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
-                                itemCount: rooms.length - 2,
+                                itemCount: rooms.length > 2 ? rooms.length - 2 : 0,
                                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: 3,
                                   mainAxisSpacing: 6,
