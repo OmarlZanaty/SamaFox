@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'dart:async';
 import '../services/follow_service.dart';
 import '../services/notification_service.dart';
@@ -60,13 +61,43 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
   }
 
   Future<void> _respond(int followId, String action) async {
-    await FollowService.respondToFollow(followId, action);
-    await _load();
+    try {
+      await FollowService.respondToFollow(followId, action);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(action == 'accept' ? 'تم قبول الطلب' : 'تم رفض الطلب')),
+        );
+      }
+    } catch (e) {
+      final message = _extractErrorMessage(e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } finally {
+      await _load();
+    }
   }
 
   Future<void> _handleRelationResponse(int relationId, String action) async {
-    await RelationService.respondToRelation(relationId, action);
-    await _load();
+    try {
+      await RelationService.respondToRelation(relationId, action);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(action == 'accept' ? 'تم قبول الطلب' : 'تم رفض الطلب')),
+        );
+      }
+    } catch (e) {
+      final message = _extractErrorMessage(e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
+    } finally {
+      await _load();
+    }
   }
 
   Future<void> _markAllRead() async {
@@ -76,11 +107,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
 
   Future<void> _markRead(int id) async {
     await NotificationService.markRead(id);
-    await _load();
-  }
-
-  Future<void> _respondRelation(int relationId, String action) async {
-    await RelationService.respondToRelation(relationId, action);
     await _load();
   }
 
@@ -120,6 +146,17 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
     final latin = RegExp(r'[A-Za-z]');
     final arabic = RegExp(r'[\u0600-\u06FF]');
     return latin.hasMatch(value) && !arabic.hasMatch(value);
+  }
+
+  String _extractErrorMessage(Object error) {
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map && data['message'] is String) {
+        return data['message'] as String;
+      }
+      return error.message ?? 'حدث خطأ أثناء تنفيذ الطلب';
+    }
+    return 'حدث خطأ أثناء تنفيذ الطلب';
   }
 
   Future<void> _openNotification(Map<String, dynamic> item) async {
@@ -189,11 +226,6 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                             final id = (item['id'] as num?)?.toInt() ?? 0;
                             final isRead = item['isRead'] == true;
                             final type = (item['type'] as String?) ?? 'system';
-                            final data = Map<String, dynamic>.from((item['data'] as Map?) ?? const {});
-                            final followId = (data['followId'] as num?)?.toInt() ?? 0;
-                            final isFollowRequest = type == 'follow_request' && followId > 0;
-                            final relationId = (data['relationId'] as num?)?.toInt() ?? 0;
-                            final isRelationRequest = type == 'relation_request' && relationId > 0;
                             return Card(
                               color: isRead ? null : Colors.deepPurple.withOpacity(0.2),
                               child: ListTile(
@@ -201,46 +233,12 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                                 leading: Icon(_iconForType(type)),
                                 title: Text(_titleForNotification(item)),
                                 subtitle: Text(_bodyForNotification(item)),
-                                trailing: isFollowRequest
-                                    ? SizedBox(
-                                        width: 170,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            TextButton(
-                                              onPressed: () => _respond(followId, 'accept'),
-                                              child: const Text('قبول'),
-                                            ),
-                                            TextButton(
-                                              onPressed: () => _respond(followId, 'reject'),
-                                              child: const Text('رفض'),
-                                            ),
-                                          ],
-                                        ),
-                                      )
-                                    : isRelationRequest
-                                        ? SizedBox(
-                                            width: 170,
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                TextButton(
-                                                  onPressed: () => _respondRelation(relationId, 'accept'),
-                                                  child: const Text('قبول'),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () => _respondRelation(relationId, 'reject'),
-                                                  child: const Text('رفض'),
-                                                ),
-                                              ],
-                                            ),
-                                          )
-                                        : (isRead
-                                            ? null
-                                            : TextButton(
-                                                onPressed: id == 0 ? null : () => _markRead(id),
-                                                child: const Text('مقروء'),
-                                              )),
+                                trailing: (isRead
+                                    ? null
+                                    : TextButton(
+                                        onPressed: id == 0 ? null : () => _markRead(id),
+                                        child: const Text('مقروء'),
+                                      )),
                               ),
                             );
                           },
