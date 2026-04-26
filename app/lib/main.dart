@@ -95,6 +95,10 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
     _socketService = SocketService();
     _globalNotificationSub = _socketService.notificationStream.listen((data) {
       final type = (data['type'] as String? ?? '').toLowerCase();
+      final giftCoins = _extractGiftCoins(data);
+      if (type.contains('gift') && giftCoins <= 5000) {
+        return;
+      }
       final title = (data['title'] as String? ?? '').trim();
       final body = (data['body'] as String? ?? '').trim();
 
