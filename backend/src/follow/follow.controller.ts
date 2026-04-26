@@ -51,11 +51,14 @@ export const sendFollowRequest = async (req: AuthReq, res: Response) => {
 export const respondToFollow = async (req: AuthReq, res: Response) => {
   const userId = req.userId!;
   const followId = Number(req.params.followId);
-  const { action } = req.body;
+  const action = String(req.body?.action ?? '').toLowerCase();
+  const normalizedAction = action === 'refuse' ? 'reject' : action;
   if (!Number.isInteger(followId) || followId <= 0) {
     return res.status(400).json({ success: false, message: 'Invalid follow id' });
   }
-  if (!['accept', 'reject', 'block'].includes(action)) return res.status(400).json({ success: false, message: 'Invalid action' });
+  if (!['accept', 'reject', 'block'].includes(normalizedAction)) {
+    return res.status(400).json({ success: false, message: 'Invalid action' });
+  }
 
   const follow = await prisma.follow.findUnique({ where: { id: followId } });
   if (!follow || follow.followingId !== userId) return res.status(403).json({ success: false, message: 'Not your request' });
@@ -64,9 +67,9 @@ export const respondToFollow = async (req: AuthReq, res: Response) => {
   }
 
   const statusMap = { accept: 'ACCEPTED', reject: 'REJECTED', block: 'BLOCKED' } as const;
-  await prisma.follow.update({ where: { id: followId }, data: { status: statusMap[action as keyof typeof statusMap] } });
+  await prisma.follow.update({ where: { id: followId }, data: { status: statusMap[normalizedAction as keyof typeof statusMap] } });
 
-  if (action === 'accept') {
+  if (normalizedAction === 'accept') {
     const acceptor = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, avatarUrl: true, displayId: true } });
     io.to(`user:${follow.followerId}`).emit('follow_accepted', { byUser: acceptor });
     if (acceptor) {
@@ -79,7 +82,7 @@ export const respondToFollow = async (req: AuthReq, res: Response) => {
         data: { followId },
       });
     }
-  } else if (action === 'reject') {
+  } else if (normalizedAction === 'reject') {
     const rejector = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
     io.to(`user:${follow.followerId}`).emit('follow_rejected', { followId, byUserId: userId });
     if (rejector) {
@@ -92,10 +95,10 @@ export const respondToFollow = async (req: AuthReq, res: Response) => {
         data: { followId },
       });
     }
-  } else if (action === 'block') {
+  } else if (normalizedAction === 'block') {
     io.to(`user:${follow.followerId}`).emit('follow_blocked', { followId, byUserId: userId });
   }
-  return res.json({ success: true, data: { followId, status: statusMap[action as keyof typeof statusMap] } });
+  return res.json({ success: true, data: { followId, status: statusMap[normalizedAction as keyof typeof statusMap] } });
 };
 
 export const unfollow = async (req: AuthReq, res: Response) => {
