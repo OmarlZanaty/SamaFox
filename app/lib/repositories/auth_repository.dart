@@ -6,6 +6,7 @@
 // Replace your existing auth_repository.dart with this version
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -27,6 +28,21 @@ class AuthRepository {
 
   AuthRepository() {
     _apiService = ApiService(DioClient.dio);
+  }
+
+  String _mapGoogleSignInError(Object error) {
+    if (error is PlatformException) {
+      switch (error.code) {
+        case 'sign_in_canceled':
+          return 'Google Sign-In cancelled';
+        case 'network_error':
+          return 'Network error. Please check your connection and try again.';
+        case 'sign_in_failed':
+          return 'Google Sign-In failed. Please retry.';
+      }
+    }
+
+    return error.toString();
   }
 
   GoogleSignIn _buildGoogleSignIn() {
@@ -247,8 +263,23 @@ class AuthRepository {
     try {
       print('🔐 [AUTH REPO] Starting Google Sign-In...');
 
-      // Trigger Google Sign-In flow
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      // Clear stale Google session first (some devices keep an invalid cached state).
+      await _googleSignIn.signOut();
+
+      GoogleSignInAccount? googleUser;
+      try {
+        // Trigger Google Sign-In flow
+        googleUser = await _googleSignIn.signIn();
+      } on PlatformException catch (e) {
+        // sign_in_failed can be caused by stale Play Services session state.
+        if (e.code == 'sign_in_failed') {
+          print('⚠️ [AUTH REPO] sign_in_failed, trying disconnect + retry...');
+          await _googleSignIn.disconnect();
+          googleUser = await _googleSignIn.signIn();
+        } else {
+          rethrow;
+        }
+      }
 
       if (googleUser == null) {
         print('❌ [AUTH REPO] Google Sign-In cancelled by user');
@@ -286,7 +317,7 @@ class AuthRepository {
       return Result.success(response);
     } catch (e) {
       print('❌ [AUTH REPO] Google Sign-In error: $e');
-      return Result.error(e.toString());
+      return Result.error(_mapGoogleSignInError(e));
     }
   }
 
