@@ -1844,9 +1844,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
         final isSelfGift = (start - end).distance < 20;
 
         final distance = (start - end).distance;
-        final duration = (2000 + distance * 1.2).clamp(2600, 4500).toInt();
+        final duration = (2200 + distance * 1.35).clamp(2800, 5200).toInt();
 
         if (isSelfGift) {
+
+          final secondLegDuration =
+              (duration * 0.65).round().clamp(1600, 3200).toInt();
 
           _giftAnim.enqueueGift(
             GiftAnimationData(
@@ -1880,7 +1883,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
               quantity: event.quantity ?? 1,
               comboCount: _comboCount,
               timestamp: DateTime.now(),
-              durationMs: 900,
+              durationMs: secondLegDuration,
               animationType: megaType,
               isMega: megaType != GiftAnimationType.normal,
             ),
@@ -1900,7 +1903,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
             quantity: event.quantity ?? 1,
             comboCount: _comboCount,
             timestamp: DateTime.now(),
-            durationMs: 1400,
+            durationMs: duration,
             animationType: megaType,
             isMega: megaType != GiftAnimationType.normal,
           );
