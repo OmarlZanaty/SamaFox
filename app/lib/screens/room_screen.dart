@@ -3761,11 +3761,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
       return;
     }
 
-    final frame = (seat.avatarFrameUrl != null &&
-        seat.avatarFrameUrl!.isNotEmpty)
-        ? AvatarFrame.fromUrl(seat.avatarFrameUrl!)
-        : AvatarFrame.fromType(AvatarFrameType.samafoxDefault);
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3848,32 +3843,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                             ], stops: const [0.0, 0.5, 0.75]),
                           ),
                         ),
-                        // gold wings frame from DB or asset
+                        // Show frame only when user has an activated one
                         if (seat.avatarFrameUrl != null &&
                             seat.avatarFrameUrl!.isNotEmpty)
                           FramedAvatar(
                             size: 160,
                             avatarSize: 84,
-                            frame: (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
-                                ? AvatarFrame.fromUrl(seat.avatarFrameUrl!)
-                                : AvatarFrame.fromAsset('assets/frames/gold_wings.png'), // always use wings as default
+                            frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
                             imageUrl: seat.avatarUrl,
                             fallbackText: seat.username,
                             glow: false,
                           )
                         else
-                          Stack(alignment: Alignment.center, children: [
-                            Image.asset('assets/frames/gold_wings.png',
-                                width: 160, height: 160),
-                            CircleAvatar(
-                              radius: 42,
-                              backgroundImage: seat.avatarUrl != null
-                                  ? NetworkImage(seat.avatarUrl!) : null,
-                              child: seat.avatarUrl == null
-                                  ? const Icon(Icons.person, color: Colors.white, size: 36)
-                                  : null,
-                            ),
-                          ]),
+                          CircleAvatar(
+                            radius: 42,
+                            backgroundImage: seat.avatarUrl != null
+                                ? NetworkImage(seat.avatarUrl!)
+                                : null,
+                            child: seat.avatarUrl == null
+                                ? const Icon(Icons.person, color: Colors.white, size: 36)
+                                : null,
+                          ),
                       ],
                     ),
                   ),
