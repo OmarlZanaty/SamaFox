@@ -2898,8 +2898,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
               ),
 
             Positioned(
-              top: 20,
-              left: 72, // ✅ move to left
+              top: 74,
+              left: 12,
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
