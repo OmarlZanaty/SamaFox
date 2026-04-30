@@ -168,6 +168,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
   final Queue<String> _seatEffectQueue = Queue();
   bool _isPlayingEffect = false;
   String? _activeSeatEffectUrl;
+  String? _lastPlayedSeatEffectUrl;
+  DateTime? _lastPlayedSeatEffectAt;
+  static const Duration _seatEffectDedupWindow = Duration(seconds: 2);
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _playedEntrance = false;
@@ -221,12 +224,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
   }
 
   Future<void> _playSeatBackgroundVideo(String videoUrl) async {
+    final normalizedUrl = videoUrl.trim();
+    if (normalizedUrl.isEmpty) return;
+
+    final now = DateTime.now();
+    if (_lastPlayedSeatEffectUrl == normalizedUrl &&
+        _lastPlayedSeatEffectAt != null &&
+        now.difference(_lastPlayedSeatEffectAt!) <= _seatEffectDedupWindow) {
+      return;
+    }
+
+    _lastPlayedSeatEffectUrl = normalizedUrl;
+    _lastPlayedSeatEffectAt = now;
     _isPlayingEffect = true;
 
     _seatVideoController?.dispose();
 
-    _seatVideoController =
-        VideoPlayerController.network(videoUrl);
+    _seatVideoController = VideoPlayerController.network(normalizedUrl);
 
     await _seatVideoController!.initialize();
 
