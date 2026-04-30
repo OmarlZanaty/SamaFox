@@ -150,6 +150,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+
+  void _handleFacebookSignIn() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تسجيل الدخول عبر فيسبوك قريباً')),
+    );
+  }
+
+  void _handleSnapchatSignIn() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تسجيل الدخول عبر سناب شات قريباً')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -216,17 +229,39 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     text: 'Google',
                     icon: SvgPicture.asset(
                       'assets/images/google_icon.svg',
-                      width: 24,
-                      height: 24,
+                      width: 18,
+                      height: 18,
                     ),
                     onPressed: authState.isLoading ? null : _handleGoogleSignIn,
+                  ),
+                  const SizedBox(height: 18),
+                  _authButton(
+                    text: 'Facebook',
+                    icon: SvgPicture.asset(
+                      'assets/images/facebook_icon.svg',
+                      width: 18,
+                      height: 18,
+                    ),
+                    onPressed:
+                        authState.isLoading ? null : _handleFacebookSignIn,
+                  ),
+                  const SizedBox(height: 18),
+                  _authButton(
+                    text: 'Snapchat',
+                    icon: SvgPicture.asset(
+                      'assets/images/snapchat_icon.svg',
+                      width: 18,
+                      height: 18,
+                    ),
+                    onPressed:
+                        authState.isLoading ? null : _handleSnapchatSignIn,
                   ),
                   const SizedBox(height: 18),
                   _authButton(
                     text: 'تسجيل الدخول بالايميل',
                     icon: const Icon(
                       Icons.email_outlined,
-                      size: 30,
+                      size: 20,
                       color: Color(0xFF3D7FF0),
                     ),
                     onPressed: authState.isLoading ? null : _openEmailLoginSheet,
