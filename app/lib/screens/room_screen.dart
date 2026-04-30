@@ -370,21 +370,30 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
   Future<void> _loadActiveItems() async {
     final token = await StorageService.getAccessToken();
-    final items = await StoreService().getInventory(token!);
-
-    InventoryItem? activeSeatEffect;
-
-    try {
-      activeSeatEffect = items.firstWhere(
-            (e) => e.type == "seat_effect" && e.isActive,
-      );
-    } catch (_) {
-      activeSeatEffect = null;
+    if (token == null || token.isEmpty) {
+      print('INVENTORY ERROR: No token available');
+      return;
     }
+    try {
+      final items = await StoreService().getInventory(token);
 
-    if (activeSeatEffect != null) {
-      _activeSeatEffectUrl = activeSeatEffect.fileUrl; // ✅ save globally
+      print('SELECTED TYPE: seat_effect');
+      print('ITEM TYPES: ${items.map((e) => e.type).toList()}');
 
+      InventoryItem? activeSeatEffect;
+      try {
+        activeSeatEffect = items.firstWhere(
+              (e) => e.type == "seat_effect" && e.isActive,
+        );
+      } catch (_) {
+        activeSeatEffect = null;
+      }
+
+      if (activeSeatEffect != null) {
+        _activeSeatEffectUrl = activeSeatEffect.fileUrl;
+      }
+    } catch (e) {
+      print('INVENTORY ERROR: $e');
     }
   }
 

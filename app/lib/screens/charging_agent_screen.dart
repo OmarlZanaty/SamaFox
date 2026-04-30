@@ -70,14 +70,14 @@ class ChargingAgentScreen extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: _CreateAgencyButton(
-                      label: 'إنشاء وكالة شحن',
+                      label: ' وكالة شحن',
                       onTap: () => _handleCreateAgencyRequest(context, ref, type: 'CHARGING'),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: _CreateAgencyButton(
-                      label: 'إنشاء وكالة استضافة',
+                      label: 'وكالة استضافة',
                       onTap: () => _handleCreateAgencyRequest(context, ref, type: 'HOSTING'),
                     ),
                   ),

@@ -263,19 +263,26 @@ class AuthRepository {
     try {
       print('🔐 [AUTH REPO] Starting Google Sign-In...');
 
-      // Clear stale Google session first (some devices keep an invalid cached state).
-      await _googleSignIn.signOut();
+      // ✅ Safely sign out stale session
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {}
 
       GoogleSignInAccount? googleUser;
       try {
-        // Trigger Google Sign-In flow
         googleUser = await _googleSignIn.signIn();
       } on PlatformException catch (e) {
-        // sign_in_failed can be caused by stale Play Services session state.
         if (e.code == 'sign_in_failed') {
           print('⚠️ [AUTH REPO] sign_in_failed, trying disconnect + retry...');
-          await _googleSignIn.disconnect();
-          googleUser = await _googleSignIn.signIn();
+          try {
+            await _googleSignIn.disconnect();
+          } catch (_) {}
+          try {
+            googleUser = await _googleSignIn.signIn();
+          } catch (retryError) {
+            print('❌ [AUTH REPO] Retry also failed: $retryError');
+            return Result.error(_mapGoogleSignInError(retryError));
+          }
         } else {
           rethrow;
         }
@@ -288,10 +295,7 @@ class AuthRepository {
 
       print('✅ [AUTH REPO] Google user signed in: ${googleUser.email}');
 
-      // Get Google authentication
-      final GoogleSignInAuthentication googleAuth =
-      await googleUser.authentication;
-
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       final String? idToken = googleAuth.idToken;
 
       if (idToken == null) {
@@ -301,7 +305,6 @@ class AuthRepository {
 
       print('✅ [AUTH REPO] ID token received');
 
-      // Send to backend
       final response = await _apiService.googleLogin(
         GoogleLoginRequest(idToken: idToken),
       );
@@ -313,7 +316,6 @@ class AuthRepository {
       );
 
       print('✅ [AUTH REPO] Google Sign-In successful');
-
       return Result.success(response);
     } catch (e) {
       print('❌ [AUTH REPO] Google Sign-In error: $e');

@@ -12,6 +12,7 @@ class AppConfig {
     'GOOGLE_OAUTH_URL',
     defaultValue: 'http://samafox.duckdns.org:3000/api/v1/auth/google',
   );
+
   static const String googleServerClientId = String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
     defaultValue: '62771458278-73dh3jp1t12udcs1gp1e6atuga6ie5lg.apps.googleusercontent.com',
@@ -21,6 +22,7 @@ class AppConfig {
     'GOOGLE_WEB_CLIENT_ID',
     defaultValue: '62771458278-73dh3jp1t12udcs1gp1e6atuga6ie5lg.apps.googleusercontent.com',
   );
+
 
 
   // App Configuration

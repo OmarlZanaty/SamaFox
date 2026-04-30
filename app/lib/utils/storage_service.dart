@@ -55,26 +55,25 @@ class StorageService {
   }
 
   static Future<String?> getAccessToken() async {
-    final p = await SharedPreferences.getInstance();
+    // ✅ Always use cached instance if available, avoids null during early calls
+    final p = _prefs ?? await SharedPreferences.getInstance();
+    // cache it for future sync calls
+    _prefs ??= p;
 
-    // Try both keys in case of inconsistency
-    String? token = p.getString(AppConfig.accessTokenKey) ?? p.getString('access_token');
+    String? token = p.getString(AppConfig.accessTokenKey)
+        ?? p.getString('access_token');
 
     if (token == null) return null;
 
     token = token.trim();
 
-    // Remove surrounding double quotes
     if (token.startsWith('"') && token.endsWith('"') && token.length > 2) {
       token = token.substring(1, token.length - 1);
     }
-
-    // Remove surrounding single quotes
     if (token.startsWith("'") && token.endsWith("'") && token.length > 2) {
       token = token.substring(1, token.length - 1);
     }
 
-    // Final validation — must be a 3-part JWT
     if (token.split('.').length != 3) {
       print('⚠️ Stored token is malformed, clearing');
       await p.remove(AppConfig.accessTokenKey);

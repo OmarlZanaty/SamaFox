@@ -363,12 +363,29 @@ class SocketService {
     io.options = opts;
   }
 
-  void updateToken(String token) {
-    final jwt = _cleanJwt(token);
+  void updateToken(String newToken) {
+    final jwt = _cleanJwt(newToken);
     if (jwt.isEmpty) return;
 
+    // validate before reconnecting
+    final parts = jwt.split('.');
+    if (parts.length != 3) {
+      AppLogger.error('updateToken aborted: invalid JWT');
+      return;
+    }
+
     _token = jwt;
-    disconnect();
+
+    // ✅ Reconnect so socket uses new token in auth handshake
+    if (_socket != null) {
+      try {
+        _socket!.clearListeners();
+        _socket!.disconnect();
+        _socket!.dispose();
+      } catch (_) {}
+      _socket = null;
+    }
+
     connect(jwt);
   }
 
