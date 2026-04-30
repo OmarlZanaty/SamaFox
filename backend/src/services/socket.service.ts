@@ -488,27 +488,7 @@ await prisma.roomMember.upsert({
     isMuted: true,
   });
 
-  try {
-
-  const effects = await prisma.userItem.findMany({
-  where: { userId: uid, isActive: true },
-  include: { item: { select: { assetUrl: true } } },
-});
-
-if (effects.length > 0) {
-  const videoUrl = effects[0]?.item.assetUrl;
-  io.to(`room:${rid}`).emit('seat_effect', {
-    userId: uid,
-    seatNumber: sn,
-    video: videoUrl,
-  });
-}
-
-
-console.log("DEBUG USER:", u);
-} catch (err) {
-  console.error("Seat effect error:", err);
-}
+  console.log("DEBUG USER:", u);
   // optional: if you use voice list as “on mic”, don’t add here until unmuted
   // getVoiceSet(rid).add(uid);
   // await emitVoiceUsers(io, rid);
