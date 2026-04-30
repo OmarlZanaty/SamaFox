@@ -2923,34 +2923,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                 ),
               ),
 
-            Positioned(
-              top: 74,
-              left: 12,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: () {
-                    print("👆 CLICKED USERS");
-                    _openUsersList(context, state);
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.remove_red_eye, color: Colors.white70, size: 16),
-                        const SizedBox(width: 5),
-                        Text('${state.voiceUserIds.length}')
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
 
 // ===== Seat video overlay =====
             if (_showSeatVideo && _seatVideoController != null)
@@ -3062,6 +3034,29 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                           ),
                         ),
                       ),
+
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () => _openUsersList(context, state),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.remove_red_eye, color: Colors.white70, size: 16),
+                                const SizedBox(width: 5),
+                                Text('${state.voiceUserIds.length}'),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
 
                       // ✅ ADD before the close IconButton in the header Row
                       if (!_isMinimized)
