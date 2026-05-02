@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import prisma from "../utils/prisma";
 import { authMiddleware } from "../middlewares/auth.middleware";
 
@@ -6,7 +7,14 @@ const router = Router();
 
 router.use(authMiddleware);
 
-router.post("/buy", async (req: any, res) => {
+// ✅ FIX: rate limit the buy endpoint to prevent purchase spam
+const buyLimiter = rateLimit({
+  windowMs: 10 * 1000, // 10 seconds
+  max: 5,
+  message: { success: false, message: 'Too many purchase requests. Slow down.' },
+});
+
+router.post("/buy", buyLimiter, async (req: any, res) => {
   try {
     const userId = req.userId!;
     const { productId } = req.body;
@@ -36,12 +44,8 @@ router.post("/buy", async (req: any, res) => {
 
       try {
         const userItem = await tx.userItem.create({
-          data: {
-            userId,
-            itemId,
-          },
+          data: { userId, itemId },
         });
-
         return { ok: true as const, userItemId: userItem.id };
       } catch (err: any) {
         if (err?.code === "P2002") {
@@ -53,7 +57,7 @@ router.post("/buy", async (req: any, res) => {
 
     if (!purchaseResult.ok) {
       return res.status(purchaseResult.status).json({
-        success: purchaseResult.status === 200,
+        success: false, // ✅ FIX: was `purchaseResult.status === 200` — always false for errors anyway but logically wrong
         message: purchaseResult.message,
       });
     }
@@ -101,17 +105,22 @@ router.post('/activate', async (req: any, res) => {
     const { inventoryId } = req.body;
     if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
 
-    await prisma.userItem.updateMany({
-      where: { userId },
-      data: { isActive: false },
-    });
-
-    const updated = await prisma.userItem.updateMany({
-      where: { id: String(inventoryId), userId },
-      data: { isActive: true },
-    });
-    if (updated.count === 0) {
-      return res.status(404).json({ success: false, message: 'Inventory item not found for user' });
+    // ✅ FIX: wrap both writes in a single transaction to prevent race condition
+    // where two concurrent requests deactivate each other's item
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.userItem.updateMany({ where: { userId }, data: { isActive: false } });
+        const updated = await tx.userItem.updateMany({
+          where: { id: String(inventoryId), userId },
+          data: { isActive: true },
+        });
+        if (updated.count === 0) throw new Error('NOT_FOUND');
+      });
+    } catch (e: any) {
+      if (e?.message === 'NOT_FOUND') {
+        return res.status(404).json({ success: false, message: 'Inventory item not found for user' });
+      }
+      throw e;
     }
 
     return res.json({ success: true });

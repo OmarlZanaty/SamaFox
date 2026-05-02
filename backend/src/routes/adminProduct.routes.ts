@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import prisma from "../utils/prisma";
-import { createProduct } from "../controllers/adminProduct.controller";
+import { createProduct, deleteProduct } from "../controllers/adminProduct.controller"; // ✅ FIX: import cascade-safe deleteProduct
 import { authMiddleware } from "../middlewares/auth.middleware";
 
 const router = Router();
@@ -22,13 +22,25 @@ const adminMiddleware = async (req: any, res: any, next: any) => {
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, "uploads/"),
   filename: (_req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-    cb(null, `${Date.now()}-${safeName}`);
+    // ✅ FIX: force extension from MIME type — never trust original extension
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/webp': '.webp',
+      'image/gif': '.gif',
+      'video/mp4': '.mp4',
+      'video/webm': '.webm',
+    };
+    const ext = mimeToExt[file.mimetype] ?? '.bin';
+    cb(null, `${Date.now()}${ext}`);
   },
 });
 
 const upload = multer({ storage });
 
 router.post("/products", authMiddleware, adminMiddleware, upload.single("file"), createProduct);
+
+// ✅ FIX: register cascade-safe delete (clears activeFrameId, removes userItems before deleting item)
+router.delete("/products/:id", authMiddleware, adminMiddleware, deleteProduct);
 
 export default router;

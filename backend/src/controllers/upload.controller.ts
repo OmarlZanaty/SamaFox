@@ -99,7 +99,11 @@ if (!userId) {
  * Delete an image from the uploads directory
  * This can be used to clean up old images when they are replaced
  */
+
+
+
 export const deleteImage = async (req: Request, res: Response) => {
+
   try {
     const { filename } = req.params;
 
