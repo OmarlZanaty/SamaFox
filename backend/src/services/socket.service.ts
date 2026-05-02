@@ -661,11 +661,20 @@ socket.on('leave_room', async ({ roomId }: any) => {
     // ----------------------------
     // Chat
     // ----------------------------
-    socket.on('send_message', async ({ roomId, username, message }: any) => {
+    socket.on('send_message', async ({ roomId, message }: any) => {
       const uid = socket.userId;
       const rid = toInt(roomId);
-      const clean = message?.toString().trim();
+      // ✅ FIX: limit message length to prevent DB/client abuse
+      const MAX_MSG = 500;
+      const clean = message?.toString().trim().slice(0, MAX_MSG);
       if (!uid || !rid || !clean) return;
+
+      // ✅ FIX: fetch username from DB — never trust client-provided username (was spoofable)
+      const user = await prisma.user.findUnique({
+        where: { id: uid },
+        select: { name: true, avatarUrl: true },
+      });
+      const username = user?.name ?? 'Unknown';
 
       const msg = await prisma.roomMessage.create({
         data: {
@@ -684,7 +693,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
         username,
         message: clean,
         timestamp: Date.now(),
-        avatar: null,
+        avatar: user?.avatarUrl ?? null,
       });
     });
 
@@ -788,10 +797,20 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   const u = await prisma.user.findUnique({
     where: { id: targetId },
-    select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, level: true },
+    // ✅ FIX: also join activeFrame — was missing so approved users showed no frame
+    // unlike take_seat and join_room which both do this correctly
+    select: {
+      id: true,
+      name: true,
+      avatarUrl: true,
+      avatarFrameUrl: true,
+      activeFrame: { select: { assetUrl: true } },
+      level: true,
+    },
   });
 
-  const avatarFrameUrl = u?.avatarFrameUrl ?? null;
+  // ✅ FIX: prefer activeFrame.assetUrl (same priority as take_seat)
+  const avatarFrameUrl = u?.activeFrame?.assetUrl ?? u?.avatarFrameUrl ?? null;
 
   io.to(`room:${rid}`).emit('seat_occupied', {
   seatNumber: seatNum,
@@ -1285,9 +1304,10 @@ if (gift.coinsValue >= MEGA_GIFT_THRESHOLD) {
     // ----------------------------
     // Voice presence (ONE SET ONLY)
     // ----------------------------
-    socket.on('user_joined_voice', async ({ roomId, userId }: any) => {
+    socket.on('user_joined_voice', async ({ roomId }: any) => {
       const rid = Number(roomId);
-      const uid = Number(userId ?? socket.userId);
+      // ✅ FIX: always use socket.userId — never trust client-provided userId (was IDOR)
+      const uid = socket.userId;
       if (!rid || !uid) return;
 
       // ✅ ensure membership in room to broadcast reliably (race safe)
@@ -1297,9 +1317,6 @@ if (gift.coinsValue >= MEGA_GIFT_THRESHOLD) {
 
       getVoiceSet(rid).add(uid);
       await emitVoiceUsers(io, rid);
-
-      
-
     });
 
     

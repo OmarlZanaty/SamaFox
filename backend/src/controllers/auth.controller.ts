@@ -49,6 +49,7 @@ const isConfiguredGoogleClientId = (value?: string): value is string => {
   return true;
 };
 
+
 const getGoogleAudiences = (): string[] => {
   const ids = [
     process.env.GOOGLE_CLIENT_ID,
@@ -164,6 +165,77 @@ export const register = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'Registration failed', error: e?.message || 'Unknown' });
   }
 };
+
+// ------------------------------------
+// Facebook login (mobile)
+// ------------------------------------
+// ------------------------------------
+// Facebook login (mobile)
+// ------------------------------------
+interface FacebookData {
+  id: string;
+  name?: string;
+  email?: string;
+  picture?: {
+    data?: {
+      url?: string;
+    };
+  };
+  error?: any;
+}
+
+export const facebookLogin = async (req: Request, res: Response) => {
+  const { facebookToken } = req.body;
+
+  try {
+    if (!facebookToken) return res.status(400).json({ success: false, message: 'facebookToken required' });
+
+    // Verify token with Facebook Graph API
+    const fbResponse = await fetch(`https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${facebookToken}` );
+    const fbData = (await fbResponse.json()) as FacebookData;
+
+    if (!fbData || fbData.error) {
+      return res.status(400).json({ success: false, message: 'Invalid Facebook token', error: fbData.error });
+    }
+
+    const { email, name, id: fbId } = fbData;
+    const picture = fbData.picture?.data?.url || null;
+
+    // Use email as unique identifier, or fallback to facebook ID if email is not provided
+    const userEmail = email || `${fbId}@facebook.com`;
+
+    let user = await prisma.user.findUnique({ where: { email: userEmail } });
+
+    if (!user) {
+      user = await prisma.$transaction(async (tx) => {
+        return createUserWithDisplayId(tx, {
+          name: name || 'Facebook User',
+          email: userEmail,
+          // Note: If 'avatarUrl' caused an error, check your Prisma schema.
+          // It's likely called 'avatarUrl' or similar.
+          // I'm using 'avatarUrl' here, but change it to the correct field name from your User model.
+          avatarUrl: picture,
+          isVerified: true,
+        });
+      });
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Facebook login successful',
+      accessToken,
+      refreshToken,
+      user: formatUserResponse(user),
+    });
+  } catch (e: any) {
+    console.error('facebookLogin error:', e);
+    return res.status(500).json({ success: false, message: 'Facebook login failed', error: e?.message || 'Unknown' });
+  }
+};
+
+
 
 // ------------------------------------
 // Login (email + password)

@@ -14,26 +14,43 @@ if (!fs.existsSync(uploadsDir)) {
   console.log('📁 Created uploads directory:', uploadsDir);
 }
 
+// ✅ FIX: map allowed MIME types to safe extensions — never trust the original extension
+const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+
 // Configure multer storage
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
+  destination: (_req, _file, cb) => {
     cb(null, uploadsDir);
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const nameWithoutExt = path.basename(file.originalname, ext);
-    const sanitizedName = nameWithoutExt.replace(/[^a-zA-Z0-9]/g, '_');
-    cb(null, `${sanitizedName}-${uniqueSuffix}${ext}`);
+    // ✅ FIX: force extension from MIME type — ignore file.originalname extension entirely
+    const ext = ALLOWED_IMAGE_TYPES[file.mimetype] ?? '.bin';
+    cb(null, `upload-${uniqueSuffix}${ext}`);
   }
 });
 
-// Configure multer with file size limit
+// ✅ FIX: add fileFilter — reject anything not in the allowed MIME map
+const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
+  if (ALLOWED_IMAGE_TYPES[file.mimetype]) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Unsupported file type: ${file.mimetype}. Only JPEG, PNG, WebP and GIF are allowed.`));
+  }
+};
+
+// Configure multer with file size limit and type validation
 const upload = multer({
-  storage: storage,
+  storage,
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
+  },
+  fileFilter,
 });
 
 router.post('/avatar', authenticate, upload.single('avatar'), uploadAvatar);

@@ -15,9 +15,6 @@ function extractToken(req: Request): string | null {
   const h = req.headers.authorization;
   if (h && h.startsWith('Bearer ')) return h.slice('Bearer '.length).trim();
 
-  const q = req.query?.token as string | undefined;
-  if (q && q.length > 10) return q;
-
   const c1 = (req as any).cookies?.access_token as string | undefined;
   if (c1 && c1.length > 10) return c1;
 

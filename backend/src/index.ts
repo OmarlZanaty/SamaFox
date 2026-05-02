@@ -33,7 +33,11 @@ import followRoutes from './follow/follow.routes';
 import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
 
+import helmet from 'helmet';
+
 const app: Application = express();
+
+app.use(helmet());
 
 app.set('trust proxy', true);
 
