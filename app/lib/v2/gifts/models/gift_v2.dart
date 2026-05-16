@@ -190,7 +190,9 @@ class GiftV2Catalog {
 
   const GiftV2Catalog({required this.version, required this.byTier});
 
-  List<GiftV2> get all => GiftTier.values.expand((t) => byTier[t] ?? const []).toList();
+  List<GiftV2> get all => GiftTier.values
+      .expand<GiftV2>((t) => byTier[t] ?? <GiftV2>[])
+      .toList();
 
   factory GiftV2Catalog.fromJson(Map<String, dynamic> json) {
     final raw = (json['gifts'] as Map<String, dynamic>?) ?? const {};
