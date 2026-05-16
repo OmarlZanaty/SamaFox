@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -43,6 +43,8 @@ model User {
   roomMessages             RoomMessage[]             @relation("RoomMessageSender")
   sentGifts                GiftLog[]                 @relation("GiftSender")
   receivedGifts            GiftLog[]                 @relation("GiftReceiver")
+  sentGiftsV2              GiftV2Transaction[]       @relation("GiftV2Sender")
+  receivedGiftsV2          GiftV2Transaction[]       @relation("GiftV2Recipient")
   sentMessages             Message[]                 @relation("MessageSender")
   receivedMessages         Message[]                 @relation("MessageReceiver")
   relationshipFollowers    Relationship[]            @relation("Following")
@@ -119,6 +121,7 @@ model Room {
   members         RoomMember[]
   messages        RoomMessage[]
   gifts           GiftLog[]
+  giftsV2         GiftV2Transaction[] @relation("GiftV2Room")
   reports         Report[]
   activeTheme     Item?            @relation(fields: [activeThemeId], references: [id])
   gameSessions    GameSession[]
@@ -890,4 +893,109 @@ model DirectMessage {
 
   @@index([conversationId, createdAt])
   @@index([senderId])
+}
+
+// ============================================
+// GIFT SYSTEM V2 — production gift catalog
+// Lives in parallel to legacy `gifts` / `gift_logs` tables.
+// PostgreSQL-only: uses Json columns and cuid string IDs.
+// ============================================
+
+enum GiftFormat {
+  SVG_CSS
+  VIDEO
+}
+
+enum GiftTier {
+  SMALL
+  MEDIUM
+  LARGE
+  LEGENDARY
+}
+
+enum GiftAuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  ACTIVATE
+  DEACTIVATE
+  REORDER
+}
+
+model GiftV2 {
+  id               String     @id @default(cuid())
+  name             String
+  nameAr           String?
+  iconUrl          String
+  format           GiftFormat
+  animationHtml    String?    @db.Text
+  animationUrl     String?
+  videoHasAlpha    Boolean    @default(false)
+  fireworksEnabled Boolean    @default(false)
+  fireworksColors  Json?
+  coinCost         Int
+  tier             GiftTier
+  animationMs      Int        @default(3000)
+  isComboEligible  Boolean    @default(true)
+  broadcastGlobal  Boolean    @default(false)
+  isActive         Boolean    @default(true)
+  sortOrder        Int        @default(0)
+  category         String?
+  createdBy        Int?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  transactions GiftV2Transaction[]
+
+  @@index([tier, isActive, sortOrder])
+  @@index([category, isActive])
+  @@map("gifts_v2")
+}
+
+model GiftV2Transaction {
+  id          String   @id @default(cuid())
+  senderId    Int
+  recipientId Int
+  roomId      Int?
+  giftId      String
+  quantity    Int      @default(1)
+  totalCoins  Int
+  comboKey    String?
+  comboCount  Int      @default(1)
+  createdAt   DateTime @default(now())
+
+  sender    User   @relation("GiftV2Sender", fields: [senderId], references: [id])
+  recipient User   @relation("GiftV2Recipient", fields: [recipientId], references: [id])
+  gift      GiftV2 @relation(fields: [giftId], references: [id])
+  room      Room?  @relation("GiftV2Room", fields: [roomId], references: [id])
+
+  @@index([roomId, createdAt])
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
+  @@map("gift_v2_transactions")
+}
+
+model GiftV2Broadcast {
+  id            String   @id @default(cuid())
+  transactionId String   @unique
+  fromRoomId    Int?
+  giftId        String
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("gift_v2_broadcasts")
+}
+
+model GiftV2AdminAudit {
+  id        String          @id @default(cuid())
+  adminId   Int
+  giftId    String?
+  action    GiftAuditAction
+  diff      Json?
+  createdAt DateTime        @default(now())
+
+  @@index([giftId, createdAt])
+  @@index([adminId, createdAt])
+  @@map("gift_v2_admin_audits")
 }

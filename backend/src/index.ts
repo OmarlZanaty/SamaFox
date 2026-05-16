@@ -32,6 +32,9 @@ import { resolvePublicDir } from './utils/publicDir';
 import followRoutes from './follow/follow.routes';
 import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
+import giftV2Routes from './v2/gifts/routes';
+import giftV2AdminRoutes from './v2/gifts/admin.routes';
+import { setGiftIo } from './v2/gifts/controller';
 
 import helmet from 'helmet';
 
@@ -152,6 +155,21 @@ app.use('/upload', uploadRoutes); // backward-compatible path
 app.use('/api/v1/room-admin', roomAdminRoutes);
 app.use('/api/messages', messageRoutes); // ✅ same router
 
+// Gift System V2 (parallel to legacy /api/v1/gifts)
+app.use('/api/v2/gifts', giftV2Routes);
+app.use('/api/v2/admin/gifts', giftV2AdminRoutes);
+const giftAssetsDir =
+  process.env.GIFT_ASSETS_DIR?.trim() || path.join(process.cwd(), 'public', 'assets');
+app.use('/assets', express.static(giftAssetsDir, {
+  maxAge: '30d',
+  setHeaders: (res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  },
+}));
+app.use('/gifts-admin', express.static(path.join(publicDir, 'gifts-admin'), {
+  maxAge: '1h',
+}));
+
 // health
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', message: 'SamaFox API is running' });
@@ -170,6 +188,7 @@ const io = new Server(httpServer, {
 });
 
 initializeSocketHandlers(io);
+setGiftIo(io);
 
 // error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
