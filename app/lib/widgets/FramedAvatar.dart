@@ -22,7 +22,7 @@ class AvatarFrame {
       type: AvatarFrameType.none,
       url: url,
       frameAsset: null,
-      innerScale: 0.62,
+      innerScale: 0.60,
     );
   }
 
@@ -72,6 +72,7 @@ class FramedAvatar extends StatelessWidget {
       height: size,
       child: Stack(
         alignment: Alignment.center,
+        clipBehavior: Clip.none, // ✅ allows frame to overflow outside
         children: [
           if (glow)
             Container(
@@ -89,11 +90,15 @@ class FramedAvatar extends StatelessWidget {
               ),
             ),
           SizedBox(
-            width: avatarSize,
-            height: avatarSize,
+            width: frame != null ? size * frame!.innerScale : avatarSize,
+            height: frame != null ? size * frame!.innerScale : avatarSize,
             child: ClipOval(child: _avatarChild()),
           ),
-          Positioned.fill(
+          Positioned(
+            top: -(size * 0.1),
+            left: -(size * 0.1),
+            right: -(size * 0.1),
+            bottom: -(size * 0.1),
             child: IgnorePointer(child: _frameChild()),
           ),
         ],

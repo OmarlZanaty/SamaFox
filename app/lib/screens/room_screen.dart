@@ -61,6 +61,7 @@ import 'chat_screen.dart';
 import 'games_hub_screen.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/FramedAvatar.dart';
+import '../screens/profile_screen.dart'; // adjust path to your project
 
 final isAndroid = !kIsWeb && Platform.isAndroid;
 
@@ -105,7 +106,8 @@ class RoomScreen extends ConsumerStatefulWidget {
   ConsumerState<RoomScreen> createState() => _RoomScreenState();
 }
 
-class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObserver {
+class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObserver {
+  late final ApiService _api = ApiService(DioClient.dio);
   final GiftAnimationService _giftAnim = GiftAnimationService();
   StreamSubscription<GiftSentEvent>? _giftSub;
   StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
@@ -240,12 +242,25 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
     _seatVideoController?.dispose();
 
-    _seatVideoController = VideoPlayerController.network(normalizedUrl);
+    _seatVideoController = VideoPlayerController.networkUrl(Uri.parse(normalizedUrl));
 
-    await _seatVideoController!.initialize();
+    try {
+      await _seatVideoController!.initialize();
+    } catch (e) {
+      // Bad URL or network failure — release the stuck flag so the queue can continue.
+      _isPlayingEffect = false;
+      _seatVideoController?.dispose();
+      _seatVideoController = null;
+      _tryPlayNextEffect();
+      return;
+    }
 
-    // 🔥 IMPORTANT: enable video sound
     await _seatVideoController!.setVolume(1.0);
+
+    if (!mounted) {
+      _isPlayingEffect = false;
+      return;
+    }
 
     setState(() {
       _showSeatVideo = true;
@@ -255,8 +270,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
     _seatVideoController!.play();
 
-    await Future.delayed(
-        _seatVideoController!.value.duration);
+    await Future.delayed(_seatVideoController!.value.duration);
 
     if (!mounted) return;
 
@@ -277,7 +291,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
   @override
   void didChangeMetrics() {
-    final kb = WidgetsBinding.instance.window.viewInsets.bottom;
+    final kb = WidgetsBinding.instance.platformDispatcher.views.first.viewInsets.bottom;
     final isOpen = kb > 0;
 
     // detect transition ONLY
@@ -582,8 +596,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
         value.endsWith('.m4v') ||
         value.endsWith('.mkv');
   }
-
-  ApiService get _api => ApiService(DioClient.dio);
 
   Future<void> _handleFollowFromRoom(int targetUserId) async {
     final myUserId = ref.read(authStateProvider).user?.id;
@@ -1977,7 +1989,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
   void _showGlobalGiftBroadcast(Map<String, dynamic> payload) {
     final giftCoins = _extractGiftCoins(payload);
-    if (giftCoins <= 5000) return;
+    if (giftCoins <= 0) return;  // only skip invalid
 
     final overlay = Overlay.of(context);
     late final OverlayEntry entry;
@@ -2299,10 +2311,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
           itemBuilder: (_, index) {
             final user = users[index];
 
-            final seat = state.seats.values
-                .where((s) => s.userId == user.id)
-                .cast<SeatData?>()
-                .firstOrNull;
+            SeatData? seat;
+            for (final s in state.seats.values) {
+              if (s.userId == user.id) {
+                seat = s;
+                break;
+              }
+            }
 
             final isOnSeat = seat != null;
 
@@ -3070,11 +3085,61 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                               roomImageUrl: state.roomImageUrl,
                             );
                             Navigator.of(context).pop(); // ✅ pop room screen, pip stays floating
-                          },                        ),
+                          },
+                        ),
 
                       IconButton(
                         icon: const Icon(Icons.close, color: Colors.white),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              backgroundColor: const Color(0xFF2A1655),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              title: const Text(
+                                'مغادرة الغرفة',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                              content: const Text(
+                                'هل أنت متأكد أنك تريد مغادرة الغرفة؟',
+                                style: TextStyle(color: Colors.white70),
+                                textAlign: TextAlign.right,
+                              ),
+                              actionsAlignment: MainAxisAlignment.start,
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text(
+                                    'إلغاء',
+                                    style: TextStyle(color: Colors.white70),
+                                  ),
+                                ),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.redAccent,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  onPressed: () {
+                                    Navigator.pop(ctx); // close dialog
+                                    Navigator.of(context).pop(); // leave room
+                                  },
+                                  child: const Text(
+                                    'مغادرة',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -3778,10 +3843,252 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
 
     final isMine = seat.userId == myUserId;
     if (isMine) {
-      _showLeaveSeatSheet(context, seatNumber);
+      if (seat.relationPartner != null) {
+        _showLeaveSeatSheet(context, seatNumber, seat);
+      } else {
+        // simple leave seat sheet for users without a relation
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => Container(
+            margin: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2A1655),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'مغادرة المقعد',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'هل تريد مغادرة مقعدك الحالي؟',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                    const SizedBox(height: 28),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.white24),
+                            ),
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('إلغاء', style: TextStyle(color: Colors.white70)),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                            ),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _emitLeaveSeat(seatNumber);
+                            },
+                            child: const Text('مغادرة', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
       return;
     }
 
+    // ── Admin tap on occupied seat ──
+    if (isAdmin) {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (_) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1A0E3E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 12),
+                  // drag handle
+                  Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // user info header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 26,
+                          backgroundImage: seat.avatarUrl != null
+                              ? NetworkImage(seat.avatarUrl!)
+                              : null,
+                          child: seat.avatarUrl == null
+                              ? const Icon(Icons.person, color: Colors.white)
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              seat.username ?? 'Unknown',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              'الميكروفون $seatNumber',
+                              style: const TextStyle(color: Colors.white54, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+                  Divider(color: Colors.white.withOpacity(0.1)),
+
+                  // ── عرض ملف التعريف ──
+                  _adminSeatOption(
+                    label: 'عرض ملف التعريف',
+                    icon: Icons.person_outline,
+                    color: Colors.white,
+                    onTap: () {
+                      Navigator.pop(context);
+                      final roomState = ref.read(roomControllerProvider(widget.roomId));
+                      ref.read(pipProvider.notifier).activate(
+                        roomId: widget.roomId,
+                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+                        roomImageUrl: roomState.roomImageUrl,
+                      );
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileScreen(userId: seat.userId!),
+                        ),
+                      );
+                    },
+                  ),
+
+                  // ── إزالة من الميكروفون ──
+                  _adminSeatOption(
+                    label: 'إزالة من الميكروفون',
+                    icon: Icons.mic_off,
+                    color: Colors.orangeAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      ref.read(roomControllerProvider(widget.roomId).notifier)
+                          .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
+                      SocketService().emit('remove_from_seat', {
+                        'roomId': widget.roomId,
+                        'seatNumber': seatNumber,
+                        'targetUserId': seat.userId,
+                      });
+                      _showRoomSnack('تم إزالة المستخدم من الميكروفون');
+                    },
+                  ),
+
+                  // ── محظور مقعد الميكروفون ──
+                  _adminSeatOption(
+                    label: 'محظور مقعد الميكروفون',
+                    icon: Icons.lock_outline,
+                    color: Colors.amberAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      SocketService().emit('seat_lock', {
+                        'roomId': widget.roomId,
+                        'seatNumber': seatNumber,
+                        'locked': true,
+                      });
+                      _showRoomSnack('تم قفل مقعد الميكروفون $seatNumber');
+                    },
+                  ),
+
+                  // ── إزالة من الغرفة ──
+                  _adminSeatOption(
+                    label: 'إزالة من الغرفة',
+                    icon: Icons.exit_to_app,
+                    color: Colors.redAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _api.kickUser({
+                        'roomId': widget.roomId,
+                        'room_id': widget.roomId,
+                        'userId': seat.userId,
+                        'user_id': seat.userId,
+                      }).then((_) {
+                        SocketService().emit('kick_user', {
+                          'roomId': widget.roomId,
+                          'targetUserId': seat.userId,
+                        });
+                        _showRoomSnack('تم إزالة المستخدم من الغرفة');
+                      }).catchError((e) {
+                        _showRoomSnack('تعذر الإزالة: $e', error: true);
+                      });
+                    },
+                  ),
+
+                  // ── تعيين مظهر قاعدة المايك ──
+                  _adminSeatOption(
+                    label: 'تعيين مظهر قاعدة المايك (مستوى الغرفة 20)',
+                    icon: Icons.mic_external_on,
+                    color: Colors.lightBlueAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _openBackpackSheet(context, typeFilter: 'seat_effect');
+                    },
+                  ),
+
+                  // ── إلغاء ──
+                  _adminSeatOption(
+                    label: 'إلغاء',
+                    icon: Icons.close,
+                    color: Colors.white54,
+                    onTap: () => Navigator.pop(context),
+                  ),
+
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+// ── Non-admin: show profile card (existing code below) ──
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3813,79 +4120,70 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                   ),
                   const SizedBox(height: 18),
 
-                  if (seat.relationPartner?.avatarUrl != null &&
-                      seat.relationPartner!.avatarUrl!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircleAvatar(
-                            radius: 30,
-                            backgroundImage: seat.avatarUrl != null
-                                ? NetworkImage(seat.avatarUrl!)
-                                : null,
-                            child: seat.avatarUrl == null
-                                ? const Icon(Icons.person)
-                                : null,
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10),
-                            child: Icon(
-                              Icons.favorite,
-                              color: Colors.amber,
-                              size: 20,
-                            ),
-                          ),
-                          CircleAvatar(
-                            radius: 30,
-                            backgroundImage:
-                                NetworkImage(seat.relationPartner!.avatarUrl!),
-                          ),
-                        ],
-                      ),
-                    ),
+
 
                   // AVATAR + FRAME
-                  SizedBox(
-                    height: 160,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // pink glow behind
-                        Container(
-                          width: 150, height: 150,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: RadialGradient(colors: [
-                              Colors.purpleAccent.withOpacity(0.45),
-                              Colors.pink.withOpacity(0.2),
-                              Colors.transparent,
-                            ], stops: const [0.0, 0.5, 0.75]),
-                          ),
+                  GestureDetector(
+                    onTap: () {
+                      // 1) Close the seat dialog
+                      Navigator.pop(context);
+
+                      // 2) Minimize room to PiP (keeps audio/socket alive)
+                      final roomState = ref.read(roomControllerProvider(widget.roomId));
+                      ref.read(pipProvider.notifier).activate(
+                        roomId: widget.roomId,
+                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+                        roomImageUrl: roomState.roomImageUrl,
+                      );
+
+                      // 3) Go to user profile
+                      // ⚠️ Replace ProfileScreen with your actual profile widget
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileScreen(userId: seat.userId!),
                         ),
-                        // Show frame only when user has an activated one
-                        if (seat.avatarFrameUrl != null &&
-                            seat.avatarFrameUrl!.isNotEmpty)
-                          FramedAvatar(
-                            size: 160,
-                            avatarSize: 84,
-                            frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
-                            imageUrl: seat.avatarUrl,
-                            fallbackText: seat.username,
-                            glow: false,
-                          )
-                        else
-                          CircleAvatar(
-                            radius: 42,
-                            backgroundImage: seat.avatarUrl != null
-                                ? NetworkImage(seat.avatarUrl!)
-                                : null,
-                            child: seat.avatarUrl == null
-                                ? const Icon(Icons.person, color: Colors.white, size: 36)
-                                : null,
+                      );
+                    },
+                    child: SizedBox(
+                      height: 160,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // pink glow behind
+                          Container(
+                            width: 150, height: 150,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(colors: [
+                                Colors.purpleAccent.withOpacity(0.45),
+                                Colors.pink.withOpacity(0.2),
+                                Colors.transparent,
+                              ], stops: const [0.0, 0.5, 0.75]),
+                            ),
                           ),
-                      ],
+                          // Show frame only when user has an activated one
+                          if (seat.avatarFrameUrl != null &&
+                              seat.avatarFrameUrl!.isNotEmpty)
+                            FramedAvatar(
+                              size: 160,
+                              avatarSize: 84,
+                              frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
+                              imageUrl: seat.avatarUrl,
+                              fallbackText: seat.username,
+                              glow: false,
+                            )
+                          else
+                            CircleAvatar(
+                              radius: 42,
+                              backgroundImage: seat.avatarUrl != null
+                                  ? NetworkImage(seat.avatarUrl!)
+                                  : null,
+                              child: seat.avatarUrl == null
+                                  ? const Icon(Icons.person, color: Colors.white, size: 36)
+                                  : null,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
 
@@ -4070,77 +4368,457 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
     );
   }
 
-  void _showLeaveSeatSheet(BuildContext context, int seatNumber) {
+  void _showLeaveSeatSheet(BuildContext context, int seatNumber, SeatData seat) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        margin: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+      isScrollControlled: true,
+      builder: (_) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.90,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF8B0050), Color(0xFF4A0080), Color(0xFF2E004F)],
+            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+            child: Stack(
               children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
+                // ── rose petal background decoration ──
+                Positioned.fill(
+                  child: CustomPaint(painter: _RosePetalPainter()),
+                ),
+
+                // ── couple photo at top ──
+                Positioned(
+                  top: 0, left: 0, right: 0,
+                  height: 280,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // gradient background instead of image
+                      Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xFFFF85A1), Color(0xFFFF4081), Color(0xFF8B0050)],
+                          ),
+                        ),
+                      ),
+                      // fade to bg at bottom
+                      Positioned(
+                        bottom: 0, left: 0, right: 0,
+                        height: 100,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, const Color(0xFF4A0080).withOpacity(0.95)],
+                            ),
+                          ),
+                        ),
+                      ),
+                      // title text
+                      const Positioned(
+                        top: 40,
+                        left: 0, right: 0,
+                        child: Text(
+                          'إرتباط',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            fontFamily: 'Georgia',
+                            shadows: [
+                              Shadow(color: Color(0xFFFF4081), blurRadius: 20),
+                              Shadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // "قواعد" button
+                      Positioned(
+                        top: 40, right: 16,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF4081).withOpacity(0.85),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white30),
+                          ),
+                          child: const Text('قواعد', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 20),
-                const Text(
-                  'مغادرة المقعد',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+
+                // ── main scrollable content ──
+                SafeArea(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 12),
+                        // handle
+                        Container(width: 40, height: 4,
+                            decoration: BoxDecoration(color: Colors.white30, borderRadius: BorderRadius.circular(2))),
+
+                        // space for the top image
+                        const SizedBox(height: 200),
+
+                        // ── floral heart frame with two avatars ──
+                        SizedBox(
+                          height: 180,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // outer glow ring
+                              Container(
+                                width: 260, height: 160,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(80),
+                                  gradient: RadialGradient(colors: [
+                                    Colors.pinkAccent.withOpacity(0.3),
+                                    Colors.transparent,
+                                  ]),
+                                  border: Border.all(color: Colors.pinkAccent.withOpacity(0.4), width: 2),
+                                  boxShadow: [
+                                    BoxShadow(color: Colors.pinkAccent.withOpacity(0.3), blurRadius: 20, spreadRadius: 4),
+                                  ],
+                                ),
+                              ),
+                              // avatars row
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // left avatar (partner)
+                                  _framedCpAvatar(seat.relationPartner?.avatarUrl, 50, isLeft: true),
+                                  const SizedBox(width: 16),
+                                  // heart icon center
+                                  Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.favorite, color: Colors.red, size: 32),
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.pinkAccent.withOpacity(0.3),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Text('❤️', style: TextStyle(fontSize: 14)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 16),
+                                  // right avatar (seat user)
+                                  _framedCpAvatar(seat.avatarUrl, 50, isLeft: false),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // ── couple names ──
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Text(
+                            '❤️ ${seat.username ?? ''} & ${seat.relationPartner?.name ?? '...'} ❤️',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              shadows: [Shadow(color: Colors.pinkAccent, blurRadius: 8)],
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // ── skill points cards ──
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Row(
+                            children: [
+                              Expanded(child: _cpSkillCard('تصنيف نقاط المهارة', '0', const Color(0xFFFF69B4))),
+                              const SizedBox(width: 12),
+                              Expanded(child: _cpSkillCard('مكافأة نقاط المهارة', '0', const Color(0xFFBA55D3))),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // ── weekly ranking section ──
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF6A0080), Color(0xFF4A0060)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: Colors.pinkAccent.withOpacity(0.4)),
+                              boxShadow: [BoxShadow(color: Colors.pinkAccent.withOpacity(0.2), blurRadius: 12)],
+                            ),
+                            child: Column(
+                              children: [
+                                // header
+                                Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  width: double.infinity,
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Color(0xFFFF4081), Color(0xFFAD1457)],
+                                    ),
+                                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                  ),
+                                  child: const Text(
+                                    'ترتيب هذا الأسبوع',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    children: [
+                                      // countdown
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.pinkAccent.withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: Colors.pinkAccent.withOpacity(0.3)),
+                                        ),
+                                        child: const Text(
+                                          '01Days 01:04:30',
+                                          style: TextStyle(color: Colors.white70, fontSize: 13),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      // rank row
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [Colors.pinkAccent.withOpacity(0.2), Colors.purpleAccent.withOpacity(0.1)],
+                                          ),
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: Colors.pinkAccent.withOpacity(0.3)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            // rank number
+                                            Container(
+                                              width: 32, height: 32,
+                                              decoration: const BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                gradient: LinearGradient(colors: [Color(0xFFFF4081), Color(0xFFFF80AB)]),
+                                              ),
+                                              child: const Center(
+                                                child: Text('1', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            // two avatars overlapping
+                                            SizedBox(
+                                              width: 56, height: 36,
+                                              child: Stack(
+                                                children: [
+                                                  CircleAvatar(
+                                                    radius: 18,
+                                                    backgroundImage: seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                                    backgroundColor: Colors.pinkAccent,
+                                                  ),
+                                                  Positioned(
+                                                    right: 0,
+                                                    child: CircleAvatar(
+                                                      radius: 18,
+                                                      backgroundImage: seat.relationPartner?.avatarUrl != null
+                                                          ? NetworkImage(seat.relationPartner!.avatarUrl!)
+                                                          : null,
+                                                      backgroundColor: Colors.purpleAccent,
+                                                      child: const Icon(Icons.favorite, size: 14, color: Colors.white),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    seat.username ?? '',
+                                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                  if (seat.relationPartner?.name != null)
+                                                    Text(
+                                                      seat.relationPartner!.name,
+                                                      style: const TextStyle(color: Colors.white60, fontSize: 11),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                            const Text(
+                                              '67.00M',
+                                              style: TextStyle(color: Color(0xFFFF80AB), fontSize: 15, fontWeight: FontWeight.bold),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // ── leave seat button ──
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: GestureDetector(
+                            onTap: () {
+                              Navigator.pop(context);
+                              _emitLeaveSeat(seatNumber);
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(colors: [Color(0xFFFF4081), Color(0xFFAD1457)]),
+                                borderRadius: BorderRadius.circular(30),
+                                boxShadow: [BoxShadow(color: Colors.pinkAccent.withOpacity(0.4), blurRadius: 12)],
+                              ),
+                              child: const Center(
+                                child: Text('مغادرة المقعد', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 40),
+                      ],
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'هل تريد مغادرة مقعدك الحالي؟',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 28),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('إلغاء'),
+
+                // ── close button ──
+                Positioned(
+                  top: 15, right: 15,
+                  child: SafeArea(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: const Icon(Icons.close, color: Colors.white70, size: 18),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red[600],
-                        ),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _emitLeaveSeat(seatNumber);
-                        },
-                        child: const Text(
-                          'مغادرة',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   void _emitLeaveSeat(int seatNumber) {
     ref.read(roomControllerProvider(widget.roomId).notifier).leaveSeat(seatNumber: seatNumber);
+  }
+
+  Widget _framedCpAvatar(String? url, double radius, {required bool isLeft}) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(colors: [Color(0xFFFF4081), Color(0xFFFF80AB)]),
+        boxShadow: [BoxShadow(color: Colors.pinkAccent.withOpacity(0.6), blurRadius: 14, spreadRadius: 2)],
+      ),
+      padding: const EdgeInsets.all(3),
+      child: CircleAvatar(
+        radius: radius,
+        backgroundImage: url != null ? NetworkImage(url) : null,
+        backgroundColor: Colors.grey[800],
+        child: url == null ? const Icon(Icons.person, color: Colors.white) : null,
+      ),
+    );
+  }
+
+  Widget _adminSeatOption({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 16),
+            Text(
+              label,
+              style: TextStyle(
+                color: color == Colors.white54 ? Colors.white54 : Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cpSkillCard(String title, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.withOpacity(0.8), color.withOpacity(0.4)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.6), width: 1.5),
+        boxShadow: [BoxShadow(color: color.withOpacity(0.3), blurRadius: 10)],
+      ),
+      child: Column(
+        children: [
+          Text(title, textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
   }
 
   Widget _badgePill(String label, Color color, IconData icon) {
@@ -4239,16 +4917,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
               child: ListView(
                 controller: scrollCtrl,
                 padding: EdgeInsets.fromLTRB(
-                  16,
-                  12,
-                  16,
+                  16, 12, 16,
                   18 + MediaQuery.of(context).viewInsets.bottom,
                 ),
                 children: [
                   Center(
                     child: Container(
-                      width: 46,
-                      height: 5,
+                      width: 46, height: 5,
                       decoration: BoxDecoration(
                         color: Colors.white24,
                         borderRadius: BorderRadius.circular(99),
@@ -4258,10 +4933,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                   const SizedBox(height: 12),
                   const Text(
                     'إدارة الغرفة',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 14),
-
                   Row(
                     children: [
                       Expanded(
@@ -4283,27 +4961,63 @@ class _RoomScreenState extends ConsumerState<RoomScreen>with WidgetsBindingObser
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 14),
-
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white10,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: const Text(
-                      'اختر صورة من المعرض → سيتم رفعها → ثم حفظ الرابط في قاعدة البيانات.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  ),
                 ],
               ),
             );
           },
         );
       },
+    );
+  }
+
+  // --- HELPER METHODS (Add these to your _RoomScreenState class) ---
+
+  Widget _cpAvatar(String? url, double radius) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.pinkAccent, width: 2),
+        boxShadow: [BoxShadow(color: Colors.pinkAccent.withOpacity(0.5), blurRadius: 10)],
+      ),
+      child: CircleAvatar(
+        radius: radius,
+        backgroundImage: url != null ? NetworkImage(url) : null,
+        backgroundColor: Colors.grey[800],
+        child: url == null ? const Icon(Icons.person, color: Colors.white) : null,
+      ),
+    );
+  }
+
+/*  Widget _cpMiniAvatar(String? url1, String? url2) {
+    return SizedBox(
+      width: 50, height: 35,
+      child: Stack(
+        children: [
+          CircleAvatar(radius: 15, backgroundImage: url1 != null ? NetworkImage(url1) : null),
+          Positioned(
+            right: 0,
+            child: CircleAvatar(radius: 15, backgroundImage: url2 != null ? NetworkImage(url2) : null),
+          ),
+        ],
+      ),
+    );
+  }*/
+
+  Widget _skillCard(String title, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 15),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+      ),
+      child: Column(
+        children: [
+          Text(title, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 5),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
 
@@ -4866,14 +5580,16 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
   late final Animation<Offset> _slide;
   late final Animation<double> _fade;
   late final Animation<double> _pulse;
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnim;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
-      reverseDuration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 800),
+      reverseDuration: const Duration(milliseconds: 500),
     );
 
     _slide = Tween<Offset>(
@@ -4887,7 +5603,16 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
 
     _controller.forward();
 
-    Future.delayed(const Duration(seconds: 5), () async {
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+
+    _pulseAnim = Tween<double>(begin: 1.0, end: 1.04).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    Future.delayed(const Duration(seconds: 7), () async {
       if (!mounted) return;
       await _controller.reverse();
       if (mounted) widget.onDismissed();
@@ -4897,6 +5622,8 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
   @override
   void dispose() {
     _controller.dispose();
+    _pulseController.dispose();
+
     super.dispose();
   }
 
@@ -4920,10 +5647,15 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
           position: _slide,
           child: FadeTransition(
             opacity: _fade,
-            child: ScaleTransition(
-              scale: _pulse,
+            child: AnimatedBuilder(
+              animation: _pulseAnim,
+              builder: (_, child) => Transform.scale(
+                scale: _pulseAnim.value,
+                child: child,
+              ),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                // REPLACE WITH:
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(18),
                   gradient: const LinearGradient(
@@ -4931,7 +5663,14 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                   ),
+                  border: Border.all(color: Colors.amber, width: 1.5),
                   boxShadow: [
+                    BoxShadow(
+                      color: Colors.amber.withOpacity(0.4),
+                      blurRadius: 20,
+                      spreadRadius: 2,
+                      offset: const Offset(0, 4),
+                    ),
                     BoxShadow(
                       color: Colors.black.withOpacity(0.35),
                       blurRadius: 16,
@@ -5035,4 +5774,26 @@ class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay
     if (!raw.startsWith('/')) return raw;
     return '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '')}$raw';
   }
+}
+
+class _RosePetalPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    final positions = [
+      Offset(size.width * 0.1, size.height * 0.15),
+      Offset(size.width * 0.85, size.height * 0.12),
+      Offset(size.width * 0.05, size.height * 0.5),
+      Offset(size.width * 0.9, size.height * 0.45),
+      Offset(size.width * 0.2, size.height * 0.8),
+      Offset(size.width * 0.75, size.height * 0.75),
+    ];
+    for (int i = 0; i < positions.length; i++) {
+      paint.color = (i % 2 == 0 ? Colors.pinkAccent : Colors.purpleAccent).withOpacity(0.08);
+      canvas.drawCircle(positions[i], 40 + (i * 8.0), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -47,6 +47,7 @@ class RoomLiveNotifier extends StateNotifier<RoomLiveState> {
           userId: u.userId,
           username: u.username,
           avatarUrl: u.avatarUrl,
+          avatarFrameUrl: u.avatarFrameUrl, // ✅ FIX: was missing, frame always null
           level: u.level ?? 0,
           isMuted: u.isMuted ?? true,
           isLocked: old.isLocked,
@@ -57,6 +58,7 @@ class RoomLiveNotifier extends StateNotifier<RoomLiveState> {
           userId: null,
           username: null,
           avatarUrl: null,
+          avatarFrameUrl: null, // ✅ clear on vacate
           level: 0,
           isMuted: true,
           isLocked: old.isLocked,
@@ -67,6 +69,7 @@ class RoomLiveNotifier extends StateNotifier<RoomLiveState> {
           userId: old.userId,
           username: old.username,
           avatarUrl: old.avatarUrl,
+          avatarFrameUrl: old.avatarFrameUrl, // ✅ preserve frame on mute change
           level: old.level,
           isMuted: u.isMuted ?? old.isMuted,
           isLocked: old.isLocked,

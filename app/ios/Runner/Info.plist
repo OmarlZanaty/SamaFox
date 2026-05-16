@@ -19,6 +19,21 @@
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
+
+	<key>CFBundleURLTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>fbYOUR_FACEBOOK_APP_ID</string>
+        </array>
+      </dict>
+    </array>
+    <key>FacebookAppID</key>
+    <string>YOUR_FACEBOOK_APP_ID</string>
+    <key>FacebookDisplayName</key>
+    <string>YOUR_APP_NAME</string>
+
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>

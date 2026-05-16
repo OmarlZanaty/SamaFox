@@ -359,7 +359,8 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
   }
 }
 
-class StoreProductTile extends StatefulWidget {
+// AFTER
+class StoreProductTile extends ConsumerStatefulWidget {
   final Product product;
   final bool isOwned;
 
@@ -370,10 +371,12 @@ class StoreProductTile extends StatefulWidget {
   });
 
   @override
-  State<StoreProductTile> createState() => _StoreProductTileState();
+  ConsumerState<StoreProductTile> createState() => _StoreProductTileState();
 }
 
-class _StoreProductTileState extends State<StoreProductTile> {
+// AFTER
+class _StoreProductTileState extends ConsumerState<StoreProductTile> {
+
   bool loading = false;
 
   bool isVideo(String url) {
@@ -437,31 +440,26 @@ class _StoreProductTileState extends State<StoreProductTile> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: ElevatedButton(
+              // AFTER
               onPressed: (isOwned || loading)
                   ? null
                   : () async {
                 setState(() => loading = true);
-
                 try {
-                  final token =
-                  await StorageService.getAccessToken();
+                  final token = await StorageService.getAccessToken();
                   final service = StoreService();
-
-                  await service.buyProduct(
-                      token!, product.id.toString());
-
+                  await service.buyProduct(token!, product.id.toString());
                   if (!mounted) return;
-
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text("Purchased successfully")),
+                    const SnackBar(content: Text("Purchased successfully")),
                   );
-
-                  /// 🔥 refresh inventory
-                  final parent = context
-                      .findAncestorStateOfType<_StoreScreenState>();
+                  final parent = context.findAncestorStateOfType<_StoreScreenState>();
                   parent?.loadOwnedItems();
 
+                  await ref.read(authStateProvider.notifier).refreshUser();
+
+                  // ✅ ADD THIS — refresh auth user so room seat gets updated frame/effect
+                  await parent?.ref.read(authStateProvider.notifier).refreshUser();
                 } catch (e) {
                   if (!mounted) return;
 

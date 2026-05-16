@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
@@ -59,7 +61,8 @@ class DioClient {
 
 class AuthInterceptor extends Interceptor {
   bool _isRefreshing = false;
-  final List<RequestOptions> _pendingRequests = [];
+  // Each pending 401 gets its own completer so it can be individually resolved.
+  final List<Completer<String>> _pendingCompleters = [];
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
@@ -78,14 +81,24 @@ class AuthInterceptor extends Interceptor {
       return;
     }
 
-    // Don't retry the refresh endpoint itself
+    // Don't retry the refresh endpoint itself.
     if (err.requestOptions.path.contains('/auth/refresh')) {
       handler.next(err);
       return;
     }
 
     if (_isRefreshing) {
-      _pendingRequests.add(err.requestOptions);
+      // Park this request until the in-progress refresh completes.
+      final completer = Completer<String>();
+      _pendingCompleters.add(completer);
+      try {
+        final newToken = await completer.future;
+        final retryOptions = err.requestOptions;
+        retryOptions.headers['Authorization'] = 'Bearer $newToken';
+        handler.resolve(await DioClient.dio.fetch(retryOptions));
+      } catch (_) {
+        handler.next(err);
+      }
       return;
     }
 
@@ -93,18 +106,22 @@ class AuthInterceptor extends Interceptor {
     try {
       final refreshToken = await StorageService.getRefreshToken();
       if (refreshToken == null) {
+        _rejectAllPending();
         handler.next(err);
         return;
       }
 
       final refreshDio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
-      final response = await refreshDio.post('/auth/refresh',
-          data: {'refreshToken': refreshToken});
+      final response = await refreshDio.post(
+        '/auth/refresh',
+        data: {'refreshToken': refreshToken},
+      );
 
       final newAccessToken = response.data['accessToken'] as String?;
       final newRefreshToken = response.data['refreshToken'] as String?;
 
       if (newAccessToken == null) {
+        _rejectAllPending();
         handler.next(err);
         return;
       }
@@ -115,26 +132,36 @@ class AuthInterceptor extends Interceptor {
       );
       SocketService().updateToken(newAccessToken);
 
-      // Retry original request
+      // Unblock all parked requests with the new token.
+      _resolveAllPending(newAccessToken);
+
+      // Retry the original request that triggered the refresh.
       final retryOptions = err.requestOptions;
       retryOptions.headers['Authorization'] = 'Bearer $newAccessToken';
-      final retryResponse = await DioClient.dio.fetch(retryOptions);
-      handler.resolve(retryResponse);
-
-      // Retry any queued requests
-      for (final pending in _pendingRequests) {
-        pending.headers['Authorization'] = 'Bearer $newAccessToken';
-        DioClient.dio.fetch(pending);
-      }
-      _pendingRequests.clear();
-    } catch (e) {
-      // Refresh failed — force logout
+      handler.resolve(await DioClient.dio.fetch(retryOptions));
+    } catch (_) {
+      // Refresh failed — reject all pending and force logout.
+      _rejectAllPending();
       await StorageService.clearTokens();
       SocketService().disconnect();
       handler.next(err);
     } finally {
       _isRefreshing = false;
     }
+  }
+
+  void _resolveAllPending(String token) {
+    for (final c in _pendingCompleters) {
+      if (!c.isCompleted) c.complete(token);
+    }
+    _pendingCompleters.clear();
+  }
+
+  void _rejectAllPending() {
+    for (final c in _pendingCompleters) {
+      if (!c.isCompleted) c.completeError('Token refresh failed');
+    }
+    _pendingCompleters.clear();
   }
 }
 

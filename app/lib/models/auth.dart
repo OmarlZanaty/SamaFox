@@ -92,6 +92,16 @@ class GuestLoginResponse {
   Map<String, dynamic> toJson() => _$GuestLoginResponseToJson(this);
 }
 
+class FacebookLoginRequest {
+  final String facebookToken;
+
+  FacebookLoginRequest({required this.facebookToken});
+
+  Map<String, dynamic> toJson() => {
+    'facebookToken': facebookToken,
+  };
+}
+
 @JsonSerializable()
 class GoogleLoginRequest {
   final String idToken;

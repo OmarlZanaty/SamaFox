@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import '../../services/socket_service.dart';
 import '../FramedAvatar.dart';
 
@@ -25,6 +24,8 @@ class SeatCard extends StatelessWidget {
     this.isSeatLocked = false,
   });
 
+  bool get _isOccupied => seat.userId != null;
+
   @override
   Widget build(BuildContext context) {
     final imageUrl = seat.avatarUrl;
@@ -32,127 +33,117 @@ class SeatCard extends StatelessWidget {
     final isMuted = seat.isMuted;
     final locked = isSeatLocked;
 
-    const outerSize = 70.0;     // Frame diameter
-    const innerAvatar = 58.0;   // Avatar diameter inside the frame
+    const outerSize = 62.0;
+    const innerAvatar = 50.0;
 
-    print("🪑 seat ${seat.seatNumber} frame = ${seat.avatarFrameUrl}");
-
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
-      customBorder: const CircleBorder(),
       child: Opacity(
-        opacity: locked ? 0.55 : 1,
-        child: SizedBox(
-          width: outerSize,
-          height: outerSize,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              FramedAvatar(
-                size: outerSize,
-                avatarSize: innerAvatar,
-                imageUrl: imageUrl,
-                fallbackText: username,
-                frame: (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
-                    ? AvatarFrame.fromUrl(seat.avatarFrameUrl!)
-                    : null,
-                glow: seat.isSpeaking,
-              ),
-              if (locked)
-                const Positioned(
-                  top: 10,
-                  left: 10,
-                  child: Icon(Icons.lock, size: 18, color: Colors.redAccent),
-                ),
-              Positioned(
-                top: 10,
-                right: 10,
-                child: _roleBadge(),
-              ),
+        opacity: locked && !_isOccupied ? 0.55 : 1.0,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // ── Avatar / Empty Seat ──
+            SizedBox(
+              width: outerSize,
+              height: outerSize,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (_isOccupied)
+                  // Occupied: show framed avatar
+                    FramedAvatar(
+                      size: outerSize,
+                      avatarSize: innerAvatar,
+                      imageUrl: imageUrl,
+                      fallbackText: username,
+                      frame: (seat.avatarFrameUrl != null &&
+                          seat.avatarFrameUrl!.isNotEmpty)
+                          ? AvatarFrame.fromUrl(seat.avatarFrameUrl!)
+                          : null,
+                      glow: seat.isSpeaking,
+                    )
+                  else
+                  // Empty seat: mic icon with gradient ring
+                    Container(
+                      width: outerSize,
+                      height: outerSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: locked ? const Color(0xFF3A3A3A) : const Color(0xFF555555),
+                        border: Border.all(
+                          color: locked
+                              ? Colors.red.withOpacity(0.4)
+                              : Colors.white.withOpacity(0.2),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: locked
+                          ? const Icon(Icons.lock, size: 22, color: Colors.redAccent)
+                          : Icon(
+                        Icons.mic_none_rounded,
+                        size: 24,
+                        color: Colors.white.withOpacity(0.5),
+                      ),
+                    ),
 
-              // 🎤 MIC → show ONLY when muted
-              if (isMuted)
-                Positioned(
-                  bottom: 28,
-                  left: 18,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
-                      shape: BoxShape.circle,
+                  // Mute badge (occupied only)
+                  if (_isOccupied && isMuted)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade700,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.black, width: 1),
+                        ),
+                        child: const Icon(Icons.mic_off, size: 11, color: Colors.white),
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.mic_off,
-                      size: 16,
-                      color: Colors.redAccent,
-                    ),
-                  ),
-                ),
 
-              if (seat.relationPartner?.avatarUrl != null &&
-                  seat.relationPartner!.avatarUrl!.isNotEmpty)
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1.5),
+                    ],
+                      ),
                     ),
-                    child: CircleAvatar(
-                      radius: 10,
-                      backgroundImage:
-                          NetworkImage(seat.relationPartner!.avatarUrl!),
-                    ),
-                  ),
-                ),
 
-// 🔢 SEAT NUMBER → BELOW SEAT
-              Positioned(
-                bottom: -16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$seatNumber',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                    ),
-                  ),
+            const SizedBox(height: 4),
+
+            // ── Label: name if occupied, seat number if empty ──
+            SizedBox(
+              width: outerSize,
+              child: _isOccupied
+                  ? Text(
+                // ✅ Show username if seat is taken
+                username,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              )
+                  : Text(
+                // ✅ Show seat number if empty
+                locked ? '🔒 $seatNumber' : '$seatNumber',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: locked
+                      ? Colors.red.withOpacity(0.7)
+                      : Colors.white.withOpacity(0.4),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  Widget _roleBadge() {
-    if (!isOwnerSeat && !isAdminSeat) return const SizedBox.shrink();
-
-    final isOwner = isOwnerSeat;
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: isOwner ? Colors.amber : Colors.lightBlueAccent,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: (isOwner ? Colors.amber : Colors.lightBlueAccent).withOpacity(0.35),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Icon(
-        isOwner ? Icons.workspace_premium : Icons.verified,
-        size: 14,
-        color: Colors.black,
       ),
     );
   }
@@ -184,7 +175,6 @@ class SeatsGrid extends StatelessWidget {
     required this.lockedSeats,
     required this.seatKeys,
     this.scrollable = false,
-
   });
 
   @override
@@ -192,56 +182,43 @@ class SeatsGrid extends StatelessWidget {
     final safeCount = seatCount.clamp(1, 24);
     final seatNumbers = List<int>.generate(safeCount, (i) => i + 1);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // For a consistent seat layout (4 columns and adjustable aspect ratio)
-        const int crossAxisCount = 4;
-        const double childAspectRatio = 0.72;
+    return GridView.builder(
+      physics: const BouncingScrollPhysics(),
+      shrinkWrap: false,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      itemCount: seatNumbers.length,
+      cacheExtent: 400,
+      addRepaintBoundaries: true,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 12,
+        // ✅ Increased to give more vertical room and prevent overflow
+        childAspectRatio: 0.72,
+      ),
+      itemBuilder: (_, i) {
+        final seatNumber = seatNumbers[i];
+        final isLocked = lockedSeats.contains(seatNumber);
+        final seat = seats[seatNumber] ?? SeatData.empty(seatNumber);
+        final uid = seat.userId;
+        final isMine = uid != null && uid == myUserId;
+        final isOwnerSeat = uid != null && uid == ownerId;
+        final isAdminSeat =
+            uid != null && adminIds.contains(uid) && !isOwnerSeat;
+        final seatKey =
+        seatKeys.putIfAbsent(seatNumber, () => GlobalKey());
 
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).padding.bottom,
-          ),
-          child: GridView.builder(
-            physics: const BouncingScrollPhysics(),
-            shrinkWrap: false,
-            itemCount: seatNumbers.length,
-            cacheExtent: 400,
-            addRepaintBoundaries: true,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: crossAxisCount,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: childAspectRatio,
-            ),
-            itemBuilder: (_, i) {
-              final seatNumber = seatNumbers[i];
-              final isLocked = lockedSeats.contains(seatNumber);
-
-              final seat = seats[seatNumber] ?? SeatData.empty(seatNumber);
-
-              final uid = seat.userId;
-              final isMine = uid != null && uid == myUserId;
-
-              final isOwnerSeat = uid != null && uid == ownerId;
-              final isAdminSeat = uid != null && adminIds.contains(uid) && !isOwnerSeat;
-
-              final seatKey = seatKeys.putIfAbsent(seatNumber, () => GlobalKey());
-
-              return Container(
-                key: seatKey,
-                child: SeatCard(
-                  seatNumber: seatNumber,
-                  seat: seat,
-                  isMine: isMine,
-                  isAdmin: isAdmin,
-                  isSeatLocked: isLocked,
-                  isOwnerSeat: isOwnerSeat,
-                  isAdminSeat: isAdminSeat,
-                  onTap: () => onSeatTap(seatNumber, seat),
-                ),
-              );
-            },
+        return KeyedSubtree(
+          key: seatKey,
+          child: SeatCard(
+            seatNumber: seatNumber,
+            seat: seat,
+            isMine: isMine,
+            isAdmin: isAdmin,
+            isSeatLocked: isLocked,
+            isOwnerSeat: isOwnerSeat,
+            isAdminSeat: isAdminSeat,
+            onTap: () => onSeatTap(seatNumber, seat),
           ),
         );
       },

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import 'package:samafox/screens/store_screen.dart';
 import '../models/InventoryItem.dart';
 import '../providers/auth_provider.dart';
 import '../models/user.dart';
+import '../services/dio_client.dart';
 import '../services/store_service.dart';
 import '../utils/storage_service.dart';
 import '../widgets/FramedAvatar.dart';
@@ -16,9 +18,38 @@ import '../widgets/video_preview_widget.dart';
 import '../services/socket_service.dart';
 import 'home_screen.dart';
 
+/// Model for Received Gift
+class ReceivedGift {
+  final int id;
+  final String name;
+  final String imageUrl;
+  final int count;
+  final String? senderName;
+
+  ReceivedGift({
+    required this.id,
+    required this.name,
+    required this.imageUrl,
+    required this.count,
+    this.senderName,
+  });
+
+  factory ReceivedGift.fromJson(Map<String, dynamic> json) {
+    return ReceivedGift(
+      id: json['id'] ?? 0,
+      name: json['name'] ?? '',
+      imageUrl: json['image_url'] ?? json['image'] ?? '',
+      count: json['count'] ?? 1,
+      senderName: json['sender_name'],
+    );
+  }
+}
+
 /// Profile Screen - Redesigned with responsive layout and all requested features
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key});
+  final int? userId; // null = show my own profile
+
+  const ProfileScreen({super.key, this.userId});
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -31,6 +62,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   String selectedType = "seat_effect";
   InventoryItem? activeFrame;
 
+  // Gifts state
+  List<ReceivedGift> _receivedGifts = [];
+  bool _loadingGifts = true;
+
   @override
   void initState() {
     super.initState();
@@ -38,9 +73,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
     loadInventory();
     _refreshCoins();
+    _fetchReceivedGifts();
+
     _coinsRefreshTimer = Timer.periodic(
       const Duration(seconds: 20),
-      (_) => _refreshCoins(),
+          (_) => _refreshCoins(),
     );
   }
 
@@ -107,12 +144,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
     if (confirmed != true) return;
 
-    // Call logout (clears tokens + disconnect socket in your notifier)
     await ref.read(authStateProvider.notifier).logout();
 
     if (!mounted) return;
 
-    // Go to login and clear stack
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
   }
 
@@ -160,22 +195,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       );
 
       if (activatedItem.type == "avatar_frame" || activatedItem.type == "FRAME") {
-        // Use inventory activation endpoint for compatibility.
         await _service.activateItem(token!, activatedItem.id);
       } else {
         await _service.activateItem(token!, activatedItem.id);
       }
 
-      // ✅ SEAT EFFECT
       if (activatedItem.type == "seat_effect") {
         await SocketService().waitUntilConnected();
-
         SocketService().sendSeatEffect({
           "video": activatedItem.fileUrl,
         });
       }
-
-      // ✅ AVATAR FRAME
       else if (activatedItem.type == "avatar_frame" || activatedItem.type == "FRAME") {
         setState(() {
           activeFrame = activatedItem;
@@ -191,6 +221,37 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     setState(() => activating = false);
   }
 
+  /// Fetch received gifts from backend
+  Future<void> _fetchReceivedGifts() async {
+    try {
+      final token = await StorageService.getAccessToken();
+      if (token == null) return;
+
+      final targetId = widget.userId ?? ref.read(authStateProvider).user?.id;
+      if (targetId == null) return;
+
+      final response = await DioClient.dio.get(
+        '/users/$targetId/received-gifts',
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+
+      if (response.statusCode == 200 && response.data != null) {
+        final List<dynamic> giftList = response.data;
+        if (mounted) {
+          setState(() {
+            _receivedGifts = giftList.map((e) => ReceivedGift.fromJson(e)).toList();
+            _loadingGifts = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching gifts: $e');
+      if (mounted) {
+        setState(() => _loadingGifts = false);
+      }
+    }
+  }
+
   Widget buildItem(InventoryItem item) {
     return Container(
       decoration: BoxDecoration(
@@ -200,7 +261,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             ? Border.all(color: Colors.greenAccent, width: 2)
             : Border.all(color: Colors.white10),
       ),
-      child: SingleChildScrollView( // ✅ FIX OVERFLOW
+      child: SingleChildScrollView(
         child: Column(
           children: [
             SizedBox(
@@ -217,9 +278,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 ),
               ),
             ),
-
             const SizedBox(height: 8),
-
             Text(
               item.name,
               maxLines: 1,
@@ -230,9 +289,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 8),
-
             if (item.isActive)
               const Text(
                 "ACTIVE",
@@ -252,7 +309,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   child: const Text("Use", style: TextStyle(fontSize: 12)),
                 ),
               ),
-
             const SizedBox(height: 8),
           ],
         ),
@@ -262,9 +318,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
   Widget _buildInventorySection() {
     final filtered = items.where((e) => e.type == selectedType).toList();
-
-    print("SELECTED TYPE: $selectedType");
-    print("ITEM TYPES: ${items.map((e) => e.type).toList()}");
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -279,8 +332,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
-          /// 🔥 TABS (same as store)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -288,12 +339,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               _buildTab("إطارات", "avatar_frame"),
             ],
           ),
-
           const SizedBox(height: 12),
-
           if (loading)
             const Center(child: CircularProgressIndicator())
-
           else if (filtered.isEmpty)
             const Center(
               child: Padding(
@@ -301,7 +349,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 child: Text("No items", style: TextStyle(color: Colors.white)),
               ),
             )
-
           else
             GridView.builder(
               shrinkWrap: true,
@@ -317,10 +364,129 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 return buildItem(filtered[index]);
               },
             ),
-
         ],
       ),
     );
+  }
+
+  /// Build Received Gifts Section
+  Widget _buildReceivedGiftsSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A1A5E).withOpacity(0.6),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFF5E35B1).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'الهدايا',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_loadingGifts)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(color: Color(0xFF4ECDC4)),
+              ),
+            )
+          else if (_receivedGifts.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'No gifts received yet',
+                  style: TextStyle(color: Colors.white.withOpacity(0.5)),
+                ),
+              ),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _receivedGifts.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 0.8,
+              ),
+              itemBuilder: (context, index) {
+                final gift = _receivedGifts[index];
+                return Column(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            gift.imageUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              Icons.card_giftcard,
+                              color: Colors.white24,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'x${gift.count}',
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<User?> _fetchUserById(int userId) async {
+    try {
+      final token = await StorageService.getAccessToken();
+      if (token == null) return null;
+
+      final response = await DioClient.dio.get(
+        '/users/$userId',
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+
+      if (response.statusCode == 200 && response.data != null) {
+        return User.fromJson(response.data);
+      }
+      return null;
+    } catch (e) {
+      print('Error fetching user $userId: $e');
+      return null;
+    }
   }
 
   Widget _buildTab(String title, String type) {
@@ -352,22 +518,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     );
   }
 
-
-  @override
-  Widget build(BuildContext context) {
-    final authState = ref.watch(authStateProvider);
-    final user = authState.user;
-
-    // If user is null, show a loading indicator
-    if (user == null) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF1A0E3E),
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF4ECDC4)),
-        ),
-      );
-    }
-
+  Widget _buildProfileContent(User user, {required bool isOwnProfile}) {
     return Scaffold(
       backgroundColor: const Color(0xFF1A0E3E),
       body: Container(
@@ -385,78 +536,74 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         child: SafeArea(
           child: Stack(
             children: [
-
-              /// ✅ MAIN CONTENT
               SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-
-                /// 🔥 IMPORTANT: prevent overlap with bottom bar
                 padding: const EdgeInsets.only(bottom: 120),
-
                 child: Column(
                   children: [
                     const SizedBox(height: 8),
 
-                    // ✅ Top row with Logout button
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          const Spacer(),
-                          InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: authState.isLoading
-                                ? null
-                                : () => _confirmAndLogout(context),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent.withOpacity(0.18),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: Colors.redAccent.withOpacity(0.5),
-                                  width: 1,
+                    // Show logout only for own profile
+                    if (isOwnProfile) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            const Spacer(),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: ref.watch(authStateProvider).isLoading
+                                  ? null
+                                  : () => _confirmAndLogout(context),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
                                 ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (authState.isLoading) ...[
-                                    const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                decoration: BoxDecoration(
+                                  color: Colors.redAccent.withOpacity(0.18),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: Colors.redAccent.withOpacity(0.5),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (ref.watch(authStateProvider).isLoading) ...[
+                                      const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.redAccent,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                    ] else ...[
+                                      const Icon(Icons.logout,
+                                          color: Colors.redAccent, size: 18),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    const Text(
+                                      'تسجيل الخروج',
+                                      style: TextStyle(
                                         color: Colors.redAccent,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                    const SizedBox(width: 10),
-                                  ] else ...[
-                                    const Icon(Icons.logout,
-                                        color: Colors.redAccent, size: 18),
-                                    const SizedBox(width: 8),
                                   ],
-                                  const Text(
-                                    'تسجيل الخروج',
-                                    style: TextStyle(
-                                      color: Colors.redAccent,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                    ],
 
-                    const SizedBox(height: 10),
-
-                    _buildProfileAvatar(user, context),
+                    _buildProfileAvatar(user, context, isOwnProfile: isOwnProfile),
                     const SizedBox(height: 8),
 
                     Text(
@@ -479,7 +626,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     _buildStatsRow(user),
                     const SizedBox(height: 10),
 
-                    _buildCoinsCard(_displayCoins(user), context),
+                    if (isOwnProfile) _buildCoinsCard(_displayCoins(user), context),
                     const SizedBox(height: 10),
 
                     _buildVIPCard(
@@ -490,57 +637,49 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
                     const SizedBox(height: 10),
 
-                    _buildInventorySection(),
-                    const SizedBox(height: 10),
+                    // Show inventory only for own profile
+                    if (isOwnProfile) ...[
+                      _buildInventorySection(),
+                      const SizedBox(height: 10),
+                    ],
 
-                    _buildFeaturesGrid(context),
+                    _buildReceivedGiftsSection(),
 
                     const SizedBox(height: 20),
                   ],
                 ),
               ),
 
-              /// 🔥 BOTTOM BAR (CORRECT POSITION)
-              Positioned(
-                left: 14,
-                right: 14,
-                bottom: 14,
-                child: GlassBottomBar(
-                  homeLabel: "الرئيسية",
-                  searchLabel: "الرسائل",
-                  storeLabel: "المتجر",
-                  shippingAgentsLabel: "وكلاء الشحن",
-                  gamesLabel: "الألعاب",
-                  profileLabel: "حسابي",
-
-                  hasRoom: false,
-                  roomImageUrl: null,
-
-                  onHome: () {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(builder: (_) => const HomeScreen()),
-                          (route) => false,
-                    );
-                  },
-
-                  onSearch: () =>
-                      Navigator.pushNamed(context, '/messages'),
-
-                  onStore: () =>
-                      Navigator.pushNamed(context, '/store'),
-
-                  onShippingAgents: () =>
-                      Navigator.pushNamed(context, '/charging-agent'),
-
-                  onGames: () =>
-                      Navigator.pushNamed(context, '/games'),
-
-                  onProfile: () {},
-
-                  onCenter: () {},
+              // Bottom bar only for own profile
+              if (isOwnProfile)
+                Positioned(
+                  left: 14,
+                  right: 14,
+                  bottom: 14,
+                  child: GlassBottomBar(
+                    homeLabel: "الرئيسية",
+                    searchLabel: "الرسائل",
+                    storeLabel: "المتجر",
+                    shippingAgentsLabel: "وكلاء الشحن",
+                    gamesLabel: "الألعاب",
+                    profileLabel: "حسابي",
+                    hasRoom: false,
+                    roomImageUrl: null,
+                    onHome: () {
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (_) => const HomeScreen()),
+                            (route) => false,
+                      );
+                    },
+                    onSearch: () => Navigator.pushNamed(context, '/messages'),
+                    onStore: () => Navigator.pushNamed(context, '/store'),
+                    onShippingAgents: () => Navigator.pushNamed(context, '/charging-agent'),
+                    onGames: () => Navigator.pushNamed(context, '/games'),
+                    onProfile: () {},
+                    onCenter: () {},
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -548,10 +687,70 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     );
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final authState = ref.watch(authStateProvider);
+    final currentUser = authState.user;
+
+    // If viewing another user's profile
+    final targetUserId = widget.userId;
+    final isOtherUser = targetUserId != null && targetUserId != currentUser?.id;
+
+    // Loading state while checking auth
+    if (currentUser == null && !isOtherUser) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF1A0E3E),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF4ECDC4)),
+        ),
+      );
+    }
+
+    // For other users, fetch their data via FutureBuilder
+    if (isOtherUser) {
+      return FutureBuilder<User?>(
+        future: _fetchUserById(targetUserId),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              backgroundColor: Color(0xFF1A0E3E),
+              body: Center(
+                child: CircularProgressIndicator(color: Color(0xFF4ECDC4)),
+              ),
+            );
+          }
+
+          final otherUser = snapshot.data;
+          if (otherUser == null) {
+            return Scaffold(
+              backgroundColor: const Color(0xFF1A0E3E),
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.white54, size: 48),
+                    const SizedBox(height: 16),
+                    Text(
+                      'User not found',
+                      style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 18),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return _buildProfileContent(otherUser, isOwnProfile: false);
+        },
+      );
+    }
+
+    // My own profile
+    return _buildProfileContent(currentUser!, isOwnProfile: true);
+  }
+
   /// Build profile avatar with edit button overlay
-  Widget _buildProfileAvatar(User user, BuildContext context)
-  {
-    // choose frame type (example: default, or vip if vipLevel > 0)
+  Widget _buildProfileAvatar(User user, BuildContext context, {required bool isOwnProfile}) {
     final frame = activeFrame != null
         ? AvatarFrame.fromUrl(activeFrame!.fileUrl)
         : (user.avatarFrameUrl != null && user.avatarFrameUrl!.isNotEmpty)
@@ -562,47 +761,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           : AvatarFrameType.samafoxDefault,
     );
 
-
     return Stack(
       alignment: Alignment.center,
       children: [
-        // ✅ SAME FRAME like seats (SVG frame)
         FramedAvatar(
           size: 120,
-          avatarSize: 80, // ✅ ADD THIS
+          avatarSize: 80,
           frame: frame,
           imageUrl: user.avatarUrl,
           fallbackText: user.name,
         ),
-
-        // ✅ Edit button overlay (same as you already had)
-        Positioned(
-          bottom: 0,
-          right: 0,
-          child: GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const EditProfileScreen()),
-              );
-            },
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFF4ECDC4),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFF1A0E3E), width: 2),
+        // Edit button only for own profile
+        if (isOwnProfile)
+          Positioned(
+            bottom: 0,
+            right: 0,
+            child: GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const EditProfileScreen()),
+                );
+              },
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4ECDC4),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF1A0E3E), width: 2),
+                ),
+                child: const Icon(Icons.edit, color: Colors.white, size: 18),
               ),
-              child: const Icon(Icons.edit, color: Colors.white, size: 18),
             ),
           ),
-        ),
       ],
     );
   }
-
-
 
   /// Build level badge (blue circle with number)
   Widget _buildLevelBadge(int level) {
@@ -685,7 +880,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       ),
     );
   }
-
 
   /// Build single stat item
   Widget _buildStatItem(String count, String label) {
@@ -839,10 +1033,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   /// Build VIP card with XP progress bar
   Widget _buildVIPCard(int vipLevel, int currentXp, BuildContext context) {
     const int xpPerLevel = 1000;
-
-    final double progress =
-        (currentXp % xpPerLevel) / xpPerLevel;
-
+    final double progress = (currentXp % xpPerLevel) / xpPerLevel;
     final int xpForNextLevel = (vipLevel + 1) * xpPerLevel;
 
     return GestureDetector(
@@ -951,159 +1142,5 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         ),
       ),
     );
-  }
-
-  /// Build features grid (3 columns, responsive)
-  Widget _buildFeaturesGrid(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final crossAxisCount = screenWidth > 600 ? 5 : 4;
-
-    final features = [
-      {'icon': Icons.backpack, 'label': 'Backpack', 'color': const Color(0xFF00BCD4)},
-      {'icon': Icons.emoji_events, 'label': 'Wealth Level', 'color': const Color(0xFFFFC107)},
-      {'icon': Icons.favorite, 'label': 'Charm Level', 'color': const Color(0xFF4CAF50)},
-      {'icon': Icons.business, 'label': 'Agency center', 'color': const Color(0xFF9C27B0)},
-      {'icon': Icons.assignment, 'label': 'Task', 'color': const Color(0xFFFFC107)},
-      {'icon': Icons.store, 'label': 'Store', 'color': const Color(0xFFE91E63), 'badge': true},
-      {'icon': Icons.card_giftcard, 'label': 'Gift Gallery', 'color': const Color(0xFFE91E63)},
-      {'icon': Icons.military_tech, 'label': 'Badge', 'color': const Color(0xFFFFC107)},
-      {'icon': Icons.chat, 'label': 'Contact Us', 'color': const Color(0xFF4CAF50)},
-      {'icon': Icons.people, 'label': 'Intimate\nRelationship', 'color': const Color(0xFF00BCD4)},
-      {'icon': Icons.flag, 'label': 'Event Center', 'color': const Color(0xFFFFC107)},
-    ];
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A1A5E).withOpacity(0.6),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFF5E35B1).withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 10,
-          childAspectRatio: 0.7,
-        ),
-        itemCount: features.length,
-        itemBuilder: (context, index) {
-          final feature = features[index];
-          return _buildFeatureItem(
-            icon: feature['icon'] as IconData,
-            label: feature['label'] as String,
-            color: feature['color'] as Color,
-            hasBadge: feature['badge'] as bool? ?? false,
-            context: context,
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildFeatureItem({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required bool hasBadge,
-    required BuildContext context,
-  }) {
-    return GestureDetector(
-      onTap: () => _navigateToFeature(context, label),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Stack(
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A0E3E),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: color.withOpacity(0.5), width: 2),
-                ),
-                child: Icon(icon, color: color, size: 30),
-              ),
-              if (hasBadge)
-                Positioned(
-                  top: 0,
-                  right: 0,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 11),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _navigateToFeature(BuildContext context, String label) {
-    Widget screen;
-    switch (label) {
-      case 'Backpack':
-        //screen = const BackpackScreen();
-        break;
-      case 'Wealth Level':
-       // screen = const WealthLevelScreen();
-        break;
-      case 'Charm Level':
-       // screen = const CharmLevelScreen();
-        break;
-      case 'Agency center':
-      //  screen = const AgencyCenterScreen();
-        break;
-      case 'Task':
-       // screen = const TaskScreen();
-        break;
-      case 'Store':
-        screen = const StoreScreen();
-        break;
-      case 'Gift Gallery':
-       // screen = const GiftGalleryScreen();
-        break;
-      case 'Badge':
-       // screen = const BadgeScreen();
-        break;
-      case 'Contact Us':
-       // screen = const ContactUsScreen();
-        break;
-      case 'Intimate\nRelationship':
-       // screen = const IntimateRelationshipScreen();
-        break;
-      case 'Event Center':
-      //  screen = const EventCenterScreen();
-        break;
-      default:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$label coming soon')),
-        );
-        return;
-    }
-    /*Navigator.push(
-     // context,
-     // MaterialPageRoute(builder: (context) => screen),
-    );*/
   }
 }

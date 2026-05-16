@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../providers/auth_provider.dart';
@@ -58,80 +61,83 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) {
-        final authState = ref.watch(authStateProvider);
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 20,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'تسجيل الدخول بالايميل',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'البريد الإلكتروني',
-                  hintStyle: const TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Colors.white10,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+      // Wrap in Consumer so ref.watch() is reactive inside the modal.
+      builder: (context) => Consumer(
+        builder: (context, modalRef, _) {
+          final authState = modalRef.watch(authStateProvider);
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'تسجيل الدخول بالايميل',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'كلمة المرور',
-                  hintStyle: const TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Colors.white10,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'البريد الإلكتروني',
+                    hintStyle: const TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white10,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: authState.isLoading ? null : _handleEmailLogin,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryPurple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'كلمة المرور',
+                    hintStyle: const TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white10,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
                 ),
-                child: authState.isLoading
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('دخول'),
-              ),
-            ],
-          ),
-        );
-      },
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: authState.isLoading ? null : _handleEmailLogin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryPurple,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: authState.isLoading
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('دخول'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -151,16 +157,47 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
 
-  void _handleFacebookSignIn() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تسجيل الدخول عبر فيسبوك قريباً')),
-    );
+  Future<void> _handleFacebookSignIn() async {
+    await ref.read(authStateProvider.notifier).signInWithFacebook();
+
+    if (!mounted) return;
+
+    final authState = ref.read(authStateProvider);
+    if (authState.isAuthenticated) {
+      Navigator.of(context).pushReplacementNamed('/home');
+    } else if (authState.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(authState.error!)),
+      );
+    }
   }
 
-  void _handleSnapchatSignIn() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تسجيل الدخول عبر سناب شات قريباً')),
-    );
+  Future<void> _handleSnapchatSignIn() async {
+    await ref.read(authStateProvider.notifier).signInWithSnapchat();
+
+    if (!mounted) return;
+
+    final authState = ref.read(authStateProvider);
+    if (authState.isAuthenticated) {
+      Navigator.of(context).pushReplacementNamed('/home');
+    } else if (authState.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(authState.error!)),
+      );
+    }
+  }
+
+
+  Future<void> printKeyHash() async {
+    if (Platform.isAndroid) {
+      try {
+        final result = await const MethodChannel('app.channel.shared.data')
+            .invokeMethod('getKeyHash');
+        print('🔑 KEY HASH: $result');
+      } catch (e) {
+        print('Error: $e');
+      }
+    }
   }
 
   @override

@@ -43,7 +43,7 @@ class SocketService {
 
   Stream<GiftSentEvent> get giftStream => _giftController.stream;
   final StreamController<Map<String, dynamic>> _globalGiftBroadcastController =
-      StreamController<Map<String, dynamic>>.broadcast();
+  StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get globalGiftBroadcastStream =>
       _globalGiftBroadcastController.stream;
 
@@ -424,7 +424,6 @@ class SocketService {
         AppLogger.error('approveMic parse error: $e');
       }
     }
-    print('SOCKET TOKEN = "$_token"');
 
     // ✅ DM typing
     _socket?.on('dm_typing', (data) {
@@ -870,12 +869,12 @@ class SocketService {
 
   // Legacy helper that existed in socket_service_impl.dart
   void requestMicAccess(
-    int roomId,
-    int seatNumber,
-    int userId,
-    String username,
-    String? avatarUrl,
-  ) {
+      int roomId,
+      int seatNumber,
+      int userId,
+      String username,
+      String? avatarUrl,
+      ) {
     takeSeat(
       roomId: roomId,
       seatNumber: seatNumber,
@@ -992,6 +991,12 @@ class SocketService {
 
 
   void dispose() {
+    // Disconnect first so the socket doesn't try to emit to closed controllers.
+    _socket?.clearListeners();
+    _socket?.disconnect();
+    _socket?.dispose();
+    _socket = null;
+
     _connectionController.close();
     _reconnectController.close();
     _messageController.close();
@@ -1001,14 +1006,17 @@ class SocketService {
     _giftController.close();
     _globalGiftBroadcastController.close();
     _micQueueController.close();
-    _voiceUsersController.close(); // ✅ ADD
+    _voiceUsersController.close();
     _approveMicController.close();
     _errorController.close();
     _typingController.close();
     _receiptController.close();
     _reactionController.close();
     _notificationController.close();
-    disconnect(); // ✅ call disconnect, NOT dispose()
+    _seatEffectController.close();
+    _seatLockController.close();
+    _incomingMessageController.close();
+    _dmConversationController.close();
   }
 }
 
@@ -1091,6 +1099,7 @@ class SeatUpdate {
   final int? userId;
   final String? username;
   final String? avatarUrl;
+  final String? avatarFrameUrl; // ✅ FIX: carry frame URL through seat events
   final int? level;
   final bool? isMuted;
   final SeatUpdateType type;
@@ -1100,6 +1109,7 @@ class SeatUpdate {
     this.userId,
     this.username,
     this.avatarUrl,
+    this.avatarFrameUrl, // ✅ FIX
     this.level,
     this.isMuted,
     required this.type,
@@ -1125,6 +1135,8 @@ class SeatUpdate {
       userId: _ni(json['userId'] ?? json['user_id']),
       username: (json['username'] ?? json['name']) as String?,
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url']) as String?,
+      // ✅ FIX: parse all possible frame key names the backend may send
+      avatarFrameUrl: (json['avatarFrameUrl'] ?? json['frameImageUrl'] ?? json['avatar_frame_url'])?.toString(),
       level: _ni(json['level']),
       isMuted: _nb(json['isMuted'] ?? json['muted']),
       type: type,

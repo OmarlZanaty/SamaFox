@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\" -Recurse -Force | Select-Object FullName | Sort-Object FullName | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\"\\), \".\" })"
+    ]
+  }
+}

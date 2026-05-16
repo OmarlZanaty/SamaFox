@@ -52,7 +52,9 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
                 ? const SizedBox.shrink()
                 : Align(
                     alignment: Alignment.topCenter,
-                    child: GestureDetector(
+              child: Material(
+                color: Colors.transparent,
+                child: GestureDetector(
                       onTap: () {
                         final route = event.routeName;
                         if (route != null && route.isNotEmpty) {
@@ -124,6 +126,7 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
           ),
         ),
       ),
+      )
     );
   }
 }

@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'dart:async';
@@ -34,18 +36,24 @@ import 'widgets/global_notification_bar.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize storage
-  await StorageService.init();
+/*  // ✅ Initialize Facebook SDK for WEB only
+  if (kIsWeb) {
+    await FacebookAuth.instance.webInitialize(
+      appId: "1027283767143922",
+      cookie: true,
+      xfbml: true,
+      version: "v18.0",
+    );
+  }*/
 
-  // Initialize SharedPreferences
+  await StorageService.init();
   final sharedPreferences = await SharedPreferences.getInstance();
-  final _ = DioClient.dio; // forces dio creation + interceptors attached
+  final _ = DioClient.dio;
   DioClient.init();
 
   runApp(
     ProviderScope(
       overrides: [
-        // Override the sharedPreferencesProvider with the actual instance
         sharedPreferencesProvider.overrideWithValue(sharedPreferences),
       ],
       child: const SamaFoxApp(),

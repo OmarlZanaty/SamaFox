@@ -159,14 +159,14 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   }
 
   void addActivity(
-    String text,
-    RoomEventType type, {
-    String? username,
-    String? badge,
-    int? coins,
-    String? countryCode,
-    String? gender,
-  }) {
+      String text,
+      RoomEventType type, {
+        String? username,
+        String? badge,
+        int? coins,
+        String? countryCode,
+        String? gender,
+      }) {
     final newEvent = RoomEvent(
       type: type,
       text: text,
@@ -338,11 +338,16 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _reconnectSub?.cancel(); // ✅ ADD
     _reconnectSub = null;    // ✅ ADD
 
-    // remove raw listeners to avoid duplicates
+    // remove raw listeners to avoid duplicates on re-entry
     _socket.off('mic_queue_updated');
     _socket.off('seat_occupied');
     _socket.off('seat_released');
     _socket.off('seat_updated');
+    _socket.off('user_joined');
+    _socket.off('user_left');
+    _socket.off('seat_error');
+    _socket.off('seat_mute_changed');
+    _socket.off('relation_ended');
 
     state = state.copyWith(isOpen: false);
 
@@ -357,9 +362,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     _msgSub = _socket.messageStream.listen((m) {
       final next = [...state.messages, m];
-      state = state.copyWith(messages: next);
+      // Keep the list bounded to avoid unbounded memory growth in long sessions.
+      final trimmed = next.length > 200 ? next.sublist(next.length - 200) : next;
+      state = state.copyWith(messages: trimmed);
       print('💬 messageStream room=$roomId from=${m.userId} name=${m.username} msg=${m.message}');
-
     });
 
     _socket.on('user_joined', (data) {
@@ -460,11 +466,11 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
             userId: old.userId,
             username: old.username,
             avatarUrl: old.avatarUrl,
+            avatarFrameUrl: old.avatarFrameUrl, // ✅ FIX: preserve frame on mute change
             level: old.level,
             isMuted: u.isMuted!,
             isLocked: old.isLocked,
           );
-
 
           state = state.copyWith(seats: current);
         }
@@ -496,6 +502,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         userId: old.userId,
         username: old.username,
         avatarUrl: old.avatarUrl,
+        avatarFrameUrl: old.avatarFrameUrl, // ✅ FIX: preserve frame on seat lock change
         level: old.level,
         isMuted: old.isMuted,
         isLocked: locked,
@@ -535,7 +542,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       _socket.emit('request_room_seats_state', {'roomId': roomId});
     });
 
-    _reconnectSub?.cancel(); // ✅ cancel any previous subscription first
+    _reconnectSub?.cancel();
     _reconnectSub = _socket.reconnectStream.listen((_) async {
       final user = ref.read(authStateProvider).user;
       if (user == null) return;
@@ -544,6 +551,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       _socket.emit('get_room_seats_state', {'roomId': roomId});
       _socket.emit('request_room_seats_state', {'roomId': roomId});
       _socket.getVoiceUsers(roomId: roomId);
+      // Re-register raw socket listeners that were cleared when the socket reconnected.
+      _bindStreams();
     });
 
 
@@ -1060,6 +1069,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       userId: me.id,
       username: me.name,
       avatarUrl: me.avatarUrl,
+      avatarFrameUrl: me.avatarFrameUrl, // ✅ FIX: show MY frame immediately in optimistic update
       level: me.level ?? 0,
       isMuted: true,
       isLocked: old.isLocked,
@@ -1073,10 +1083,6 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       countryCode: me.countryCode,
       gender: me.gender,
     );
-
-    // ✅ Emit ONLY after connected
-    // ✅ Emit via SocketService helper
-    final frameUrl = ref.read(authStateProvider).user?.avatarFrameUrl;
 
     final user = ref.read(authStateProvider).user;
     if (user == null) return;
@@ -1125,6 +1131,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         userId: old.userId,
         username: old.username,
         avatarUrl: old.avatarUrl,
+        avatarFrameUrl: old.avatarFrameUrl,
         level: old.level,
         isMuted: isMuted,
         isLocked: old.isLocked,
@@ -1181,6 +1188,14 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       quantity: quantity,
       message: message,
     );
+  }
+
+  void removeSeat({required int seatNumber, required int targetUserId}) {
+    final updated = Map<int, SeatData>.from(state.seats);
+    updated.removeWhere(
+      (_, seat) => seat.seatNumber == seatNumber && seat.userId == targetUserId,
+    );
+    state = state.copyWith(seats: updated);
   }
 
   void clearMessages() {

@@ -12,7 +12,6 @@ import '../models/message.dart';
 import '../models/user.dart';
 import '../models/api_response.dart';
 import '../models/game.dart';
-import '../models/gift_history.dart';
 
 part 'api_service.g.dart';
 
@@ -33,6 +32,9 @@ abstract class ApiService {
 
   @POST('auth/google/mobile')
   Future<AuthResponse> googleLogin(@Body() GoogleLoginRequest request);
+
+  @POST("auth/facebook")
+  Future<AuthResponse> facebookLogin(@Body() FacebookLoginRequest request);
 
   @GET('auth/user/{id}')
   Future<User> getUserProfile(@Path('id') int userId);
@@ -55,6 +57,9 @@ abstract class ApiService {
     @Query('page') int page = 1,
     @Query('limit') int limit = 20,
   });
+
+  @POST('room-admin/kick')
+  Future<MessageResponse> kickUser(@Body() Map<String, dynamic> request);
 
   @GET('rooms/{id}')
   Future<Room> getRoomById(@Path('id') int roomId);

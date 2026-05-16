@@ -2,11 +2,10 @@
 // PHASE 1 - CORRECTED AUTH REPOSITORY
 // ============================================
 // File: lib/repositories/auth_repository.dart
-// UPDATED VERSION - Integrates with existing code
-// Replace your existing auth_repository.dart with this version
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -25,7 +24,6 @@ class AuthRepository {
   late final ApiService _apiService;
   late final GoogleSignIn _googleSignIn = _buildGoogleSignIn();
 
-
   AuthRepository() {
     _apiService = ApiService(DioClient.dio);
   }
@@ -41,7 +39,6 @@ class AuthRepository {
           return 'Google Sign-In failed. Please retry.';
       }
     }
-
     return error.toString();
   }
 
@@ -52,7 +49,6 @@ class AuthRepository {
         clientId: AppConfig.googleWebClientId,
       );
     }
-
     return GoogleSignIn(
       scopes: ['email', 'profile'],
       serverClientId: AppConfig.googleServerClientId,
@@ -66,30 +62,22 @@ class AuthRepository {
   Future<Result<GuestLoginResponse>> guestLogin(String deviceId) async {
     try {
       print('🔐 [AUTH REPO] Guest login with device ID: $deviceId');
-
       final response = await _apiService.guestLogin(
         GuestLoginRequest(deviceId: deviceId),
       );
-
-      // Save auth data
       await StorageService.saveAuthData(
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         user: response.user,
       );
-
       SocketService().updateToken(response.accessToken);
-
-      // Save guest user data
       await StorageService.saveGuestUser(
         userId: response.user.id,
         username: response.user.name,
         avatar: response.user.avatarUrl,
         deviceId: deviceId,
       );
-
       print('✅ [AUTH REPO] Guest login successful');
-
       return Result.success(response);
     } catch (e) {
       print('❌ [AUTH REPO] Guest login error: $e');
@@ -101,30 +89,22 @@ class AuthRepository {
     return await _apiService.getCurrentUser();
   }
 
-
-
-
   // ============================================
   // EMAIL/PHONE LOGIN
   // ============================================
 
-  /// Login with email and password
   Future<Result<AuthResponse>> login(String email, String password) async {
     try {
       print('🔐 [AUTH REPO] Logging in with email: $email');
-
       final response = await _apiService.login(
         LoginRequest(email: email, password: password),
       );
-
       await StorageService.saveAuthData(
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         user: response.user,
       );
-
       print('✅ [AUTH REPO] Login successful');
-
       return Result.success(response);
     } catch (e) {
       print('❌ [AUTH REPO] Login error: $e');
@@ -133,27 +113,23 @@ class AuthRepository {
   }
 
   // ============================================
-  // REGISTRATION (ENHANCED WITH GENDER/COUNTRY)
+  // REGISTRATION
   // ============================================
 
-  /// Register new user with optional gender and country
   Future<Result<AuthResponse>> register({
     required String name,
     required String email,
     required String password,
-    String? gender, // NEW: "male", "female", "other"
-    String? countryCode, // NEW: ISO code
-    String? country, // NEW: Country name
+    String? gender,
+    String? countryCode,
+    String? country,
   }) async {
     try {
       print('📝 [AUTH REPO] Registering user: $name');
-
-      // Validate gender if provided
       if (gender != null &&
           !['male', 'female', 'other'].contains(gender.toLowerCase())) {
         return Result.error('Invalid gender');
       }
-
       final response = await _apiService.register(
         RegisterRequest(
           name: name,
@@ -164,15 +140,12 @@ class AuthRepository {
           country: country,
         ),
       );
-
       await StorageService.saveAuthData(
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         user: response.user,
       );
-
       print('✅ [AUTH REPO] Registration successful');
-
       return Result.success(response);
     } catch (e) {
       print('❌ [AUTH REPO] Registration error: $e');
@@ -184,7 +157,6 @@ class AuthRepository {
   // DEVICE ID
   // ============================================
 
-  /// Get unique device ID
   Future<String> getDeviceId() async {
     try {
       final deviceInfo = DeviceInfoPlugin();
@@ -206,29 +178,21 @@ class AuthRepository {
   // AUTHENTICATION STATUS
   // ============================================
 
-  /// Check if user is authenticated
   Future<bool> isAuthenticated() async {
     return await StorageService.isAuthenticated();
   }
 
-  /// Get current user from local storage
   Future<User?> getCurrentUser() async {
     return await StorageService.getCurrentUser();
   }
 
-  /// Fetch current user from API (fresh data from backend)
   Future<Result<User>> fetchCurrentUser() async {
     try {
       print('👤 [AUTH REPO] Fetching current user from API...');
-
       final user = await _apiService.getCurrentUser();
-
-      // Update local storage with fresh data
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_data', jsonEncode(user.toJson()));
-
       print('✅ [AUTH REPO] User fetched successfully');
-
       return Result.success(user);
     } catch (e) {
       print('❌ [AUTH REPO] Error fetching user: $e');
@@ -240,14 +204,11 @@ class AuthRepository {
   // LOGOUT
   // ============================================
 
-  /// Logout user
   Future<void> logout() async {
     try {
       print('🚪 [AUTH REPO] Logging out...');
-
       await StorageService.clearAuthData();
       await StorageService.clearGuestUser();
-
       print('✅ [AUTH REPO] Logged out successfully');
     } catch (e) {
       print('❌ [AUTH REPO] Logout error: $e');
@@ -255,19 +216,15 @@ class AuthRepository {
   }
 
   // ============================================
-  // GOOGLE SIGN-IN (ENHANCED)
+  // GOOGLE SIGN-IN
   // ============================================
 
-  /// Google Sign-In - Enhanced with better error handling
   Future<Result<AuthResponse>> signInWithGoogle() async {
     try {
       print('🔐 [AUTH REPO] Starting Google Sign-In...');
-
-      // ✅ Safely sign out stale session
       try {
         await _googleSignIn.signOut();
       } catch (_) {}
-
       GoogleSignInAccount? googleUser;
       try {
         googleUser = await _googleSignIn.signIn();
@@ -287,34 +244,26 @@ class AuthRepository {
           rethrow;
         }
       }
-
       if (googleUser == null) {
         print('❌ [AUTH REPO] Google Sign-In cancelled by user');
         return Result.error('Google Sign-In cancelled');
       }
-
       print('✅ [AUTH REPO] Google user signed in: ${googleUser.email}');
-
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       final String? idToken = googleAuth.idToken;
-
       if (idToken == null) {
         print('❌ [AUTH REPO] No ID token from Google');
         return Result.error('Failed to get Google ID token');
       }
-
       print('✅ [AUTH REPO] ID token received');
-
       final response = await _apiService.googleLogin(
         GoogleLoginRequest(idToken: idToken),
       );
-
       await StorageService.saveAuthData(
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         user: response.user,
       );
-
       print('✅ [AUTH REPO] Google Sign-In successful');
       return Result.success(response);
     } catch (e) {
@@ -323,13 +272,10 @@ class AuthRepository {
     }
   }
 
-  /// Google Sign-Out
   Future<void> signOutGoogle() async {
     try {
       print('🚪 [AUTH REPO] Signing out from Google...');
-
       await _googleSignIn.signOut();
-
       print('✅ [AUTH REPO] Signed out from Google');
     } catch (e) {
       print('❌ [AUTH REPO] Google sign-out error: $e');
@@ -337,33 +283,71 @@ class AuthRepository {
   }
 
   // ============================================
-  // TOKEN REFRESH
+  // FACEBOOK SIGN-IN
   // ============================================
 
-  /// Refresh access token
-  Future<Result<AuthResponse>> refreshAccessToken() async {
+  Future<Result<AuthResponse>> signInWithFacebook() async {
     try {
-      print('🔄 [AUTH REPO] Refreshing access token...');
+      final LoginResult result = await FacebookAuth.instance.login(
+        permissions: ['email', 'public_profile'],
+      );
 
-      final refreshToken = await StorageService.getRefreshToken();
-
-      if (refreshToken == null) {
-        print('❌ [AUTH REPO] No refresh token found');
-        return Result.error('No refresh token available');
+      if (result.status != LoginStatus.success || result.accessToken == null) {
+        return Result.error(result.message ?? 'فشل تسجيل الدخول عبر فيسبوك');
       }
 
-      // Call refresh endpoint
-      final response = await _apiService.refreshToken({'refreshToken': refreshToken});
+      final String accessToken = result.accessToken!.token;
 
-      // Update tokens
+      // ✅ SEND TO YOUR BACKEND
+      final response = await _apiService.facebookLogin(
+        FacebookLoginRequest(facebookToken: accessToken),
+      );
+
       await StorageService.saveAuthData(
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
         user: response.user,
       );
 
-      print('✅ [AUTH REPO] Token refreshed successfully');
+      return Result.success(response);
 
+    } catch (e) {
+      return Result.error(e.toString());
+    }
+  }
+
+  // ============================================
+  // SNAPCHAT SIGN-IN
+  // ============================================
+
+  Future<Result<AuthResponse>> signInWithSnapchat() async {
+    try {
+      // 🔴 TODO: Implement Snapchat OAuth flow
+      return Result.error('يرجى ربط الخادم (Backend) بتسجيل الدخول عبر سناب شات');
+    } catch (e) {
+      return Result.error(e.toString());
+    }
+  }
+
+  // ============================================
+  // TOKEN REFRESH
+  // ============================================
+
+  Future<Result<AuthResponse>> refreshAccessToken() async {
+    try {
+      print('🔄 [AUTH REPO] Refreshing access token...');
+      final refreshToken = await StorageService.getRefreshToken();
+      if (refreshToken == null) {
+        print('❌ [AUTH REPO] No refresh token found');
+        return Result.error('No refresh token available');
+      }
+      final response = await _apiService.refreshToken({'refreshToken': refreshToken});
+      await StorageService.saveAuthData(
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+        user: response.user,
+      );
+      print('✅ [AUTH REPO] Token refreshed successfully');
       return Result.success(response);
     } catch (e) {
       print('❌ [AUTH REPO] Token refresh error: $e');
@@ -372,10 +356,9 @@ class AuthRepository {
   }
 
   // ============================================
-  // PROFILE UPDATE (NEW FOR PHASE 1)
+  // PROFILE UPDATE
   // ============================================
 
-  /// Update user profile including gender and country
   Future<Result<User>> updateProfile({
     String? name,
     String? bio,
@@ -386,13 +369,10 @@ class AuthRepository {
   }) async {
     try {
       print('✏️ [AUTH REPO] Updating profile...');
-
-      // Validate gender if provided
       if (gender != null &&
           !['male', 'female', 'other'].contains(gender.toLowerCase())) {
         return Result.error('Invalid gender');
       }
-
       final data = <String, dynamic>{};
       if (name != null) data['name'] = name;
       if (bio != null) data['bio'] = bio;
@@ -400,16 +380,10 @@ class AuthRepository {
       if (countryCode != null) data['countryCode'] = countryCode;
       if (country != null) data['country'] = country;
       if (avatarUrl != null) data['avatarUrl'] = avatarUrl;
-
-      // Call update endpoint
       final user = await _apiService.updateProfile(data);
-
-      // Update local storage
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_data', jsonEncode(user.toJson()));
-
       print('✅ [AUTH REPO] Profile updated successfully');
-
       return Result.success(user);
     } catch (e) {
       print('❌ [AUTH REPO] Profile update error: $e');
@@ -417,7 +391,6 @@ class AuthRepository {
     }
   }
 
-  /// Update only gender and country
   Future<Result<User>> updateGenderAndCountry({
     required String gender,
     required String countryCode,
@@ -425,25 +398,18 @@ class AuthRepository {
   }) async {
     try {
       print('🌍 [AUTH REPO] Updating gender and country...');
-
       if (!['male', 'female', 'other'].contains(gender.toLowerCase())) {
         return Result.error('Invalid gender');
       }
-
       final data = {
         'gender': gender.toLowerCase(),
         'countryCode': countryCode,
         if (country != null) 'country': country,
       };
-
       final user = await _apiService.updateProfile(data);
-
-      // Update local storage
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_data', jsonEncode(user.toJson()));
-
       print('✅ [AUTH REPO] Gender and country updated');
-
       return Result.success(user);
     } catch (e) {
       print('❌ [AUTH REPO] Update error: $e');
@@ -452,18 +418,14 @@ class AuthRepository {
   }
 
   // ============================================
-  // USER SEARCH (NEW FOR PHASE 1)
+  // USER SEARCH
   // ============================================
 
-  /// Search users by name or email
   Future<Result<List<User>>> searchUsers(String query) async {
     try {
       print('🔍 [AUTH REPO] Searching users: $query');
-
       final response = await _apiService.searchUsers(query);
-
       print('✅ [AUTH REPO] Search completed');
-
       return Result.success(response.users ?? []);
     } catch (e) {
       print('❌ [AUTH REPO] Search error: $e');
@@ -471,19 +433,15 @@ class AuthRepository {
     }
   }
 
-  /// Get users by country
   Future<Result<List<User>>> getUsersByCountry(String countryCode) async {
     try {
       print('🌍 [AUTH REPO] Fetching users from $countryCode...');
-
       final response = await _apiService.getUsersByCountry(countryCode);
-
       print('✅ [AUTH REPO] Users fetched');
-
       return Result.success(response.users ?? []);
     } catch (e) {
       print('❌ [AUTH REPO] Error: $e');
       return Result.error(e.toString());
     }
   }
-}
+} // ✅ AuthRepository class ends here

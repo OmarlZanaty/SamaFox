@@ -90,7 +90,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       final user = await _repository.getCurrentUser();
 
-      // ✅ Connect socket using saved access token (THIS FIXES RECEIVER NOT GETTING EVENTS)
       final token = await StorageService.getAccessToken();
       if (token != null && token.isNotEmpty) {
         SocketService().connect(token);
@@ -102,6 +101,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
     } catch (e) {
       print('❌ [AUTH NOTIFIER] Error checking auth status: $e');
+      // Don't leave the app in a half-initialised state — clear session on error.
+      await _forceLogoutLocal(error: e.toString());
     }
   }
 
@@ -112,6 +113,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final result = await _repository.fetchCurrentUser();
       if (result.isSuccess && result.data != null) {
+        // ✅ FIX: also persist to storage so frame survives app restart
+        await StorageService.updateUser(result.data!);
         state = state.copyWith(user: result.data);
       }
     } catch (_) {}
@@ -317,6 +320,47 @@ class AuthNotifier extends StateNotifier<AuthState> {
       } else {
         state = state.copyWith(isLoading: false, error: result.error);
       }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  /// Facebook Sign-In
+  Future<void> signInWithFacebook() async {
+    state = state.copyWith(
+      isLoading: true,
+      error: null,
+      isAuthenticated: false,
+      clearUser: true,
+    );
+
+    try {
+      final result = await _repository.signInWithFacebook();
+
+      if (result.isSuccess && result.data != null) {
+        SocketService().connect(result.data!.accessToken);
+
+        state = state.copyWith(
+          isLoading: false,
+          isAuthenticated: true,
+          user: result.data!.user,
+          error: null,
+        );
+      } else {
+        await _forceLogoutLocal(error: result.error);
+      }
+    } catch (e) {
+      await _forceLogoutLocal(error: e.toString());
+    }
+  }
+
+  /// Snapchat Sign-In (not yet implemented — shows error without touching auth state)
+  Future<void> signInWithSnapchat() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final result = await _repository.signInWithSnapchat();
+      // Not yet implemented: just surface the error without clearing the session.
+      state = state.copyWith(isLoading: false, error: result.error);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }

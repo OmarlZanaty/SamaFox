@@ -17,6 +17,7 @@ RoomMember _$RoomMemberFromJson(Map<String, dynamic> json) => RoomMember(
       id: (json['id'] as num?)?.toInt(),
       name: json['name'] as String?,
       avatarUrl: json['avatarUrl'] as String?,
+      ownerId: (json['ownerId'] as num?)?.toInt(),
     );
 
 Map<String, dynamic> _$RoomMemberToJson(RoomMember instance) =>
@@ -29,6 +30,7 @@ Map<String, dynamic> _$RoomMemberToJson(RoomMember instance) =>
       'id': instance.id,
       'name': instance.name,
       'avatarUrl': instance.avatarUrl,
+      'ownerId': instance.ownerId,
     };
 
 Room _$RoomFromJson(Map<String, dynamic> json) => Room(

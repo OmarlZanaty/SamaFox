@@ -30,6 +30,7 @@ User _$UserFromJson(Map<String, dynamic> json) => User(
       followingCount: (json['followingCount'] as num?)?.toInt() ?? 0,
       createdAt: json['createdAt'] as String?,
       updatedAt: json['updatedAt'] as String?,
+      avatarFrameUrl: json['avatarFrameUrl'] as String?,
     );
 
 Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
@@ -44,6 +45,7 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'gender': instance.gender,
       'birthday': instance.birthday,
       'bio': instance.bio,
+      'avatarFrameUrl': instance.avatarFrameUrl,
       'level': instance.level,
       'xp': instance.xp,
       'coins': instance.coins,

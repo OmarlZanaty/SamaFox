@@ -7,6 +7,7 @@ import '../../providers/room_controller_provider.dart';
 import '../../models/room_event.dart';
 import '../../services/socket_service.dart';
 import 'TopWaveClipper.dart';
+
 // ==========================
 // 🔥 NEW: merged feed model
 // ==========================
@@ -38,6 +39,9 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
 
   Timer? _typingTimer;
   bool _isTyping = false;
+
+  // ✅ Filter index
+  int _filterIndex = 0; // 0: الكل, 1: الهدايا, 2: الدردشة
 
   @override
   void dispose() {
@@ -97,7 +101,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     // ==========================
     // 🔥 MERGE CHAT + ACTIVITY
     // ==========================
-    final feed = <RoomFeedItem>[
+    final allFeed = <RoomFeedItem>[
       ...messages.map((m) => RoomFeedItem.message(m)),
       ...events.map((e) => RoomFeedItem.event(e)),
     ];
@@ -105,7 +109,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     // ==========================
     // 🔥 SORT BY TIME
     // ==========================
-    feed.sort((a, b) {
+    allFeed.sort((a, b) {
       final aTime = a.isMessage
           ? a.message!.timestamp
           : a.event!.at.millisecondsSinceEpoch;
@@ -116,6 +120,14 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
 
       return aTime.compareTo(bTime);
     });
+
+    // ✅ APPLY FILTERING
+    final feed = allFeed.where((item) {
+      if (_filterIndex == 0) return true; // الكل
+      if (_filterIndex == 1) return !item.isMessage && item.event?.type == RoomEventType.gift; // الهدايا
+      if (_filterIndex == 2) return item.isMessage; // الدردشة
+      return true;
+    }).toList();
 
     // auto scroll
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -137,7 +149,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
               child: Container(
                 width: 36,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 6),
+                margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: Colors.white24,
                   borderRadius: BorderRadius.circular(20),
@@ -145,162 +157,224 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
               ),
             ),
 
+            // ✅ Updated: Filter Tabs (Right Aligned, Glass Design, Bigger)
+            _buildFilterTabs(),
 
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
 
             // ==========================
             // 🔥 ONE LIST (CHAT + EVENTS)
             // ==========================
             Expanded(
               child: Directionality(
-                textDirection: TextDirection.rtl,
-                child: ListView.builder(
-                  controller: _scroll,
-                  reverse: false, // ✅ NORMAL TOP → DOWN
-                  padding: const EdgeInsets.only(bottom: 20),
-                  itemCount: feed.length,
-                  itemBuilder: (_, i) {
-                    final item = feed[i]; // ✅ NORMAL ORDER
+                  textDirection: TextDirection.rtl,
+                  child: ListView.builder(
+                    controller: _scroll,
+                    reverse: false, // ✅ NORMAL TOP → DOWN
+                    padding: const EdgeInsets.only(bottom: 20),
+                    itemCount: feed.length,
+                    itemBuilder: (_, i) {
+                      final item = feed[i]; // ✅ NORMAL ORDER
 
-                    // ===== CHAT =====
-                    if (item.isMessage) {
-                      final m = item.message!;
+                      // ===== CHAT =====
+                      if (item.isMessage) {
+                        final m = item.message!;
 
-                      final time = DateTime.fromMillisecondsSinceEpoch(m.timestamp);
-                      final timeStr =
-                          "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
+                        final time = DateTime.fromMillisecondsSinceEpoch(m.timestamp);
+                        final timeStr =
+                            "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
 
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: TweenAnimationBuilder(
-                          duration: const Duration(milliseconds: 350),
-                          tween: Tween(begin: 60.0, end: 0.0), // 👈 slide from RIGHT
-                          builder: (context, value, child) {
-                            return Transform.translate(
-                              offset: Offset(value, 0),
-                              child: Opacity(
-                                opacity: 1 - (value / 60),
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: Align(
-                            alignment: Alignment.centerRight, // ✅ RIGHT SIDE
-                            child: Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Stack(
-                                children: [
-                                  // 💬 BUBBLE
-                                  Container(
-                                    constraints: BoxConstraints(
-                                      maxWidth: MediaQuery.of(context).size.width * 0.85,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.deepPurple.withOpacity(0.6), // 🔥 visible
-                                      borderRadius: BorderRadius.circular(22),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          m.username,
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 11,
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: TweenAnimationBuilder(
+                            duration: const Duration(milliseconds: 350),
+                            tween: Tween(begin: 60.0, end: 0.0), // 👈 slide from RIGHT
+                            builder: (context, value, child) {
+                              return Transform.translate(
+                                offset: Offset(value, 0),
+                                child: Opacity(
+                                  opacity: 1 - (value / 60),
+                                  child: child,
+                                ),
+                              );
+                            },
+                            child: Align(
+                              alignment: Alignment.centerRight, // ✅ RIGHT SIDE
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Stack(
+                                  children: [
+                                    // 💬 BUBBLE
+                                    Container(
+                                      constraints: BoxConstraints(
+                                        maxWidth: MediaQuery.of(context).size.width * 0.85,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.deepPurple.withOpacity(0.6), // 🔥 visible
+                                        borderRadius: BorderRadius.circular(22),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            m.username,
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11,
+                                            ),
+                                            textAlign: TextAlign.right,
                                           ),
-                                          textAlign: TextAlign.right,
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          m.message,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 17,
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            m.message,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 17,
+                                            ),
+                                            textAlign: TextAlign.right,
                                           ),
-                                          textAlign: TextAlign.right,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          timeStr,
-                                          style: const TextStyle(
-                                            color: Colors.white38,
-                                            fontSize: 12,
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            timeStr,
+                                            style: const TextStyle(
+                                              color: Colors.white38,
+                                              fontSize: 12,
+                                            ),
+                                            textAlign: TextAlign.right,
                                           ),
-                                          textAlign: TextAlign.right,
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
 
-                                  // 🔻 RTL TAIL
-                                  Positioned(
-                                    right: -6,
-                                    bottom: 6,
-                                    child: CustomPaint(
-                                      size: const Size(16, 16),
-                                      painter: _BubbleTailPainter(),
+                                    // 🔻 RTL TAIL
+                                    Positioned(
+                                      right: -6,
+                                      bottom: 6,
+                                      child: CustomPaint(
+                                        size: const Size(16, 16),
+                                        painter: _BubbleTailPainter(),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
-                    // ===== ACTIVITY ITEM =====
-                    final e = item.event!;
-                    final username = (e.username == null || e.username!.trim().isEmpty)
-                        ? 'مستخدم'
-                        : e.username!.trim();
-                    final icon = e.type == RoomEventType.join
-                        ? Icons.login_rounded
-                        : Icons.card_giftcard_rounded;
-                    final line = '$username ${e.text}';
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF1a4a1a), Color(0xFF2d7a2d), Color(0xFF1a4a1a)],
-                            begin: Alignment.centerRight,
-                            end: Alignment.centerLeft,
-                          ),
-                          border: Border.all(color: const Color(0xFF4caf50), width: 1.5),
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(icon, color: Colors.amber, size: 16),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                line,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
+                          ),
+                        );
+                      }
+
+                      // ===== ACTIVITY ITEM =====
+                      final e = item.event!;
+                      final username = (e.username == null || e.username!.trim().isEmpty)
+                          ? 'مستخدم'
+                          : e.username!.trim();
+                      final icon = e.type == RoomEventType.join
+                          ? Icons.login_rounded
+                          : Icons.card_giftcard_rounded;
+                      final line = '$username ${e.text}';
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF1a4a1a), Color(0xFF2d7a2d), Color(0xFF1a4a1a)],
+                              begin: Alignment.centerRight,
+                              end: Alignment.centerLeft,
+                            ),
+                            border: Border.all(color: const Color(0xFF4caf50), width: 1.5),
+                            borderRadius: BorderRadius.circular(28),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(icon, color: Colors.white, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  line,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                )
+                      );
+                    },
+                  )
               ),
             ),
           ],
         ),
       ),
-        );
+    );
+  }
+
+  // ✅ Updated: Tab Builder (Explicitly Right Aligned for RTL)
+  Widget _buildFilterTabs() {
+    return Align(
+      alignment: Alignment.centerRight, // 👈 Force alignment to the right
+      child: Padding(
+        padding: const EdgeInsets.only(right: 16),
+        child: Row(
+          mainAxisSize: MainAxisSize.min, // 👈 Only take needed space
+          children: [
+            _tabItem(0, "الكل"),
+            const SizedBox(width: 12),
+            _tabItem(1, "الهدايا"),
+            const SizedBox(width: 12),
+            _tabItem(2, "الدردشة"),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tabItem(int index, String label) {
+    final isSelected = _filterIndex == index;
+    return GestureDetector(
+      onTap: () => setState(() => _filterIndex = index),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(25),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), // ✅ Glass effect
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10), // ✅ Bigger button
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.white.withOpacity(0.25) // Selected glass
+                  : Colors.white.withOpacity(0.08), // Unselected glass
+              borderRadius: BorderRadius.circular(25),
+              border: Border.all(
+                color: isSelected ? Colors.white54 : Colors.white12,
+                width: 1,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white60,
+                fontSize: 14, // ✅ Bigger text
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                shadows: isSelected ? [
+                  Shadow(
+                    blurRadius: 10.0,
+                    color: Colors.black45,
+                    offset: Offset(2.0, 2.0),
+                  ),
+                ] : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

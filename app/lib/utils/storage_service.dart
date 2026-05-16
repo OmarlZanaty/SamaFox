@@ -1,20 +1,48 @@
 import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../models/user.dart';
 
 class StorageService {
+  // Tokens live in encrypted secure storage; everything else in SharedPreferences.
+  static const _secure = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+
   static SharedPreferences? _prefs;
 
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    // Migrate any tokens previously stored in SharedPreferences.
+    await _migrateTokensToSecureStorage();
   }
 
-  static SharedPreferences get prefs {
-    if (_prefs == null) {
-      throw Exception('StorageService not initialized. Call init() first.');
+  static Future<SharedPreferences> _getPrefs() async {
+    return _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  // One-time migration: move tokens out of SharedPreferences into secure storage.
+  static Future<void> _migrateTokensToSecureStorage() async {
+    final p = await _getPrefs();
+    final legacyAccess = p.getString(AppConfig.accessTokenKey) ?? p.getString('access_token');
+    final legacyRefresh = p.getString(AppConfig.refreshTokenKey);
+
+    if (legacyAccess != null && legacyAccess.isNotEmpty) {
+      await _secure.write(key: AppConfig.accessTokenKey, value: legacyAccess);
+      await p.remove(AppConfig.accessTokenKey);
+      await p.remove('access_token');
     }
-    return _prefs!;
+    if (legacyRefresh != null && legacyRefresh.isNotEmpty) {
+      await _secure.write(key: AppConfig.refreshTokenKey, value: legacyRefresh);
+      await p.remove(AppConfig.refreshTokenKey);
+    }
+  }
+
+  static String _cleanToken(String raw) {
+    var t = raw.trim().replaceAll('"', '').replaceAll("'", '');
+    if (t.startsWith('Bearer ')) t = t.substring(7).trim();
+    return t;
   }
 
   // ==================== AUTH DATA ====================
@@ -24,88 +52,55 @@ class StorageService {
     required String refreshToken,
     required User user,
   }) async {
-    // ✅ Clean token before saving to prevent quote issues
-    String cleanToken = accessToken.trim();
-    // Remove surrounding quotes (single or double)
-    if (cleanToken.startsWith('"') && cleanToken.endsWith('"') && cleanToken.length > 2) {
-      cleanToken = cleanToken.substring(1, cleanToken.length - 1);
-    }
-    if (cleanToken.startsWith("'") && cleanToken.endsWith("'") && cleanToken.length > 2) {
-      cleanToken = cleanToken.substring(1, cleanToken.length - 1);
-    }
-
-    await prefs.setString(AppConfig.accessTokenKey, cleanToken);
-    await prefs.setString('access_token', cleanToken); // ✅ save under both keys
-    await prefs.setString(AppConfig.refreshTokenKey, refreshToken);
-    await prefs.setString(AppConfig.userDataKey, jsonEncode(user.toJson()));
+    await saveTokens(accessToken: accessToken, refreshToken: refreshToken);
+    final p = await _getPrefs();
+    await p.setString(AppConfig.userDataKey, jsonEncode(user.toJson()));
   }
 
-  /// Save only tokens (no user object needed) — used by token refresh interceptor
   static Future<void> saveTokens({
     required String accessToken,
     required String refreshToken,
   }) async {
-    String cleanToken = accessToken.trim()
-        .replaceAll('"', '')
-        .replaceAll("'", '');
-
-    await prefs.setString(AppConfig.accessTokenKey, cleanToken);
-    await prefs.setString('access_token', cleanToken); // both keys
-    await prefs.setString(AppConfig.refreshTokenKey, refreshToken);
+    final cleanAccess = _cleanToken(accessToken);
+    final cleanRefresh = _cleanToken(refreshToken);
+    await _secure.write(key: AppConfig.accessTokenKey, value: cleanAccess);
+    await _secure.write(key: AppConfig.refreshTokenKey, value: cleanRefresh);
   }
 
   static Future<String?> getAccessToken() async {
-    // ✅ Always use cached instance if available, avoids null during early calls
-    final p = _prefs ?? await SharedPreferences.getInstance();
-    // cache it for future sync calls
-    _prefs ??= p;
-
-    String? token = p.getString(AppConfig.accessTokenKey)
-        ?? p.getString('access_token');
-
-    if (token == null) return null;
-
-    token = token.trim();
-
-    if (token.startsWith('"') && token.endsWith('"') && token.length > 2) {
-      token = token.substring(1, token.length - 1);
-    }
-    if (token.startsWith("'") && token.endsWith("'") && token.length > 2) {
-      token = token.substring(1, token.length - 1);
-    }
-
+    String? token = await _secure.read(key: AppConfig.accessTokenKey);
+    if (token == null || token.isEmpty) return null;
+    token = _cleanToken(token);
     if (token.split('.').length != 3) {
-      print('⚠️ Stored token is malformed, clearing');
-      await p.remove(AppConfig.accessTokenKey);
-      await p.remove('access_token');
+      await _secure.delete(key: AppConfig.accessTokenKey);
       return null;
     }
-
     return token;
   }
 
   static Future<String?> getRefreshToken() async {
-    return prefs.getString(AppConfig.refreshTokenKey);
+    final token = await _secure.read(key: AppConfig.refreshTokenKey);
+    if (token == null || token.isEmpty) return null;
+    return _cleanToken(token);
   }
 
   static Future<void> deleteAccessToken() async {
-    await prefs.remove(AppConfig.accessTokenKey);
-    await prefs.remove('access_token');
+    await _secure.delete(key: AppConfig.accessTokenKey);
   }
 
   static Future<void> deleteRefreshToken() async {
-    await prefs.remove(AppConfig.refreshTokenKey);
+    await _secure.delete(key: AppConfig.refreshTokenKey);
   }
 
   static Future<void> clearTokens() async {
-    await deleteAccessToken();
-    await deleteRefreshToken();
+    await _secure.delete(key: AppConfig.accessTokenKey);
+    await _secure.delete(key: AppConfig.refreshTokenKey);
   }
 
   static Future<User?> getCurrentUser() async {
-    final userJson = prefs.getString(AppConfig.userDataKey);
+    final p = await _getPrefs();
+    final userJson = p.getString(AppConfig.userDataKey);
     if (userJson == null) return null;
-
     try {
       return User.fromJson(jsonDecode(userJson));
     } catch (_) {
@@ -114,14 +109,14 @@ class StorageService {
   }
 
   static Future<void> updateUser(User user) async {
-    await prefs.setString(AppConfig.userDataKey, jsonEncode(user.toJson()));
+    final p = await _getPrefs();
+    await p.setString(AppConfig.userDataKey, jsonEncode(user.toJson()));
   }
 
   static Future<void> clearAuthData() async {
-    await prefs.remove(AppConfig.accessTokenKey);
-    await prefs.remove('access_token');
-    await prefs.remove(AppConfig.refreshTokenKey);
-    await prefs.remove(AppConfig.userDataKey);
+    await clearTokens();
+    final p = await _getPrefs();
+    await p.remove(AppConfig.userDataKey);
   }
 
   static Future<bool> isAuthenticated() async {
@@ -138,56 +133,65 @@ class StorageService {
     String? avatar,
     required String deviceId,
   }) async {
-    await prefs.setInt(AppConfig.guestUserIdKey, userId);
-    await prefs.setString(AppConfig.guestUsernameKey, username);
-    if (avatar != null) {
-      await prefs.setString('guest_avatar', avatar);
-    }
-    await prefs.setString('guest_device_id', deviceId);
-    await prefs.setBool('is_guest', true);
+    final p = await _getPrefs();
+    await p.setInt(AppConfig.guestUserIdKey, userId);
+    await p.setString(AppConfig.guestUsernameKey, username);
+    if (avatar != null) await p.setString('guest_avatar', avatar);
+    await p.setString('guest_device_id', deviceId);
+    await p.setBool('is_guest', true);
   }
 
   static Future<int?> getGuestUserId() async {
-    return prefs.getInt(AppConfig.guestUserIdKey);
+    final p = await _getPrefs();
+    return p.getInt(AppConfig.guestUserIdKey);
   }
 
   static Future<String?> getGuestUsername() async {
-    return prefs.getString(AppConfig.guestUsernameKey);
+    final p = await _getPrefs();
+    return p.getString(AppConfig.guestUsernameKey);
   }
 
   static Future<bool> isGuest() async {
-    return prefs.getBool('is_guest') ?? false;
+    final p = await _getPrefs();
+    return p.getBool('is_guest') ?? false;
   }
 
   static Future<void> clearGuestUser() async {
-    await prefs.remove(AppConfig.guestUserIdKey);
-    await prefs.remove(AppConfig.guestUsernameKey);
-    await prefs.remove('guest_avatar');
-    await prefs.remove('guest_device_id');
-    await prefs.remove('is_guest');
+    final p = await _getPrefs();
+    await p.remove(AppConfig.guestUserIdKey);
+    await p.remove(AppConfig.guestUsernameKey);
+    await p.remove('guest_avatar');
+    await p.remove('guest_device_id');
+    await p.remove('is_guest');
   }
 
   // ==================== THEME & LANGUAGE ====================
 
   static Future<void> saveDarkMode(bool isDarkMode) async {
-    await prefs.setBool(AppConfig.darkModeKey, isDarkMode);
+    final p = await _getPrefs();
+    await p.setBool(AppConfig.darkModeKey, isDarkMode);
   }
 
   static Future<bool> getDarkMode() async {
-    return prefs.getBool(AppConfig.darkModeKey) ?? AppConfig.defaultDarkMode;
+    final p = await _getPrefs();
+    return p.getBool(AppConfig.darkModeKey) ?? AppConfig.defaultDarkMode;
   }
 
   static Future<void> saveLanguage(String languageCode) async {
-    await prefs.setString(AppConfig.languageKey, languageCode);
+    final p = await _getPrefs();
+    await p.setString(AppConfig.languageKey, languageCode);
   }
 
   static Future<String> getLanguage() async {
-    return prefs.getString(AppConfig.languageKey) ?? AppConfig.defaultLanguage;
+    final p = await _getPrefs();
+    return p.getString(AppConfig.languageKey) ?? AppConfig.defaultLanguage;
   }
 
   // ==================== CLEAR ALL ====================
 
   static Future<void> clearAll() async {
-    await prefs.clear();
+    await _secure.deleteAll();
+    final p = await _getPrefs();
+    await p.clear();
   }
 }
