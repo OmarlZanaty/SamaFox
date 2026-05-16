@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SamaFox · Gift Admin V2</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <span class="dot"></span>
+      <strong>SamaFox</strong>
+      <span class="muted">· Gift Admin V2</span>
+    </div>
+    <div class="bar-actions">
+      <span id="me" class="muted"></span>
+      <button id="btn-new" class="primary">+ New Gift</button>
+      <button id="btn-export" class="ghost">Export JSON</button>
+      <button id="btn-import" class="ghost">Bulk import</button>
+      <button id="btn-audit" class="ghost">Audit log</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="catalog">
+      <div class="filters">
+        <input id="q" type="search" placeholder="Search by name…" />
+        <select id="filter-tier">
+          <option value="">All tiers</option>
+          <option>SMALL</option><option>MEDIUM</option><option>LARGE</option><option>LEGENDARY</option>
+        </select>
+        <select id="filter-format">
+          <option value="">All formats</option>
+          <option>SVG_CSS</option><option>VIDEO</option>
+        </select>
+        <select id="filter-active">
+          <option value="">Active+inactive</option>
+          <option value="true">Active only</option>
+          <option value="false">Inactive only</option>
+        </select>
+      </div>
+      <div id="gift-list" class="gift-list"></div>
+    </aside>
+
+    <section id="editor" class="editor empty">
+      <div class="empty-state">
+        <h2>Pick a gift, or start a new one</h2>
+        <p>Choose a template to seed your animation HTML, or upload a video for legendary tier.</p>
+        <button id="btn-new-empty" class="primary">+ New Gift</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal-root"></div>
+  <div id="toasts"></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

@@ -85,6 +85,8 @@ dependencies:
   audioplayers: ^5.2.1
   audio_session: ^0.1.18
   video_player: ^2.8.2
+  webview_flutter: ^4.7.0
+  flutter_cache_manager: ^3.3.1
   # Country Picker
   country_picker: ^2.0.20
 
