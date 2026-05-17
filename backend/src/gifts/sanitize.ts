@@ -102,7 +102,7 @@ export function sanitizeGiftHtml(input: string): SanitizeResult {
         const safe: Record<string, string> = {};
         for (const [k, v] of Object.entries(attribs)) {
           if (BLOCKED_ATTRS.test(k)) continue;
-          safe[k] = v;
+          safe[k] = String(v ?? '');
         }
         return { tagName, attribs: safe };
       },

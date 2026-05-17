@@ -3,9 +3,21 @@ node_modules
 uploads
 logs
 dist
-*.lognode_modules
+*.log
+node_modules
 # Keep environment variables out of version control
 .env
 
 /src/generated/prisma
 backups/
+
+# Local databases and backups
+*.db
+*.db-journal
+*.db.backup
+dev.db*
+
+# Misc leaked files
+cookies.txt
+*.cookie
+tatus

@@ -10,9 +10,22 @@ interface UpdateProfileRequest {
   countryCode?: string;
   country?: string;
   avatarUrl?: string;
-    avatarFrameUrl?: string; // 🔥 ADD THIS
   phone?: string;
 }
+
+const PUBLIC_USER_FIELDS = [
+  'id', 'name', 'displayId', 'avatarUrl', 'avatarFrameUrl', 'activeFrameId',
+  'level', 'xp', 'bio', 'country', 'countryCode', 'gender', 'vipLevel',
+  'isVerified', 'createdAt',
+] as const;
+
+const pickPublicUserFields = (user: any) => {
+  const out: Record<string, any> = {};
+  for (const k of PUBLIC_USER_FIELDS) {
+    if (k in user) out[k] = (user as any)[k];
+  }
+  return out;
+};
 
 const isValidGender = (gender?: string): boolean => {
   if (!gender) return true;
@@ -77,7 +90,7 @@ export const getUserById = async (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      user: { ...formatUserResponse(user), followerCount, followingCount, followersCount: followerCount },
+      user: { ...pickPublicUserFields(user), followerCount, followingCount, followersCount: followerCount },
     });
   } catch (e: any) {
     console.error('getUserById error:', e);
@@ -93,9 +106,9 @@ export const updateProfile = async (req: Request, res: Response) => {
     const userId = (req as any).userId as number | undefined;
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-    const { name, bio, gender, countryCode, country, avatarUrl, phone, avatarFrameUrl } = req.body as UpdateProfileRequest;
-
-    
+    const { name, bio, gender, countryCode, country, avatarUrl, phone } = req.body as UpdateProfileRequest;
+    // avatarFrameUrl / activeFrameId are intentionally NOT accepted here.
+    // Frames must be equipped via the coin-priced store endpoint (/store/activate-frame).
 
     if (!isValidGender(gender)) {
       return res.status(400).json({ success: false, message: 'Invalid gender' });
@@ -109,7 +122,6 @@ export const updateProfile = async (req: Request, res: Response) => {
     if (country !== undefined) data.country = country;
     if (avatarUrl) data.avatarUrl = avatarUrl;
     if (phone) data.phone = phone;
-    if (avatarFrameUrl !== undefined) data.avatarFrameUrl = avatarFrameUrl;
     const user = await prisma.user.update({ where: { id: userId }, data });
 
     return res.status(200).json({ success: true, message: 'Profile updated', user: formatUserResponse(user) });

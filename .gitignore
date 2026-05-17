@@ -8,3 +8,6 @@ logs
 *.zip
 *.ppk
 *.key
+**/cookies.txt
+**/*.cookie
+**/dev.db*

@@ -19,24 +19,30 @@
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
-
-	<key>CFBundleURLTypes</key>
-    <array>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>fbYOUR_FACEBOOK_APP_ID</string>
-        </array>
-      </dict>
-    </array>
-    <key>FacebookAppID</key>
-    <string>YOUR_FACEBOOK_APP_ID</string>
-    <key>FacebookDisplayName</key>
-    <string>YOUR_APP_NAME</string>
-
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fb42eb5bd991176d588ca56381a3ccff20</string>
+			</array>
+		</dict>
+	</array>
+	<key>FacebookAppID</key>
+	<string>42eb5bd991176d588ca56381a3ccff20</string>
+	<key>FacebookClientToken</key>
+	<string>42eb5bd991176d588ca56381a3ccff20</string>
+	<key>FacebookDisplayName</key>
+	<string>SamaFox</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SamaFox uses the microphone for voice rooms and live audio chat.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SamaFox uses your photo library to set profile pictures.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>SamaFox uses the camera for profile pictures.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -60,11 +66,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-
 	<key>UIBackgroundModes</key>
-    <array>
-      <string>audio</string>
-    </array>
-
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>

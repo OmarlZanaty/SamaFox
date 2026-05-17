@@ -1,6 +1,0 @@
-nohup: ignoring input
-[dotenv@17.2.3] injecting env (26) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
-✅ Socket.IO handlers initialized
-🚀 SamaFox API Server is running on port 3000
-📡 Socket.IO server is ready for real-time connections
-🌍 Environment: development

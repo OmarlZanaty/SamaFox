@@ -241,6 +241,7 @@ if (uid) {
 }
 
 socket.on('send_dm', async ({ toUserId, text }: any) => {
+  try {
   const senderId = socket.userId;
   const receiverId = Number(toUserId);
   const clean = (text ?? '').toString().trim();
@@ -308,9 +309,14 @@ socket.on('send_dm', async ({ toUserId, text }: any) => {
     lastMessage: clean,
     lastMessageTime: msg.createdAt.toISOString(),
   });
+  } catch (err) {
+    console.error('[socket.send_dm] handler error:', err);
+    socket.emit('error', { event: 'send_dm', message: 'Internal error' });
+  }
 });
 
 socket.on('set_seat_count', async ({ roomId, seatCount }: any) => {
+  try {
   const rid = toInt(roomId);
   const count = toInt(seatCount);
   const uid = socket.userId;
@@ -322,6 +328,10 @@ socket.on('set_seat_count', async ({ roomId, seatCount }: any) => {
   const safe = Math.max(1, Math.min(24, count)); // ✅ no ! needed
   await prisma.room.update({ where: { id: rid }, data: { maxSeats: safe } });
   await emitRoomState(io, rid);
+  } catch (err) {
+    console.error('[socket.set_seat_count] handler error:', err);
+    socket.emit('error', { event: 'set_seat_count', message: 'Internal error' });
+  }
 });
 
 socket.on('moveSeat', async ({ roomId, fromSeat, toSeat }: any) => {
@@ -1037,18 +1047,24 @@ await emitRoomState(io, rid);
     // WebRTC signaling (direct by userId room)
     // ----------------------------
 socket.on('webrtc_offer', ({ to, offer }: any) => {
-  console.log('[webrtc_offer]', { from: socket.userId, to });
-  io.to(to.toString()).emit('webrtc_offer', { from: socket.userId, offer });
+  if (to == null) return;
+  const target = String(to);
+  console.log('[webrtc_offer]', { from: socket.userId, to: target });
+  io.to(target).emit('webrtc_offer', { from: socket.userId, offer });
 });
 
 socket.on('webrtc_answer', ({ to, answer }: any) => {
-  console.log('[webrtc_answer]', { from: socket.userId, to });
-  io.to(to.toString()).emit('webrtc_answer', { from: socket.userId, answer });
+  if (to == null) return;
+  const target = String(to);
+  console.log('[webrtc_answer]', { from: socket.userId, to: target });
+  io.to(target).emit('webrtc_answer', { from: socket.userId, answer });
 });
 
 socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
-  console.log('[webrtc_ice]', { from: socket.userId, to });
-  io.to(to.toString()).emit('webrtc_ice_candidate', { from: socket.userId, candidate });
+  if (to == null) return;
+  const target = String(to);
+  console.log('[webrtc_ice]', { from: socket.userId, to: target });
+  io.to(target).emit('webrtc_ice_candidate', { from: socket.userId, candidate });
 });
 
 

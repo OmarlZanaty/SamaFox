@@ -162,7 +162,7 @@ export const register = async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     console.error('register error:', e);
-    return res.status(500).json({ success: false, message: 'Registration failed', error: e?.message || 'Unknown' });
+    return res.status(500).json({ success: false, message: 'Registration failed' });
   }
 };
 
@@ -195,7 +195,7 @@ export const facebookLogin = async (req: Request, res: Response) => {
     const fbData = (await fbResponse.json()) as FacebookData;
 
     if (!fbData || fbData.error) {
-      return res.status(400).json({ success: false, message: 'Invalid Facebook token', error: fbData.error });
+      return res.status(400).json({ success: false, message: 'Invalid Facebook token' });
     }
 
     const { email, name, id: fbId } = fbData;
@@ -231,7 +231,7 @@ export const facebookLogin = async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     console.error('facebookLogin error:', e);
-    return res.status(500).json({ success: false, message: 'Facebook login failed', error: e?.message || 'Unknown' });
+    return res.status(500).json({ success: false, message: 'Facebook login failed' });
   }
 };
 
@@ -346,8 +346,7 @@ export const login = async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     console.error('login error:', e);
-    const detail = e?.message || 'Unknown';
-    return res.status(500).json({ success: false, message: `Login failed: ${detail}`, error: detail });
+    return res.status(500).json({ success: false, message: 'Login failed' });
   }
 };
 
@@ -436,7 +435,8 @@ export const googleLogin = async (req: Request, res: Response) => {
       });
     }
 
-    return res.status(500).json({ success: false, message: 'Google login failed', error: errorMessage });
+    console.error('googleLogin error:', errorMessage);
+    return res.status(500).json({ success: false, message: 'Google login failed' });
   }
 };
 
@@ -463,7 +463,8 @@ export const refreshToken = async (req: Request, res: Response) => {
       user: formatUserResponse(user),
     });
   } catch (e: any) {
-    return res.status(401).json({ success: false, message: 'Invalid refresh token', error: e?.message || 'Unknown' });
+    console.error('refreshToken error:', e);
+    return res.status(401).json({ success: false, message: 'Invalid refresh token' });
   }
 };
 
@@ -480,7 +481,8 @@ export const getCurrentUser = async (req: Request, res: Response) => {
 
     return res.status(200).json({ success: true, user: formatUserResponse(user) });
   } catch (e: any) {
-    return res.status(500).json({ success: false, message: 'Failed', error: e?.message || 'Unknown' });
+    console.error('getCurrentUser error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
   }
 };
 
