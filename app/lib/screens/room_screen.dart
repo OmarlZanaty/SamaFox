@@ -302,6 +302,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     return overlayBox.globalToLocal(seatCenter);
   }
 
+  /// Resolves a user's screen position for the gift flight overlay.
+  /// If the user is seated, returns their seat centre in overlay coordinates;
+  /// otherwise returns the centre of the screen.
+  Offset _getSeatPositionByUser(int userId) {
+    final seatNumber = _getSeatOfUser(userId);
+    if (seatNumber != null) return _getSeatPosition(seatNumber);
+    final size = MediaQuery.of(context).size;
+    return Offset(size.width / 2, size.height / 2);
+  }
+
   int? _getSeatOfUser(int? userId) {
     if (userId == null) return null;
 
@@ -2736,9 +2746,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
 
-            // ===== Gift overlay full screen (new gift system) =====
+            // ===== Gift flight overlay (seat-to-seat, multi-quantity) =====
             Positioned.fill(
-              child: GiftAnimationOverlay(socket: _giftSocket),
+              child: GiftAnimationOverlay(
+                socket: _giftSocket,
+                resolvePosition: _getSeatPositionByUser,
+              ),
             ),
 
             // ===== Main content =====
