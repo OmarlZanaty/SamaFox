@@ -1,4 +1,5 @@
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// Fixed Audio Service for microphone and speaker control
@@ -20,27 +21,27 @@ class AudioService {
   /// Initialize audio stream with proper error handling
   Future<bool> initializeAudio() async {
     if (_isInitialized) {
-      print('⚠️ Audio already initialized');
+      debugPrint('⚠️ Audio already initialized');
       return true;
     }
 
     try {
-      print('🎤 Initializing audio...');
+      debugPrint('🎤 Initializing audio...');
 
       // Request microphone permission
       final status = await Permission.microphone.request();
 
       if (!status.isGranted) {
-        print('❌ Microphone permission not granted: $status');
+        debugPrint('❌ Microphone permission not granted: $status');
 
         if (status.isPermanentlyDenied) {
-          print('⚠️ Permission permanently denied. Please enable in settings.');
+          debugPrint('⚠️ Permission permanently denied. Please enable in settings.');
         }
 
         return false;
       }
 
-      print('✅ Microphone permission granted');
+      debugPrint('✅ Microphone permission granted');
 
       // Get local audio stream with optimized settings
       _localStream = await navigator.mediaDevices.getUserMedia({
@@ -55,30 +56,30 @@ class AudioService {
       });
 
       if (_localStream == null) {
-        print('❌ Failed to get media stream');
+        debugPrint('❌ Failed to get media stream');
         return false;
       }
 
       final audioTracks = _localStream!.getAudioTracks();
 
       if (audioTracks.isEmpty) {
-        print('❌ No audio tracks in stream');
+        debugPrint('❌ No audio tracks in stream');
         return false;
       }
 
       _isInitialized = true;
-      print('✅ Audio initialized successfully');
-      print('📊 Audio tracks: ${audioTracks.length}');
+      debugPrint('✅ Audio initialized successfully');
+      debugPrint('📊 Audio tracks: ${audioTracks.length}');
 
       // Log track details
       for (var track in audioTracks) {
-        print('🎙️ Track: ${track.label}, enabled: ${track.enabled}');
+        debugPrint('🎙️ Track: ${track.label}, enabled: ${track.enabled}');
       }
 
       return true;
     } catch (e) {
-      print('❌ Error initializing audio: $e');
-      print('Stack trace: ${StackTrace.current}');
+      debugPrint('❌ Error initializing audio: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
       _isInitialized = false;
       return false;
     }
@@ -87,7 +88,7 @@ class AudioService {
   /// Mute microphone
   Future<void> muteAudio() async {
     if (_localStream == null) {
-      print('⚠️ No local stream to mute');
+      debugPrint('⚠️ No local stream to mute');
       return;
     }
 
@@ -95,26 +96,26 @@ class AudioService {
       final tracks = _localStream!.getAudioTracks();
 
       if (tracks.isEmpty) {
-        print('⚠️ No audio tracks to mute');
+        debugPrint('⚠️ No audio tracks to mute');
         return;
       }
 
       for (var track in tracks) {
         track.enabled = false;
-        print('🔇 Track ${track.label} disabled');
+        debugPrint('🔇 Track ${track.label} disabled');
       }
 
       _isMicMuted = true;
-      print('🔇 Microphone muted');
+      debugPrint('🔇 Microphone muted');
     } catch (e) {
-      print('❌ Error muting: $e');
+      debugPrint('❌ Error muting: $e');
     }
   }
 
   /// Unmute microphone
   Future<void> unmuteAudio() async {
     if (_localStream == null) {
-      print('⚠️ No local stream to unmute');
+      debugPrint('⚠️ No local stream to unmute');
       return;
     }
 
@@ -122,19 +123,19 @@ class AudioService {
       final tracks = _localStream!.getAudioTracks();
 
       if (tracks.isEmpty) {
-        print('⚠️ No audio tracks to unmute');
+        debugPrint('⚠️ No audio tracks to unmute');
         return;
       }
 
       for (var track in tracks) {
         track.enabled = true;
-        print('🔊 Track ${track.label} enabled');
+        debugPrint('🔊 Track ${track.label} enabled');
       }
 
       _isMicMuted = false;
-      print('🔊 Microphone unmuted');
+      debugPrint('🔊 Microphone unmuted');
     } catch (e) {
-      print('❌ Error unmuting: $e');
+      debugPrint('❌ Error unmuting: $e');
     }
   }
 
@@ -151,47 +152,47 @@ class AudioService {
   Future<void> setSpeakerphoneOn(bool on) async {
     try {
       _isSpeakerOn = on;
-      print(on ? '🔊 Speaker ON' : '🔇 Speaker OFF');
+      debugPrint(on ? '🔊 Speaker ON' : '🔇 Speaker OFF');
 
       // Platform-specific speaker control would go here
       // For now, this is a state tracker
     } catch (e) {
-      print('❌ Error setting speaker: $e');
+      debugPrint('❌ Error setting speaker: $e');
     }
   }
 
   /// Check if audio is working
   Future<bool> testAudio() async {
     try {
-      print('🧪 Testing audio...');
+      debugPrint('🧪 Testing audio...');
 
       if (!_isInitialized) {
-        print('⚠️ Audio not initialized');
+        debugPrint('⚠️ Audio not initialized');
         return false;
       }
 
       if (_localStream == null) {
-        print('❌ No local stream');
+        debugPrint('❌ No local stream');
         return false;
       }
 
       final tracks = _localStream!.getAudioTracks();
 
       if (tracks.isEmpty) {
-        print('❌ No audio tracks');
+        debugPrint('❌ No audio tracks');
         return false;
       }
 
-      print('✅ Audio test passed');
-      print('📊 Tracks: ${tracks.length}');
+      debugPrint('✅ Audio test passed');
+      debugPrint('📊 Tracks: ${tracks.length}');
 
       for (var track in tracks) {
-        print('  - ${track.label}: enabled=${track.enabled}');
+        debugPrint('  - ${track.label}: enabled=${track.enabled}');
       }
 
       return true;
     } catch (e) {
-      print('❌ Audio test failed: $e');
+      debugPrint('❌ Audio test failed: $e');
       return false;
     }
   }
@@ -214,12 +215,12 @@ class AudioService {
 
   /// Print current audio status
   void printStatus() {
-    print('📊 Audio Service Status:');
-    print('  - Initialized: $_isInitialized');
-    print('  - Mic Muted: $_isMicMuted');
-    print('  - Speaker On: $_isSpeakerOn');
-    print('  - Has Stream: ${_localStream != null}');
-    print('  - Tracks: ${_localStream?.getAudioTracks().length ?? 0}');
+    debugPrint('📊 Audio Service Status:');
+    debugPrint('  - Initialized: $_isInitialized');
+    debugPrint('  - Mic Muted: $_isMicMuted');
+    debugPrint('  - Speaker On: $_isSpeakerOn');
+    debugPrint('  - Has Stream: ${_localStream != null}');
+    debugPrint('  - Tracks: ${_localStream?.getAudioTracks().length ?? 0}');
   }
 
   // Getters
@@ -231,13 +232,13 @@ class AudioService {
   /// Dispose and cleanup
   Future<void> dispose() async {
     try {
-      print('🧹 Disposing audio service...');
+      debugPrint('🧹 Disposing audio service...');
 
       if (_localStream != null) {
         // Stop all tracks
         for (var track in _localStream!.getTracks()) {
           await track.stop();
-          print('⏹️ Stopped track: ${track.label}');
+          debugPrint('⏹️ Stopped track: ${track.label}');
         }
 
         // Dispose stream
@@ -248,9 +249,9 @@ class AudioService {
       _isInitialized = false;
       _isMicMuted = false;
 
-      print('✅ Audio service disposed');
+      debugPrint('✅ Audio service disposed');
     } catch (e) {
-      print('❌ Error disposing: $e');
+      debugPrint('❌ Error disposing: $e');
     }
   }
 }

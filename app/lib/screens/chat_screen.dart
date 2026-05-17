@@ -293,7 +293,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (dyn.refresh != null) {
         await dyn.refresh();
       }
-    } catch (_) {}
+    } catch (e) { debugPrint("[chat_screen] swallowed: $e"); }
   }
 
   @override
@@ -655,7 +655,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             );
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint("[chat_screen] deleteMessage failed: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to delete message')),
+          );
+        }
+      }
     }
   }
 }
@@ -689,7 +696,7 @@ DateTime _messageTime(DirectMessage m) {
     final v = dyn.createdAt;
     if (v is DateTime) return v;
     if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
-  } catch (_) {}
+  } catch (e) { debugPrint("[chat_screen] swallowed: $e"); }
   return DateTime.now();
 }
 
@@ -740,7 +747,7 @@ _MsgStatus _inferStatus(DirectMessage m, bool isMe, bool globalSendingFlag) {
 
     final sending = dyn.sending;
     if (sending is bool && sending) return _MsgStatus.sending;
-  } catch (_) {}
+  } catch (e) { debugPrint("[chat_screen] swallowed: $e"); }
 
   // fallback: if controller says sending, treat latest outgoing as sending (weak but ok)
   if (globalSendingFlag) return _MsgStatus.sending;

@@ -129,11 +129,17 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
       }
 
       if (mounted) {
-        final newRoomId = ref.read(roomsProvider).rooms.last.id;
+        final rooms = ref.read(roomsProvider).rooms;
+        if (rooms.isEmpty) {
+          Navigator.of(context).pop();
+          return;
+        }
+        final newRoomId = rooms.last.id;
 
         Navigator.of(context).pop();
 
         await ref.read(roomsProvider.notifier).loadRooms();
+        if (!mounted) return;
 
         Navigator.pushNamed(context, '/room', arguments: newRoomId);
       }

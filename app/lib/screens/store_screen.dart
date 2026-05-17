@@ -47,7 +47,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
         loadingInventory = false;
       });
     } catch (e) {
-      print(e);
+      debugPrint(e);
       setState(() => loadingInventory = false);
     }
   }
@@ -63,7 +63,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
         myFrames = frames;
       });
     } catch (e) {
-      print(e);
+      debugPrint(e);
     } finally {
       if (mounted) setState(() => loadingFrames = false);
     }

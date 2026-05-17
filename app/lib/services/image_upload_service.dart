@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
 
@@ -19,7 +20,7 @@ class ImageUploadService {
         ),
       });
 
-      print('🔵 Uploading image to: ${AppConfig.apiBaseUrl}upload/image');
+      debugPrint('🔵 Uploading image to: ${AppConfig.apiBaseUrl}upload/image');
 
       // Upload the image
       final response = await _dio.post(
@@ -33,9 +34,9 @@ class ImageUploadService {
         ),
       );
 
-      print('🔵 Upload response status: ${response.statusCode}');
-      print('🔵 Upload response data type: ${response.data.runtimeType}');
-      print('🔵 Upload response data: ${response.data}');
+      debugPrint('🔵 Upload response status: ${response.statusCode}');
+      debugPrint('🔵 Upload response data type: ${response.data.runtimeType}');
+      debugPrint('🔵 Upload response data: ${response.data}');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         // Extract image URL from response
@@ -46,12 +47,12 @@ class ImageUploadService {
           final imageUrl = responseData['url'] as String? ??
               responseData['imageUrl'] as String?;
 
-          print('🔵 Extracted imageUrl: $imageUrl');
+          debugPrint('🔵 Extracted imageUrl: $imageUrl');
 
           if (imageUrl != null && imageUrl.isNotEmpty) {
             return imageUrl;
           } else {
-            print('❌ Response data keys: ${responseData.keys}');
+            debugPrint('❌ Response data keys: ${responseData.keys}');
             throw Exception('Image URL not found in response');
           }
         } else {
@@ -61,15 +62,15 @@ class ImageUploadService {
         throw Exception('Failed to upload image: ${response.statusCode}');
       }
     } on DioException catch (e) {
-      print('❌ DioException: ${e.message}');
-      print('❌ Response: ${e.response?.data}');
+      debugPrint('❌ DioException: ${e.message}');
+      debugPrint('❌ Response: ${e.response?.data}');
       if (e.response != null) {
         throw Exception('Upload failed: ${e.response?.data['error'] ?? e.message}');
       } else {
         throw Exception('Network error: ${e.message}');
       }
     } catch (e) {
-      print('❌ Unexpected error: $e');
+      debugPrint('❌ Unexpected error: $e');
       throw Exception('Unexpected error: $e');
     }
   }

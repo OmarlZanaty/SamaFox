@@ -152,6 +152,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Offset _pipOffset = const Offset(20, 100);
 
   final FocusNode _topChatFocus = FocusNode();
+  StreamSubscription? _seatEffectSub;
 
   void _closeChat() {
     if (!_showChatPanel) return;
@@ -204,11 +205,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _showSeatVideo = true;
     });
 
+    final controller = _seatVideoController;
+    if (controller == null) {
+      _isPlayingEffect = false;
+      return;
+    }
+
     await Future.delayed(const Duration(milliseconds: 150));
+    if (!mounted || controller != _seatVideoController) {
+      _isPlayingEffect = false;
+      return;
+    }
 
-    _seatVideoController!.play();
+    controller.play();
 
-    await Future.delayed(_seatVideoController!.value.duration);
+    await Future.delayed(controller.value.duration);
 
     if (!mounted) return;
 
@@ -253,6 +264,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     await _seatVideoController!.initialize();
     await _seatVideoController!.setLooping(false);
 
+    if (!mounted) return;
     setState(() {
       _showSeatVideo = true;
     });
@@ -323,14 +335,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Future<void> _loadActiveItems() async {
     final token = await StorageService.getAccessToken();
     if (token == null || token.isEmpty) {
-      print('INVENTORY ERROR: No token available');
+      debugPrint('INVENTORY ERROR: No token available');
       return;
     }
     try {
       final items = await StoreService().getInventory(token);
 
-      print('SELECTED TYPE: seat_effect');
-      print('ITEM TYPES: ${items.map((e) => e.type).toList()}');
+      debugPrint('SELECTED TYPE: seat_effect');
+      debugPrint('ITEM TYPES: ${items.map((e) => e.type).toList()}');
 
       InventoryItem? activeSeatEffect;
       try {
@@ -345,7 +357,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         _activeSeatEffectUrl = activeSeatEffect.fileUrl;
       }
     } catch (e) {
-      print('INVENTORY ERROR: $e');
+      debugPrint('INVENTORY ERROR: $e');
     }
   }
 
@@ -1603,7 +1615,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   @override
   void initState() {
-    print('🟣 RoomScreen.initState room=${widget.roomId}');
+    debugPrint('🟣 RoomScreen.initState room=${widget.roomId}');
     super.initState();
     AudioController.instance.initialize();
 
@@ -1638,11 +1650,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     };
 
     final state = ref.read(roomControllerProvider(widget.roomId));
-    print("🧪 seats before speaking update: ${state.seats}");
+    debugPrint("🧪 seats before speaking update: ${state.seats}");
 
     // ✅ ADD THIS BLOCK
     WebRTCAudioService().onVoiceUsersUpdated = (users) {
-      print("🔥 UPDATE UI USERS: $users");
+      debugPrint("🔥 UPDATE UI USERS: $users");
 
       ref
           .read(roomControllerProvider(roomId).notifier)
@@ -1674,7 +1686,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
       // ✅ LOAD INVENTORY FIRST
       await _loadActiveItems();
-      print("🎬 video url = $_activeSeatEffectUrl");
+      debugPrint("🎬 video url = $_activeSeatEffectUrl");
       // ✅ set from REST list if available (prevents 1-seat fallback)
       final maxSeats = widget.maxSeats;
       if (maxSeats != null && maxSeats > 0) {
@@ -1717,7 +1729,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         _audioReady = true;
       }
 
-      SocketService().seatEffectStream.listen((event) {
+      _seatEffectSub = SocketService().seatEffectStream.listen((event) {
 
         final videoUrl = event['video'];
 
@@ -1780,7 +1792,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   @override
   void dispose() {
     // Close the room and dispose resources
-    print('🟣 RoomScreen.dispose room=${widget.roomId}');
+    debugPrint('🟣 RoomScreen.dispose room=${widget.roomId}');
     AudioController.instance.deactivate();
 
     _audioPlayer.dispose();  // ✅ ADD
@@ -1791,6 +1803,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _audioService.dispose();
     _seatVideoController?.dispose();
     _externalTextController.dispose(); // Dispose the external controller
+    _chatController.dispose();
+    _chatFocus.dispose();
+    _topChatFocus.dispose();
+    _seatEffectSub?.cancel();
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
 
@@ -1800,7 +1816,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   void _sendText() {
     if (_externalTextController.text.isNotEmpty) {
       // Handle sending the message here
-      print('Message sent: ${_externalTextController.text}');
+      debugPrint('Message sent: ${_externalTextController.text}');
       _externalTextController.clear(); // Clear the text field after sending
     }
   }
@@ -1846,10 +1862,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       );
 
       final url = res.data?['imageUrl']?.toString();
-      print("✅ Uploaded URL: $url");
+      debugPrint("✅ Uploaded URL: $url");
       return url;
     } catch (e) {
-      print("❌ UPLOAD ERROR: $e");
+      debugPrint("❌ UPLOAD ERROR: $e");
       return null;
     }
   }
@@ -1868,9 +1884,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       );
 
 
-      print("✅ Room image saved in database");
+      debugPrint("✅ Room image saved in database");
     } catch (e) {
-      print("❌ Update room image failed: $e");
+      debugPrint("❌ Update room image failed: $e");
     }
   }
 
@@ -2437,12 +2453,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final ok = await _ensureMicPermission();
     if (!ok) {
-      print('❌ Mic permission denied');
+      debugPrint('❌ Mic permission denied');
       return;
     }
 
 
-    print('🎧 unmute audio...');
+    debugPrint('🎧 unmute audio...');
     await _audioService.unmuteAudio();
   }
 
@@ -3169,7 +3185,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _currentSeatNumber = newSeatNumber;
     _currentSeatMuted = newMuted;
 
-    print('🎧 seatChange room=${widget.roomId} prevSeat=$prevSeat prevMuted=$prevMuted -> newSeat=$newSeatNumber newMuted=$newMuted');
+    debugPrint('🎧 seatChange room=${widget.roomId} prevSeat=$prevSeat prevMuted=$prevMuted -> newSeat=$newSeatNumber newMuted=$newMuted');
 
 // Sit down (with mic permission)
     if (prevSeat == null && newSeatNumber != null) {
@@ -3178,7 +3194,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
       final ok = await _ensureMicPermission();
       if (!ok) {
-        print('❌ Mic permission denied');
+        debugPrint('❌ Mic permission denied');
         return;
       }
 
@@ -3188,7 +3204,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (prevSeat == null && newSeatNumber != null) {
         final ok = await _ensureMicPermission();
         if (!ok) {
-          print('❌ Mic permission denied');
+          debugPrint('❌ Mic permission denied');
           return;
         }
         if (!_audioReady) {
@@ -3222,7 +3238,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     // Still seated, mute changed
     if (newSeatNumber != null && prevMuted != newMuted) {
-      print('🎧 mute changed while seated room=${widget.roomId} seat=$newSeatNumber muted=$newMuted');
+      debugPrint('🎧 mute changed while seated room=${widget.roomId} seat=$newSeatNumber muted=$newMuted');
       if (newMuted) {
         _audioService.muteAudio();
       } else {
@@ -3255,6 +3271,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     if (!mounted) return;
 
     final convo = await MessageRepository().getOrCreateConversation(r.id);
+    if (!mounted) return;
 
     Navigator.of(context).pushNamed(
       '/chat',
@@ -3401,7 +3418,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       bool isAdmin,
       ) {
 
-    print("👉 SEAT FRAME URL: ${seat.avatarFrameUrl}");
+    debugPrint("👉 SEAT FRAME URL: ${seat.avatarFrameUrl}");
 
     final isLocked = ref.read(roomControllerProvider(widget.roomId)).lockedSeats.contains(seatNumber);
 

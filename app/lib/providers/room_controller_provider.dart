@@ -131,9 +131,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         roomBackgroundUrl: room.backgroundImageUrl,
       );
 
-      print('🔄 Room details reloaded for room=$roomId');
+      debugPrint('🔄 Room details reloaded for room=$roomId');
     } catch (e) {
-      print('❌ Failed to reload room: $e');
+      debugPrint('❌ Failed to reload room: $e');
     }
   }
 
@@ -247,7 +247,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   bool _opening = false;
   void adminRemoveFromSeat({required int seatNumber, required int targetUserId}) {
-    print('🛑 adminRemoveFromSeat room=$roomId seat=$seatNumber target=$targetUserId');
+    debugPrint('🛑 adminRemoveFromSeat room=$roomId seat=$seatNumber target=$targetUserId');
 
     // ✅ OPTIMISTIC release in UI
     final current = Map<int, SeatData>.from(state.seats);
@@ -317,7 +317,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     if (user == null) return;
 
     _socket.leaveRoom(roomId: roomId, userId: user.id);
-    print('🚪 closeRoom() room=$roomId');
+    debugPrint('🚪 closeRoom() room=$roomId');
 
     _seatLockSub?.cancel();
     _seatLockSub = null;
@@ -351,7 +351,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     state = state.copyWith(isOpen: false);
 
-    print('🔗 binding streams room=$roomId');
+    debugPrint('🔗 binding streams room=$roomId');
 
   }
 
@@ -365,7 +365,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       // Keep the list bounded to avoid unbounded memory growth in long sessions.
       final trimmed = next.length > 200 ? next.sublist(next.length - 200) : next;
       state = state.copyWith(messages: trimmed);
-      print('💬 messageStream room=$roomId from=${m.userId} name=${m.username} msg=${m.message}');
+      debugPrint('💬 messageStream room=$roomId from=${m.userId} name=${m.username} msg=${m.message}');
     });
 
     _socket.on('user_joined', (data) {
@@ -448,7 +448,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         lockedSeats: lockedFromSeats.isNotEmpty ? lockedFromSeats : state.lockedSeats,
       );
 
-      print('📦 [room_seats_state] room=$roomId owner=${s.ownerId} admins=${s.adminIds} seats=${nextSeats.length}');
+      debugPrint('📦 [room_seats_state] room=$roomId owner=${s.ownerId} admins=${s.adminIds} seats=${nextSeats.length}');
     });
 
 
@@ -474,7 +474,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
           state = state.copyWith(seats: current);
         }
-        print('✅ applied muteChanged seat=${u.seatNumber} muted=${u.isMuted}');
+        debugPrint('✅ applied muteChanged seat=${u.seatNumber} muted=${u.isMuted}');
       }
     });
 
@@ -509,7 +509,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       );
       state = state.copyWith(seats: current);
 
-      print('🔒 seat_lock applied room=$roomId seat=$sn locked=$locked');
+      debugPrint('🔒 seat_lock applied room=$roomId seat=$sn locked=$locked');
     });
 
 
@@ -528,7 +528,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
       if (target != me) return;
 
-      print('✅ approveMic received for ME in room=$roomId');
+      debugPrint('✅ approveMic received for ME in room=$roomId');
 
       // ✅ Immediately reflect approval so button changes & user can't re-raise
       state = state.copyWith(
@@ -546,7 +546,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _reconnectSub = _socket.reconnectStream.listen((_) async {
       final user = ref.read(authStateProvider).user;
       if (user == null) return;
-      print('🔁 reconnect -> rejoin room=$roomId');
+      debugPrint('🔁 reconnect -> rejoin room=$roomId');
       _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name);
       _socket.emit('get_room_seats_state', {'roomId': roomId});
       _socket.emit('request_room_seats_state', {'roomId': roomId});
@@ -556,7 +556,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
 
-    print('🔗 streams bound room=$roomId');
+    debugPrint('🔗 streams bound room=$roomId');
 
     // ----------------------------
     // RAW socket listeners (source of truth)
@@ -638,7 +638,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
     _socket.on('seat_mute_changed', (data) {
-      print('🧪 RAW seat_mute_changed => $data');
+      debugPrint('🧪 RAW seat_mute_changed => $data');
     });
 
     // In initSubscriptions / wherever you handle socket events:
@@ -701,7 +701,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       }).whereType<int>().where((id) => id > 0).toList()
           : <int>[];
 
-      print('👥 voice_users in room $roomId: $users');
+      debugPrint('👥 voice_users in room $roomId: $users');
       state = state.copyWith(voiceUserIds: users); // ✅ ADD
 
       final me = ref.read(authStateProvider).user?.id;
@@ -724,7 +724,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   void _applySeatOccupiedFromRaw(Map<String, dynamic> map) {
 
-    print("🔍 RAW seat_occupied map: $map");
+    debugPrint("🔍 RAW seat_occupied map: $map");
     // backend sometimes sends seatNumber OR seat_number OR number
     final seatNumber = _safeInt(map['seatNumber']) ??
         _safeInt(map['seat_number']) ??
@@ -738,7 +738,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     final avatarFrameUrl = (map["avatarFrameUrl"] ?? map["avatar_frame_url"] ?? map["frameImageUrl"])?.toString(); // ADD THIS LINE
     final level = _safeInt(map["level"]) ?? 0;
     final isMuted = (map["isMuted"] is bool) ? map["isMuted"] as bool : null;
-    print("🔍 parsed avatarFrameUrl: $avatarFrameUrl"); // ADD THIS
+    debugPrint("🔍 parsed avatarFrameUrl: $avatarFrameUrl"); // ADD THIS
 
     final current = Map<int, SeatData>.from(state.seats);
     final old = current[seatNumber] ??
@@ -816,7 +816,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       'toSeat': toSeat,
     });
 
-    print("🔁 moveSeat from $fromSeat → $toSeat");
+    debugPrint("🔁 moveSeat from $fromSeat → $toSeat");
   }
 
   void setUserSpeaking(int userId, bool isSpeaking) {
@@ -835,7 +835,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   void _applySeatReleasedFromRaw(Map<String, dynamic> map) {
     final seatNumber =
         _safeInt(map['seatNumber']) ?? _safeInt(map['seat_number']);
-    print('🪑 APPLY seat_released room=$roomId seat=$seatNumber');
+    debugPrint('🪑 APPLY seat_released room=$roomId seat=$seatNumber');
 
     if (seatNumber == null || seatNumber <= 0) return;
 
@@ -941,18 +941,18 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     final alreadyOnMic = state.voiceUserIds.contains(me) || state.seats.values.any((s) => s.userId == me);
 
     if (alreadyPending || alreadyOnMic || state.myMicStatus == MyMicStatus.approved) {
-      print('⛔ requestMic blocked (already pending/approved/onMic)');
+      debugPrint('⛔ requestMic blocked (already pending/approved/onMic)');
       return;
     }
 
-    print('🎙️ requestMic room=$roomId byUser=$me');
+    debugPrint('🎙️ requestMic room=$roomId byUser=$me');
     state = state.copyWith(myMicStatus: MyMicStatus.requested); // ✅ optimistic
     _socket.requestMic(roomId: roomId);
   }
 
 
   void cancelMic() {
-    print('🎙️ cancelMic room=$roomId');
+    debugPrint('🎙️ cancelMic room=$roomId');
     state = state.copyWith(myMicStatus: MyMicStatus.none); // ✅ optimistic
     _socket.cancelMicRequest(roomId: roomId);
   }
@@ -966,11 +966,11 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     // only leave if I'm the occupant
     if (seat.userId != me) {
-      print('⛔ leaveSeat blocked: not my seat (seat=$seatNumber, seatUser=${seat.userId}, me=$me)');
+      debugPrint('⛔ leaveSeat blocked: not my seat (seat=$seatNumber, seatUser=${seat.userId}, me=$me)');
       return;
     }
 
-    print('🚪 leaveSeat room=$roomId seat=$seatNumber me=$me');
+    debugPrint('🚪 leaveSeat room=$roomId seat=$seatNumber me=$me');
 
 
     // ✅ optimistic UI release
@@ -1012,12 +1012,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   }
 
   void approveMic({required int userId}) {
-    print('✅ approveMic room=$roomId userId=$userId');
+    debugPrint('✅ approveMic room=$roomId userId=$userId');
     _socket.approveMic(roomId: roomId, userId: userId);
   }
 
   void rejectMic({required int userId}) {
-    print('❌ rejectMic room=$roomId userId=$userId');
+    debugPrint('❌ rejectMic room=$roomId userId=$userId');
     _socket.rejectMic(roomId: roomId, userId: userId);
   }
 
@@ -1038,25 +1038,25 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     }
     await _socket.waitUntilConnected(timeout: const Duration(seconds: 8));
     if (!_socket.isConnected) {
-      print('❌ takeSeat aborted: socket not connected');
+      debugPrint('❌ takeSeat aborted: socket not connected');
       return;
     }
 
     // Block if I'm already seated
     final alreadySeated = state.seats.values.any((s) => s.userId == me.id);
     if (alreadySeated) {
-      print('⛔ takeSeat blocked: already seated');
+      debugPrint('⛔ takeSeat blocked: already seated');
       return;
     }
 
     // Block if seat occupied
     final currentSeat = state.seats[seatNumber];
     if (currentSeat != null && currentSeat.userId != null) {
-      print('⛔ takeSeat blocked: seat occupied');
+      debugPrint('⛔ takeSeat blocked: seat occupied');
       return;
     }
 
-    print('🪑 takeSeat EMIT room=$roomId seat=$seatNumber me=${me.id}');
+    debugPrint('🪑 takeSeat EMIT room=$roomId seat=$seatNumber me=${me.id}');
 
     // ✅ Now it's safe to do optimistic UI
     _pendingSeatNumber = seatNumber;
@@ -1087,7 +1087,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     final user = ref.read(authStateProvider).user;
     if (user == null) return;
 
-    print("🧪 MY FRAME BEFORE EMIT: ${user.avatarFrameUrl}");
+    debugPrint("🧪 MY FRAME BEFORE EMIT: ${user.avatarFrameUrl}");
 
     _socket.takeSeat(
       roomId: roomId,

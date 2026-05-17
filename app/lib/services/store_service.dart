@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../models/InventoryItem.dart';
 import 'dio_client.dart';
 
@@ -22,7 +23,7 @@ class StoreService {
           .toList();
     } catch (e) {
       // Prevent unhandled exceptions from breaking room flow when network is flaky.
-      print('StoreService.getInventory error: $e');
+      debugPrint('StoreService.getInventory error: $e');
       return <InventoryItem>[];
     }
   }
@@ -110,10 +111,10 @@ class StoreService {
                 })
             .toList();
       }
-      print('StoreService.getMyFrames error: $e');
+      debugPrint('StoreService.getMyFrames error: $e');
       return <Map<String, dynamic>>[];
     } catch (e) {
-      print('StoreService.getMyFrames error: $e');
+      debugPrint('StoreService.getMyFrames error: $e');
       return <Map<String, dynamic>>[];
     }
   }

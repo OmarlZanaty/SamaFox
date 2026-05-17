@@ -178,7 +178,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       });
 
     } catch (e) {
-      print("INVENTORY ERROR: $e");
+      debugPrint("INVENTORY ERROR: $e");
     }
   }
 
@@ -215,7 +215,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       await loadInventory(force: true);
 
     } catch (e) {
-      print(e);
+      debugPrint(e);
     }
 
     setState(() => activating = false);
@@ -245,7 +245,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         }
       }
     } catch (e) {
-      print('Error fetching gifts: $e');
+      debugPrint('Error fetching gifts: $e');
       if (mounted) {
         setState(() => _loadingGifts = false);
       }
@@ -484,7 +484,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       }
       return null;
     } catch (e) {
-      print('Error fetching user $userId: $e');
+      debugPrint('Error fetching user $userId: $e');
       return null;
     }
   }

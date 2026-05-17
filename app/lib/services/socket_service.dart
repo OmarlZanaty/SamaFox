@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../config/app_config.dart';
 import '../utils/logger.dart';
@@ -71,7 +72,7 @@ class SocketService {
   Stream<String> get errorStream => _errorController.stream;
 
   void _emitError(String msg) {
-    try { _errorController.add(msg); } catch (_) {}
+    try { _errorController.add(msg); } catch (e) { debugPrint('[SocketService] _emitError failed: $e'); }
   }
 
 // inside SocketService class
@@ -142,7 +143,7 @@ class SocketService {
         _socket!.clearListeners();
         _socket!.disconnect();
         _socket!.dispose();
-      } catch (_) {}
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
       _socket = null;
     }
 
@@ -158,11 +159,11 @@ class SocketService {
     _socket = IO.io(AppConfig.socketUrl, options);
 
     _socket!.onConnectError((e) {
-      print("❌ CONNECT ERROR: $e");
+      debugPrint("❌ CONNECT ERROR: $e");
     });
 
     _socket!.onError((e) {
-      print("❌ SOCKET ERROR: $e");
+      debugPrint("❌ SOCKET ERROR: $e");
     });
     _setupListeners();
     _socket!.connect();
@@ -246,7 +247,7 @@ class SocketService {
 
 
 
-  void _log(String m) => print('📡 SOCKET | $m');
+  void _log(String m) => debugPrint('📡 SOCKET | $m');
 
   void setSeatMute({
     required int roomId,
@@ -360,7 +361,7 @@ class SocketService {
         _socket!.clearListeners();
         _socket!.disconnect();
         _socket!.dispose();
-      } catch (_) {}
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
       _socket = null;
     }
 
@@ -410,11 +411,11 @@ class SocketService {
           final ev = TypingEvent.fromJson(Map<String, dynamic>.from(data));
           _typingController.add(ev);
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
     });
 
     _socket?.on('seat_effect', (data) {
-      print('🎬 seat_effect received: $data');
+      debugPrint('🎬 seat_effect received: $data');
       _seatEffectController.add(Map<String, dynamic>.from(data));
     });
 
@@ -434,12 +435,12 @@ class SocketService {
           final ev = ReceiptEvent.fromJson(Map<String, dynamic>.from(data));
           _receiptController.add(ev);
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
     });
 
     _socket!.on('user_joined', (data) {
       try {
-        print('🔥 user_joined RAW: $data');
+        debugPrint('🔥 user_joined RAW: $data');
 
         final map = Map<String, dynamic>.from(data);
 
@@ -452,13 +453,13 @@ class SocketService {
 
         _userEventController.add(event);
       } catch (e) {
-        print('user_joined parse error: $e');
+        debugPrint('user_joined parse error: $e');
       }
     });
 
     _socket!.on('user_left', (data) {
       try {
-        print('🔥 user_left RAW: $data');
+        debugPrint('🔥 user_left RAW: $data');
 
         final map = Map<String, dynamic>.from(data);
 
@@ -471,7 +472,7 @@ class SocketService {
 
         _userEventController.add(event);
       } catch (e) {
-        print('user_left parse error: $e');
+        debugPrint('user_left parse error: $e');
       }
     });
 
@@ -507,7 +508,7 @@ class SocketService {
           final msg = IncomingMessage.fromJson(Map<String, dynamic>.from(data));
           _incomingMessageController.add(msg);
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
     });
 
 // ✅ optional: conversation list patch event
@@ -523,7 +524,7 @@ class SocketService {
           final msg = IncomingMessage.fromJson(Map<String, dynamic>.from(data));
           _incomingMessageController.add(msg);
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
     });
 
     _socket?.on('seat_lock', (data) {
@@ -617,7 +618,7 @@ class SocketService {
         if (data is Map) {
           _reactionController.add(Map<String, dynamic>.from(data));
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
     });
 
     _socket!.on('notification:new', (data) {

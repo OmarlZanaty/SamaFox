@@ -1,4 +1,5 @@
 // lib/services/webrtc_service.dart
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -23,12 +24,12 @@ class WebRTCService {
   /// Initialize WebRTC with microphone permissions
   Future<void> initialize() async {
     try {
-      print('🎤 Initializing WebRTC...');
+      debugPrint('🎤 Initializing WebRTC...');
 
       // Request microphone permission
       final status = await Permission.microphone.request();
       if (!status.isGranted) {
-        print('❌ Microphone permission denied');
+        debugPrint('❌ Microphone permission denied');
         throw Exception('Microphone permission denied');
       }
 
@@ -42,12 +43,12 @@ class WebRTCService {
         'video': false,
       });
 
-      print('✅ WebRTC initialized successfully');
+      debugPrint('✅ WebRTC initialized successfully');
 
       // Setup WebRTC signaling via Socket.IO
       _setupSignaling();
     } catch (e) {
-      print('❌ Error initializing WebRTC: $e');
+      debugPrint('❌ Error initializing WebRTC: $e');
       rethrow;
     }
   }
@@ -55,11 +56,11 @@ class WebRTCService {
   /// Initialize audio only (simplified version)
   Future<void> initializeAudio() async {
     try {
-      print('🎤 Initializing audio...');
+      debugPrint('🎤 Initializing audio...');
 
       final status = await Permission.microphone.request();
       if (!status.isGranted) {
-        print('❌ Microphone permission not granted');
+        debugPrint('❌ Microphone permission not granted');
         return;
       }
 
@@ -72,9 +73,9 @@ class WebRTCService {
         'video': false,
       });
 
-      print('✅ Audio stream initialized');
+      debugPrint('✅ Audio stream initialized');
     } catch (e) {
-      print('❌ Error initializing audio: $e');
+      debugPrint('❌ Error initializing audio: $e');
     }
   }
 
@@ -115,7 +116,7 @@ class WebRTCService {
           },
         });
       } catch (e) {
-        print('❌ Error handling offer: $e');
+        debugPrint('❌ Error handling offer: $e');
       }
     });
 
@@ -129,21 +130,21 @@ class WebRTCService {
         if (pc != null) {
           // Only set remote description if in the correct state
           final state = pc.connectionState;
-          print('🔍 Peer connection state before answer: $state');
+          debugPrint('🔍 Peer connection state before answer: $state');
 
           if (state != 'closed' && state != 'failed') {
             await pc.setRemoteDescription(
               RTCSessionDescription(answer['sdp'], answer['type']),
             );
-            print('✅ Remote answer set successfully');
+            debugPrint('✅ Remote answer set successfully');
           } else {
-            print('⚠️ Ignoring answer - peer connection is $state');
+            debugPrint('⚠️ Ignoring answer - peer connection is $state');
           }
         } else {
-          print('⚠️ Peer connection not found for user $fromUserId');
+          debugPrint('⚠️ Peer connection not found for user $fromUserId');
         }
       } catch (e) {
-        print('❌ Error handling answer: $e');
+        debugPrint('❌ Error handling answer: $e');
       }
     });
 
@@ -164,7 +165,7 @@ class WebRTCService {
           );
         }
       } catch (e) {
-        print('⚠️ Error adding ICE candidate: $e');
+        debugPrint('⚠️ Error adding ICE candidate: $e');
       }
     });
 
@@ -199,7 +200,7 @@ class WebRTCService {
     pc.onTrack = (event) {
       if (event.streams.isNotEmpty) {
         // Play remote audio
-        print('📡 Remote audio stream received');
+        debugPrint('📡 Remote audio stream received');
       }
     };
 
@@ -246,10 +247,10 @@ class WebRTCService {
           track.enabled = false;
         }
         _isMicMuted = true;
-        print('🔇 Microphone muted');
+        debugPrint('🔇 Microphone muted');
       }
     } catch (e) {
-      print('❌ Error muting audio: $e');
+      debugPrint('❌ Error muting audio: $e');
     }
   }
 
@@ -261,10 +262,10 @@ class WebRTCService {
           track.enabled = true;
         }
         _isMicMuted = false;
-        print('🔊 Microphone unmuted');
+        debugPrint('🔊 Microphone unmuted');
       }
     } catch (e) {
-      print('❌ Error unmuting audio: $e');
+      debugPrint('❌ Error unmuting audio: $e');
     }
   }
 
@@ -275,7 +276,7 @@ class WebRTCService {
       _localStream!.getAudioTracks().forEach((track) {
         track.enabled = !_isMicMuted;
       });
-      print(_isMicMuted ? '🔇 Muted' : '🔊 Unmuted');
+      debugPrint(_isMicMuted ? '🔇 Muted' : '🔊 Unmuted');
     }
   }
 
@@ -283,9 +284,9 @@ class WebRTCService {
   Future<void> setSpeakerphoneOn(bool on) async {
     try {
       _isSpeakerOn = on;
-      print(on ? '🔊 Speaker ON' : '🔇 Speaker OFF');
+      debugPrint(on ? '🔊 Speaker ON' : '🔇 Speaker OFF');
     } catch (e) {
-      print('❌ Error setting speaker: $e');
+      debugPrint('❌ Error setting speaker: $e');
     }
   }
 
@@ -301,10 +302,10 @@ class WebRTCService {
       final microphones = devices
           .where((device) => device.kind == 'audioinput')
           .toList();
-      print('🎤 Found ${microphones.length} microphones');
+      debugPrint('🎤 Found ${microphones.length} microphones');
       return microphones;
     } catch (e) {
-      print('❌ Error getting microphones: $e');
+      debugPrint('❌ Error getting microphones: $e');
       return [];
     }
   }
@@ -312,7 +313,7 @@ class WebRTCService {
   /// Switch to specific microphone
   Future<void> switchMicrophone(String deviceId) async {
     try {
-      print('🔄 Switching to microphone: $deviceId');
+      debugPrint('🔄 Switching to microphone: $deviceId');
 
       // Stop current stream
       if (_localStream != null) {
@@ -332,25 +333,25 @@ class WebRTCService {
         'video': false,
       });
 
-      print('✅ Switched to microphone: $deviceId');
+      debugPrint('✅ Switched to microphone: $deviceId');
     } catch (e) {
-      print('❌ Error switching microphone: $e');
+      debugPrint('❌ Error switching microphone: $e');
     }
   }
 
   /// Test microphone
   Future<bool> testMicrophone() async {
     try {
-      print('🧪 Testing microphone...');
+      debugPrint('🧪 Testing microphone...');
       final mics = await getMicrophones();
       if (mics.isEmpty) {
-        print('❌ No microphones found');
+        debugPrint('❌ No microphones found');
         return false;
       }
-      print('✅ Microphone test passed');
+      debugPrint('✅ Microphone test passed');
       return true;
     } catch (e) {
-      print('❌ Microphone test failed: $e');
+      debugPrint('❌ Microphone test failed: $e');
       return false;
     }
   }
@@ -365,7 +366,7 @@ class WebRTCService {
         'audioTracksCount': _localStream?.getAudioTracks().length ?? 0,
       };
     } catch (e) {
-      print('❌ Error getting audio stats: $e');
+      debugPrint('❌ Error getting audio stats: $e');
       return {};
     }
   }
@@ -382,6 +383,6 @@ class WebRTCService {
     _peerConnections.forEach((_, pc) => pc.close());
     _peerConnections.clear();
     _localStream?.dispose();
-    print('✅ WebRTC service disposed');
+    debugPrint('✅ WebRTC service disposed');
   }
 }

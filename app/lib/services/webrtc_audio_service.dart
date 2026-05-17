@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'dart:io';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -19,7 +20,7 @@ class WebRTCAudioService {
   WebRTCAudioService._internal();
 
   void _log(String msg) {
-    print('🎤 MIC_DEBUG | $msg');
+    debugPrint('🎤 MIC_DEBUG | $msg');
   }
 
   Function(List<int> users)? onVoiceUsersUpdated;
@@ -400,18 +401,18 @@ class WebRTCAudioService {
         final int? oid = otherUserId is int ? otherUserId : int.tryParse('$otherUserId');
 
         if (oid == null) {
-          print('⚠️ user_joined_voice missing userId: $map');
+          debugPrint('⚠️ user_joined_voice missing userId: $map');
           return;
         }
 
         if (oid != _currentUserId) {
           final isInitiator = _shouldInitiateWith(oid);
-          print('👤 User $oid joined voice chat (initiator=$isInitiator)');
+          debugPrint('👤 User $oid joined voice chat (initiator=$isInitiator)');
           await _createPeerConnection(oid, isInitiator: isInitiator);
         }
 
       } catch (e) {
-        print('❌ Error handling user_joined_voice: $e');
+        debugPrint('❌ Error handling user_joined_voice: $e');
         onError?.call('Error: $e');
       }
     });
@@ -428,7 +429,7 @@ class WebRTCAudioService {
             .where((id) => id != 0 && id != _currentUserId)
             .toList();
 
-        print('👥 voice_users in room $_currentRoomId: $users');
+        debugPrint('👥 voice_users in room $_currentRoomId: $users');
 
         // ✅ ADD THIS
         onVoiceUsersUpdated?.call(users);
@@ -439,7 +440,7 @@ class WebRTCAudioService {
         }
 
       } catch (e) {
-        print('❌ Error handling voice_users: $e');
+        debugPrint('❌ Error handling voice_users: $e');
       }
     });
 
@@ -449,7 +450,7 @@ class WebRTCAudioService {
         final fromUserId = data['from'] as int;
         final offer = Map<String, dynamic>.from(data['offer'] as Map);
 
-        print('📨 Received offer from user $fromUserId');
+        debugPrint('📨 Received offer from user $fromUserId');
 
         final pc = await _createPeerConnection(fromUserId, isInitiator: false);
 
@@ -472,9 +473,9 @@ class WebRTCAudioService {
           },
         });
 
-        print('📤 Sent answer to user $fromUserId');
+        debugPrint('📤 Sent answer to user $fromUserId');
       } catch (e) {
-        print('❌ Error handling webrtc_offer: $e');
+        debugPrint('❌ Error handling webrtc_offer: $e');
         onError?.call('Error handling offer: $e');
       }
     });
@@ -485,17 +486,17 @@ class WebRTCAudioService {
         final fromUserId = data['from'] as int;
         final answer = Map<String, dynamic>.from(data['answer'] as Map);
 
-        print('📨 Received answer from user $fromUserId');
+        debugPrint('📨 Received answer from user $fromUserId');
 
         final pc = _peerConnections[fromUserId];
         if (pc != null) {
           await pc.setRemoteDescription(
             RTCSessionDescription(answer['sdp'] as String, answer['type'] as String),
           );
-          print('✅ Set remote description for user $fromUserId');
+          debugPrint('✅ Set remote description for user $fromUserId');
         }
       } catch (e) {
-        print('❌ Error handling webrtc_answer: $e');
+        debugPrint('❌ Error handling webrtc_answer: $e');
         onError?.call('Error handling answer: $e');
       }
     });
@@ -517,7 +518,7 @@ class WebRTCAudioService {
           );
         }
       } catch (e) {
-        print('⚠️ Error adding ICE candidate: $e');
+        debugPrint('⚠️ Error adding ICE candidate: $e');
       }
     });
 
@@ -549,10 +550,10 @@ class WebRTCAudioService {
     _socketService.on('user_left_voice', (data) {
       try {
         final otherUserId = data['userId'] as int;
-        print('👤 User $otherUserId left voice chat');
+        debugPrint('👤 User $otherUserId left voice chat');
         _closePeerConnection(otherUserId);
       } catch (e) {
-        print('❌ Error handling user_left_voice: $e');
+        debugPrint('❌ Error handling user_left_voice: $e');
       }
     });
   }
@@ -566,11 +567,11 @@ class WebRTCAudioService {
     try {
       // Check if connection already exists
       if (_peerConnections.containsKey(otherUserId)) {
-        print('⚠️ Peer connection already exists for user $otherUserId');
+        debugPrint('⚠️ Peer connection already exists for user $otherUserId');
         return _peerConnections[otherUserId]!;
       }
 
-      print('🔗 Creating peer connection with user $otherUserId (initiator: $isInitiator)');
+      debugPrint('🔗 Creating peer connection with user $otherUserId (initiator: $isInitiator)');
 
       // ICE servers configuration with STUN/TURN and optimizations
       final configuration = <String, dynamic>{
@@ -596,7 +597,7 @@ class WebRTCAudioService {
           try {
             await pc.addTrack(track, _localStream!);
           } catch (e) {
-            print('⚠️ addTrack failed for user $otherUserId: $e');
+            debugPrint('⚠️ addTrack failed for user $otherUserId: $e');
           }
         }
       } else {
@@ -614,7 +615,7 @@ class WebRTCAudioService {
           'audioJitterBufferFastAccelerate': true,
         });
       } catch (e) {
-        print('⚠️ Could not set extra audio configuration: $e');
+        debugPrint('⚠️ Could not set extra audio configuration: $e');
       }
 
       // Handle remote tracks (audio)
@@ -655,13 +656,13 @@ class WebRTCAudioService {
             },
           });
         } catch (e) {
-          print('⚠️ Failed sending ICE candidate to $otherUserId: $e');
+          debugPrint('⚠️ Failed sending ICE candidate to $otherUserId: $e');
         }
       };
 
       // ICE connection state changes (KEEP ONLY ONE HANDLER — the restart one)
       pc.onIceConnectionState = (RTCIceConnectionState state) {
-        print('❄️ ICE connection state with user $otherUserId: $state');
+        debugPrint('❄️ ICE connection state with user $otherUserId: $state');
 
         if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
           _restartPeer(otherUserId);
@@ -685,7 +686,7 @@ class WebRTCAudioService {
 
       // Overall connection state (debug)
       pc.onConnectionState = (RTCPeerConnectionState state) {
-        print('🔄 Connection state with user $otherUserId: $state');
+        debugPrint('🔄 Connection state with user $otherUserId: $state');
       };
 
       _peerConnections[otherUserId] = pc;
@@ -705,13 +706,13 @@ class WebRTCAudioService {
           },
         });
 
-        print('📤 Sent offer to user $otherUserId');
+        debugPrint('📤 Sent offer to user $otherUserId');
       }
 
       startMicStats();
       return pc;
     } catch (e) {
-      print('❌ Error creating peer connection: $e');
+      debugPrint('❌ Error creating peer connection: $e');
       onError?.call('Error creating peer connection: $e');
       rethrow;
     }
@@ -727,13 +728,13 @@ class WebRTCAudioService {
           track.enabled = false;
         }
         _isMicMuted = true;
-        print('🔇 Microphone muted');
+        debugPrint('🔇 Microphone muted');
 
         // ✅ listening mode => speaker ON
         await _applyEchoSafeMode(talking: false);
       }
     } catch (e) {
-      print('❌ Error muting audio: $e');
+      debugPrint('❌ Error muting audio: $e');
       onError?.call('Error muting audio: $e');
     }
   }
@@ -745,13 +746,13 @@ class WebRTCAudioService {
           track.enabled = true;
         }
         _isMicMuted = false;
-        print('🔊 Microphone unmuted');
+        debugPrint('🔊 Microphone unmuted');
 
         // ✅ talking mode => speaker OFF (earpiece) to kill echo
         await _applyEchoSafeMode(talking: true);
       }
     } catch (e) {
-      print('❌ Error unmuting audio: $e');
+      debugPrint('❌ Error unmuting audio: $e');
       onError?.call('Error unmuting audio: $e');
     }
   }
@@ -848,7 +849,7 @@ class WebRTCAudioService {
       if (pc != null) {
         pc.close();
         _peerConnections.remove(otherUserId);
-        print('✅ Closed peer connection with user $otherUserId');
+        debugPrint('✅ Closed peer connection with user $otherUserId');
       }
 
       // Dispose remote renderer
@@ -864,14 +865,14 @@ class WebRTCAudioService {
 
       onRemoteStreamRemoved?.call(otherUserId);
     } catch (e) {
-      print('❌ Error closing peer connection: $e');
+      debugPrint('❌ Error closing peer connection: $e');
     }
   }
 
   /// Dispose all resources
   Future<void> dispose() async {
     try {
-      print('🧹 Disposing WebRTC service...');
+      debugPrint('🧹 Disposing WebRTC service...');
 
       _initialized = false;
 
@@ -895,7 +896,7 @@ class WebRTCAudioService {
         try {
           entry.value.close();
         } catch (e) {
-          print('⚠️ Error closing peer connection: $e');
+          debugPrint('⚠️ Error closing peer connection: $e');
         }
       }
       _peerConnections.clear();
@@ -905,7 +906,7 @@ class WebRTCAudioService {
         try {
           await renderer.dispose();
         } catch (e) {
-          print('⚠️ Error disposing renderer: $e');
+          debugPrint('⚠️ Error disposing renderer: $e');
         }
       }
       _audioRenderers.clear();
@@ -924,9 +925,9 @@ class WebRTCAudioService {
         'userId': _currentUserId,
       });
 
-      print('✅ WebRTC service disposed');
+      debugPrint('✅ WebRTC service disposed');
     } catch (e) {
-      print('❌ Error disposing WebRTC: $e');
+      debugPrint('❌ Error disposing WebRTC: $e');
     }
   }
 
@@ -935,7 +936,7 @@ class WebRTCAudioService {
     if (_vadEnabled) return;
     _vadEnabled = true;
     _startVoiceActivityDetection();
-    print('✅ VAD enabled');
+    debugPrint('✅ VAD enabled');
   }
 
   /// Disable Voice Activity Detection
@@ -943,7 +944,7 @@ class WebRTCAudioService {
     _vadEnabled = false;
     _vadTimer?.cancel();
     _vadTimer = null;
-    print('❌ VAD disabled');
+    debugPrint('❌ VAD disabled');
   }
 
   /// Start monitoring voice activity
@@ -967,7 +968,7 @@ class WebRTCAudioService {
             // Auto-mute after silence threshold
             await muteAudio();
             onVoiceActivityChanged?.call(false);
-            print('🔇 Auto-muted due to silence');
+            debugPrint('🔇 Auto-muted due to silence');
           }
         } else {
           _silenceCounter = 0;
@@ -975,11 +976,11 @@ class WebRTCAudioService {
             // Auto-unmute when speaking
             await unmuteAudio();
             onVoiceActivityChanged?.call(true);
-            print('🔊 Auto-unmuted due to voice activity');
+            debugPrint('🔊 Auto-unmuted due to voice activity');
           }
         }
       } catch (e) {
-        print('⚠️ VAD error: $e');
+        debugPrint('⚠️ VAD error: $e');
       }
     });
   }
@@ -995,14 +996,14 @@ class WebRTCAudioService {
     _isPttActive = false;
     // Auto-mute when enabling PTT
     muteAudio();
-    print('✅ PTT mode enabled');
+    debugPrint('✅ PTT mode enabled');
   }
 
   /// Disable Push-to-Talk mode
   void disablePTT() {
     _pttMode = false;
     _isPttActive = false;
-    print('❌ PTT mode disabled');
+    debugPrint('❌ PTT mode disabled');
   }
 
   /// Start talking (PTT press)
@@ -1010,7 +1011,7 @@ class WebRTCAudioService {
     if (!_pttMode) return;
     _isPttActive = true;
     await unmuteAudio();
-    print('🎯 PTT activated - speaking');
+    debugPrint('🎯 PTT activated - speaking');
   }
 
   /// Stop talking (PTT release)
@@ -1018,7 +1019,7 @@ class WebRTCAudioService {
     if (!_pttMode) return;
     _isPttActive = false;
     await muteAudio();
-    print('🎯 PTT deactivated - muted');
+    debugPrint('🎯 PTT deactivated - muted');
   }
 
   /// Check if PTT mode is enabled

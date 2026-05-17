@@ -203,14 +203,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
 
     final userId = authState.user?.id;
 
-    print("========== DEBUG ==========");
-    print("USER ID: $userId");
-    print("ROOMS COUNT: ${roomsState.rooms.length}");
+    debugPrint("========== DEBUG ==========");
+    debugPrint("USER ID: $userId");
+    debugPrint("ROOMS COUNT: ${roomsState.rooms.length}");
 
     for (var r in roomsState.rooms) {
-      print("ROOM: ${r.name} | OWNER: ${r.ownerId}");
+      debugPrint("ROOM: ${r.name} | OWNER: ${r.ownerId}");
     }
-    print("===========================");
+    debugPrint("===========================");
 
 // ✅ REPLACE the userRoom block with this:
     dynamic userRoom;
@@ -224,8 +224,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
       }
     }
 
-    print("🔥 userRoom found: ${userRoom?.id} | userId: $userId | ownerId check: ${roomsState.rooms.map((r) => '${r.id}:${r.ownerId}').join(', ')}");
-    print("🔥 RAW ownerId values: ${rooms.map((r) => r.ownerId).toList()}");
+    debugPrint("🔥 userRoom found: ${userRoom?.id} | userId: $userId | ownerId check: ${roomsState.rooms.map((r) => '${r.id}:${r.ownerId}').join(', ')}");
+    debugPrint("🔥 RAW ownerId values: ${rooms.map((r) => r.ownerId).toList()}");
 
     return Scaffold(
       backgroundColor: _bg1,
@@ -655,7 +655,7 @@ class _ProAdCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
-        print("Ad clicked: $index");
+        debugPrint("Ad clicked: $index");
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 6),

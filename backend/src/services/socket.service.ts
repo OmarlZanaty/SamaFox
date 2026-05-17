@@ -403,6 +403,7 @@ socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
 });
 
 socket.on('take_seat', async ({ roomId, seatNumber }: any) => {
+  try {
   const rid = toInt(roomId);
   const sn = toInt(seatNumber);
   const uid = socket.userId;
@@ -458,14 +459,18 @@ socket.emit('seat_error', {
   seats.set(sn, uid);
 
 // Persist seat to DB — composite PK @@id([userId, roomId])
-await prisma.roomMember.upsert({
-  where: { userId_roomId: { userId: uid, roomId: rid } },
-  create: { roomId: rid, userId: uid, role: 'member' },
-  update: { joinedAt: new Date() },
-}).catch((err) => {
-  // Non-fatal: in-memory seat state already set above
-  console.error('RoomMember upsert error (non-fatal):', err);
-});
+try {
+  await prisma.roomMember.upsert({
+    where: { userId_roomId: { userId: uid, roomId: rid } },
+    create: { roomId: rid, userId: uid, role: 'member' },
+    update: { joinedAt: new Date() },
+  });
+} catch (err) {
+  console.error('[socket.take_seat] roomMember upsert failed:', err);
+  seats.delete(sn); // roll back in-memory seat
+  socket.emit('seat_error', { roomId: rid, seatNumber: sn, message: 'Failed to claim seat, please try again' });
+  return;
+}
 
   getMuted(rid).set(uid, true); // start muted
 
@@ -508,6 +513,10 @@ await prisma.roomMember.upsert({
 
   // optional full snapshot (strongest sync)
   await emitRoomState(io, rid);
+  } catch (err) {
+    console.error('[socket.take_seat] handler error:', err);
+    socket.emit('error', { event: 'take_seat', message: 'Internal error' });
+  }
 });
 
 // ----------------------------
@@ -528,6 +537,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
     // Join room (chat/seats)
     // ----------------------------
     socket.on('join_room', async ({ roomId }) => {
+      try {
       const uid = socket.userId;
       const rid = toInt(roomId);
       if (!uid || !rid) return;
@@ -626,6 +636,10 @@ await emitVoiceUsers(io, rid);
       await emitRoomState(io, rid);
 
       io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue });
+      } catch (err) {
+        console.error('[socket.join_room] handler error:', err);
+        socket.emit('error', { event: 'join_room', message: 'Internal error' });
+      }
     });
 
     // ----------------------------
@@ -675,6 +689,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
     // Chat
     // ----------------------------
     socket.on('send_message', async ({ roomId, message }: any) => {
+      try {
       const uid = socket.userId;
       const rid = toInt(roomId);
       // ✅ FIX: limit message length to prevent DB/client abuse
@@ -708,6 +723,10 @@ socket.on('leave_room', async ({ roomId }: any) => {
         timestamp: Date.now(),
         avatar: user?.avatarUrl ?? null,
       });
+      } catch (err) {
+        console.error('[socket.send_message] handler error:', err);
+        socket.emit('error', { event: 'send_message', message: 'Internal error' });
+      }
     });
 
     socket.on('typing', ({ roomId, username, isTyping }: any) => {
@@ -748,6 +767,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
     });
 
     socket.on('approve_mic', async ({ roomId, targetUserId, userId }: any) => {
+  try {
   const adminId = socket.userId;
   const rid = toInt(roomId);
   const targetId = toInt(targetUserId ?? userId);
@@ -846,6 +866,10 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   // strong sync snapshot
   await emitRoomState(io, rid);
+  } catch (err) {
+    console.error('[socket.approve_mic] handler error:', err);
+    socket.emit('error', { event: 'approve_mic', message: 'Internal error' });
+  }
 });
 
 

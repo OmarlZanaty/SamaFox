@@ -1,4 +1,5 @@
 // lib/models/room_state.dart
+import 'package:flutter/foundation.dart';
 import 'package:samafox/models/user.dart';
 
 import '../services/socket_service.dart';
@@ -194,7 +195,7 @@ class RoomSeat {
 
   factory RoomSeat.fromJson(Map<String, dynamic> json) {
 
-    print("🔥 FROM JSON FRAME: ${json['avatarFrameUrl']}");
+    debugPrint("🔥 FROM JSON FRAME: ${json['avatarFrameUrl']}");
 
     return RoomSeat(
       seatNumber: json['seatNumber'] ?? 0,

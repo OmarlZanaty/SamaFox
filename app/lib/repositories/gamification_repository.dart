@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../models/achievement.dart';
@@ -29,7 +30,7 @@ class GamificationRepository {
         throw Exception('Failed to load achievements');
       }
     } catch (e) {
-      print('Error fetching achievements: $e');
+      debugPrint('Error fetching achievements: $e');
       rethrow;
     }
   }
@@ -47,7 +48,7 @@ class GamificationRepository {
         throw Exception('Failed to load user achievements');
       }
     } catch (e) {
-      print('Error fetching user achievements: $e');
+      debugPrint('Error fetching user achievements: $e');
       rethrow;
     }
   }
@@ -70,7 +71,7 @@ class GamificationRepository {
         throw Exception('Failed to load daily quests');
       }
     } catch (e) {
-      print('Error fetching daily quests: $e');
+      debugPrint('Error fetching daily quests: $e');
       rethrow;
     }
   }
@@ -91,7 +92,7 @@ class GamificationRepository {
         throw Exception('Failed to complete quest');
       }
     } catch (e) {
-      print('Error completing quest: $e');
+      debugPrint('Error completing quest: $e');
       rethrow;
     }
   }
@@ -109,7 +110,7 @@ class GamificationRepository {
         throw Exception('Failed to load room level');
       }
     } catch (e) {
-      print('Error fetching room level: $e');
+      debugPrint('Error fetching room level: $e');
       rethrow;
     }
   }
@@ -131,7 +132,7 @@ class GamificationRepository {
         throw Exception('Failed to load streak info');
       }
     } catch (e) {
-      print('Error fetching streak info: $e');
+      debugPrint('Error fetching streak info: $e');
       rethrow;
     }
   }

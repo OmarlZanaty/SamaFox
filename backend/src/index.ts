@@ -1,6 +1,15 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Last-resort handlers so a single unhandled async error in a socket/route
+// handler doesn't take down the whole Node process.
+process.on('unhandledRejection', (reason) => {
+  console.error('[process.unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process.uncaughtException]', err);
+});
+
 import express, { Application } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';

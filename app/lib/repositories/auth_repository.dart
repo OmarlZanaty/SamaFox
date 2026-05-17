@@ -61,7 +61,7 @@ class AuthRepository {
 
   Future<Result<GuestLoginResponse>> guestLogin(String deviceId) async {
     try {
-      print('🔐 [AUTH REPO] Guest login with device ID: $deviceId');
+      debugPrint('🔐 [AUTH REPO] Guest login with device ID: $deviceId');
       final response = await _apiService.guestLogin(
         GuestLoginRequest(deviceId: deviceId),
       );
@@ -77,10 +77,10 @@ class AuthRepository {
         avatar: response.user.avatarUrl,
         deviceId: deviceId,
       );
-      print('✅ [AUTH REPO] Guest login successful');
+      debugPrint('✅ [AUTH REPO] Guest login successful');
       return Result.success(response);
     } catch (e) {
-      print('❌ [AUTH REPO] Guest login error: $e');
+      debugPrint('❌ [AUTH REPO] Guest login error: $e');
       return Result.error(e.toString());
     }
   }
@@ -95,7 +95,7 @@ class AuthRepository {
 
   Future<Result<AuthResponse>> login(String email, String password) async {
     try {
-      print('🔐 [AUTH REPO] Logging in with email: $email');
+      debugPrint('🔐 [AUTH REPO] Logging in with email: $email');
       final response = await _apiService.login(
         LoginRequest(email: email, password: password),
       );
@@ -104,10 +104,10 @@ class AuthRepository {
         refreshToken: response.refreshToken,
         user: response.user,
       );
-      print('✅ [AUTH REPO] Login successful');
+      debugPrint('✅ [AUTH REPO] Login successful');
       return Result.success(response);
     } catch (e) {
-      print('❌ [AUTH REPO] Login error: $e');
+      debugPrint('❌ [AUTH REPO] Login error: $e');
       return Result.error(e.toString());
     }
   }
@@ -125,7 +125,7 @@ class AuthRepository {
     String? country,
   }) async {
     try {
-      print('📝 [AUTH REPO] Registering user: $name');
+      debugPrint('📝 [AUTH REPO] Registering user: $name');
       if (gender != null &&
           !['male', 'female', 'other'].contains(gender.toLowerCase())) {
         return Result.error('Invalid gender');
@@ -145,10 +145,10 @@ class AuthRepository {
         refreshToken: response.refreshToken,
         user: response.user,
       );
-      print('✅ [AUTH REPO] Registration successful');
+      debugPrint('✅ [AUTH REPO] Registration successful');
       return Result.success(response);
     } catch (e) {
-      print('❌ [AUTH REPO] Registration error: $e');
+      debugPrint('❌ [AUTH REPO] Registration error: $e');
       return Result.error(e.toString());
     }
   }
@@ -169,7 +169,7 @@ class AuthRepository {
       }
       return 'unknown';
     } catch (e) {
-      print('❌ [AUTH REPO] Error getting device ID: $e');
+      debugPrint('❌ [AUTH REPO] Error getting device ID: $e');
       return 'unknown';
     }
   }
@@ -188,14 +188,14 @@ class AuthRepository {
 
   Future<Result<User>> fetchCurrentUser() async {
     try {
-      print('👤 [AUTH REPO] Fetching current user from API...');
+      debugPrint('👤 [AUTH REPO] Fetching current user from API...');
       final user = await _apiService.getCurrentUser();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_data', jsonEncode(user.toJson()));
-      print('✅ [AUTH REPO] User fetched successfully');
+      debugPrint('✅ [AUTH REPO] User fetched successfully');
       return Result.success(user);
     } catch (e) {
-      print('❌ [AUTH REPO] Error fetching user: $e');
+      debugPrint('❌ [AUTH REPO] Error fetching user: $e');
       return Result.error(e.toString());
     }
   }
@@ -206,12 +206,12 @@ class AuthRepository {
 
   Future<void> logout() async {
     try {
-      print('🚪 [AUTH REPO] Logging out...');
+      debugPrint('🚪 [AUTH REPO] Logging out...');
       await StorageService.clearAuthData();
       await StorageService.clearGuestUser();
-      print('✅ [AUTH REPO] Logged out successfully');
+      debugPrint('✅ [AUTH REPO] Logged out successfully');
     } catch (e) {
-      print('❌ [AUTH REPO] Logout error: $e');
+      debugPrint('❌ [AUTH REPO] Logout error: $e');
     }
   }
 
@@ -221,7 +221,7 @@ class AuthRepository {
 
   Future<Result<AuthResponse>> signInWithGoogle() async {
     try {
-      print('🔐 [AUTH REPO] Starting Google Sign-In...');
+      debugPrint('🔐 [AUTH REPO] Starting Google Sign-In...');
       try {
         await _googleSignIn.signOut();
       } catch (_) {}
@@ -230,14 +230,14 @@ class AuthRepository {
         googleUser = await _googleSignIn.signIn();
       } on PlatformException catch (e) {
         if (e.code == 'sign_in_failed') {
-          print('⚠️ [AUTH REPO] sign_in_failed, trying disconnect + retry...');
+          debugPrint('⚠️ [AUTH REPO] sign_in_failed, trying disconnect + retry...');
           try {
             await _googleSignIn.disconnect();
           } catch (_) {}
           try {
             googleUser = await _googleSignIn.signIn();
           } catch (retryError) {
-            print('❌ [AUTH REPO] Retry also failed: $retryError');
+            debugPrint('❌ [AUTH REPO] Retry also failed: $retryError');
             return Result.error(_mapGoogleSignInError(retryError));
           }
         } else {
@@ -245,17 +245,17 @@ class AuthRepository {
         }
       }
       if (googleUser == null) {
-        print('❌ [AUTH REPO] Google Sign-In cancelled by user');
+        debugPrint('❌ [AUTH REPO] Google Sign-In cancelled by user');
         return Result.error('Google Sign-In cancelled');
       }
-      print('✅ [AUTH REPO] Google user signed in: ${googleUser.email}');
+      debugPrint('✅ [AUTH REPO] Google user signed in: ${googleUser.email}');
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       final String? idToken = googleAuth.idToken;
       if (idToken == null) {
-        print('❌ [AUTH REPO] No ID token from Google');
+        debugPrint('❌ [AUTH REPO] No ID token from Google');
         return Result.error('Failed to get Google ID token');
       }
-      print('✅ [AUTH REPO] ID token received');
+      debugPrint('✅ [AUTH REPO] ID token received');
       final response = await _apiService.googleLogin(
         GoogleLoginRequest(idToken: idToken),
       );
@@ -264,21 +264,21 @@ class AuthRepository {
         refreshToken: response.refreshToken,
         user: response.user,
       );
-      print('✅ [AUTH REPO] Google Sign-In successful');
+      debugPrint('✅ [AUTH REPO] Google Sign-In successful');
       return Result.success(response);
     } catch (e) {
-      print('❌ [AUTH REPO] Google Sign-In error: $e');
+      debugPrint('❌ [AUTH REPO] Google Sign-In error: $e');
       return Result.error(_mapGoogleSignInError(e));
     }
   }
 
   Future<void> signOutGoogle() async {
     try {
-      print('🚪 [AUTH REPO] Signing out from Google...');
+      debugPrint('🚪 [AUTH REPO] Signing out from Google...');
       await _googleSignIn.signOut();
-      print('✅ [AUTH REPO] Signed out from Google');
+      debugPrint('✅ [AUTH REPO] Signed out from Google');
     } catch (e) {
-      print('❌ [AUTH REPO] Google sign-out error: $e');
+      debugPrint('❌ [AUTH REPO] Google sign-out error: $e');
     }
   }
 
@@ -335,10 +335,10 @@ class AuthRepository {
 
   Future<Result<AuthResponse>> refreshAccessToken() async {
     try {
-      print('🔄 [AUTH REPO] Refreshing access token...');
+      debugPrint('🔄 [AUTH REPO] Refreshing access token...');
       final refreshToken = await StorageService.getRefreshToken();
       if (refreshToken == null) {
-        print('❌ [AUTH REPO] No refresh token found');
+        debugPrint('❌ [AUTH REPO] No refresh token found');
         return Result.error('No refresh token available');
       }
       final response = await _apiService.refreshToken({'refreshToken': refreshToken});
@@ -347,10 +347,10 @@ class AuthRepository {
         refreshToken: response.refreshToken,
         user: response.user,
       );
-      print('✅ [AUTH REPO] Token refreshed successfully');
+      debugPrint('✅ [AUTH REPO] Token refreshed successfully');
       return Result.success(response);
     } catch (e) {
-      print('❌ [AUTH REPO] Token refresh error: $e');
+      debugPrint('❌ [AUTH REPO] Token refresh error: $e');
       return Result.error(e.toString());
     }
   }
@@ -368,7 +368,7 @@ class AuthRepository {
     String? avatarUrl,
   }) async {
     try {
-      print('✏️ [AUTH REPO] Updating profile...');
+      debugPrint('✏️ [AUTH REPO] Updating profile...');
       if (gender != null &&
           !['male', 'female', 'other'].contains(gender.toLowerCase())) {
         return Result.error('Invalid gender');
@@ -383,10 +383,10 @@ class AuthRepository {
       final user = await _apiService.updateProfile(data);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_data', jsonEncode(user.toJson()));
-      print('✅ [AUTH REPO] Profile updated successfully');
+      debugPrint('✅ [AUTH REPO] Profile updated successfully');
       return Result.success(user);
     } catch (e) {
-      print('❌ [AUTH REPO] Profile update error: $e');
+      debugPrint('❌ [AUTH REPO] Profile update error: $e');
       return Result.error(e.toString());
     }
   }
@@ -397,7 +397,7 @@ class AuthRepository {
     String? country,
   }) async {
     try {
-      print('🌍 [AUTH REPO] Updating gender and country...');
+      debugPrint('🌍 [AUTH REPO] Updating gender and country...');
       if (!['male', 'female', 'other'].contains(gender.toLowerCase())) {
         return Result.error('Invalid gender');
       }
@@ -409,10 +409,10 @@ class AuthRepository {
       final user = await _apiService.updateProfile(data);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_data', jsonEncode(user.toJson()));
-      print('✅ [AUTH REPO] Gender and country updated');
+      debugPrint('✅ [AUTH REPO] Gender and country updated');
       return Result.success(user);
     } catch (e) {
-      print('❌ [AUTH REPO] Update error: $e');
+      debugPrint('❌ [AUTH REPO] Update error: $e');
       return Result.error(e.toString());
     }
   }
@@ -423,24 +423,24 @@ class AuthRepository {
 
   Future<Result<List<User>>> searchUsers(String query) async {
     try {
-      print('🔍 [AUTH REPO] Searching users: $query');
+      debugPrint('🔍 [AUTH REPO] Searching users: $query');
       final response = await _apiService.searchUsers(query);
-      print('✅ [AUTH REPO] Search completed');
+      debugPrint('✅ [AUTH REPO] Search completed');
       return Result.success(response.users ?? []);
     } catch (e) {
-      print('❌ [AUTH REPO] Search error: $e');
+      debugPrint('❌ [AUTH REPO] Search error: $e');
       return Result.error(e.toString());
     }
   }
 
   Future<Result<List<User>>> getUsersByCountry(String countryCode) async {
     try {
-      print('🌍 [AUTH REPO] Fetching users from $countryCode...');
+      debugPrint('🌍 [AUTH REPO] Fetching users from $countryCode...');
       final response = await _apiService.getUsersByCountry(countryCode);
-      print('✅ [AUTH REPO] Users fetched');
+      debugPrint('✅ [AUTH REPO] Users fetched');
       return Result.success(response.users ?? []);
     } catch (e) {
-      print('❌ [AUTH REPO] Error: $e');
+      debugPrint('❌ [AUTH REPO] Error: $e');
       return Result.error(e.toString());
     }
   }

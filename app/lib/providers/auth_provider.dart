@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 import '../repositories/auth_repository.dart';
 import '../services/socket_service.dart';
@@ -100,7 +101,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         user: user,
       );
     } catch (e) {
-      print('❌ [AUTH NOTIFIER] Error checking auth status: $e');
+      debugPrint('❌ [AUTH NOTIFIER] Error checking auth status: $e');
       // Don't leave the app in a half-initialised state — clear session on error.
       await _forceLogoutLocal(error: e.toString());
     }
@@ -243,7 +244,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _repository.signOutGoogle();
       state = AuthState();
     } catch (e) {
-      print('❌ [AUTH NOTIFIER] Logout error: $e');
+      debugPrint('❌ [AUTH NOTIFIER] Logout error: $e');
       state = AuthState();
     }
   }

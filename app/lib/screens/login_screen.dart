@@ -193,9 +193,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       try {
         final result = await const MethodChannel('app.channel.shared.data')
             .invokeMethod('getKeyHash');
-        print('🔑 KEY HASH: $result');
+        debugPrint('🔑 KEY HASH: $result');
       } catch (e) {
-        print('Error: $e');
+        debugPrint('Error: $e');
       }
     }
   }
