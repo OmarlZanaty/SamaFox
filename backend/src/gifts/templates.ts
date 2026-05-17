@@ -535,7 +535,107 @@ export const GIFT_TEMPLATES: GiftTemplate[] = [
     animationMs: 5000,
     html: ETERNAL_DIAMOND_HTML,
   },
+  ..._buildEmojiTemplates(),
 ];
+
+/**
+ * Compact emoji-based gift template. Renders a large emoji with three
+ * expanding halos and a bouncy entry animation. Fully self-contained,
+ * transparent background, no JavaScript.
+ */
+function makeEmojiGift(opts: {
+  emoji: string;
+  haloColor: string;
+  haloColor2?: string;
+  durationMs: number;
+  size?: number; // emoji font-size in px
+}): string {
+  const sz = opts.size ?? 120;
+  const halo2 = opts.haloColor2 ?? opts.haloColor;
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:transparent;overflow:hidden}
+.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+@keyframes entry{
+  0%{transform:translateY(60%) scale(.3) rotate(-15deg);opacity:0}
+  18%{transform:translateY(-6%) scale(1.3) rotate(8deg);opacity:1}
+  30%{transform:translateY(4%) scale(.94) rotate(-4deg);opacity:1}
+  45%{transform:translateY(0) scale(1.05) rotate(0);opacity:1}
+  85%{transform:translateY(0) scale(1) rotate(0);opacity:1}
+  100%{transform:translateY(-15%) scale(.7) rotate(0);opacity:0}
+}
+@keyframes halo{0%{transform:scale(.5);opacity:.9}100%{transform:scale(2.4);opacity:0}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+.wrap{animation:entry ${(opts.durationMs / 1000).toFixed(2)}s cubic-bezier(0.16,1,0.3,1) infinite;position:relative;display:flex;align-items:center;justify-content:center;width:280px;height:280px}
+.emoji{font-size:${sz}px;line-height:1;animation:pulse 1.4s ease-in-out infinite;filter:drop-shadow(0 8px 22px ${opts.haloColor});position:relative;z-index:2}
+.halo{position:absolute;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,${opts.haloColor} 0%,${halo2} 35%,transparent 70%);animation:halo 2.2s cubic-bezier(.16,1,.3,1) infinite;will-change:transform,opacity;z-index:1}
+.halo.h2{animation-delay:.7s}
+.halo.h3{animation-delay:1.4s}
+</style></head><body>
+<div class="stage"><div class="wrap">
+<span class="halo"></span><span class="halo h2"></span><span class="halo h3"></span>
+<span class="emoji">${opts.emoji}</span>
+</div></div></body></html>`;
+}
+
+function _buildEmojiTemplates(): GiftTemplate[] {
+  // SMALL — مميزة (5 more to reach 7)
+  const small: GiftTemplate[] = [
+    { key: 'small_coffee',    name: 'Coffee',     nameAr: 'قهوة',           emoji: '☕',  halo: '#FFB74D', cost: 5,   ms: 2200 },
+    { key: 'small_cake',      name: 'Cake Slice', nameAr: 'قطعة كيك',       emoji: '🍰', halo: '#F8BBD0', cost: 15,  ms: 2400 },
+    { key: 'small_balloon',   name: 'Balloon',    nameAr: 'بالون',          emoji: '🎈', halo: '#EF5350', cost: 10,  ms: 2300 },
+    { key: 'small_chocolate', name: 'Chocolate',  nameAr: 'شوكولاتة',       emoji: '🍫', halo: '#8D6E63', cost: 20,  ms: 2500 },
+    { key: 'small_star',      name: 'Star',       nameAr: 'نجمة',           emoji: '⭐',  halo: '#FFEB3B', cost: 30,  ms: 2600 },
+  ].map((g) => ({
+    key: g.key, name: g.name, nameAr: g.nameAr, tier: 'SMALL' as const,
+    category: 'love', coinCost: g.cost, animationMs: g.ms,
+    html: makeEmojiGift({ emoji: g.emoji, haloColor: g.halo, durationMs: g.ms, size: 110 }),
+  }));
+
+  // MEDIUM — محظوظ (5 more to reach 7)
+  const medium: GiftTemplate[] = [
+    { key: 'medium_champagne',  name: 'Champagne',     nameAr: 'شامبانيا',          emoji: '🍾', halo: '#FFD54F', cost: 100, ms: 3200 },
+    { key: 'medium_ring',       name: 'Ring',          nameAr: 'خاتم',              emoji: '💍', halo: '#F0F4C3', cost: 200, ms: 3400 },
+    { key: 'medium_birthday',   name: 'Birthday Cake', nameAr: 'كعكة عيد ميلاد',    emoji: '🎂', halo: '#F48FB1', cost: 250, ms: 3500 },
+    { key: 'medium_shooting',   name: 'Shooting Star', nameAr: 'نجم متلألئ',        emoji: '🌟', halo: '#FFCA28', cost: 300, ms: 3500 },
+    { key: 'medium_teddy',      name: 'Teddy Bear',    nameAr: 'دب',                emoji: '🧸', halo: '#A1887F', cost: 350, ms: 3600 },
+  ].map((g) => ({
+    key: g.key, name: g.name, nameAr: g.nameAr, tier: 'MEDIUM' as const,
+    category: 'fun', coinCost: g.cost, animationMs: g.ms,
+    html: makeEmojiGift({ emoji: g.emoji, haloColor: g.halo, durationMs: g.ms, size: 140 }),
+  }));
+
+  // LARGE — تخصيص (5 more to reach 7)
+  const large: GiftTemplate[] = [
+    { key: 'large_rocket',    name: 'Rocket',         nameAr: 'صاروخ',          emoji: '🚀', halo: '#FF6E40', cost: 2000, ms: 4200 },
+    { key: 'large_trophy',    name: 'Trophy',         nameAr: 'كأس',            emoji: '🏆', halo: '#FFD600', cost: 2500, ms: 4400 },
+    { key: 'large_unicorn',   name: 'Unicorn',        nameAr: 'وحيد القرن',     emoji: '🦄', halo: '#E1BEE7', cost: 3000, ms: 4500 },
+    { key: 'large_dragon',    name: 'Dragon',         nameAr: 'تنين',           emoji: '🐉', halo: '#43A047', cost: 3500, ms: 4600 },
+    { key: 'large_fireworks', name: 'Fireworks',      nameAr: 'ألعاب نارية',    emoji: '🎆', halo: '#FF4081', cost: 2500, ms: 4500 },
+  ].map((g) => ({
+    key: g.key, name: g.name, nameAr: g.nameAr, tier: 'LARGE' as const,
+    category: 'festive', coinCost: g.cost, animationMs: g.ms,
+    html: makeEmojiGift({ emoji: g.emoji, haloColor: g.halo, durationMs: g.ms, size: 170 }),
+  }));
+
+  // LEGENDARY — VIP (7 new, was 0)
+  const legendary: GiftTemplate[] = [
+    { key: 'legend_car',       name: 'Luxury Car',      nameAr: 'سيارة فاخرة',     emoji: '🚗', halo: '#F44336', cost: 5000,  ms: 5500 },
+    { key: 'legend_yacht',     name: 'Yacht',           nameAr: 'يخت',             emoji: '🛥️', halo: '#29B6F6', cost: 7000,  ms: 5800 },
+    { key: 'legend_castle',    name: 'Castle',          nameAr: 'قلعة',            emoji: '🏰', halo: '#FFB300', cost: 8000,  ms: 6000 },
+    { key: 'legend_jet',       name: 'Private Jet',     nameAr: 'طائرة خاصة',      emoji: '✈️', halo: '#90CAF9', cost: 10000, ms: 6000 },
+    { key: 'legend_galaxy',    name: 'Galaxy',          nameAr: 'مجرة',            emoji: '🌌', halo: '#7E57C2', cost: 12000, ms: 6500 },
+    { key: 'legend_mega_diam', name: 'Mega Diamond',    nameAr: 'ماسة عملاقة',     emoji: '💎', halo: '#80DEEA', cost: 15000, ms: 6500 },
+    { key: 'legend_crown',     name: 'Imperial Crown',  nameAr: 'تاج إمبراطوري',   emoji: '👑', halo: '#FFD700', cost: 20000, ms: 7000 },
+  ].map((g) => ({
+    key: g.key, name: g.name, nameAr: g.nameAr, tier: 'LEGENDARY' as const,
+    category: 'luxury', coinCost: g.cost, animationMs: g.ms,
+    html: makeEmojiGift({ emoji: g.emoji, haloColor: g.halo, durationMs: g.ms, size: 200 }),
+  }));
+
+  return [...small, ...medium, ...large, ...legendary];
+}
 
 export function templateByKey(key: string): GiftTemplate | undefined {
   return GIFT_TEMPLATES.find((t) => t.key === key);

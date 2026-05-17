@@ -135,10 +135,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           tabs: const [
-            Tab(text: 'صغيرة'),
-            Tab(text: 'متوسطة'),
-            Tab(text: 'كبيرة'),
-            Tab(text: 'أسطورية'),
+            Tab(text: 'مميزة'),
+            Tab(text: 'محظوظ'),
+            Tab(text: 'تخصيص'),
+            Tab(text: 'VIP'),
           ],
         ),
         Expanded(
