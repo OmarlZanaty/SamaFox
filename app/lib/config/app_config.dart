@@ -1,16 +1,18 @@
 class AppConfig {
   // API Configuration
+  // Production backend: GCP VM samafox-backend (34.55.178.254)
+  // Override at build time with --dart-define=API_BASE_URL=https://...
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://108.131.29.149:3000/api/v1/',
+    defaultValue: 'http://34.55.178.254:3000/api/v1/',
   );
   static const String socketUrl = String.fromEnvironment(
     'SOCKET_URL',
-    defaultValue: 'http://108.131.29.149:3000',
+    defaultValue: 'http://34.55.178.254:3000',
   );
   static const String googleOAuthUrl = String.fromEnvironment(
     'GOOGLE_OAUTH_URL',
-    defaultValue: 'http://samafox.duckdns.org:3000/api/v1/auth/google',
+    defaultValue: 'http://34.55.178.254:3000/api/v1/auth/google',
   );
 
   static const String googleServerClientId = String.fromEnvironment(

@@ -215,7 +215,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       await loadInventory(force: true);
 
     } catch (e) {
-      debugPrint(e);
+      debugPrint(e.toString());
     }
 
     setState(() => activating = false);

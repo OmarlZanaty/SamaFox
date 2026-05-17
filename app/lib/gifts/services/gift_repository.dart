@@ -9,12 +9,16 @@ class GiftRepository {
   final Dio _dio;
 
   Future<GiftCatalog> fetchCatalog() async {
-    final res = await _dio.get<Map<String, dynamic>>('gifts');
-    final body = res.data ?? const {};
-    if (body['success'] != true) {
-      throw GiftRepositoryException(body['message']?.toString() ?? 'Failed to load catalog');
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('gifts');
+      final body = res.data ?? const {};
+      if (body['success'] != true) {
+        throw GiftRepositoryException(body['message']?.toString() ?? 'فشل تحميل الهدايا');
+      }
+      return GiftCatalog.fromJson(body);
+    } on DioException catch (e) {
+      throw _translateDioError(e, fallback: 'فشل تحميل الهدايا');
     }
-    return GiftCatalog.fromJson(body);
   }
 
   Future<GiftSendResult> send({
@@ -24,29 +28,68 @@ class GiftRepository {
     int quantity = 1,
     String? comboKey,
   }) async {
-    final res = await _dio.post<Map<String, dynamic>>(
-      'gifts/send',
-      data: {
-        'giftId': giftId,
-        'recipientId': recipientId,
-        if (roomId != null) 'roomId': roomId,
-        'quantity': quantity,
-        if (comboKey != null) 'comboKey': comboKey,
-      },
-    );
-    final body = res.data ?? const {};
-    if (body['success'] != true) {
-      throw GiftRepositoryException(
-        body['message']?.toString() ?? 'Send failed',
-        code: body['code']?.toString(),
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        'gifts/send',
+        data: {
+          'giftId': giftId,
+          'recipientId': recipientId,
+          if (roomId != null) 'roomId': roomId,
+          'quantity': quantity,
+          if (comboKey != null) 'comboKey': comboKey,
+        },
       );
+      final body = res.data ?? const {};
+      if (body['success'] != true) {
+        throw GiftRepositoryException(
+          body['message']?.toString() ?? 'فشل إرسال الهدية',
+          code: body['code']?.toString(),
+        );
+      }
+      return GiftSendResult(
+        transactionId: body['transactionId'] as String,
+        senderBalance: (body['senderBalance'] as num?)?.toInt() ?? 0,
+        comboCount: (body['comboCount'] as num?)?.toInt() ?? 1,
+        broadcast: body['broadcast'] as bool? ?? false,
+      );
+    } on DioException catch (e) {
+      throw _translateDioError(e, fallback: 'فشل إرسال الهدية');
     }
-    return GiftSendResult(
-      transactionId: body['transactionId'] as String,
-      senderBalance: (body['senderBalance'] as num?)?.toInt() ?? 0,
-      comboCount: (body['comboCount'] as num?)?.toInt() ?? 1,
-      broadcast: body['broadcast'] as bool? ?? false,
-    );
+  }
+
+  /// Converts Dio errors into GiftRepositoryException with an Arabic message
+  /// matched to known backend codes.
+  GiftRepositoryException _translateDioError(DioException e, {required String fallback}) {
+    final data = e.response?.data;
+    String? code;
+    String? serverMessage;
+    if (data is Map) {
+      code = data['code']?.toString();
+      serverMessage = data['message']?.toString();
+    }
+    final message = _arabicMessageFor(code) ?? serverMessage ?? fallback;
+    return GiftRepositoryException(message, code: code);
+  }
+
+  String? _arabicMessageFor(String? code) {
+    switch (code) {
+      case 'SELF_GIFT':
+        return 'لا يمكنك إرسال هدية إلى نفسك';
+      case 'INSUFFICIENT_BALANCE':
+        return 'رصيدك لا يكفي';
+      case 'RATE_LIMIT':
+        return 'حاول لاحقاً';
+      case 'RECIPIENT_NOT_FOUND':
+        return 'لم يتم العثور على المستلم';
+      case 'GIFT_NOT_FOUND':
+        return 'الهدية غير متوفرة';
+      case 'INVALID_QUANTITY':
+        return 'العدد غير صالح';
+      case 'UNAUTHORIZED':
+        return 'الجلسة منتهية، سجل الدخول مرة أخرى';
+      default:
+        return null;
+    }
   }
 
   Future<List<GiftTransaction>> transactions({

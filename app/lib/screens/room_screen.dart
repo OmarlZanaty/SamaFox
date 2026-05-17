@@ -3043,20 +3043,32 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           onTap: () {
                             final state = ref.read(roomControllerProvider(widget.roomId));
                             final auth = ref.read(authStateProvider);
-                            final users = state.onlineUsers.values.toList();
                             final me = auth.user;
                             if (me == null) return;
-                            // Default recipient: first other user, else self.
-                            final recipient = users.firstWhere(
-                              (u) => u.id != me.id,
-                              orElse: () => users.isNotEmpty
-                                  ? users.first
-                                  : User(id: me.id, name: me.name ?? 'Me'),
-                            );
+                            // Collect all room users (incl. seated + online), self always included.
+                            final ids = <int>{};
+                            final list = <GiftRecipient>[];
+                            void add(int id, String name, String? avatarUrl) {
+                              if (ids.add(id)) {
+                                list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
+                              }
+                            }
+                            // Self first
+                            add(me.id, me.name ?? 'أنا', me.avatarUrl);
+                            // Seated users
+                            for (final s in state.seats.values) {
+                              if (s.userId != null) {
+                                add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
+                              }
+                            }
+                            // Other online users
+                            for (final u in state.onlineUsers.values) {
+                              add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
+                            }
                             GiftPickerSheet.show(
                               context,
                               repository: _giftRepository,
-                              recipientId: recipient.id,
+                              recipients: list,
                               roomId: widget.roomId,
                               balance: me.coins ?? 0,
                               onBalanceChanged: (_) {},
@@ -3255,11 +3267,28 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       );
       return;
     }
+    final me = auth.user!;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final ids = <int>{};
+    final list = <GiftRecipient>[];
+    void add(int id, String name, String? avatarUrl) {
+      if (ids.add(id)) list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
+    }
+    // Pre-selected user first, self, then everyone else
+    add(r.id, r.name, r.avatarUrl);
+    add(me.id, me.name ?? 'أنا', me.avatarUrl);
+    for (final s in state.seats.values) {
+      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
+    }
+    for (final u in state.onlineUsers.values) {
+      add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
+    }
 
     GiftPickerSheet.show(
       context,
       repository: _giftRepository,
-      recipientId: r.id,
+      recipients: list,
+      initialRecipientIds: [r.id],
       roomId: widget.roomId,
       balance: auth.user?.coins ?? 0,
       onBalanceChanged: (_) {},
@@ -4723,34 +4752,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
+    final me = auth.user!;
     final state = ref.read(roomControllerProvider(widget.roomId));
 
-    // Recipients = occupied seats except me
-    final recipients = state.seats.values
-        .where((s) => s.userId != null) // ✅ allow myself
-        .map((s) => _Recipient(
-      id: s.userId!,
-      name: s.userId == myId
-          ? '${s.username ?? "Me"} (You)' // optional label
-          : s.username ?? 'User #${s.userId}',
-      avatarUrl: s.avatarUrl,
-    ))
-        .toList();
-
-    if (recipients.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No recipients in seats right now')),
-      );
-      return;
+    // All room users (incl. self). Self listed first.
+    final ids = <int>{};
+    final recipients = <GiftRecipient>[];
+    void add(int id, String name, String? avatarUrl) {
+      if (ids.add(id)) recipients.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
+    }
+    add(me.id, me.name ?? 'أنا', me.avatarUrl);
+    for (final s in state.seats.values) {
+      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
+    }
+    for (final u in state.onlineUsers.values) {
+      add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
     }
 
-    // The new GiftPickerSheet handles its own catalog + send via GiftRepository.
-    // Pick the first available recipient (the picker doesn't expose recipient selection).
-    final firstRecipient = recipients.first;
     GiftPickerSheet.show(
       context,
       repository: _giftRepository,
-      recipientId: firstRecipient.id,
+      recipients: recipients,
       roomId: widget.roomId,
       balance: auth.user?.coins ?? 0,
       onBalanceChanged: (_) {},

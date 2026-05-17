@@ -56,9 +56,7 @@ const BROADCAST_TTL_MS = 30 * 1000;
  */
 export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResult> {
   const quantity = Math.max(1, Math.min(MAX_QUANTITY, Math.floor(input.quantity ?? 1)));
-  if (input.senderId === input.recipientId) {
-    throw new GiftSendError('SELF_GIFT', 'Cannot send a gift to yourself');
-  }
+  // Self-gift is allowed (used for displaying animation to oneself / testing in empty rooms).
 
   const gift = await prisma.gift.findUnique({ where: { id: input.giftId } });
   if (!gift || !gift.isActive) throw new GiftSendError('INVALID_GIFT', 'Gift not found or inactive', 404);
