@@ -11,7 +11,7 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "seed": "ts-node prisma/seed.ts",
-    "seed:gifts-v2": "ts-node prisma/seed-gifts-v2.ts"
+    "seed:gifts": "ts-node prisma/seed-gifts.ts"
   },
   "keywords": [
     "voice-chat",

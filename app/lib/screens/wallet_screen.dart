@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/locale_provider.dart';
-import '../repositories/gift_repository.dart';
-import '../models/gift_history.dart';
-import '../models/gift.dart';
+import '../gifts/services/gift_repository.dart';
 import '../models/user.dart';
 import '../providers/auth_provider.dart';
 
@@ -26,7 +24,6 @@ class _WalletScreenState extends ConsumerState<WalletScreen>
   // Gift history state
   final GiftRepository _giftRepository = GiftRepository();
   List<GiftTransaction> _transactions = [];
-  Pagination? _pagination;
   bool _isLoadingHistory = true;
 
   @override
@@ -44,14 +41,12 @@ class _WalletScreenState extends ConsumerState<WalletScreen>
 
   Future<void> _loadHistory() async {
     setState(() => _isLoadingHistory = true);
-    final result = await _giftRepository.getGiftHistory();
-    if (result.isSuccess && result.data != null) {
-      _transactions = result.data!.history;
-      _pagination = result.data!.pagination;
-    } else {
+    try {
+      _transactions = await _giftRepository.transactions();
+    } catch (_) {
       _transactions = [];
     }
-    setState(() => _isLoadingHistory = false);
+    if (mounted) setState(() => _isLoadingHistory = false);
   }
 
   @override
@@ -262,25 +257,20 @@ class _WalletScreenState extends ConsumerState<WalletScreen>
           final tx = _transactions[index];
           // Determine if current user sent or received
           final isSender = user != null && tx.senderId == user.id;
-          final amount = isSender ? -tx.coinsSpent : tx.coinsSpent;
+          final amount = isSender ? -tx.totalCoins : tx.totalCoins;
           final isPositive = amount > 0;
           final type = isSender ? 'spend' : 'earn';
           // Build description based on gift and participants
-          final giftName = tx.gift?.name ?? '';
+          final giftName = (tx.rawGift['name'] ?? tx.rawGift['nameAr'] ?? '').toString();
           final otherName = isSender
-              ? (tx.receiver?.name ?? 'Unknown')
-              : (tx.sender?.name ?? 'Unknown');
+              ? (tx.recipient?['name']?.toString() ?? 'Unknown')
+              : (tx.sender?['name']?.toString() ?? 'Unknown');
           final description = isSender
               ? 'Sent $giftName to $otherName'
               : 'Received $giftName from $otherName';
-          // Parse date
-          final dateStr = tx.createdAt;
-          String displayDate = dateStr;
-          try {
-            final parsed = DateTime.parse(dateStr);
-            displayDate =
-            '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}';
-          } catch (_) {}
+          // Format date
+          final displayDate =
+              '${tx.createdAt.year}-${tx.createdAt.month.toString().padLeft(2, '0')}-${tx.createdAt.day.toString().padLeft(2, '0')}';
 
           IconData icon;
           Color iconColor;
@@ -329,19 +319,6 @@ class _WalletScreenState extends ConsumerState<WalletScreen>
                       fontSize: 12,
                     ),
                   ),
-                  if (tx.message != null && tx.message!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2.0),
-                      child: Text(
-                        tx.message!,
-                        style: TextStyle(
-                          color:
-                          theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
                 ],
               ),
               trailing: Text(

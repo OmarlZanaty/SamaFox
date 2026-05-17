@@ -41,10 +41,8 @@ model User {
   ownedRooms               Room[]                    @relation("RoomOwner")
   roomMemberships          RoomMember[]
   roomMessages             RoomMessage[]             @relation("RoomMessageSender")
-  sentGifts                GiftLog[]                 @relation("GiftSender")
-  receivedGifts            GiftLog[]                 @relation("GiftReceiver")
-  sentGiftsV2              GiftV2Transaction[]       @relation("GiftV2Sender")
-  receivedGiftsV2          GiftV2Transaction[]       @relation("GiftV2Recipient")
+  sentGifts                GiftTransaction[]         @relation("GiftSender")
+  receivedGifts            GiftTransaction[]         @relation("GiftRecipient")
   sentMessages             Message[]                 @relation("MessageSender")
   receivedMessages         Message[]                 @relation("MessageReceiver")
   relationshipFollowers    Relationship[]            @relation("Following")
@@ -120,8 +118,7 @@ model Room {
   owner           User             @relation("RoomOwner", fields: [ownerId], references: [id])
   members         RoomMember[]
   messages        RoomMessage[]
-  gifts           GiftLog[]
-  giftsV2         GiftV2Transaction[] @relation("GiftV2Room")
+  gifts           GiftTransaction[]   @relation("GiftRoom")
   reports         Report[]
   activeTheme     Item?            @relation(fields: [activeThemeId], references: [id])
   gameSessions    GameSession[]
@@ -194,54 +191,6 @@ model RoomBan {
 
   @@unique([roomId, userId])
   @@map("room_bans")
-}
-
-// ============================================
-// GIFT MODEL
-// ============================================
-
-model Gift {
-  id              Int      @id @default(autoincrement())
-  name            String   @default("")
-  nameAr          String
-  imageUrl        String
-  animationUrl    String?
-  coinsValue      Int
-  isActive        Boolean  @default(true)
-  sortOrder       Int      @default(0)
-  priceCoins      Int      @default(0)
-  category        String   @default("GENERAL")
-  xp              Int      @default(0)
-  level           Int      @default(1)
-  isComboFriendly Boolean  @default(false)
-  createdAt       DateTime @default(now())
-
-  giftLogs GiftLog[]
-
-  @@map("gifts")
-}
-
-// ============================================
-// GIFT LOG MODEL
-// ============================================
-
-model GiftLog {
-  id         Int      @id @default(autoincrement())
-  senderId   Int
-  receiverId Int
-  giftId     Int
-  roomId     Int?
-  coinsSpent Int
-  createdAt  DateTime @default(now())
-  quantity   Int      @default(1) // <-- NEW FIELD
-  message    String? // <-- NEW FIELD
-
-  sender   User  @relation("GiftSender", fields: [senderId], references: [id])
-  receiver User  @relation("GiftReceiver", fields: [receiverId], references: [id])
-  gift     Gift  @relation(fields: [giftId], references: [id])
-  room     Room? @relation(fields: [roomId], references: [id])
-
-  @@map("gift_logs")
 }
 
 // ============================================
@@ -896,8 +845,7 @@ model DirectMessage {
 }
 
 // ============================================
-// GIFT SYSTEM V2 — production gift catalog
-// Lives in parallel to legacy `gifts` / `gift_logs` tables.
+// GIFT SYSTEM — production gift catalog
 // PostgreSQL-only: uses Json columns and cuid string IDs.
 // ============================================
 
@@ -922,7 +870,7 @@ enum GiftAuditAction {
   REORDER
 }
 
-model GiftV2 {
+model Gift {
   id               String     @id @default(cuid())
   name             String
   nameAr           String?
@@ -945,14 +893,14 @@ model GiftV2 {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
-  transactions GiftV2Transaction[]
+  transactions GiftTransaction[]
 
   @@index([tier, isActive, sortOrder])
   @@index([category, isActive])
-  @@map("gifts_v2")
+  @@map("gifts")
 }
 
-model GiftV2Transaction {
+model GiftTransaction {
   id          String   @id @default(cuid())
   senderId    Int
   recipientId Int
@@ -964,18 +912,18 @@ model GiftV2Transaction {
   comboCount  Int      @default(1)
   createdAt   DateTime @default(now())
 
-  sender    User   @relation("GiftV2Sender", fields: [senderId], references: [id])
-  recipient User   @relation("GiftV2Recipient", fields: [recipientId], references: [id])
-  gift      GiftV2 @relation(fields: [giftId], references: [id])
-  room      Room?  @relation("GiftV2Room", fields: [roomId], references: [id])
+  sender    User  @relation("GiftSender", fields: [senderId], references: [id])
+  recipient User  @relation("GiftRecipient", fields: [recipientId], references: [id])
+  gift      Gift  @relation(fields: [giftId], references: [id])
+  room      Room? @relation("GiftRoom", fields: [roomId], references: [id])
 
   @@index([roomId, createdAt])
   @@index([senderId, createdAt])
   @@index([recipientId, createdAt])
-  @@map("gift_v2_transactions")
+  @@map("gift_transactions")
 }
 
-model GiftV2Broadcast {
+model GiftBroadcast {
   id            String   @id @default(cuid())
   transactionId String   @unique
   fromRoomId    Int?
@@ -984,10 +932,10 @@ model GiftV2Broadcast {
   createdAt     DateTime @default(now())
 
   @@index([expiresAt])
-  @@map("gift_v2_broadcasts")
+  @@map("gift_broadcasts")
 }
 
-model GiftV2AdminAudit {
+model GiftAdminAudit {
   id        String          @id @default(cuid())
   adminId   Int
   giftId    String?
@@ -997,5 +945,5 @@ model GiftV2AdminAudit {
 
   @@index([giftId, createdAt])
   @@index([adminId, createdAt])
-  @@map("gift_v2_admin_audits")
+  @@map("gift_admin_audits")
 }

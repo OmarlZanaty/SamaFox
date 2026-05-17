@@ -1,7 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import 'room.dart';
-import 'gift.dart';
 import 'message.dart';
 import 'user.dart';
 
@@ -48,34 +47,6 @@ class Pagination {
       _$PaginationFromJson(json);
 
   Map<String, dynamic> toJson() => _$PaginationToJson(this);
-}
-
-@JsonSerializable()
-class GiftsResponse {
-  final List<Gift> gifts;
-
-  /// backend may omit total
-  @JsonKey(defaultValue: 0)
-  final int total;
-
-  GiftsResponse({
-    required this.gifts,
-    this.total = 0,
-  });
-
-  int get safeTotal => total == 0 ? gifts.length : total;
-
-  factory GiftsResponse.fromJson(Map<String, dynamic> json) {
-    final raw = json['gifts'] ?? json['data'] ?? json['items'] ?? <dynamic>[];
-    return GiftsResponse(
-      gifts: (raw as List<dynamic>)
-          .map((e) => Gift.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      total: (json['total'] as num?)?.toInt() ?? 0,
-    );
-  }
-
-  Map<String, dynamic> toJson() => _$GiftsResponseToJson(this);
 }
 
 @JsonSerializable()

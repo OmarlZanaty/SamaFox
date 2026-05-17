@@ -5,9 +5,7 @@ import 'package:dio/dio.dart';
 
 import '../models/InventoryItem.dart';
 import '../models/auth.dart';
-import '../models/gift_history.dart';
 import '../models/room.dart';
-import '../models/gift.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../models/api_response.dart';
@@ -107,20 +105,7 @@ abstract class ApiService {
   @DELETE('messages/{messageId}')
   Future<MessageResponse> deleteMessage(@Path('messageId') int messageId);
 
-  // ==================== GIFT ENDPOINTS ====================
-
-  @GET('gifts')
-  Future<GiftsResponse> getGifts({@Query('category') String? category});
-
-  @GET('gifts/history')
-  Future<GiftHistoryResponse> getGiftHistory({
-    @Query('page') int page = 1,
-    @Query('limit') int limit = 20,
-  });
-
-
-  @POST('gifts/send')
-  Future<MessageResponse> sendGift(@Body() SendGiftRequest request);
+  // Gift endpoints moved to app/lib/gifts/services/gift_repository.dart (V2).
 
   // ==================== USER ENDPOINTS ====================
 
