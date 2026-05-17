@@ -1250,13 +1250,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
                       );
                     }),
-                    _menuItem(Icons.wallet_giftcard, 'متجر الهدايا', Colors.pinkAccent, () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        this.context,
-                        MaterialPageRoute(builder: (_) => const GiftStoreScreen()),
-                      );
-                    }),
                     _menuItem(Icons.account_balance_wallet, 'المحفظة', Colors.orangeAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
