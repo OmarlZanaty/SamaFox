@@ -1169,26 +1169,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
 
 
-  // ----------------------------
-  // Gifts
-  // ----------------------------
-
-  void sendGift({
-    required int receiverId,
-    required int giftId,
-    int quantity = 1,
-    String? message,
-  }) {
-    final user = ref.read(authStateProvider).user;
-    if (user == null) return;
-    _socket.sendGift(
-      roomId: roomId,
-      receiverId: receiverId,
-      giftId: giftId,
-      quantity: quantity,
-      message: message,
-    );
-  }
+  // Gifts are now sent via GiftPickerSheet.show(...) directly against
+  // GiftRepository (see app/lib/gifts). The controller no longer owns
+  // gift sending.
 
   void removeSeat({required int seatNumber, required int targetUserId}) {
     final updated = Map<int, SeatData>.from(state.seats);

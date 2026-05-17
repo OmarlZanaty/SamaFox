@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import '../models/gift_sent_event.dart';
 import '../config/app_config.dart';
 import '../utils/logger.dart';
 import '../models/incoming_message.dart';
@@ -37,15 +36,6 @@ class SocketService {
 
   final _incomingMessageController = StreamController<IncomingMessage>.broadcast();
   Stream<IncomingMessage> get incomingMessageStream => _incomingMessageController.stream;
-
-  final StreamController<GiftSentEvent> _giftController =
-  StreamController<GiftSentEvent>.broadcast();
-
-  Stream<GiftSentEvent> get giftStream => _giftController.stream;
-  final StreamController<Map<String, dynamic>> _globalGiftBroadcastController =
-  StreamController<Map<String, dynamic>>.broadcast();
-  Stream<Map<String, dynamic>> get globalGiftBroadcastStream =>
-      _globalGiftBroadcastController.stream;
 
   final _typingController = StreamController<TypingEvent>.broadcast();
   Stream<TypingEvent> get typingStream => _typingController.stream;
@@ -87,10 +77,6 @@ class SocketService {
 // inside SocketService class
 
 
-
-  void offGiftSent() {
-    _socket?.off('gift_sent');
-  }
 
   void sendDmTyping({
     required int conversationId,
@@ -231,14 +217,6 @@ class SocketService {
 
 
   void off(String event) => _socket?.off(event);
-
-  // ✅ Optional helper (clean)
-  void offGiftListeners() {
-    _socket?.off('gift');
-    _socket?.off('gift_sent');
-    _socket?.off('new_gift');
-    _socket?.off('room_gift');
-  }
 
   void on(String event, Function(dynamic) callback) {
     if (_socket == null) return;
@@ -571,7 +549,6 @@ class SocketService {
       _emitError(msg);
     });
 
-// keep generic too
     _socket!.on('error', (data) {
       final msg = (data is Map && data['message'] != null)
           ? data['message'].toString()
@@ -630,39 +607,9 @@ class SocketService {
 
 
 
-    // =======================
-// Gifts (FIXED)
-// Backend emits: event "gift" with wrapper: { roomId, type:'sent', giftEvent:{...} }
-// Some backends might emit directly as "gift_sent" => {...}
-// We support both.
-// =======================
-
-    GiftSentEvent? _parseGift(dynamic data) {
-      try {
-        if (data is! Map) return null;
-        final map = Map<String, dynamic>.from(data);
-
-        // 1) wrapper format: { giftEvent: {...} }
-        final raw = map['giftEvent'];
-        if (raw is Map) {
-          return GiftSentEvent.fromJson(Map<String, dynamic>.from(raw));
-        }
-
-        // 2) direct format: { giftId, giftName, ... }
-        return GiftSentEvent.fromJson(map);
-      } catch (e) {
-        AppLogger.error('Gift parse error: $e');
-        return null;
-      }
-    }
-
-    // ✅ Gifts: listen to server "gift" event and forward to giftStream
-    _socket!.on('gift', (data) {
-      final ev = _parseGift(data);
-      if (ev != null) {
-        _giftController.add(ev);
-      }
-    });
+    // Gifts: gift_sent / gift_legendary_incoming / gift_broadcast events
+    // are consumed by GiftSocketService (app/lib/gifts/services/gift_socket_service.dart).
+    // SocketService no longer parses gift payloads.
 
     _socket?.on('dm_reaction_updated', (data) {
       // { conversationId, messageId, reactions: { "❤️": 2, "😂": 1 }, myReaction: "❤️" }
@@ -671,38 +618,6 @@ class SocketService {
           _reactionController.add(Map<String, dynamic>.from(data));
         }
       } catch (_) {}
-    });
-
-// Optional: support "gift_sent" if some backend emits it
-    _socket!.on('gift_sent', (data) {
-      final ev = _parseGift(data);
-      if (ev != null) {
-        _giftController.add(ev);
-      }
-    });
-
-    _socket!.on('global_gift_broadcast', (data) {
-      try {
-        if (data is Map) {
-          final payload = Map<String, dynamic>.from(data);
-          final rawCoins = payload['coinsValue'] ??
-              payload['giftCoins'] ??
-              payload['coins'] ??
-              payload['priceCoins'] ??
-              payload['price_coins'] ??
-              (payload['giftEvent'] is Map
-                  ? (payload['giftEvent'] as Map)['coinsValue']
-                  : null);
-          final coins = rawCoins is num
-              ? rawCoins.toInt()
-              : int.tryParse(rawCoins?.toString() ?? '') ?? 0;
-          if (coins > 5000) {
-            _globalGiftBroadcastController.add(payload);
-          }
-        }
-      } catch (e) {
-        AppLogger.error('Global gift broadcast parse error: $e');
-      }
     });
 
     _socket!.on('notification:new', (data) {
@@ -972,24 +887,6 @@ class SocketService {
 
   }
 
-  // Gifts
-  void sendGift({
-    required int roomId,
-    required int receiverId,
-    required int giftId,
-    int quantity = 1,
-    String? message,
-  }) {
-    emit('send_gift', {
-      'roomId': roomId,
-      'receiverId': receiverId,
-      'giftId': giftId,
-      'quantity': quantity,
-      if (message != null && message.isNotEmpty) 'message': message,
-    });
-  }
-
-
   void dispose() {
     // Disconnect first so the socket doesn't try to emit to closed controllers.
     _socket?.clearListeners();
@@ -1003,8 +900,6 @@ class SocketService {
     _userEventController.close();
     _seatUpdateController.close();
     _roomStateController.close();
-    _giftController.close();
-    _globalGiftBroadcastController.close();
     _micQueueController.close();
     _voiceUsersController.close();
     _approveMicController.close();

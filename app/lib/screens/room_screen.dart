@@ -10,12 +10,10 @@ import '../models/room.dart';
 import '../providers/auth_provider.dart';
 import '../providers/pip_state.dart';
 import '../providers/room_controller_provider.dart';
-import '../data/gift_catalog.dart';
 import '../models/user.dart';
 import '../providers/room_live_provider.dart';
 import '../providers/room_provider.dart';
 import '../services/dio_client.dart';
-import '../services/gift_animation_service.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
 import '../services/webrtc_audio_service.dart';
@@ -24,17 +22,14 @@ import '../services/audio_controller.dart';
 import '../services/follow_service.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
-import '../widgets/gift_animation_overlay.dart';
-import '../widgets/gift_notification_banner.dart';
-import '../widgets/gift_rain_overlay.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
-// import '../widgets/room/seats_grid.dart';
 import '../widgets/room/mic_queue_panel.dart';
 import '../widgets/room/room_chat_panel.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../repositories/gift_repository.dart';
-import '../models/gift.dart';
-import '../widgets/gift_selection_dialog.dart';
+import '../gifts/services/gift_repository.dart';
+import '../gifts/services/gift_socket_service.dart';
+import '../gifts/widgets/gift_picker_sheet.dart';
+import '../gifts/widgets/gift_animation_overlay.dart';
 import 'dart:ui';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -43,18 +38,13 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import '../models/gift_sent_event.dart';
-import '../models/gift_event.dart';
 import '../repositories/message_repository.dart';
 import '../repositories/room_repository.dart';
 import '../widgets/room/seats_grid.dart';
-import '../models/gift.dart';
-import '../widgets/mega_gift_layer.dart';
 import 'package:video_player/video_player.dart';
 import '../models/room_event.dart';
 import '../screens/messages_screen.dart';
 import '../screens/challenges_screen.dart';
-import '../screens/gift_store_screen.dart';
 import '../screens/leaderboard_screen.dart';
 import '../screens/wallet_screen.dart';
 import 'chat_screen.dart';
@@ -108,9 +98,8 @@ class RoomScreen extends ConsumerStatefulWidget {
 
 class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObserver {
   late final ApiService _api = ApiService(DioClient.dio);
-  final GiftAnimationService _giftAnim = GiftAnimationService();
-  StreamSubscription<GiftSentEvent>? _giftSub;
-  StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
+  late final GiftSocketService _giftSocket = GiftSocketService(SocketService());
+  late final GiftRepository _giftRepository = GiftRepository();
   bool _openingMic = false;
   /// WebRTC audio service for voice chat
   late final WebRTCAudioService _audioService;
@@ -132,38 +121,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   bool _showChatPanel = false; // hidden by default
   final FocusNode _chatFocus = FocusNode();
   bool _keyboardVisible = false;
-  late Future<Result<List<Gift>>> _giftsFuture;
-  int _comboCount = 0;
-  int? _comboGiftId;
-  DateTime? _comboTime;
   final Map<int, GlobalKey> _seatKeys = {};
   final GlobalKey _overlayKey = GlobalKey();
-  DateTime? _lastGiftSent;
-  final Map<String, DateTime> _receivedGiftEvents = {};
-  static const Duration _giftEventDedupWindow = Duration(seconds: 2);
-
-  bool _isDuplicateGiftEvent(GiftSentEvent event) {
-    final now = DateTime.now();
-    _receivedGiftEvents.removeWhere(
-      (_, seenAt) => now.difference(seenAt) > _giftEventDedupWindow,
-    );
-
-    final key = [
-      event.fromUserId ?? 0,
-      event.toUserId ?? 0,
-      event.giftId ?? 0,
-      event.quantity ?? 1,
-      (event.giftName ?? '').trim().toLowerCase(),
-    ].join('|');
-
-    final seenAt = _receivedGiftEvents[key];
-    if (seenAt != null && now.difference(seenAt) <= _giftEventDedupWindow) {
-      return true;
-    }
-
-    _receivedGiftEvents[key] = now;
-    return false;
-  }
   VideoPlayerController? _seatVideoController;
   bool _showSeatVideo = false;
 
@@ -193,27 +152,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Offset _pipOffset = const Offset(20, 100);
 
   final FocusNode _topChatFocus = FocusNode();
-
-  GiftAnimationType _detectMegaType(String? giftName) {
-
-    if (giftName == null) return GiftAnimationType.normal;
-
-    final name = giftName.toLowerCase();
-
-    if (name.contains("dragon")) {
-      return GiftAnimationType.dragon;
-    }
-
-    if (name.contains("rocket")) {
-      return GiftAnimationType.rocket;
-    }
-
-    if (name.contains("castle")) {
-      return GiftAnimationType.castle;
-    }
-
-    return GiftAnimationType.normal;
-  }
 
   void _closeChat() {
     if (!_showChatPanel) return;
@@ -1724,8 +1662,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       }
     });
 
-    final giftRepo = GiftRepository();
-    _giftsFuture = giftRepo.getGifts();
+    // Bind the new gift socket; GiftAnimationOverlay handles its own subscriptions.
+    _giftSocket.bind();
 
     Future.microtask(() {
       ref.read(roomControllerProvider(widget.roomId).notifier)
@@ -1839,197 +1777,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       }
     });
 
-    _giftSub = SocketService().giftStream.listen((event) {
-      // ✅🔥 STEP 4 FIX — ADD ACTIVITY EVENT
-      if (_isDuplicateGiftEvent(event)) return;
-
-      final giftName = (event.giftName ?? '').trim();
-      final senderName = (event.fromUserName ?? '').trim();
-      final receiverName = (event.toUserName ?? '').trim();
-      if (senderName.isNotEmpty) {
-        final giftText = giftName.isEmpty ? 'هدية 🎁' : 'هدية $giftName 🎁';
-        final activityText = receiverName.isEmpty
-            ? 'أرسل $giftText'
-            : 'أرسل $giftText إلى $receiverName';
-        ref.read(roomControllerProvider(widget.roomId).notifier).addActivity(
-          activityText,
-          RoomEventType.gift,
-          username: senderName,
-          // coins: event.giftPriceCoins,           // ✅ ADD (if field exists on your event model)
-        );
-      }
-
-      // ===== YOUR EXISTING ANIMATION CODE (UNCHANGED) =====
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-
-        final megaType = _detectMegaType(event.giftName);
-
-        final senderSeat = _getSeatOfUser(event.fromUserId);
-        final receiverSeat = _getSeatOfUser(event.toUserId);
-
-        final startSeat = senderSeat ?? 1;
-        final endSeat = receiverSeat ?? 1;
-
-        final start = _getSeatPosition(startSeat);
-        final end = _getSeatPosition(endSeat);
-
-        final screen = MediaQuery.of(context).size;
-        final center = Offset(screen.width / 2, screen.height * 0.35);
-
-        final isSelfGift = (start - end).distance < 20;
-
-        final distance = (start - end).distance;
-        final duration = (2200 + distance * 1.35).clamp(2800, 5200).toInt();
-
-        if (isSelfGift) {
-
-          final secondLegDuration =
-              (duration * 0.65).round().clamp(1600, 3200).toInt();
-
-          _giftAnim.enqueueGift(
-            GiftAnimationData(
-              giftId: event.giftId ?? 0,
-              senderId: event.fromUserId ?? 0,
-              giftName: event.giftName ?? 'Gift',
-              giftImageUrl: event.giftImageUrl ?? '',
-              senderName: event.fromUserName ?? 'Someone',
-              receiverName: event.toUserName ?? 'Someone',
-              startOffset: start,
-              endOffset: center,
-              quantity: event.quantity ?? 1,
-              comboCount: _comboCount,
-              timestamp: DateTime.now(),
-              durationMs: duration,
-              animationType: megaType,
-              isMega: megaType != GiftAnimationType.normal,
-            ),
-          );
-
-          _giftAnim.enqueueGift(
-            GiftAnimationData(
-              giftId: event.giftId ?? 0,
-              senderId: event.fromUserId ?? 0,
-              giftName: event.giftName ?? 'Gift',
-              giftImageUrl: event.giftImageUrl ?? '',
-              senderName: event.fromUserName ?? 'Someone',
-              receiverName: event.toUserName ?? 'Someone',
-              startOffset: center,
-              endOffset: end,
-              quantity: event.quantity ?? 1,
-              comboCount: _comboCount,
-              timestamp: DateTime.now(),
-              durationMs: secondLegDuration,
-              animationType: megaType,
-              isMega: megaType != GiftAnimationType.normal,
-            ),
-          );
-
-        } else {
-
-          final data = GiftAnimationData(
-            giftId: event.giftId ?? 0,
-            senderId: event.fromUserId ?? 0,
-            giftName: event.giftName ?? 'Gift',
-            giftImageUrl: event.giftImageUrl ?? '',
-            senderName: event.fromUserName ?? 'Someone',
-            receiverName: event.toUserName ?? 'Someone',
-            startOffset: start,
-            endOffset: end,
-            quantity: event.quantity ?? 1,
-            comboCount: _comboCount,
-            timestamp: DateTime.now(),
-            durationMs: duration,
-            animationType: megaType,
-            isMega: megaType != GiftAnimationType.normal,
-          );
-
-          _giftAnim.enqueueGift(data);
-        }
-      });
-
-    });
-
-    _globalGiftSub = SocketService().globalGiftBroadcastStream.listen((payload) {
-      if (!mounted) return;
-      _showGlobalGiftBroadcast(payload);
-    });
-
-    SocketService().on('gift_received', (data) {
-      if (!mounted) return;
-      try {
-        final map = Map.from(data as Map);
-        final event = GiftEvent.fromJson(Map<String, dynamic>.from(map));
-        _showGiftBanner(context, event);
-      } catch (e) {
-        debugPrint('gift_received parse error: $e');
-      }
-    });
-
-
-  }
-
-  void _showGiftBanner(BuildContext context, GiftEvent event) {
-    late OverlayEntry entry;
-    entry = OverlayEntry(
-      builder: (_) => Positioned(
-        top: MediaQuery.of(context).padding.top + 10,
-        left: 0,
-        right: 0,
-        child: Center(child: GiftNotificationBanner(event: event)),
-      ),
-    );
-
-    Overlay.of(context).insert(entry);
-    Future.delayed(const Duration(seconds: 3), () {
-      if (entry.mounted) entry.remove();
-    });
+    // Legacy gift socket listeners removed.
+    // GiftSocketService (bound above) feeds GiftAnimationOverlay,
+    // which renders gift_sent / gift_legendary_incoming / gift_broadcast.
   }
 
   late final RoomLiveNotifier _live;
-
-  void _showGlobalGiftBroadcast(Map<String, dynamic> payload) {
-    final giftCoins = _extractGiftCoins(payload);
-    if (giftCoins <= 0) return;  // only skip invalid
-
-    final overlay = Overlay.of(context);
-    late final OverlayEntry entry;
-
-    entry = OverlayEntry(
-      builder: (_) => _GlobalGiftBroadcastOverlay(
-        payload: payload,
-        giftCoins: giftCoins,
-        onDismissed: () => entry.remove(),
-      ),
-    );
-
-    overlay.insert(entry);
-  }
-
-  int _extractGiftCoins(Map<String, dynamic> payload) {
-    final candidates = <dynamic>[
-      payload['coinsValue'],
-      payload['giftCoins'],
-      payload['coins'],
-      payload['priceCoins'],
-      payload['price_coins'],
-      payload['totalCoins'],
-      payload['amount'],
-    ];
-
-    for (final raw in candidates) {
-      final n = _toInt(raw);
-      if (n != null && n > 0) return n;
-    }
-    return 0;
-  }
-
-  int? _toInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value.trim());
-    return null;
-  }
-
 
   @override
   void dispose() {
@@ -2041,10 +1794,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
     _socketErrSub?.cancel();
-    _giftSub?.cancel();
-    _globalGiftSub?.cancel();
-    SocketService().off('gift_received');
-    _giftAnim.dispose();
+    _giftSocket.dispose();
     _audioService.dispose();
     _seatVideoController?.dispose();
     _externalTextController.dispose(); // Dispose the external controller
@@ -2977,47 +2727,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
 
-            // ===== Gift overlay full screen =====
+            // ===== Gift overlay full screen (new gift system) =====
             Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _giftAnim,
-                builder: (_, __) {
-                  final gifts = _giftAnim.activeStack;
-
-                  if (gifts.isEmpty) return const SizedBox.shrink();
-
-                  return IgnorePointer(
-                    ignoring: true,
-                    child: Stack(
-                      children: List.generate(gifts.length, (i) {
-
-                        final g = gifts[i];
-
-                        return Stack(
-                          children: [
-
-
-                            GiftRainOverlay(
-                              active: g.comboCount >= 10,
-                            ),
-
-                            if (g.isMega)
-                              MegaGiftLayer(
-                                data: g,
-                                onFinish: _giftAnim.completeAnimation,
-                              )
-                            else
-                              GiftAnimationOverlay(
-                                giftData: g,
-                                onComplete: _giftAnim.completeAnimation,
-                              ),
-                          ],
-                        );
-                      }),
-                    ),
-                  );
-                },
-              ),
+              child: GiftAnimationOverlay(socket: _giftSocket),
             ),
 
             // ===== Main content =====
@@ -3320,41 +3032,25 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         // 🎁 GIFT
                         GestureDetector(
                           onTap: () {
-                            final state = ref.watch(roomControllerProvider(widget.roomId));
-                            final auth = ref.watch(authStateProvider);
+                            final state = ref.read(roomControllerProvider(widget.roomId));
+                            final auth = ref.read(authStateProvider);
                             final users = state.onlineUsers.values.toList();
-
-
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (_) {
-                                return GiftSelectionDialog(
-                                  roomId: widget.roomId,
-                                  currentUserCoins: auth.user?.coins ?? 0, // ✅ REAL coins
-
-
-                                roomMembers: users.isNotEmpty
-                                    ? users
-                                    : [
-                                  User(
-                                    id: auth.user!.id,
-                                    name: auth.user!.name ?? "Me",
-                                  )
-                                ],
-                                  onGiftSelected: (gift, user) {
-                                    if (user == null) return;
-
-                                    ref.read(roomControllerProvider(widget.roomId).notifier).sendGift(
-                                      receiverId: user.id,
-                                      giftId: gift.id,
-                                      quantity: 1,
-                                      message: null,
-                                    );
-                                  },
-                                );
-                              },
+                            final me = auth.user;
+                            if (me == null) return;
+                            // Default recipient: first other user, else self.
+                            final recipient = users.firstWhere(
+                              (u) => u.id != me.id,
+                              orElse: () => users.isNotEmpty
+                                  ? users.first
+                                  : User(id: me.id, name: me.name ?? 'Me'),
+                            );
+                            GiftPickerSheet.show(
+                              context,
+                              repository: _giftRepository,
+                              recipientId: recipient.id,
+                              roomId: widget.roomId,
+                              balance: me.coins ?? 0,
+                              onBalanceChanged: (_) {},
                             );
                           },
                           child: const Padding(
@@ -3551,32 +3247,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
-    final state = ref.read(roomControllerProvider(widget.roomId));
-    final users = state.onlineUsers.values.toList();
-    final User target = users.cast<User?>().firstWhere(
-          (u) => u?.id == r.id,
-          orElse: () => User(id: r.id, name: r.name, avatarUrl: r.avatarUrl),
-        )!;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => GiftSelectionDialog(
-        roomId: widget.roomId,
-        targetUser: target,
-        currentUserCoins: auth.user?.coins ?? 0,
-        roomMembers: users.isNotEmpty ? users : [target],
-        onGiftSelected: (gift, user) {
-          final receiver = user ?? target;
-          ref.read(roomControllerProvider(widget.roomId).notifier).sendGift(
-                receiverId: receiver.id,
-                giftId: gift.id,
-                quantity: 1,
-                message: null,
-              );
-        },
-      ),
+    GiftPickerSheet.show(
+      context,
+      repository: _giftRepository,
+      recipientId: r.id,
+      roomId: widget.roomId,
+      balance: auth.user?.coins ?? 0,
+      onBalanceChanged: (_) {},
     );
   }
 
@@ -5057,256 +4734,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
-    final giftRepo = GiftRepository();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.black87,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) {
-        int selectedUserId = recipients.first.id;
-
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 12,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // top handle
-                      Container(
-                        width: 46,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      const Text(
-                        'Send a Gift',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // ===== Recipients row =====
-                      SizedBox(
-                        height: 54,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: recipients.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 10),
-                          itemBuilder: (_, i) {
-                            final r = recipients[i];
-                            final selected = r.id == selectedUserId;
-
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () => setState(() => selectedUserId = r.id),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: selected ? Colors.deepPurple : Colors.white12,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: selected ? Colors.deepPurpleAccent : Colors.white24,
-                                  ),
-                                  boxShadow: selected
-                                      ? [
-                                    BoxShadow(
-                                      color: Colors.deepPurple.withOpacity(0.35),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 4),
-                                    )
-                                  ]
-                                      : [],
-                                ),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 14,
-                                      backgroundImage:
-                                      r.avatarUrl != null ? NetworkImage(r.avatarUrl!) : null,
-                                      child: r.avatarUrl == null
-                                          ? const Icon(Icons.person, color: Colors.white, size: 16)
-                                          : null,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ConstrainedBox(
-                                      constraints: const BoxConstraints(maxWidth: 110),
-                                      child: Text(
-                                        r.name,
-                                        style: const TextStyle(color: Colors.white),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-
-                      const SizedBox(height: 14),
-
-                      // ===== Gifts grid =====
-                      FutureBuilder<Result<List<Gift>>>(
-                        future: giftRepo.getGifts(),
-                        builder: (context, snap) {
-                          if (snap.connectionState == ConnectionState.waiting) {
-                            return const Padding(
-                              padding: EdgeInsets.all(18),
-                              child: CircularProgressIndicator(),
-                            );
-                          }
-
-                          final result = snap.data;
-                          final gifts = (result != null && result.isSuccess)
-                              ? (result.data ?? const <Gift>[])
-                              : const <Gift>[];
-
-                          if (gifts.isEmpty) {
-                            return const Padding(
-                              padding: EdgeInsets.all(14),
-                              child: Text(
-                                'No gifts available',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            );
-                          }
-
-                          return GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: gifts.length,
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 4,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: 0.8,
-                            ),
-                            itemBuilder: (context, index) {
-                              final g = gifts[index];
-
-                              // ✅ SAFE URL/EMOJI builder
-                              final raw = (g.imageUrl ?? '').trim();
-
-                              final isEmoji = raw.isNotEmpty &&
-                                  !raw.toLowerCase().startsWith('http') &&
-                                  !raw.contains('/') &&
-                                  raw.runes.length <= 6;
-
-                              final displayImageUrl = (raw.isEmpty || isEmoji)
-                                  ? raw
-                                  : (raw.startsWith('http') ? raw : '${AppConfig.apiBaseUrl}$raw');
-
-                              return InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () async {
-                                  if (context.mounted) Navigator.of(context).pop();
-
-                                  // only send
-                                  final now = DateTime.now();
-
-                                  if (_lastGiftSent != null &&
-                                      now.difference(_lastGiftSent!) < const Duration(milliseconds: 400)) {
-                                    return;
-                                  }
-
-                                  _lastGiftSent = now;
-
-                                  ref.read(roomControllerProvider(widget.roomId).notifier).sendGift(
-                                    receiverId: selectedUserId,
-                                    giftId: g.id,
-                                    quantity: 1,
-                                    message: null,
-                                  );
-
-                                  // Optional: show sending info (not success)
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Sending gift...')),
-                                    );
-                                  }
-                                },
-
-                                child: Column(
-                                  children: [
-                                    Expanded(
-                                      child: Container(
-                                        alignment: Alignment.center,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white10,
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: Colors.white24),
-                                        ),
-                                        child: (displayImageUrl.isNotEmpty && !isEmoji)
-                                            ? Image.network(
-                                          displayImageUrl,
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (_, __, ___) => const Icon(
-                                            Icons.card_giftcard,
-                                            color: Colors.orange,
-                                            size: 28,
-                                          ),
-                                        )
-                                            : Center(
-                                          child: isEmoji
-                                              ? Text(
-                                            displayImageUrl,
-                                            style: const TextStyle(fontSize: 26),
-                                          )
-                                              : const Icon(
-                                            Icons.card_giftcard,
-                                            color: Colors.orange,
-                                            size: 28,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      g.displayName,
-                                      style: const TextStyle(color: Colors.white, fontSize: 11),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    Text(
-                                      '${g.displayCoinsValue}',
-                                      style: const TextStyle(color: Colors.amber, fontSize: 10),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+    // The new GiftPickerSheet handles its own catalog + send via GiftRepository.
+    // Pick the first available recipient (the picker doesn't expose recipient selection).
+    final firstRecipient = recipients.first;
+    GiftPickerSheet.show(
+      context,
+      repository: _giftRepository,
+      recipientId: firstRecipient.id,
+      roomId: widget.roomId,
+      balance: auth.user?.coins ?? 0,
+      onBalanceChanged: (_) {},
     );
   }
 }
@@ -5559,222 +4996,8 @@ Widget _gradientStat(String title, String subtitle, Color color) {
   );
 }
 
-class _GlobalGiftBroadcastOverlay extends StatefulWidget {
-  final Map<String, dynamic> payload;
-  final int giftCoins;
-  final VoidCallback onDismissed;
-
-  const _GlobalGiftBroadcastOverlay({
-    required this.payload,
-    required this.giftCoins,
-    required this.onDismissed,
-  });
-
-  @override
-  State<_GlobalGiftBroadcastOverlay> createState() => _GlobalGiftBroadcastOverlayState();
-}
-
-class _GlobalGiftBroadcastOverlayState extends State<_GlobalGiftBroadcastOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<Offset> _slide;
-  late final Animation<double> _fade;
-  late final Animation<double> _pulse;
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-      reverseDuration: const Duration(milliseconds: 500),
-    );
-
-    _slide = Tween<Offset>(
-      begin: const Offset(0, -1.2),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
-    _pulse = Tween<double>(begin: 0.96, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
-    );
-
-    _controller.forward();
-
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-
-    _pulseAnim = Tween<double>(begin: 1.0, end: 1.04).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-
-    Future.delayed(const Duration(seconds: 7), () async {
-      if (!mounted) return;
-      await _controller.reverse();
-      if (mounted) widget.onDismissed();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _pulseController.dispose();
-
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final senderName = _text('senderName', 'مرسل');
-    final receiverName = _text('receiverName', 'مستلم');
-    final giftName = _text('giftNameAr', 'هدية');
-    final roomName = _text('roomName', '');
-    final giftImageUrl = _url(_text('giftImageUrl', ''));
-    final title = roomName.isEmpty ? 'إعلان عالمي' : 'إعلان عالمي • $roomName';
-    final body = '$senderName أرسل $giftName إلى $receiverName';
-
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 6,
-      left: 10,
-      right: 10,
-      child: Material(
-        color: Colors.transparent,
-        child: SlideTransition(
-          position: _slide,
-          child: FadeTransition(
-            opacity: _fade,
-            child: AnimatedBuilder(
-              animation: _pulseAnim,
-              builder: (_, child) => Transform.scale(
-                scale: _pulseAnim.value,
-                child: child,
-              ),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                // REPLACE WITH:
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF3D0A56), Color(0xFF7A1FA2), Color(0xFF4C1D95)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
-                  border: Border.all(color: Colors.amber, width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.amber.withOpacity(0.4),
-                      blurRadius: 20,
-                      spreadRadius: 2,
-                      offset: const Offset(0, 4),
-                    ),
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.35),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    _gift(giftImageUrl),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
-                              decoration: TextDecoration.none,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            body,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              decoration: TextDecoration.none,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white30),
-                      ),
-                      child: Text(
-                        '${widget.giftCoins} 🪙',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                          decoration: TextDecoration.none,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _gift(String url) {
-    return Container(
-      width: 44,
-      height: 44,
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white70, width: 1),
-      ),
-      child: url.isEmpty
-          ? const Icon(Icons.card_giftcard, color: Colors.amber, size: 24)
-          : Image.network(
-              url,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) =>
-                  const Icon(Icons.card_giftcard, color: Colors.amber, size: 24),
-            ),
-    );
-  }
-
-  String _text(String key, String fallback) {
-    final value = widget.payload[key];
-    final text = value?.toString().trim() ?? '';
-    return text.isEmpty || text == 'null' ? fallback : text;
-  }
-
-  String _url(String raw) {
-    if (raw.isEmpty || raw == 'null') return '';
-    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    if (!raw.startsWith('/')) return raw;
-    return '${AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '')}$raw';
-  }
-}
+// Legacy _GlobalGiftBroadcastOverlay removed — new system renders
+// broadcast banners via BroadcastBannerLayer inside GiftAnimationOverlay.
 
 class _RosePetalPainter extends CustomPainter {
   @override

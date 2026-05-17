@@ -124,59 +124,7 @@ async function main() {
 
   console.log('✅ Added room members');
 
-  // Create sample gifts
-  const gifts = await Promise.all([
-    prisma.gift.create({
-      data: {
-        name: 'Red Rose',
-        imageUrl: '/gifts/rose.png',
-        priceCoins: 10,
-        category: 'instant',
-        isActive: true
-      }
-    }),
-    prisma.gift.create({
-      data: {
-        name: 'Diamond Ring',
-        imageUrl: '/gifts/diamond-ring.png',
-        animationUrl: '/gifts/diamond-ring.json',
-        priceCoins: 100,
-        category: 'animated',
-        isActive: true
-      }
-    }),
-    prisma.gift.create({
-      data: {
-        name: 'Luxury Car',
-        imageUrl: '/gifts/car.png',
-        animationUrl: '/gifts/car.json',
-        priceCoins: 500,
-        category: 'special',
-        isActive: true
-      }
-    }),
-    prisma.gift.create({
-      data: {
-        name: 'Fireworks',
-        imageUrl: '/gifts/fireworks.png',
-        animationUrl: '/gifts/fireworks.json',
-        priceCoins: 250,
-        category: 'animated',
-        isActive: true
-      }
-    }),
-    prisma.gift.create({
-      data: {
-        name: 'Heart Balloon',
-        imageUrl: '/gifts/balloon.png',
-        priceCoins: 25,
-        category: 'instant',
-        isActive: true
-      }
-    })
-  ]);
-
-  console.log(`✅ Created ${gifts.length} gifts`);
+  // Gift seeding lives in `prisma/seed-gifts.ts` (run with `npm run seed:gifts`).
 
   // Create sample relationships
   await Promise.all([

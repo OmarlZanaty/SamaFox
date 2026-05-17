@@ -19,7 +19,6 @@ import 'screens/settings_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
-import 'screens/gifts_screen.dart';
 import 'screens/charging_agent_screen.dart';
 import 'screens/search_screen.dart';
 import 'theme/app_theme.dart';
@@ -28,8 +27,6 @@ import 'providers/localization_provider.dart';
 import 'package:samafox/screens/games_hub_screen.dart';
 import 'widgets/pip_overlay.dart';
 import 'services/socket_service.dart';
-import 'models/mega_gift_payload.dart';
-import 'widgets/mega_gift_overlay.dart';
 import 'services/global_notification_service.dart';
 import 'widgets/global_notification_bar.dart';
 
@@ -71,31 +68,8 @@ class SamaFoxApp extends ConsumerStatefulWidget {
 }
 
 class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
-  StreamSubscription<Map<String, dynamic>>? _globalGiftSub;
   StreamSubscription<Map<String, dynamic>>? _globalNotificationSub;
   late final SocketService _socketService;
-
-  int _extractGiftCoins(Map<String, dynamic> payload) {
-    final candidates = <dynamic>[
-      payload['coinsValue'],
-      payload['giftCoins'],
-      payload['coins'],
-      payload['priceCoins'],
-      payload['price_coins'],
-      payload['totalCoins'],
-      payload['amount'],
-    ];
-
-    for (final raw in candidates) {
-      if (raw is int && raw > 0) return raw;
-      if (raw is num && raw > 0) return raw.toInt();
-      if (raw is String) {
-        final parsed = int.tryParse(raw.trim());
-        if (parsed != null && parsed > 0) return parsed;
-      }
-    }
-    return 0;
-  }
 
   @override
   void initState() {
@@ -103,10 +77,6 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
     _socketService = SocketService();
     _globalNotificationSub = _socketService.notificationStream.listen((data) {
       final type = (data['type'] as String? ?? '').toLowerCase();
-      final giftCoins = _extractGiftCoins(data);
-      if (type.contains('gift') && giftCoins <= 5000) {
-        return;
-      }
       final title = (data['title'] as String? ?? '').trim();
       final body = (data['body'] as String? ?? '').trim();
 
@@ -140,21 +110,8 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
         ),
       );
     });
-    _globalGiftSub = SocketService().globalGiftBroadcastStream.listen((data) {
-      final context = navigatorKey.currentContext;
-      if (context == null) return;
-      final giftCoins = _extractGiftCoins(data);
-      if (giftCoins <= 5000) return;
-      final payload = MegaGiftPayload.fromJson(data);
-      MegaGiftOverlay.show(context, payload);
-      GlobalNotificationService.instance.show(
-        GlobalNotificationEvent(
-          title: 'هدية عالمية ضخمة',
-          message: '${payload.senderName} أرسل ${payload.giftNameAr} بقيمة $giftCoins',
-          routeName: '/notifications',
-        ),
-      );
-    });
+    // Mega-gift / global broadcast overlay is handled by the V2 gift system
+    // (GiftAnimationOverlay + BroadcastBannerLayer mounted inside RoomScreen).
     SocketService().on('follow_request', (data) {
       final ctx = navigatorKey.currentContext;
       if (ctx == null) return;
@@ -234,7 +191,6 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
 
   @override
   void dispose() {
-    _globalGiftSub?.cancel();
     _globalNotificationSub?.cancel();
     _socketService.off('follow_request');
     _socketService.off('follow_accepted');

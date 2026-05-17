@@ -15,8 +15,6 @@ import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import roomRoutes from './routes/room.routes';
-import giftActionRoutes from './routes/gift.routes';
-import giftRoutes from './gifts/gift.routes';
 import messageRoutes from './routes/messages.routes';
 import uploadRoutes from './routes/upload.routes';
 import gameRoutes from './routes/game.routes';
@@ -32,9 +30,9 @@ import { resolvePublicDir } from './utils/publicDir';
 import followRoutes from './follow/follow.routes';
 import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
-import giftV2Routes from './v2/gifts/routes';
-import giftV2AdminRoutes from './v2/gifts/admin.routes';
-import { setGiftIo } from './v2/gifts/controller';
+import giftRoutes from './gifts/routes';
+import giftAdminRoutes from './gifts/admin.routes';
+import { setGiftIo } from './gifts/controller';
 
 import helmet from 'helmet';
 
@@ -143,7 +141,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/rooms', roomRoutes);
 app.use('/api/v1/gifts', giftRoutes);
-app.use('/api/v1/gift-actions', giftActionRoutes);
+app.use('/api/v1/admin/gifts', giftAdminRoutes);
 app.use('/api/v1/messages', messageRoutes);
 app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/follow', followRoutes);
@@ -155,9 +153,6 @@ app.use('/upload', uploadRoutes); // backward-compatible path
 app.use('/api/v1/room-admin', roomAdminRoutes);
 app.use('/api/messages', messageRoutes); // ✅ same router
 
-// Gift System V2 (parallel to legacy /api/v1/gifts)
-app.use('/api/v2/gifts', giftV2Routes);
-app.use('/api/v2/admin/gifts', giftV2AdminRoutes);
 const giftAssetsDir =
   process.env.GIFT_ASSETS_DIR?.trim() || path.join(process.cwd(), 'public', 'assets');
 app.use('/assets', express.static(giftAssetsDir, {

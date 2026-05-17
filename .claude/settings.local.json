@@ -1,7 +1,24 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\" -Recurse -Force | Select-Object FullName | Sort-Object FullName | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\"\\), \".\" })"
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\" -Recurse -Force | Select-Object FullName | Sort-Object FullName | ForEach-Object { $_.FullName -replace [regex]::Escape\\(\"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\"\\), \".\" })",
+      "Bash(mv backend/src/v2/gifts/admin.controller.ts backend/src/gifts/admin.controller.ts)",
+      "Bash(mv backend/src/v2/gifts/admin.routes.ts backend/src/gifts/admin.routes.ts)",
+      "Bash(mv backend/src/v2/gifts/audit.ts backend/src/gifts/audit.ts)",
+      "Bash(mv backend/src/v2/gifts/catalogCache.ts backend/src/gifts/catalogCache.ts)",
+      "Bash(mv backend/src/v2/gifts/controller.ts backend/src/gifts/controller.ts)",
+      "Bash(sed -i 's/filename=\"gifts-v2.json\"/filename=\"gifts.json\"/' backend/src/gifts/admin.controller.ts)",
+      "Bash(sed -i 's/Creates GiftV2Transaction/Creates GiftTransaction/; s/Creates GiftV2Broadcast/Creates GiftBroadcast/' backend/src/gifts/giftService.ts)",
+      "Bash(head -10 backend/src/lib/prisma.ts)",
+      "Bash(head -5 backend/src/utils/prisma.ts)",
+      "Bash(sed -i '117,167d' backend/prisma/seed.js)",
+      "Bash(sed -n '113,125p' backend/prisma/seed.js)",
+      "Bash(npx prisma *)",
+      "Bash(./node_modules/.bin/prisma generate *)",
+      "Bash(npm install *)",
+      "Bash(grep -E \"^\\(prisma|tsc\\)$\")",
+      "Bash(rmdir animations *)",
+      "Bash(rmdir data *)"
     ]
   }
 }

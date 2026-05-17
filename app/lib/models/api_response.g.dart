@@ -37,20 +37,6 @@ Map<String, dynamic> _$PaginationToJson(Pagination instance) =>
       'totalPages': instance.totalPages,
     };
 
-GiftsResponse _$GiftsResponseFromJson(Map<String, dynamic> json) =>
-    GiftsResponse(
-      gifts: (json['gifts'] as List<dynamic>)
-          .map((e) => Gift.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      total: (json['total'] as num?)?.toInt() ?? 0,
-    );
-
-Map<String, dynamic> _$GiftsResponseToJson(GiftsResponse instance) =>
-    <String, dynamic>{
-      'gifts': instance.gifts,
-      'total': instance.total,
-    };
-
 ConversationsResponse _$ConversationsResponseFromJson(
         Map<String, dynamic> json) =>
     ConversationsResponse(

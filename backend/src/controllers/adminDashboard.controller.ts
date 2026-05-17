@@ -274,11 +274,11 @@ export const adminDashboardAnalytics = async (_req: Request, res: Response) => {
     startOfToday.setHours(0, 0, 0, 0);
 
     const [topGifters, topRoomsRaw, pendingReports, todayGiftCoins] = await Promise.all([
-      prisma.giftLog.groupBy({
+      prisma.giftTransaction.groupBy({
         by: ['senderId'],
         where: { createdAt: { gte: since } },
-        _sum: { coinsSpent: true },
-        orderBy: { _sum: { coinsSpent: 'desc' } },
+        _sum: { totalCoins: true },
+        orderBy: { _sum: { totalCoins: 'desc' } },
         take: 5,
       }),
       prisma.roomMessage.groupBy({
@@ -289,7 +289,7 @@ export const adminDashboardAnalytics = async (_req: Request, res: Response) => {
         take: 5,
       }),
       prisma.report.count({ where: { status: 'pending' } }),
-      prisma.giftLog.aggregate({ where: { createdAt: { gte: startOfToday } }, _sum: { coinsSpent: true } }),
+      prisma.giftTransaction.aggregate({ where: { createdAt: { gte: startOfToday } }, _sum: { totalCoins: true } }),
     ]);
 
     const senderIds = topGifters.map((r) => r.senderId);
@@ -307,7 +307,7 @@ export const adminDashboardAnalytics = async (_req: Request, res: Response) => {
         topGifters: topGifters.map((g) => ({
           senderId: g.senderId,
           user: users.find((u) => u.id === g.senderId) || null,
-          coins: ((g._sum?.coinsSpent as any) || 0).toString(),
+          coins: ((g._sum?.totalCoins as any) || 0).toString(),
         })),
         topRooms: topRoomsRaw.map((r) => ({
           roomId: r.roomId,
@@ -315,7 +315,7 @@ export const adminDashboardAnalytics = async (_req: Request, res: Response) => {
           messagesCount: (r._count as any)?.roomId || 0,
         })),
         pendingReports,
-        todayGiftCoins: (todayGiftCoins._sum.coinsSpent || 0).toString(),
+        todayGiftCoins: (todayGiftCoins._sum.totalCoins || 0).toString(),
       },
     });
   } catch {
@@ -442,10 +442,10 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
     }
 
     if (type === 'gifts') {
-      const rows = await prisma.giftLog.groupBy({
+      const rows = await prisma.giftTransaction.groupBy({
         by: ['senderId'],
-        _sum: { coinsSpent: true },
-        orderBy: { _sum: { coinsSpent: 'desc' } },
+        _sum: { totalCoins: true },
+        orderBy: { _sum: { totalCoins: 'desc' } },
         take: 20,
       });
       const users = await prisma.user.findMany({
@@ -457,7 +457,7 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
         data: rows.map((r) => ({
           senderId: r.senderId,
           user: users.find((u) => u.id === r.senderId) || null,
-          coinsSpent: (r._sum.coinsSpent || 0).toString(),
+          coinsSpent: (r._sum.totalCoins || 0).toString(),
         })),
       });
     }
@@ -613,26 +613,32 @@ export const adminSetAgencyTarget = async (req: AdminReq, res: Response) => {
   }
 };
 
+// Gift CRUD on this dashboard controller is superseded by the canonical
+// /api/v1/admin/gifts module. These thin wrappers remain only for the
+// existing admin dashboard UI; new clients should target the dedicated
+// admin gift routes which support format/tier/animation metadata.
+
 export const adminListGifts = async (_req: AdminReq, res: Response) => {
-  const gifts = await prisma.gift.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] });
+  const gifts = await prisma.gift.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }] });
   return res.json({ success: true, data: gifts });
 };
 
 export const adminCreateGift = async (req: AdminReq, res: Response) => {
-  const { nameAr, imageUrl, animationUrl, coinsValue, sortOrder } = req.body;
-  if (!nameAr || !imageUrl || coinsValue == null) {
-    return res.status(400).json({ success: false, message: 'nameAr, imageUrl, coinsValue required' });
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name } = req.body;
+  if (!nameAr || !iconUrl || coinCost == null) {
+    return res.status(400).json({ success: false, message: 'nameAr, iconUrl, coinCost required' });
   }
 
   const gift = await prisma.gift.create({
     data: {
-      name: String(nameAr),
+      name: String(name ?? nameAr),
       nameAr: String(nameAr),
-      imageUrl: String(imageUrl),
+      iconUrl: String(iconUrl),
       animationUrl: animationUrl ?? null,
-      coinsValue: Number(coinsValue),
+      coinCost: Number(coinCost),
       sortOrder: Number(sortOrder ?? 0),
-      priceCoins: Number(coinsValue),
+      format: (format ?? 'SVG_CSS') as any,
+      tier: (tier ?? 'SMALL') as any,
       category: 'admin',
     },
   });
@@ -641,16 +647,17 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
 };
 
 export const adminUpdateGift = async (req: AdminReq, res: Response) => {
-  const id = Number(req.params.id);
-  const { nameAr, imageUrl, animationUrl, coinsValue, sortOrder, isActive } = req.body;
+  const id = String(req.params.id);
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name } = req.body;
 
   const gift = await prisma.gift.update({
     where: { id },
     data: {
-      ...(nameAr !== undefined && { nameAr, name: String(nameAr) }),
-      ...(imageUrl !== undefined && { imageUrl }),
+      ...(nameAr !== undefined && { nameAr: String(nameAr) }),
+      ...(name !== undefined && { name: String(name) }),
+      ...(iconUrl !== undefined && { iconUrl: String(iconUrl) }),
       ...(animationUrl !== undefined && { animationUrl }),
-      ...(coinsValue !== undefined && { coinsValue: Number(coinsValue), priceCoins: Number(coinsValue) }),
+      ...(coinCost !== undefined && { coinCost: Number(coinCost) }),
       ...(sortOrder !== undefined && { sortOrder: Number(sortOrder) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
     },
@@ -660,7 +667,7 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
 };
 
 export const adminDeleteGift = async (req: AdminReq, res: Response) => {
-  const id = Number(req.params.id);
+  const id = String(req.params.id);
   try {
     await prisma.gift.delete({ where: { id } });
     return res.json({ success: true, message: 'Gift deleted' });

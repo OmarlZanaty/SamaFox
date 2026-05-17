@@ -2,59 +2,19 @@ import { prisma } from '../lib/prisma';
 import { createNotification } from './notification.service';
 import { io } from '../index';
 
-const RELATION_RING_IMAGE_URL = '/uploads/gifts/relation-ring.png';
+// NOTE: After Gift System unification (V2 -> V1 rename), the Gift model uses
+// String cuid IDs and a different field shape (coinCost / iconUrl / format).
+// The "relation ring" is now identified by category === 'RELATION_RING' in
+// the unified Gift catalog. The previous ensureRelationRingGift bootstrap
+// has been removed — admins seed/create the gift via /api/v1/admin/gifts.
 
-export const RELATION_RING = {
-  name: 'Relation Ring',
-  nameAr: 'خاتم العلاقة',
-  category: 'RELATION_RING',
-  coinsValue: 20000,
-  sortOrder: 999,
-};
+export const RELATION_RING_CATEGORY = 'RELATION_RING';
 
-export const ensureRelationRingGift = async () => {
-  const existing = await prisma.gift.findFirst({
-    where: {
-      OR: [
-        { category: RELATION_RING.category },
-        { name: RELATION_RING.name },
-        { nameAr: RELATION_RING.nameAr },
-      ],
-    },
-  });
-
-  if (existing) {
-    if (!existing.isActive || existing.coinsValue !== RELATION_RING.coinsValue) {
-      await prisma.gift.update({
-        where: { id: existing.id },
-        data: {
-          isActive: true,
-          coinsValue: RELATION_RING.coinsValue,
-          priceCoins: RELATION_RING.coinsValue,
-          category: RELATION_RING.category,
-        },
-      });
-    }
-    return existing.id;
-  }
-
-  const created = await prisma.gift.create({
-    data: {
-      name: RELATION_RING.name,
-      nameAr: RELATION_RING.nameAr,
-      imageUrl: RELATION_RING_IMAGE_URL,
-      animationUrl: null,
-      category: RELATION_RING.category,
-      coinsValue: RELATION_RING.coinsValue,
-      priceCoins: RELATION_RING.coinsValue,
-      sortOrder: RELATION_RING.sortOrder,
-      isActive: true,
-    },
-  });
-
-  return created.id;
-};
-
+/**
+ * Optionally trigger a relation request when a RELATION_RING-category gift is
+ * sent. Wire this into the gift send flow if relation rings should still
+ * upgrade to active relationships automatically.
+ */
 export const maybeCreateRelationRequestFromRing = async ({
   senderId,
   receiverId,
@@ -62,15 +22,18 @@ export const maybeCreateRelationRequestFromRing = async ({
 }: {
   senderId: number;
   receiverId: number;
-  giftId: number;
+  giftId: string;
 }) => {
   if (!receiverId || senderId === receiverId) return;
 
-  const relationRingGift = await prisma.gift.findUnique({ where: { id: giftId } });
-  if (!relationRingGift || relationRingGift.category !== RELATION_RING.category) return;
+  const gift = await prisma.gift.findUnique({ where: { id: giftId } });
+  if (!gift || gift.category !== RELATION_RING_CATEGORY) return;
 
   const [sender, receiver] = await Promise.all([
-    prisma.user.findUnique({ where: { id: senderId }, select: { id: true, name: true, avatarUrl: true, displayId: true, relationId: true } }),
+    prisma.user.findUnique({
+      where: { id: senderId },
+      select: { id: true, name: true, avatarUrl: true, displayId: true, relationId: true },
+    }),
     prisma.user.findUnique({ where: { id: receiverId }, select: { id: true, relationId: true } }),
   ]);
 
