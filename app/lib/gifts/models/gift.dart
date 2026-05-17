@@ -159,6 +159,13 @@ class GiftSendEvent {
   });
 
   factory GiftSendEvent.fromJson(Map<String, dynamic> json) {
+    // Socket.IO delivers nested objects as Map<dynamic, dynamic> — normalize them.
+    Map<String, dynamic>? _asMap(Object? raw) =>
+        raw is Map ? Map<String, dynamic>.from(raw) : null;
+    final giftMap = _asMap(json['gift']);
+    if (giftMap == null) {
+      throw const FormatException('gift_sent event missing gift field');
+    }
     return GiftSendEvent(
       transactionId: json['transactionId'] as String,
       senderId: (json['senderId'] as num).toInt(),
@@ -169,13 +176,13 @@ class GiftSendEvent {
       comboKey: json['comboKey'] as String?,
       comboCount: (json['comboCount'] as num?)?.toInt() ?? 1,
       broadcast: json['broadcast'] as bool? ?? false,
-      sender: json['sender'] is Map<String, dynamic>
-          ? GiftUser.fromJson(json['sender'] as Map<String, dynamic>)
+      sender: _asMap(json['sender']) is Map<String, dynamic>
+          ? GiftUser.fromJson(_asMap(json['sender'])!)
           : null,
-      recipient: json['recipient'] is Map<String, dynamic>
-          ? GiftUser.fromJson(json['recipient'] as Map<String, dynamic>)
+      recipient: _asMap(json['recipient']) is Map<String, dynamic>
+          ? GiftUser.fromJson(_asMap(json['recipient'])!)
           : null,
-      gift: Gift.fromJson(json['gift'] as Map<String, dynamic>),
+      gift: Gift.fromJson(giftMap),
       ts: DateTime.fromMillisecondsSinceEpoch(
         (json['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
       ),

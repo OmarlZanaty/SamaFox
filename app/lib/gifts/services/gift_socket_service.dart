@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:samafox/services/socket_service.dart';
 
 import '../models/gift.dart';
@@ -39,8 +40,8 @@ class GiftSocketService {
     try {
       final event = GiftSendEvent.fromJson(Map<String, dynamic>.from(data));
       controller.add(event);
-    } catch (_) {
-      // ignore malformed payloads
+    } catch (e, st) {
+      debugPrint('[GiftSocketService] parse failed: $e\n$st\nraw=$data');
     }
   }
 
