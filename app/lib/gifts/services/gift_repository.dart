@@ -75,13 +75,16 @@ class GiftRepository {
     switch (code) {
       case 'SELF_GIFT':
         return 'لا يمكنك إرسال هدية إلى نفسك';
+      case 'INSUFFICIENT_COINS':
       case 'INSUFFICIENT_BALANCE':
         return 'رصيدك لا يكفي';
       case 'RATE_LIMIT':
+      case 'RATE_LIMITED':
         return 'حاول لاحقاً';
       case 'RECIPIENT_NOT_FOUND':
         return 'لم يتم العثور على المستلم';
       case 'GIFT_NOT_FOUND':
+      case 'INVALID_GIFT':
         return 'الهدية غير متوفرة';
       case 'INVALID_QUANTITY':
         return 'العدد غير صالح';
