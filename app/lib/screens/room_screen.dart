@@ -2746,14 +2746,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
 
-            // ===== Gift flight overlay (seat-to-seat, multi-quantity) =====
-            Positioned.fill(
-              child: GiftAnimationOverlay(
-                socket: _giftSocket,
-                resolvePosition: _getSeatPositionByUser,
-              ),
-            ),
-
             // ===== Main content =====
             Column(
               children: [
@@ -3187,6 +3179,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     )
                   )
                 ),
+              ),
+            ),
+
+            // ===== Gift flight overlay (rendered LAST so it paints ABOVE seats) =====
+            Positioned.fill(
+              child: GiftAnimationOverlay(
+                socket: _giftSocket,
+                resolvePosition: _getSeatPositionByUser,
               ),
             ),
           ],
@@ -3749,21 +3749,31 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     },
                   ),
 
-                  // ── محظور مقعد الميكروفون ──
-                  _adminSeatOption(
-                    label: 'محظور مقعد الميكروفون',
-                    icon: Icons.lock_outline,
-                    color: Colors.amberAccent,
-                    onTap: () {
-                      Navigator.pop(context);
-                      SocketService().emit('seat_lock', {
-                        'roomId': widget.roomId,
-                        'seatNumber': seatNumber,
-                        'locked': true,
-                      });
-                      _showRoomSnack('تم قفل مقعد الميكروفون $seatNumber');
-                    },
-                  ),
+                  // ── قفل / فك قفل مقعد الميكروفون ──
+                  Builder(builder: (ctx) {
+                    final isSeatLocked = ref
+                        .read(roomControllerProvider(widget.roomId))
+                        .lockedSeats
+                        .contains(seatNumber);
+                    return _adminSeatOption(
+                      label: isSeatLocked ? 'فك قفل مقعد الميكروفون' : 'قفل مقعد الميكروفون',
+                      icon: isSeatLocked ? Icons.lock_open : Icons.lock_outline,
+                      color: isSeatLocked ? Colors.lightGreenAccent : Colors.amberAccent,
+                      onTap: () {
+                        Navigator.pop(context);
+                        final newLocked = !isSeatLocked;
+                        // Optimistic local update + socket emit via controller
+                        ref
+                            .read(roomControllerProvider(widget.roomId).notifier)
+                            .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
+                        _showRoomSnack(
+                          newLocked
+                              ? 'تم قفل مقعد الميكروفون $seatNumber'
+                              : 'تم فك قفل مقعد الميكروفون $seatNumber',
+                        );
+                      },
+                    );
+                  }),
 
                   // ── إزالة من الغرفة ──
                   _adminSeatOption(

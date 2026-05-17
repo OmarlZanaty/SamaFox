@@ -111,6 +111,7 @@ flutter:
     - assets/icons/
     - assets/mega/
     - assets/seat_effect.mp4
+    - assets/sounds/
     - android/app/src/main/assets/adi-registration.properties
   fonts:
         - family: ElMessiri

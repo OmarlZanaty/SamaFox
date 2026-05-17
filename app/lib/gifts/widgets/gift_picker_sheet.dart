@@ -52,7 +52,7 @@ class GiftPickerSheet extends StatefulWidget {
       builder: (_) => Directionality(
         textDirection: TextDirection.rtl,
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.60,
+          height: MediaQuery.of(context).size.height * 0.50,
           child: GiftPickerSheet(
             repository: repository,
             recipients: recipients,
