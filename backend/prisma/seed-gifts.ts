@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { GIFT_TEMPLATES } from '../src/gifts/templates';
 
 const prisma = new PrismaClient();
@@ -7,8 +7,8 @@ const prisma = new PrismaClient();
 async function main() {
   let inserted = 0;
   let updated = 0;
-  for (let i = 0; i < GIFT_TEMPLATES.length; i++) {
-    const t = GIFT_TEMPLATES[i];
+  let i = 0;
+  for (const t of GIFT_TEMPLATES) {
     const existing = await prisma.gift.findFirst({ where: { name: t.name } });
     const data = {
       name: t.name,
@@ -19,7 +19,7 @@ async function main() {
       animationUrl: null,
       videoHasAlpha: false,
       fireworksEnabled: false,
-      fireworksColors: null,
+      fireworksColors: Prisma.JsonNull,
       coinCost: t.coinCost,
       tier: t.tier,
       animationMs: t.animationMs,
@@ -36,6 +36,7 @@ async function main() {
       await prisma.gift.create({ data });
       inserted++;
     }
+    i++;
   }
   console.log(`Gift seed complete. Inserted: ${inserted}, Updated: ${updated}`);
 }
