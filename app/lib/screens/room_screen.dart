@@ -711,72 +711,24 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   /// Reusable 5-digit numeric PIN dialog. Returns the digits, or null if cancelled.
+  /// Delegates to [_PinDialog], which owns its own controller so it is disposed
+  /// only once the dialog route is fully gone (avoids "used after disposed").
   Future<String?> _askFiveDigitCode({
     required String title,
     required String hint,
     required String confirmLabel,
     String? initial,
-  }) async {
-    final ctrl = TextEditingController(text: initial ?? '');
-    String? error;
-    final result = await showDialog<String>(
+  }) {
+    return showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: StatefulBuilder(
-          builder: (ctx, setLocal) => AlertDialog(
-            backgroundColor: const Color(0xFF1E1E2E),
-            title: Text(title, style: const TextStyle(color: Colors.white)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(hint,
-                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  maxLength: 5,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 26, letterSpacing: 10),
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: InputDecoration(
-                    counterText: '',
-                    errorText: error,
-                    hintText: '•••••',
-                    hintStyle: const TextStyle(
-                        color: Colors.white24, letterSpacing: 10),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, null),
-                child: const Text('إلغاء',
-                    style: TextStyle(color: Colors.white54)),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  final v = ctrl.text.trim();
-                  if (!RegExp(r'^\d{5}$').hasMatch(v)) {
-                    setLocal(() => error = 'يجب أن يكون 5 أرقام');
-                    return;
-                  }
-                  Navigator.pop(ctx, v);
-                },
-                child: Text(confirmLabel),
-              ),
-            ],
-          ),
-        ),
+      builder: (_) => _PinDialog(
+        title: title,
+        hint: hint,
+        confirmLabel: confirmLabel,
+        initial: initial,
       ),
     );
-    ctrl.dispose();
-    return result;
   }
 
   Future<void> _clearRoomChat() async {
@@ -5219,4 +5171,93 @@ class _RosePetalPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// 5-digit numeric PIN dialog used for locking/entering a locked room.
+/// Owns its [TextEditingController] so it lives exactly as long as the dialog
+/// route (disposing it manually after `showDialog` returns crashes mid-transition).
+class _PinDialog extends StatefulWidget {
+  const _PinDialog({
+    required this.title,
+    required this.hint,
+    required this.confirmLabel,
+    this.initial,
+  });
+
+  final String title;
+  final String hint;
+  final String confirmLabel;
+  final String? initial;
+
+  @override
+  State<_PinDialog> createState() => _PinDialogState();
+}
+
+class _PinDialogState extends State<_PinDialog> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initial ?? '');
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final v = _ctrl.text.trim();
+    if (!RegExp(r'^\d{5}$').hasMatch(v)) {
+      setState(() => _error = 'يجب أن يكون 5 أرقام');
+      return;
+    }
+    Navigator.pop(context, v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2E),
+        title: Text(widget.title, style: const TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(widget.hint,
+                style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              maxLength: 5,
+              textAlign: TextAlign.center,
+              onSubmitted: (_) => _submit(),
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 26, letterSpacing: 10),
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                counterText: '',
+                errorText: _error,
+                hintText: '•••••',
+                hintStyle:
+                    const TextStyle(color: Colors.white24, letterSpacing: 10),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child:
+                const Text('إلغاء', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: _submit,
+            child: Text(widget.confirmLabel),
+          ),
+        ],
+      ),
+    );
+  }
 }
