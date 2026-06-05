@@ -95,9 +95,12 @@ class AuthRepository {
 
   Future<Result<AuthResponse>> login(String email, String password) async {
     try {
-      debugPrint('🔐 [AUTH REPO] Logging in with email: $email');
+      // Strip stray whitespace/tabs that keyboards or autofill can prepend —
+      // the server matches the email exactly, so a leading tab => false "invalid".
+      final cleanEmail = email.trim();
+      debugPrint('🔐 [AUTH REPO] Logging in with email: "$cleanEmail"');
       final response = await _apiService.login(
-        LoginRequest(email: email, password: password),
+        LoginRequest(email: cleanEmail, password: password),
       );
       await StorageService.saveAuthData(
         accessToken: response.accessToken,

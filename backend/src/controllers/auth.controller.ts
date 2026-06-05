@@ -242,7 +242,10 @@ export const facebookLogin = async (req: Request, res: Response) => {
 // ------------------------------------
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body as LoginRequest;
+    const { email: rawEmail, password } = req.body as LoginRequest;
+    // Trim stray whitespace/tabs so a leading tab from a keyboard/autofill
+    // can't cause a false "invalid email or password".
+    const email = typeof rawEmail === 'string' ? rawEmail.trim() : rawEmail;
     if (!email || !password) return res.status(400).json({ success: false, message: 'email and password required' });
 
     let user: any = null;
