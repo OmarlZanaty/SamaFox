@@ -294,26 +294,15 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // Keep raw query for ban fields to remain compatible with stale generated Prisma client types.
-    // Also tolerate environments where the ban migration has not been applied yet.
-    try {
-      const bannedRows = await prisma.$queryRaw<Array<{ isBanned: number; banReason: string | null }>>`
-        SELECT isBanned, banReason FROM users WHERE id = ${user.id} LIMIT 1
-      `;
-      const banned = bannedRows[0];
-      if (banned && Number(banned.isBanned) === 1) {
-        return res.status(403).json({ success: false, message: banned.banReason || 'User is banned' });
-      }
-    } catch (banCheckError: any) {
-      const message = String(banCheckError?.message || '');
-      const missingColumn =
-        message.includes('no such column') ||
-        message.includes('Unknown column') ||
-        message.includes('isBanned');
-
-      if (!missingColumn) {
-        throw banCheckError;
-      }
+    // Ban check. The `user` from findUnique already carries isBanned/banReason,
+    // so no raw SQL is needed. (The previous raw query used unquoted camelCase
+    // identifiers, which PostgreSQL folds to lowercase -> "column isbanned does
+    // not exist" -> 500. The fallback raw-query path above may omit these
+    // fields, in which case they're undefined and the check is skipped.)
+    if (user.isBanned === true) {
+      return res
+        .status(403)
+        .json({ success: false, message: user.banReason || 'User is banned' });
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);
