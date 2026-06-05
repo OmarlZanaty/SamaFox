@@ -112,6 +112,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   final TextEditingController _roomImageCtrl = TextEditingController();
   final TextEditingController _bgImageCtrl = TextEditingController();
   StreamSubscription<String>? _socketErrSub;
+  StreamSubscription<Map<String, dynamic>>? _joinDeniedSub;
+  bool _pinDialogOpen = false; // guards against stacking PIN dialogs
   final TextEditingController _chatController = TextEditingController();  // Text controller for input
   Timer? _timer;
   final TextEditingController _externalTextController = TextEditingController();
@@ -636,23 +638,145 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   Future<void> _toggleRoomLock() async {
     final room = ref.read(roomsProvider).findById(widget.roomId);
-    final currentlyLocked = room?.isRoomLocked ?? !(room?.isPublicRoom ?? true);
-    final nextLocked = !currentlyLocked;
+    final currentlyLocked = room?.isRoomLocked ?? false;
+
+    // Already locked → open the room to everyone (clears the PIN server-side).
+    if (currentlyLocked) {
+      try {
+        await _api.toggleRoomLock({
+          'roomId': widget.roomId,
+          'room_id': widget.roomId,
+          'locked': false,
+          'isLocked': false,
+          'isPublic': true,
+        });
+        await _refreshRoomData();
+        _showRoomSnack('تم فتح الغرفة للجميع');
+      } catch (e) {
+        _showRoomSnack('تعذر فتح الغرفة: $e', error: true);
+      }
+      return;
+    }
+
+    // Not locked → ask the admin for a 5-digit PIN (suggest a random one).
+    final suggested =
+        (10000 + (DateTime.now().microsecondsSinceEpoch % 90000)).toString();
+    final code = await _askFiveDigitCode(
+      title: 'قفل الغرفة برمز سري',
+      hint: 'لن يدخل أحد الغرفة إلا بهذا الرقم المكوّن من 5 أرقام',
+      confirmLabel: 'قفل الغرفة',
+      initial: suggested,
+    );
+    if (code == null) return; // cancelled
 
     try {
       await _api.toggleRoomLock({
         'roomId': widget.roomId,
         'room_id': widget.roomId,
-        'locked': nextLocked,
-        'isLocked': nextLocked,
-        'isPublic': !nextLocked,
+        'locked': true,
+        'isLocked': true,
+        'isPublic': false,
+        'accessCode': code,
+        'code': code,
       });
-
       await _refreshRoomData();
-      _showRoomSnack(nextLocked ? 'تم قفل الغرفة' : 'تم فتح الغرفة');
+      _showRoomSnack('تم قفل الغرفة 🔒 الرمز السري: $code');
     } catch (e) {
-      _showRoomSnack('تعذر تحديث حالة الغرفة: $e', error: true);
+      _showRoomSnack('تعذر قفل الغرفة: $e', error: true);
     }
+  }
+
+  /// Shown when the server denies entry to a locked room: prompt for the PIN
+  /// and re-join. Cancelling leaves the room.
+  Future<void> _promptRoomAccessCode() async {
+    if (_pinDialogOpen) return;
+    _pinDialogOpen = true;
+    try {
+      final code = await _askFiveDigitCode(
+        title: 'غرفة مقفلة 🔒',
+        hint: 'أدخل الرمز السري المكوّن من 5 أرقام للدخول',
+        confirmLabel: 'دخول',
+      );
+      if (!mounted) return;
+      if (code == null) {
+        Navigator.of(context).maybePop(); // user declined → leave room
+        return;
+      }
+      await ref
+          .read(roomControllerProvider(widget.roomId).notifier)
+          .rejoinWithCode(code);
+    } finally {
+      _pinDialogOpen = false;
+    }
+  }
+
+  /// Reusable 5-digit numeric PIN dialog. Returns the digits, or null if cancelled.
+  Future<String?> _askFiveDigitCode({
+    required String title,
+    required String hint,
+    required String confirmLabel,
+    String? initial,
+  }) async {
+    final ctrl = TextEditingController(text: initial ?? '');
+    String? error;
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: StatefulBuilder(
+          builder: (ctx, setLocal) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E2E),
+            title: Text(title, style: const TextStyle(color: Colors.white)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(hint,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 5,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: Colors.white, fontSize: 26, letterSpacing: 10),
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    counterText: '',
+                    errorText: error,
+                    hintText: '•••••',
+                    hintStyle: const TextStyle(
+                        color: Colors.white24, letterSpacing: 10),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, null),
+                child: const Text('إلغاء',
+                    style: TextStyle(color: Colors.white54)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final v = ctrl.text.trim();
+                  if (!RegExp(r'^\d{5}$').hasMatch(v)) {
+                    setLocal(() => error = 'يجب أن يكون 5 أرقام');
+                    return;
+                  }
+                  Navigator.pop(ctx, v);
+                },
+                child: Text(confirmLabel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    ctrl.dispose();
+    return result;
   }
 
   Future<void> _clearRoomChat() async {
@@ -1766,6 +1890,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           SnackBar(content: Text(text)),
         );
       });
+
+      // Locked-room gate: server refused entry → ask for the 5-digit PIN.
+      _joinDeniedSub = SocketService().joinDeniedStream.listen((data) {
+        if (!mounted) return;
+        final rid = data['roomId'];
+        if (rid != null && rid != widget.roomId) return;
+        _promptRoomAccessCode();
+      });
     });
 
     SocketService().userEventStream.listen((event) {
@@ -1809,6 +1941,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
     _socketErrSub?.cancel();
+    _joinDeniedSub?.cancel();
     _giftSocket.dispose();
     _audioService.dispose();
     _seatVideoController?.dispose();
@@ -2314,9 +2447,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _menuItem(Icons.lock, "قفل الغرفة", Colors.white70, () {
-                        Navigator.pop(context);
-                        _toggleRoomLock();
+                      Builder(builder: (_) {
+                        final locked = ref
+                                .read(roomsProvider)
+                                .findById(widget.roomId)
+                                ?.isRoomLocked ??
+                            false;
+                        return _menuItem(
+                          locked ? Icons.lock_open : Icons.lock,
+                          locked ? "فتح الغرفة" : "قفل الغرفة",
+                          Colors.white70,
+                          () {
+                            Navigator.pop(context);
+                            _toggleRoomLock();
+                          },
+                        );
                       }),
                       _menuItem(Icons.mic_external_on, "تحويل نمط", Colors.white70, () {
                         Navigator.pop(context);

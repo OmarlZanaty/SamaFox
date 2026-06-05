@@ -110,6 +110,7 @@ model Room {
   level              Int      @default(1)
   activeThemeId      String?
   isLocked           Boolean  @default(false)
+  accessCode         String?  // 5-digit PIN required to enter when isLocked (owner/admins bypass)
   backgroundMusicUrl String?
   muteGiftSounds     Boolean  @default(false)
   muteEntranceSounds Boolean  @default(false)

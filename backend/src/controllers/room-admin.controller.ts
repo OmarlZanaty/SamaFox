@@ -183,7 +183,8 @@ export async function getBanList(req: Request, res: Response) {
 export async function toggleRoomLock(req: Request, res: Response) {
   try {
     const roomId = toInt(req.body.roomId);
-    const isLocked = !!req.body.isLocked;
+    // Accept both `isLocked` and legacy `locked`; default to locking.
+    const isLocked = req.body.isLocked !== undefined ? !!req.body.isLocked : !!req.body.locked;
     const requesterId = (req as any).userId as number | undefined;
 
     if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
@@ -192,9 +193,29 @@ export async function toggleRoomLock(req: Request, res: Response) {
     const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can lock/unlock room' });
 
-    const room = await prisma.room.update({ where: { id: roomId }, data: { isLocked } });
+    let accessCode: string | null = null;
+    if (isLocked) {
+      // A 5-digit numeric PIN is required when locking.
+      const raw = (req.body.accessCode ?? req.body.code ?? '').toString().trim();
+      if (!/^\d{5}$/.test(raw)) {
+        return res.status(400).json({ error: 'accessCode must be exactly 5 digits' });
+      }
+      accessCode = raw;
+    }
 
-    return res.json({ success: true, message: isLocked ? 'Room locked' : 'Room unlocked', room });
+    const room = await prisma.room.update({
+      where: { id: roomId },
+      // Lock → store PIN; unlock → clear PIN so the room is open again.
+      data: { isLocked, accessCode },
+    });
+
+    return res.json({
+      success: true,
+      message: isLocked ? 'Room locked' : 'Room unlocked',
+      isLocked: room.isLocked,
+      accessCode: room.accessCode, // returned so the admin can see/share the PIN
+      room,
+    });
   } catch (e) {
     console.error('toggleRoomLock error:', e);
     return res.status(500).json({ error: 'Failed' });

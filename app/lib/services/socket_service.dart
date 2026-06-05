@@ -49,6 +49,10 @@ class SocketService {
   final _notificationController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get notificationStream => _notificationController.stream;
 
+  // Emitted when the server refuses a room join (e.g. locked room, wrong PIN).
+  final _joinDeniedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get joinDeniedStream => _joinDeniedController.stream;
+
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<SocketMessage> get messageStream => _messageController.stream;
   Stream<SocketUserEvent> get userEventStream => _userEventController.stream;
@@ -557,6 +561,16 @@ class SocketService {
       _emitError(msg);
     });
 
+    // Locked-room gate: server refused entry (missing/wrong 5-digit PIN).
+    _socket!.on('join_denied', (data) {
+      final map = (data is Map)
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
+      if (!_joinDeniedController.isClosed) {
+        _joinDeniedController.add(map);
+      }
+    });
+
 
 
     // ✅ WebRTC/Voice events: keep them available for WebRTCAudioService via .on(...)
@@ -749,8 +763,14 @@ class SocketService {
     required int roomId,
     required int userId,
     required String username,
+    String? code, // 5-digit PIN for locked rooms (owner/admins may omit)
   }) {
-    emit('join_room', {'roomId': roomId, 'userId': userId, 'username': username});
+    emit('join_room', {
+      'roomId': roomId,
+      'userId': userId,
+      'username': username,
+      if (code != null && code.isNotEmpty) 'code': code,
+    });
     emit('room:join', roomId);
 
     // ✅ REQUEST SNAPSHOT (try multiple names; server will ignore unknown)

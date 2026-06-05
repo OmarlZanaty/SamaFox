@@ -93,6 +93,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   final int roomId;
   final SocketService _socket = SocketService();
 
+  /// Cached 5-digit PIN for a locked room, so reconnects re-join silently.
+  String? _accessCode;
+
   StreamSubscription? _reconnectSub;
 
   StreamSubscription<SocketMessage>? _msgSub;
@@ -293,7 +296,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
       if (!_socket.isConnected) return;
 
-      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name);
+      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
       _socket.getVoiceUsers(roomId: roomId); // ✅ request voice users snapshot
 
       _bindStreams();
@@ -309,6 +312,18 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     } finally {
       _opening = false;
     }
+  }
+
+  /// Re-attempt joining a locked room with the supplied 5-digit PIN.
+  /// The code is cached so later reconnects don't re-prompt.
+  Future<void> rejoinWithCode(String code) async {
+    final user = ref.read(authStateProvider).user;
+    if (user == null) return;
+    _accessCode = code;
+    await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
+    if (!_socket.isConnected) return;
+    _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: code);
+    _socket.getVoiceUsers(roomId: roomId);
   }
 
 
@@ -547,7 +562,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final user = ref.read(authStateProvider).user;
       if (user == null) return;
       debugPrint('🔁 reconnect -> rejoin room=$roomId');
-      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name);
+      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
       _socket.emit('get_room_seats_state', {'roomId': roomId});
       _socket.emit('request_room_seats_state', {'roomId': roomId});
       _socket.getVoiceUsers(roomId: roomId);
