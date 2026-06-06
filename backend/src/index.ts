@@ -48,7 +48,11 @@ import helmet from 'helmet';
 
 const app: Application = express();
 
-app.use(helmet());
+// Server is served over plain HTTP (IP:3000). Helmet's default CSP adds
+// `upgrade-insecure-requests` and it also sends HSTS — both force the browser
+// to fetch style.css/app.js over HTTPS, which fails (no TLS) and leaves the
+// admin dashboard unstyled. Disable those two; keep the rest of Helmet.
+app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 
 app.set('trust proxy', true);
 
