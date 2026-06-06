@@ -53,48 +53,48 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
     const search = String(req.query.search || '').trim();
 
-    const whereSql = search
-      ? 'WHERE (name LIKE ? OR email LIKE ? OR phone LIKE ?)'
-      : '';
+    // Prisma query (Postgres-safe). The old raw SQL used `?` placeholders and
+    // unquoted camelCase columns, which PostgreSQL rejects -> 500.
+    const where: any = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search } },
+          ],
+        }
+      : {};
 
-    const params = search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [];
-
-    const countRows = await prisma.$queryRawUnsafe<Array<{ total: number }>>(
-      `SELECT COUNT(*) as total FROM users ${whereSql}`,
-      ...params,
-    );
-    const total = Number(countRows[0]?.total || 0);
-
-    let data: Array<any> = [];
-    try {
-      data = await prisma.$queryRawUnsafe<Array<any>>(
-        `SELECT id, displayId, name, email, phone, avatarUrl, isAdmin, isBanned, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
-         FROM users
-         ${whereSql}
-         ORDER BY createdAt DESC
-         LIMIT ? OFFSET ?`,
-        ...params,
-        limit,
+    const [total, users] = await Promise.all([
+      prisma.user.count({ where }),
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
         skip,
-      );
-    } catch {
-      data = await prisma.$queryRawUnsafe<Array<any>>(
-        `SELECT id, NULL as displayId, name, email, phone, avatarUrl, isAdmin, 0 as isBanned, CAST(coinsBalance AS TEXT) as coinsBalance, createdAt, updatedAt
-         FROM users
-         ${whereSql}
-         ORDER BY createdAt DESC
-         LIMIT ? OFFSET ?`,
-        ...params,
-        limit,
-        skip,
-      );
-    }
+        take: limit,
+        select: {
+          id: true,
+          displayId: true,
+          name: true,
+          email: true,
+          phone: true,
+          avatarUrl: true,
+          isAdmin: true,
+          isBanned: true,
+          coinsBalance: true,
+          vipLevel: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
 
     return ok(res, {
-      data: data.map((u) => ({ ...u, isAdmin: Boolean(u.isAdmin), coinsBalance: String(u.coinsBalance ?? '0') })),
+      data: users.map((u) => ({ ...u, coinsBalance: String(u.coinsBalance ?? 0) })),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
-  } catch {
+  } catch (e) {
+    console.error('adminDashboardListUsers error:', e);
     return fail(res, 500, 'Server error');
   }
 };
