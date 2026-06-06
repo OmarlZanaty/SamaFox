@@ -126,6 +126,17 @@ const publicDir = resolvePublicDir();
 
 console.log(`📁 Serving static public directory from: ${publicDir}`);
 
+// Always serve the admin dashboard HTML fresh (never cached) so edits to the
+// dashboard show on a normal reload, before the static middleware can cache it.
+app.get(['/admin-dashboard.html', '/public/admin-dashboard.html'], (_req, res) => {
+  const dashboardFilePath = path.join(publicDir, 'admin-dashboard.html');
+  if (!fs.existsSync(dashboardFilePath)) {
+    return res.status(404).send('admin-dashboard.html not found');
+  }
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.sendFile(dashboardFilePath);
+});
+
 // ✅ static
 app.use('/public', express.static(publicDir));
 app.use(express.static(publicDir));
