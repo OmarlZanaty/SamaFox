@@ -384,6 +384,65 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
         url.toLowerCase().endsWith('.mov');
   }
 
+  /// Ask for the recipient's 6-digit ID, then gift this product to them.
+  Future<void> _promptSendProduct(BuildContext context, String productId) async {
+    final ctrl = TextEditingController();
+    final displayId = await showDialog<int>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF241246),
+          title: const Text('إرسال المنتج', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(color: Colors.white, fontSize: 20, letterSpacing: 4),
+            textAlign: TextAlign.center,
+            decoration: const InputDecoration(
+              hintText: 'رقم المستلم (6 أرقام)',
+              hintStyle: TextStyle(color: Colors.white38),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final v = int.tryParse(ctrl.text.trim());
+                Navigator.pop(ctx, v);
+              },
+              child: const Text('إرسال'),
+            ),
+          ],
+        ),
+      ),
+    );
+    ctrl.dispose();
+    if (displayId == null || displayId <= 0) return;
+
+    setState(() => loading = true);
+    try {
+      final token = await StorageService.getAccessToken();
+      await StoreService().sendProduct(token ?? '', productId, displayId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إرسال المنتج بنجاح')),
+      );
+      await ref.read(authStateProvider.notifier).refreshUser();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
@@ -490,6 +549,25 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                 ),
               )
                   : Text(isOwned ? "Owned" : "شراء"),
+            ),
+          ),
+          // Step 8: send this product to another user as a gift.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: OutlinedButton.icon(
+              onPressed: loading
+                  ? null
+                  : () => _promptSendProduct(context, product.id.toString()),
+              icon: const Icon(Icons.card_giftcard, size: 16),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFFFC107),
+                side: const BorderSide(color: Color(0xFFFFC107)),
+                minimumSize: const Size(double.infinity, 34),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              label: const Text("إرسال"),
             ),
           ),
 

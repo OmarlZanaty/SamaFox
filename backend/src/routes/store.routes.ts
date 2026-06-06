@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import prisma from "../utils/prisma";
 import { authMiddleware } from "../middlewares/auth.middleware";
+import { createNotification } from "../services/notification.service";
 
 const router = Router();
 
@@ -70,6 +71,101 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
   } catch (e) {
     console.error("BUY ERROR:", e);
     return res.status(500).json({ message: "خطأ في الشراء" });
+  }
+});
+
+// Step 8: send (gift) a store product to another user. Deducts the price from
+// the sender, grants the item to the recipient, and notifies both.
+router.post("/send", buyLimiter, async (req: any, res) => {
+  try {
+    const senderId = req.userId!;
+    const itemId = String(req.body?.productId ?? req.body?.itemId ?? "");
+    let toUserId = Number(req.body?.toUserId);
+
+    // Accept a 6-digit public display ID (what users actually share) and resolve it.
+    const toDisplayId = Number(req.body?.toDisplayId);
+    if (!toUserId && toDisplayId) {
+      const target = await prisma.user.findUnique({
+        where: { displayId: toDisplayId },
+        select: { id: true },
+      });
+      if (!target) {
+        return res.status(404).json({ success: false, message: "لا يوجد مستخدم بهذا الرقم" });
+      }
+      toUserId = target.id;
+    }
+
+    if (!itemId || !toUserId) {
+      return res.status(400).json({ success: false, message: "productId والمستلم مطلوبان" });
+    }
+    if (toUserId === senderId) {
+      return res.status(400).json({ success: false, message: "لا يمكنك إرسال المنتج لنفسك" });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const item = await tx.item.findUnique({ where: { id: itemId } });
+      if (!item) return { ok: false as const, status: 404, message: "المنتج غير موجود" };
+
+      const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { id: true, name: true } });
+      if (!recipient) return { ok: false as const, status: 404, message: "المستلم غير موجود" };
+
+      const sender = await tx.user.findUnique({ where: { id: senderId }, select: { coinsBalance: true, name: true } });
+      if (!sender) return { ok: false as const, status: 404, message: "المرسل غير موجود" };
+
+      if (BigInt(sender.coinsBalance) < BigInt(item.priceCoins)) {
+        return { ok: false as const, status: 400, message: "الرصيد غير كافٍ" };
+      }
+
+      await tx.user.update({
+        where: { id: senderId },
+        data: { coinsBalance: { decrement: item.priceCoins } },
+      });
+
+      // Grant to recipient; tolerate them already owning it.
+      await tx.userItem.upsert({
+        where: { userId_itemId: { userId: toUserId, itemId } },
+        update: {},
+        create: { userId: toUserId, itemId },
+      });
+
+      return {
+        ok: true as const,
+        itemName: item.name,
+        senderName: sender.name,
+        recipientName: recipient.name,
+      };
+    });
+
+    if (!result.ok) {
+      return res.status(result.status).json({ success: false, message: result.message });
+    }
+
+    // Notify both sides (best-effort).
+    try {
+      await createNotification({
+        userId: toUserId,
+        actorId: senderId,
+        type: "product_received",
+        title: "هدية من المتجر 🎁",
+        body: `${result.senderName ?? "مستخدم"} أرسل لك ${result.itemName}`,
+        data: { itemId, fromUserId: senderId },
+      });
+      await createNotification({
+        userId: senderId,
+        actorId: toUserId,
+        type: "product_sent",
+        title: "تم الإرسال ✅",
+        body: `أرسلت ${result.itemName} إلى ${result.recipientName ?? "مستخدم"}`,
+        data: { itemId, toUserId },
+      });
+    } catch (e) {
+      console.warn("store send notification failed:", e);
+    }
+
+    return res.json({ success: true, message: "تم إرسال المنتج بنجاح" });
+  } catch (e) {
+    console.error("STORE SEND ERROR:", e);
+    return res.status(500).json({ success: false, message: "خطأ في إرسال المنتج" });
   }
 });
 

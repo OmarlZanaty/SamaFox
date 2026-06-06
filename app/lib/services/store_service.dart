@@ -47,6 +47,30 @@ class StoreService {
     }
   }
 
+  /// Send (gift) a store product to another user, addressed by their 6-digit
+  /// public display ID. Deducts the price from the sender.
+  Future<void> sendProduct(String token, String productId, int toDisplayId) async {
+    try {
+      final res = await DioClient.dio.post(
+        '/store/send',
+        data: {'productId': productId, 'toDisplayId': toDisplayId},
+        options: token.isNotEmpty
+            ? Options(headers: {'Authorization': 'Bearer $token'})
+            : null,
+      );
+      final body = res.data;
+      final success = body is Map ? (body['success'] == true) : false;
+      if (!success) {
+        throw Exception(body is Map ? (body['message'] ?? 'Send failed') : 'Send failed');
+      }
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Send failed') : 'Send failed';
+      throw Exception(msg);
+    } catch (e) {
+      throw Exception('Send failed: $e');
+    }
+  }
+
   Future<void> activateItem(String token, String inventoryId) async {
     await DioClient.dio.post(
       '/store/activate',
