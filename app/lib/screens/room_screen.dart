@@ -22,6 +22,7 @@ import '../services/audio_controller.dart';
 import '../services/follow_service.dart';
 import '../widgets/online_dot.dart';
 import '../widgets/vip_badge.dart';
+import '../widgets/mic_perfect_badge.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
@@ -1946,6 +1947,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           listenOnly: false,
         );
         _audioReady = true;
+        // Step 5: report the perfect-mic self-test result to the room.
+        SocketService().reportMicStatus(
+          roomId: widget.roomId,
+          ok: _audioService.micHealthy,
+        );
       }
 
       _seatEffectSub = SocketService().seatEffectStream.listen((event) {
@@ -3470,6 +3476,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           await _audioService.unmuteAudio(); // earpiece (talking)
         }
 
+        // Step 5: seated speaker — report perfect-mic status to the room.
+        SocketService().reportMicStatus(
+          roomId: widget.roomId,
+          ok: _audioService.micHealthy,
+        );
+
         return;
       }
 
@@ -4225,6 +4237,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             const SizedBox(width: 8),
                             VipBadge(level: seat.vipLevel),
                           ],
+                          const SizedBox(width: 8),
+                          MicPerfectBadge(userId: seat.userId),
                         ]),
                       ),
                       const SizedBox(width: 10),

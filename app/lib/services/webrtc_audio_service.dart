@@ -91,6 +91,11 @@ class WebRTCAudioService {
     }
   }
 
+  /// Step 5: mic is "perfect" when we have a live local audio track captured
+  /// with echo-cancellation / noise-suppression / auto-gain enabled (the
+  /// constraints above). Used to award the perfect-mic badge.
+  bool get micHealthy => _localStream != null && _localAudioTrack != null;
+
   Future<void> setLocalMuted(bool muted) async {
     _localMuted = muted;
     await _ensureLocalStream();

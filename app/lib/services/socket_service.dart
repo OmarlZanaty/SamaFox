@@ -62,6 +62,14 @@ class SocketService {
   bool isUserOnline(int userId) => _onlineUsers.contains(userId);
   void requestOnlineUsers() => emit('get_online_users', {});
 
+  // Step 5: users whose mic passed the perfect-mic self-test (per room session).
+  final Set<int> _micVerified = <int>{};
+  final _micVerifiedController = StreamController<Set<int>>.broadcast();
+  Stream<Set<int>> get micVerifiedStream => _micVerifiedController.stream;
+  bool isMicVerified(int userId) => _micVerified.contains(userId);
+  void reportMicStatus({required int roomId, required bool ok}) =>
+      emit('mic_status', {'roomId': roomId, 'ok': ok});
+
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<SocketMessage> get messageStream => _messageController.stream;
   Stream<SocketUserEvent> get userEventStream => _userEventController.stream;
@@ -602,6 +610,18 @@ class SocketService {
       final changed = online ? _onlineUsers.add(uid) : _onlineUsers.remove(uid);
       if (changed && !_presenceController.isClosed) {
         _presenceController.add(Set.unmodifiable(_onlineUsers));
+      }
+    });
+
+    // Step 5: a seat's mic passed/failed the perfect-mic check.
+    _socket!.on('mic_verified', (data) {
+      if (data is! Map) return;
+      final uid = _toInt0(data['userId']);
+      final ok = data['ok'] == true;
+      if (uid <= 0) return;
+      final changed = ok ? _micVerified.add(uid) : _micVerified.remove(uid);
+      if (changed && !_micVerifiedController.isClosed) {
+        _micVerifiedController.add(Set.unmodifiable(_micVerified));
       }
     });
 

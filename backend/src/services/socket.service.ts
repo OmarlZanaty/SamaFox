@@ -285,6 +285,16 @@ socket.on('get_online_users', () => {
   socket.emit('presence:snapshot', { online: getOnlineUserIds() });
 });
 
+// Step 5: voice quality check. A speaker reports their mic self-test result
+// (live audio track + echo/noise/gain processing on). Broadcast so every
+// client can show a "perfect mic" badge on that seat.
+socket.on('mic_status', ({ roomId, ok }: any) => {
+  const rid = toInt(roomId);
+  const uid = socket.userId;
+  if (!uid || !rid) return;
+  io.to(`room:${rid}`).emit('mic_verified', { userId: uid, ok: !!ok });
+});
+
 socket.on('send_dm', async ({ toUserId, text }: any) => {
   try {
   const senderId = socket.userId;
