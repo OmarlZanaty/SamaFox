@@ -177,13 +177,20 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                     const SizedBox(height: 20),
 
                     /// TABS
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildTab("مركبة", "seat_effect"),
-                        _buildTab("إطارات", "avatar_frame"),
-                        _buildTab("الإطارات", "frames"),
-                      ],
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: [
+                          _buildTab("مركبة", "seat_effect"),
+                          const SizedBox(width: 10),
+                          _buildTab("إطارات", "avatar_frame"),
+                          const SizedBox(width: 10),
+                          _buildTab("الإطارات", "frames"),
+                          const SizedBox(width: 10),
+                          _buildTab("خلفيات", "background"),
+                        ],
+                      ),
                     ),
 
                     const SizedBox(height: 10),

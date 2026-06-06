@@ -2117,6 +2117,170 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
 
+  /// Two ways to set a room background: pick from the store, or upload a file.
+  Future<void> _openBackgroundChooser() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0E3E),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(14),
+                child: Text('تغيير خلفية الغرفة',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.storefront, color: Colors.amberAccent),
+                title: const Text('اختيار من المتجر',
+                    style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openStoreBackgroundPicker();
+                },
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.upload_file, color: Colors.lightBlueAccent),
+                title: const Text('رفع من الجهاز',
+                    style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickUploadAndSaveRoomImage(isBackground: true);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Grid of store background products; tapping one sets it as the room bg.
+  Future<void> _openStoreBackgroundPicker() async {
+    List<dynamic> backgrounds = [];
+    try {
+      final res = await DioClient.dio.get('/store/products');
+      final data = res.data?['data'];
+      if (data is List) {
+        backgrounds = data
+            .where((p) => (p['type']?.toString() ?? '') == 'background')
+            .toList();
+      }
+    } catch (e) {
+      _showRoomSnack('تعذر تحميل الخلفيات: $e', error: true);
+      return;
+    }
+    if (!mounted) return;
+    if (backgrounds.isEmpty) {
+      _showRoomSnack('لا توجد خلفيات في المتجر بعد', error: true);
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0E3E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SizedBox(
+          height: MediaQuery.of(ctx).size.height * 0.6,
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(14),
+                child: Text('خلفيات المتجر',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.7,
+                  ),
+                  itemCount: backgrounds.length,
+                  itemBuilder: (_, i) {
+                    final p = backgrounds[i] as Map;
+                    final url =
+                        (p['preview_url'] ?? p['file_url'])?.toString() ?? '';
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _setRoomBackgroundFromUrl(url);
+                      },
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Stack(fit: StackFit.expand, children: [
+                          if (url.isNotEmpty)
+                            Image.network(url,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                    color: Colors.white10,
+                                    child: const Icon(Icons.image,
+                                        color: Colors.white30)))
+                          else
+                            Container(color: Colors.white10),
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              color: Colors.black54,
+                              child: Text((p['name']?.toString() ?? ''),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 12)),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setRoomBackgroundFromUrl(String url) async {
+    if (url.isEmpty) return;
+    try {
+      await _api.updateRoomBackground({
+        'roomId': widget.roomId,
+        'room_id': widget.roomId,
+        'backgroundImageUrl': url,
+      });
+      ref
+          .read(roomControllerProvider(widget.roomId).notifier)
+          .setRoomBackgroundUrlLocal(url);
+      _showRoomSnack('تم تعيين خلفية الغرفة');
+    } catch (e) {
+      _showRoomSnack('تعذر تعيين الخلفية: $e', error: true);
+    }
+  }
+
   Future<void> _pickUploadAndSaveRoomImage({
     required bool isBackground,
   }) async {
@@ -2576,7 +2740,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       }),
                       _menuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
                         Navigator.pop(context);
-                        _pickUploadAndSaveRoomImage(isBackground: true);
+                        _openBackgroundChooser();
                       }),
                       _menuItem(Icons.mic, "غلاف الميكروفون", Colors.white70, () {
                         Navigator.pop(context);

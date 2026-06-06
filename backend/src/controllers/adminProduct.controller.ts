@@ -19,7 +19,7 @@ export const createProduct = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "يجب رفع فيديو لهذا النوع" });
     }
 
-    if ((type === "avatar_frame" || type === "frame") && !isImage) {
+    if ((type === "avatar_frame" || type === "frame" || type === "background") && !isImage) {
       return res.status(400).json({ message: "يجب رفع صورة لهذا النوع" });
     }
 
