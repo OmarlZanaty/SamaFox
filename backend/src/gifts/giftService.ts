@@ -1,5 +1,6 @@
 import prisma from '../utils/prisma';
 import type { GiftTier } from '@prisma/client';
+import { createNotification } from '../services/notification.service';
 
 export interface SendGiftInput {
   senderId: number;
@@ -136,6 +137,26 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     },
     { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
   );
+
+  // Notify the recipient (best-effort; never blocks the gift). Skip self-gifts.
+  if (input.recipientId !== input.senderId) {
+    try {
+      const senderUser = await prisma.user.findUnique({
+        where: { id: input.senderId },
+        select: { name: true },
+      });
+      await createNotification({
+        userId: input.recipientId,
+        actorId: input.senderId,
+        type: 'gift_received',
+        title: 'هدية جديدة 🎁',
+        body: `${senderUser?.name ?? 'مستخدم'} أرسل لك ${gift.nameAr ?? gift.name}${quantity > 1 ? ' ×' + quantity : ''}`,
+        data: { giftId: gift.id, quantity, senderId: input.senderId },
+      });
+    } catch (e) {
+      console.warn('gift notification failed:', e);
+    }
+  }
 
   return {
     transactionId: result.transactionId,
