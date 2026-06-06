@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { intParam } from '../utils/http';
 import { isValidPositiveAmount, MAX_COINS_BALANCE } from '../utils/coins';
+import { evaluateVip } from '../services/vip.service';
 
 const toBigInt = (v: unknown) => BigInt(v as number | string | bigint);
 
@@ -60,7 +61,11 @@ export const addCoins = async (req: Request, res: Response) => {
 
     const user = await prisma.user.update({
       where: { id: userIdNum },
-      data: { coinsBalance: { increment: Number(amtBig) } },
+      // Count admin top-ups toward VIP progress (totalRecharge).
+      data: {
+        coinsBalance: { increment: Number(amtBig) },
+        totalRecharge: { increment: Number(amtBig) },
+      },
     });
 
     try {
@@ -70,6 +75,9 @@ export const addCoins = async (req: Request, res: Response) => {
     } catch (txErr) {
       console.warn('addCoins transaction log skipped:', txErr);
     }
+
+    // Auto-evaluate VIP level (grants frame/badge + notifies on level-up).
+    try { await evaluateVip(userIdNum); } catch (e) { console.warn('evaluateVip failed:', e); }
 
     return res.json({
       message: 'Coins added successfully',

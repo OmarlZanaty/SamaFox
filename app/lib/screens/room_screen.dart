@@ -21,6 +21,7 @@ import '../services/api_service.dart';
 import '../services/audio_controller.dart';
 import '../services/follow_service.dart';
 import '../widgets/online_dot.dart';
+import '../widgets/vip_badge.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
@@ -4090,6 +4091,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               style: const TextStyle(fontSize: 12, color: Colors.white60)),
                           const SizedBox(width: 6),
                           const Icon(Icons.copy, size: 12, color: Colors.white38),
+                          if (seat.vipLevel > 0) ...[
+                            const SizedBox(width: 8),
+                            VipBadge(level: seat.vipLevel),
+                          ],
                         ]),
                       ),
                       const SizedBox(width: 10),

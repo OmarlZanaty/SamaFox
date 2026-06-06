@@ -684,3 +684,38 @@ export const adminDashboardListGifts = adminListGifts;
 export const adminDashboardCreateGift = adminCreateGift;
 export const adminDashboardUpdateGift = adminUpdateGift;
 export const adminDashboardDeleteGift = adminDeleteGift;
+
+// ── VIP level configuration (badge image + seat frame per level) ──
+export const adminListVipLevels = async (_req: AdminReq, res: Response) => {
+  try {
+    const levels = await prisma.vipLevelConfig.findMany({ orderBy: { level: 'asc' } });
+    return res.json({ success: true, data: levels });
+  } catch (e) {
+    console.error('adminListVipLevels error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to list VIP levels' });
+  }
+};
+
+export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
+  try {
+    const level = Number(req.body?.level);
+    if (!level || level < 1 || level > 100) {
+      return res.status(400).json({ success: false, message: 'level must be 1-100' });
+    }
+    const data = {
+      name: req.body?.name != null ? String(req.body.name) : undefined,
+      threshold: req.body?.threshold != null ? Number(req.body.threshold) : undefined,
+      badgeUrl: req.body?.badgeUrl != null ? String(req.body.badgeUrl) : undefined,
+      frameItemId: req.body?.frameItemId != null ? String(req.body.frameItemId) : undefined,
+    };
+    const saved = await prisma.vipLevelConfig.upsert({
+      where: { level },
+      update: data,
+      create: { level, ...data },
+    });
+    return res.json({ success: true, data: saved });
+  } catch (e) {
+    console.error('adminUpsertVipLevel error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to save VIP level' });
+  }
+};

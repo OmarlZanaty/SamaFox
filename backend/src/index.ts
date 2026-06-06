@@ -39,6 +39,7 @@ import { resolvePublicDir } from './utils/publicDir';
 import followRoutes from './follow/follow.routes';
 import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
+import vipRoutes from './routes/vip.routes';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import { setGiftIo } from './gifts/controller';
@@ -156,6 +157,7 @@ app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/follow', followRoutes);
 app.use('/api/v1/relations', relationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/vip', vipRoutes);
 
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/upload', uploadRoutes); // backward-compatible path

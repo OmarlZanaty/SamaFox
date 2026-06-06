@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { evaluateVip } from '../services/vip.service';
 
 const db = prisma as any;
 
@@ -168,7 +169,10 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
           data: { balanceCoins: { decrement: coins }, totalSentCoins: { increment: coins } },
         });
 
-        await tx.user.update({ where: { id: targetUserId }, data: { coinsBalance: { increment: coins } } });
+        await tx.user.update({
+          where: { id: targetUserId },
+          data: { coinsBalance: { increment: coins }, totalRecharge: { increment: coins } },
+        });
 
         await tx.transaction.create({
           data: {
@@ -179,6 +183,9 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
           },
         });
       });
+
+      // Top-up counts toward VIP — re-evaluate after the transfer commits.
+      try { await evaluateVip(targetUserId); } catch (e) { console.warn('evaluateVip failed:', e); }
     } catch (e: any) {
       if (e?.message === 'INSUFFICIENT_AGENCY_BALANCE') {
         return fail(res, 400, 'INSUFFICIENT_AGENCY_BALANCE');

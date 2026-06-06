@@ -29,6 +29,8 @@ import {
   adminDeleteGift,
   adminListGifts,
   adminUpdateGift,
+  adminListVipLevels,
+  adminUpsertVipLevel,
 } from '../controllers/adminDashboard.controller';
 
 const router = express.Router();
@@ -65,5 +67,8 @@ router.get('/gifts', authenticate, adminListGifts);
 router.post('/gifts', authenticate, adminCreateGift);
 router.patch('/gifts/:id', authenticate, adminUpdateGift);
 router.delete('/gifts/:id', authenticate, adminDeleteGift);
+
+router.get('/vip-levels', adminListVipLevels);
+router.post('/vip-levels', adminUpsertVipLevel);
 
 export default router;
