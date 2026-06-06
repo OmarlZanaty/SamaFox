@@ -14,11 +14,23 @@ function requireEnvSecret(name: 'JWT_SECRET' | 'JWT_REFRESH_SECRET'): jwt.Secret
 const accessSecret = (): jwt.Secret => requireEnvSecret('JWT_SECRET');
 const refreshSecret = (): jwt.Secret => requireEnvSecret('JWT_REFRESH_SECRET');
 
-const accessExpiresIn: jwt.SignOptions['expiresIn'] =
-  (process.env.JWT_EXPIRES_IN ?? '1d') as jwt.SignOptions['expiresIn'];
+// Parse an expiresIn env value. An empty string (e.g. `JWT_EXPIRES_IN=` in
+// .env) is NOT caught by `??`, and jwt.sign rejects it with "expiresIn should
+// be a number of seconds or string...". Accept numeric seconds or a timespan
+// string (1d/20h/30m/60s), otherwise fall back.
+function parseExpiresIn(
+  raw: string | undefined,
+  fallback: string,
+): jwt.SignOptions['expiresIn'] {
+  const v = (raw ?? '').trim();
+  if (!v) return fallback as jwt.SignOptions['expiresIn'];
+  if (/^\d+$/.test(v)) return Number(v) as jwt.SignOptions['expiresIn'];
+  if (/^\d+\s*(ms|s|m|h|d|w|y)$/i.test(v)) return v as jwt.SignOptions['expiresIn'];
+  return fallback as jwt.SignOptions['expiresIn'];
+}
 
-const refreshExpiresIn: jwt.SignOptions['expiresIn'] =
-  (process.env.JWT_REFRESH_EXPIRES_IN ?? '7d') as jwt.SignOptions['expiresIn'];
+const accessExpiresIn = parseExpiresIn(process.env.JWT_EXPIRES_IN, '1d');
+const refreshExpiresIn = parseExpiresIn(process.env.JWT_REFRESH_EXPIRES_IN, '7d');
 
 export function signToken(payload: TokenPayload): string {
   return jwt.sign(payload, accessSecret(), { expiresIn: accessExpiresIn });
