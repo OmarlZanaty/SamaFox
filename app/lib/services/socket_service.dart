@@ -53,6 +53,15 @@ class SocketService {
   final _joinDeniedController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get joinDeniedStream => _joinDeniedController.stream;
 
+  // Online presence: the set of currently-online user ids, kept live via
+  // presence:snapshot (full roster) and presence:update (single flip).
+  final Set<int> _onlineUsers = <int>{};
+  final _presenceController = StreamController<Set<int>>.broadcast();
+  Stream<Set<int>> get presenceStream => _presenceController.stream;
+  Set<int> get onlineUsers => Set.unmodifiable(_onlineUsers);
+  bool isUserOnline(int userId) => _onlineUsers.contains(userId);
+  void requestOnlineUsers() => emit('get_online_users', {});
+
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<SocketMessage> get messageStream => _messageController.stream;
   Stream<SocketUserEvent> get userEventStream => _userEventController.stream;
@@ -570,6 +579,34 @@ class SocketService {
         _joinDeniedController.add(map);
       }
     });
+
+    // Presence: full roster snapshot.
+    _socket!.on('presence:snapshot', (data) {
+      final list = (data is Map) ? data['online'] : null;
+      if (list is List) {
+        _onlineUsers
+          ..clear()
+          ..addAll(list.map((e) => _toInt0(e)).where((e) => e > 0));
+        if (!_presenceController.isClosed) {
+          _presenceController.add(Set.unmodifiable(_onlineUsers));
+        }
+      }
+    });
+
+    // Presence: single user flipped online/offline.
+    _socket!.on('presence:update', (data) {
+      if (data is! Map) return;
+      final uid = _toInt0(data['userId']);
+      final online = data['online'] == true;
+      if (uid <= 0) return;
+      final changed = online ? _onlineUsers.add(uid) : _onlineUsers.remove(uid);
+      if (changed && !_presenceController.isClosed) {
+        _presenceController.add(Set.unmodifiable(_onlineUsers));
+      }
+    });
+
+    // Ask for the roster right after (re)connect.
+    requestOnlineUsers();
 
 
 

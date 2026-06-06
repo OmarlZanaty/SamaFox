@@ -38,6 +38,31 @@ const getVoiceSet = (roomId: number) => {
   return voiceUsers.get(roomId)!;
 };
 
+// ── Online presence: userId -> set of live socket ids. A user is "online"
+// while they have >=1 connected socket. Returns true when the online state
+// actually flipped, so callers only broadcast on real transitions. ──
+const onlineSockets = new Map<number, Set<string>>();
+function markOnline(uid: number, sid: string): boolean {
+  let set = onlineSockets.get(uid);
+  if (!set) { set = new Set(); onlineSockets.set(uid, set); }
+  const wasOffline = set.size === 0;
+  set.add(sid);
+  return wasOffline;
+}
+function markOffline(uid: number, sid: string): boolean {
+  const set = onlineSockets.get(uid);
+  if (!set) return false;
+  set.delete(sid);
+  if (set.size === 0) { onlineSockets.delete(uid); return true; }
+  return false;
+}
+function getOnlineUserIds(): number[] {
+  return Array.from(onlineSockets.keys());
+}
+function isUserOnline(uid: number): boolean {
+  return onlineSockets.has(uid);
+}
+
 function getSeats(roomId: number): Map<number, number> {
   if (!roomSeats.has(roomId)) roomSeats.set(roomId, new Map());
   return roomSeats.get(roomId)!;
@@ -242,7 +267,19 @@ if (uid) {
   socket.join(uid.toString());        // keep (used by WebRTC & approveMic in your code)
   socket.join(`user:${uid}`);         // ✅ ADD THIS (for dm_* events)
   console.log('[socket connected]', { uid, sid: socket.id });
+
+  // Presence: announce only on the offline -> online transition.
+  if (markOnline(uid, socket.id)) {
+    io.emit('presence:update', { userId: uid, online: true });
+  }
+  // Send the current online roster to the freshly-connected client.
+  socket.emit('presence:snapshot', { online: getOnlineUserIds() });
 }
+
+// Client can request the online roster at any time (e.g. opening a list).
+socket.on('get_online_users', () => {
+  socket.emit('presence:snapshot', { online: getOnlineUserIds() });
+});
 
 socket.on('send_dm', async ({ toUserId, text }: any) => {
   try {
@@ -1122,6 +1159,11 @@ socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
     socket.on('disconnect', () => {
       const uid = socket.userId;
       if (!uid) return;
+
+      // Presence: announce only when the user's last socket goes away.
+      if (markOffline(uid, socket.id)) {
+        io.emit('presence:update', { userId: uid, online: false });
+      }
 
       // voice cleanup
       for (const [rid, set] of voiceUsers.entries()) {

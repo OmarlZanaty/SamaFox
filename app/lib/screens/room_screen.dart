@@ -20,6 +20,7 @@ import '../services/webrtc_audio_service.dart';
 import '../services/api_service.dart';
 import '../services/audio_controller.dart';
 import '../services/follow_service.dart';
+import '../widgets/online_dot.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
@@ -4020,6 +4021,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   ? const Icon(Icons.person, color: Colors.white, size: 36)
                                   : null,
                             ),
+                          // Online presence dot (Step 7).
+                          Positioned(
+                            right: 8,
+                            bottom: 8,
+                            child: OnlineDot(userId: seat.userId, size: 20),
+                          ),
                         ],
                       ),
                     ),
