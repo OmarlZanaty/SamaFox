@@ -2141,11 +2141,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         return;
       }
 
-      // 2️⃣ Save in database (PATCH /rooms/:id)
-      await _updateRoomImageInBackend(
-        uploadedUrl,
-        isCover: !isBackground,
-      );
+      // 2️⃣ Save in database. Backgrounds go through the room-admin endpoint
+      // (persists + broadcasts room_background_changed + works for admins, not
+      // just the owner). Cover image still uses the owner PATCH.
+      if (isBackground) {
+        await _api.updateRoomBackground({
+          'roomId': widget.roomId,
+          'room_id': widget.roomId,
+          'backgroundImageUrl': uploadedUrl,
+        });
+      } else {
+        await _updateRoomImageInBackend(uploadedUrl, isCover: true);
+      }
 
       // 3️⃣ Update local UI
       final notifier =

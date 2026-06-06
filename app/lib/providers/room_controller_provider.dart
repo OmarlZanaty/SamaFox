@@ -5,6 +5,7 @@ import 'package:samafox/providers/room_provider.dart';
 //import '../services/socket_service_impl.dart';
 import '../models/user.dart';
 import '../services/socket_service.dart';
+import '../services/dio_client.dart';
 import 'auth_provider.dart';
 import '../models/room_event.dart';
 enum MyMicStatus { none, requested, approved, onMic }
@@ -123,21 +124,39 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   int? _pendingSeatNumber;
 
   Future<void> loadRoomDetails() async {
+    // Fetch the room detail FRESH from the API. The cached rooms list can be
+    // stale (e.g. a background uploaded in a previous session), so reading it
+    // here made saved backgrounds/covers disappear on re-open.
     try {
-      final room = ref.read(roomsProvider).findById(roomId);
-      if (room == null) return;
-
-      state = state.copyWith(
-        ownerId: room.owner?.id ?? room.ownerId ?? 0, // ✅ FIX
-        seatCount: (room.maxSeats ?? 0),
-        roomImageUrl: room.coverImageUrl,
-        roomBackgroundUrl: room.backgroundImageUrl,
-      );
-
-      debugPrint('🔄 Room details reloaded for room=$roomId');
+      final res = await DioClient.dio.get('/rooms/$roomId');
+      final data = res.data;
+      if (data is Map) {
+        final bg = (data['backgroundImageUrl'] as String?)?.trim();
+        final cover = (data['coverImageUrl'] as String?)?.trim();
+        state = state.copyWith(
+          ownerId: (data['ownerId'] as num?)?.toInt() ??
+              (data['owner']?['id'] as num?)?.toInt() ??
+              state.ownerId,
+          seatCount: (data['maxSeats'] as num?)?.toInt() ?? state.seatCount,
+          roomImageUrl: (cover != null && cover.isNotEmpty) ? cover : null,
+          roomBackgroundUrl: (bg != null && bg.isNotEmpty) ? bg : null,
+        );
+        debugPrint('🔄 Room details (fresh) loaded for room=$roomId bg=$bg');
+        return;
+      }
     } catch (e) {
-      debugPrint('❌ Failed to reload room: $e');
+      debugPrint('❌ Fresh room fetch failed, falling back to cache: $e');
     }
+
+    // Fallback: cached rooms list.
+    final room = ref.read(roomsProvider).findById(roomId);
+    if (room == null) return;
+    state = state.copyWith(
+      ownerId: room.owner?.id ?? room.ownerId ?? 0,
+      seatCount: (room.maxSeats ?? 0),
+      roomImageUrl: room.coverImageUrl,
+      roomBackgroundUrl: room.backgroundImageUrl,
+    );
   }
 
   void addOnlineUser(User user) {
