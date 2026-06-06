@@ -124,7 +124,11 @@ async function populateAdmins(roomId: number) {
     select: { userId: true, role: true },
   });
   for (const m of members) {
-    if (m.role === 'owner' || m.role === 'admin') admins.add(m.userId);
+    // Supervisors get admin-level powers in the room (server still blocks them
+    // from acting on real admins/owner).
+    if (m.role === 'owner' || m.role === 'admin' || m.role === 'supervisor') {
+      admins.add(m.userId);
+    }
   }
 
   roomAdmins.set(roomId, admins);

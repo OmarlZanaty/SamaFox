@@ -733,6 +733,24 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  /// Appoint a user as room supervisor (Step 11): admin powers, but the server
+  /// blocks them from acting on admins/owner.
+  Future<void> _appointSupervisor(int? userId) async {
+    if (userId == null) return;
+    try {
+      await _api.addRoomAdmin({
+        'roomId': widget.roomId,
+        'room_id': widget.roomId,
+        'userId': userId,
+        'user_id': userId,
+        'role': 'supervisor',
+      });
+      _showRoomSnack('تم تعيين المستخدم مشرفًا للغرفة');
+    } catch (e) {
+      _showRoomSnack('تعذر التعيين: $e', error: true);
+    }
+  }
+
   /// Block/unblock a user from taking a mic seat (Step 10).
   Future<void> _setSeatBlock(int? userId, bool blocked) async {
     if (userId == null) return;
@@ -3967,6 +3985,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       },
                     );
                   }),
+
+                  // ── تعيين مشرف (مشرف له صلاحيات الأدمن عدا التصرف بالأدمن) ──
+                  _adminSeatOption(
+                    label: 'تعيين مشرف للغرفة',
+                    icon: Icons.shield_moon_outlined,
+                    color: Colors.cyanAccent,
+                    onTap: () async {
+                      Navigator.pop(context);
+                      await _appointSupervisor(seat.userId);
+                    },
+                  ),
 
                   // ── منع / سماح الجلوس على المايك ──
                   _adminSeatOption(

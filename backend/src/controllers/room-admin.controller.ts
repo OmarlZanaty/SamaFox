@@ -19,9 +19,52 @@ async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isA
   if (room.ownerId === userId) return { isAdmin: true, role: 'owner' };
 
   const member = room.members[0];
-  if (member?.role === 'admin') return { isAdmin: true, role: 'admin' };
+  // Supervisors have admin-level powers (gated separately from real admins).
+  if (member?.role === 'admin' || member?.role === 'supervisor') {
+    return { isAdmin: true, role: member.role };
+  }
 
   return { isAdmin: false, role: member?.role || null };
+}
+
+const ROLE_RANK: Record<string, number> = { owner: 3, admin: 2, supervisor: 1, member: 0 };
+
+/** Effective role of a user in a room: owner | admin | supervisor | member. */
+async function getRoomRole(userId: number, roomId: number): Promise<string> {
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: { ownerId: true, members: { where: { userId }, select: { role: true } } },
+  });
+  if (!room) return 'member';
+  if (room.ownerId === userId) return 'owner';
+  const r = room.members[0]?.role;
+  return r === 'admin' || r === 'supervisor' ? r : 'member';
+}
+
+/**
+ * Moderation guard. Confirms the requester may act on the target:
+ * - requester must be admin-level (owner/admin/supervisor)
+ * - you can only act on someone strictly lower in rank
+ *   (so supervisors act on members only; admins act on supervisors+members;
+ *    nobody can act on the owner).
+ */
+async function assertCanModerate(
+  requesterId: number,
+  targetId: number,
+  roomId: number,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const [requesterRole, targetRole] = await Promise.all([
+    getRoomRole(requesterId, roomId),
+    getRoomRole(targetId, roomId),
+  ]);
+  if ((ROLE_RANK[requesterRole] ?? 0) < 1) {
+    // requester is not at least a supervisor
+    return { ok: false, status: 403, error: 'Not allowed' };
+  }
+  if ((ROLE_RANK[targetRole] ?? 0) >= (ROLE_RANK[requesterRole] ?? 0)) {
+    return { ok: false, status: 403, error: 'لا يمكنك تنفيذ هذا الإجراء على هذا المستخدم' };
+  }
+  return { ok: true };
 }
 
 export async function addRoomAdmin(req: Request, res: Response) {
@@ -35,15 +78,25 @@ export async function addRoomAdmin(req: Request, res: Response) {
 
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) return res.status(404).json({ error: 'Room not found' });
-    if (room.ownerId !== requesterId) return res.status(403).json({ error: 'Only room owner can add admins' });
+
+    const role = req.body.role === 'supervisor' ? 'supervisor' : 'admin';
+    const requesterRole = await getRoomRole(requesterId, roomId);
+
+    // Only the owner may appoint full admins; owner OR admins may appoint supervisors.
+    if (role === 'admin' && requesterRole !== 'owner') {
+      return res.status(403).json({ error: 'Only room owner can add admins' });
+    }
+    if (role === 'supervisor' && requesterRole !== 'owner' && requesterRole !== 'admin') {
+      return res.status(403).json({ error: 'Only owner or admins can add supervisors' });
+    }
 
     const member = await prisma.roomMember.upsert({
       where: { userId_roomId: { userId, roomId } },
-      update: { role: 'admin' },
-      create: { userId, roomId, role: 'admin' },
+      update: { role },
+      create: { userId, roomId, role },
     });
 
-    return res.json({ success: true, message: 'Admin added', member });
+    return res.json({ success: true, message: `${role} added`, member, role });
   } catch (e) {
     console.error('addRoomAdmin error:', e);
     return res.status(500).json({ error: 'Failed to add admin' });
@@ -85,8 +138,8 @@ export async function muteUser(req: Request, res: Response) {
     if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
     if (!roomId || !userId) return res.status(400).json({ error: 'roomId and userId required' });
 
-    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
-    if (!isAdmin) return res.status(403).json({ error: 'Only admins can mute users' });
+    const guard = await assertCanModerate(requesterId, userId, roomId);
+    if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
 
     // Admin mute is a FORCE mute: the user cannot unmute themselves until an
     // admin unmutes them (which also clears the force flag).
@@ -119,8 +172,8 @@ export async function banUser(req: Request, res: Response) {
     if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
     if (!roomId || !userId) return res.status(400).json({ error: 'roomId and userId required' });
 
-    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
-    if (!isAdmin) return res.status(403).json({ error: 'Only admins can ban users' });
+    const guard = await assertCanModerate(requesterId, userId, roomId);
+    if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
 
     const ban = await prisma.roomBan.create({
       data: {
@@ -368,8 +421,8 @@ export async function setSeatBlock(req: Request, res: Response) {
     if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
     if (!roomId || !userId) return res.status(400).json({ error: 'roomId and userId required' });
 
-    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
-    if (!isAdmin) return res.status(403).json({ error: 'Only admins can block seats' });
+    const guard = await assertCanModerate(requesterId, userId, roomId);
+    if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
 
     await prisma.roomMember.upsert({
       where: { userId_roomId: { userId, roomId } },
@@ -404,12 +457,8 @@ export async function kickUser(req: Request, res: Response) {
     if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
     if (!roomId || !userId) return res.status(400).json({ error: 'roomId and userId required' });
 
-    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
-    if (!isAdmin) return res.status(403).json({ error: 'Only admins can kick users' });
-
-    // Never let a kick target the room owner.
-    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { ownerId: true } });
-    if (room?.ownerId === userId) return res.status(403).json({ error: 'Cannot kick the room owner' });
+    const guard = await assertCanModerate(requesterId, userId, roomId);
+    if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
 
     const expiresAt = minutes > 0 ? new Date(Date.now() + minutes * 60_000) : null;
 
