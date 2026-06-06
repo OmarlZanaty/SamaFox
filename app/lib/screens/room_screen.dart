@@ -1770,6 +1770,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final controller = ref.read(roomControllerProvider(widget.roomId).notifier);
 
+      // Locked-room gate: register the denial listener BEFORE joining, otherwise
+      // the server's join_denied (a broadcast event) fires while nobody is
+      // listening and is dropped — the PIN dialog would never appear.
+      _joinDeniedSub = SocketService().joinDeniedStream.listen((data) {
+        if (!mounted) return;
+        final rid = data['roomId'];
+        if (rid != null && rid != widget.roomId) return;
+        _promptRoomAccessCode();
+      });
+
       // ✅ LOAD INVENTORY FIRST
       await _loadActiveItems();
       debugPrint("🎬 video url = $_activeSeatEffectUrl");
@@ -1841,14 +1851,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(text)),
         );
-      });
-
-      // Locked-room gate: server refused entry → ask for the 5-digit PIN.
-      _joinDeniedSub = SocketService().joinDeniedStream.listen((data) {
-        if (!mounted) return;
-        final rid = data['roomId'];
-        if (rid != null && rid != widget.roomId) return;
-        _promptRoomAccessCode();
       });
     });
 

@@ -543,21 +543,22 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       if (!uid || !rid) return;
 
       // ── Locked-room gate: a 5-digit PIN is required to enter when the room
-      // is locked. The owner and room admins always bypass it. ──
+      // is locked *and* a PIN is set. The owner and room admins always bypass.
+      // (Rooms with isLocked=true but no accessCode are legacy boolean locks —
+      // treat them as open so nobody is permanently locked out.) ──
       const roomRow = await prisma.room.findUnique({
         where: { id: rid },
         select: { isLocked: true, accessCode: true, ownerId: true },
       });
-      if (roomRow?.isLocked) {
+      if (roomRow?.isLocked && roomRow.accessCode) {
         await populateAdmins(rid);
         const privileged = roomRow.ownerId === uid || getAdmins(rid).has(uid);
-        if (!privileged) {
-          const provided = code != null ? String(code).trim() : '';
-          if (!roomRow.accessCode || provided !== roomRow.accessCode) {
-            socket.emit('join_denied', { roomId: rid, reason: 'locked' });
-            socket.leave(`room:${rid}`);
-            return;
-          }
+        const provided = code != null ? String(code).trim() : '';
+        if (!privileged && provided !== roomRow.accessCode) {
+          console.log('[join_denied]', { uid, rid, reason: 'locked', hadCode: provided.length > 0 });
+          socket.emit('join_denied', { roomId: rid, reason: 'locked' });
+          socket.leave(`room:${rid}`);
+          return;
         }
       }
 
