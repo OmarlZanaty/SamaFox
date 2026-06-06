@@ -376,10 +376,9 @@
         <div class="form-row">
           <input id="p_name" class="form-input" placeholder="اسم المنتج" />
           <select id="p_type" class="form-select" onchange="(function(t){var f=document.getElementById('p_file');var l=document.getElementById('fileLabelText');if(t==='seat_effect'){f.accept='video/*';l.textContent='اختر ملف الفيديو';}else{f.accept='image/*';l.textContent='اختر صورة';}})(this.value)">
-            <option value="seat_effect">Seat Effect</option>
-            <option value="avatar_frame">Avatar Frame</option>
-            <option value="frame">Frame</option>
-            <option value="background">Room Background</option>
+            <option value="seat_effect">مركبة (تأثير الدخول)</option>
+            <option value="avatar_frame">إطار</option>
+            <option value="background">خلفية الغرفة</option>
           </select>
           <input id="p_price" type="number" class="form-input" placeholder="السعر (coins)" />
         </div>
