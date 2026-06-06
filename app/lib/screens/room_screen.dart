@@ -1881,6 +1881,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         _promptRoomAccessCode();
       });
 
+      // Live room background change (admin set a new background).
+      SocketService().on('room_background_changed', (data) {
+        if (!mounted || data is! Map) return;
+        final rid = data['roomId'];
+        if (rid != null && rid != widget.roomId) return;
+        final url = data['backgroundImageUrl']?.toString();
+        ref
+            .read(roomControllerProvider(widget.roomId).notifier)
+            .setRoomBackgroundUrlLocal(url ?? '');
+      });
+
       // Admin kicked us live → leave the room immediately.
       SocketService().on('kicked_from_room', (data) {
         if (!mounted) return;
@@ -4850,11 +4861,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final notifier = ref.read(roomControllerProvider(widget.roomId).notifier);
 
     if (type == _RoomImageType.roomImage) {
-      // ✅ you must implement this in notifier (local state update or socket call)
       notifier.setRoomImageUrlLocal(url);
+      await _updateRoomImageInBackend(url, isCover: true);
     } else {
-      // ✅ you must implement this in notifier (local state update or socket call)
       notifier.setRoomBackgroundUrlLocal(url);
+      // Persist + broadcast to everyone in the room (room_background_changed).
+      try {
+        await _api.updateRoomBackground({
+          'roomId': widget.roomId,
+          'room_id': widget.roomId,
+          'backgroundImageUrl': url,
+        });
+      } catch (e) {
+        _showRoomSnack('تعذر حفظ الخلفية: $e', error: true);
+      }
     }
 
     if (mounted) {

@@ -341,6 +341,9 @@ export async function updateRoomBackground(req: Request, res: Response) {
 
     const room = await prisma.room.update({ where: { id: roomId }, data: { backgroundImageUrl } });
 
+    // Live update for everyone currently in the room.
+    io.to(`room:${roomId}`).emit('room_background_changed', { roomId, backgroundImageUrl });
+
     return res.json({ success: true, message: 'Room background updated', room });
   } catch (e) {
     console.error('updateRoomBackground error:', e);
