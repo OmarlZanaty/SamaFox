@@ -375,7 +375,7 @@
         </div>
         <div class="form-row">
           <input id="p_name" class="form-input" placeholder="اسم المنتج" />
-          <select id="p_type" class="form-select">
+          <select id="p_type" class="form-select" onchange="(function(t){var f=document.getElementById('p_file');var l=document.getElementById('fileLabelText');if(t==='seat_effect'){f.accept='video/*';l.textContent='اختر ملف الفيديو';}else{f.accept='image/*';l.textContent='اختر صورة';}})(this.value)">
             <option value="seat_effect">Seat Effect</option>
             <option value="avatar_frame">Avatar Frame</option>
             <option value="frame">Frame</option>
@@ -386,8 +386,8 @@
         <div class="form-row">
           <label class="file-label" id="fileLabel">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span id="fileLabelText">اختر ملف الفيديو</span>
-            <input id="p_file" type="file" accept="video/*" style="display:none" />
+            <span id="fileLabelText">اختر ملف (صورة أو فيديو)</span>
+            <input id="p_file" type="file" accept="image/*,video/*" style="display:none" />
           </label>
           <button class="btn btn-primary" onclick="addProduct()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
