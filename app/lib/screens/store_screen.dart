@@ -33,6 +33,21 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
     super.initState();
     loadOwnedItems();
     loadMyFrames();
+    // Auto-refresh the product catalog every time the store opens, so newly
+    // added products (e.g. a background uploaded from the dashboard) show up.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(storeProvider);
+    });
+  }
+
+  /// Re-fetch the product catalog + owned items (pull-to-refresh / manual).
+  Future<void> _refreshStore() async {
+    ref.invalidate(storeProvider);
+    await Future.wait([
+      ref.read(storeProvider.future),
+      loadOwnedItems(),
+      loadMyFrames(),
+    ]);
   }
 
   Future<void> loadOwnedItems() async {
@@ -195,26 +210,42 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
 
                     const SizedBox(height: 10),
 
-                    /// ✅ GRID
+                    /// ✅ GRID (swipe down to refresh)
                     Expanded(
-                      child: selectedType == "frames"
-                          ? _buildFramesGrid()
-                          : GridView.builder(
-                              padding: const EdgeInsets.fromLTRB(12, 12, 12, 120), // 👈 IMPORTANT
-                              itemCount: filtered.length,
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                mainAxisSpacing: 16,
-                                crossAxisSpacing: 16,
-                                childAspectRatio: 0.6,
-                              ),
-                              itemBuilder: (context, index) {
-                                return StoreProductTile(
-                                  product: filtered[index],
-                                  isOwned: ownedIds.contains(filtered[index].id.toString()),
-                                );
-                              },
-                            ),
+                      child: RefreshIndicator(
+                        onRefresh: _refreshStore,
+                        color: const Color(0xFF8E44AD),
+                        child: selectedType == "frames"
+                            ? _buildFramesGrid()
+                            : (filtered.isEmpty
+                                ? ListView(
+                                    physics: const AlwaysScrollableScrollPhysics(),
+                                    children: const [
+                                      SizedBox(height: 160),
+                                      Center(
+                                        child: Text('لا توجد منتجات بعد',
+                                            style: TextStyle(color: Colors.white54)),
+                                      ),
+                                    ],
+                                  )
+                                : GridView.builder(
+                                    physics: const AlwaysScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 120), // 👈 IMPORTANT
+                                    itemCount: filtered.length,
+                                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 2,
+                                      mainAxisSpacing: 16,
+                                      crossAxisSpacing: 16,
+                                      childAspectRatio: 0.6,
+                                    ),
+                                    itemBuilder: (context, index) {
+                                      return StoreProductTile(
+                                        product: filtered[index],
+                                        isOwned: ownedIds.contains(filtered[index].id.toString()),
+                                      );
+                                    },
+                                  )),
+                      ),
                     ),
                   ],
                 ),
