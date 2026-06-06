@@ -19,6 +19,8 @@ router.get('/:roomId/admins', roomAdminController.getRoomAdmins);
 router.post('/mute', roomAdminController.muteUser);
 router.post('/ban', roomAdminController.banUser);
 router.post('/unban', roomAdminController.unbanUser);
+router.post('/seat-block', roomAdminController.setSeatBlock);
+router.post('/kick', roomAdminController.kickUser);
 router.get('/:roomId/bans', roomAdminController.getBanList);
 
 // Room settings

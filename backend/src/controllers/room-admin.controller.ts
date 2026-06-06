@@ -2,6 +2,7 @@
 
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { io } from '../index';
 
 const toInt = (v: any): number | null => {
   const n = Number(v);
@@ -87,10 +88,18 @@ export async function muteUser(req: Request, res: Response) {
     const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can mute users' });
 
+    // Admin mute is a FORCE mute: the user cannot unmute themselves until an
+    // admin unmutes them (which also clears the force flag).
     const member = await prisma.roomMember.update({
       where: { userId_roomId: { userId, roomId } },
-      data: { isMuted },
+      data: { isMuted, forceMuted: isMuted },
     });
+
+    // Live update so the target's mic flips immediately.
+    io.to(`room:${roomId}`).emit('seat_mute_changed', {
+      roomId, userId, isMuted, forced: isMuted,
+    });
+    io.to(`user:${userId}`).emit('force_mute', { roomId, isMuted });
 
     return res.json({ success: true, message: isMuted ? 'User muted' : 'User unmuted', member });
   } catch (e) {
@@ -343,6 +352,88 @@ export async function getRoomAdmins(req: Request, res: Response) {
     return res.json({ admins });
   } catch (e) {
     console.error('getRoomAdmins error:', e);
+    return res.status(500).json({ error: 'Failed' });
+  }
+}
+
+// Block/unblock a user from taking any seat in the room. When blocking we also
+// remove them from their current seat live.
+export async function setSeatBlock(req: Request, res: Response) {
+  try {
+    const roomId = toInt(req.body.roomId);
+    const userId = toInt(req.body.userId);
+    const blocked = !!req.body.blocked;
+    const requesterId = (req as any).userId as number | undefined;
+
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roomId || !userId) return res.status(400).json({ error: 'roomId and userId required' });
+
+    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can block seats' });
+
+    await prisma.roomMember.upsert({
+      where: { userId_roomId: { userId, roomId } },
+      update: { seatBlocked: blocked },
+      create: { userId, roomId, seatBlocked: blocked, role: 'member' },
+    });
+
+    // Tell the room (and the target) so the client kicks them off the mic now.
+    io.to(`room:${roomId}`).emit('seat_block_changed', { roomId, userId, blocked });
+    if (blocked) io.to(`user:${userId}`).emit('removed_from_seat', { roomId });
+
+    return res.json({
+      success: true,
+      message: blocked ? 'User blocked from seats' : 'Seat block cleared',
+    });
+  } catch (e) {
+    console.error('setSeatBlock error:', e);
+    return res.status(500).json({ error: 'Failed' });
+  }
+}
+
+// Kick a user from the room for a duration (minutes). 0/absent => permanent.
+// Creates a RoomBan (enforced on join_room) and removes them live.
+export async function kickUser(req: Request, res: Response) {
+  try {
+    const roomId = toInt(req.body.roomId);
+    const userId = toInt(req.body.userId);
+    const minutes = toInt(req.body.minutes) ?? 0;
+    const reason = req.body.reason?.toString() || null;
+    const requesterId = (req as any).userId as number | undefined;
+
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roomId || !userId) return res.status(400).json({ error: 'roomId and userId required' });
+
+    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can kick users' });
+
+    // Never let a kick target the room owner.
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { ownerId: true } });
+    if (room?.ownerId === userId) return res.status(403).json({ error: 'Cannot kick the room owner' });
+
+    const expiresAt = minutes > 0 ? new Date(Date.now() + minutes * 60_000) : null;
+
+    await prisma.roomBan.upsert({
+      where: { roomId_userId: { roomId, userId } },
+      update: { bannedBy: requesterId, reason, expiresAt },
+      create: { roomId, userId, bannedBy: requesterId, reason, expiresAt },
+    });
+    await prisma.roomMember.deleteMany({ where: { roomId, userId } });
+
+    // Live removal: tell the target to leave the room now.
+    io.to(`user:${userId}`).emit('kicked_from_room', {
+      roomId,
+      until: expiresAt,
+      message: reason || 'تم طردك من الغرفة',
+    });
+
+    return res.json({
+      success: true,
+      message: expiresAt ? `User kicked until ${expiresAt.toISOString()}` : 'User kicked',
+      expiresAt,
+    });
+  } catch (e) {
+    console.error('kickUser error:', e);
     return res.status(500).json({ error: 'Failed' });
   }
 }

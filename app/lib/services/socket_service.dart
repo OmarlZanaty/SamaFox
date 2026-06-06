@@ -1183,6 +1183,7 @@ class SeatData {
   final int seatNumber;
   final int? userId;
   final int? displayId;
+  final int vipLevel;
   final String? username;
   final String? avatarUrl;
   final String? avatarFrameUrl; // ✅ NEW
@@ -1196,6 +1197,7 @@ class SeatData {
     required this.seatNumber,
     required this.userId,
     this.displayId,
+    this.vipLevel = 0,
     required this.username,
     required this.avatarUrl,
     this.avatarFrameUrl, // ✅ NEW
@@ -1210,6 +1212,7 @@ class SeatData {
     seatNumber: seatNumber,
     userId: null,
     displayId: null,
+    vipLevel: 0,
     username: null,
     avatarUrl: null,
     avatarFrameUrl: null, // ✅ NEW
@@ -1223,6 +1226,7 @@ class SeatData {
   SeatData copyWith({
     int? userId,
     int? displayId,
+    int? vipLevel,
     String? username,
     String? avatarUrl,
     String? avatarFrameUrl,
@@ -1236,6 +1240,7 @@ class SeatData {
       seatNumber: seatNumber,
       userId: userId ?? this.userId,
       displayId: displayId ?? this.displayId,
+      vipLevel: vipLevel ?? this.vipLevel,
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
@@ -1261,6 +1266,7 @@ class SeatData {
       displayId: (json['displayId'] ?? json['display_id'] ?? json['userDisplayId']) == null
           ? null
           : toInt(json['displayId'] ?? json['display_id'] ?? json['userDisplayId']),
+      vipLevel: toInt(json['vipLevel'] ?? json['vip_level']),
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
       avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),

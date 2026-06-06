@@ -463,6 +463,22 @@ if (lockedSet.has(sn)) {
   return;
 }
 
+  // Per-user seat block (admin moderation): cannot take any seat until cleared.
+  const seatBlock = await prisma.roomMember
+    .findUnique({
+      where: { userId_roomId: { userId: uid, roomId: rid } },
+      select: { seatBlocked: true },
+    })
+    .catch(() => null);
+  if (seatBlock?.seatBlocked) {
+    socket.emit('seat_error', {
+      roomId: rid,
+      seatNumber: sn,
+      message: 'تم منعك من الجلوس على المايك بواسطة الإدارة',
+    });
+    return;
+  }
+
   const seats = getSeats(rid);
 const room = await prisma.room.findUnique({
   where: { id: rid },
@@ -601,6 +617,25 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
           socket.leave(`room:${rid}`);
           return;
         }
+      }
+
+      // ── Ban/kick gate: an active (non-expired) RoomBan blocks entry. ──
+      const ban = await prisma.roomBan
+        .findUnique({
+          where: { roomId_userId: { roomId: rid, userId: uid } },
+          select: { expiresAt: true, reason: true },
+        })
+        .catch(() => null);
+      if (ban && (!ban.expiresAt || ban.expiresAt > new Date())) {
+        console.log('[join_denied]', { uid, rid, reason: 'banned', until: ban.expiresAt });
+        socket.emit('join_denied', {
+          roomId: rid,
+          reason: 'banned',
+          until: ban.expiresAt ?? null,
+          message: ban.reason ?? 'تم طردك من هذه الغرفة',
+        });
+        socket.leave(`room:${rid}`);
+        return;
       }
 
       const locked = getLockedSeats(rid);
@@ -1061,6 +1096,27 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
 
       const seats = getSeats(rid);
       if (seats.get(seatNum) !== uid) return;
+
+      // Force-mute: an admin muted this user — block self-unmute, keep muted.
+      if (!isMuted) {
+        const fm = await prisma.roomMember
+          .findUnique({
+            where: { userId_roomId: { userId: uid, roomId: rid } },
+            select: { forceMuted: true },
+          })
+          .catch(() => null);
+        if (fm?.forceMuted) {
+          getMuted(rid).set(uid, true);
+          socket.emit('seat_mute_changed', {
+            roomId: rid,
+            seatNumber: seatNum,
+            userId: uid,
+            isMuted: true,
+            forced: true,
+          });
+          return;
+        }
+      }
 
       getMuted(rid).set(uid, !!isMuted);
 

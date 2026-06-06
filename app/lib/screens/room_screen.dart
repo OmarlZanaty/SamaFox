@@ -733,6 +733,77 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  /// Block/unblock a user from taking a mic seat (Step 10).
+  Future<void> _setSeatBlock(int? userId, bool blocked) async {
+    if (userId == null) return;
+    try {
+      await DioClient.dio.post('/room-admin/seat-block', data: {
+        'roomId': widget.roomId,
+        'userId': userId,
+        'blocked': blocked,
+      });
+      _showRoomSnack(blocked
+          ? 'تم منع المستخدم من الجلوس على المايك'
+          : 'تم رفع المنع عن المستخدم');
+    } catch (e) {
+      _showRoomSnack('تعذر تنفيذ الإجراء: $e', error: true);
+    }
+  }
+
+  Widget _kickDurationTile(BuildContext ctx, String label, int minutes) {
+    return ListTile(
+      leading: const Icon(Icons.timer_outlined, color: Colors.redAccent),
+      title: Text(label, style: const TextStyle(color: Colors.white)),
+      onTap: () => Navigator.pop(ctx, minutes),
+    );
+  }
+
+  /// Kick a user with a chosen duration (0 = permanent) (Step 10).
+  Future<void> _promptKickUser(int? userId) async {
+    if (userId == null) return;
+    final minutes = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E2E),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(14),
+                child: Text('مدة الطرد من الغرفة',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
+              ),
+              _kickDurationTile(ctx, '5 دقائق', 5),
+              _kickDurationTile(ctx, 'ساعة', 60),
+              _kickDurationTile(ctx, 'يوم كامل', 1440),
+              _kickDurationTile(ctx, 'طرد دائم', 0),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (minutes == null) return;
+    try {
+      await _api.kickUser({
+        'roomId': widget.roomId,
+        'room_id': widget.roomId,
+        'userId': userId,
+        'user_id': userId,
+        'minutes': minutes,
+      });
+      _showRoomSnack(minutes == 0
+          ? 'تم طرد المستخدم نهائيًا'
+          : 'تم طرد المستخدم لمدة محددة');
+    } catch (e) {
+      _showRoomSnack('تعذر الطرد: $e', error: true);
+    }
+  }
+
   Future<void> _clearRoomChat() async {
     try {
       await _api.clearChat({
@@ -1779,7 +1850,28 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         if (!mounted) return;
         final rid = data['roomId'];
         if (rid != null && rid != widget.roomId) return;
+        final reason = data['reason'];
+        if (reason == 'banned') {
+          // Kicked/banned → cannot enter; show why and leave.
+          _showRoomSnack(
+            (data['message'] ?? 'تم طردك من هذه الغرفة').toString(),
+            error: true,
+          );
+          Navigator.of(context).maybePop();
+          return;
+        }
         _promptRoomAccessCode();
+      });
+
+      // Admin kicked us live → leave the room immediately.
+      SocketService().on('kicked_from_room', (data) {
+        if (!mounted) return;
+        final rid = (data is Map) ? data['roomId'] : null;
+        if (rid != null && rid != widget.roomId) return;
+        final msg = (data is Map ? data['message'] : null)?.toString() ??
+            'تم طردك من الغرفة';
+        _showRoomSnack(msg, error: true);
+        Navigator.of(context).maybePop();
       });
 
       // ✅ LOAD INVENTORY FIRST
@@ -3876,27 +3968,25 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     );
                   }),
 
-                  // ── إزالة من الغرفة ──
+                  // ── منع / سماح الجلوس على المايك ──
                   _adminSeatOption(
-                    label: 'إزالة من الغرفة',
+                    label: 'منع من المايك',
+                    icon: Icons.mic_off,
+                    color: Colors.orangeAccent,
+                    onTap: () async {
+                      Navigator.pop(context);
+                      await _setSeatBlock(seat.userId, true);
+                    },
+                  ),
+
+                  // ── إزالة من الغرفة (مع مدة) ──
+                  _adminSeatOption(
+                    label: 'طرد من الغرفة',
                     icon: Icons.exit_to_app,
                     color: Colors.redAccent,
-                    onTap: () {
+                    onTap: () async {
                       Navigator.pop(context);
-                      _api.kickUser({
-                        'roomId': widget.roomId,
-                        'room_id': widget.roomId,
-                        'userId': seat.userId,
-                        'user_id': seat.userId,
-                      }).then((_) {
-                        SocketService().emit('kick_user', {
-                          'roomId': widget.roomId,
-                          'targetUserId': seat.userId,
-                        });
-                        _showRoomSnack('تم إزالة المستخدم من الغرفة');
-                      }).catchError((e) {
-                        _showRoomSnack('تعذر الإزالة: $e', error: true);
-                      });
+                      await _promptKickUser(seat.userId);
                     },
                   ),
 
