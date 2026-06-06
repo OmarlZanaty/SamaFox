@@ -134,6 +134,8 @@ const locked = getLockedSeats(rid);
   id: true,
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
+  displayId: true,
+  vipLevel: true,
   relationId: true,
   avatarFrameUrl: true,
   activeFrameId: true,
@@ -178,6 +180,8 @@ await Promise.all(
       seatNumber,
       userId: occupant,
       username: u?.name ?? null,
+      displayId: u?.displayId ?? null,
+      vipLevel: u?.vipLevel ?? 0,
       avatarUrl: u?.avatarUrl ?? null,
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
       frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,

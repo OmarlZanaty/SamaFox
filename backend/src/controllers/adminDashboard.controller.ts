@@ -105,8 +105,8 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
     const newDisplayId = Number(req.body?.newDisplayId);
 
     if (!userId) return res.status(400).json({ success: false, message: 'Invalid user id' });
-    if (!newDisplayId || newDisplayId < 10000) {
-      return res.status(400).json({ success: false, message: 'displayId must be >= 10000' });
+    if (!newDisplayId || newDisplayId < 100000 || newDisplayId > 999999) {
+      return res.status(400).json({ success: false, message: 'displayId must be a 6-digit number (100000-999999)' });
     }
 
     const taken = await prisma.user.findFirst({

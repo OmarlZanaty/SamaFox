@@ -169,6 +169,8 @@ class RoomSeat {
   final bool isMuted;
   final bool isLocked;
   final String? avatarFrameUrl;
+  final int? displayId;
+  final int vipLevel;
 
 
   RoomSeat({
@@ -180,6 +182,8 @@ class RoomSeat {
     required this.isMuted,
     required this.isLocked,
     this.avatarFrameUrl,
+    this.displayId,
+    this.vipLevel = 0,
 
   });
 
@@ -203,6 +207,8 @@ class RoomSeat {
       username: json['username'],
       avatarUrl: json['avatarUrl'],
       avatarFrameUrl: json['avatarFrameUrl'], // ✅🔥 THIS LINE
+      displayId: json['displayId'] as int?,
+      vipLevel: (json['vipLevel'] as num?)?.toInt() ?? 0,
       level: json['level'] ?? 0,
       isMuted: json['isMuted'] ?? true,
       isLocked: json['isLocked'] ?? false,
@@ -217,6 +223,8 @@ class RoomSeat {
     bool? isMuted,
     bool? isLocked,
     String? avatarFrameUrl,
+    int? displayId,
+    int? vipLevel,
 
   }) {
     return RoomSeat(
@@ -228,6 +236,8 @@ class RoomSeat {
       isMuted: isMuted ?? this.isMuted,
       isLocked: isLocked ?? this.isLocked,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
+      displayId: displayId ?? this.displayId,
+      vipLevel: vipLevel ?? this.vipLevel,
 
     );
   }

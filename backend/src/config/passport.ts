@@ -2,30 +2,14 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
+import { nextDisplayId } from '../utils/displayId';
 
 async function createUserWithDisplayId(
   tx: Prisma.TransactionClient,
   userData: Omit<Prisma.UserCreateInput, 'displayId'>,
 ) {
-  const seq = await tx.userIdSequence.upsert({
-    where: { id: 1 },
-    update: {},
-    create: { id: 1, nextId: 10000 },
-  });
-
-  let candidate = seq.nextId;
-  for (let attempts = 0; attempts < 200; attempts++) {
-    const taken = await tx.user.findUnique({ where: { displayId: candidate } });
-    if (!taken) break;
-    candidate++;
-  }
-
-  await tx.userIdSequence.update({
-    where: { id: 1 },
-    data: { nextId: candidate + 1 },
-  });
-
-  return tx.user.create({ data: { ...userData, displayId: candidate } });
+  const displayId = await nextDisplayId(tx); // 6-digit, unique
+  return tx.user.create({ data: { ...userData, displayId } });
 }
 
 // Google OAuth Strategy

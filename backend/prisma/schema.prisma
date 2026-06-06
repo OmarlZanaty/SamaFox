@@ -28,6 +28,7 @@ model User {
   level                    Int                       @default(1)
   xp                       Int                       @default(0)
   vipLevel                 Int                       @default(0)
+  totalRecharge            Int                       @default(0) // cumulative coins ever charged (drives VIP level)
   isAdmin                  Boolean                   @default(false)
   isBanned                 Boolean                   @default(false)
   bannedAt                 DateTime?
@@ -139,11 +140,13 @@ model Room {
 // ============================================
 
 model RoomMember {
-  userId   Int
-  roomId   Int
-  role     String   @default("member")
-  isMuted  Boolean  @default(false)
-  joinedAt DateTime @default(now())
+  userId     Int
+  roomId     Int
+  role       String   @default("member")
+  isMuted    Boolean  @default(false)
+  forceMuted Boolean  @default(false) // admin-muted; user cannot self-unmute
+  seatBlocked Boolean @default(false) // cannot take a seat until an admin clears it
+  joinedAt   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
   room Room @relation(fields: [roomId], references: [id])
@@ -516,6 +519,22 @@ model VipTier {
   subscriptions UserSubscription[]
 
   @@map("vip_tiers")
+}
+
+// Admin-configurable VIP levels keyed by level number (1..N).
+// `threshold` is the cumulative recharge needed; if null the server computes it
+// (500k per level up to 5, then +30% each level). badgeUrl + frameItemId are
+// uploaded/assigned from the admin dashboard and auto-granted on level-up.
+model VipLevelConfig {
+  level       Int      @id
+  name        String?
+  threshold   Int? // cumulative coins required; null => computed
+  badgeUrl    String?
+  frameItemId String? // Item.id of the seat frame granted at this level
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("vip_level_configs")
 }
 
 // ============================================

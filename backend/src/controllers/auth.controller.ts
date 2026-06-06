@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
+import { nextDisplayId } from '../utils/displayId';
 
 const googleClient = new OAuth2Client();
 
@@ -101,21 +102,8 @@ async function createUserWithDisplayId(
   tx: Prisma.TransactionClient,
   userData: Omit<Prisma.UserCreateInput, 'displayId'>,
 ) {
-  // Atomic increment — returns the PREVIOUS value, which becomes our unique ID
-  const seq = await tx.userIdSequence.update({
-    where: { id: 1 },
-    data: { nextId: { increment: 1 } },
-  }).catch(async () => {
-    // First-time create if row doesn't exist yet
-    await tx.userIdSequence.create({ data: { id: 1, nextId: 10001 } });
-    return tx.userIdSequence.update({
-      where: { id: 1 },
-      data: { nextId: { increment: 1 } },
-    });
-  });
-
-  const candidate = seq.nextId - 1; // value before increment
-  return tx.user.create({ data: { ...userData, displayId: candidate } });
+  const displayId = await nextDisplayId(tx); // 6-digit, unique
+  return tx.user.create({ data: { ...userData, displayId } });
 }
 
 // ------------------------------------
