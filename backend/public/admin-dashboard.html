@@ -271,6 +271,38 @@
         </div>
       </div>
 
+      <!-- New agency requests (charging + hosting) awaiting approval -->
+      <div class="form-card" style="margin-bottom:16px">
+        <div class="form-card-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>طلبات الوكالات الجديدة</span>
+          <span style="display:flex;gap:8px;align-items:center;">
+            <select id="agencyRequestType" class="form-select" style="max-width:160px">
+              <option value="">كل الأنواع</option>
+              <option value="HOSTING">استضافة</option>
+              <option value="CHARGING">شحن</option>
+            </select>
+            <button class="btn btn-outline" onclick="loadAgencyRequests()">تحديث</button>
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table id="agencyRequestsTable">
+            <thead>
+              <tr>
+                <th>المعرف</th>
+                <th>المستخدم</th>
+                <th>اسم الوكالة</th>
+                <th>النوع</th>
+                <th>التواصل</th>
+                <th>الصورة</th>
+                <th>تاريخ الطلب</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="table-wrap">
         <table id="agenciesTable">
           <thead>
@@ -585,6 +617,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260610-2"></script>
+<script src="app.js?v=20260610-3"></script>
 </body>
 </html>

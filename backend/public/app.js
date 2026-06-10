@@ -465,8 +465,59 @@ async function loadRooms() {
   }
 }
 
+// --- AGENCY REQUESTS (new, awaiting approval) ---
+window.loadAgencyRequests = async function () {
+  const type = document.getElementById("agencyRequestType")?.value || "";
+  const q = `?status=pending${type ? `&type=${encodeURIComponent(type)}` : ""}`;
+  const d = await apiFetch("/admin-dashboard/agency-requests" + q);
+  const tbody = document.querySelector("#agencyRequestsTable tbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const rows = d.data || [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="cell-muted" style="text-align:center;padding:14px">لا توجد طلبات قيد المراجعة</td></tr>';
+    return;
+  }
+  for (const r of rows) {
+    const typeLabel = r.type === "HOSTING" ? "استضافة" : "شحن";
+    const img = r.imageUrl ? `<a class="td-link" href="${r.imageUrl}" target="_blank">عرض</a>` : "—";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="cell-id">${r.id}</span></td>
+      <td>${escapeHtml(r.user?.name ?? "")} <span class="cell-muted">#${r.user?.displayId ?? r.userId}</span></td>
+      <td>${escapeHtml(r.agencyName ?? "")}</td>
+      <td><span class="cell-muted">${typeLabel}</span></td>
+      <td><span class="cell-muted">${escapeHtml(r.contactInfo ?? "—")}</span></td>
+      <td>${img}</td>
+      <td><span class="cell-muted">${fmtDate(r.createdAt)}</span></td>
+      <td>
+        <div class="td-actions">
+          <button class="btn-ok"  onclick="reviewAgencyRequest(${r.id}, 'approved')">قبول</button>
+          <button class="btn-bad" onclick="reviewAgencyRequest(${r.id}, 'rejected')">رفض</button>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+};
+
+window.reviewAgencyRequest = async function (id, status) {
+  try {
+    await apiFetch(`/admin-dashboard/agency-requests/${id}/review`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    showToast(status === "approved" ? "✓ تم قبول الوكالة" : "تم رفض الطلب");
+    await loadAgencyRequests();
+    await loadAgencies();
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
 // --- AGENCIES ---
 async function loadAgencies() {
+  try { await loadAgencyRequests(); } catch (_) {}
   const status = document.getElementById("agencyStatus").value;
   const q      = status ? `?status=${encodeURIComponent(status)}` : "";
   const d      = await apiFetch("/admin-dashboard/charging-agencies" + q);
