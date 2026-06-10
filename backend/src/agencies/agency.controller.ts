@@ -619,6 +619,7 @@ export const getMyMembership = async (req: AuthReq, res: Response) => {
       },
     });
 
+    console.log('[my-membership]', { userId, found: !!m, role: m?.role });
     if (!m) return res.json({ success: true, data: null });
 
     return res.json({
