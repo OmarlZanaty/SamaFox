@@ -45,6 +45,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
       إدارة المتجر
     </a>
+    <a href="#" class="nav-item" data-section="vip">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      مستويات VIP
+    </a>
 
     <div class="nav-section-label" style="margin-top:16px">الإعدادات</div>
     <a href="#" class="nav-item" data-section="settings">
@@ -431,6 +435,31 @@
       </div>
     </section>
 
+    <!-- ======================== VIP SECTION ======================== -->
+    <section class="section" id="section-vip">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">مستويات VIP</h2>
+          <p class="section-sub">حدد العتبة وصورة الشارة وإطار المقعد لكل مستوى — تُمنح تلقائياً عند الشحن</p>
+        </div>
+        <button class="btn btn-outline" onclick="loadVipLevels()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          تحديث
+        </button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="vipTable">
+          <thead>
+            <tr>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>الشارة</th><th>إطار المقعد</th><th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- ======================== SETTINGS SECTION ======================== -->
     <section class="section" id="section-settings">
       <div class="section-header">
@@ -536,6 +565,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260422-3"></script>
+<script src="app.js?v=20260610-1"></script>
 </body>
 </html>

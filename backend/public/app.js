@@ -38,6 +38,7 @@ const sectionTitles = {
   agencies:  "وكالات الشحن",
   advanced:  "ميزات الأدمن",
   store:     "إدارة المتجر",
+  vip:       "مستويات VIP",
   settings:  "الإعدادات",
 };
 
@@ -53,6 +54,7 @@ function navigate(sec) {
   navItems.forEach(i => i.classList.toggle("active", i.dataset.section === sec));
   sections.forEach(s => s.classList.toggle("active", s.id === `section-${sec}`));
   pageTitle.textContent = sectionTitles[sec] || sec;
+  if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
 }
 
 // ============================================================
@@ -989,6 +991,95 @@ function stopLiveRefresh() { if (liveTimer) clearInterval(liveTimer); liveTimer 
 
 // expose for inline agency buttons
 window.setAgencyStatus = setAgencyStatus;
+
+// ============================================================
+// VIP LEVELS
+// ============================================================
+const VIP_BASE_STEP = 500000;
+const VIP_MAX_LEVEL = 5;
+
+window.loadVipLevels = async function () {
+  const tbody = document.querySelector("#vipTable tbody");
+  if (!tbody) return;
+
+  const [levelsRes, productsRes] = await Promise.all([
+    apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"]),
+    apiFetch("/store/products"),
+  ]);
+  const saved = {};
+  for (const c of levelsRes.data || []) saved[c.level] = c;
+  const frames = (productsRes.data || productsRes.products || [])
+    .filter(p => /frame/i.test(String(p.type || "")));
+
+  tbody.innerHTML = "";
+  for (let level = 1; level <= VIP_MAX_LEVEL; level++) {
+    const c = saved[level] || {};
+    const badge = normalizeGiftImageUrl(c.badgeUrl);
+    const options = ['<option value="">— بدون إطار —</option>']
+      .concat(frames.map(p =>
+        `<option value="${p.id}" ${String(c.frameItemId) === String(p.id) ? "selected" : ""}>${escapeHtml(p.name)}</option>`))
+      .join("");
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>VIP ${level}</strong></td>
+      <td><input id="vip_name_${level}" class="form-input" style="max-width:140px" value="${escapeHtml(c.name || "VIP " + level)}" /></td>
+      <td><input id="vip_threshold_${level}" type="number" class="form-input" style="max-width:160px" value="${c.threshold ?? level * VIP_BASE_STEP}" /></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <img id="vip_badge_preview_${level}" src="${badge}" width="40" height="40"
+               style="border-radius:8px;object-fit:contain;${badge ? "" : "display:none;"}" />
+          <input id="vip_badge_url_${level}" type="hidden" value="${escapeHtml(c.badgeUrl || "")}" />
+          <input id="vip_badge_file_${level}" type="file" accept="image/*" style="display:none"
+                 onchange="uploadVipBadge(${level})" />
+          <button class="btn btn-outline" onclick="document.getElementById('vip_badge_file_${level}').click()">رفع الشارة</button>
+        </div>
+      </td>
+      <td><select id="vip_frame_${level}" class="form-select" style="max-width:180px">${options}</select></td>
+      <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+};
+
+window.uploadVipBadge = async function (level) {
+  try {
+    const file = document.getElementById(`vip_badge_file_${level}`)?.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("image", file);
+    const d = await apiFetch("/upload/image", { method: "POST", body: formData });
+    const url = d?.url || d?.imageUrl;
+    if (!url) throw new Error("لم يتم إرجاع رابط الصورة");
+    document.getElementById(`vip_badge_url_${level}`).value = url;
+    const preview = document.getElementById(`vip_badge_preview_${level}`);
+    preview.src = normalizeGiftImageUrl(url);
+    preview.style.display = "block";
+    showToast(`✓ تم رفع شارة VIP ${level} — اضغط حفظ`);
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+window.saveVipLevel = async function (level) {
+  try {
+    const body = {
+      level,
+      name: document.getElementById(`vip_name_${level}`).value.trim() || `VIP ${level}`,
+      threshold: Number(document.getElementById(`vip_threshold_${level}`).value || 0),
+      badgeUrl: document.getElementById(`vip_badge_url_${level}`).value || undefined,
+      frameItemId: document.getElementById(`vip_frame_${level}`).value || undefined,
+    };
+    await apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    showToast(`✓ تم حفظ VIP ${level}`);
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
 
 // ============================================================
 // LOAD ALL
