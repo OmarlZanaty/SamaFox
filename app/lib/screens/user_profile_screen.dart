@@ -216,6 +216,33 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           color: Colors.grey[300],
                         ),
                       ),
+                      if (user.agencyRole != null) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: user.agencyRole == 'agent'
+                                ? const Color(0xFFFFD700).withOpacity(0.18)
+                                : const Color(0xFF4ECDC4).withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: user.agencyRole == 'agent'
+                                  ? const Color(0xFFFFD700)
+                                  : const Color(0xFF4ECDC4),
+                            ),
+                          ),
+                          child: Text(
+                            user.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: user.agencyRole == 'agent'
+                                  ? const Color(0xFFFFD700)
+                                  : const Color(0xFF4ECDC4),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
 
                       // Level and XP

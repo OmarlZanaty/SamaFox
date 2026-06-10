@@ -541,6 +541,16 @@
 </div>
 
 
+<div class="modal-overlay hidden" id="agencyMembersModal" onclick="closeAgencyMembersModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header"><div><h3 class="modal-title" id="agencyMembersTitle">أعضاء الوكالة</h3><p class="modal-sub">يمكنك إزالة أي عضو من الوكالة</p></div></div>
+    <div id="agencyMembersBox" style="max-height:50vh;overflow:auto;margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeAgencyMembersModal()">إغلاق</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="giftModal" onclick="closeGiftModal()">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-header"><div><h3 class="modal-title" id="giftModalTitle">إضافة هدية</h3></div></div>
@@ -553,7 +563,17 @@
         <button type="button" class="btn btn-outline" id="giftUploadImageBtn">رفع الصورة من الجهاز</button>
       </div>
       <img id="giftImagePreview" alt="gift preview" style="display:none;width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--card-border);" />
-      <input id="gift_animationUrl" class="form-input" placeholder="رابط الأنيميشن (اختياري)" />
+      <input id="gift_animationUrl" class="form-input" placeholder="رابط الفيديو/الأنيميشن (اختياري)" />
+      <div class="form-row" style="gap:8px;">
+        <input id="gift_videoFile" type="file" accept="video/mp4,video/webm,video/quicktime" class="form-input" />
+        <button type="button" class="btn btn-outline" id="giftUploadVideoBtn">رفع فيديو الهدية</button>
+      </div>
+      <select id="gift_tier" class="form-select">
+        <option value="SMALL">مميزة</option>
+        <option value="MEDIUM">محظوظ</option>
+        <option value="LARGE">تخصيص</option>
+        <option value="LEGENDARY">VIP</option>
+      </select>
       <input id="gift_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
       <input id="gift_sortOrder" type="number" class="form-input" placeholder="الترتيب" />
       <label style="display:flex;align-items:center;gap:8px;color:#fff;"><input id="gift_isActive" type="checkbox" checked /> نشط</label>
@@ -565,6 +585,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260610-1"></script>
+<script src="app.js?v=20260610-2"></script>
 </body>
 </html>

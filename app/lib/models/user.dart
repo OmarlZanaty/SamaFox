@@ -50,6 +50,10 @@ class User {
   final String? createdAt;
   final String? updatedAt;
 
+  /// 'agent' (وكيل) | 'host' (مضيف) | null — from the hosting-agency system.
+  final String? agencyRole;
+  final String? agencyName;
+
   User({
     required this.id,
     this.displayId,
@@ -75,6 +79,8 @@ class User {
     this.createdAt,
     this.updatedAt,
     this.avatarFrameUrl,
+    this.agencyRole,
+    this.agencyName,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -113,6 +119,8 @@ class User {
       createdAt: source['createdAt']?.toString(),
       updatedAt: source['updatedAt']?.toString(),
       avatarFrameUrl: source['avatarFrameUrl']?.toString(),
+      agencyRole: source['agencyRole']?.toString(),
+      agencyName: source['agencyName']?.toString(),
     );
   }
   Map<String, dynamic> toJson() => _$UserToJson(this);
@@ -154,6 +162,8 @@ class User {
     String? createdAt,
     String? updatedAt,
     String? avatarFrameUrl,
+    String? agencyRole,
+    String? agencyName,
   }) {
     return User(
       id: id ?? this.id,
@@ -180,7 +190,8 @@ class User {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
-
+      agencyRole: agencyRole ?? this.agencyRole,
+      agencyName: agencyName ?? this.agencyName,
     );
   }
 }

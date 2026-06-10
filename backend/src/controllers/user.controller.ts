@@ -3,6 +3,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { firstStr } from '../utils/http';
+import { getAgencyRole } from '../agencies/agency.controller';
 interface UpdateProfileRequest {
   name?: string;
   bio?: string;
@@ -52,14 +53,20 @@ export const getMe = async (req: Request, res: Response) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const [followerCount, followingCount] = await Promise.all([
+    const [followerCount, followingCount, agencyInfo] = await Promise.all([
       prisma.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
       prisma.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
+      getAgencyRole(userId).catch(() => null),
     ]);
 
     return res.status(200).json({
       success: true,
-      user: { ...formatUserResponse(user), followerCount, followingCount, followersCount: followerCount },
+      user: {
+        ...formatUserResponse(user),
+        followerCount, followingCount, followersCount: followerCount,
+        agencyRole: agencyInfo?.agencyRole ?? null,
+        agencyName: agencyInfo?.agencyName ?? null,
+      },
     });
   } catch (e: any) {
     console.error('getMe error:', e);
@@ -83,14 +90,20 @@ export const getUserById = async (req: Request, res: Response) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const [followerCount, followingCount] = await Promise.all([
+    const [followerCount, followingCount, agencyInfo] = await Promise.all([
       prisma.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
       prisma.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
+      getAgencyRole(userId).catch(() => null),
     ]);
 
     return res.status(200).json({
       success: true,
-      user: { ...pickPublicUserFields(user), followerCount, followingCount, followersCount: followerCount },
+      user: {
+        ...pickPublicUserFields(user),
+        followerCount, followingCount, followersCount: followerCount,
+        agencyRole: agencyInfo?.agencyRole ?? null,
+        agencyName: agencyInfo?.agencyName ?? null,
+      },
     });
   } catch (e: any) {
     console.error('getUserById error:', e);

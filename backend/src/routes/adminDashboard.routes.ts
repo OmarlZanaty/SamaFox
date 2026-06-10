@@ -31,6 +31,8 @@ import {
   adminUpdateGift,
   adminListVipLevels,
   adminUpsertVipLevel,
+  adminListAgencyMembers,
+  adminRemoveAgencyMember,
 } from '../controllers/adminDashboard.controller';
 
 const router = express.Router();
@@ -63,6 +65,8 @@ router.get('/agency-requests', adminListAgencyRequests);
 router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
 router.patch('/agencies/:id/topup', adminTopupAgency);
 router.patch('/agencies/:id/target', adminSetAgencyTarget);
+router.get('/agencies/:id/members', adminListAgencyMembers);
+router.delete('/agency-members/:memberId', adminRemoveAgencyMember);
 router.get('/gifts', authenticate, adminListGifts);
 router.post('/gifts', authenticate, adminCreateGift);
 router.patch('/gifts/:id', authenticate, adminUpdateGift);

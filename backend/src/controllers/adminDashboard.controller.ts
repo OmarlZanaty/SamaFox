@@ -648,7 +648,7 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
 
 export const adminUpdateGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format } = req.body;
 
   const gift = await prisma.gift.update({
     where: { id },
@@ -660,6 +660,8 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
       ...(coinCost !== undefined && { coinCost: Number(coinCost) }),
       ...(sortOrder !== undefined && { sortOrder: Number(sortOrder) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+      ...(tier !== undefined && { tier: tier as any }),
+      ...(format !== undefined && { format: format as any }),
     },
   });
 
@@ -684,6 +686,57 @@ export const adminDashboardListGifts = adminListGifts;
 export const adminDashboardCreateGift = adminCreateGift;
 export const adminDashboardUpdateGift = adminUpdateGift;
 export const adminDashboardDeleteGift = adminDeleteGift;
+
+// ── Agency members (app owner can inspect and remove anyone from any agency) ──
+export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
+  try {
+    const agencyId = Number(req.params.id);
+    if (!agencyId) return fail(res, 400, 'Invalid agency id');
+
+    const members = await db.agencyMember.findMany({
+      where: { agencyId },
+      include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    return ok(res, { data: members });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminRemoveAgencyMember = async (req: AdminReq, res: Response) => {
+  try {
+    const memberId = Number(req.params.memberId);
+    if (!memberId) return fail(res, 400, 'Invalid member id');
+
+    const member = await db.agencyMember.findUnique({
+      where: { id: memberId },
+      include: { agency: { select: { agencyName: true } } },
+    });
+    if (!member) return fail(res, 404, 'Member not found');
+    if (member.role === 'OWNER') return fail(res, 400, 'Cannot remove the agency owner');
+
+    await db.agencyMember.delete({ where: { id: memberId } });
+
+    try {
+      const { createNotification } = await import('../services/notification.service');
+      await createNotification({
+        userId: member.userId,
+        type: 'AGENCY_REMOVED',
+        title: 'تمت إزالتك من الوكالة',
+        body: `قامت إدارة التطبيق بإزالتك من وكالة ${member.agency?.agencyName ?? ''}`,
+        data: { agencyId: member.agencyId },
+      });
+    } catch (e) {
+      console.warn('admin agency removal notification failed:', e);
+    }
+
+    return ok(res, { message: 'Member removed' });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
 
 // ── VIP level configuration (badge image + seat frame per level) ──
 export const adminListVipLevels = async (_req: AdminReq, res: Response) => {

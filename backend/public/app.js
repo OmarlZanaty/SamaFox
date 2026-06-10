@@ -496,12 +496,56 @@ async function loadAgencies() {
           <button class="btn-ok"      onclick="setAgencyStatus(${a.id}, 'approved')">قبول</button>
           <button class="btn-bad"     onclick="setAgencyStatus(${a.id}, 'rejected')">رفض</button>
           <button class="btn-ghost-sm" onclick="setAgencyStatus(${a.id}, 'pending')">مراجعة</button>
+          <button class="btn btn-outline" onclick="showAgencyMembers(${a.id}, '${escapeHtml(a.agencyName ?? "")}')">الأعضاء</button>
         </div>
       </td>
     `;
     tbody.appendChild(tr);
   }
 }
+
+// App owner can inspect any agency's members and remove anyone (except the owner).
+window.showAgencyMembers = async function (agencyId, agencyName) {
+  try {
+    const d = await apiFetch(`/admin-dashboard/agencies/${agencyId}/members`);
+    const members = d.data || [];
+    const box = document.getElementById("agencyMembersBox");
+    const title = document.getElementById("agencyMembersTitle");
+    title.textContent = `أعضاء وكالة ${agencyName} (#${agencyId})`;
+    if (!members.length) {
+      box.innerHTML = '<p class="cell-muted" style="padding:10px">لا يوجد أعضاء</p>';
+    } else {
+      box.innerHTML = members.map(m => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid var(--card-border);">
+          <div>
+            <strong>${escapeHtml(m.user?.name ?? "")}</strong>
+            <span class="cell-muted">#${m.user?.displayId ?? m.userId}</span>
+            <span class="cell-muted">— ${m.role === "OWNER" ? "وكيل" : "مضيف"}</span>
+          </div>
+          ${m.role === "OWNER" ? "" : `<button class="btn-bad" onclick="adminRemoveAgencyMember(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}')">إزالة</button>`}
+        </div>`).join("");
+    }
+    document.getElementById("agencyMembersModal").classList.remove("hidden");
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+window.closeAgencyMembersModal = function () {
+  document.getElementById("agencyMembersModal").classList.add("hidden");
+};
+
+window.adminRemoveAgencyMember = async function (memberId, agencyId, agencyName) {
+  openConfirmModal("إزالة عضو", "سيتم إخراج هذا العضو من الوكالة. متابعة؟", async () => {
+    try {
+      await apiFetch(`/admin-dashboard/agency-members/${memberId}`, { method: "DELETE" });
+      showToast("✓ تمت إزالة العضو");
+      await showAgencyMembers(agencyId, agencyName);
+    } catch (e) {
+      showToast("❌ خطأ: " + e.message);
+    }
+  });
+};
 
 async function setAgencyStatus(id, status) {
   try {
@@ -731,6 +775,22 @@ window.uploadGiftImage = async function () {
   showToast("✓ تم رفع صورة الهدية");
 };
 
+window.uploadGiftVideo = async function () {
+  const fileInput = document.getElementById("gift_videoFile");
+  const file = fileInput?.files?.[0];
+  if (!file) return showToast("اختر ملف فيديو من الجهاز أولاً");
+
+  const formData = new FormData();
+  formData.append("video", file);
+
+  const d = await apiFetch("/upload/video", { method: "POST", body: formData });
+  const videoUrl = d?.url || d?.imageUrl;
+  if (!videoUrl) throw new Error("لم يتم إرجاع رابط الفيديو");
+
+  document.getElementById("gift_animationUrl").value = videoUrl;
+  showToast("✓ تم رفع فيديو الهدية");
+};
+
 window.openGiftModal = async function (id = null) {
   const modal = document.getElementById('giftModal');
   const title = document.getElementById('giftModalTitle');
@@ -752,6 +812,7 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_coinsValue').value = gift.coinsValue ?? gift.priceCoins ?? 0;
     document.getElementById('gift_sortOrder').value = gift.sortOrder ?? 0;
     document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
+    document.getElementById('gift_tier').value = gift.tier || 'SMALL';
     const preview = document.getElementById("giftImagePreview");
     const safeGiftImage = normalizeGiftImageUrl(gift.imageUrl);
     if (safeGiftImage) {
@@ -765,6 +826,7 @@ window.openGiftModal = async function (id = null) {
     document.getElementById("giftImagePreview").style.display = "none";
   }
   document.getElementById("gift_imageFile").value = "";
+  document.getElementById("gift_videoFile").value = "";
 
   modal.classList.remove('hidden');
 };
@@ -782,7 +844,10 @@ window.saveGift = async function () {
     coinsValue: Number(document.getElementById('gift_coinsValue').value || 0),
     sortOrder: Number(document.getElementById('gift_sortOrder').value || 0),
     isActive: document.getElementById('gift_isActive').checked,
+    tier: document.getElementById('gift_tier').value || 'SMALL',
   };
+  // Video gifts play their clip on send; image gifts use the flying-image animation.
+  payload.format = payload.animationUrl ? 'VIDEO' : 'SVG_CSS';
 
   if (!payload.nameAr || !payload.imageUrl || payload.coinsValue <= 0) {
     return showToast('❗ nameAr / imageUrl / coinsValue مطلوبة');
@@ -965,6 +1030,7 @@ document.getElementById("btnAdvancedRefresh")?.addEventListener("click", () => l
 document.getElementById("btnLoadGifts")?.addEventListener("click", () => loadGifts().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("giftSaveBtn")?.addEventListener("click", () => saveGift().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("giftUploadImageBtn")?.addEventListener("click", () => uploadGiftImage().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("giftUploadVideoBtn")?.addEventListener("click", () => uploadGiftVideo().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnAddGift")?.addEventListener("click", () => openGiftModal().catch(e => showToast("خطأ: " + e.message)));
 
 

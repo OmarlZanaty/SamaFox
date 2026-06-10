@@ -31,6 +31,8 @@ User _$UserFromJson(Map<String, dynamic> json) => User(
       createdAt: json['createdAt'] as String?,
       updatedAt: json['updatedAt'] as String?,
       avatarFrameUrl: json['avatarFrameUrl'] as String?,
+      agencyRole: json['agencyRole'] as String?,
+      agencyName: json['agencyName'] as String?,
     );
 
 Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
@@ -58,4 +60,6 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'followingCount': instance.followingCount,
       'createdAt': instance.createdAt,
       'updatedAt': instance.updatedAt,
+      'agencyRole': instance.agencyRole,
+      'agencyName': instance.agencyName,
     };

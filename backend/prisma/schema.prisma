@@ -712,6 +712,11 @@ model ChargingAgency {
   // ✅ NEW: agency wallet
   balanceCoins Int @default(0)
 
+  // Hosting-agency exit policy: when locked, a member must pay
+  // exitPriceCoins (credited to the agency owner) to leave.
+  exitLocked     Boolean @default(false)
+  exitPriceCoins Int     @default(0)
+
   // optional stats
   totalSentCoins  Int @default(0)
   totalTopupCoins Int @default(0)

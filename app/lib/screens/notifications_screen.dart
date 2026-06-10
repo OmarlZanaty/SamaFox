@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'dart:async';
+import 'dart:convert';
+import '../services/agency_service.dart';
 import '../services/follow_service.dart';
 import '../services/notification_service.dart';
 import '../services/relation_service.dart';
@@ -108,6 +110,37 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
   Future<void> _markRead(int id) async {
     await NotificationService.markRead(id);
     await _load();
+  }
+
+  Future<void> _respondAgencyInvite(Map<String, dynamic> item, bool accept) async {
+    try {
+      var data = item['data'];
+      if (data is String && data.isNotEmpty) data = jsonDecode(data);
+      final inviteId = (data is Map ? (data['inviteId'] as num?) : null)?.toInt();
+      if (inviteId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تعذر تحديد الدعوة')),
+          );
+        }
+        return;
+      }
+      await AgencyService().respondInvite(inviteId, accept);
+      final id = (item['id'] as num?)?.toInt() ?? 0;
+      if (id != 0) await NotificationService.markRead(id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(accept ? '✓ انضممت إلى الوكالة' : 'تم رفض الدعوة')),
+        );
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل الرد على الدعوة')),
+        );
+      }
+    }
   }
 
   IconData _iconForType(String type) {
@@ -226,14 +259,34 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                             final id = (item['id'] as num?)?.toInt() ?? 0;
                             final isRead = item['isRead'] == true;
                             final type = (item['type'] as String?) ?? 'system';
+                            final isAgencyInvite = type == 'AGENCY_INVITE' && !isRead;
                             return Card(
                               color: isRead ? null : Colors.deepPurple.withOpacity(0.2),
                               child: ListTile(
                                 onTap: () => _openNotification(item),
                                 leading: Icon(_iconForType(type)),
                                 title: Text(_titleForNotification(item)),
-                                subtitle: Text(_bodyForNotification(item)),
-                                trailing: (isRead
+                                subtitle: isAgencyInvite
+                                    ? Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(_bodyForNotification(item)),
+                                          Row(
+                                            children: [
+                                              TextButton(
+                                                onPressed: () => _respondAgencyInvite(item, true),
+                                                child: const Text('قبول'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () => _respondAgencyInvite(item, false),
+                                                child: const Text('رفض'),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      )
+                                    : Text(_bodyForNotification(item)),
+                                trailing: (isRead || isAgencyInvite
                                     ? null
                                     : TextButton(
                                         onPressed: id == 0 ? null : () => _markRead(id),

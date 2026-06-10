@@ -20,6 +20,7 @@ import 'screens/profile_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/charging_agent_screen.dart';
+import 'screens/agency_panel_screen.dart';
 import 'screens/search_screen.dart';
 import 'theme/app_theme.dart';
 import 'utils/storage_service.dart';
@@ -255,6 +256,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
         },
         '/store': (context) => const StoreScreen(),
         '/charging-agent': (_) => const ChargingAgentScreen(),
+        '/agency-panel': (_) => const AgencyPanelScreen(),
         '/search': (context) => const SearchScreen(),
         '/games': (_) => const GamesHubScreen(),
       },

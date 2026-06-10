@@ -620,6 +620,37 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     _buildLevelBadge(user.level ?? 1),
                     const SizedBox(height: 4),
 
+                    if (user.agencyRole != null) ...[
+                      GestureDetector(
+                        onTap: () => Navigator.pushNamed(context, '/agency-panel'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: user.agencyRole == 'agent'
+                                ? const Color(0xFFFFD700).withOpacity(0.18)
+                                : const Color(0xFF4ECDC4).withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: user.agencyRole == 'agent'
+                                  ? const Color(0xFFFFD700)
+                                  : const Color(0xFF4ECDC4),
+                            ),
+                          ),
+                          child: Text(
+                            user.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: user.agencyRole == 'agent'
+                                  ? const Color(0xFFFFD700)
+                                  : const Color(0xFF4ECDC4),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+
                     _buildUserIdRow(user.id ?? 0, context),
                     const SizedBox(height: 12),
 

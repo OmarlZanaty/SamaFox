@@ -53,8 +53,34 @@ const upload = multer({
   fileFilter,
 });
 
+// Video uploads (gift animations): separate multer with video MIME map + bigger limit
+const ALLOWED_VIDEO_TYPES: Record<string, string> = {
+  'video/mp4': '.mp4',
+  'video/webm': '.webm',
+  'video/quicktime': '.mov',
+};
+
+const videoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = ALLOWED_VIDEO_TYPES[file.mimetype] ?? '.bin';
+    cb(null, `upload-${uniqueSuffix}${ext}`);
+  },
+});
+
+const uploadVideoMulter = multer({
+  storage: videoStorage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_VIDEO_TYPES[file.mimetype]) cb(null, true);
+    else cb(new Error(`Unsupported video type: ${file.mimetype}. Only MP4, WebM and MOV are allowed.`));
+  },
+});
+
 router.post('/avatar', authenticate, upload.single('avatar'), uploadAvatar);
 router.post('/image', authenticate, upload.single('image'), uploadImage);
+router.post('/video', authenticate, uploadVideoMulter.single('video'), uploadImage);
 router.delete('/image/:filename', authenticate, deleteImage);
 
 export default router;
