@@ -771,6 +771,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     final avatarUrl = (map["avatarUrl"] ?? map["avatar_url"])?.toString();
     final avatarFrameUrl = (map["avatarFrameUrl"] ?? map["avatar_frame_url"] ?? map["frameImageUrl"])?.toString(); // ADD THIS LINE
     final level = _safeInt(map["level"]) ?? 0;
+    final displayId = _safeInt(map["displayId"]);
+    final vipLevel = _safeInt(map["vipLevel"]) ?? 0;
     final isMuted = (map["isMuted"] is bool) ? map["isMuted"] as bool : null;
     debugPrint("🔍 parsed avatarFrameUrl: $avatarFrameUrl"); // ADD THIS
 
@@ -792,6 +794,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       username: username ?? old.username,
       avatarUrl: avatarUrl ?? old.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? old.avatarFrameUrl, // ADD THIS LINE
+      displayId: displayId ?? old.displayId,
+      vipLevel: vipLevel == 0 ? old.vipLevel : vipLevel,
       level: level == 0 ? old.level : level,
       isMuted: isMuted ?? old.isMuted,
       isLocked: old.isLocked,

@@ -554,6 +554,8 @@ try {
   avatarFrameUrl: true,
   activeFrame: { select: { assetUrl: true } },
   level: true,
+  displayId: true,
+  vipLevel: true,
 }
   });
       const avatarFrameUrl = u?.activeFrame?.assetUrl ?? u?.avatarFrameUrl ?? null;
@@ -574,6 +576,8 @@ try {
     avatarFrameUrl, // ✅ ADD THIS
     frameImageUrl: avatarFrameUrl,
     level: u?.level ?? 1,
+    displayId: u?.displayId ?? null,
+    vipLevel: u?.vipLevel ?? 0,
     isMuted: true,
   });
 
@@ -711,6 +715,8 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   avatarFrameUrl: true,
   activeFrame: { select: { assetUrl: true } },
   level: true,
+  displayId: true,
+  vipLevel: true,
 }
           });
             const avatarFrameUrl = user?.activeFrame?.assetUrl ?? user?.avatarFrameUrl ?? null;
@@ -724,6 +730,8 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   avatarFrameUrl, // ✅ ADD
   frameImageUrl: avatarFrameUrl,
   level: user?.level ?? 1,
+  displayId: user?.displayId ?? null,
+  vipLevel: user?.vipLevel ?? 0,
   isMuted: false,
 });
 
