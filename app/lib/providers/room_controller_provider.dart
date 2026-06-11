@@ -447,6 +447,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
           // ✅ KEEP OLD FRAME IF SNAPSHOT IS NULL
           avatarFrameUrl: seat.avatarFrameUrl ?? old?.avatarFrameUrl,
 
+          displayId: seat.displayId ?? old?.displayId,
+          vipLevel: seat.vipLevel != 0 ? seat.vipLevel : (old?.vipLevel ?? 0),
           level: seat.level,
           isMuted: seat.isMuted,
           isLocked: seat.isLocked,
