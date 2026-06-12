@@ -4062,7 +4062,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
             child: SafeArea(
-              child: Column(
+              child: SingleChildScrollView(
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const SizedBox(height: 12),
@@ -4234,6 +4235,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                   const SizedBox(height: 8),
                 ],
+              ),
               ),
             ),
           );
