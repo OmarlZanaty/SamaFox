@@ -694,6 +694,32 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       state = state.copyWith(seats: current);
     });
 
+    // Step 10: admin blocked a user from seats — remove them from their seat live.
+    _socket.on('seat_block_changed', (data) {
+      if (data is! Map) return;
+      final map = Map<String, dynamic>.from(data);
+      final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
+      if (rid != null && rid != roomId) return;
+      final targetUserId = _safeInt(map['userId']) ?? _safeInt(map['user_id']);
+      final blocked = map['blocked'] == true;
+      if (targetUserId == null || !blocked) return;
+      final current = Map<int, SeatData>.from(state.seats);
+      for (final e in current.entries.toList()) {
+        if (e.value.userId == targetUserId) {
+          current[e.key] = SeatData(
+            seatNumber: e.key, userId: null, username: null, avatarUrl: null,
+            avatarFrameUrl: null, level: 0, isMuted: true, isLocked: e.value.isLocked,
+          );
+        }
+      }
+      state = state.copyWith(seats: current);
+    });
+
+    // Step 10: I was removed/blocked from my seat — drop my mic status.
+    _socket.on('removed_from_seat', (data) {
+      state = state.copyWith(myMicStatus: MyMicStatus.none);
+    });
+
     // In initSubscriptions / wherever you handle socket events:
     _socket.on('relation_ended', (_) {
       // Force reload room state so relation badge clears
