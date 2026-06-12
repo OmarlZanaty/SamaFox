@@ -651,7 +651,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       const SizedBox(height: 4),
                     ],
 
-                    _buildUserIdRow(user.id ?? 0, context),
+                    _buildUserIdRow(user.publicDisplayId, context),
                     const SizedBox(height: 12),
 
                     _buildStatsRow(user),
