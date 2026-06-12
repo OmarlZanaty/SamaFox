@@ -2872,10 +2872,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           },
                         );
                       }),
-                      _menuItem(Icons.mic_external_on, "تحويل نمط", Colors.white70, () {
-                        Navigator.pop(context);
-                        _openSeatCountDialog(this.context);
-                      }),
                       _menuItem(Icons.admin_panel_settings, "مسؤول الغرفة", Colors.white70, () {
                         Navigator.pop(context);
                         _openManageAdminsDialog(this.context);
