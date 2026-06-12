@@ -22,6 +22,7 @@ router.post('/unban', roomAdminController.unbanUser);
 router.post('/seat-block', roomAdminController.setSeatBlock);
 router.post('/kick', roomAdminController.kickUser);
 router.get('/:roomId/bans', roomAdminController.getBanList);
+router.get('/:roomId/moderated', roomAdminController.getModeratedUsers);
 
 // Room settings
 router.post('/lock', roomAdminController.toggleRoomLock);

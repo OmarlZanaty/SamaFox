@@ -753,6 +753,137 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   /// Block/unblock a user from taking a mic seat (Step 10).
+  /// Admin moderation list: users currently muted / seat-blocked / banned,
+  /// each with a button to lift that sanction.
+  Future<void> _showModerationSheet(BuildContext context) async {
+    Future<List<Map<String, dynamic>>> fetch() async {
+      final res = await DioClient.dio.get('/room-admin/${widget.roomId}/moderated');
+      final list = (res.data is Map) ? (res.data['data'] as List? ?? const []) : const [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFF1A0E3E),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(width: 40, height: 4, alignment: Alignment.center,
+                        decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+                      const SizedBox(height: 12),
+                      const Text('قائمة الإجراءات (كتم / منع مقعد / طرد)',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      Flexible(
+                        child: FutureBuilder<List<Map<String, dynamic>>>(
+                          future: fetch(),
+                          builder: (c, snap) {
+                            if (snap.connectionState != ConnectionState.done) {
+                              return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
+                            }
+                            final rows = snap.data ?? const [];
+                            if (rows.isEmpty) {
+                              return const Padding(padding: EdgeInsets.all(24),
+                                child: Text('لا يوجد مستخدمون عليهم إجراءات حالياً',
+                                  textAlign: TextAlign.center, style: TextStyle(color: Colors.white54)));
+                            }
+                            return ListView(
+                              shrinkWrap: true,
+                              children: rows.map((u) => _moderatedRow(ctx, u, setSheet)).toList(),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _moderatedRow(BuildContext ctx, Map<String, dynamic> u, void Function(void Function()) setSheet) {
+    final userId = (u['userId'] as num?)?.toInt();
+    final chips = <Widget>[];
+    Widget chip(String label, Color color) => Container(
+      margin: const EdgeInsets.only(left: 6, top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color)),
+      child: Text(label, style: TextStyle(color: color, fontSize: 11)),
+    );
+    if (u['forceMuted'] == true) chips.add(chip('مكتوم', Colors.orangeAccent));
+    if (u['seatBlocked'] == true) chips.add(chip('ممنوع من المقعد', Colors.deepOrangeAccent));
+    if (u['banned'] == true) chips.add(chip('مطرود', Colors.redAccent));
+
+    Future<void> lift(Future<void> Function() action) async {
+      try { await action(); setSheet(() {}); } catch (e) { _showRoomSnack('تعذر: $e', error: true); }
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            CircleAvatar(radius: 18,
+              backgroundImage: (u['avatarUrl'] ?? '').toString().isNotEmpty ? NetworkImage(u['avatarUrl']) : null,
+              child: (u['avatarUrl'] ?? '').toString().isEmpty ? const Icon(Icons.person, size: 18) : null),
+            const SizedBox(width: 10),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${u['name'] ?? ''}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Text('#${u['displayId'] ?? userId}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+            ])),
+            Wrap(children: chips),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            if (u['forceMuted'] == true)
+              _liftBtn('فك الكتم', () => lift(() => _forceMute(userId, false))),
+            if (u['seatBlocked'] == true)
+              _liftBtn('فك منع المقعد', () => lift(() => _setSeatBlock(userId, false))),
+            if (u['banned'] == true)
+              _liftBtn('فك الطرد', () => lift(() => DioClient.dio.post('/room-admin/unban',
+                data: {'roomId': widget.roomId, 'userId': userId}))),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _liftBtn(String label, VoidCallback onTap) => Padding(
+    padding: const EdgeInsets.only(left: 8),
+    child: ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF6B4CE6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: Size.zero,
+      ),
+      child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+    ),
+  );
+
   /// Admin force-mute (Step 10): mutes the target's mic; they cannot unmute
   /// themselves until an admin lifts it. Backend emits seat_mute_changed.
   Future<void> _forceMute(int? userId, bool muted) async {
@@ -3235,6 +3366,24 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           ),
                         ),
                       ),
+                      if (isAdmin) ...[
+                        const SizedBox(width: 6),
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () => _showModerationSheet(context),
+                            child: Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Icon(Icons.gavel, color: Colors.white, size: 16),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: 8),
 
                       // ✅ ADD before the close IconButton in the header Row

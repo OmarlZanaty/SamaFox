@@ -216,6 +216,62 @@ export async function unbanUser(req: Request, res: Response) {
   }
 }
 
+// Combined moderation list: everyone in the room with an active sanction
+// (force-muted, seat-blocked, or banned). Admin can lift any of them.
+export async function getModeratedUsers(req: Request, res: Response) {
+  try {
+    const roomId = toInt(req.params.roomId);
+    const requesterId = (req as any).userId as number | undefined;
+
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roomId) return res.status(400).json({ error: 'Invalid roomId' });
+
+    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can view this list' });
+
+    const [members, bans] = await Promise.all([
+      prisma.roomMember.findMany({
+        where: { roomId, OR: [{ forceMuted: true }, { seatBlocked: true }] },
+        include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      }),
+      prisma.roomBan.findMany({
+        where: { roomId },
+        include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      }),
+    ]);
+
+    const map = new Map<number, any>();
+    const ensure = (u: any) => {
+      if (!map.has(u.id)) {
+        map.set(u.id, {
+          userId: u.id, name: u.name, avatarUrl: u.avatarUrl, displayId: u.displayId,
+          forceMuted: false, seatBlocked: false, banned: false, banExpiresAt: null,
+        });
+      }
+      return map.get(u.id);
+    };
+
+    for (const m of members) {
+      const row = ensure(m.user);
+      row.forceMuted = !!m.forceMuted;
+      row.seatBlocked = !!m.seatBlocked;
+    }
+    const now = Date.now();
+    for (const b of bans) {
+      // Skip expired temporary bans.
+      if (b.expiresAt && new Date(b.expiresAt).getTime() <= now) continue;
+      const row = ensure(b.user);
+      row.banned = true;
+      row.banExpiresAt = b.expiresAt;
+    }
+
+    return res.json({ success: true, data: Array.from(map.values()) });
+  } catch (e) {
+    console.error('getModeratedUsers error:', e);
+    return res.status(500).json({ error: 'Failed to fetch moderated users' });
+  }
+}
+
 export async function getBanList(req: Request, res: Response) {
   try {
     const roomId = toInt(req.params.roomId);
