@@ -396,6 +396,20 @@ export async function updateRoomBackground(req: Request, res: Response) {
     const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can change room background' });
 
+    // Custom backgrounds uploaded from the device cost 20,000 coins.
+    const chargeUpload = req.body.chargeUpload === true || req.body.chargeUpload === 'true';
+    const UPLOAD_BG_COST = 20000;
+    if (chargeUpload) {
+      const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { coinsBalance: true } });
+      if (!u || u.coinsBalance < UPLOAD_BG_COST) {
+        return res.status(400).json({ error: 'INSUFFICIENT_COINS', message: 'رصيد الكوينز غير كافٍ (تكلفة الخلفية 20,000)' });
+      }
+      await prisma.user.update({ where: { id: requesterId }, data: { coinsBalance: { decrement: UPLOAD_BG_COST } } });
+      await prisma.transaction.create({
+        data: { userId: requesterId, type: 'ROOM_BACKGROUND', amountCoins: -UPLOAD_BG_COST, status: 'completed' },
+      });
+    }
+
     const room = await prisma.room.update({ where: { id: roomId }, data: { backgroundImageUrl } });
 
     // Live update for everyone currently in the room.
@@ -444,6 +458,9 @@ export async function clearChat(req: Request, res: Response) {
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can clear chat' });
 
     await prisma.roomMessage.deleteMany({ where: { roomId } });
+
+    // Tell every client in the room to clear their chat immediately.
+    io.to(`room:${roomId}`).emit('chat_cleared', { roomId });
 
     return res.json({ success: true, message: 'Chat cleared' });
   } catch (e) {

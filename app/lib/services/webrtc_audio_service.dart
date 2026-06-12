@@ -192,13 +192,12 @@ class WebRTCAudioService {
     }
   }
 
-  /// When user is TALKING: use earpiece (speaker OFF) to avoid echo.
-  /// When user is LISTENING: use speaker ON.
+  /// Always route audio to the loudspeaker (both talking and listening).
+  /// Echo/noise are handled by the WebRTC AEC/NS processing, so we keep the
+  /// speaker on so the mic is heard out loud and never falls back to earpiece.
   Future<void> _applyEchoSafeMode({required bool talking}) async {
     if (!Platform.isAndroid) return;
-
-    // talking => speaker OFF (earpiece), listening => speaker ON
-    await _applyAndroidAudioRoute(speakerOn: !talking);
+    await _applyAndroidAudioRoute(speakerOn: true);
   }
 
 

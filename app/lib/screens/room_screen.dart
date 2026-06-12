@@ -2440,6 +2440,24 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     required bool isBackground,
   }) async {
     try {
+      // Uploading a custom background from the device costs 20,000 coins.
+      if (isBackground) {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF2A1A5E),
+            title: const Text('خلفية مخصصة', style: TextStyle(color: Colors.white)),
+            content: const Text('سيتم خصم 20,000 كوينز لرفع خلفية من جهازك. متابعة؟',
+                style: TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('متابعة')),
+            ],
+          ),
+        );
+        if (ok != true) return;
+      }
+
       final picked = await _picker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 85,
@@ -2468,6 +2486,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           'roomId': widget.roomId,
           'room_id': widget.roomId,
           'backgroundImageUrl': uploadedUrl,
+          'chargeUpload': true,
         });
       } else {
         await _updateRoomImageInBackend(uploadedUrl, isCover: true);
@@ -2885,7 +2904,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _menuItem(Icons.bar_chart, "نقاط الميكروفون", Colors.white70, () {
+                      _menuItem(Icons.bar_chart, "نمط الميكروفون", Colors.white70, () {
                         Navigator.pop(context);
                         _openSeatCountDialog(this.context);
                       }),
@@ -2893,7 +2912,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         Navigator.pop(context);
                         _openBackgroundChooser();
                       }),
-                      _menuItem(Icons.mic, "غلاف الميكروفون", Colors.white70, () {
+                      _menuItem(Icons.mic, "نقاط الميكروفون", Colors.white70, () {
                         Navigator.pop(context);
                         _openBackpackSheet(this.context, typeFilter: 'seat_effect');
                       }),
@@ -3331,13 +3350,29 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          roomName.isNotEmpty ? roomName : 'Room #${widget.roomId}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              roomName.isNotEmpty ? roomName : 'Room #${widget.roomId}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Builder(builder: (_) {
+                              final ownerDid = room?.owner?.publicDisplayId ?? state.ownerId;
+                              if (ownerDid == null || ownerDid == 0) return const SizedBox.shrink();
+                              return Text(
+                                'ID: $ownerDid',
+                                style: const TextStyle(color: Colors.white60, fontSize: 11),
+                              );
+                            }),
+                          ],
                         ),
                       ),
 

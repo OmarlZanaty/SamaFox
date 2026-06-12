@@ -720,6 +720,13 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       state = state.copyWith(myMicStatus: MyMicStatus.none);
     });
 
+    // Admin cleared the chat — clear it for everyone live.
+    _socket.on('chat_cleared', (data) {
+      final rid = (data is Map) ? (_safeInt(data['roomId']) ?? _safeInt(data['room_id'])) : null;
+      if (rid != null && rid != roomId) return;
+      clearMessages();
+    });
+
     // In initSubscriptions / wherever you handle socket events:
     _socket.on('relation_ended', (_) {
       // Force reload room state so relation badge clears
