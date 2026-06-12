@@ -4259,7 +4259,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 26),
-              child: Column(
+              child: SingleChildScrollView(
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
 
@@ -4525,6 +4526,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     }),
                   ]),
                 ],
+              ),
               ),
             ),
           ),
