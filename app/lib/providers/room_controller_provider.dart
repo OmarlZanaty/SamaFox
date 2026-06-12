@@ -675,6 +675,23 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     _socket.on('seat_mute_changed', (data) {
       debugPrint('🧪 RAW seat_mute_changed => $data');
+      if (data is! Map) return;
+      final map = Map<String, dynamic>.from(data);
+      final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
+      if (rid != null && rid != roomId) return;
+      final targetUserId = _safeInt(map['userId']) ?? _safeInt(map['user_id']);
+      if (targetUserId == null) return;
+      final muted = map['isMuted'] == true || map['isMuted']?.toString() == 'true';
+      final forced = map['forced'] == true || map['forced']?.toString() == 'true';
+
+      final current = Map<int, SeatData>.from(state.seats);
+      MapEntry<int, SeatData>? entry;
+      for (final e in current.entries) {
+        if (e.value.userId == targetUserId) { entry = e; break; }
+      }
+      if (entry == null) return;
+      current[entry.key] = entry.value.copyWith(isMuted: muted, forceMuted: forced);
+      state = state.copyWith(seats: current);
     });
 
     // In initSubscriptions / wherever you handle socket events:

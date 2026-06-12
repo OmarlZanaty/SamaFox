@@ -1211,6 +1211,7 @@ class SeatData {
   final int level;
   final bool isMuted;
   final bool isLocked;
+  final bool forceMuted; // admin force-mute: user cannot unmute themselves
   bool isSpeaking;
 
   SeatData({
@@ -1225,6 +1226,7 @@ class SeatData {
     required this.level,
     required this.isMuted,
     required this.isLocked,
+    this.forceMuted = false,
     this.isSpeaking = false,
   });
 
@@ -1240,6 +1242,7 @@ class SeatData {
     level: 0,
     isMuted: true,
     isLocked: false,
+    forceMuted: false,
     isSpeaking: false,
   );
 
@@ -1254,6 +1257,7 @@ class SeatData {
     int? level,
     bool? isMuted,
     bool? isLocked,
+    bool? forceMuted,
     bool? isSpeaking,
   }) {
     return SeatData(
@@ -1268,6 +1272,7 @@ class SeatData {
       level: level ?? this.level,
       isMuted: isMuted ?? this.isMuted,
       isLocked: isLocked ?? this.isLocked,
+      forceMuted: forceMuted ?? this.forceMuted,
       isSpeaking: isSpeaking ?? this.isSpeaking,
     );
   }
@@ -1296,7 +1301,7 @@ class SeatData {
       level: toInt(json['level']),
       isMuted: rawMuted == true || rawMuted?.toString() == 'true',
       isLocked: rawLocked == true || rawLocked?.toString() == 'true',
-
+      forceMuted: (json['forceMuted'] ?? json['force_muted']) == true,
     );
   }
 }

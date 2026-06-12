@@ -753,6 +753,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   /// Block/unblock a user from taking a mic seat (Step 10).
+  /// Admin force-mute (Step 10): mutes the target's mic; they cannot unmute
+  /// themselves until an admin lifts it. Backend emits seat_mute_changed.
+  Future<void> _forceMute(int? userId, bool muted) async {
+    if (userId == null) return;
+    try {
+      await DioClient.dio.post('/room-admin/mute', data: {
+        'roomId': widget.roomId,
+        'userId': userId,
+        'isMuted': muted,
+      });
+      _showRoomSnack(muted ? 'تم كتم المستخدم (لا يمكنه فتح المايك)' : 'تم رفع الكتم عن المستخدم');
+    } catch (e) {
+      _showRoomSnack('تعذر تنفيذ الإجراء: $e', error: true);
+    }
+  }
+
   Future<void> _setSeatBlock(int? userId, bool blocked) async {
     if (userId == null) return;
     try {
@@ -1623,6 +1639,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final state = ref.read(roomControllerProvider(widget.roomId));
     final seat = state.seats[seatNumber];
     if (seat == null) return;
+
+    // Step 10: admin force-mute — block self-unmute and keep the mic off.
+    if (seat.forceMuted) {
+      await AudioController.instance.setMicEnabled(false);
+      if (_audioReady) await _audioService.muteAudio();
+      _showRoomSnack('تم كتمك من قبل المشرف، لا يمكنك فتح المايك', error: true);
+      return;
+    }
 
     final isMicTurningOn = seat.isMuted;
     await AudioController.instance.setMicEnabled(isMicTurningOn);
@@ -2878,6 +2902,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final auth = ref.watch(authStateProvider);
     final state = ref.watch(roomControllerProvider(widget.roomId));
     final userId = auth.user?.id;
+
+    // Step 10: when an admin force-mutes me, cut my live mic immediately.
+    ref.listen(roomControllerProvider(widget.roomId), (prev, next) {
+      final me = ref.read(authStateProvider).user?.id;
+      if (me == null) return;
+      final wasForced = prev?.seats.values
+          .any((s) => s.userId == me && s.forceMuted) ?? false;
+      final isForced = next.seats.values
+          .any((s) => s.userId == me && s.forceMuted);
+      if (isForced && !wasForced) {
+        AudioController.instance.setMicEnabled(false);
+        if (_audioReady) _audioService.muteAudio();
+        _showRoomSnack('تم كتمك من قبل المشرف');
+      }
+    });
 
     final room = ref.watch(roomsProvider).findById(widget.roomId);
     final restOwnerId = room?.ownerId ?? room?.owner?.id ?? 0;
@@ -4194,9 +4233,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                   // ── منع / سماح الجلوس على المايك ──
                   _adminSeatOption(
-                    label: 'منع من المايك',
-                    icon: Icons.mic_off,
+                    label: seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك (كتم)',
+                    icon: seat.forceMuted ? Icons.mic : Icons.mic_off,
                     color: Colors.orangeAccent,
+                    onTap: () async {
+                      Navigator.pop(context);
+                      await _forceMute(seat.userId, !seat.forceMuted);
+                    },
+                  ),
+
+                  // ── منع من المقعد (لا يستطيع الجلوس) ──
+                  _adminSeatOption(
+                    label: 'منع من المقعد',
+                    icon: Icons.event_seat,
+                    color: Colors.deepOrangeAccent,
                     onTap: () async {
                       Navigator.pop(context);
                       await _setSeatBlock(seat.userId, true);

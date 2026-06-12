@@ -143,9 +143,10 @@ export async function muteUser(req: Request, res: Response) {
 
     // Admin mute is a FORCE mute: the user cannot unmute themselves until an
     // admin unmutes them (which also clears the force flag).
-    const member = await prisma.roomMember.update({
+    const member = await prisma.roomMember.upsert({
       where: { userId_roomId: { userId, roomId } },
-      data: { isMuted, forceMuted: isMuted },
+      update: { isMuted, forceMuted: isMuted },
+      create: { userId, roomId, isMuted, forceMuted: isMuted, role: 'member' },
     });
 
     // Live update so the target's mic flips immediately.
