@@ -18,6 +18,9 @@ class SeatsGrid extends StatelessWidget {
   /// ✅ NEW: seat keys for animation system
   final Map<int, GlobalKey> seatKeys;
 
+  /// userId -> coins received in this room (last 24h)
+  final Map<int, int> seatEarnings;
+
   const SeatsGrid({
     super.key,
     required this.seats,
@@ -29,6 +32,7 @@ class SeatsGrid extends StatelessWidget {
     required this.adminIds,
     required this.lockedSeats,
     required this.seatKeys, // ✅ NEW
+    this.seatEarnings = const {},
     this.scrollable = false,
   });
 
@@ -87,6 +91,7 @@ class SeatsGrid extends StatelessWidget {
                     isSeatLocked: isLocked,
                     isOwnerSeat: isOwnerSeat,
                     isAdminSeat: isAdminSeat,
+                    coins24h: uid != null ? (seatEarnings[uid] ?? 0) : 0,
                     onTap: () => onSeatTap(seatNumber, seat),
                   ),
                 );

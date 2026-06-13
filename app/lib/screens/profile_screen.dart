@@ -221,6 +221,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     setState(() => activating = false);
   }
 
+  /// Un-use (deactivate) an in-use product so it's no longer equipped.
+  Future<void> deactivateItem(InventoryItem item) async {
+    if (activating) return;
+    setState(() => activating = true);
+    try {
+      final token = await StorageService.getAccessToken();
+      if (item.type == "avatar_frame" || item.type == "FRAME") {
+        await _service.deactivateFrame(token!);
+        setState(() => activeFrame = null);
+      } else if (item.type == "seat_effect") {
+        // Clear the seat effect for everyone by sending an empty one.
+        await SocketService().waitUntilConnected();
+        SocketService().sendSeatEffect({"video": ""});
+      }
+      await loadInventory(force: true);
+    } catch (e) {
+      debugPrint("DEACTIVATE ERROR: $e");
+    }
+    setState(() => activating = false);
+  }
+
   /// Fetch received gifts from backend
   Future<void> _fetchReceivedGifts() async {
     try {
@@ -291,9 +312,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             ),
             const SizedBox(height: 8),
             if (item.isActive)
-              const Text(
-                "ACTIVE",
-                style: TextStyle(color: Colors.greenAccent, fontSize: 12),
+              SizedBox(
+                height: 34,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    backgroundColor: Colors.redAccent,
+                  ),
+                  onPressed: activating ? null : () => deactivateItem(item),
+                  child: const Text("إلغاء الاستخدام", style: TextStyle(fontSize: 12, color: Colors.white)),
+                ),
               )
             else
               SizedBox(
@@ -306,7 +334,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   onPressed: activating
                       ? null
                       : () => activateItem(item.id),
-                  child: const Text("Use", style: TextStyle(fontSize: 12)),
+                  child: const Text("استخدام", style: TextStyle(fontSize: 12)),
                 ),
               ),
             const SizedBox(height: 8),

@@ -18,6 +18,28 @@ const router = Router();
    =========================== */
 
 router.get('/', optionalAuth, getRooms);
+
+// Coins each user received as gifts IN THIS ROOM over the last 24h.
+// Returns { data: { "<userId>": <coins> } } for the seated users.
+router.get('/:roomId/seat-earnings', optionalAuth, async (req, res) => {
+  try {
+    const roomId = Number(req.params.roomId);
+    if (!roomId) return res.status(400).json({ success: false, message: 'Invalid roomId' });
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rows = await prisma.giftTransaction.groupBy({
+      by: ['recipientId'],
+      where: { roomId, createdAt: { gte: since } },
+      _sum: { totalCoins: true },
+    });
+    const data: Record<string, number> = {};
+    for (const r of rows) data[String(r.recipientId)] = r._sum.totalCoins ?? 0;
+    return res.json({ success: true, data });
+  } catch (e) {
+    console.error('seat-earnings error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+});
+
 router.get('/:roomId', optionalAuth, getRoomById);
 
 /* ===========================

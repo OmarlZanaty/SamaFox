@@ -32,6 +32,7 @@ class RoomControllerState {
   final Set<int> mutedSeats; // admin-muted seats (occupant cannot speak)
   final List<RoomEvent> events; // ✅ NEW
   final Map<int, User> onlineUsers;
+  final Map<int, int> seatEarnings24h; // userId -> coins received in room (24h)
 
   const RoomControllerState({
     required this.roomId,
@@ -50,6 +51,7 @@ class RoomControllerState {
     this.mutedSeats = const <int>{},
     this.events = const <RoomEvent>[], // ✅ NEW
     this.onlineUsers = const {},
+    this.seatEarnings24h = const {},
   });
 
 
@@ -70,6 +72,7 @@ class RoomControllerState {
     String? roomImageUrl,           // ✅ NEW
     String? roomBackgroundUrl,      // ✅ NEW
     Map<int, User>? onlineUsers,
+    Map<int, int>? seatEarnings24h,
   }) {
     return RoomControllerState(
       roomId: roomId,
@@ -88,6 +91,7 @@ class RoomControllerState {
       mutedSeats: mutedSeats ?? this.mutedSeats,
       events: events ?? this.events, // ✅ NEW
       onlineUsers: onlineUsers ?? this.onlineUsers,
+      seatEarnings24h: seatEarnings24h ?? this.seatEarnings24h,
     );
   }
 }
@@ -110,8 +114,13 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   StreamSubscription<Map<String, dynamic>>? _approveMicSub; // ✅ NEW
   StreamSubscription<dynamic>? _seatLockSub;
 
+  Timer? _earningsTimer;
+
   RoomControllerNotifier({required this.ref, required this.roomId})
-      : super(RoomControllerState(roomId: roomId));
+      : super(RoomControllerState(roomId: roomId)) {
+    // Keep the per-seat 24h gift totals reasonably fresh.
+    _earningsTimer = Timer.periodic(const Duration(seconds: 25), (_) => refreshSeatEarnings());
+  }
 
   // ----------------------------
   // Lifecycle
@@ -126,6 +135,23 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     state = state.copyWith(seatCount: safe);
   }
   int? _pendingSeatNumber;
+
+  /// Fetch per-user coins received in this room over the last 24h.
+  Future<void> refreshSeatEarnings() async {
+    try {
+      final res = await DioClient.dio.get('/rooms/$roomId/seat-earnings');
+      final data = res.data is Map ? res.data['data'] : null;
+      if (data is Map) {
+        final map = <int, int>{};
+        data.forEach((k, v) {
+          final uid = int.tryParse('$k');
+          final coins = (v is num) ? v.toInt() : int.tryParse('$v');
+          if (uid != null && coins != null) map[uid] = coins;
+        });
+        state = state.copyWith(seatEarnings24h: map);
+      }
+    } catch (_) {/* non-fatal */}
+  }
 
   Future<void> loadRoomDetails() async {
     // Fetch the room detail FRESH from the API. The cached rooms list can be
@@ -146,6 +172,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
           roomBackgroundUrl: (bg != null && bg.isNotEmpty) ? bg : null,
         );
         debugPrint('🔄 Room details (fresh) loaded for room=$roomId bg=$bg');
+        unawaited(refreshSeatEarnings());
         return;
       }
     } catch (e) {
@@ -1321,6 +1348,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _approveMicSub?.cancel();
     _seatLockSub?.cancel();
     _reconnectSub?.cancel(); // ✅ ADD
+    _earningsTimer?.cancel();
     closeRoom();
     super.dispose();
   }

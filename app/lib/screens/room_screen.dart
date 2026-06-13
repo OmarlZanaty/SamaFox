@@ -3573,6 +3573,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         lockedSeats: state.lockedSeats,
                         ownerId: state.ownerId,
                         adminIds: state.adminIds,
+                        seatEarnings: state.seatEarnings24h,
                           onSeatTap: (seatNumber, seat) {
                             _onSeatTap(context, seatNumber, seat, userId ?? 0, isAdmin);
                           }
