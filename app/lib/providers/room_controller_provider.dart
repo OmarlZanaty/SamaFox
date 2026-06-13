@@ -29,6 +29,7 @@ class RoomControllerState {
   final String? roomBackgroundUrl;   // ✅ NEW
   final MyMicStatus myMicStatus; // ✅ NEW
   final Set<int> lockedSeats;
+  final Set<int> mutedSeats; // admin-muted seats (occupant cannot speak)
   final List<RoomEvent> events; // ✅ NEW
   final Map<int, User> onlineUsers;
 
@@ -46,6 +47,7 @@ class RoomControllerState {
     this.roomBackgroundUrl,         // ✅ NEW
     this.myMicStatus = MyMicStatus.none,
     this.lockedSeats = const <int>{}, // ✅ NEW
+    this.mutedSeats = const <int>{},
     this.events = const <RoomEvent>[], // ✅ NEW
     this.onlineUsers = const {},
   });
@@ -63,6 +65,7 @@ class RoomControllerState {
     bool? isOpen,
     MyMicStatus? myMicStatus,
     Set<int>? lockedSeats,            // ✅ NEW (nullable param)
+    Set<int>? mutedSeats,
     List<RoomEvent>? events, // ✅ NEW
     String? roomImageUrl,           // ✅ NEW
     String? roomBackgroundUrl,      // ✅ NEW
@@ -82,6 +85,7 @@ class RoomControllerState {
       roomBackgroundUrl: roomBackgroundUrl ?? this.roomBackgroundUrl,  // ✅ NEW
       myMicStatus: myMicStatus ?? this.myMicStatus,
       lockedSeats: lockedSeats ?? this.lockedSeats,   // ✅ NEW (keep existing)
+      mutedSeats: mutedSeats ?? this.mutedSeats,
       events: events ?? this.events, // ✅ NEW
       onlineUsers: onlineUsers ?? this.onlineUsers,
     );
@@ -246,6 +250,26 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // force refresh (if backend supports)
     _socket.emit('get_room_seats_state', {'roomId': roomId});
     _socket.emit('request_room_seats_state', {'roomId': roomId});
+  }
+
+  void setSeatMutedLocal({required int seatNumber, required bool muted}) {
+    final next = Set<int>.from(state.mutedSeats);
+    if (muted) { next.add(seatNumber); } else { next.remove(seatNumber); }
+    state = state.copyWith(mutedSeats: next);
+  }
+
+  // Admin mutes/unmutes a whole seat position (occupant cannot speak).
+  Future<void> toggleSeatMute({required int seatNumber, required bool muted}) async {
+    setSeatMutedLocal(seatNumber: seatNumber, muted: muted);
+    await _socket.waitUntilConnected(timeout: const Duration(seconds: 5));
+    if (!_socket.isConnected) return;
+    _socket.emit('seat_mute_lock', {
+      'roomId': state.roomId,
+      'room_id': state.roomId,
+      'seatNumber': seatNumber,
+      'seat_number': seatNumber,
+      'muted': muted,
+    });
   }
 
 
@@ -725,6 +749,18 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final rid = (data is Map) ? (_safeInt(data['roomId']) ?? _safeInt(data['room_id'])) : null;
       if (rid != null && rid != roomId) return;
       clearMessages();
+    });
+
+    // Admin muted/unmuted a seat position.
+    _socket.on('seat_mute_lock', (data) {
+      if (data is! Map) return;
+      final map = Map<String, dynamic>.from(data);
+      final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
+      if (rid != null && rid != roomId) return;
+      final sn = _safeInt(map['seatNumber']) ?? _safeInt(map['seat_number']);
+      if (sn == null) return;
+      final muted = map['muted'] == true || map['muted']?.toString() == 'true';
+      setSeatMutedLocal(seatNumber: sn, muted: muted);
     });
 
     // In initSubscriptions / wherever you handle socket events:

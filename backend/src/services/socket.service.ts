@@ -457,6 +457,21 @@ socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
   await emitRoomState(io, rid);
 });
 
+// Admin mutes/unmutes a seat position — broadcast so all clients reflect it.
+socket.on('seat_mute_lock', async ({ roomId, seatNumber, muted }: any) => {
+  const rid = toInt(roomId);
+  const sn = toInt(seatNumber);
+  const uid = socket.userId;
+  if (!rid || !sn || !uid) return;
+  await populateAdmins(rid);
+  if (!getAdmins(rid).has(uid)) return; // only admin/owner
+  io.to(`room:${rid}`).emit('seat_mute_lock', {
+    roomId: rid,
+    seatNumber: sn,
+    muted: muted === true || muted?.toString() === 'true',
+  });
+});
+
 socket.on('take_seat', async ({ roomId, seatNumber }: any) => {
   try {
   const rid = toInt(roomId);

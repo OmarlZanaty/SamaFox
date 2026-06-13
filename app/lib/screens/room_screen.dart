@@ -753,6 +753,72 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   /// Block/unblock a user from taking a mic seat (Step 10).
+  /// Admin options for an EMPTY seat: lock/unlock and mute/unmute the seat.
+  void _showEmptySeatAdminSheet(BuildContext context, int seatNumber) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        final st = ref.read(roomControllerProvider(widget.roomId));
+        final isLocked = st.lockedSeats.contains(seatNumber);
+        final isMuted = st.mutedSeats.contains(seatNumber);
+        final notifier = ref.read(roomControllerProvider(widget.roomId).notifier);
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF1A0E3E),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 40, height: 4,
+                    decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 8),
+                  Text('المقعد رقم $seatNumber',
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  _adminSeatOption(
+                    label: isMuted ? 'فك كتم المقعد' : 'كتم المقعد',
+                    icon: isMuted ? Icons.mic : Icons.mic_off,
+                    color: Colors.orangeAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      notifier.toggleSeatMute(seatNumber: seatNumber, muted: !isMuted);
+                      _showRoomSnack(isMuted ? 'تم فك كتم المقعد $seatNumber' : 'تم كتم المقعد $seatNumber');
+                    },
+                  ),
+                  _adminSeatOption(
+                    label: isLocked ? 'فك قفل المقعد' : 'قفل المقعد',
+                    icon: isLocked ? Icons.lock_open : Icons.lock,
+                    color: Colors.lightBlueAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      notifier.toggleSeatLock(seatNumber: seatNumber, locked: !isLocked);
+                      _showRoomSnack(isLocked ? 'تم فك قفل المقعد $seatNumber' : 'تم قفل المقعد $seatNumber');
+                    },
+                  ),
+                  _adminSeatOption(
+                    label: 'الجلوس على هذا المقعد',
+                    icon: Icons.event_seat,
+                    color: Colors.greenAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      ref.read(roomControllerProvider(widget.roomId).notifier)
+                          .takeSeat(seatNumber: seatNumber);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// Admin moderation list: users currently muted / seat-blocked / banned,
   /// each with a button to lift that sanction.
   Future<void> _showModerationSheet(BuildContext context) async {
@@ -1771,11 +1837,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final seat = state.seats[seatNumber];
     if (seat == null) return;
 
-    // Step 10: admin force-mute — block self-unmute and keep the mic off.
-    if (seat.forceMuted) {
+    // Step 10: admin force-mute (per-user) or seat-mute (per-seat) — block self-unmute.
+    final seatMuted = state.mutedSeats.contains(seatNumber);
+    if (seat.forceMuted || seatMuted) {
       await AudioController.instance.setMicEnabled(false);
       if (_audioReady) await _audioService.muteAudio();
-      _showRoomSnack('تم كتمك من قبل المشرف، لا يمكنك فتح المايك', error: true);
+      _showRoomSnack('هذا المقعد مكتوم من المشرف، لا يمكنك فتح المايك', error: true);
       return;
     }
 
@@ -4100,6 +4167,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // ==========================
 
     if (seat.userId == null) {
+
+      // Admin tapping an empty seat → lock/mute controls for that seat.
+      if (isAdmin) {
+        _showEmptySeatAdminSheet(context, seatNumber);
+        return;
+      }
 
       int? myCurrentSeat;
       final state = ref.read(roomControllerProvider(widget.roomId));
