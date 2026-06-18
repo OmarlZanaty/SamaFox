@@ -4302,285 +4302,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
 
     final isMine = seat.userId == myUserId;
-    if (isMine) {
-      if (seat.relationPartner != null) {
-        _showLeaveSeatSheet(context, seatNumber, seat);
-      } else {
-        // simple leave seat sheet for users without a relation
-        showModalBottomSheet(
-          context: context,
-          backgroundColor: Colors.transparent,
-          builder: (ctx) => Container(
-            margin: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2A1655),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 40, height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'مغادرة المقعد',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'هل تريد مغادرة مقعدك الحالي؟',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    const SizedBox(height: 28),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Colors.white24),
-                            ),
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('إلغاء', style: TextStyle(color: Colors.white70)),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent,
-                            ),
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              _emitLeaveSeat(seatNumber);
-                            },
-                            child: const Text('مغادرة', style: TextStyle(color: Colors.white)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      }
+
+    // Relation-seat leave has its own special sheet
+    if (isMine && seat.relationPartner != null) {
+      _showLeaveSeatSheet(context, seatNumber, seat);
       return;
     }
 
-    // ── Admin tap on occupied seat ──
-    if (isAdmin) {
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (_) {
-          return Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF1A0E3E),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SafeArea(
-              child: SingleChildScrollView(
-                child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 12),
-                  // drag handle
-                  Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // user info header
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundImage: seat.avatarUrl != null
-                              ? NetworkImage(seat.avatarUrl!)
-                              : null,
-                          child: seat.avatarUrl == null
-                              ? const Icon(Icons.person, color: Colors.white)
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              seat.username ?? 'Unknown',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            Text(
-                              'الميكروفون $seatNumber',
-                              style: const TextStyle(color: Colors.white54, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-                  Divider(color: Colors.white.withOpacity(0.1)),
-
-                  // ── عرض ملف التعريف ──
-                  _adminSeatOption(
-                    label: 'عرض ملف التعريف',
-                    icon: Icons.person_outline,
-                    color: Colors.white,
-                    onTap: () {
-                      Navigator.pop(context);
-                      final roomState = ref.read(roomControllerProvider(widget.roomId));
-                      ref.read(pipProvider.notifier).activate(
-                        roomId: widget.roomId,
-                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
-                        roomImageUrl: roomState.roomImageUrl,
-                      );
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ProfileScreen(userId: seat.userId!),
-                        ),
-                      );
-                    },
-                  ),
-
-                  // ── إزالة من الميكروفون ──
-                  _adminSeatOption(
-                    label: 'إزالة من الميكروفون',
-                    icon: Icons.mic_off,
-                    color: Colors.orangeAccent,
-                    onTap: () {
-                      Navigator.pop(context);
-                      ref.read(roomControllerProvider(widget.roomId).notifier)
-                          .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
-                      SocketService().emit('remove_from_seat', {
-                        'roomId': widget.roomId,
-                        'seatNumber': seatNumber,
-                        'targetUserId': seat.userId,
-                      });
-                      _showRoomSnack('تم إزالة المستخدم من الميكروفون');
-                    },
-                  ),
-
-                  // ── قفل / فك قفل مقعد الميكروفون ──
-                  Builder(builder: (ctx) {
-                    final isSeatLocked = ref
-                        .read(roomControllerProvider(widget.roomId))
-                        .lockedSeats
-                        .contains(seatNumber);
-                    return _adminSeatOption(
-                      label: isSeatLocked ? 'فك قفل مقعد الميكروفون' : 'قفل مقعد الميكروفون',
-                      icon: isSeatLocked ? Icons.lock_open : Icons.lock_outline,
-                      color: isSeatLocked ? Colors.lightGreenAccent : Colors.amberAccent,
-                      onTap: () {
-                        Navigator.pop(context);
-                        final newLocked = !isSeatLocked;
-                        // Optimistic local update + socket emit via controller
-                        ref
-                            .read(roomControllerProvider(widget.roomId).notifier)
-                            .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
-                        _showRoomSnack(
-                          newLocked
-                              ? 'تم قفل مقعد الميكروفون $seatNumber'
-                              : 'تم فك قفل مقعد الميكروفون $seatNumber',
-                        );
-                      },
-                    );
-                  }),
-
-                  // ── تعيين مشرف (مشرف له صلاحيات الأدمن عدا التصرف بالأدمن) ──
-                  _adminSeatOption(
-                    label: 'تعيين مشرف للغرفة',
-                    icon: Icons.shield_moon_outlined,
-                    color: Colors.cyanAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _appointSupervisor(seat.userId);
-                    },
-                  ),
-
-                  // ── منع / سماح الجلوس على المايك ──
-                  _adminSeatOption(
-                    label: seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك (كتم)',
-                    icon: seat.forceMuted ? Icons.mic : Icons.mic_off,
-                    color: Colors.orangeAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _forceMute(seat.userId, !seat.forceMuted);
-                    },
-                  ),
-
-                  // ── منع من المقعد (لا يستطيع الجلوس) ──
-                  _adminSeatOption(
-                    label: 'منع من المقعد',
-                    icon: Icons.event_seat,
-                    color: Colors.deepOrangeAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _setSeatBlock(seat.userId, true);
-                    },
-                  ),
-
-                  // ── إزالة من الغرفة (مع مدة) ──
-                  _adminSeatOption(
-                    label: 'طرد من الغرفة',
-                    icon: Icons.exit_to_app,
-                    color: Colors.redAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _promptKickUser(seat.userId);
-                    },
-                  ),
-
-                  // ── تعيين مظهر قاعدة المايك ──
-                  _adminSeatOption(
-                    label: 'تعيين مظهر قاعدة المايك (مستوى الغرفة 20)',
-                    icon: Icons.mic_external_on,
-                    color: Colors.lightBlueAccent,
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openBackpackSheet(context, typeFilter: 'seat_effect');
-                    },
-                  ),
-
-                  // ── إلغاء ──
-                  _adminSeatOption(
-                    label: 'إلغاء',
-                    icon: Icons.close,
-                    color: Colors.white54,
-                    onTap: () => Navigator.pop(context),
-                  ),
-
-                  const SizedBox(height: 8),
-                ],
-              ),
-              ),
-            ),
-          );
-        },
-      );
-      return;
-    }
-// ── Non-admin: show profile card (existing code below) ──
+    // ── Unified profile dialog (self / admin / regular user) ──
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -4617,20 +4346,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                   // AVATAR + FRAME
                   GestureDetector(
-                    onTap: () {
-                      // 1) Close the seat dialog
+                    onTap: isMine ? null : () {
                       Navigator.pop(context);
-
-                      // 2) Minimize room to PiP (keeps audio/socket alive)
                       final roomState = ref.read(roomControllerProvider(widget.roomId));
                       ref.read(pipProvider.notifier).activate(
                         roomId: widget.roomId,
                         roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
                         roomImageUrl: roomState.roomImageUrl,
                       );
-
-                      // 3) Go to user profile
-                      // ⚠️ Replace ProfileScreen with your actual profile widget
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => ProfileScreen(userId: seat.userId!),
@@ -4813,57 +4536,134 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ]),
                   const SizedBox(height: 14),
 
-                  // ACTIONS
-                  Row(children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
+                  // ACTIONS — role-based
+                  if (isMine) ...[
+                    // Own seat: leave button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        icon: const Icon(Icons.logout, color: Colors.white),
+                        label: const Text('مغادرة المقعد', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                        onPressed: () {
                           Navigator.pop(context);
-                          _openGiftSheetToUser(context, _Recipient(
-                              id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                          _emitLeaveSeat(seatNumber);
                         },
-                        child: Container(
-                          height: 50,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                                colors: [Color(0xFF9333EA), Color(0xFFDB2777)]),
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(color: Colors.white.withOpacity(0.15)),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.card_giftcard, color: Colors.white, size: 22),
-                              SizedBox(width: 8),
-                              Text('إرسال', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                            ],
+                      ),
+                    ),
+                  ] else ...[
+                    // Other user: gift + social buttons
+                    Row(children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.pop(context);
+                            _openGiftSheetToUser(context, _Recipient(
+                                id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                          },
+                          child: Container(
+                            height: 50,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFF9333EA), Color(0xFFDB2777)]),
+                              borderRadius: BorderRadius.circular(28),
+                              border: Border.all(color: Colors.white.withOpacity(0.15)),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.card_giftcard, color: Colors.white, size: 22),
+                                SizedBox(width: 8),
+                                Text('إرسال', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    _actionBtn(Icons.chat_bubble_rounded, const Color(0xFFF472B6), () {
-                      Navigator.pop(context);
-                      _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
-                    }),
-                    const SizedBox(width: 8),
-                    _actionBtn(Icons.person_add_rounded, const Color(0xFF22D3EE), () {
-                      Navigator.pop(context);
-                      unawaited(_handleFollowFromRoom(seat.userId!));
-                    }),
-                    const SizedBox(width: 8),
-                    _actionBtn(Icons.alternate_email_rounded, const Color(0xFF4ADE80), () {
-                      Navigator.pop(context);
-                      setState(() => _showChatPanel = true);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _topChatFocus.requestFocus();
-                        final mention = '@${seat.username ?? 'user'} ';
-                        _externalTextController.text = mention;
-                        _externalTextController.selection = TextSelection.fromPosition(
-                            TextPosition(offset: _externalTextController.text.length));
-                      });
-                    }),
-                  ]),
+                      const SizedBox(width: 10),
+                      _actionBtn(Icons.chat_bubble_rounded, const Color(0xFFF472B6), () {
+                        Navigator.pop(context);
+                        _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                      }),
+                      const SizedBox(width: 8),
+                      _actionBtn(Icons.person_add_rounded, const Color(0xFF22D3EE), () {
+                        Navigator.pop(context);
+                        unawaited(_handleFollowFromRoom(seat.userId!));
+                      }),
+                      const SizedBox(width: 8),
+                      _actionBtn(Icons.alternate_email_rounded, const Color(0xFF4ADE80), () {
+                        Navigator.pop(context);
+                        setState(() => _showChatPanel = true);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          _topChatFocus.requestFocus();
+                          final mention = '@${seat.username ?? 'user'} ';
+                          _externalTextController.text = mention;
+                          _externalTextController.selection = TextSelection.fromPosition(
+                              TextPosition(offset: _externalTextController.text.length));
+                        });
+                      }),
+                    ]),
+                    // Admin-only controls below
+                    if (isAdmin) ...[
+                      const SizedBox(height: 14),
+                      Divider(color: Colors.white.withOpacity(0.12)),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _adminChipBtn(seat.forceMuted ? Icons.mic : Icons.mic_off,
+                              seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك',
+                              Colors.orange, () async {
+                            Navigator.pop(context);
+                            await _forceMute(seat.userId, !seat.forceMuted);
+                          }),
+                          _adminChipBtn(Icons.remove_circle_outline, 'إزالة من المايك', Colors.red, () {
+                            Navigator.pop(context);
+                            ref.read(roomControllerProvider(widget.roomId).notifier)
+                                .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
+                            SocketService().emit('remove_from_seat', {
+                              'roomId': widget.roomId,
+                              'seatNumber': seatNumber,
+                              'targetUserId': seat.userId,
+                            });
+                            _showRoomSnack('تم إزالة المستخدم من الميكروفون');
+                          }),
+                          _adminChipBtn(Icons.block, 'منع من المقعد', Colors.deepOrange, () async {
+                            Navigator.pop(context);
+                            await _setSeatBlock(seat.userId, true);
+                          }),
+                          _adminChipBtn(Icons.exit_to_app, 'طرد من الغرفة', Colors.redAccent, () async {
+                            Navigator.pop(context);
+                            await _promptKickUser(seat.userId);
+                          }),
+                          Builder(builder: (ctx) {
+                            final isSeatLocked = ref.read(roomControllerProvider(widget.roomId))
+                                .lockedSeats.contains(seatNumber);
+                            return _adminChipBtn(
+                              isSeatLocked ? Icons.lock_open : Icons.lock_outline,
+                              isSeatLocked ? 'فك قفل المقعد' : 'قفل المقعد',
+                              isSeatLocked ? Colors.lightGreen : Colors.amber,
+                              () {
+                                Navigator.pop(context);
+                                final newLocked = !isSeatLocked;
+                                ref.read(roomControllerProvider(widget.roomId).notifier)
+                                    .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
+                                _showRoomSnack(newLocked ? 'تم قفل المقعد $seatNumber' : 'تم فك قفل المقعد $seatNumber');
+                              },
+                            );
+                          }),
+                          _adminChipBtn(Icons.shield_moon_outlined, 'تعيين مشرف', Colors.cyan, () async {
+                            Navigator.pop(context);
+                            await _appointSupervisor(seat.userId);
+                          }),
+                        ],
+                      ),
+                    ],
+                  ],
                 ],
               ),
               ),
@@ -4871,6 +4671,28 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           ),
         );
       },
+    );
+  }
+
+  Widget _adminChipBtn(IconData icon, String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.45)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 15),
+            const SizedBox(width: 5),
+            Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
     );
   }
 

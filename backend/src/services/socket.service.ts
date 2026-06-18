@@ -753,7 +753,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
 io.to(`room:${rid}`).emit('user_joined', {
   userId: uid,
   roomId: rid,
-  username: user?.name ?? null,
+  username: user?.name ?? (user?.displayId ? `#${user.displayId}` : 'مستخدم'),
   avatarUrl: user?.avatarUrl ?? null,
   displayId: user?.displayId ?? null,
 });

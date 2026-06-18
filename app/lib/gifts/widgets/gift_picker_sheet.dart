@@ -12,9 +12,17 @@ class GiftRecipient {
   const GiftRecipient({required this.id, required this.name, this.avatarUrl});
 }
 
-/// Bottom-sheet gift picker. Shows the room's users at the top (multi-select)
-/// and the gift catalog below. Selecting one or more recipients + a gift +
-/// quantity sends the gift to each selected recipient.
+// Tab definitions: label + backend category filter (null = show all)
+const List<(String label, String? category)> _kTabs = [
+  ('عادي', null),
+  ('محظوظ', 'lucky'),
+  ('العلاقة', 'love'),
+  ('خاص', 'luxury'),
+  ('علم', 'flag'),
+  ('كيس', 'bag'),
+];
+
+/// Bottom-sheet gift picker with 6 category tabs and role-aware recipient row.
 class GiftPickerSheet extends StatefulWidget {
   const GiftPickerSheet({
     super.key,
@@ -52,7 +60,7 @@ class GiftPickerSheet extends StatefulWidget {
       builder: (_) => Directionality(
         textDirection: TextDirection.rtl,
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.50,
+          height: MediaQuery.of(context).size.height * 0.60,
           child: GiftPickerSheet(
             repository: repository,
             recipients: recipients,
@@ -83,14 +91,13 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   void initState() {
     super.initState();
     _balance = widget.balance;
-    _tab = TabController(length: GiftTier.values.length, vsync: this);
+    _tab = TabController(length: _kTabs.length, vsync: this);
     _catalog = widget.repository.fetchCatalog();
     _selectedRecipientIds = {
       ...widget.initialRecipientIds.where(
         (id) => widget.recipients.any((r) => r.id == id),
       ),
     };
-    // Auto-select the first recipient if none specified — so the Send button isn't disabled by default.
     if (_selectedRecipientIds.isEmpty && widget.recipients.isNotEmpty) {
       _selectedRecipientIds.add(widget.recipients.first.id);
     }
@@ -104,14 +111,11 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
 
   String _resolveIconUrl(String iconUrl) {
     if (iconUrl.isEmpty) return iconUrl;
-    if (iconUrl.startsWith('http://') || iconUrl.startsWith('https://')) {
-      return iconUrl;
-    }
+    if (iconUrl.startsWith('http://') || iconUrl.startsWith('https://')) return iconUrl;
     final base = AppConfig.socketUrl.endsWith('/')
         ? AppConfig.socketUrl.substring(0, AppConfig.socketUrl.length - 1)
         : AppConfig.socketUrl;
-    if (iconUrl.startsWith('/')) return '$base$iconUrl';
-    return '$base/$iconUrl';
+    return iconUrl.startsWith('/') ? '$base$iconUrl' : '$base/$iconUrl';
   }
 
   String? _resolveAvatarUrl(String? raw) {
@@ -123,6 +127,12 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     return raw.startsWith('/') ? '$base$raw' : '$base/$raw';
   }
 
+  List<Gift> _giftsForTab(GiftCatalog catalog, String? category) {
+    final all = catalog.all;
+    if (category == null) return all;
+    return all.where((g) => g.category == category).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -131,15 +141,12 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         _recipientsRow(),
         TabBar(
           controller: _tab,
+          isScrollable: true,
           indicatorColor: const Color(0xFFFF4081),
           labelColor: Colors.white,
-          unselectedLabelColor: Colors.white60,
-          tabs: const [
-            Tab(text: 'مميزة'),
-            Tab(text: 'محظوظ'),
-            Tab(text: 'تخصيص'),
-            Tab(text: 'VIP'),
-          ],
+          unselectedLabelColor: Colors.white54,
+          tabAlignment: TabAlignment.start,
+          tabs: _kTabs.map((t) => Tab(text: t.$1)).toList(),
         ),
         Expanded(
           child: FutureBuilder<GiftCatalog>(
@@ -157,8 +164,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               final catalog = snapshot.data!;
               return TabBarView(
                 controller: _tab,
-                children: GiftTier.values.map((tier) {
-                  final gifts = catalog.byTier[tier] ?? const [];
+                children: _kTabs.map(((String, String?) t) {
+                  final gifts = _giftsForTab(catalog, t.$2);
                   if (gifts.isEmpty) {
                     return const Center(
                         child: Text('لا توجد هدايا بعد', style: TextStyle(color: Colors.white60)));
@@ -219,16 +226,13 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   Widget _recipientsRow() {
     if (widget.recipients.isEmpty) {
       return Container(
-        height: 96,
+        height: 80,
         alignment: Alignment.center,
-        child: const Text(
-          'لا يوجد مستلمون',
-          style: TextStyle(color: Colors.white60),
-        ),
+        child: const Text('لا يوجد مستلمون', style: TextStyle(color: Colors.white60)),
       );
     }
     return Container(
-      height: 96,
+      height: 80,
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -254,17 +258,17 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         });
       },
       child: SizedBox(
-        width: 64,
+        width: 60,
         child: Column(
           children: [
             Container(
-              width: 56,
-              height: 56,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
                   color: selected ? const Color(0xFFFF4081) : Colors.transparent,
-                  width: 3,
+                  width: 2.5,
                 ),
                 boxShadow: selected
                     ? [const BoxShadow(color: Color(0xFFFF4081), blurRadius: 8, spreadRadius: 1)]
@@ -273,15 +277,12 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               padding: const EdgeInsets.all(2),
               child: ClipOval(
                 child: avatarUrl != null
-                    ? Image.network(
-                        avatarUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _avatarFallback(r.name),
-                      )
+                    ? Image.network(avatarUrl, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _avatarFallback(r.name))
                     : _avatarFallback(r.name),
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               r.name,
               maxLines: 1,
@@ -289,7 +290,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: selected ? const Color(0xFFFF80AB) : Colors.white70,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
@@ -304,56 +305,13 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     return Container(
       color: const Color(0xFF3D2B7A),
       alignment: Alignment.center,
-      child: Text(initial,
-          style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w600)),
+      child: Text(initial, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600)),
     );
-  }
-
-  ({List<Color> gradient, String emoji}) _tierFallback(GiftTier tier, String? category) {
-    String emoji;
-    switch (category) {
-      case 'love':
-        emoji = '💖';
-        break;
-      case 'fun':
-        emoji = '🎁';
-        break;
-      case 'luxury':
-        emoji = '💎';
-        break;
-      case 'festive':
-        emoji = '🎆';
-        break;
-      default:
-        emoji = '🎁';
-    }
-    switch (tier) {
-      case GiftTier.small:
-        return (gradient: const [Color(0xFFFF80AB), Color(0xFFF50057)], emoji: emoji);
-      case GiftTier.medium:
-        return (gradient: const [Color(0xFFFFD54F), Color(0xFFFF6F00)], emoji: emoji);
-      case GiftTier.large:
-        return (gradient: const [Color(0xFF80D8FF), Color(0xFF0277BD)], emoji: emoji);
-      case GiftTier.legendary:
-        return (gradient: const [Color(0xFFE040FB), Color(0xFF4A148C)], emoji: emoji);
-    }
   }
 
   Widget _giftCell(Gift gift) {
     final selected = _selectedGiftId == gift.id;
     final resolvedUrl = _resolveIconUrl(gift.iconUrl);
-    final fallback = _tierFallback(gift.tier, gift.category);
-    final fallbackWidget = Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: fallback.gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Text(fallback.emoji, style: const TextStyle(fontSize: 32)),
-    );
     return GestureDetector(
       onTap: () => setState(() => _selectedGiftId = gift.id),
       child: AnimatedContainer(
@@ -373,13 +331,9 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: resolvedUrl.isNotEmpty
-                    ? Image.network(
-                        resolvedUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        errorBuilder: (_, __, ___) => fallbackWidget,
-                      )
-                    : fallbackWidget,
+                    ? Image.network(resolvedUrl, fit: BoxFit.cover, width: double.infinity,
+                        errorBuilder: (_, __, ___) => _giftFallback(gift))
+                    : _giftFallback(gift),
               ),
             ),
             const SizedBox(height: 4),
@@ -405,52 +359,83 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     );
   }
 
+  Widget _giftFallback(Gift gift) {
+    String emoji;
+    switch (gift.category) {
+      case 'love': emoji = '💖'; break;
+      case 'lucky': emoji = '🍀'; break;
+      case 'luxury': emoji = '💎'; break;
+      case 'flag': emoji = '🚩'; break;
+      case 'bag': emoji = '👜'; break;
+      default: emoji = '🎁';
+    }
+    return Container(
+      color: const Color(0xFF2D1F6E),
+      alignment: Alignment.center,
+      child: Text(emoji, style: const TextStyle(fontSize: 28)),
+    );
+  }
+
   Widget _footer() {
     final disabled = _selectedGiftId == null || _selectedRecipientIds.isEmpty || _sending;
     return SafeArea(
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         decoration: const BoxDecoration(
           border: Border(top: BorderSide(color: Color(0xFF2D2560))),
         ),
         child: Row(
           children: [
-            _qtyButton('-', () {
-              setState(() => _quantity = (_quantity - 1).clamp(1, 99));
-            }),
+            // Quantity
+            _qtyButton('-', () => setState(() => _quantity = (_quantity - 1).clamp(1, 99))),
             Container(
-              width: 50,
+              width: 44,
               alignment: Alignment.center,
-              child: Text(
-                _quantity.toString(),
-                style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
-              ),
+              child: Text(_quantity.toString(),
+                  style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
             ),
-            _qtyButton('+', () {
-              setState(() => _quantity = (_quantity + 1).clamp(1, 99));
-            }),
-            const SizedBox(width: 12),
+            _qtyButton('+', () => setState(() => _quantity = (_quantity + 1).clamp(1, 99))),
+            const SizedBox(width: 8),
+            // Send button
             Expanded(
               child: ElevatedButton(
                 onPressed: disabled ? null : _send,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFFF4081),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: _sending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
+                    ? const SizedBox(width: 18, height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : Text(
                         _selectedRecipientIds.length > 1
                             ? 'إرسال (${_selectedRecipientIds.length})'
                             : 'إرسال',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Recharge button
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF261D52),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF4A3B8C)),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('🪙', style: TextStyle(fontSize: 16)),
+                    Text('إعادة\nالشحن',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white70, fontSize: 9, height: 1.2)),
+                  ],
+                ),
               ),
             ),
           ],
@@ -463,8 +448,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 36,
-        height: 36,
+        width: 34,
+        height: 34,
         decoration: BoxDecoration(
           color: const Color(0xFF261D52),
           borderRadius: BorderRadius.circular(10),
@@ -496,7 +481,6 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
           successCount++;
         } on GiftRepositoryException catch (e) {
           firstErrorMessage ??= e.message;
-          // Stop on rate-limit or balance errors; otherwise continue with remaining recipients.
           if (e.code == 'INSUFFICIENT_BALANCE' || e.code == 'RATE_LIMIT' || e.code == 'UNAUTHORIZED') {
             break;
           }
@@ -509,28 +493,20 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       if (successCount > 0 && firstErrorMessage == null) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(successCount > 1
-                ? 'تم إرسال الهدية إلى $successCount مستلمين'
-                : 'تم إرسال الهدية!'),
-            duration: const Duration(seconds: 1),
-          ),
-        );
+        messenger.showSnackBar(SnackBar(
+          content: Text(successCount > 1 ? 'تم إرسال الهدية إلى $successCount مستلمين' : 'تم إرسال الهدية!'),
+          duration: const Duration(seconds: 1),
+        ));
       } else if (successCount > 0 && firstErrorMessage != null) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('تم إرسال $successCount من ${recipients.length}: $firstErrorMessage'),
-            backgroundColor: Colors.orange[800],
-          ),
-        );
+        messenger.showSnackBar(SnackBar(
+          content: Text('تم إرسال $successCount من ${recipients.length}: $firstErrorMessage'),
+          backgroundColor: Colors.orange[800],
+        ));
       } else {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(firstErrorMessage ?? 'فشل إرسال الهدية'),
-            backgroundColor: Colors.red[700],
-          ),
-        );
+        messenger.showSnackBar(SnackBar(
+          content: Text(firstErrorMessage ?? 'فشل إرسال الهدية'),
+          backgroundColor: Colors.red[700],
+        ));
       }
     } finally {
       if (mounted) setState(() => _sending = false);
