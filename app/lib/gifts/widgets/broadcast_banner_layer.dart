@@ -69,35 +69,43 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
       left: 0,
       right: 0,
       child: IgnorePointer(
-        ignoring: true,
+        ignoring: false,
         child: SlideTransition(
           position: Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
               .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack)),
           child: SafeArea(
-            child: Container(
-              margin: const EdgeInsets.all(8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFF4081), Color(0xFFFFD54F)],
-                ),
-                borderRadius: BorderRadius.circular(40),
-                boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 4))],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('🎉', style: TextStyle(fontSize: 20)),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      _bannerText(ev),
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+            child: GestureDetector(
+              onTap: () {
+                // Tapping the banner takes the viewer into the gift's room.
+                if (ev.roomId != null) {
+                  Navigator.of(context).pushNamed('/room', arguments: ev.roomId);
+                }
+              },
+              child: Container(
+                margin: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF4081), Color(0xFFFFD54F)],
                   ),
-                ],
+                  borderRadius: BorderRadius.circular(40),
+                  boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 4))],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('🎉', style: TextStyle(fontSize: 20)),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        _bannerText(ev),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

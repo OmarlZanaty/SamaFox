@@ -752,7 +752,10 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
 
 io.to(`room:${rid}`).emit('user_joined', {
   userId: uid,
-  roomId: rid
+  roomId: rid,
+  username: user?.name ?? null,
+  avatarUrl: user?.avatarUrl ?? null,
+  displayId: user?.displayId ?? null,
 });
 
 getVoiceSet(rid).add(uid);

@@ -116,7 +116,8 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         },
       });
 
-      const broadcast = gift.broadcastGlobal || gift.tier === 'LEGENDARY';
+      // Any gift worth more than 5,000 coins is broadcast globally.
+      const broadcast = gift.broadcastGlobal || gift.tier === 'LEGENDARY' || totalCoins > 5000;
       if (broadcast) {
         await tx.giftBroadcast.create({
           data: {

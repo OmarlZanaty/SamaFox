@@ -481,6 +481,28 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       );
     });
 
+    // Gift sent in the room → show who sent what to whom in the activity feed.
+    _socket.on('gift_sent', (data) {
+      if (data is! Map) return;
+      final map = Map<String, dynamic>.from(data);
+      final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
+      if (rid != null && rid != roomId) return;
+      String pick(dynamic m, String k) =>
+          (m is Map && m[k] != null) ? m[k].toString() : '';
+      final senderName = pick(map['sender'], 'name').isNotEmpty ? pick(map['sender'], 'name') : 'مستخدم';
+      final recipientName = pick(map['recipient'], 'name').isNotEmpty ? pick(map['recipient'], 'name') : 'مستخدم';
+      final giftName = pick(map['gift'], 'nameAr').isNotEmpty
+          ? pick(map['gift'], 'nameAr')
+          : (pick(map['gift'], 'name').isNotEmpty ? pick(map['gift'], 'name') : 'هدية');
+      final qty = _safeInt(map['quantity']) ?? 1;
+      addActivity(
+        'أرسل $giftName${qty > 1 ? ' ×$qty' : ''} إلى $recipientName',
+        RoomEventType.gift,
+        username: senderName,
+        coins: _safeInt(map['totalCoins']),
+      );
+    });
+
     // ✅ This snapshot is the source of truth
     _seatsStateSub = _socket.roomStateStream.listen((s) {
       final nextSeats = <int, SeatData>{};
