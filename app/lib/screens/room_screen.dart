@@ -2237,6 +2237,39 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   late final RoomLiveNotifier _live;
 
   @override
+  bool _lifecycleLeft = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState appState) {
+    super.didChangeAppLifecycleState(appState);
+    final user = ref.read(authStateProvider).user;
+    if (user == null) return;
+
+    if (appState == AppLifecycleState.paused ||
+        appState == AppLifecycleState.detached) {
+      // Screen locked / app backgrounded → leave the room cleanly so other
+      // devices don't keep showing a stale online/in-seat entry (presence desync).
+      if (_lifecycleLeft) return;
+      _lifecycleLeft = true;
+      try { if (_audioReady) _audioService.muteAudio(); } catch (_) {}
+      try { AudioController.instance.setMicEnabled(false); } catch (_) {}
+      try {
+        SocketService().leaveRoom(roomId: widget.roomId, userId: user.id);
+      } catch (_) {}
+    } else if (appState == AppLifecycleState.resumed && _lifecycleLeft) {
+      _lifecycleLeft = false;
+      // Back in foreground → re-join cleanly and re-sync seats.
+      try {
+        SocketService().joinRoom(
+          roomId: widget.roomId,
+          userId: user.id,
+          username: user.name,
+        );
+      } catch (_) {}
+    }
+  }
+
+  @override
   void dispose() {
     // Close the room and dispose resources
     debugPrint('🟣 RoomScreen.dispose room=${widget.roomId}');
