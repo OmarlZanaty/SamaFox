@@ -1,18 +1,18 @@
 class AppConfig {
   // API Configuration
-  // Production backend: GCP VM samafox-backend (104.198.43.177)
+  // Production backend: AWS EC2 t4g.small (eu-central-1), Elastic IP 63.179.163.62
   // Override at build time with --dart-define=API_BASE_URL=https://...
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://104.198.43.177:3000/api/v1/',
+    defaultValue: 'http://63.179.163.62:3000/api/v1/',
   );
   static const String socketUrl = String.fromEnvironment(
     'SOCKET_URL',
-    defaultValue: 'http://104.198.43.177:3000',
+    defaultValue: 'http://63.179.163.62:3000',
   );
   static const String googleOAuthUrl = String.fromEnvironment(
     'GOOGLE_OAUTH_URL',
-    defaultValue: 'http://104.198.43.177:3000/api/v1/auth/google',
+    defaultValue: 'http://63.179.163.62:3000/api/v1/auth/google',
   );
 
   static const String googleServerClientId = String.fromEnvironment(
