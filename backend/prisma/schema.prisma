@@ -29,10 +29,15 @@ model User {
   xp                       Int                       @default(0)
   vipLevel                 Int                       @default(0)
   totalRecharge            Int                       @default(0) // cumulative coins ever charged (drives VIP level)
+  cpPoints                 Int                       @default(0) // account power (CP) accumulated from CP-eligible gifts sent
+  age                      Int?                      // user-editable age (#3), shown on profile
   isAdmin                  Boolean                   @default(false)
   isBanned                 Boolean                   @default(false)
   bannedAt                 DateTime?
   banReason                String?
+  banExpiresAt             DateTime? // null = permanent when isBanned
+  banSource                String? // 'dashboard' | 'admin' | 'system' — dashboard bans only liftable from dashboard
+  nameLocked               Boolean                   @default(false) // when true, user cannot change their own name
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
   passwordHash             String? // ✅ for email/password login
@@ -115,6 +120,7 @@ model Room {
   backgroundMusicUrl String?
   muteGiftSounds     Boolean  @default(false)
   muteEntranceSounds Boolean  @default(false)
+  contributionResetAt DateTime? // #4: admin reset point for per-user room coin counters
   createdAt          DateTime @default(now())
 
   owner           User             @relation("RoomOwner", fields: [ownerId], references: [id])
@@ -521,6 +527,19 @@ model VipTier {
   @@map("vip_tiers")
 }
 
+// Global key-value settings editable from the admin dashboard.
+// Used for the CP / target-payout config (professional defaults, no client spec yet):
+//   cp_per_coin              = CP earned per coin spent on a CP-eligible gift (default "1")
+//   target_coins_per_dollar  = coins of received gifts equal to $1 of target payout (default "10000")
+//   level_multiplier         = each level threshold = previous * this (default "1.5")
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
 // Admin-configurable VIP levels keyed by level number (1..N).
 // `threshold` is the cumulative recharge needed; if null the server computes it
 // (500k per level up to 5, then +30% each level). badgeUrl + frameItemId are
@@ -769,6 +788,19 @@ model AgencyTopupRequest {
   @@map("agency_topup_requests")
 }
 
+// Target tiers: coins-earned threshold -> dollar payout. Admin-managed.
+// Dollars for a given earned-coins amount are derived from these tiers
+// (the ratio dollars/coins of the highest tier whose coins <= earned).
+model TargetTier {
+  id        Int      @id @default(autoincrement())
+  coins     BigInt // coins threshold for this tier (e.g. 200000)
+  dollars   Float // dollar value at this tier (e.g. 1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("target_tiers")
+}
+
 model AgencyRequest {
   id          Int       @id @default(autoincrement())
   userId      Int
@@ -914,6 +946,7 @@ model Gift {
   isActive         Boolean    @default(true)
   sortOrder        Int        @default(0)
   category         String?
+  cpEligible       Boolean    @default(false) // counts toward account power (CP) when sent
   createdBy        Int?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt

@@ -81,6 +81,41 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       final title = (data['title'] as String? ?? '').trim();
       final body = (data['body'] as String? ?? '').trim();
 
+      // Admin control-panel broadcast: show verbatim in a prominent dialog.
+      if (type == 'admin_broadcast') {
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          showDialog(
+            context: ctx,
+            builder: (dctx) => AlertDialog(
+              backgroundColor: const Color(0xFF1A2744),
+              title: Row(
+                children: [
+                  const Icon(Icons.campaign, color: Colors.amber),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title.isNotEmpty ? title : 'إشعار من الإدارة',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Text(body, style: const TextStyle(color: Colors.white70, height: 1.5)),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dctx).pop(),
+                  child: const Text('حسناً', style: TextStyle(color: Colors.lightBlueAccent)),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
       String localizedTitle() {
         if (title.isNotEmpty && !_looksEnglish(title)) return title;
         if (type.contains('follow')) return 'طلب متابعة';

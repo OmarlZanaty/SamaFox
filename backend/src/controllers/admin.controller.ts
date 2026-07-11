@@ -220,13 +220,23 @@ export const toggleUserBan = async (req: Request, res: Response) => {
     const isBanned = !!req.body.isBanned;
     const reason = typeof req.body.reason === 'string' ? req.body.reason : null;
 
-    await prisma.$executeRawUnsafe(
-      `UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?`,
-      isBanned ? 1 : 0,
-      isBanned ? new Date().toISOString() : null,
-      isBanned ? reason : null,
-      userIdNum,
-    );
+    const target = await (prisma as any).user.findUnique({
+      where: { id: userIdNum },
+      select: { banSource: true },
+    });
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    // A ban issued from the control panel can only be lifted from the control panel.
+    if (!isBanned && target.banSource === 'dashboard') {
+      return res.status(403).json({ message: 'This user was banned from the control panel and can only be unbanned there.' });
+    }
+
+    await (prisma as any).user.update({
+      where: { id: userIdNum },
+      data: isBanned
+        ? { isBanned: true, bannedAt: new Date(), banReason: reason, banSource: 'admin' }
+        : { isBanned: false, bannedAt: null, banReason: null, banExpiresAt: null, banSource: null },
+    });
 
     return res.json({ message: isBanned ? 'User banned successfully' : 'User unbanned successfully' });
   } catch (error) {

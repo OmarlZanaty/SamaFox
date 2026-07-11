@@ -204,6 +204,7 @@
               <th>الاسم</th>
               <th>الإيميل</th>
               <th>الهاتف</th>
+              <th>الجنس</th>
               <th>الكوينز</th>
               <th>أدمن</th>
               <th>تاريخ الإنشاء</th>
@@ -512,6 +513,52 @@
         </div>
         <p class="settings-hint">يتم تخزين قاعدة الـ API محلياً في المتصفح.</p>
       </div>
+
+      <!-- CP / TARGET CONFIG -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          إعدادات قوة الحساب (CP) والتارجت
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">نقاط CP لكل كوين (هدايا CP)</label>
+          <input id="cpPerCoin" type="number" step="0.1" class="form-input" placeholder="1" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">كوينز التارجت مقابل 1 دولار</label>
+          <input id="cpTargetPerDollar" type="number" class="form-input" placeholder="10000" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">معامل الترقية بين المستويات</label>
+          <input id="cpLevelMultiplier" type="number" step="0.1" class="form-input" placeholder="1.5" />
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" onclick="saveCpSettings()">حفظ إعدادات CP</button>
+          <button class="btn btn-outline" onclick="loadCpSettings()">تحديث</button>
+        </div>
+        <p class="settings-hint">قيم افتراضية احترافية — عدّلها عند وصول مواصفات العميل. الهدايا التي تحتسب ضمن CP تُفعّل بخيار "CP" في إدارة الهدايا.</p>
+      </div>
+
+      <!-- TARGET TIERS (coins -> dollars) -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          مستويات التارجت (كوينز ↔ دولار)
+        </div>
+        <div class="form-row">
+          <input id="tierCoins" type="number" class="form-input" placeholder="عدد الكوينز (مثال 200000)" min="1" />
+          <input id="tierDollars" type="number" step="0.01" class="form-input" placeholder="الدولار (مثال 1)" min="0" />
+          <button class="btn btn-primary" onclick="addTargetTier()">إضافة تارجت</button>
+          <button class="btn btn-outline" onclick="loadTargetTiers()">تحديث</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="targetTiersTable">
+            <thead><tr><th>ID</th><th>الكوينز</th><th>الدولار</th><th>إجراءات</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="settings-hint">يُحسب دولار الوكالة من أعلى تارجت وصلت إليه نقاطها. مثال: 200000 كوينز = 1 دولار.</p>
+      </div>
     </section>
 
   </main>
@@ -528,8 +575,8 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
       </div>
       <div>
-        <h3 class="modal-title">إضافة كوينز</h3>
-        <p class="modal-sub">أدخل عدد الكوينز المراد إضافتها</p>
+        <h3 class="modal-title" id="coinsModalTitle">إضافة كوينز</h3>
+        <p class="modal-sub">أدخل عدد الكوينز</p>
       </div>
     </div>
     <input id="coinsAmount" type="number" class="form-input" placeholder="عدد الكوينز" min="1" />
@@ -550,6 +597,66 @@
     <div class="modal-actions">
       <button class="btn btn-primary" id="confirmYesBtn">تأكيد</button>
       <button class="btn btn-outline" onclick="closeConfirmModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="banModal" onclick="closeBanModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">حظر المستخدم</h3>
+        <p class="modal-sub">اختر المدة والسبب</p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">المدة</label>
+      <select id="banDuration" class="form-input">
+        <option value="1d">يوم واحد</option>
+        <option value="3d">3 أيام</option>
+        <option value="1m">شهر</option>
+        <option value="1y">سنة</option>
+        <option value="permanent">دائم (أبدي)</option>
+      </select>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">السبب</label>
+      <input id="banReason" class="form-input" type="text" placeholder="سبب الحظر" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmBan()">تأكيد الحظر</button>
+      <button class="btn btn-outline" onclick="closeBanModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="editProfileModal" onclick="closeEditProfileModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل بيانات المستخدم</h3>
+        <p class="modal-sub">الاسم والجنس</p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">الاسم</label>
+      <input id="editName" class="form-input" type="text" placeholder="اسم المستخدم" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">الجنس</label>
+      <select id="editGender" class="form-input">
+        <option value="">— بدون تغيير —</option>
+        <option value="male">ذكر</option>
+        <option value="female">أنثى</option>
+        <option value="other">آخر</option>
+      </select>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub"><input id="editNameLocked" type="checkbox" /> تثبيت الاسم (منع المستخدم من تغييره)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditProfile()">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeEditProfileModal()">إلغاء</button>
     </div>
   </div>
 </div>
@@ -617,6 +724,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260610-3"></script>
+<script src="app.js?v=20260710-cp2"></script>
 </body>
 </html>

@@ -697,6 +697,18 @@ class SocketService {
         _notificationController.add(Map<String, dynamic>.from(data));
       }
     });
+    // Admin global broadcast (control-panel mass message). Surfaces through the
+    // notification stream so every connected user sees it as an in-app banner.
+    _socket!.on('admin_broadcast', (data) {
+      if (data is Map) {
+        _notificationController.add({
+          'type': 'admin_broadcast',
+          'title': data['title']?.toString() ?? '',
+          'body': data['message']?.toString() ?? '',
+          'payload': Map<String, dynamic>.from(data),
+        });
+      }
+    });
     _socket!.on('follow_request', (data) {
       if (data is Map) {
         _notificationController.add({
@@ -1122,6 +1134,7 @@ class RoomSeatsState {
   final int ownerId;
   final List<int> adminIds;
   final List<int> lockedSeats; // ✅ NEW
+  final List<int> mutedSeats;
 
   /// ✅ NEW: how many seats this room has
   final int seatCount;
@@ -1135,8 +1148,8 @@ class RoomSeatsState {
     required this.adminIds,
     required this.seatCount,
     required this.seats,
-    required this.lockedSeats, // ✅ ADD THIS
-
+    required this.lockedSeats,
+    this.mutedSeats = const [],
   });
 
   factory RoomSeatsState.fromJson(Map<String, dynamic> json) {
@@ -1147,6 +1160,13 @@ class RoomSeatsState {
 
     final rawLocked = (json['lockedSeats'] ?? json['locked_seats'] ?? const []) as List;
     final lockedSeats = rawLocked
+        .map((e) => int.tryParse('$e'))
+        .whereType<int>()
+        .where((x) => x > 0)
+        .toList();
+
+    final rawMuted = (json['mutedSeats'] ?? json['muted_seats'] ?? const []) as List;
+    final mutedSeats = rawMuted
         .map((e) => int.tryParse('$e'))
         .whereType<int>()
         .where((x) => x > 0)
@@ -1192,8 +1212,8 @@ class RoomSeatsState {
       adminIds: adminIds,
       seatCount: seatCount > 0 ? seatCount : fallbackCount,
       seats: seats,
-      lockedSeats: lockedSeats, // ✅ ADD THIS
-
+      lockedSeats: lockedSeats,
+      mutedSeats: mutedSeats,
     );
   }
 }

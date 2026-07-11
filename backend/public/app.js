@@ -55,6 +55,7 @@ function navigate(sec) {
   sections.forEach(s => s.classList.toggle("active", s.id === `section-${sec}`));
   pageTitle.textContent = sectionTitles[sec] || sec;
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} }
 }
 
 // ============================================================
@@ -419,13 +420,16 @@ async function loadUsers() {
       <td>${escapeHtml(u.name ?? "")}</td>
       <td><span class="cell-muted">${escapeHtml(u.email ?? "")}</span></td>
       <td><span class="cell-muted">${escapeHtml(u.phone ?? "")}</span></td>
+      <td><span class="cell-muted">${escapeHtml(genderLabel(u.gender))}</span></td>
       <td><strong>${u.coinsBalance ?? u.coins ?? 0}</strong></td>
       <td>${u.isAdmin ? '<span class="badge badge-admin">أدمن</span>' : ""}</td>
       <td><span class="cell-muted">${fmtDate(u.createdAt)}</span></td>
       <td>
         <div class="td-actions">
-          <button class="btn-ok" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}')">+ كوينز</button>
+          <button class="btn-ok" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}', 'add')">+ كوينز</button>
+          <button class="btn-bad" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}', 'remove')">- كوينز</button>
           <button class="btn-outline" onclick="openDisplayIdModal(${Number(u.id || 0)}, this)">Change ID</button>
+          <button class="btn-outline" onclick="openEditProfileModal(${Number(u.id || 0)}, ${JSON.stringify(u.name ?? "").replace(/"/g, '&quot;')}, '${escapeHtml(u.gender ?? "")}', ${u.nameLocked ? "true" : "false"})">تعديل</button>
           <button class="btn-bad" onclick="toggleUserBan(${u.id}, ${u.isBanned ? "false" : "true"})">${u.isBanned ? "فك حظر" : "حظر"}</button>
         </div>
       </td>
@@ -615,18 +619,53 @@ async function setAgencyStatus(id, status) {
 }
 
 window.toggleUserBan = async function(userId, shouldBan) {
-  const reason = shouldBan ? (prompt("سبب الحظر") || "Admin action") : null;
-  if (shouldBan && !reason) return showToast("سبب الحظر مطلوب");
-  await new Promise((resolve) => openConfirmModal("تأكيد الحظر", shouldBan ? "تأكيد حظر المستخدم؟" : "تأكيد فك الحظر؟", async () => {
-    await apiFetch(`/admin-dashboard/users/${userId}/ban`, {
+  if (!shouldBan) {
+    // Unban directly.
+    await new Promise((resolve) => openConfirmModal("فك الحظر", "تأكيد فك الحظر عن المستخدم؟", async () => {
+      await apiFetch(`/admin-dashboard/users/${userId}/ban`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isBanned: false }),
+      });
+      resolve();
+    }));
+    showToast("✓ تم فك الحظر");
+    await loadUsers();
+    return;
+  }
+  // Ban: open modal to pick duration + reason.
+  openBanModal(userId);
+};
+
+window.openBanModal = function (userId) {
+  selectedUserId = userId;
+  document.getElementById("banReason").value = "";
+  document.getElementById("banDuration").value = "permanent";
+  document.getElementById("banModal").classList.remove("hidden");
+};
+
+window.closeBanModal = function () {
+  selectedUserId = null;
+  document.getElementById("banModal").classList.add("hidden");
+};
+
+window.confirmBan = async function () {
+  try {
+    if (!selectedUserId) return showToast("❗ اختر مستخدماً أولاً");
+    const reason = document.getElementById("banReason").value.trim();
+    const duration = document.getElementById("banDuration").value;
+    if (!reason) return showToast("❗ سبب الحظر مطلوب");
+    await apiFetch(`/admin-dashboard/users/${selectedUserId}/ban`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isBanned: !!shouldBan, reason }),
+      body: JSON.stringify({ isBanned: true, reason, duration }),
     });
-    resolve();
-  }));
-  showToast("✓ تم تحديث حالة الحظر");
-  await loadUsers();
+    showToast("✓ تم حظر المستخدم");
+    closeBanModal();
+    await loadUsers();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to ban"));
+  }
 };
 
 window.forceCloseRoom = async function(roomId) {
@@ -959,9 +998,22 @@ p_fileInput.addEventListener("change", () => {
 // ============================================================
 let selectedUserId = null;
 
-window.openCoinsModal = function (userId) {
+let coinsMode = 'add';
+
+function genderLabel(g) {
+  const v = String(g || '').toLowerCase();
+  if (v === 'male') return 'ذكر';
+  if (v === 'female') return 'أنثى';
+  if (v === 'other') return 'آخر';
+  return '—';
+}
+
+window.openCoinsModal = function (userId, mode = 'add') {
   selectedUserId = userId;
+  coinsMode = mode === 'remove' ? 'remove' : 'add';
   document.getElementById("coinsAmount").value = "";
+  const titleEl = document.getElementById("coinsModalTitle");
+  if (titleEl) titleEl.textContent = coinsMode === 'remove' ? "خصم كوينز" : "إضافة كوينز";
   document.getElementById("coinsModal").classList.remove("hidden");
 };
 
@@ -976,16 +1028,112 @@ window.confirmAddCoins = async function () {
     if (!selectedUserId) return showToast("❗ اختر مستخدماً أولاً");
     if (!Number.isFinite(amount) || amount <= 0) return showToast("❗ أدخل رقماً صحيحاً");
 
+    const action = coinsMode === 'remove' ? 'remove' : 'add';
     await apiFetchAny([
-      `/admin/users/${selectedUserId}/coins/add`,
-      `/api/v1/admin/users/${selectedUserId}/coins/add`,
+      `/admin/users/${selectedUserId}/coins/${action}`,
+      `/api/v1/admin/users/${selectedUserId}/coins/${action}`,
     ], "POST", { amount });
 
-    showToast("✓ تم إضافة الكوينز بنجاح");
+    showToast(action === 'remove' ? "✓ تم خصم الكوينز بنجاح" : "✓ تم إضافة الكوينز بنجاح");
     closeCoinsModal();
     await loadUsers();
   } catch (e) {
-    showToast("❌ خطأ: " + (e?.message || "Failed to add coins"));
+    showToast("❌ خطأ: " + (e?.message || "Failed to update coins"));
+  }
+};
+
+// --- Target tiers (coins <-> dollars) ---
+window.loadTargetTiers = async function () {
+  try {
+    const d = await apiFetch('/admin-dashboard/target-tiers');
+    const tb = document.querySelector('#targetTiersTable tbody');
+    if (!tb) return;
+    tb.innerHTML = '';
+    (d.data || []).forEach((t) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${t.id}</td>
+        <td>${escapeHtml(String(t.coins))}</td>
+        <td>$${escapeHtml(String(t.dollars))}</td>
+        <td><div class="td-actions">
+          <button class="btn-outline" onclick="editTargetTier(${t.id}, ${t.coins}, ${t.dollars})">تعديل</button>
+          <button class="btn-bad" onclick="deleteTargetTier(${t.id})">حذف</button>
+        </div></td>`;
+      tb.appendChild(tr);
+    });
+  } catch (e) { showToast('❌ ' + (e?.message || 'فشل التحميل')); }
+};
+
+window.addTargetTier = async function () {
+  try {
+    const coins = Number(document.getElementById('tierCoins').value);
+    const dollars = Number(document.getElementById('tierDollars').value);
+    if (!Number.isFinite(coins) || coins <= 0) return showToast('❗ عدد كوينز صحيح مطلوب');
+    if (!Number.isFinite(dollars) || dollars < 0) return showToast('❗ قيمة دولار صحيحة مطلوبة');
+    await apiFetch('/admin-dashboard/target-tiers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coins, dollars }) });
+    document.getElementById('tierCoins').value = '';
+    document.getElementById('tierDollars').value = '';
+    showToast('✓ تم إضافة التارجت');
+    await loadTargetTiers();
+  } catch (e) { showToast('❌ ' + (e?.message || 'فشل')); }
+};
+
+window.editTargetTier = async function (id, coins, dollars) {
+  const newCoins = prompt('عدد الكوينز', coins);
+  if (newCoins === null) return;
+  const newDollars = prompt('الدولار', dollars);
+  if (newDollars === null) return;
+  try {
+    await apiFetch(`/admin-dashboard/target-tiers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coins: Number(newCoins), dollars: Number(newDollars) }) });
+    showToast('✓ تم التعديل');
+    await loadTargetTiers();
+  } catch (e) { showToast('❌ ' + (e?.message || 'فشل')); }
+};
+
+window.deleteTargetTier = async function (id) {
+  await new Promise((resolve) => openConfirmModal('حذف التارجت', 'تأكيد حذف هذا التارجت؟', async () => {
+    await apiFetch(`/admin-dashboard/target-tiers/${id}`, { method: 'DELETE' });
+    resolve();
+  }));
+  showToast('✓ تم الحذف');
+  await loadTargetTiers();
+};
+
+// --- Edit profile (name + gender) ---
+window.openEditProfileModal = function (userId, name, gender, nameLocked) {
+  selectedUserId = userId;
+  document.getElementById("editName").value = name || "";
+  document.getElementById("editGender").value = String(gender || "").toLowerCase();
+  document.getElementById("editNameLocked").checked = !!nameLocked;
+  document.getElementById("editProfileModal").classList.remove("hidden");
+};
+
+window.closeEditProfileModal = function () {
+  selectedUserId = null;
+  document.getElementById("editProfileModal").classList.add("hidden");
+};
+
+window.confirmEditProfile = async function () {
+  try {
+    if (!selectedUserId) return showToast("❗ اختر مستخدماً أولاً");
+    const name = document.getElementById("editName").value.trim();
+    const gender = document.getElementById("editGender").value;
+    const nameLocked = document.getElementById("editNameLocked").checked;
+    const body = { nameLocked };
+    if (name) body.name = name;
+    if (gender) body.gender = gender;
+
+    await apiFetch(`/admin-dashboard/users/${selectedUserId}/profile`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    showToast("✓ تم حفظ التعديلات");
+    closeEditProfileModal();
+    await loadUsers();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to update profile"));
   }
 };
 
@@ -1229,4 +1377,34 @@ async function loadAll() {
       startLiveRefresh();
     }
   });
+
+  // ===================== CP / TARGET SETTINGS =====================
+  window.loadCpSettings = async function () {
+    try {
+      const res = await apiFetch("/settings");
+      const s = (res && res.data) || {};
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      set("cpPerCoin", s.cp_per_coin ?? "1");
+      set("cpTargetPerDollar", s.target_coins_per_dollar ?? "10000");
+      set("cpLevelMultiplier", s.level_multiplier ?? "1.5");
+    } catch (e) {
+      showToast("تعذر تحميل إعدادات CP: " + e.message);
+    }
+  };
+
+  window.saveCpSettings = async function () {
+    try {
+      const val = (id) => (document.getElementById(id) || {}).value;
+      const body = {
+        cp_per_coin: val("cpPerCoin") || "1",
+        target_coins_per_dollar: val("cpTargetPerDollar") || "10000",
+        level_multiplier: val("cpLevelMultiplier") || "1.5",
+      };
+      await apiFetchAny(["/admin-dashboard/settings", "/admin/settings"], "PATCH", body);
+      showToast("تم حفظ إعدادات CP ✓");
+      await window.loadCpSettings();
+    } catch (e) {
+      showToast("فشل الحفظ: " + e.message);
+    }
+  };
 })();

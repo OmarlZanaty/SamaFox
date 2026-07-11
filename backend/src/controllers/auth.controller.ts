@@ -291,9 +291,22 @@ export const login = async (req: Request, res: Response) => {
     // not exist" -> 500. The fallback raw-query path above may omit these
     // fields, in which case they're undefined and the check is skipped.)
     if (user.isBanned === true) {
-      return res
-        .status(403)
-        .json({ success: false, message: user.banReason || 'User is banned' });
+      // Auto-expire timed bans: if banExpiresAt has passed, lift the ban and allow login.
+      const expiresAt = (user as any).banExpiresAt ? new Date((user as any).banExpiresAt) : null;
+      if (expiresAt && expiresAt.getTime() <= Date.now()) {
+        try {
+          await (prisma as any).user.update({
+            where: { id: user.id },
+            data: { isBanned: false, bannedAt: null, banReason: null, banExpiresAt: null, banSource: null },
+          });
+        } catch (e) {
+          console.warn('auto-unban failed:', e);
+        }
+      } else {
+        return res
+          .status(403)
+          .json({ success: false, message: user.banReason || 'User is banned' });
+      }
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);

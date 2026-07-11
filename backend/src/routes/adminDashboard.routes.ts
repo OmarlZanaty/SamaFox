@@ -6,6 +6,7 @@ import {
   adminDashboardBanUser,
   adminDashboardBroadcast,
   adminChangeUserDisplayId,
+  adminUpdateUserProfile,
   adminDashboardCreateQuest,
   adminDashboardDeleteQuest,
   adminDashboardForceCloseRoom,
@@ -31,6 +32,10 @@ import {
   adminUpdateGift,
   adminListVipLevels,
   adminUpsertVipLevel,
+  adminListTargetTiers,
+  adminCreateTargetTier,
+  adminUpdateTargetTier,
+  adminDeleteTargetTier,
   adminListAgencyMembers,
   adminRemoveAgencyMember,
 } from '../controllers/adminDashboard.controller';
@@ -44,6 +49,7 @@ router.get('/overview', adminDashboardOverview);
 router.get('/users', adminDashboardListUsers);
 router.patch('/users/:id/ban', adminDashboardBanUser);
 router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);
+router.patch('/users/:id/profile', adminUpdateUserProfile);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);
@@ -74,5 +80,15 @@ router.delete('/gifts/:id', authenticate, adminDeleteGift);
 
 router.get('/vip-levels', adminListVipLevels);
 router.post('/vip-levels', adminUpsertVipLevel);
+
+router.get('/target-tiers', adminListTargetTiers);
+router.post('/target-tiers', adminCreateTargetTier);
+router.patch('/target-tiers/:id', adminUpdateTargetTier);
+router.delete('/target-tiers/:id', adminDeleteTargetTier);
+
+// CP / target settings — on the dashboard router so the dashboard token (authenticate +
+// requireAdminDashboard) is accepted. It was previously only on /admin/settings, which
+// uses a different auth the dashboard doesn't hold → the save returned 401.
+router.patch('/settings', require('../controllers/settings.controller').updateSettings);
 
 export default router;

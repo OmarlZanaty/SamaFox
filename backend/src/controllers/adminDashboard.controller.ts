@@ -55,12 +55,14 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
 
     // Prisma query (Postgres-safe). The old raw SQL used `?` placeholders and
     // unquoted camelCase columns, which PostgreSQL rejects -> 500.
+    const numeric = /^\d+$/.test(search) ? Number(search) : null;
     const where: any = search
       ? {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
             { email: { contains: search, mode: 'insensitive' } },
             { phone: { contains: search } },
+            ...(numeric != null ? [{ displayId: numeric }, { id: numeric }] : []),
           ],
         }
       : {};
@@ -78,9 +80,12 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
           name: true,
           email: true,
           phone: true,
+          gender: true,
           avatarUrl: true,
           isAdmin: true,
           isBanned: true,
+          bannedAt: true,
+          banReason: true,
           coinsBalance: true,
           vipLevel: true,
           createdAt: true,
@@ -126,43 +131,99 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
   }
 };
 
+export const adminUpdateUserProfile = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid user id');
+
+    const data: any = {};
+    if (req.body?.name != null) {
+      const name = String(req.body.name).trim();
+      if (!name) return fail(res, 400, 'name cannot be empty');
+      data.name = name;
+    }
+    if (req.body?.gender != null) {
+      const gender = String(req.body.gender).trim().toLowerCase();
+      if (!['male', 'female', 'other'].includes(gender)) return fail(res, 400, 'gender must be male/female/other');
+      data.gender = gender;
+    }
+    if (req.body?.nameLocked != null) {
+      data.nameLocked = Boolean(req.body.nameLocked);
+    }
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    const updated = await (prisma as any).user.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, gender: true, nameLocked: true },
+    });
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'User not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// Duration codes -> milliseconds. 'permanent' => no expiry.
+const BAN_DURATIONS: Record<string, number | null> = {
+  '1d': 24 * 60 * 60 * 1000,
+  '3d': 3 * 24 * 60 * 60 * 1000,
+  '1m': 30 * 24 * 60 * 60 * 1000,
+  '1y': 365 * 24 * 60 * 60 * 1000,
+  permanent: null,
+};
+
 export const adminDashboardBanUser = async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     if (!id) return fail(res, 400, 'Invalid user id');
 
     const isBanned = Boolean(req.body?.isBanned);
-    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : null;
 
-    if (isBanned && !reason) return fail(res, 400, 'reason is required when banning user');
-
-    const bannedAt = isBanned ? new Date().toISOString() : null;
-
-    // NOTE: Prisma client in production may lag behind schema generation; use SQL to avoid TS type breakage.
-    try {
-      await prisma.$executeRawUnsafe(
-        'UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?',
-        isBanned ? 1 : 0,
-        bannedAt,
-        isBanned ? reason : null,
-        id,
-      );
-    } catch (banError: any) {
-      const message = String(banError?.message || '');
-      const missingBanColumns =
-        message.includes('no such column') ||
-        message.includes('Unknown column') ||
-        message.includes('isBanned') ||
-        message.includes('bannedAt') ||
-        message.includes('banReason');
-      if (missingBanColumns) {
-        return fail(res, 409, 'User ban fields are missing in DB. Run latest migrations.');
-      }
-      throw banError;
+    if (!isBanned) {
+      // Unban from the dashboard: always allowed (this is the only place a
+      // dashboard-sourced ban can be lifted).
+      const updated = await (prisma as any).user.update({
+        where: { id },
+        data: { isBanned: false, bannedAt: null, banReason: null, banExpiresAt: null, banSource: null },
+        select: { id: true, isBanned: true },
+      });
+      return ok(res, { data: updated });
     }
 
-    return ok(res, { data: { id, isBanned, bannedAt, banReason: isBanned ? reason : null } });
-  } catch {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (!reason) return fail(res, 400, 'reason is required when banning user');
+
+    const duration = String(req.body?.duration || 'permanent');
+    if (!(duration in BAN_DURATIONS)) return fail(res, 400, 'Invalid duration');
+    const ms = BAN_DURATIONS[duration];
+    const now = new Date();
+    const banExpiresAt = ms == null ? null : new Date(now.getTime() + ms);
+
+    const updated = await (prisma as any).user.update({
+      where: { id },
+      data: {
+        isBanned: true,
+        bannedAt: now,
+        banReason: reason,
+        banExpiresAt,
+        banSource: 'dashboard',
+      },
+      select: { id: true, isBanned: true, bannedAt: true, banReason: true, banExpiresAt: true, banSource: true },
+    });
+
+    // Kick the user off any live sockets immediately.
+    try {
+      const { io } = await import('../index');
+      io.emit('user_banned', { userId: id, reason, banExpiresAt });
+    } catch (e) {
+      console.warn('user_banned emit failed:', e);
+    }
+
+    return ok(res, { data: serialize(updated) });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'User not found');
+    console.error('adminDashboardBanUser error:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -486,7 +547,13 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
       include: { user: true },
       orderBy: { createdAt: 'desc' },
     });
-    return ok(res, { data: serialize(agencies) });
+    const withDollars = await Promise.all(
+      agencies.map(async (a: any) => ({
+        ...serialize(a),
+        dollars: await computeDollarsFromCoins(a.earnedCoins ?? 0n),
+      })),
+    );
+    return ok(res, { data: withDollars });
   } catch {
     return fail(res, 500, 'Server error');
   }
@@ -595,6 +662,84 @@ export const adminTopupAgency = async (req: AdminReq, res: Response) => {
 
     return ok(res, { data: { balanceCoins: String(agency.balanceCoins) } });
   } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ── Target tiers (coins earned -> dollar payout). Admin-managed. ──
+// Dollars for a given earned-coins amount = coins * (dollars/coins) of the
+// highest tier whose coins threshold <= earned. If no tier qualifies, $0.
+export const computeDollarsFromCoins = async (earnedCoins: bigint | number): Promise<number> => {
+  const earned = typeof earnedCoins === 'bigint' ? earnedCoins : BigInt(Math.floor(Number(earnedCoins) || 0));
+  const tiers = await (prisma as any).targetTier.findMany({ orderBy: { coins: 'asc' } });
+  let ratio = 0; // dollars per coin
+  for (const t of tiers) {
+    const tc = BigInt(t.coins);
+    if (tc > 0n && earned >= tc) {
+      ratio = Number(t.dollars) / Number(tc);
+    }
+  }
+  return Math.round(Number(earned) * ratio * 100) / 100;
+};
+
+export const adminListTargetTiers = async (_req: AdminReq, res: Response) => {
+  try {
+    const tiers = await (prisma as any).targetTier.findMany({ orderBy: { coins: 'asc' } });
+    return ok(res, { data: serialize(tiers) });
+  } catch (e) {
+    console.error('adminListTargetTiers error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminCreateTargetTier = async (req: AdminReq, res: Response) => {
+  try {
+    const coins = Number(req.body?.coins);
+    const dollars = Number(req.body?.dollars);
+    if (!Number.isFinite(coins) || coins <= 0) return fail(res, 400, 'coins must be > 0');
+    if (!Number.isFinite(dollars) || dollars < 0) return fail(res, 400, 'dollars must be >= 0');
+    const tier = await (prisma as any).targetTier.create({
+      data: { coins: BigInt(Math.floor(coins)), dollars },
+    });
+    return ok(res, { data: serialize(tier) });
+  } catch (e) {
+    console.error('adminCreateTargetTier error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminUpdateTargetTier = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    const data: any = {};
+    if (req.body?.coins != null) {
+      const coins = Number(req.body.coins);
+      if (!Number.isFinite(coins) || coins <= 0) return fail(res, 400, 'coins must be > 0');
+      data.coins = BigInt(Math.floor(coins));
+    }
+    if (req.body?.dollars != null) {
+      const dollars = Number(req.body.dollars);
+      if (!Number.isFinite(dollars) || dollars < 0) return fail(res, 400, 'dollars must be >= 0');
+      data.dollars = dollars;
+    }
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+    const tier = await (prisma as any).targetTier.update({ where: { id }, data });
+    return ok(res, { data: serialize(tier) });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Tier not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDeleteTargetTier = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    await (prisma as any).targetTier.delete({ where: { id } });
+    return ok(res, { message: 'Tier deleted' });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Tier not found');
     return fail(res, 500, 'Server error');
   }
 };

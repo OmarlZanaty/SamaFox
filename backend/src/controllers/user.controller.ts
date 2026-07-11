@@ -17,7 +17,7 @@ interface UpdateProfileRequest {
 const PUBLIC_USER_FIELDS = [
   'id', 'name', 'displayId', 'avatarUrl', 'avatarFrameUrl', 'activeFrameId',
   'level', 'xp', 'bio', 'country', 'countryCode', 'gender', 'vipLevel',
-  'isVerified', 'createdAt',
+  'age', 'isVerified', 'createdAt',
 ] as const;
 
 const pickPublicUserFields = (user: any) => {
@@ -90,10 +90,12 @@ export const getUserById = async (req: Request, res: Response) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const [followerCount, followingCount, agencyInfo] = await Promise.all([
+    const [followerCount, followingCount, agencyInfo, liveRoom] = await Promise.all([
       prisma.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
       prisma.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
       getAgencyRole(userId).catch(() => null),
+      // #31: the active room this user is hosting, for the live badge / مسار button.
+      prisma.room.findFirst({ where: { ownerId: userId, isActive: true }, select: { id: true } }),
     ]);
 
     return res.status(200).json({
@@ -103,6 +105,7 @@ export const getUserById = async (req: Request, res: Response) => {
         followerCount, followingCount, followersCount: followerCount,
         agencyRole: agencyInfo?.agencyRole ?? null,
         agencyName: agencyInfo?.agencyName ?? null,
+        liveRoomId: liveRoom?.id ?? null,
       },
     });
   } catch (e: any) {
@@ -119,7 +122,7 @@ export const updateProfile = async (req: Request, res: Response) => {
     const userId = (req as any).userId as number | undefined;
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-    const { name, bio, gender, countryCode, country, avatarUrl, phone } = req.body as UpdateProfileRequest;
+    const { name, bio, gender, countryCode, country, avatarUrl, phone, age } = req.body as UpdateProfileRequest & { age?: number };
     // avatarFrameUrl / activeFrameId are intentionally NOT accepted here.
     // Frames must be equipped via the coin-priced store endpoint (/store/activate-frame).
 
@@ -128,13 +131,24 @@ export const updateProfile = async (req: Request, res: Response) => {
     }
 
     const data: any = {};
-    if (name) data.name = name;
+    if (name) {
+      // Respect an admin-imposed name lock: the user cannot change their own name.
+      const current = await (prisma as any).user.findUnique({ where: { id: userId }, select: { nameLocked: true, name: true } });
+      if (current?.nameLocked && name !== current.name) {
+        return res.status(403).json({ success: false, message: 'تم تثبيت اسمك من قبل الإدارة ولا يمكن تغييره.' });
+      }
+      data.name = name;
+    }
     if (bio !== undefined) data.bio = bio;
     if (gender) data.gender = gender.toLowerCase();
     if (countryCode) data.countryCode = countryCode.toUpperCase();
     if (country !== undefined) data.country = country;
     if (avatarUrl) data.avatarUrl = avatarUrl;
     if (phone) data.phone = phone;
+    if (age !== undefined && age !== null) {
+      const a = Number(age);
+      if (Number.isFinite(a) && a >= 1 && a <= 120) data.age = Math.floor(a);
+    }
     const user = await prisma.user.update({ where: { id: userId }, data });
 
     return res.status(200).json({ success: true, message: 'Profile updated', user: formatUserResponse(user) });
