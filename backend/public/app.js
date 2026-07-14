@@ -748,15 +748,18 @@ window.showAgencyMembers = async function (agencyId, agencyName) {
         const targetLabel = goal > 0
           ? `<span class="cell-muted">🎯 ${earned} / ${goal}${remaining > 0 ? ` (متبقٍ ${remaining})` : " ✓"}</span>`
           : `<span class="cell-muted">🎯 ${earned}</span>`;
+        // Group 8: dollar value of earnings + join date.
+        const dollars = m.dollars != null ? `<span class="cell-muted">💵 $${Number(m.dollars).toFixed(2)}</span>` : "";
+        const joined = m.joinedAt ? `<span class="cell-muted">📅 ${fmtDate(m.joinedAt)}</span>` : "";
         return `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid var(--card-border);">
           <div>
             <strong>${escapeHtml(m.user?.name ?? "")}</strong>
             <span class="cell-muted">#${m.user?.displayId ?? m.userId}</span>
             <span class="cell-muted">— ${m.role === "OWNER" ? "وكيل" : "مضيف"}</span>
-            <div style="margin-top:2px">${targetLabel}</div>
+            <div style="margin-top:2px;display:flex;gap:10px;flex-wrap:wrap">${targetLabel} ${dollars} ${joined}</div>
           </div>
-          ${m.role === "OWNER" ? "" : `<button class="btn-bad" onclick="adminRemoveAgencyMember(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}')">إزالة</button>`}
+          ${m.role === "OWNER" ? "" : `<button class="btn-bad" onclick="adminRemoveAgencyMember(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}')">إزالة (بدون رسوم)</button>`}
         </div>`;
       }).join("");
     }

@@ -1069,6 +1069,7 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
 
     // #24: surface each member's target (earned since joining, excl self-gifts)
     // + goal + remaining so the admin can hold people accountable from the panel.
+    // Group 8: also the dollar value of what they earned (real money).
     const withTargets = await Promise.all(
       members.map(async (m: any) => {
         const earned = await db.giftTransaction.aggregate({
@@ -1082,6 +1083,7 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
           targetGoalCoins: goal,
           earnedCoins,
           remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
+          dollars: await computeDollarsFromCoins(earnedCoins),
         };
       }),
     );
