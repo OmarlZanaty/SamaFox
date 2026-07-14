@@ -266,6 +266,12 @@
           <p class="section-sub">مراجعة وإدارة طلبات الوكالات</p>
         </div>
         <div class="section-actions">
+          <input id="agencySearch" class="form-input form-input--sm" placeholder="بحث بالاسم أو الهاتف أو المعرف" />
+          <select id="agencyType" class="form-select">
+            <option value="">كل الأنواع</option>
+            <option value="CHARGING">شحن</option>
+            <option value="HOSTING">استضافة</option>
+          </select>
           <select id="agencyStatus" class="form-select">
             <option value="">الكل</option>
             <option value="pending" selected>قيد المراجعة</option>
@@ -318,6 +324,7 @@
               <th>المعرف</th>
               <th>المستخدم</th>
               <th>اسم الوكالة</th>
+              <th>النوع</th>
               <th>الهاتف</th>
               <th>الحالة</th>
               <th>الصور</th>
@@ -668,6 +675,49 @@
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="confirmBan()">تأكيد الحظر</button>
       <button class="btn btn-outline" onclick="closeBanModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="editAgencyModal" onclick="closeEditAgencyModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل الوكالة</h3>
+        <p class="modal-sub" id="editAgencySub"></p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">اسم الوكالة</label>
+      <input id="editAgencyName" class="form-input" type="text" placeholder="اسم الوكالة" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub"><input id="editAgencyNameLocked" type="checkbox" /> تثبيت اسم الوكالة (منع المالك من تغييره)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditAgency()">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeEditAgencyModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="agencyChargesModal" onclick="closeAgencyChargesModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:640px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">سجل الشحن</h3>
+        <p class="modal-sub" id="agencyChargesSub"></p>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-top:12px;max-height:340px;overflow-y:auto">
+      <table id="agencyChargesTable">
+        <thead><tr><th>المستفيد</th><th>Coins</th><th>بواسطة</th><th>التاريخ</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="table-meta" id="agencyChargesMeta"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeAgencyChargesModal()">إغلاق</button>
     </div>
   </div>
 </div>

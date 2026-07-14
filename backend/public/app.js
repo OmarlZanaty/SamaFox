@@ -616,8 +616,14 @@ window.reviewAgencyRequest = async function (id, status) {
 async function loadAgencies() {
   try { await loadAgencyRequests(); } catch (_) {}
   const status = document.getElementById("agencyStatus").value;
-  const q      = status ? `?status=${encodeURIComponent(status)}` : "";
-  const d      = await apiFetch("/admin-dashboard/charging-agencies" + q);
+  const type   = document.getElementById("agencyType")?.value || "";
+  const search = (document.getElementById("agencySearch")?.value || "").trim();
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (type)   params.set("type", type);
+  if (search) params.set("search", search);
+  const qs = params.toString();
+  const d      = await apiFetch("/admin-dashboard/charging-agencies" + (qs ? `?${qs}` : ""));
   const tbody  = document.querySelector("#agenciesTable tbody");
   tbody.innerHTML = "";
 
@@ -629,12 +635,14 @@ async function loadAgencies() {
       a.idFrontUrl     ? `<a class="td-link" href="${a.idFrontUrl}"     target="_blank">أمام</a>`    : "",
       a.idBackUrl      ? `<a class="td-link" href="${a.idBackUrl}"      target="_blank">خلف</a>`     : "",
     ].filter(Boolean).join(" · ");
+    const safeName = escapeHtml(a.agencyName ?? "").replace(/'/g, "\\'");
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><span class="cell-id">${a.id ?? ""}</span></td>
-      <td>${userName} <span class="cell-muted">#${a.userId ?? ""}</span></td>
-      <td>${escapeHtml(a.agencyName ?? "")}</td>
+      <td>${userName} <span class="cell-muted">#${a.user?.displayId ?? a.userId ?? ""}</span></td>
+      <td>${escapeHtml(a.agencyName ?? "")} ${a.nameLocked ? "📌" : ""}</td>
+      <td><span class="cell-muted">${a.type === "HOSTING" ? "استضافة" : "شحن"}</span></td>
       <td><span class="cell-muted">${escapeHtml(a.phoneNumber ?? "")}</span></td>
       <td>${statusBadge(a.status ?? "pending")}</td>
       <td>${imgs || "—"}</td>
@@ -644,13 +652,82 @@ async function loadAgencies() {
           <button class="btn-ok"      onclick="setAgencyStatus(${a.id}, 'approved')">قبول</button>
           <button class="btn-bad"     onclick="setAgencyStatus(${a.id}, 'rejected')">رفض</button>
           <button class="btn-ghost-sm" onclick="setAgencyStatus(${a.id}, 'pending')">مراجعة</button>
-          <button class="btn btn-outline" onclick="showAgencyMembers(${a.id}, '${escapeHtml(a.agencyName ?? "")}')">الأعضاء</button>
+          <button class="btn btn-outline" onclick="openEditAgencyModal(${a.id}, '${safeName}', ${!!a.nameLocked})">تعديل</button>
+          <button class="btn btn-outline" onclick="showAgencyMembers(${a.id}, '${safeName}')">الأعضاء</button>
+          ${a.type === "HOSTING" ? "" : `<button class="btn btn-outline" onclick="showAgencyCharges(${a.id}, '${safeName}')">الشحنات</button>`}
         </div>
       </td>
     `;
     tbody.appendChild(tr);
   }
 }
+
+// Agency edit modal (name + nameLocked) — group 7
+let editAgencyId = null;
+window.openEditAgencyModal = function (agencyId, name, nameLocked) {
+  editAgencyId = agencyId;
+  document.getElementById("editAgencySub").textContent = `وكالة #${agencyId}`;
+  document.getElementById("editAgencyName").value = name || "";
+  document.getElementById("editAgencyNameLocked").checked = !!nameLocked;
+  document.getElementById("editAgencyModal").classList.remove("hidden");
+};
+window.closeEditAgencyModal = function () {
+  editAgencyId = null;
+  document.getElementById("editAgencyModal").classList.add("hidden");
+};
+window.confirmEditAgency = async function () {
+  try {
+    if (!editAgencyId) return;
+    const agencyName = document.getElementById("editAgencyName").value.trim();
+    const nameLocked = document.getElementById("editAgencyNameLocked").checked;
+    const body = { nameLocked };
+    if (agencyName) body.agencyName = agencyName;
+    await apiFetch(`/admin-dashboard/agencies/${editAgencyId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    showToast("✓ تم حفظ تعديلات الوكالة");
+    closeEditAgencyModal();
+    await loadAgencies();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to update agency"));
+  }
+};
+
+// Charge history modal: who was charged, how many coins, by whom — group 7
+window.showAgencyCharges = async function (agencyId, agencyName) {
+  try {
+    const d = await apiFetch(`/admin-dashboard/agencies/${agencyId}/charges?limit=100`);
+    document.getElementById("agencyChargesSub").textContent = `وكالة ${agencyName} (#${agencyId})`;
+    const tb = document.querySelector("#agencyChargesTable tbody");
+    tb.innerHTML = "";
+    const rows = d.data || [];
+    if (!rows.length) {
+      tb.innerHTML = '<tr><td colspan="4" class="cell-muted">لا توجد شحنات مسجلة</td></tr>';
+    } else {
+      rows.forEach((x) => {
+        const rec = x.recipient
+          ? `${escapeHtml(x.recipient.name || "")} <span class="cell-muted">#${x.recipient.displayId ?? x.recipient.id}</span>`
+          : "—";
+        const snd = x.sender
+          ? `${escapeHtml(x.sender.name || "")} <span class="cell-muted">#${x.sender.displayId ?? x.sender.id}</span>`
+          : '<span class="cell-muted">—</span>';
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${rec}</td><td><strong>${x.amountCoins}</strong></td><td>${snd}</td><td><span class="cell-muted">${fmtDate(x.createdAt)}</span></td>`;
+        tb.appendChild(tr);
+      });
+    }
+    const total = d.pagination?.total ?? rows.length;
+    document.getElementById("agencyChargesMeta").textContent = `إجمالي العمليات: ${total}`;
+    document.getElementById("agencyChargesModal").classList.remove("hidden");
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to load charges"));
+  }
+};
+window.closeAgencyChargesModal = function () {
+  document.getElementById("agencyChargesModal").classList.add("hidden");
+};
 
 // App owner can inspect any agency's members and remove anyone (except the owner).
 window.showAgencyMembers = async function (agencyId, agencyName) {
@@ -1329,6 +1406,12 @@ document.getElementById("roomSearch")?.addEventListener("keydown", async (ev) =>
 
 document.getElementById("btnAgencies").addEventListener("click", async () => {
   try { await loadAgencies(); showToast("✓ تم تحميل الوكالات"); }     catch (e) { showToast("خطأ: " + e.message); }
+});
+document.getElementById("agencySearch")?.addEventListener("keydown", async (ev) => {
+  if (ev.key === "Enter") { try { await loadAgencies(); } catch (e) { showToast("خطأ: " + e.message); } }
+});
+document.getElementById("agencyType")?.addEventListener("change", async () => {
+  try { await loadAgencies(); } catch (e) { showToast("خطأ: " + e.message); }
 });
 
 document.getElementById("btnTransactions")?.addEventListener("click", () => loadTransactions().catch(e => showToast("خطأ: " + e.message)));

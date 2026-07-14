@@ -23,6 +23,8 @@ import {
   adminDashboardTopupRequests,
   adminDashboardTransactions,
   adminDashboardUpdateAgencyStatus,
+  adminDashboardUpdateAgency,
+  adminDashboardAgencyCharges,
   adminDashboardUpdateReport,
   adminListAgencyRequests,
   adminReviewAgencyRequest,
@@ -84,6 +86,8 @@ router.get('/leaderboard', adminDashboardLeaderboard);
 
 router.get('/charging-agencies', adminDashboardListChargingAgencies);
 router.patch('/charging-agencies/:id/status', adminDashboardUpdateAgencyStatus);
+router.patch('/agencies/:id', adminDashboardUpdateAgency);
+router.get('/agencies/:id/charges', adminDashboardAgencyCharges);
 router.get('/agency-requests', adminListAgencyRequests);
 router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
 router.patch('/agencies/:id/topup', adminTopupAgency);

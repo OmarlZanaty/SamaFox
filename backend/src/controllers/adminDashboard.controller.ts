@@ -671,8 +671,29 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
 export const adminDashboardListChargingAgencies = async (req: Request, res: Response) => {
   try {
     const status = req.query.status ? String(req.query.status) : undefined;
+    const type = req.query.type ? String(req.query.type) : undefined; // CHARGING | HOSTING
+    const search = String(req.query.search || '').trim();
+    const numeric = /^\d+$/.test(search) ? Number(search) : null;
+
+    const where: any = {
+      ...(status ? { status } : {}),
+      ...(type ? { type } : {}),
+      ...(search
+        ? {
+            OR: [
+              { agencyName: { contains: search, mode: 'insensitive' } },
+              { phoneNumber: { contains: search } },
+              { user: { name: { contains: search, mode: 'insensitive' } } },
+              ...(numeric != null
+                ? [{ id: numeric }, { userId: numeric }, { user: { displayId: numeric } }]
+                : []),
+            ],
+          }
+        : {}),
+    };
+
     const agencies = await prisma.chargingAgency.findMany({
-      where: status ? { status } : undefined,
+      where,
       include: { user: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -683,6 +704,79 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
       })),
     );
     return ok(res, { data: withDollars });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// PATCH /admin-dashboard/agencies/:id — edit agency name + lock renaming (group 7)
+export const adminDashboardUpdateAgency = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid agency id');
+
+    const data: any = {};
+    if (req.body?.agencyName != null) {
+      const agencyName = String(req.body.agencyName).trim();
+      if (!agencyName) return fail(res, 400, 'agencyName cannot be empty');
+      data.agencyName = agencyName;
+    }
+    if (req.body?.nameLocked != null) data.nameLocked = Boolean(req.body.nameLocked);
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    const updated = await (prisma as any).chargingAgency.update({
+      where: { id },
+      data,
+      select: { id: true, agencyName: true, nameLocked: true },
+    });
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Agency not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// GET /admin-dashboard/agencies/:id/charges — every top-up this agency sent:
+// who was charged, how many coins, by which member, when (group 7 complaints).
+export const adminDashboardAgencyCharges = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid agency id');
+    const page = parsePage(req.query.page, 1);
+    const limit = parseLimit(req.query.limit, 50);
+
+    const where = { type: 'AGENCY_TOPUP', agencyId: id } as any;
+    const [total, rows] = await Promise.all([
+      (prisma as any).transaction.count({ where }),
+      (prisma as any).transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { user: { select: { id: true, displayId: true, name: true } } },
+      }),
+    ]);
+
+    // Resolve sender names in one query (senderId is a plain column, no relation).
+    const senderIds = [...new Set(rows.map((r: any) => r.senderId).filter(Boolean))] as number[];
+    const senders = senderIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: senderIds } },
+          select: { id: true, displayId: true, name: true },
+        })
+      : [];
+    const senderById = new Map(senders.map((s) => [s.id, s]));
+
+    return ok(res, {
+      data: rows.map((r: any) => ({
+        id: r.id,
+        amountCoins: r.amountCoins,
+        createdAt: r.createdAt,
+        recipient: r.user,
+        sender: r.senderId ? (senderById.get(r.senderId) ?? { id: r.senderId }) : null,
+      })),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
   } catch {
     return fail(res, 500, 'Server error');
   }

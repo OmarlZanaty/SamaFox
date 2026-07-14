@@ -194,6 +194,10 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
             // NOTE: Transaction has no `description` column — passing it threw a
             // PrismaClientValidationError that made every send-coins fail (#6).
             status: 'completed',
+            // Group 7: attribute the charge so the dashboard can answer
+            // "who charged this user" during complaint investigations.
+            agencyId: membership.agencyId,
+            senderId,
           },
         });
       });

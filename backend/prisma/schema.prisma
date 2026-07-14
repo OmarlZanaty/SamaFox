@@ -301,10 +301,14 @@ model Transaction {
   externalId    String?
   paymentMethod String?
   status        String   @default("pending")
+  // AGENCY_TOPUP attribution: which agency charged the user and which member sent it (group 7)
+  agencyId      Int?
+  senderId      Int?
   createdAt     DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([agencyId])
   @@map("transactions")
 }
 
@@ -725,6 +729,7 @@ model ChargingAgency {
   idBackUrl      String
   status         String               @default("pending") // pending/approved/rejected
   type           String               @default("CHARGING")
+  nameLocked     Boolean              @default(false) // when true, owner cannot rename the agency (dashboard-controlled)
   contactInfo    String?
   logoUrl        String?
   targetCoins    BigInt               @default(0)
