@@ -14,6 +14,8 @@ import {
   adminDashboardLeaderboard,
   adminDashboardListChargingAgencies,
   adminDashboardListRooms,
+  adminDashboardUpdateRoom,
+  adminDashboardRoomDetails,
   adminDashboardListUsers,
   adminDashboardOverview,
   adminDashboardReports,
@@ -71,6 +73,8 @@ router.get('/analytics', adminDashboardAnalytics);
 router.get('/reports', adminDashboardReports);
 router.patch('/reports/:id', adminDashboardUpdateReport);
 router.get('/rooms', adminDashboardListRooms);
+router.patch('/rooms/:id', adminDashboardUpdateRoom);
+router.get('/rooms/:id/details', adminDashboardRoomDetails);
 router.post('/rooms/:id/force-close', adminDashboardForceCloseRoom);
 router.get('/quests', adminDashboardGetQuests);
 router.post('/quests', adminDashboardCreateQuest);

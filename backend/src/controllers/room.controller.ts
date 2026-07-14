@@ -315,6 +315,9 @@ export const updateRoom = async (req: Request, res: Response) => {
     const room = await prisma.room.findUnique({ where: { id: roomIdNum } });
     if (!room) return res.status(404).json({ error: 'Room not found' });
     if (room.ownerId !== userId) return res.status(403).json({ error: 'Only room owner can update the room' });
+    if ((room as any).nameLocked && name && String(name) !== room.name) {
+      return res.status(403).json({ error: 'تم تثبيت اسم الغرفة من الإدارة ولا يمكن تغييره' });
+    }
 
     const safeMaxSeats =
       maxSeats != null ? Math.max(2, Math.min(30, Number(maxSeats))) : undefined;

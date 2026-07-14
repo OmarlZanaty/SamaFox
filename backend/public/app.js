@@ -444,9 +444,11 @@ async function loadUsers() {
     `الصفحة ${p.page ?? page} / ${p.totalPages ?? "?"} — الإجمالي ${p.total ?? rows.length}`;
 }
 
-// --- ROOMS ---
+// --- ROOMS (group 6) ---
 async function loadRooms() {
-  const d     = await apiFetch("/admin-dashboard/rooms");
+  const search = (document.getElementById("roomSearch")?.value || "").trim();
+  const q = search ? `?search=${encodeURIComponent(search)}` : "";
+  const d     = await apiFetch("/admin-dashboard/rooms" + q);
   const tbody = document.querySelector("#roomsTable tbody");
   tbody.innerHTML = "";
 
@@ -456,20 +458,109 @@ async function loadRooms() {
     const cover = r.coverImageUrl
       ? `<a class="td-link" href="${r.coverImageUrl}" target="_blank">فتح ↗</a>`
       : "—";
+    const status = [
+      r.isActive ? `<span class="cell-muted">مفتوحة</span>` : `<span style="color:#e05555">مغلقة</span>`,
+      r.isLocked ? `🔒` : ``,
+      r.nameLocked ? `📌` : ``,
+    ].filter(Boolean).join(" ");
+    const toggleBtn = r.isActive
+      ? `<button class="btn-bad" onclick="forceCloseRoom(${r.id})">إغلاق</button>`
+      : `<button class="btn-ok" onclick="reopenRoom(${r.id})">فتح</button>`;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><span class="cell-id">${escapeHtml(r.id ?? "")}</span></td>
       <td>${escapeHtml(r.name ?? "")}</td>
       <td><span class="cell-muted">${escapeHtml(r.type ?? "")}</span></td>
+      <td>${status}</td>
       <td>${r.maxSeats ?? "—"}</td>
-      <td>${ownerName} <span class="cell-muted">#${r.owner?.id ?? ""}</span></td>
+      <td>${ownerName} <span class="cell-muted">#${r.owner?.displayId ?? r.owner?.id ?? ""}</span></td>
       <td>${cover}</td>
       <td><span class="cell-muted">${fmtDate(r.createdAt)}</span></td>
-      <td><button class="btn-bad" onclick="forceCloseRoom(${r.id})">إغلاق</button></td>
+      <td>
+        <button class="btn-ok" onclick="openEditRoomModal(${r.id}, '${escapeHtml(r.name ?? "").replace(/'/g, "\\'")}', ${!!r.nameLocked})">تعديل</button>
+        <button class="btn-ok" onclick="openEditProfileModal(${r.owner?.id ?? 0}, '${escapeHtml(r.owner?.name ?? "").replace(/'/g, "\\'")}', '', ${!!r.owner?.nameLocked})">المالك</button>
+        <button class="btn-ok" onclick="openRoomDetails(${r.id})">تفاصيل</button>
+        ${toggleBtn}
+      </td>
     `;
     tbody.appendChild(tr);
   }
 }
+
+// Room edit modal (name + nameLocked)
+let editRoomId = null;
+window.openEditRoomModal = function (roomId, name, nameLocked) {
+  editRoomId = roomId;
+  document.getElementById("editRoomSub").textContent = `غرفة #${roomId}`;
+  document.getElementById("editRoomName").value = name || "";
+  document.getElementById("editRoomNameLocked").checked = !!nameLocked;
+  document.getElementById("editRoomModal").classList.remove("hidden");
+};
+window.closeEditRoomModal = function () {
+  editRoomId = null;
+  document.getElementById("editRoomModal").classList.add("hidden");
+};
+window.confirmEditRoom = async function () {
+  try {
+    if (!editRoomId) return;
+    const name = document.getElementById("editRoomName").value.trim();
+    const nameLocked = document.getElementById("editRoomNameLocked").checked;
+    const body = { nameLocked };
+    if (name) body.name = name;
+    await apiFetch(`/admin-dashboard/rooms/${editRoomId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    showToast("✓ تم حفظ تعديلات الغرفة");
+    closeEditRoomModal();
+    await loadRooms();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to update room"));
+  }
+};
+
+// Room details modal (who's inside + PIN for locked rooms)
+window.openRoomDetails = async function (roomId) {
+  try {
+    const d = await apiFetch(`/admin-dashboard/rooms/${roomId}/details`);
+    const r = d.data || {};
+    document.getElementById("roomDetailsSub").textContent =
+      `غرفة #${r.id} — ${r.name || ""} (${r.isActive ? "مفتوحة" : "مغلقة"})`;
+    const pinEl = document.getElementById("roomDetailsPin");
+    pinEl.innerHTML = r.isLocked
+      ? `<label class="modal-sub">🔒 غرفة مقفلة — كلمة المرور: <strong style="direction:ltr">${escapeHtml(r.accessCode || "غير محددة")}</strong></label>`
+      : `<label class="modal-sub">غرفة غير مقفلة</label>`;
+    document.getElementById("roomDetailsCount").textContent = r.membersCount ?? 0;
+    const tb = document.querySelector("#roomMembersTable tbody");
+    tb.innerHTML = "";
+    (r.membersInside || []).forEach((m) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><span class="cell-id">${escapeHtml(m.displayId ?? m.id)}</span></td><td>${escapeHtml(m.name || "")}</td>`;
+      tb.appendChild(tr);
+    });
+    document.getElementById("roomDetailsModal").classList.remove("hidden");
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to load room details"));
+  }
+};
+window.closeRoomDetailsModal = function () {
+  document.getElementById("roomDetailsModal").classList.add("hidden");
+};
+
+window.reopenRoom = async function (roomId) {
+  try {
+    await apiFetch(`/admin-dashboard/rooms/${roomId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive: true }),
+    });
+    showToast("✓ تم فتح الغرفة");
+    await loadRooms();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to reopen room"));
+  }
+};
 
 // --- AGENCY REQUESTS (new, awaiting approval) ---
 window.loadAgencyRequests = async function () {
@@ -1228,6 +1319,12 @@ document.getElementById("btnUsers").addEventListener("click", async () => {
 
 document.getElementById("btnRooms").addEventListener("click", async () => {
   try { await loadRooms();    showToast("✓ تم تحميل الغرف"); }        catch (e) { showToast("خطأ: " + e.message); }
+});
+document.getElementById("btnRoomSearch")?.addEventListener("click", async () => {
+  try { await loadRooms(); } catch (e) { showToast("خطأ: " + e.message); }
+});
+document.getElementById("roomSearch")?.addEventListener("keydown", async (ev) => {
+  if (ev.key === "Enter") { try { await loadRooms(); } catch (e) { showToast("خطأ: " + e.message); } }
 });
 
 document.getElementById("btnAgencies").addEventListener("click", async () => {

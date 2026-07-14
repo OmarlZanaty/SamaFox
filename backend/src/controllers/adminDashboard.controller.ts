@@ -415,15 +415,144 @@ export const adminDashboardUpdateReport = async (req: Request, res: Response) =>
   }
 };
 
-export const adminDashboardListRooms = async (_req: Request, res: Response) => {
+export const adminDashboardListRooms = async (req: Request, res: Response) => {
   try {
-    const data = await prisma.room.findMany({
+    const search = String(req.query.search || '').trim();
+    const numeric = /^\d+$/.test(search) ? Number(search) : null;
+    const where: any = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { owner: { name: { contains: search, mode: 'insensitive' } } },
+            ...(numeric != null
+              ? [{ id: numeric }, { ownerId: numeric }, { owner: { displayId: numeric } }]
+              : []),
+          ],
+        }
+      : {};
+
+    const data = await (prisma as any).room.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
-      include: {
-        owner: { select: { id: true, name: true, avatarUrl: true, email: true } },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        maxSeats: true,
+        coverImageUrl: true,
+        isActive: true,
+        isLocked: true,
+        accessCode: true,
+        nameLocked: true,
+        createdAt: true,
+        owner: { select: { id: true, displayId: true, name: true, avatarUrl: true, email: true, nameLocked: true } },
       },
     });
-    return ok(res, { data });
+
+    // Never ship the PIN in the list payload — it is fetched per-room via /rooms/:id/details.
+    return ok(res, {
+      data: data.map((r: any) => {
+        const { accessCode, ...rest } = r;
+        return { ...rest, hasAccessCode: Boolean(accessCode) };
+      }),
+    });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// PATCH /admin-dashboard/rooms/:id — edit name, lock renaming, close/reopen (group 6)
+export const adminDashboardUpdateRoom = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid room id');
+
+    const data: any = {};
+    if (req.body?.name != null) {
+      const name = String(req.body.name).trim();
+      if (!name) return fail(res, 400, 'name cannot be empty');
+      data.name = name;
+    }
+    if (req.body?.nameLocked != null) data.nameLocked = Boolean(req.body.nameLocked);
+    if (req.body?.isActive != null) data.isActive = Boolean(req.body.isActive);
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    const updated = await (prisma as any).room.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, nameLocked: true, isActive: true },
+    });
+
+    try {
+      const { io } = await import('../index');
+      if (data.isActive === false) {
+        const reason = String(req.body?.reason || 'تم إغلاق الغرفة من الإدارة').trim();
+        io.to(`room:${id}`).emit('room_force_closed', { roomId: id, reason });
+      }
+      if (data.name) {
+        io.to(`room:${id}`).emit('room_updated', { roomId: id, name: data.name });
+      }
+    } catch (e) {
+      console.warn('adminDashboardUpdateRoom emit failed:', e);
+    }
+
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Room not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// GET /admin-dashboard/rooms/:id/details — who is inside right now + the PIN
+// for locked rooms (group 6). "Inside" = sockets currently joined to room:<id>.
+export const adminDashboardRoomDetails = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid room id');
+
+    const room = await (prisma as any).room.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        isActive: true,
+        isLocked: true,
+        accessCode: true,
+        nameLocked: true,
+        createdAt: true,
+        owner: { select: { id: true, displayId: true, name: true, nameLocked: true } },
+      },
+    });
+    if (!room) return fail(res, 404, 'Room not found');
+
+    const userIds = new Set<number>();
+    try {
+      const { io } = await import('../index');
+      const socketIds = io.sockets.adapter.rooms.get(`room:${id}`) ?? new Set<string>();
+      for (const sid of socketIds) {
+        const s: any = io.sockets.sockets.get(sid);
+        if (s?.userId) userIds.add(Number(s.userId));
+      }
+    } catch (e) {
+      console.warn('adminDashboardRoomDetails presence lookup failed:', e);
+    }
+
+    const members = userIds.size
+      ? await prisma.user.findMany({
+          where: { id: { in: [...userIds] } },
+          select: { id: true, displayId: true, name: true, avatarUrl: true },
+        })
+      : [];
+
+    return ok(res, {
+      data: {
+        ...room,
+        accessCode: room.isLocked ? room.accessCode : null,
+        membersInside: members,
+        membersCount: members.length,
+      },
+    });
   } catch {
     return fail(res, 500, 'Server error');
   }

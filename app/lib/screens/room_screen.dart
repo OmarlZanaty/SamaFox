@@ -2218,6 +2218,25 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         Navigator.of(context).maybePop();
       });
 
+      // Dashboard force-closed the room → everyone inside leaves immediately.
+      SocketService().on('room_force_closed', (data) {
+        if (!mounted) return;
+        final rid = (data is Map) ? data['roomId'] : null;
+        if (rid != null && rid != widget.roomId) return;
+        final msg = (data is Map ? data['reason'] : null)?.toString() ??
+            'تم إغلاق الغرفة من الإدارة';
+        _showRoomSnack(msg, error: true);
+        Navigator.of(context).maybePop();
+      });
+
+      // Dashboard renamed the room → refresh so the watched name updates live.
+      SocketService().on('room_updated', (data) {
+        if (!mounted || data is! Map) return;
+        final rid = data['roomId'];
+        if (rid != null && rid != widget.roomId) return;
+        ref.read(roomsProvider.notifier).loadRooms();
+      });
+
       // ✅ LOAD INVENTORY FIRST
       await _loadActiveItems();
       debugPrint("🎬 video url = $_activeSeatEffectUrl");
