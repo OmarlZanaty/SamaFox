@@ -543,18 +543,20 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         ));
       }
 
-      // ✅ STEP 3: derive lockedSeats from snapshot
-      final lockedFromSeats = nextSeats.values
-          .where((x) => x.isLocked)
-          .map((x) => x.seatNumber)
-          .toSet();
+      // ✅ STEP 3: use lockedSeats from snapshot directly (supports empty = all unlocked)
+      final lockedFromSnapshot = s.lockedSeats.toSet();
+
+      // ✅ STEP 4: parse mutedSeats from snapshot if backend sends it
+      final rawMuted = s.mutedSeats;
+      final mutedFromSnapshot = rawMuted.isNotEmpty ? rawMuted.toSet() : null;
 
       state = state.copyWith(
         seats: nextSeats,
         ownerId: s.ownerId,
         adminIds: s.adminIds,
         seatCount: ensureSeatsUpTo,
-        lockedSeats: lockedFromSeats.isNotEmpty ? lockedFromSeats : state.lockedSeats,
+        lockedSeats: lockedFromSnapshot,
+        mutedSeats: mutedFromSnapshot ?? state.mutedSeats,
       );
 
       debugPrint('📦 [room_seats_state] room=$roomId owner=${s.ownerId} admins=${s.adminIds} seats=${nextSeats.length}');
@@ -992,6 +994,16 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
     debugPrint("🔁 moveSeat from $fromSeat → $toSeat");
+  }
+
+  /// #12: admin/supervisor invites a specific audience user onto a specific seat.
+  void inviteToSeat({required int seatNumber, required int targetUserId}) {
+    _socket.emit('invite_to_seat', {
+      'roomId': roomId,
+      'targetUserId': targetUserId,
+      'seatNumber': seatNumber,
+    });
+    debugPrint("📨 invite_to_seat seat=$seatNumber user=$targetUserId");
   }
 
   void setUserSpeaking(int userId, bool isSpeaking) {

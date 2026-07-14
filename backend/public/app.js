@@ -39,6 +39,7 @@ const sectionTitles = {
   advanced:  "ميزات الأدمن",
   store:     "إدارة المتجر",
   vip:       "مستويات VIP",
+  admins:    "المشرفون",
   settings:  "الإعدادات",
 };
 
@@ -55,6 +56,7 @@ function navigate(sec) {
   sections.forEach(s => s.classList.toggle("active", s.id === `section-${sec}`));
   pageTitle.textContent = sectionTitles[sec] || sec;
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} }
 }
 
@@ -570,15 +572,25 @@ window.showAgencyMembers = async function (agencyId, agencyName) {
     if (!members.length) {
       box.innerHTML = '<p class="cell-muted" style="padding:10px">لا يوجد أعضاء</p>';
     } else {
-      box.innerHTML = members.map(m => `
+      box.innerHTML = members.map(m => {
+        const earned = Number(m.earnedCoins ?? 0);
+        const goal = Number(m.targetGoalCoins ?? 0);
+        const remaining = Number(m.remainingCoins ?? 0);
+        // #24: show the member's target so the owner can hold them accountable.
+        const targetLabel = goal > 0
+          ? `<span class="cell-muted">🎯 ${earned} / ${goal}${remaining > 0 ? ` (متبقٍ ${remaining})` : " ✓"}</span>`
+          : `<span class="cell-muted">🎯 ${earned}</span>`;
+        return `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid var(--card-border);">
           <div>
             <strong>${escapeHtml(m.user?.name ?? "")}</strong>
             <span class="cell-muted">#${m.user?.displayId ?? m.userId}</span>
             <span class="cell-muted">— ${m.role === "OWNER" ? "وكيل" : "مضيف"}</span>
+            <div style="margin-top:2px">${targetLabel}</div>
           </div>
           ${m.role === "OWNER" ? "" : `<button class="btn-bad" onclick="adminRemoveAgencyMember(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}')">إزالة</button>`}
-        </div>`).join("");
+        </div>`;
+      }).join("");
     }
     document.getElementById("agencyMembersModal").classList.remove("hidden");
   } catch (e) {
@@ -927,14 +939,19 @@ window.closeGiftModal = function () {
 
 window.saveGift = async function () {
   const id = document.getElementById('gift_id').value.trim();
+  const coinsValue = Number(document.getElementById('gift_coinsValue').value || 0);
+  // #14-16: tier and sortOrder are no longer admin-picked — derive a sensible
+  // default from the coin value so the simple form stays just image/video/coins.
+  const tierField = document.getElementById('gift_tier').value;
+  const autoTier = coinsValue >= 5000 ? 'LEGENDARY' : coinsValue >= 1000 ? 'LARGE' : coinsValue >= 200 ? 'MEDIUM' : 'SMALL';
   const payload = {
     nameAr: document.getElementById('gift_nameAr').value.trim(),
     imageUrl: document.getElementById('gift_imageUrl').value.trim(),
     animationUrl: document.getElementById('gift_animationUrl').value.trim() || null,
-    coinsValue: Number(document.getElementById('gift_coinsValue').value || 0),
+    coinsValue,
     sortOrder: Number(document.getElementById('gift_sortOrder').value || 0),
     isActive: document.getElementById('gift_isActive').checked,
-    tier: document.getElementById('gift_tier').value || 'SMALL',
+    tier: tierField || autoTier,
   };
   // Video gifts play their clip on send; image gifts use the flying-image animation.
   payload.format = payload.animationUrl ? 'VIDEO' : 'SVG_CSS';
@@ -1231,6 +1248,81 @@ document.getElementById("giftSaveBtn")?.addEventListener("click", () => saveGift
 document.getElementById("giftUploadImageBtn")?.addEventListener("click", () => uploadGiftImage().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("giftUploadVideoBtn")?.addEventListener("click", () => uploadGiftVideo().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnAddGift")?.addEventListener("click", () => openGiftModal().catch(e => showToast("خطأ: " + e.message)));
+
+// ============================================================
+// ADMINS (#22, #23) — roster + role management (super-admin only mutates)
+// ============================================================
+let currentAdminIsSuper = false;
+
+async function loadAdmins() {
+  // Learn the current dashboard user's own role to gate the controls.
+  try {
+    const me = await apiFetch("/admin-dashboard/me");
+    currentAdminIsSuper = !!(me.data && me.data.isSuperAdmin);
+  } catch { currentAdminIsSuper = false; }
+
+  const note = document.getElementById("adminsSuperNote");
+  if (note) note.style.display = currentAdminIsSuper ? "none" : "block";
+
+  const d = await apiFetch("/admin-dashboard/admins");
+  const rows = d.data || [];
+  const tbody = document.querySelector("#adminsTable tbody");
+  tbody.innerHTML = "";
+  for (const a of rows) {
+    const role = a.isSuperAdmin
+      ? '<span class="badge badge-admin">سوبر أدمن</span>'
+      : '<span class="badge">أدمن</span>';
+    const did = Number(a.displayId || 0) >= 10000 ? `#${a.displayId}` : "—";
+    let actions = "—";
+    if (currentAdminIsSuper) {
+      const superBtn = a.isSuperAdmin
+        ? `<button class="btn-outline" onclick="setSuperAdmin(${a.id}, false)">إلغاء سوبر</button>`
+        : `<button class="btn-ok" onclick="setSuperAdmin(${a.id}, true)">ترقية لسوبر</button>`;
+      actions = `<div class="td-actions">${superBtn}
+        <button class="btn-bad" onclick="revokeAdmin(${a.id})">إلغاء الأدمن</button></div>`;
+    }
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="cell-id">${escapeHtml(a.id ?? "")}</span></td>
+      <td><span class="cell-id">${escapeHtml(did)}</span></td>
+      <td>${escapeHtml(a.name ?? "")}</td>
+      <td>${role}</td>
+      <td>${actions}</td>`;
+    tbody.appendChild(tr);
+  }
+  document.getElementById("adminsMeta").textContent = `إجمالي المشرفين: ${rows.length}`;
+}
+
+async function grantAdmin() {
+  const id = (document.getElementById("adminGrantId")?.value || "").trim();
+  if (!id) return showToast("أدخل رقم المستخدم");
+  await apiFetch(`/admin-dashboard/admins/${encodeURIComponent(id)}/grant`, "POST");
+  document.getElementById("adminGrantId").value = "";
+  showToast("✓ تم تعيين الأدمن");
+  await loadAdmins();
+}
+
+async function revokeAdmin(userId) {
+  if (!confirm("إلغاء صلاحية الأدمن عن هذا المستخدم؟")) return;
+  try {
+    await apiFetch(`/admin-dashboard/admins/${userId}/revoke`, "POST");
+    showToast("✓ تم إلغاء الأدمن");
+    await loadAdmins();
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function setSuperAdmin(userId, value) {
+  try {
+    await apiFetch(`/admin-dashboard/admins/${userId}/super`, "PATCH", { value });
+    showToast(value ? "✓ تمت الترقية لسوبر أدمن" : "✓ تم إلغاء السوبر أدمن");
+    await loadAdmins();
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+window.revokeAdmin = revokeAdmin;
+window.setSuperAdmin = setSuperAdmin;
+
+document.getElementById("btnAdmins")?.addEventListener("click", () => loadAdmins().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnGrantAdmin")?.addEventListener("click", () => grantAdmin().catch(e => showToast("خطأ: " + e.message)));
 
 
 document.getElementById("btnUsersExport")?.addEventListener("click", () => downloadCSV("users.csv", lastUsersRows));

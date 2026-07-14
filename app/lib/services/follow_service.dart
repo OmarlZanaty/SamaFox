@@ -16,6 +16,13 @@ class FollowService {
     await _dio.post('/follow/$userId');
   }
 
+  /// #25: users the current account follows, each with liveRoomId if hosting.
+  static Future<List<Map<String, dynamic>>> getFollowing() async {
+    final res = await _dio.get('/follow/following');
+    final list = (res.data is Map) ? (res.data['data'] as List? ?? const []) : const [];
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
   static Future<void> unfollow(int userId) async {
     await _dio.delete('/follow/$userId');
   }

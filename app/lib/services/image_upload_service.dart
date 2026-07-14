@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
@@ -7,6 +8,38 @@ class ImageUploadService {
   final Dio _dio;
 
   ImageUploadService({Dio? dio}) : _dio = dio ?? Dio();
+
+  /// Upload an image file to the server (web-compatible via bytes)
+  Future<String> uploadImageBytes(Uint8List bytes, String token, {String filename = 'image.jpg'}) async {
+    try {
+      final formData = FormData.fromMap({
+        'image': MultipartFile.fromBytes(bytes, filename: filename),
+      });
+
+      final response = await _dio.post(
+        '${AppConfig.apiBaseUrl}upload/image',
+        data: formData,
+        options: Options(headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'multipart/form-data',
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = response.data;
+        if (responseData is Map) {
+          final imageUrl = responseData['url'] as String? ?? responseData['imageUrl'] as String?;
+          if (imageUrl != null) return imageUrl;
+        }
+        if (responseData is String) return responseData;
+        throw Exception('No URL in response');
+      }
+      throw Exception('Upload failed: ${response.statusCode}');
+    } catch (e) {
+      debugPrint('🔴 uploadImageBytes error: $e');
+      rethrow;
+    }
+  }
 
   /// Upload an image file to the server
   /// Returns the URL of the uploaded image
@@ -73,6 +106,11 @@ class ImageUploadService {
       debugPrint('❌ Unexpected error: $e');
       throw Exception('Unexpected error: $e');
     }
+  }
+
+  /// Upload room cover image (web-compatible)
+  Future<String> uploadRoomCoverImageBytes(Uint8List bytes, String token) async {
+    return uploadImageBytes(bytes, token, filename: 'room_cover.jpg');
   }
 
   /// Upload room cover image

@@ -9,6 +9,7 @@ class SeatsGrid extends StatelessWidget {
   final int ownerId;
   final List<int> adminIds;
   final Set<int> lockedSeats;
+  final Set<int> mutedSeats; // #11: admin-muted seat numbers
 
   final bool scrollable;
   final int? myUserId;
@@ -32,6 +33,7 @@ class SeatsGrid extends StatelessWidget {
     required this.adminIds,
     required this.lockedSeats,
     required this.seatKeys, // ✅ NEW
+    this.mutedSeats = const {},
     this.seatEarnings = const {},
     this.scrollable = false,
   });
@@ -89,6 +91,7 @@ class SeatsGrid extends StatelessWidget {
                     isMine: isMine,
                     isAdmin: isAdmin,
                     isSeatLocked: isLocked,
+                    isSeatMuted: mutedSeats.contains(seatNumber),
                     isOwnerSeat: isOwnerSeat,
                     isAdminSeat: isAdminSeat,
                     coins24h: uid != null ? (seatEarnings[uid] ?? 0) : 0,

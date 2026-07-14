@@ -91,6 +91,15 @@ class StoreService {
     );
   }
 
+  Future<void> deactivateAll(String token) async {
+    await DioClient.dio.post(
+      '/store/deactivate-all',
+      options: token.isNotEmpty
+          ? Options(headers: {'Authorization': 'Bearer $token'})
+          : null,
+    );
+  }
+
   Future<void> deactivateFrame(String token) async {
     await DioClient.dio.post(
       '/store/deactivate-frame',

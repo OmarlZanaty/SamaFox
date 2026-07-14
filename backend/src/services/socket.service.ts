@@ -31,6 +31,13 @@ function getLockedSeats(roomId: number): Set<number> {
   return roomLockedSeats.get(roomId)!;
 }
 
+const roomAdminMutedSeats = new Map<number, Set<number>>();
+
+function getAdminMutedSeats(roomId: number): Set<number> {
+  if (!roomAdminMutedSeats.has(roomId)) roomAdminMutedSeats.set(roomId, new Set<number>());
+  return roomAdminMutedSeats.get(roomId)!;
+}
+
 // ✅ Track voice participants per room (GLOBAL ONLY)
 const voiceUsers = new Map<number, Set<number>>();
 const getVoiceSet = (roomId: number) => {
@@ -97,12 +104,13 @@ function cleanupRoomStateIfEmpty(roomId: number) {
   roomMicQueue.delete(roomId);
   roomAdmins.delete(roomId);
   roomLockedSeats.delete(roomId);
+  roomAdminMutedSeats.delete(roomId);
   voiceUsers.delete(roomId);
   adminCacheTTL.delete(roomId);
 }
 
 const adminCacheTTL = new Map<number, number>(); // rid -> timestamp
-const ADMIN_CACHE_DURATION_MS = 30_000; // 30 seconds
+const ADMIN_CACHE_DURATION_MS = 0; // always fresh
 
 async function populateAdmins(roomId: number) {
   const now = Date.now();
@@ -231,6 +239,7 @@ await Promise.all(
     adminIds: adminList,
     maxSeats,
     lockedSeats: Array.from(locked.values()),
+    mutedSeats: Array.from(getAdminMutedSeats(rid).values()),
     seats: seatDetails,
   });
 
@@ -241,7 +250,20 @@ async function emitVoiceUsers(io: Server, rid: number) {
   io.to(`room:${rid}`).emit('voice_users', { roomId: rid, users });
 }
 
+let _io: Server | null = null;
+
+export function invalidateAdminCacheAndRefresh(roomId: number) {
+  adminCacheTTL.delete(roomId);
+  if (_io) emitRoomState(_io, roomId).catch(console.error);
+}
+
+export function broadcastRoomClosed(roomId: number) {
+  if (!_io) return;
+  _io.to(`room:${roomId}`).emit('room_closed', { roomId });
+}
+
 export const initializeSocketHandlers = (io: Server) => {
+  _io = io;
   io.use((socket: AuthenticatedSocket, next) => {
   try {
     let token = socket.handshake.auth?.token 
@@ -465,10 +487,13 @@ socket.on('seat_mute_lock', async ({ roomId, seatNumber, muted }: any) => {
   if (!rid || !sn || !uid) return;
   await populateAdmins(rid);
   if (!getAdmins(rid).has(uid)) return; // only admin/owner
+  const willMute = muted === true || muted?.toString() === 'true';
+  const mutedSet = getAdminMutedSeats(rid);
+  if (willMute) mutedSet.add(sn); else mutedSet.delete(sn);
   io.to(`room:${rid}`).emit('seat_mute_lock', {
     roomId: rid,
     seatNumber: sn,
-    muted: muted === true || muted?.toString() === 'true',
+    muted: willMute,
   });
 });
 
@@ -638,14 +663,17 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       // treat them as open so nobody is permanently locked out.) ──
       const roomRow = await prisma.room.findUnique({
         where: { id: rid },
-        select: { isLocked: true, accessCode: true, ownerId: true },
+        select: { isLocked: true, accessCode: true, ownerId: true, isActive: true },
       });
+      if (!roomRow?.isActive) {
+        socket.emit('join_denied', { roomId: rid, reason: 'closed' });
+        return;
+      }
       if (roomRow?.isLocked && roomRow.accessCode) {
         await populateAdmins(rid);
         const privileged = roomRow.ownerId === uid || getAdmins(rid).has(uid);
         const provided = code != null ? String(code).trim() : '';
         if (!privileged && provided !== roomRow.accessCode) {
-          console.log('[join_denied]', { uid, rid, reason: 'locked', hadCode: provided.length > 0 });
           socket.emit('join_denied', { roomId: rid, reason: 'locked' });
           socket.leave(`room:${rid}`);
           return;
@@ -1005,6 +1033,57 @@ socket.on('leave_room', async ({ roomId }: any) => {
   } catch (err) {
     console.error('[socket.approve_mic] handler error:', err);
     socket.emit('error', { event: 'approve_mic', message: 'Internal error' });
+  }
+});
+
+// #12: admin/supervisor invites a specific audience user onto a SPECIFIC seat
+// (unlike approve_mic which auto-picks). Works even if the seat is closed/muted.
+socket.on('invite_to_seat', async ({ roomId, targetUserId, seatNumber }: any) => {
+  try {
+    const adminId = socket.userId;
+    const rid = toInt(roomId);
+    const targetId = toInt(targetUserId);
+    const seatNum = toInt(seatNumber);
+    if (!adminId || !rid || !targetId || !seatNum) return;
+
+    let adminsSet = getAdmins(rid);
+    if (adminsSet.size === 0) { await populateAdmins(rid); adminsSet = getAdmins(rid); }
+    if (!adminsSet.has(adminId)) return; // owner + supervisor/admins only
+
+    const room = await prisma.room.findUnique({ where: { id: rid }, select: { maxSeats: true } });
+    const maxSeats = (room?.maxSeats ?? 8) > 0 ? (room?.maxSeats ?? 8) : 8;
+    if (seatNum < 1 || seatNum > maxSeats) return;
+
+    const seats = getSeats(rid);
+    if (seats.has(seatNum) && seats.get(seatNum) !== targetId) {
+      socket.emit('seat_error', { message: 'Seat occupied' });
+      return;
+    }
+
+    // remove target from any current seat + the mic queue
+    for (const [num, occ] of seats.entries()) if (occ === targetId) seats.delete(num);
+    roomMicQueue.set(rid, getQueue(rid).filter((id) => id !== targetId));
+
+    seats.set(seatNum, targetId);
+    getMuted(rid).set(targetId, false);
+
+    const u = await prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, activeFrame: { select: { assetUrl: true } }, level: true },
+    });
+    const avatarFrameUrl = u?.activeFrame?.assetUrl ?? u?.avatarFrameUrl ?? null;
+
+    io.to(`room:${rid}`).emit('seat_occupied', {
+      seatNumber: seatNum, userId: targetId, username: u?.name ?? null,
+      avatarUrl: u?.avatarUrl ?? null, avatarFrameUrl, level: u?.level ?? 1, isMuted: false,
+    });
+    getVoiceSet(rid).add(targetId);
+    await emitVoiceUsers(io, rid);
+    io.to(targetId.toString()).emit('approve_mic', { roomId: rid, userId: targetId });
+    await emitRoomState(io, rid);
+  } catch (err) {
+    console.error('[socket.invite_to_seat] handler error:', err);
+    socket.emit('error', { event: 'invite_to_seat', message: 'Internal error' });
   }
 });
 

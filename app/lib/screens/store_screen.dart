@@ -24,15 +24,12 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
   String selectedType = "seat_effect"; // Default tab
   Set<String> ownedIds = {};
   bool loadingInventory = true;
-  bool loadingFrames = false;
-  List<Map<String, dynamic>> myFrames = [];
 
 
   @override
   void initState() {
     super.initState();
     loadOwnedItems();
-    loadMyFrames();
     // Auto-refresh the product catalog every time the store opens, so newly
     // added products (e.g. a background uploaded from the dashboard) show up.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -46,7 +43,6 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
     await Future.wait([
       ref.read(storeProvider.future),
       loadOwnedItems(),
-      loadMyFrames(),
     ]);
   }
 
@@ -67,51 +63,6 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
     }
   }
 
-  Future<void> loadMyFrames() async {
-    try {
-      setState(() => loadingFrames = true);
-      final token = await StorageService.getAccessToken();
-      if (token == null) return;
-      final service = StoreService();
-      final frames = await service.getMyFrames(token);
-      setState(() {
-        myFrames = frames;
-      });
-    } catch (e) {
-      //debugPrint(e);
-    } finally {
-      if (mounted) setState(() => loadingFrames = false);
-    }
-  }
-
-  Future<void> toggleFrame(Map<String, dynamic> frame) async {
-    try {
-      final token = await StorageService.getAccessToken();
-      if (token == null) return;
-      final service = StoreService();
-      final isActive = frame['isActive'] == true;
-
-      if (isActive) {
-        await service.deactivateFrame(token);
-      } else {
-        await service.activateFrame(token, frame['id'].toString());
-      }
-
-      // Keep auth user in sync so room seat payload uses the latest active frame.
-      await ref.read(authStateProvider.notifier).refreshUser();
-      await loadMyFrames();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isActive ? "تم إلغاء التفعيل" : "تم التفعيل")),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
-    }
-  }
 
 
   @override
@@ -201,8 +152,6 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                           const SizedBox(width: 10),
                           _buildTab("إطارات", "avatar_frame"),
                           const SizedBox(width: 10),
-                          _buildTab("الإطارات", "frames"),
-                          const SizedBox(width: 10),
                           _buildTab("خلفيات", "background"),
                         ],
                       ),
@@ -215,9 +164,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                       child: RefreshIndicator(
                         onRefresh: _refreshStore,
                         color: const Color(0xFF8E44AD),
-                        child: selectedType == "frames"
-                            ? _buildFramesGrid()
-                            : (filtered.isEmpty
+                        child: filtered.isEmpty
                                 ? ListView(
                                     physics: const AlwaysScrollableScrollPhysics(),
                                     children: const [
@@ -244,7 +191,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                                         isOwned: ownedIds.contains(filtered[index].id.toString()),
                                       );
                                     },
-                                  )),
+                                  ),
                       ),
                     ),
                   ],
@@ -318,83 +265,6 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
     );
   }
 
-  Widget _buildFramesGrid() {
-    if (loadingFrames) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (myFrames.isEmpty) {
-      return const Center(
-        child: Text("لا توجد إطارات مملوكة بعد", style: TextStyle(color: Colors.white70)),
-      );
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 120),
-      itemCount: myFrames.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 0.72,
-      ),
-      itemBuilder: (_, index) {
-        final frame = myFrames[index];
-        final isActive = frame['isActive'] == true;
-        return Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A0E3E),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isActive ? Colors.greenAccent : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              if (isActive)
-                const Align(
-                  alignment: Alignment.topRight,
-                  child: Padding(
-                    padding: EdgeInsets.only(right: 8),
-                    child: Icon(Icons.check_circle, color: Colors.greenAccent),
-                  ),
-                ),
-              Expanded(
-                child: Image.network(
-                  (frame['imageUrl'] ?? '').toString(),
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Text(
-                  (frame['name'] ?? '').toString(),
-                  style: const TextStyle(color: Colors.white),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: ElevatedButton(
-                  onPressed: () => toggleFrame(frame),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isActive ? Colors.redAccent : const Color(0xFF8E44AD),
-                    minimumSize: const Size(double.infinity, 36),
-                  ),
-                  child: Text(isActive ? "إلغاء التفعيل" : "تفعيل"),
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
-          ),
-        );
-      },
-    );
-  }
 }
 
 // AFTER

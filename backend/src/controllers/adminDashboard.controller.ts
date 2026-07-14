@@ -844,8 +844,28 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
       orderBy: { joinedAt: 'asc' },
     });
 
-    return ok(res, { data: members });
-  } catch {
+    // #24: surface each member's target (earned since joining, excl self-gifts)
+    // + goal + remaining so the admin can hold people accountable from the panel.
+    const withTargets = await Promise.all(
+      members.map(async (m: any) => {
+        const earned = await db.giftTransaction.aggregate({
+          where: { recipientId: m.userId, senderId: { not: m.userId }, createdAt: { gte: m.joinedAt } },
+          _sum: { totalCoins: true },
+        });
+        const earnedCoins = Number(earned._sum.totalCoins ?? 0);
+        const goal = Number(m.targetGoalCoins ?? 0n);
+        return {
+          ...m,
+          targetGoalCoins: goal,
+          earnedCoins,
+          remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
+        };
+      }),
+    );
+
+    return ok(res, { data: serialize(withTargets) });
+  } catch (e) {
+    console.error('adminListAgencyMembers error:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -915,5 +935,109 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
   } catch (e) {
     console.error('adminUpsertVipLevel error:', e);
     return res.status(500).json({ success: false, message: 'Failed to save VIP level' });
+  }
+};
+
+// ============================================================
+// ADMIN ROLE MANAGEMENT (#22, #23)
+// Only super-admins may appoint/revoke admins & super-admins.
+// ============================================================
+
+// GET /admin-dashboard/me — the current dashboard user's own role, so the UI
+// can show/hide the super-admin-only controls.
+export const adminDashboardMe = async (req: AdminReq, res: Response) => {
+  try {
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+    const me = await db.user.findUnique({
+      where: { id: req.userId },
+      select: { id: true, name: true, displayId: true, isAdmin: true, isSuperAdmin: true },
+    });
+    if (!me) return fail(res, 401, 'Unauthorized');
+    return ok(res, { data: me });
+  } catch (e) {
+    console.error('adminDashboardMe error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// GET /admin-dashboard/admins — list every admin / super-admin.
+export const adminListAdmins = async (_req: AdminReq, res: Response) => {
+  try {
+    const admins = await db.user.findMany({
+      where: { OR: [{ isAdmin: true }, { isSuperAdmin: true }] },
+      select: { id: true, name: true, displayId: true, avatarUrl: true, isAdmin: true, isSuperAdmin: true, createdAt: true },
+      orderBy: [{ isSuperAdmin: 'desc' }, { id: 'asc' }],
+    });
+    return ok(res, { data: admins });
+  } catch (e) {
+    console.error('adminListAdmins error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// Resolve a target user from a param that may be an internal id or a public displayId.
+const resolveTargetUser = async (raw: string) => {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // Prefer displayId (what the owner types), fall back to internal id.
+  return (
+    (await db.user.findFirst({ where: { displayId: n }, select: { id: true, name: true, isAdmin: true, isSuperAdmin: true } })) ||
+    (await db.user.findUnique({ where: { id: n }, select: { id: true, name: true, isAdmin: true, isSuperAdmin: true } }))
+  );
+};
+
+// POST /admin-dashboard/admins/:userId/grant — make a user an admin (super-admin only).
+export const adminGrantAdmin = async (req: AdminReq, res: Response) => {
+  try {
+    const target = await resolveTargetUser(String(req.params.userId));
+    if (!target) return fail(res, 404, 'User not found');
+    await db.user.update({ where: { id: target.id }, data: { isAdmin: true } });
+    return ok(res, { data: { id: target.id, isAdmin: true } });
+  } catch (e) {
+    console.error('adminGrantAdmin error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// POST /admin-dashboard/admins/:userId/revoke — remove admin (and super) rights.
+export const adminRevokeAdmin = async (req: AdminReq, res: Response) => {
+  try {
+    const target = await resolveTargetUser(String(req.params.userId));
+    if (!target) return fail(res, 404, 'User not found');
+    if (target.id === req.userId) return fail(res, 400, 'You cannot revoke your own admin access');
+    // Never allow removing the last super-admin (lockout guard).
+    if (target.isSuperAdmin) {
+      const superCount = await db.user.count({ where: { isSuperAdmin: true } });
+      if (superCount <= 1) return fail(res, 400, 'Cannot revoke the last super-admin');
+    }
+    await db.user.update({ where: { id: target.id }, data: { isAdmin: false, isSuperAdmin: false } });
+    return ok(res, { data: { id: target.id, isAdmin: false, isSuperAdmin: false } });
+  } catch (e) {
+    console.error('adminRevokeAdmin error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// PATCH /admin-dashboard/admins/:userId/super  { value: boolean } — promote/demote super-admin.
+export const adminSetSuperAdmin = async (req: AdminReq, res: Response) => {
+  try {
+    const value = Boolean((req.body as any)?.value);
+    const target = await resolveTargetUser(String(req.params.userId));
+    if (!target) return fail(res, 404, 'User not found');
+    if (!value) {
+      // Demoting a super-admin: block self-demotion and last-super-admin lockout.
+      if (target.id === req.userId) return fail(res, 400, 'You cannot demote yourself');
+      const superCount = await db.user.count({ where: { isSuperAdmin: true } });
+      if (target.isSuperAdmin && superCount <= 1) return fail(res, 400, 'Cannot demote the last super-admin');
+    }
+    // A super-admin is always also an admin.
+    await db.user.update({
+      where: { id: target.id },
+      data: value ? { isSuperAdmin: true, isAdmin: true } : { isSuperAdmin: false },
+    });
+    return ok(res, { data: { id: target.id, isSuperAdmin: value } });
+  } catch (e) {
+    console.error('adminSetSuperAdmin error:', e);
+    return fail(res, 500, 'Server error');
   }
 };

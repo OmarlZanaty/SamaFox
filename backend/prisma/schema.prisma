@@ -32,6 +32,10 @@ model User {
   cpPoints                 Int                       @default(0) // account power (CP) accumulated from CP-eligible gifts sent
   age                      Int?                      // user-editable age (#3), shown on profile
   isAdmin                  Boolean                   @default(false)
+  // Super-admin: elevated dashboard role that can appoint/revoke other admins
+  // and super-admins (#23). A plain isAdmin can use the dashboard but cannot
+  // manage the admin roster.
+  isSuperAdmin             Boolean                   @default(false)
   isBanned                 Boolean                   @default(false)
   bannedAt                 DateTime?
   banReason                String?
@@ -823,6 +827,11 @@ model AgencyMember {
   user     User           @relation(fields: [userId], references: [id])
   role     String         @default("MEMBER")
   joinedAt DateTime       @default(now())
+
+  // Per-member TARGET GOAL set by the agency owner/admin. The member's *earned*
+  // amount is derived from gifts received since joinedAt (excluding self-gifts);
+  // remaining = targetGoalCoins - earned. 0 = no goal set. (#13, #24)
+  targetGoalCoins BigInt @default(0)
 
   @@unique([agencyId, userId])
 }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,12 +22,14 @@ class ChargingAgentScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final chargingAsync = ref.watch(chargingAgenciesProvider);
     final hostingAsync = ref.watch(hostingAgenciesProvider);
-    final myAsync = ref.watch(myAgenciesProvider);
+    final membershipsAsync = ref.watch(myMembershipsProvider);
     final authState = ref.watch(authStateProvider);
     final isSystemAdmin = authState.user?.userIsAdmin ?? false;
-    final myOwnedAgencyId = myAsync.maybeWhen(
-      data: (items) => items.isNotEmpty ? items.first.id : null,
-      orElse: () => null,
+    // agencyId -> role ('OWNER' | 'BRANCH' | other). Covers EVERY agency the
+    // user owns or is a branch (فرع) of, not just the first one (#2-4, #8).
+    final myRoles = membershipsAsync.maybeWhen(
+      data: (items) => items,
+      orElse: () => const <int, String>{},
     );
 
     return Scaffold(
@@ -60,6 +63,7 @@ class ChargingAgentScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(agencyBalanceProvider);
             ref.invalidate(myAgenciesProvider);
+            ref.invalidate(myMembershipsProvider);
             ref.invalidate(chargingAgenciesProvider);
             ref.invalidate(hostingAgenciesProvider);
           },
@@ -96,7 +100,8 @@ class ChargingAgentScreen extends ConsumerWidget {
                               context,
                               ref,
                               agency,
-                              isAgencyAdmin: isSystemAdmin || myOwnedAgencyId == agency.id,
+                              isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
+                              isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
                             ),
                           ),
                     loading: () => const Padding(
@@ -120,7 +125,8 @@ class ChargingAgentScreen extends ConsumerWidget {
                               context,
                               ref,
                               agency,
-                              isAgencyAdmin: isSystemAdmin || myOwnedAgencyId == agency.id,
+                              isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
+                              isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
                             ),
                           ),
                     loading: () => const Padding(
@@ -150,12 +156,13 @@ Future<void> _onAgencyTap(
   WidgetRef ref,
   ChargingAgency agency, {
   required bool isAgencyAdmin,
+  required bool isOwner,
 }) async {
   if (agency.type == 'CHARGING') {
-    await _showChargingActions(context, agency, isAgencyAdmin: isAgencyAdmin);
+    await _showChargingActions(context, agency, isAgencyAdmin: isAgencyAdmin, isOwner: isOwner);
     return;
   }
-  await _showHostingActions(context, agency, isAgencyAdmin: isAgencyAdmin);
+  await _showHostingActions(context, agency, isAgencyAdmin: isAgencyAdmin, isOwner: isOwner);
 }
 
 Future<void> _handleCreateAgencyRequest(
@@ -179,6 +186,7 @@ Future<void> _handleCreateAgencyRequest(
       const SnackBar(content: Text('✅ تم إرسال طلب إنشاء الوكالة (Pending)')),
     );
     ref.invalidate(myAgenciesProvider);
+    ref.invalidate(myMembershipsProvider);
     ref.invalidate(chargingAgenciesProvider);
     ref.invalidate(hostingAgenciesProvider);
     ref.invalidate(agencyBalanceProvider);
@@ -193,6 +201,7 @@ Future<void> _showChargingActions(
   BuildContext context,
   ChargingAgency agency, {
   required bool isAgencyAdmin,
+  required bool isOwner,
 }) async {
   await showModalBottomSheet(
     context: context,
@@ -220,12 +229,25 @@ Future<void> _showChargingActions(
                 textColor: Colors.white,
                 iconColor: Colors.white,
                 leading: const Icon(Icons.send),
-                title: const Text('شحن مستخدم من رصيد الوكالة'),
+                title: const Text('إضافة كوينز لمستخدم'),
                 onTap: () async {
                   Navigator.pop(context);
                   await _sendAgencyCoinsToUser(context);
                 },
               ),
+              // Branches (فرع) — same system access, no ownership (#2-4). Only
+              // the owner manages who the branches are.
+              if (isOwner)
+                ListTile(
+                  textColor: Colors.white,
+                  iconColor: Colors.white,
+                  leading: const Icon(Icons.groups),
+                  title: const Text('الفروع (حتى 3)'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _manageBranches(context, agency, agencyType: 'CHARGING');
+                  },
+                ),
             ] else ...[
               ListTile(
                 textColor: Colors.white,
@@ -246,6 +268,7 @@ Future<void> _showHostingActions(
   BuildContext context,
   ChargingAgency agency, {
   required bool isAgencyAdmin,
+  required bool isOwner,
 }) async {
   await showModalBottomSheet(
     context: context,
@@ -280,6 +303,19 @@ Future<void> _showHostingActions(
                 },
                 child: const Text('طلبات الانضمام المعلقة'),
               ),
+              // Branches (فرع) — same hosting-management access, no ownership.
+              // Only the owner manages who the branches are (#2-4).
+              if (isOwner) ...[
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _manageBranches(context, agency, agencyType: 'HOSTING');
+                  },
+                  icon: const Icon(Icons.groups),
+                  label: const Text('الفروع (حتى 3)'),
+                ),
+              ],
             ] else ...[
               ElevatedButton.icon(
                 onPressed: () async {
@@ -335,38 +371,209 @@ Future<void> _requestCoinsFromAdmin(BuildContext context) async {
   }
 }
 
+// #5-7: "إضافة كوينز" flow — enter the person's ID, THEY APPEAR (name/avatar)
+// so the agent confirms it's the right person, then a box for the coin count,
+// then إرسال. Replaces the old raw userId+amount dialog with no confirmation.
 Future<void> _sendAgencyCoinsToUser(BuildContext context) async {
-  final userCtrl = TextEditingController();
+  final idCtrl = TextEditingController();
   final amountCtrl = TextEditingController();
+  Map<String, dynamic>? foundUser;
+  bool searching = false;
+  String? error;
+
   final ok = await showDialog<bool>(
     context: context,
-    builder: (_) => AlertDialog(
-      backgroundColor: const Color(0xFF1F1247),
-      title: const Text('شحن مستخدم', style: TextStyle(color: Colors.white)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _MiniField(controller: userCtrl, label: 'رقم المستخدم'),
-          const SizedBox(height: 8),
-          _MiniField(controller: amountCtrl, label: 'عدد الكوينز'),
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
-        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('إرسال')),
-      ],
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) {
+        Future<void> doSearch() async {
+          final q = idCtrl.text.trim();
+          if (q.isEmpty) return;
+          setState(() { searching = true; error = null; foundUser = null; });
+          try {
+            final resp = await DioClient.dio.get('/agencies/search-user', queryParameters: {'q': q});
+            final list = (resp.data is Map) ? (resp.data['data'] as List? ?? const []) : const [];
+            if (list.isNotEmpty) {
+              setState(() { foundUser = Map<String, dynamic>.from(list.first as Map); searching = false; });
+            } else {
+              setState(() { error = 'لم يتم العثور على مستخدم بهذا الرقم'; searching = false; });
+            }
+          } catch (_) {
+            setState(() { error = 'فشل البحث'; searching = false; });
+          }
+        }
+
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1F1247),
+          title: const Text('إضافة كوينز', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: _MiniField(controller: idCtrl, label: 'رقم المستخدم (ID)')),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: searching ? null : doSearch,
+                    icon: const Icon(Icons.search, color: Colors.white),
+                  ),
+                ],
+              ),
+              if (searching) const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: CircularProgressIndicator(),
+              ),
+              if (error != null) Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(error!, style: const TextStyle(color: Colors.redAccent)),
+              ),
+              if (foundUser != null) ...[
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage: (foundUser!['avatarUrl'] ?? '').toString().isNotEmpty
+                        ? NetworkImage(foundUser!['avatarUrl'].toString())
+                        : null,
+                    child: (foundUser!['avatarUrl'] ?? '').toString().isEmpty
+                        ? const Icon(Icons.person)
+                        : null,
+                  ),
+                  title: Text((foundUser!['name'] ?? '').toString(), style: const TextStyle(color: Colors.white)),
+                  subtitle: Text('#${foundUser!['displayId'] ?? foundUser!['id']}', style: const TextStyle(color: Colors.white70)),
+                ),
+                const SizedBox(height: 8),
+                _MiniField(controller: amountCtrl, label: 'عدد الكوينز'),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              onPressed: foundUser == null ? null : () => Navigator.pop(dialogContext, true),
+              child: const Text('إرسال'),
+            ),
+          ],
+        );
+      },
     ),
   );
-  if (ok != true) return;
+  if (ok != true || foundUser == null) return;
   try {
     await DioClient.dio.post('/agencies/send-coins', data: {
-      'userId': int.tryParse(userCtrl.text.trim()) ?? 0,
+      'userId': foundUser!['id'],
       'amount': int.tryParse(amountCtrl.text.trim()) ?? 0,
     });
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الشحن بنجاح')));
   } catch (_) {
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل الشحن')));
   }
+}
+
+// #2-4: Branches (فرع) management — owner adds/removes up to 3 partners who
+// get the same system access without owning the agency.
+Future<void> _manageBranches(
+  BuildContext context,
+  ChargingAgency agency, {
+  required String agencyType,
+}) async {
+  Future<List<Map<String, dynamic>>> load() async {
+    final resp = await DioClient.dio.get('/agencies/branches', queryParameters: {'agencyType': agencyType});
+    final list = (resp.data is Map) ? (resp.data['data'] as List? ?? const []) : const [];
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  await showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF1F1247),
+    isScrollControlled: true,
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (context, setState) {
+        final idCtrl = TextEditingController();
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('فروع ${agency.agencyName}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text('نفس النظام بدون امتلاك الوكالة — حتى 3 فروع', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _MiniField(controller: idCtrl, label: 'رقم المستخدم (ID)')),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () async {
+                        final id = int.tryParse(idCtrl.text.trim());
+                        if (id == null) return;
+                        try {
+                          await DioClient.dio.post('/agencies/branches', data: {'userId': id, 'agencyType': agencyType});
+                          idCtrl.clear();
+                          setState(() {});
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت الإضافة كفرع')));
+                          }
+                        } catch (e) {
+                          final msg = e is DioException ? (e.response?.data?['message'] ?? 'فشل الإضافة') : 'فشل الإضافة';
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg.toString())));
+                          }
+                        }
+                      },
+                      child: const Text('+ فرع'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: load(),
+                  builder: (context, snap) {
+                    if (!snap.hasData) {
+                      return const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(),
+                      );
+                    }
+                    final branches = snap.data!;
+                    if (branches.isEmpty) {
+                      return const Text('لا يوجد فروع حالياً', style: TextStyle(color: Colors.white70));
+                    }
+                    return Column(
+                      children: branches.map((b) {
+                        final u = (b['user'] as Map?) ?? const {};
+                        return ListTile(
+                          textColor: Colors.white,
+                          leading: const Icon(Icons.person, color: Colors.white70),
+                          title: Text((u['name'] ?? 'مستخدم').toString()),
+                          subtitle: Text('#${u['displayId'] ?? b['userId']}', style: const TextStyle(color: Colors.white70)),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.remove_circle, color: Colors.redAccent),
+                            onPressed: () async {
+                              try {
+                                await DioClient.dio.delete(
+                                  '/agencies/branches/${b['userId']}',
+                                  queryParameters: {'agencyType': agencyType},
+                                );
+                                setState(() {});
+                              } catch (_) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل الإزالة')));
+                                }
+                              }
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
 }
 
 Future<void> _requestJoinHostingAgency(BuildContext context, int agencyId) async {
@@ -870,13 +1077,38 @@ class _ImagePickTile extends StatelessWidget {
   }
 }
 
-class _PreviewBox extends StatelessWidget {
+class _PreviewBox extends StatefulWidget {
   final XFile? file;
   const _PreviewBox({required this.file});
 
   @override
+  State<_PreviewBox> createState() => _PreviewBoxState();
+}
+
+class _PreviewBoxState extends State<_PreviewBox> {
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBytes();
+  }
+
+  @override
+  void didUpdateWidget(_PreviewBox old) {
+    super.didUpdateWidget(old);
+    if (old.file?.path != widget.file?.path) _loadBytes();
+  }
+
+  Future<void> _loadBytes() async {
+    if (widget.file == null) { setState(() => _bytes = null); return; }
+    final b = await widget.file!.readAsBytes();
+    if (mounted) setState(() => _bytes = b);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (file == null) {
+    if (_bytes == null) {
       return Container(
         width: 72,
         height: 72,
@@ -885,8 +1117,8 @@ class _PreviewBox extends StatelessWidget {
       );
     }
 
-    return Image.file(
-      File(file!.path),
+    return Image.memory(
+      _bytes!,
       width: 72,
       height: 72,
       fit: BoxFit.cover,
@@ -1056,9 +1288,21 @@ class _AgencyGridCard extends StatelessWidget {
 final agencyBalanceProvider = FutureProvider<int>((ref) async {
   final dio = DioClient.dio;
   final resp = await dio.get('/agencies/my-agency');
-  final data = (resp.data is Map<String, dynamic>) ? (resp.data['data'] ?? {}) as Map<String, dynamic> : <String, dynamic>{};
-  final raw = data['balanceCoins'] ?? 0;
-  return int.tryParse('$raw') ?? 0;
+  final raw = resp.data is Map ? resp.data['data'] : null;
+  // #8: /my-agency returns an array now. Coins live on the CHARGING (shipping)
+  // agency, so report that one's balance; tolerate the old single-object shape.
+  Map<String, dynamic>? charging;
+  if (raw is List) {
+    final maps = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    charging = maps.firstWhere(
+      (m) => (m['type'] ?? '').toString().toUpperCase() == 'CHARGING',
+      orElse: () => maps.isNotEmpty ? maps.first : <String, dynamic>{},
+    );
+  } else if (raw is Map) {
+    charging = Map<String, dynamic>.from(raw);
+  }
+  final bal = charging?['balanceCoins'] ?? 0;
+  return int.tryParse('$bal') ?? 0;
 });
 
 final chargingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
@@ -1103,13 +1347,46 @@ final hostingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async
   }
 });
 
+// #2-4, #8: maps agencyId -> the caller's role in it ('OWNER' | 'BRANCH' | ...),
+// across EVERY agency the user owns or is a branch of. Old code only ever
+// looked at the first owned agency, so a user who owned/worked in more than
+// one agency lost admin access to all but the first.
+final myMembershipsProvider = FutureProvider<Map<int, String>>((ref) async {
+  final dio = DioClient.dio;
+  try {
+    final resp = await dio.get('/agencies/my-memberships');
+    final list = (resp.data is Map) ? (resp.data['data'] as List? ?? const []) : const [];
+    final map = <int, String>{};
+    for (final e in list) {
+      if (e is! Map) continue;
+      final agency = (e['agency'] as Map?) ?? const {};
+      final id = agency['id'];
+      final role = e['role'];
+      if (id is int && role is String) map[id] = role;
+    }
+    return map;
+  } on DioException {
+    return {};
+  }
+});
+
 final myAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
   final dio = DioClient.dio;
   try {
     final resp = await dio.get('/agencies/my-agency');
-    final data = (resp.data['data'] is Map<String, dynamic>) ? (resp.data['data'] as Map<String, dynamic>) : null;
-    if (data == null || data.isEmpty) return [];
-    return [ChargingAgency.fromJson(data)];
+    final raw = resp.data is Map ? resp.data['data'] : null;
+    // #8: /my-agency now returns an ARRAY of every owned agency (hosting +
+    // charging). Keep tolerating the old single-object shape too.
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((e) => ChargingAgency.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+    if (raw is Map && raw.isNotEmpty) {
+      return [ChargingAgency.fromJson(Map<String, dynamic>.from(raw))];
+    }
+    return [];
   } on DioException catch (e) {
     if (e.response?.statusCode == 404) {
       try {

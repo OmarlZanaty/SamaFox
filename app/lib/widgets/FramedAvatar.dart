@@ -170,7 +170,9 @@ class FramedAvatar extends StatelessWidget {
 
   String _absoluteUrl(String raw) {
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    final base = AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+    // Static assets (avatars, frames) are served from the server ROOT
+    // (e.g. http://host:3000/uploads/...), NOT under the /api/v1 base.
+    final base = AppConfig.socketUrl.replaceFirst(RegExp(r'/+$'), '');
     if (raw.startsWith('/')) return '$base$raw';
     return '$base/$raw';
   }

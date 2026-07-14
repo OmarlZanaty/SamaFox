@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware';
-import { requireAdminDashboard } from '../middlewares/adminDashboard.middleware';
+import { requireAdminDashboard, requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
 import {
   adminDashboardAnalytics,
   adminDashboardBanUser,
@@ -38,6 +38,11 @@ import {
   adminDeleteTargetTier,
   adminListAgencyMembers,
   adminRemoveAgencyMember,
+  adminDashboardMe,
+  adminListAdmins,
+  adminGrantAdmin,
+  adminRevokeAdmin,
+  adminSetSuperAdmin,
 } from '../controllers/adminDashboard.controller';
 
 const router = express.Router();
@@ -46,6 +51,14 @@ router.use(authenticate);
 router.use(requireAdminDashboard);
 
 router.get('/overview', adminDashboardOverview);
+
+// Admin roster (#23). Reading the roster + own role needs only dashboard access;
+// mutating it requires super-admin.
+router.get('/me', adminDashboardMe);
+router.get('/admins', adminListAdmins);
+router.post('/admins/:userId/grant', requireSuperAdmin, adminGrantAdmin);
+router.post('/admins/:userId/revoke', requireSuperAdmin, adminRevokeAdmin);
+router.patch('/admins/:userId/super', requireSuperAdmin, adminSetSuperAdmin);
 router.get('/users', adminDashboardListUsers);
 router.patch('/users/:id/ban', adminDashboardBanUser);
 router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);

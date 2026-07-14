@@ -249,12 +249,30 @@ router.post('/activate-frame', async (req: any, res) => {
   }
 });
 
+router.post('/deactivate-all', async (req: any, res) => {
+  try {
+    const userId = req.userId!;
+    await prisma.userItem.updateMany({ where: { userId }, data: { isActive: false } });
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("DEACTIVATE ALL ERROR:", e);
+    return res.status(500).json({ success: false, message: "Failed to deactivate items" });
+  }
+});
+
 router.post('/deactivate-frame', async (req: any, res) => {
   try {
     const userId = req.userId!;
     await prisma.user.update({
       where: { id: userId },
       data: { activeFrameId: null, avatarFrameUrl: null },
+    });
+    // Also clear the inventory "in use" flag on frame items — the profile reads
+    // UserItem.isActive, so without this the frame kept showing as equipped
+    // ("إلغاء الاستخدام not working").
+    await prisma.userItem.updateMany({
+      where: { userId, item: { type: { in: ['FRAME', 'avatar_frame'] } } },
+      data: { isActive: false },
     });
     return res.json({ success: true });
   } catch (e) {

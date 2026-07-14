@@ -124,7 +124,7 @@ class WebRTCAudioService {
       _log('Mic permission request result: $res');
     }
 
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       await _forceAndroidVoiceRoute();
     }
 
@@ -177,13 +177,13 @@ class WebRTCAudioService {
   }
 
   Future<void> _forceAndroidVoiceRoute() async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     await _applyEchoSafeMode(talking: false); // default: speaker ON only if listening
   }
 
 
   Future<void> _applyAndroidAudioRoute({required bool speakerOn}) async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     try {
       await Helper.setSpeakerphoneOn(speakerOn);
       _log('Android route -> speakerOn=$speakerOn');
@@ -196,7 +196,7 @@ class WebRTCAudioService {
   /// Echo/noise are handled by the WebRTC AEC/NS processing, so we keep the
   /// speaker on so the mic is heard out loud and never falls back to earpiece.
   Future<void> _applyEchoSafeMode({required bool talking}) async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     await _applyAndroidAudioRoute(speakerOn: true);
   }
 
@@ -776,12 +776,12 @@ class WebRTCAudioService {
     _isSpeakerOn = on;
 
     // Android route
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       await _applyAndroidAudioRoute(speakerOn: on);
     }
 
     // iOS route (also works with Helper)
-    if (Platform.isIOS) {
+    if (!kIsWeb && Platform.isIOS) {
       try {
         await Helper.setSpeakerphoneOn(on);
       } catch (e) {

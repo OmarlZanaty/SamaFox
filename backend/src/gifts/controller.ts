@@ -183,6 +183,41 @@ export async function transactions(req: Request, res: Response) {
   }
 }
 
+// GET /gifts/received-summary/:userId — distinct gifts a user has received + how many times.
+export async function receivedSummary(req: Request, res: Response) {
+  try {
+    const userId = Number(req.params.userId) || (req.userId ?? req.authUser?.id);
+    if (!userId) return res.status(400).json({ success: false, message: 'userId required' });
+
+    const rows = await prisma.giftTransaction.groupBy({
+      by: ['giftId'],
+      where: { recipientId: userId },
+      _sum: { quantity: true, totalCoins: true },
+      _count: { _all: true },
+    });
+    const giftIds = rows.map((r) => r.giftId);
+    const gifts = giftIds.length
+      ? await prisma.gift.findMany({
+          where: { id: { in: giftIds } },
+          select: { id: true, name: true, nameAr: true, iconUrl: true, tier: true, coinCost: true },
+        })
+      : [];
+    const byId = new Map(gifts.map((g) => [g.id, g]));
+    const data = rows
+      .map((r) => ({
+        gift: byId.get(r.giftId) ?? null,
+        count: r._sum.quantity ?? r._count._all,
+        totalCoins: r._sum.totalCoins ?? 0,
+      }))
+      .filter((d) => d.gift)
+      .sort((a, b) => (b.totalCoins as number) - (a.totalCoins as number));
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[gifts.receivedSummary]', err);
+    return res.status(500).json({ success: false, message: 'Failed to load received gifts' });
+  }
+}
+
 export async function leaderboard(req: Request, res: Response) {
   try {
     const roomId = Number(req.params.roomId);

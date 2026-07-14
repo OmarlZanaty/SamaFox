@@ -1,6 +1,7 @@
 import prisma from '../utils/prisma';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
+import { getCpConfig } from '../controllers/settings.controller';
 
 export interface SendGiftInput {
   senderId: number;
@@ -62,6 +63,9 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   const gift = await prisma.gift.findUnique({ where: { id: input.giftId } });
   if (!gift || !gift.isActive) throw new GiftSendError('INVALID_GIFT', 'Gift not found or inactive', 404);
 
+  // CP accrual rate (admin-configurable; professional default = 1 CP per coin).
+  const { cpPerCoin } = await getCpConfig();
+
   const totalCoins = gift.coinCost * quantity;
   if (totalCoins <= 0 || !Number.isSafeInteger(totalCoins)) {
     throw new GiftSendError('INVALID_AMOUNT', 'Total cost out of range');
@@ -92,11 +96,54 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         throw new GiftSendError('INSUFFICIENT_COINS', 'Insufficient balance', 402);
       }
 
-      const recipientUpdate = await tx.user.update({
-        where: { id: input.recipientId },
-        data: { coinsBalance: { increment: totalCoins } },
-        select: { coinsBalance: true },
-      });
+      // Account power (CP): only gifts flagged cpEligible strengthen the sender's
+      // account. Rate is admin-configurable (cp_per_coin, default 1). No client
+      // spec yet — professional default. See settings.controller CP_DEFAULTS.
+      if (gift.cpEligible) {
+        const cpGained = totalCoins * cpPerCoin;
+        if (cpGained > 0) {
+          await tx.user.update({
+            where: { id: input.senderId },
+            data: { cpPoints: { increment: cpGained } },
+          });
+        }
+      }
+
+      // ---- Recipient crediting rules (#19, #20) --------------------------
+      // A self-gift must actually cost the sender: we already decremented above,
+      // so we DO NOT credit anything back. This kills the old net-zero exploit
+      // where agents inflated target for free (#19).
+      //
+      // For a real recipient:
+      //   • agency host (member of a HOSTING agency) -> 0 coins to balance; the
+      //     full value is "earnings"/target, tracked via GiftTransaction below.
+      //   • everyone else (not in a hosting agency) -> half the coins land in
+      //     their spendable balance, the other half is burned (#20).
+      const isSelfGift = input.recipientId === input.senderId;
+      let recipientCredit = 0;
+      if (!isSelfGift) {
+        const hostMembership = await tx.agencyMember.findFirst({
+          where: { userId: input.recipientId, agency: { type: 'HOSTING' } },
+          select: { id: true },
+        });
+        recipientCredit = hostMembership ? 0 : Math.floor(totalCoins / 2);
+      }
+
+      let recipientBalance: number;
+      if (recipientCredit > 0) {
+        const recipientUpdate = await tx.user.update({
+          where: { id: input.recipientId },
+          data: { coinsBalance: { increment: recipientCredit } },
+          select: { coinsBalance: true },
+        });
+        recipientBalance = recipientUpdate.coinsBalance;
+      } else {
+        const r = await tx.user.findUnique({
+          where: { id: input.recipientId },
+          select: { coinsBalance: true },
+        });
+        recipientBalance = r?.coinsBalance ?? 0;
+      }
 
       const sender = await tx.user.findUnique({
         where: { id: input.senderId },
@@ -132,7 +179,8 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       return {
         transactionId: txRow.id,
         senderBalance: sender?.coinsBalance ?? 0,
-        recipientBalance: recipientUpdate.coinsBalance,
+        recipientBalance,
+        recipientCredit,
         broadcast,
       };
     },
@@ -163,7 +211,9 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     transactionId: result.transactionId,
     totalCoins,
     senderBalance: result.senderBalance,
-    recipientCoinsDelta: totalCoins,
+    // Actual coins that landed in the recipient's spendable balance (0 for
+    // agency hosts / self-gifts, 50% for non-members). Not always == totalCoins.
+    recipientCoinsDelta: result.recipientCredit,
     comboCount,
     broadcast: result.broadcast,
     gift: {

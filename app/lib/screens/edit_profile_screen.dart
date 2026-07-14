@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
@@ -19,7 +20,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late TextEditingController _bioController;
   late TextEditingController _phoneController;
   late TextEditingController _countryCodeController;
+  late TextEditingController _ageController;
   File? _avatarImage;
+  Uint8List? _avatarBytes; // web-compatible preview
   bool _isUploadingAvatar = false;
   bool _isSaving = false;
   bool _isPicking = false;
@@ -32,6 +35,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _bioController = TextEditingController(text: user?.bio ?? '');
     _phoneController = TextEditingController(text: user?.phone ?? '');
     _countryCodeController = TextEditingController(text: user?.countryCode ?? '');
+    _ageController = TextEditingController(text: user?.age?.toString() ?? '');
   }
 
   @override
@@ -40,6 +44,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _bioController.dispose();
     _phoneController.dispose();
     _countryCodeController.dispose();
+    _ageController.dispose();
     super.dispose();
   }
 
@@ -52,8 +57,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     try {
       final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (pickedFile == null) return;
-      setState(() => _avatarImage = File(pickedFile.path));
-      await _uploadAvatar(_avatarImage!);
+      final bytes = await pickedFile.readAsBytes();
+      if (!kIsWeb) setState(() => _avatarImage = File(pickedFile.path));
+      setState(() => _avatarBytes = bytes);
+      await _uploadAvatar(pickedFile);
     } finally {
       _picking = false;
     }
@@ -62,15 +69,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
 
   /// Upload the selected avatar to the backend
-  Future<void> _uploadAvatar(File image) async {
+  Future<void> _uploadAvatar(XFile xfile) async {
     setState(() => _isUploadingAvatar = true);
 
     try {
+      final bytes = await xfile.readAsBytes();
+      final filename = xfile.name.isNotEmpty ? xfile.name : 'avatar.jpg';
       final formData = FormData.fromMap({
-        'avatar': await MultipartFile.fromFile(
-          image.path,
-          filename: image.path.split('/').last,
-        ),
+        'avatar': MultipartFile.fromBytes(bytes, filename: filename),
       });
 
       final response = await DioClient.dio.post(
@@ -138,6 +144,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             'bio': _bioController.text,
             'phone': _phoneController.text,
             'countryCode': _countryCodeController.text,
+            if (int.tryParse(_ageController.text.trim()) != null)
+              'age': int.parse(_ageController.text.trim()),
           },
         );
 
@@ -289,10 +297,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                     ? const Center(
                                   child: CircularProgressIndicator(color: Colors.white),
                                 )
-                                    : _avatarImage != null
+                                    : _avatarBytes != null
                                     ? ClipOval(
-                                  child: Image.file(
-                                    _avatarImage!,
+                                  child: Image.memory(
+                                    _avatarBytes!,
                                     fit: BoxFit.cover,
                                   ),
                                 )
@@ -354,6 +362,16 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         label: 'السيرة الذاتية',
                         icon: Icons.description,
                         maxLines: 3,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Age field (#3)
+                      _buildTextField(
+                        controller: _ageController,
+                        label: 'العمر',
+                        icon: Icons.cake,
+                        keyboardType: TextInputType.number,
+                        maxLength: 3,
                       ),
                       const SizedBox(height: 16),
 

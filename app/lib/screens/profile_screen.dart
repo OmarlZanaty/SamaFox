@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:samafox/screens/edit_profile_screen.dart';
+import 'package:samafox/screens/chat_screen.dart';
+import 'package:samafox/screens/room_screen.dart';
+import 'package:samafox/services/follow_service.dart';
 import 'package:samafox/screens/feature_screens.dart';
 import 'package:samafox/screens/store_screen.dart';
 import '../models/InventoryItem.dart';
@@ -66,6 +69,116 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   List<ReceivedGift> _receivedGifts = [];
   bool _loadingGifts = true;
 
+  // #29 follow state (other-user profile action bar)
+  String _followStatus = 'none'; // none | pending | following
+  bool _followBusy = false;
+  bool _followLoaded = false; // guard: load follow status only once per viewed user
+  Future<User?>? _otherUserFuture; // cached so build() doesn't re-fetch every frame
+  int? _otherUserFutureId;
+
+  Future<User?> _otherUserFor(int userId) {
+    if (_otherUserFutureId != userId || _otherUserFuture == null) {
+      _otherUserFutureId = userId;
+      _followLoaded = false;
+      _followStatus = 'none';
+      _otherUserFuture = _fetchUserById(userId);
+    }
+    return _otherUserFuture!;
+  }
+
+  Future<void> _loadFollowStatus(int userId) async {
+    try {
+      final s = await FollowService.getFollowStatus(userId);
+      if (mounted) setState(() => _followStatus = s);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleFollow(int userId) async {
+    if (_followBusy) return;
+    setState(() => _followBusy = true);
+    try {
+      if (_followStatus == 'following' || _followStatus == 'pending') {
+        await FollowService.unfollow(userId);
+        _followStatus = 'none';
+      } else {
+        await FollowService.sendFollowRequest(userId);
+        _followStatus = 'following';
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذّر تنفيذ المتابعة: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _followBusy = false);
+    }
+  }
+
+  /// #29: bottom action bar shown on another user's profile — room / message / follow.
+  Widget _buildOtherUserActionBar(User user) {
+    final following = _followStatus == 'following' || _followStatus == 'pending';
+    Widget btn(IconData icon, String label, Color color, VoidCallback onTap) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 5),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withOpacity(0.6)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: color, size: 22),
+                const SizedBox(height: 4),
+                Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        btn(Icons.meeting_room, 'غرفة', const Color(0xFF9C6BFF), () {
+          if (user.liveRoomId != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => RoomScreen(roomId: user.liveRoomId!)),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('لم يتم فتح الغرفة حتى الآن')),
+            );
+          }
+        }),
+        btn(Icons.chat_bubble, 'رسالة', const Color(0xFF4F9BFF), () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatScreen(
+                partnerId: user.id,
+                partnerName: user.name,
+                partnerAvatarUrl: user.avatarUrl,
+              ),
+            ),
+          );
+        }),
+        btn(
+          following ? Icons.check_circle : Icons.person_add,
+          following ? 'متابَع' : 'متابعة',
+          const Color(0xFFFFB74D),
+          () => _toggleFollow(user.id),
+        ),
+      ],
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +187,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     loadInventory();
     _refreshCoins();
     _fetchReceivedGifts();
+    _loadMyTarget();
 
     _coinsRefreshTimer = Timer.periodic(
       const Duration(seconds: 20),
@@ -83,6 +197,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
   Future<void> _refreshCoins() async {
     await ref.read(authStateProvider.notifier).refreshUser();
+  }
+
+  // #13: the user's own target (earned vs goal) as a host. null until loaded /
+  // when the user has no target (not a host in any hosting agency).
+  Map<String, dynamic>? _myTarget;
+
+  Future<void> _loadMyTarget() async {
+    try {
+      final token = await StorageService.getAccessToken();
+      if (token == null) return;
+      final resp = await DioClient.dio.get(
+        '/agencies/my-target',
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      final data = (resp.data is Map) ? resp.data['data'] : null;
+      if (mounted && data is Map && data['hasTarget'] == true) {
+        setState(() => _myTarget = Map<String, dynamic>.from(data));
+      }
+    } catch (_) {
+      // No target / older server — just don't show the card.
+    }
   }
 
   @override
@@ -195,7 +330,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       );
 
       if (activatedItem.type == "avatar_frame" || activatedItem.type == "FRAME") {
+        // Frames must go through activate-frame so User.activeFrameId +
+        // avatarFrameUrl are set — that's what the ROOM SEAT reads. Calling only
+        // /store/activate left the seat blank while the profile showed the frame.
         await _service.activateItem(token!, activatedItem.id);
+        // activate-frame matches on the ITEM id (productId on the client).
+        await _service.activateFrame(
+          token,
+          activatedItem.productId.isNotEmpty ? activatedItem.productId : activatedItem.id,
+        );
       } else {
         await _service.activateItem(token!, activatedItem.id);
       }
@@ -231,9 +374,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         await _service.deactivateFrame(token!);
         setState(() => activeFrame = null);
       } else if (item.type == "seat_effect") {
-        // Clear the seat effect for everyone by sending an empty one.
+        await _service.deactivateAll(token!);
         await SocketService().waitUntilConnected();
         SocketService().sendSeatEffect({"video": ""});
+      } else {
+        await _service.deactivateAll(token!);
       }
       await loadInventory(force: true);
     } catch (e) {
@@ -252,18 +397,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       if (targetId == null) return;
 
       final response = await DioClient.dio.get(
-        '/users/$targetId/received-gifts',
+        '/gifts/received-summary/$targetId',
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
 
-      if (response.statusCode == 200 && response.data != null) {
-        final List<dynamic> giftList = response.data;
+      if (response.statusCode == 200 && response.data is Map) {
+        final List<dynamic> giftList = (response.data['data'] as List?) ?? const [];
         if (mounted) {
           setState(() {
-            _receivedGifts = giftList.map((e) => ReceivedGift.fromJson(e)).toList();
+            _receivedGifts = giftList.map((e) {
+              final row = Map<String, dynamic>.from(e as Map);
+              final g = Map<String, dynamic>.from(row['gift'] as Map);
+              return ReceivedGift(
+                id: g['id'] is int ? g['id'] : 0,
+                name: (g['nameAr'] ?? g['name'] ?? '').toString(),
+                imageUrl: (g['iconUrl'] ?? '').toString(),
+                count: (row['count'] as num?)?.toInt() ?? 1,
+              );
+            }).toList();
             _loadingGifts = false;
           });
         }
+      } else if (mounted) {
+        setState(() => _loadingGifts = false);
       }
     } catch (e) {
       debugPrint('Error fetching gifts: $e');
@@ -571,65 +727,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   children: [
                     const SizedBox(height: 8),
 
-                    // Show logout only for own profile
-                    if (isOwnProfile) ...[
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          children: [
-                            const Spacer(),
-                            InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: ref.watch(authStateProvider).isLoading
-                                  ? null
-                                  : () => _confirmAndLogout(context),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.redAccent.withOpacity(0.18),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: Colors.redAccent.withOpacity(0.5),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (ref.watch(authStateProvider).isLoading) ...[
-                                      const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.redAccent,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                    ] else ...[
-                                      const Icon(Icons.logout,
-                                          color: Colors.redAccent, size: 18),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    const Text(
-                                      'تسجيل الخروج',
-                                      style: TextStyle(
-                                        color: Colors.redAccent,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
+                    // (Logout button removed from here — it lives in the Settings screen.)
 
                     _buildProfileAvatar(user, context, isOwnProfile: isOwnProfile),
                     const SizedBox(height: 8),
@@ -644,6 +742,47 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     ),
 
                     const SizedBox(height: 4),
+
+                    // #31: live badge / مسار — enter this user's room if they're hosting.
+                    if (!isOwnProfile && user.liveRoomId != null) ...[
+                      GestureDetector(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => RoomScreen(roomId: user.liveRoomId!)),
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF4081),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(color: const Color(0xFFFF4081).withOpacity(0.5), blurRadius: 10),
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.sensors, color: Colors.white, size: 15),
+                              SizedBox(width: 5),
+                              Text('مسار • LIVE',
+                                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+
+                    if (user.age != null) ...[
+                      Text(
+                        '${user.age} سنة',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.75),
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
 
                     _buildLevelBadge(user.level ?? 1),
                     const SizedBox(height: 4),
@@ -688,6 +827,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     if (isOwnProfile) _buildCoinsCard(_displayCoins(user), context),
                     const SizedBox(height: 10),
 
+                    if (isOwnProfile && _myTarget != null) ...[
+                      _buildTargetCard(context),
+                      const SizedBox(height: 10),
+                    ],
+
                     _buildVIPCard(
                       user.vipLevel ?? 0,
                       user.xp ?? 0,
@@ -695,6 +839,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     ),
 
                     const SizedBox(height: 10),
+
+                    // #26: وكالة / متجر / إعدادات quick-access row (own profile)
+                    if (isOwnProfile) ...[
+                      _buildQuickAccessRow(),
+                      const SizedBox(height: 12),
+                    ],
 
                     // Show inventory only for own profile
                     if (isOwnProfile) ...[
@@ -739,6 +889,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     onCenter: () {},
                   ),
                 ),
+
+              // #29: other-user profile → room / message / follow action bar
+              if (!isOwnProfile)
+                Positioned(
+                  left: 14,
+                  right: 14,
+                  bottom: 16,
+                  child: _buildOtherUserActionBar(user),
+                ),
             ],
           ),
         ),
@@ -768,7 +927,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     // For other users, fetch their data via FutureBuilder
     if (isOtherUser) {
       return FutureBuilder<User?>(
-        future: _fetchUserById(targetUserId),
+        future: _otherUserFor(targetUserId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
@@ -799,6 +958,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             );
           }
 
+          // Load follow status once for this other user.
+          if (!_followLoaded) {
+            _followLoaded = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) => _loadFollowStatus(otherUser.id));
+          }
           return _buildProfileContent(otherUser, isOwnProfile: false);
         },
       );
@@ -859,8 +1023,49 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   }
 
   /// Build level badge (blue circle with number)
+  Map<String, dynamic>? _progress;
+
+  /// #23/#24: fetch level + VIP progress and show how far to the next tier.
+  Future<void> _showProgressDialog(BuildContext context, {required bool vip}) async {
+    try {
+      if (_progress == null) {
+        final token = await StorageService.getAccessToken();
+        final res = await DioClient.dio.get(
+          '/vip/progress',
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        final data = res.data is Map ? (res.data['data'] ?? res.data) : null;
+        if (data is Map) _progress = Map<String, dynamic>.from(data);
+      }
+    } catch (e) {
+      debugPrint('progress fetch error: $e');
+    }
+    if (!mounted) return;
+    final p = _progress ?? {};
+    final title = vip ? 'تقدّم VIP' : 'تقدّم المستوى';
+    final body = vip
+        ? 'أنت الآن VIP ${p['vipLevel'] ?? 0}.\nتحتاج ${p['coinsRemainingForNextVip'] ?? '-'} كوينز شحن للوصول إلى VIP ${p['nextVip'] ?? '-'}.'
+        : 'أنت الآن المستوى ${p['level'] ?? 1}.\nتحتاج ${p['xpRemaining'] ?? '-'} نقطة للوصول إلى المستوى ${p['nextLevel'] ?? '-'}.';
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1347),
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        content: Text(body, style: const TextStyle(color: Colors.white70, height: 1.6)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('حسناً', style: TextStyle(color: Color(0xFFFFD700))),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLevelBadge(int level) {
-    return Container(
+    return GestureDetector(
+      onTap: () => _showProgressDialog(context, vip: false),
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF00BCD4),
@@ -888,6 +1093,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -925,17 +1131,162 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   }
 
   /// Build stats row (Friends, Followed, Fans, Visitors)
+  /// #26 / #27: وكالة / متجر / إعدادات quick-access row (store lives here now).
+  Widget _buildQuickAccessRow() {
+    Widget tile(IconData icon, String label, Color color, VoidCallback onTap) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 5),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: color.withOpacity(0.5)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: color, size: 26),
+                const SizedBox(height: 6),
+                Text(label, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          tile(Icons.workspaces, 'وكالة', const Color(0xFFFFD700),
+              () => Navigator.pushNamed(context, '/agency-panel')),
+          tile(Icons.storefront, 'متجر', const Color(0xFF4ECDC4),
+              () => Navigator.pushNamed(context, '/store')),
+          tile(Icons.settings, 'إعدادات', const Color(0xFF9C6BFF),
+              () => Navigator.pushNamed(context, '/settings')),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatsRow(User user) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatItem('${user.followingCount ?? 0}', 'Following'),
+          GestureDetector(
+            onTap: _showFollowingSheet,
+            child: _buildStatItem('${user.followingCount ?? 0}', 'Following'),
+          ),
           _buildStatItem('${user.followersCount ?? 0}', 'Fans'),
-          _buildStatItem('${user.level ?? 1}', 'Level'),
-          _buildStatItem('${user.vipLevel ?? 0}', 'VIP'),
+          GestureDetector(
+            onTap: () => _showProgressDialog(context, vip: false),
+            child: _buildStatItem('${user.level ?? 1}', 'Level'),
+          ),
+          GestureDetector(
+            onTap: () => _showProgressDialog(context, vip: true),
+            child: _buildStatItem('${user.vipLevel ?? 0}', 'VIP'),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// #25: list of accounts I follow; a live badge lets me jump into their room.
+  Future<void> _showFollowingSheet() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0E3E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: FollowService.getFollowing(),
+          builder: (ctx, snap) {
+            if (!snap.hasData) {
+              return const SizedBox(
+                height: 220,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final list = snap.data!;
+            if (list.isEmpty) {
+              return const SizedBox(
+                height: 220,
+                child: Center(child: Text('لا يوجد متابَعون بعد', style: TextStyle(color: Colors.white70))),
+              );
+            }
+            return SizedBox(
+              height: MediaQuery.of(context).size.height * 0.6,
+              child: Column(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text('المتابَعون', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: list.length,
+                      itemBuilder: (_, i) {
+                        final u = list[i];
+                        final liveRoomId = u['liveRoomId'];
+                        final name = (u['name'] ?? '').toString();
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(0xFF3D2B7A),
+                            backgroundImage: (u['avatarUrl'] != null && '${u['avatarUrl']}'.isNotEmpty)
+                                ? NetworkImage('${u['avatarUrl']}')
+                                : null,
+                            child: (u['avatarUrl'] == null || '${u['avatarUrl']}'.isEmpty)
+                                ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                    style: const TextStyle(color: Colors.white))
+                                : null,
+                          ),
+                          title: Text(name, style: const TextStyle(color: Colors.white)),
+                          subtitle: Text('ID: ${u['displayId'] ?? '-'}',
+                              style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                          trailing: liveRoomId != null
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFF4081),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: const Text('LIVE',
+                                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                )
+                              : const Icon(Icons.chevron_left, color: Colors.white38),
+                          onTap: () {
+                            Navigator.pop(context);
+                            if (liveRoomId != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => RoomScreen(roomId: liveRoomId as int)),
+                              );
+                            } else {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => ProfileScreen(userId: u['id'] as int)),
+                              );
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -972,6 +1323,99 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   }
 
   /// Build coins card with integrated recharge button
+  // #13: TARGET card — earned gifts vs the goal set by the agent, with a
+  // progress bar and the remaining amount so the host knows how much is left.
+  Widget _buildTargetCard(BuildContext context) {
+    final t = _myTarget!;
+    final items = (t['items'] as List?) ?? const [];
+    final int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
+    // Sum goals/remaining across memberships (usually just one).
+    int goal = 0;
+    int remaining = 0;
+    for (final e in items) {
+      if (e is Map) {
+        goal += (e['targetGoalCoins'] as num?)?.toInt() ?? 0;
+        remaining += (e['remainingCoins'] as num?)?.toInt() ?? 0;
+      }
+    }
+    final double progress =
+        goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2A1A5E), Color(0xFF3A2A6E)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF4ECDC4).withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.flag, color: Color(0xFF4ECDC4), size: 26),
+              const SizedBox(width: 10),
+              const Text(
+                'التارجت',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                goal > 0 ? '$earned / $goal' : '$earned',
+                style: const TextStyle(
+                  color: Color(0xFF4ECDC4),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          if (goal > 0) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 10,
+                backgroundColor: Colors.white.withOpacity(0.12),
+                valueColor:
+                    const AlwaysStoppedAnimation<Color>(Color(0xFF4ECDC4)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              remaining > 0
+                  ? 'متبقٍ $remaining كوينز لإغلاق التارجت'
+                  : 'اكتمل التارجت 🎉',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.75),
+                fontSize: 13,
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Text(
+              'إجمالي الهدايا المستلمة منذ انضمامك',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildCoinsCard(int coinsBalance, BuildContext context) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -1096,11 +1540,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     final int xpForNextLevel = (vipLevel + 1) * xpPerLevel;
 
     return GestureDetector(
-      onTap: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('VIP purchase coming soon')),
-        );
-      },
+      onTap: () => _showProgressDialog(context, vip: true),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 24),
         padding: const EdgeInsets.all(20),

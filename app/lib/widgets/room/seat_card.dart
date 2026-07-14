@@ -11,6 +11,7 @@ class SeatCard extends StatelessWidget {
   final bool isOwnerSeat;
   final bool isAdminSeat;
   final bool isSeatLocked;
+  final bool isSeatMuted; // #11: admin-muted seat (show mute icon even when empty)
   final int coins24h; // gift coins received in this room (last 24h)
 
   const SeatCard({
@@ -23,6 +24,7 @@ class SeatCard extends StatelessWidget {
     this.isOwnerSeat = false,
     this.isAdminSeat = false,
     this.isSeatLocked = false,
+    this.isSeatMuted = false,
     this.coins24h = 0,
   });
 
@@ -89,11 +91,14 @@ class SeatCard extends StatelessWidget {
                       ),
                       child: locked
                           ? const Icon(Icons.lock, size: 22, color: Colors.redAccent)
-                          : Icon(
-                        Icons.mic_none_rounded,
-                        size: 24,
-                        color: Colors.white.withOpacity(0.5),
-                      ),
+                          : isSeatMuted
+                              // #11: show mute icon on an empty admin-muted seat too.
+                              ? const Icon(Icons.mic_off_rounded, size: 24, color: Colors.orangeAccent)
+                              : Icon(
+                                  Icons.mic_none_rounded,
+                                  size: 24,
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
                     ),
 
                   // Mute badge (occupied only)

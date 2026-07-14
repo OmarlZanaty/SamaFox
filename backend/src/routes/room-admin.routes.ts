@@ -34,4 +34,7 @@ router.post('/sound-settings', roomAdminController.toggleSoundSettings);
 // Chat management
 router.post('/clear-chat', roomAdminController.clearChat);
 
+// #4: reset per-user room coin counters
+router.post('/reset-earnings', roomAdminController.resetSeatEarnings);
+
 export default router;

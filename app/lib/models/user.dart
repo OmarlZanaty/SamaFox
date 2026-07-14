@@ -16,6 +16,8 @@ class User {
   final String? country;
   final String? gender;
   final String? birthday;
+  final int? age;
+  final int? liveRoomId; // #31: active room this user is hosting (null if none)
   final String? bio;
   final String? avatarFrameUrl;
   @JsonKey(defaultValue: 1)
@@ -65,6 +67,8 @@ class User {
     this.country,
     this.gender,
     this.birthday,
+    this.age,
+    this.liveRoomId,
     this.bio,
     this.level,
     this.xp,
@@ -99,6 +103,8 @@ class User {
       country: source['country']?.toString(),
       gender: source['gender']?.toString(),
       birthday: source['birthday']?.toString(),
+      age: source['age'] is int ? source['age'] as int : int.tryParse(source['age']?.toString() ?? ''),
+      liveRoomId: source['liveRoomId'] is int ? source['liveRoomId'] as int : int.tryParse(source['liveRoomId']?.toString() ?? ''),
       bio: source['bio']?.toString(),
       level: asInt(source['level'], fallback: 1),
       xp: asInt(source['xp']),
@@ -148,6 +154,8 @@ class User {
     String? country,
     String? gender,
     String? birthday,
+    int? age,
+    int? liveRoomId,
     String? bio,
     int? level,
     int? xp,
@@ -176,6 +184,8 @@ class User {
       country: country ?? this.country,
       gender: gender ?? this.gender,
       birthday: birthday ?? this.birthday,
+      age: age ?? this.age,
+      liveRoomId: liveRoomId ?? this.liveRoomId,
       bio: bio ?? this.bio,
       level: level ?? this.level,
       xp: xp ?? this.xp,

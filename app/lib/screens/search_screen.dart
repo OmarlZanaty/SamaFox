@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -20,7 +19,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   List<Map<String, dynamic>> _results = [];
   bool _isSearching = false;
   String? _errorMessage;
-  bool _searchRouteUnavailable = false;
 
   @override
   void initState() {
@@ -74,6 +72,40 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Future<List<Map<String, dynamic>>> _searchWithFallback(String q) async {
     final results = <Map<String, dynamic>>[];
+
+    // PRIMARY: unified search endpoint. Matches users by name AND by numeric
+    // display id, plus rooms by name/id, in a single authenticated call.
+    try {
+      final resp = await DioClient.dio.get(
+        '/search',
+        queryParameters: {'q': q, 'type': 'all'},
+      );
+      final raw = (resp.data is Map)
+          ? ((resp.data['data'] as List?) ?? const [])
+          : const [];
+      if (raw.isNotEmpty) {
+        results.addAll(
+          raw.map((e) {
+            final m = Map<String, dynamic>.from(e as Map);
+            return <String, dynamic>{
+              'type': m['type'],
+              'id': m['id'],
+              'name': m['name'],
+              'imageUrl': m['imageUrl'],
+              'subtitle': m['subtitle'],
+            };
+          }),
+        );
+        // Endpoint succeeded — dedupe and return without hitting legacy fallbacks.
+        final deduped = <String, Map<String, dynamic>>{};
+        for (final r in results) {
+          deduped['${r['type']}:${r['id']}'] = r;
+        }
+        return deduped.values.toList();
+      }
+    } catch (_) {
+      // Endpoint unavailable (older server) — fall through to legacy fallbacks.
+    }
 
     // A: users search endpoint (old backend)
     try {

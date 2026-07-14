@@ -142,7 +142,22 @@ const l = Math.min(100, Math.max(1, Number.isFinite(Number(req.query.limit)) ? N
       include: { following: { select: { id: true, name: true, avatarUrl: true, displayId: true, level: true } } },
     }),
   ]);
-  return res.json({ success: true, data: follows.map((f) => f.following), pagination: { page: p, limit: l, total, totalPages: Math.ceil(total / l) } });
+  // #25: attach the active room each followed user is hosting (if any) so the
+  // client can show a "live" badge and let you jump into their room.
+  const followedIds = follows.map((f) => f.following.id);
+  const liveRooms = followedIds.length
+    ? await prisma.room.findMany({
+        where: { ownerId: { in: followedIds }, isActive: true },
+        select: { id: true, ownerId: true, name: true },
+      })
+    : [];
+  const roomByOwner = new Map(liveRooms.map((r) => [r.ownerId, r]));
+  const data = follows.map((f) => ({
+    ...f.following,
+    liveRoomId: roomByOwner.get(f.following.id)?.id ?? null,
+    liveRoomName: roomByOwner.get(f.following.id)?.name ?? null,
+  }));
+  return res.json({ success: true, data, pagination: { page: p, limit: l, total, totalPages: Math.ceil(total / l) } });
 };
 
 export const getPendingRequests = async (req: AuthReq, res: Response) => {

@@ -6,6 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/room_controller_provider.dart';
 import '../../models/room_event.dart';
 import '../../services/socket_service.dart';
+import '../../services/dio_client.dart';
+import '../../providers/auth_provider.dart';
+import '../../screens/profile_screen.dart';
 import 'TopWaveClipper.dart';
 
 // ==========================
@@ -86,6 +89,68 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
         _scroll.jumpTo(_scroll.position.maxScrollExtent);
       }
     });
+  }
+
+  /// #13: tap a chat-writer's name → profile + (admin) kick from room, even
+  /// before they take a mic.
+  void _showChatUserActions(int userId, String username) {
+    final st = ref.read(roomControllerProvider(widget.roomId));
+    final myId = ref.read(authStateProvider).user?.id;
+    final isAdmin = myId != null && (myId == st.ownerId || st.adminIds.contains(myId));
+    if (myId == userId) return; // no actions on self
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0E3E),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(username, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.person, color: Colors.white),
+                title: const Text('الملف الشخصي', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(sctx);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId)));
+                },
+              ),
+              if (isAdmin)
+                ListTile(
+                  leading: const Icon(Icons.block, color: Colors.redAccent),
+                  title: const Text('طرد من الغرفة', style: TextStyle(color: Colors.redAccent)),
+                  onTap: () async {
+                    Navigator.pop(sctx);
+                    try {
+                      await DioClient.dio.post('room-admin/kick', data: {
+                        'roomId': widget.roomId,
+                        'room_id': widget.roomId,
+                        'userId': userId,
+                        'user_id': userId,
+                        'minutes': 0,
+                      });
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('تم طرد $username من الغرفة')),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر الطرد: $e')));
+                      }
+                    }
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -217,13 +282,16 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.end,
                                         children: [
-                                          Text(
-                                            m.username,
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11,
+                                          GestureDetector(
+                                            onTap: () => _showChatUserActions(m.userId, m.username),
+                                            child: Text(
+                                              m.username,
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 11,
+                                              ),
+                                              textAlign: TextAlign.right,
                                             ),
-                                            textAlign: TextAlign.right,
                                           ),
                                           const SizedBox(height: 2),
                                           Text(

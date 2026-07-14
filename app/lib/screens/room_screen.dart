@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -754,7 +755,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// Block/unblock a user from taking a mic seat (Step 10).
   /// Admin options for an EMPTY seat: lock/unlock and mute/unmute the seat.
-  void _showEmptySeatAdminSheet(BuildContext context, int seatNumber) {
+  void _showEmptySeatAdminSheet(BuildContext context, int seatNumber, {int? myCurrentSeat}) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -810,12 +811,88 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           .takeSeat(seatNumber: seatNumber);
                     },
                   ),
+                  // If the admin is already seated, let them MOVE to this seat.
+                  if (myCurrentSeat != null && myCurrentSeat != seatNumber)
+                    _adminSeatOption(
+                      label: 'الانتقال إلى هذا المقعد',
+                      icon: Icons.swap_horiz,
+                      color: Colors.tealAccent,
+                      onTap: () {
+                        Navigator.pop(context);
+                        ref.read(roomControllerProvider(widget.roomId).notifier)
+                            .moveSeat(fromSeat: myCurrentSeat, toSeat: seatNumber);
+                      },
+                    ),
+                  // #12: invite an audience member onto this seat.
+                  _adminSeatOption(
+                    label: 'دعوة إلى المقعد',
+                    icon: Icons.person_add_alt_1,
+                    color: Colors.pinkAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showInviteToSeatSheet(seatNumber);
+                    },
+                  ),
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  /// #12: pick an audience user (in the room, not on a mic) to invite to [seatNumber].
+  void _showInviteToSeatSheet(int seatNumber) {
+    final st = ref.read(roomControllerProvider(widget.roomId));
+    final seatedIds = st.seats.values.map((s) => s.userId).whereType<int>().toSet();
+    final audience = st.onlineUsers.values.where((u) => !seatedIds.contains(u.id)).toList();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0E3E),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text('دعوة إلى المقعد $seatNumber',
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              if (audience.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('لا يوجد أشخاص في الغرفة لدعوتهم', style: TextStyle(color: Colors.white54)),
+                )
+              else
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: audience.map((u) => ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: const Color(0xFF3D2B7A),
+                        child: Text((u.name ?? '?').isNotEmpty ? u.name![0].toUpperCase() : '?',
+                            style: const TextStyle(color: Colors.white)),
+                      ),
+                      title: Text(u.name ?? 'User #${u.id}', style: const TextStyle(color: Colors.white)),
+                      trailing: const Icon(Icons.person_add, color: Colors.pinkAccent),
+                      onTap: () {
+                        Navigator.pop(sctx);
+                        ref.read(roomControllerProvider(widget.roomId).notifier)
+                            .inviteToSeat(seatNumber: seatNumber, targetUserId: u.id);
+                        _showRoomSnack('تمت دعوة ${u.name ?? ''} إلى المقعد $seatNumber');
+                      },
+                    )).toList(),
+                  ),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1783,6 +1860,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     onChanged: (value) => setModalState(() => muteEntrance = !value),
                     title: const Text('أصوات الدخول', style: TextStyle(color: Colors.white)),
                   ),
+                  // #17-18: the coin-counter reset moved to its own item in the
+                  // main room menu (next to "حذف الدردشة") — it doesn't belong
+                  // under Sound Effects, which is why the owner couldn't find it.
                 ],
               );
             },
@@ -2093,11 +2173,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         if (rid != null && rid != widget.roomId) return;
         final reason = data['reason'];
         if (reason == 'banned') {
-          // Kicked/banned → cannot enter; show why and leave.
           _showRoomSnack(
             (data['message'] ?? 'تم طردك من هذه الغرفة').toString(),
             error: true,
           );
+          Navigator.of(context).maybePop();
+          return;
+        }
+        if (reason == 'closed') {
+          _showRoomSnack('الغرفة مغلقة', error: true);
           Navigator.of(context).maybePop();
           return;
         }
@@ -2123,6 +2207,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         final msg = (data is Map ? data['message'] : null)?.toString() ??
             'تم طردك من الغرفة';
         _showRoomSnack(msg, error: true);
+        Navigator.of(context).maybePop();
+      });
+
+      SocketService().on('room_closed', (data) {
+        if (!mounted) return;
+        final rid = (data is Map) ? data['roomId'] : null;
+        if (rid != null && rid != widget.roomId) return;
+        _showRoomSnack('تم إغلاق الغرفة من قِبَل المالك', error: true);
         Navigator.of(context).maybePop();
       });
 
@@ -2154,7 +2246,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           _activeSeatEffectUrl!.isNotEmpty) {
 
         _playedEntrance = true;
-        _playSeatBackgroundVideo(_activeSeatEffectUrl!);
+        // Route the entrance effect through the same serialized queue as other
+        // seat effects so it never disposes a video that is mid-play (and vice
+        // versa). Playing it directly here used to clobber an in-flight effect.
+        _seatEffectQueue.add(_activeSeatEffectUrl!);
+        _tryPlayNextEffect();
       }
 
 
@@ -2313,9 +2409,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (picked == null) return;
 
-    final file = File(picked.path);
-
-    final url = await _uploadImageToServer(file);
+    final url = await _uploadImageToServerFromXFile(picked);
     if (url == null) return;
 
     // If you still want to apply locally:
@@ -2328,20 +2422,32 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   Future<String?> _uploadImageToServer(File file) async {
     try {
-      final dio = DioClient.dio;
+      final bytes = await file.readAsBytes();
+      final filename = file.path.split('/').last;
+      return await _uploadBytesToServer(bytes, filename);
+    } catch (e) {
+      debugPrint("❌ UPLOAD ERROR: $e");
+      return null;
+    }
+  }
 
+  Future<String?> _uploadImageToServerFromXFile(XFile xfile) async {
+    try {
+      final bytes = await xfile.readAsBytes();
+      final filename = xfile.name.isNotEmpty ? xfile.name : 'image.jpg';
+      return await _uploadBytesToServer(bytes, filename);
+    } catch (e) {
+      debugPrint("❌ UPLOAD ERROR: $e");
+      return null;
+    }
+  }
+
+  Future<String?> _uploadBytesToServer(Uint8List bytes, String filename) async {
+    try {
       final form = FormData.fromMap({
-        'image': await MultipartFile.fromFile(
-          file.path,
-          filename: file.path.split('/').last,
-        ),
+        'image': MultipartFile.fromBytes(bytes, filename: filename),
       });
-
-      final res = await dio.post(
-        '/upload/image', // ✅ no baseUrl here (already set inside DioClient)
-        data: form,
-      );
-
+      final res = await DioClient.dio.post('/upload/image', data: form);
       final url = res.data?['imageUrl']?.toString();
       debugPrint("✅ Uploaded URL: $url");
       return url;
@@ -2368,6 +2474,84 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       debugPrint("✅ Room image saved in database");
     } catch (e) {
       debugPrint("❌ Update room image failed: $e");
+    }
+  }
+
+  /// #6: admin taps the room name/photo → dialog to edit the room name & cover.
+  Future<void> _showEditRoomDialog() async {
+    final current = ref.read(roomsProvider).findById(widget.roomId)?.name ?? '';
+    final ctrl = TextEditingController(text: current);
+    await showDialog(
+      context: context,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1E1347),
+          title: const Text('تعديل الغرفة', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'اسم الغرفة',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextButton.icon(
+                onPressed: () async {
+                  Navigator.pop(dctx);
+                  await _pickAndUploadRoomCover();
+                },
+                icon: const Icon(Icons.photo_camera, color: Color(0xFF4ECDC4)),
+                label: const Text('تغيير صورة الغرفة', style: TextStyle(color: Color(0xFF4ECDC4))),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('إلغاء', style: TextStyle(color: Colors.white54))),
+            TextButton(
+              onPressed: () async {
+                final newName = ctrl.text.trim();
+                Navigator.pop(dctx);
+                if (newName.isNotEmpty && newName != current) {
+                  try {
+                    await DioClient.dio.patch('/rooms/${widget.roomId}', data: {'name': newName});
+                    await ref.read(roomControllerProvider(widget.roomId).notifier).loadRoomDetails();
+                    if (mounted) setState(() {});
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر حفظ الاسم: $e')));
+                    }
+                  }
+                }
+              },
+              child: const Text('حفظ', style: TextStyle(color: Color(0xFFFFD700))),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Pick an image and set it as the room cover (used by the edit dialog).
+  Future<void> _pickAndUploadRoomCover() async {
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+      if (picked == null) return;
+      final uploaded = await _uploadImageToServerFromXFile(picked);
+      if (uploaded != null && uploaded.isNotEmpty) {
+        await _updateRoomImageInBackend(uploaded, isCover: true);
+        await ref.read(roomControllerProvider(widget.roomId).notifier).loadRoomDetails();
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر رفع الصورة: $e')));
+      }
     }
   }
 
@@ -2565,10 +2749,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
       if (picked == null) return;
 
-      final file = File(picked.path);
-
-      // 1️⃣ Upload image
-      final uploadedUrl = await _uploadImageToServer(file);
+      // 1️⃣ Upload image (bytes-based, works on web + mobile)
+      final uploadedUrl = await _uploadImageToServerFromXFile(picked);
       if (uploadedUrl == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2975,9 +3157,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      Builder(builder: (_) {
-                        final locked = ref
-                                .read(roomsProvider)
+                      Consumer(builder: (ctx, wref, _) {
+                        final locked = wref
+                                .watch(roomsProvider)
                                 .findById(widget.roomId)
                                 ?.isRoomLocked ??
                             false;
@@ -3011,10 +3193,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       _menuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
                         Navigator.pop(context);
                         _openBackgroundChooser();
-                      }),
-                      _menuItem(Icons.mic, "نقاط الميكروفون", Colors.white70, () {
-                        Navigator.pop(context);
-                        _openBackpackSheet(this.context, typeFilter: 'seat_effect');
                       }),
                     ],
                   ),
@@ -3106,6 +3284,29 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         _clearRoomChat();
                       } else {
                         _showRoomSnack('مسح الدردشة متاح للمسؤولين فقط', error: true);
+                      }
+                    }),
+
+                    // #17-18: manual reset of the per-user 24h coin counter shown
+                    // under each seat. Was buried inside the unrelated "Sound
+                    // Effects" dialog, which is why the owner couldn't find it
+                    // ("موضوع التصفير مش لاقيه") — it now lives as its own item
+                    // here, next to the other admin actions.
+                    _menuItem(Icons.restart_alt, "تصفير عدّاد الكوينزات", Colors.orangeAccent, () async {
+                      Navigator.pop(context);
+                      if (!isAdmin) {
+                        _showRoomSnack('التصفير متاح لصاحب الغرفة أو المشرفين فقط', error: true);
+                        return;
+                      }
+                      try {
+                        await DioClient.dio.post('/room-admin/reset-earnings', data: {
+                          'roomId': widget.roomId,
+                          'room_id': widget.roomId,
+                        });
+                        await ref.read(roomControllerProvider(widget.roomId).notifier).refreshSeatEarnings();
+                        _showRoomSnack('تم تصفير العدّادات');
+                      } catch (e) {
+                        _showRoomSnack('تعذر التصفير: $e', error: true);
                       }
                     }),
 
@@ -3438,7 +3639,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
-                      CircleAvatar(
+                      GestureDetector(
+                        onTap: isAdmin ? _showEditRoomDialog : null,
+                        child: CircleAvatar(
                         radius: 22,
                         backgroundColor: Colors.deepPurple,
                         backgroundImage: (state.roomImageUrl ?? '').trim().isNotEmpty
@@ -3448,9 +3651,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ? null
                             : const Icon(Icons.mic, color: Colors.white),
                       ),
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Column(
+                        child: GestureDetector(
+                          onTap: isAdmin ? _showEditRoomDialog : null,
+                          child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -3465,7 +3671,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               ),
                             ),
                             Builder(builder: (_) {
-                              final ownerDid = room?.owner?.publicDisplayId ?? state.ownerId;
+                              final ownerDid = room?.owner?.publicDisplayId;
                               if (ownerDid == null || ownerDid == 0) return const SizedBox.shrink();
                               return Text(
                                 'ID: $ownerDid',
@@ -3473,6 +3679,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               );
                             }),
                           ],
+                        ),
                         ),
                       ),
 
@@ -3604,6 +3811,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         myUserId: userId ?? 0,
                         isAdmin: isAdmin,
                         lockedSeats: state.lockedSeats,
+                        mutedSeats: state.mutedSeats,
                         ownerId: state.ownerId,
                         adminIds: state.adminIds,
                         seatEarnings: state.seatEarnings24h,
@@ -3794,7 +4002,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               repository: _giftRepository,
                               recipients: list,
                               roomId: widget.roomId,
-                              balance: me.coins ?? 0,
+                              balance: me.coinsBalance ?? me.coins ?? 0,
                               onBalanceChanged: (_) {},
                             );
                           },
@@ -4028,7 +4236,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       recipients: list,
       initialRecipientIds: [r.id],
       roomId: widget.roomId,
-      balance: auth.user?.coins ?? 0,
+      balance: auth.user?.coinsBalance ?? auth.user?.coins ?? 0,
       onBalanceChanged: (_) {},
     );
   }
@@ -4202,12 +4410,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (seat.userId == null) {
 
-      // Admin tapping an empty seat → lock/mute controls for that seat.
-      if (isAdmin) {
-        _showEmptySeatAdminSheet(context, seatNumber);
-        return;
-      }
-
+      // NOTE: compute whether the tapper is already seated BEFORE the admin
+      // shortcut, so a seated admin/owner can still move to the empty seat.
+      // (Previously admins were routed straight to the lock/mute sheet and
+      // could never move — that was #10 "seat move option doesn't work".)
       int? myCurrentSeat;
       final state = ref.read(roomControllerProvider(widget.roomId));
 
@@ -4217,6 +4423,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           myCurrentSeat = s.seatNumber;
           break;
         }
+      }
+
+      // Admin/owner → full seat controls (lock / mute / invite / sit / move).
+      // This must come BEFORE the move-only sheet so admins don't lose access
+      // to the moderation options (that regression was #11/#12 not opening).
+      if (isAdmin) {
+        _showEmptySeatAdminSheet(context, seatNumber, myCurrentSeat: myCurrentSeat);
+        return;
       }
 
       // ==========================
@@ -5395,7 +5609,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       repository: _giftRepository,
       recipients: recipients,
       roomId: widget.roomId,
-      balance: auth.user?.coins ?? 0,
+      balance: auth.user?.coinsBalance ?? auth.user?.coins ?? 0,
       onBalanceChanged: (_) {},
     );
   }

@@ -1,8 +1,54 @@
 import { Router } from 'express';
 import prisma from '../utils/prisma';
 import { vipThreshold } from '../services/vip.service';
+import { authMiddleware } from '../middlewares/auth.middleware';
 
 const router = Router();
+
+// Level progression: each level needs level*1000 xp more than the last (simple, tunable).
+function levelXpThreshold(level: number): number {
+  // cumulative xp required to REACH `level`
+  let total = 0;
+  for (let l = 1; l < level; l++) total += l * 1000;
+  return total;
+}
+
+// GET /vip/progress — for the tappable level / VIP rows on the profile (#23, #24).
+// Returns how far the user is from the next level and the next VIP tier.
+router.get('/progress', authMiddleware, async (req, res) => {
+  try {
+    const userId = (req as any).userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { level: true, xp: true, vipLevel: true, totalRecharge: true },
+    });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const nextLevel = user.level + 1;
+    const nextLevelXp = levelXpThreshold(nextLevel);
+    const nextVip = user.vipLevel + 1;
+    const nextVipThreshold = vipThreshold(nextVip);
+
+    return res.json({
+      success: true,
+      data: {
+        level: user.level,
+        xp: user.xp,
+        nextLevel,
+        xpForNextLevel: nextLevelXp,
+        xpRemaining: Math.max(0, nextLevelXp - user.xp),
+        vipLevel: user.vipLevel,
+        totalRecharge: user.totalRecharge,
+        nextVip,
+        coinsForNextVip: nextVipThreshold,
+        coinsRemainingForNextVip: Math.max(0, nextVipThreshold - user.totalRecharge),
+      },
+    });
+  } catch (e) {
+    console.error('vip progress error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to load progress' });
+  }
+});
 
 // Public: VIP level catalog (badge image + seat frame + threshold per level).
 // The app uses this to render a user's VIP badge from their vipLevel.

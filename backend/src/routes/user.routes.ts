@@ -22,8 +22,8 @@ router.get('/me', authMiddleware, getMe);
 router.put('/me', authMiddleware, updateProfile);
 router.put('/me/gender-country', authMiddleware, updateGenderAndCountry);
 
-// search (BEFORE /:userId)
-router.get('/search', searchUsers);
+// search (BEFORE /:userId) — auth required; previously leaked coins/email/phone unauthenticated
+router.get('/search', authMiddleware, searchUsers);
 router.get('/country/:countryCode', getUsersByCountry);
 
 // follow system

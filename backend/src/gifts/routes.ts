@@ -7,6 +7,7 @@ const router = Router();
 
 router.get('/', ctrl.listCatalog);
 router.get('/transactions', authMiddleware, ctrl.transactions);
+router.get('/received-summary/:userId', ctrl.receivedSummary);
 router.get('/leaderboard/:roomId', ctrl.leaderboard);
 router.post(
   '/send',

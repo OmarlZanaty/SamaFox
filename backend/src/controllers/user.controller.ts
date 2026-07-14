@@ -194,15 +194,29 @@ export const searchUsers = async (req: Request, res: Response) => {
     const q = req.query.query;
     if (!q || typeof q !== 'string') return res.status(400).json({ success: false, message: 'query is required' });
 
-    // SQLite Prisma doesn't support `mode: insensitive`
+    // SQLite Prisma doesn't support `mode: insensitive`.
+    // Also match numeric queries against the public displayId.
+    const numeric = /^\d+$/.test(q) ? Number(q) : null;
     const users = await prisma.user.findMany({
       where: {
-        OR: [{ name: { contains: q } }, { email: { contains: q } }],
+        isBanned: false,
+        OR: [
+          { name: { contains: q } },
+          ...(numeric !== null ? [{ displayId: numeric }] : []),
+        ],
+      },
+      // Only expose safe, public fields — never coins/email/phone/recharge here.
+      select: {
+        id: true,
+        name: true,
+        avatarUrl: true,
+        displayId: true,
+        level: true,
       },
       take: 20,
     });
 
-    return res.status(200).json({ success: true, users: users.map(formatUserResponse) });
+    return res.status(200).json({ success: true, users });
   } catch (e: any) {
     console.error('searchUsers error:', e);
     return res.status(500).json({ success: false, message: 'Failed', error: e?.message || 'Unknown' });

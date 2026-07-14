@@ -3,6 +3,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { io } from '../index';
+import { invalidateAdminCacheAndRefresh } from '../services/socket.service';
 
 const toInt = (v: any): number | null => {
   const n = Number(v);
@@ -96,6 +97,7 @@ export async function addRoomAdmin(req: Request, res: Response) {
       create: { userId, roomId, role },
     });
 
+    invalidateAdminCacheAndRefresh(roomId);
     return res.json({ success: true, message: `${role} added`, member, role });
   } catch (e) {
     console.error('addRoomAdmin error:', e);
@@ -121,6 +123,7 @@ export async function removeRoomAdmin(req: Request, res: Response) {
       data: { role: 'member' },
     });
 
+    invalidateAdminCacheAndRefresh(roomId);
     return res.json({ success: true, message: 'Admin removed', member });
   } catch (e) {
     console.error('removeRoomAdmin error:', e);
@@ -337,6 +340,25 @@ export async function toggleRoomLock(req: Request, res: Response) {
     });
   } catch (e) {
     console.error('toggleRoomLock error:', e);
+    return res.status(500).json({ error: 'Failed' });
+  }
+}
+
+// #4: admin resets the per-user coin counters shown under each seat in this room.
+export async function resetSeatEarnings(req: Request, res: Response) {
+  try {
+    const roomId = toInt(req.body.roomId);
+    const requesterId = (req as any).userId as number | undefined;
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roomId) return res.status(400).json({ error: 'Invalid roomId' });
+
+    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can reset counters' });
+
+    await prisma.room.update({ where: { id: roomId }, data: { contributionResetAt: new Date() } });
+    return res.json({ success: true, message: 'Counters reset' });
+  } catch (e) {
+    console.error('resetSeatEarnings error:', e);
     return res.status(500).json({ error: 'Failed' });
   }
 }

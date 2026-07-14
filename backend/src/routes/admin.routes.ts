@@ -45,6 +45,9 @@ router.put('/users/:userId/admin', adminController.toggleAdminStatus);
 router.put('/users/:userId/ban', adminController.toggleUserBan);
 router.patch('/users/:id/display-id', adminChangeUserDisplayId);
 
+// CP / target settings (professional defaults, admin-editable)
+router.patch('/settings', require('../controllers/settings.controller').updateSettings);
+
 // Room management
 router.delete('/rooms/:roomId', adminController.deleteRoom);
 

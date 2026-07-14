@@ -173,6 +173,7 @@ app.use('/api/v1/follow', followRoutes);
 app.use('/api/v1/relations', relationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/vip', vipRoutes);
+app.get('/api/v1/settings', require('./controllers/settings.controller').getSettings); // public CP/target config read
 
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/upload', uploadRoutes); // backward-compatible path

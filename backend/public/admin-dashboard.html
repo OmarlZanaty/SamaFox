@@ -49,6 +49,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
       مستويات VIP
     </a>
+    <a href="#" class="nav-item" data-section="admins">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      المشرفون
+    </a>
 
     <div class="nav-section-label" style="margin-top:16px">الإعدادات</div>
     <a href="#" class="nav-item" data-section="settings">
@@ -493,6 +497,41 @@
       </div>
     </section>
 
+    <!-- ======================== ADMINS SECTION (#22, #23) ======================== -->
+    <section class="section" id="section-admins">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">المشرفون</h2>
+          <p class="section-sub">تعيين وإلغاء صلاحيات الأدمن و السوبر أدمن</p>
+        </div>
+        <div class="section-actions">
+          <input id="adminGrantId" class="form-input form-input--sm" placeholder="رقم المستخدم (Display ID)" />
+          <button class="btn btn-primary" id="btnGrantAdmin">+ تعيين أدمن</button>
+          <button class="btn btn-outline" id="btnAdmins">تحديث</button>
+        </div>
+      </div>
+
+      <div id="adminsSuperNote" class="section-sub" style="margin:0 0 10px;color:#e0a800;display:none">
+        أنت أدمن عادي — التعيين والإلغاء متاح للسوبر أدمن فقط.
+      </div>
+
+      <div class="table-wrap">
+        <table id="adminsTable">
+          <thead>
+            <tr>
+              <th>المعرف</th>
+              <th>Display ID</th>
+              <th>الاسم</th>
+              <th>الدور</th>
+              <th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="table-meta" id="adminsMeta"></div>
+    </section>
+
     <!-- ======================== SETTINGS SECTION ======================== -->
     <section class="section" id="section-settings">
       <div class="section-header">
@@ -693,28 +732,35 @@
 <div class="modal-overlay hidden" id="giftModal" onclick="closeGiftModal()">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-header"><div><h3 class="modal-title" id="giftModalTitle">إضافة هدية</h3></div></div>
+    <!--
+      #14-16 simplified flow: just "upload an image" or "upload an image +
+      video", plus the coin value. No manual link/URL field, no tier picker,
+      no sort-order field — those confused the owner ("مش عايز رابط ولا حاجات
+      غريبة"). imageUrl/animationUrl/tier/sortOrder stay as hidden inputs —
+      the upload buttons fill them, and tier/sortOrder get sane computed
+      defaults in saveGift() — so the existing save/edit JS keeps working.
+    -->
     <form id="giftForm" class="form-row" style="display:flex;flex-direction:column;gap:10px;">
       <input id="gift_id" type="hidden" />
-      <input id="gift_nameAr" class="form-input" placeholder="الاسم العربي" />
-      <input id="gift_imageUrl" class="form-input" placeholder="رابط الصورة بعد الرفع" readonly />
-      <div class="form-row" style="gap:8px;">
+      <input id="gift_imageUrl" type="hidden" />
+      <input id="gift_animationUrl" type="hidden" />
+      <input id="gift_tier" type="hidden" />
+      <input id="gift_sortOrder" type="hidden" />
+
+      <input id="gift_nameAr" class="form-input" placeholder="اسم الهدية" />
+
+      <div class="form-row" style="gap:8px;align-items:center;">
         <input id="gift_imageFile" type="file" accept="image/*" class="form-input" />
-        <button type="button" class="btn btn-outline" id="giftUploadImageBtn">رفع الصورة من الجهاز</button>
+        <button type="button" class="btn btn-outline" id="giftUploadImageBtn">رفع صورة الهدية</button>
       </div>
       <img id="giftImagePreview" alt="gift preview" style="display:none;width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--card-border);" />
-      <input id="gift_animationUrl" class="form-input" placeholder="رابط الفيديو/الأنيميشن (اختياري)" />
-      <div class="form-row" style="gap:8px;">
+
+      <div class="form-row" style="gap:8px;align-items:center;">
         <input id="gift_videoFile" type="file" accept="video/mp4,video/webm,video/quicktime" class="form-input" />
-        <button type="button" class="btn btn-outline" id="giftUploadVideoBtn">رفع فيديو الهدية</button>
+        <button type="button" class="btn btn-outline" id="giftUploadVideoBtn">رفع فيديو الهدية (اختياري)</button>
       </div>
-      <select id="gift_tier" class="form-select">
-        <option value="SMALL">مميزة</option>
-        <option value="MEDIUM">محظوظ</option>
-        <option value="LARGE">تخصيص</option>
-        <option value="LEGENDARY">VIP</option>
-      </select>
+
       <input id="gift_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
-      <input id="gift_sortOrder" type="number" class="form-input" placeholder="الترتيب" />
       <label style="display:flex;align-items:center;gap:8px;color:#fff;"><input id="gift_isActive" type="checkbox" checked /> نشط</label>
     </form>
     <div class="modal-actions">

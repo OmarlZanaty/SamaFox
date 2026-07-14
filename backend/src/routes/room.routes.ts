@@ -25,7 +25,12 @@ router.get('/:roomId/seat-earnings', optionalAuth, async (req, res) => {
   try {
     const roomId = Number(req.params.roomId);
     if (!roomId) return res.status(400).json({ success: false, message: 'Invalid roomId' });
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // #4: honor the admin's reset point — counters show only gifts since the later
+    // of (24h ago, contributionResetAt).
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { contributionResetAt: true } });
+    const reset = room?.contributionResetAt;
+    const since = reset && reset > dayAgo ? reset : dayAgo;
     const rows = await prisma.giftTransaction.groupBy({
       by: ['recipientId'],
       where: { roomId, createdAt: { gte: since } },

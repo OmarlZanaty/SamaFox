@@ -48,7 +48,7 @@ router.post('/login', async (req, res) => {
           res.cookie('access_token', publicAuth.token, {
             httpOnly: true,
             sameSite: 'lax',
-            secure: process.env.NODE_ENV === "production",
+            secure: req.secure, // user-approved: site is HTTP-only, a secure cookie is never sent back so the whole dashboard 401s. Enable HTTPS to restore secure cookies.
             maxAge: 7 * 24 * 60 * 60 * 1000,
           });
           return res.json({ success: true });
@@ -140,7 +140,7 @@ router.post('/login', async (req, res) => {
             res.cookie('access_token', token, {
               httpOnly: true,
               sameSite: 'lax',
-              secure: process.env.NODE_ENV === "production",
+              secure: req.secure, // user-approved: site is HTTP-only, a secure cookie is never sent back so the whole dashboard 401s. Enable HTTPS to restore secure cookies.
               maxAge: 7 * 24 * 60 * 60 * 1000,
             });
             return res.json({ success: true });
@@ -162,7 +162,7 @@ router.post('/login', async (req, res) => {
     res.cookie('access_token', token, {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === "production",
+      secure: req.secure, // user-approved: site is HTTP-only, a secure cookie is never sent back so the whole dashboard 401s. Enable HTTPS to restore secure cookies.
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
