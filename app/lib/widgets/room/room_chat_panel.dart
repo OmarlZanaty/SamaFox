@@ -91,6 +91,49 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     });
   }
 
+  /// Group 12: chat-bubble styling. A custom design (store/dashboard item)
+  /// wins; otherwise the bubble is tiered by the sender's level.
+  BoxDecoration _bubbleDecoration(SocketMessage m) {
+    final url = (m.bubbleUrl ?? '').trim();
+    if (url.isNotEmpty) {
+      return BoxDecoration(
+        color: Colors.deepPurple.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(22),
+        image: DecorationImage(
+          image: NetworkImage(url),
+          fit: BoxFit.fill,
+          colorFilter: ColorFilter.mode(
+            Colors.black.withOpacity(0.25),
+            BlendMode.darken,
+          ),
+        ),
+      );
+    }
+
+    // Level tiers: default → blue (10+) → purple (30+) → gold (60+).
+    List<Color> colors;
+    if (m.level >= 60) {
+      colors = [const Color(0xFFB8860B), const Color(0xFF8B6508)];
+    } else if (m.level >= 30) {
+      colors = [const Color(0xFF7B2FBE), const Color(0xFF4A1E86)];
+    } else if (m.level >= 10) {
+      colors = [const Color(0xFF1E6FD9), const Color(0xFF144A94)];
+    } else {
+      return BoxDecoration(
+        color: Colors.deepPurple.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(22),
+      );
+    }
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+        colors: colors.map((c) => c.withOpacity(0.75)).toList(),
+      ),
+      borderRadius: BorderRadius.circular(22),
+    );
+  }
+
   /// #13: tap a chat-writer's name → profile + (admin) kick from room, even
   /// before they take a mic.
   void _showChatUserActions(int userId, String username) {
@@ -269,16 +312,14 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                 padding: const EdgeInsets.only(right: 8),
                                 child: Stack(
                                   children: [
-                                    // 💬 BUBBLE
+                                    // 💬 BUBBLE — custom design if the sender
+                                    // activated one, otherwise tiered by level.
                                     Container(
                                       constraints: BoxConstraints(
                                         maxWidth: MediaQuery.of(context).size.width * 0.85,
                                       ),
                                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                      decoration: BoxDecoration(
-                                        color: Colors.deepPurple.withOpacity(0.6), // 🔥 visible
-                                        borderRadius: BorderRadius.circular(22),
-                                      ),
+                                      decoration: _bubbleDecoration(m),
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.end,
                                         children: [

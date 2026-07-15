@@ -1017,6 +1017,10 @@ class SocketMessage {
   final String message;
   final int timestamp;
   final String? avatar;
+  // Group 12: level-tiered + custom chat bubbles.
+  final int level;
+  final int vipLevel;
+  final String? bubbleUrl;
 
   SocketMessage({
     required this.messageId,
@@ -1026,6 +1030,9 @@ class SocketMessage {
     required this.message,
     required this.timestamp,
     this.avatar,
+    this.level = 1,
+    this.vipLevel = 0,
+    this.bubbleUrl,
   });
 
   factory SocketMessage.fromJson(Map<String, dynamic> json) {
@@ -1043,6 +1050,9 @@ class SocketMessage {
       message: (json['message'] ?? json['content'] ?? '') as String,
       timestamp: _i(json['timestamp'] ?? DateTime.now().millisecondsSinceEpoch),
       avatar: json['avatar'] as String? ?? json['avatarUrl'] as String?,
+      level: _i(json['level'] ?? 1),
+      vipLevel: _i(json['vipLevel'] ?? 0),
+      bubbleUrl: json['bubbleUrl'] as String?,
     );
   }
 }

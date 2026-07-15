@@ -932,6 +932,7 @@ const PRODUCT_TYPE_LABELS = {
   FRAME: "إطار",
   PROFILE_FRAME: "إطار",
   BADGE: "شارة",
+  CHAT_BUBBLE: "فقاعة دردشة",
   background: "خلفية",
   ROOM_THEME: "خلفية",
 };
@@ -1623,6 +1624,7 @@ const VIP_REWARD_TYPE_LABELS = {
   PROFILE_FRAME: "إطار",
   ENTRANCE_BANNER: "مدخل",
   ENTRANCE_EFFECT: "مركبة",
+  CHAT_BUBBLE: "فقاعة دردشة",
 };
 
 window.loadVipLevels = async function () {

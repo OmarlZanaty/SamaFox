@@ -17,6 +17,8 @@ const roomMuted = new Map<number, Map<number, boolean>>();
 const roomMicQueue = new Map<number, number[]>();
 const roomAdmins = new Map<number, Set<number>>();
 const MEGA_GIFT_THRESHOLD = Number(process.env.MEGA_GIFT_THRESHOLD ?? 5000);
+// Group 12: debounce entrance announcements per room+user (reconnects shouldn't spam).
+const recentRoomEntries = new Map<string, number>();
 
 function toInt(v: any): number | null {
   const n = Number(v);
@@ -729,6 +731,41 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         queue,
       });
 
+      // ── Group 12: entrance announcement for EVERY user (user_joined below
+      // only fires for auto-seated admins). Carries the user's active entrance
+      // banner design (bought in store or granted via VIP) + level/VIP for the
+      // animated banner and the "[Name] دخل الغرفة" chat line. Debounced so
+      // reconnects don't spam the room. ──
+      const entryKey = `${rid}:${uid}`;
+      const lastEntry = recentRoomEntries.get(entryKey) ?? 0;
+      if (Date.now() - lastEntry > 60_000) {
+        recentRoomEntries.set(entryKey, Date.now());
+        try {
+          const [entrant, activeBanner] = await Promise.all([
+            prisma.user.findUnique({
+              where: { id: uid },
+              select: { name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
+            }),
+            (prisma as any).userItem.findFirst({
+              where: { userId: uid, isActive: true, item: { type: 'ENTRANCE_BANNER' } },
+              include: { item: { select: { assetUrl: true } } },
+            }),
+          ]);
+          io.to(`room:${rid}`).emit('user_entered', {
+            roomId: rid,
+            userId: uid,
+            username: entrant?.name ?? (entrant?.displayId ? `#${entrant.displayId}` : 'مستخدم'),
+            avatarUrl: entrant?.avatarUrl ?? null,
+            displayId: entrant?.displayId ?? null,
+            level: entrant?.level ?? 1,
+            vipLevel: entrant?.vipLevel ?? 0,
+            bannerUrl: activeBanner?.item?.assetUrl ?? null,
+          });
+        } catch (e) {
+          console.warn('[join_room] user_entered emit failed:', e);
+        }
+      }
+
       // ✅ Auto-seat admins
       if (admins.has(uid)) {
         let seatNum: number | null = null;
@@ -876,9 +913,21 @@ socket.on('leave_room', async ({ roomId }: any) => {
       // ✅ FIX: fetch username from DB — never trust client-provided username (was spoofable)
       const user = await prisma.user.findUnique({
         where: { id: uid },
-        select: { name: true, avatarUrl: true },
+        select: { name: true, avatarUrl: true, level: true, vipLevel: true },
       });
       const username = user?.name ?? 'Unknown';
+
+      // Group 12: the sender's active chat-bubble design (store/dashboard-managed).
+      let bubbleUrl: string | null = null;
+      try {
+        const activeBubble = await (prisma as any).userItem.findFirst({
+          where: { userId: uid, isActive: true, item: { type: 'CHAT_BUBBLE' } },
+          include: { item: { select: { assetUrl: true } } },
+        });
+        bubbleUrl = activeBubble?.item?.assetUrl ?? null;
+      } catch (e) {
+        console.warn('[send_message] bubble lookup failed:', e);
+      }
 
       const msg = await prisma.roomMessage.create({
         data: {
@@ -898,6 +947,10 @@ socket.on('leave_room', async ({ roomId }: any) => {
         message: clean,
         timestamp: Date.now(),
         avatar: user?.avatarUrl ?? null,
+        // Group 12: level-tiered + custom chat bubbles.
+        level: user?.level ?? 1,
+        vipLevel: user?.vipLevel ?? 0,
+        bubbleUrl,
       });
       } catch (err) {
         console.error('[socket.send_message] handler error:', err);

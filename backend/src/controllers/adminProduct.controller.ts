@@ -19,7 +19,7 @@ export const createProduct = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "يجب رفع فيديو لهذا النوع" });
     }
 
-    if ((type === "avatar_frame" || type === "frame" || type === "background" || type === "badge") && !isImage) {
+    if ((type === "avatar_frame" || type === "frame" || type === "background" || type === "badge" || type === "chat_bubble") && !isImage) {
       return res.status(400).json({ message: "يجب رفع صورة لهذا النوع" });
     }
     // "entrance" (entry banner design) accepts image or video — no extra check.
@@ -41,7 +41,9 @@ export const createProduct = async (req: Request, res: Response) => {
             ? "ENTRANCE_BANNER"
             : type === "badge"
               ? "BADGE"
-              : type;
+              : type === "chat_bubble"
+                ? "CHAT_BUBBLE"
+                : type;
 
     // Group 9: is_private=true puts the item in the Private Store — hidden
     // from the in-app store, only grantable by ID from the dashboard.

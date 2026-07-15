@@ -27,6 +27,7 @@ import '../widgets/mic_perfect_badge.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
+import '../widgets/room/entrance_banner_layer.dart';
 import '../widgets/room/mic_queue_panel.dart';
 import '../widgets/room/room_chat_panel.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -4134,6 +4135,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 socket: _giftSocket,
                 resolvePosition: _getSeatPositionByUser,
               ),
+            ),
+
+            // ===== Group 12: user entrance banner (slides in → pause → out) =====
+            Positioned.fill(
+              child: EntranceBannerLayer(roomId: widget.roomId),
             ),
           ],
         ),

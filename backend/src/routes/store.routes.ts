@@ -204,15 +204,24 @@ router.post('/activate', async (req: any, res) => {
     if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
 
     // ✅ FIX: wrap both writes in a single transaction to prevent race condition
-    // where two concurrent requests deactivate each other's item
+    // where two concurrent requests deactivate each other's item.
+    // Group 12: deactivate only items of the SAME type, so a vehicle, an
+    // entrance banner and a chat bubble can all be active at once.
     try {
       await prisma.$transaction(async (tx) => {
-        await tx.userItem.updateMany({ where: { userId }, data: { isActive: false } });
-        const updated = await tx.userItem.updateMany({
+        const target = await tx.userItem.findFirst({
           where: { id: String(inventoryId), userId },
+          include: { item: { select: { type: true } } },
+        });
+        if (!target) throw new Error('NOT_FOUND');
+        await tx.userItem.updateMany({
+          where: { userId, item: { type: target.item.type } },
+          data: { isActive: false },
+        });
+        await tx.userItem.update({
+          where: { id: target.id },
           data: { isActive: true },
         });
-        if (updated.count === 0) throw new Error('NOT_FOUND');
       });
     } catch (e: any) {
       if (e?.message === 'NOT_FOUND') {

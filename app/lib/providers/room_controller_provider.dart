@@ -33,6 +33,7 @@ class RoomControllerState {
   final List<RoomEvent> events; // ✅ NEW
   final Map<int, User> onlineUsers;
   final Map<int, int> seatEarnings24h; // userId -> coins received in room (24h)
+  final EntranceEvent? lastEntrance; // group 12: animated entrance banner feed
 
   const RoomControllerState({
     required this.roomId,
@@ -52,6 +53,7 @@ class RoomControllerState {
     this.events = const <RoomEvent>[], // ✅ NEW
     this.onlineUsers = const {},
     this.seatEarnings24h = const {},
+    this.lastEntrance,
   });
 
 
@@ -73,6 +75,7 @@ class RoomControllerState {
     String? roomBackgroundUrl,      // ✅ NEW
     Map<int, User>? onlineUsers,
     Map<int, int>? seatEarnings24h,
+    EntranceEvent? lastEntrance,
   }) {
     return RoomControllerState(
       roomId: roomId,
@@ -92,8 +95,30 @@ class RoomControllerState {
       events: events ?? this.events, // ✅ NEW
       onlineUsers: onlineUsers ?? this.onlineUsers,
       seatEarnings24h: seatEarnings24h ?? this.seatEarnings24h,
+      lastEntrance: lastEntrance ?? this.lastEntrance,
     );
   }
+}
+
+/// Group 12: one user entering the room, as consumed by the animated
+/// entrance-banner layer. `seq` makes each event unique so listeners can
+/// distinguish consecutive entries by the same user.
+class EntranceEvent {
+  final int seq;
+  final int userId;
+  final String username;
+  final String? bannerUrl;
+  final int vipLevel;
+  final int level;
+
+  const EntranceEvent({
+    required this.seq,
+    required this.userId,
+    required this.username,
+    this.bannerUrl,
+    this.vipLevel = 0,
+    this.level = 1,
+  });
 }
 
 
@@ -104,6 +129,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   /// Cached 5-digit PIN for a locked room, so reconnects re-join silently.
   String? _accessCode;
+
+  /// Group 12: monotonically increasing id for entrance-banner events.
+  int _entranceSeq = 0;
 
   StreamSubscription? _reconnectSub;
 
@@ -429,6 +457,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _socket.off('seat_released');
     _socket.off('seat_updated');
     _socket.off('user_joined');
+    _socket.off('user_entered');
     _socket.off('user_left');
     _socket.off('seat_error');
     _socket.off('seat_mute_changed');
@@ -453,18 +482,37 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       debugPrint('💬 messageStream room=$roomId from=${m.userId} name=${m.username} msg=${m.message}');
     });
 
-    _socket.on('user_joined', (data) {
+    // Group 12: user_entered fires for EVERY user entering the room (the old
+    // user_joined only fired for auto-seated admins) → "[Name] دخل الغرفة"
+    // chat line + animated entrance banner for users who own a design.
+    _socket.on('user_entered', (data) {
       if (data is! Map) return;
+      final rid = _safeInt(data['roomId']);
+      if (rid != null && rid != roomId) return;
 
-      final username = data['username'] ?? 'مستخدم';
+      final username = (data['username'] ?? 'مستخدم').toString();
 
       addActivity(
-        'انضم إلى الغرفة',
+        'دخل الغرفة',
         RoomEventType.join,
-        username: username?.toString(),
+        username: username,
         countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
         gender: data['gender']?.toString(),
       );
+
+      final uid = _safeInt(data['userId']);
+      if (uid != null) {
+        state = state.copyWith(
+          lastEntrance: EntranceEvent(
+            seq: ++_entranceSeq,
+            userId: uid,
+            username: username,
+            bannerUrl: data['bannerUrl']?.toString(),
+            vipLevel: _safeInt(data['vipLevel']) ?? 0,
+            level: _safeInt(data['level']) ?? 1,
+          ),
+        );
+      }
     });
 
     _socket.on('user_left', (data) {
