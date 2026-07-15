@@ -139,6 +139,18 @@ async function populateAdmins(roomId: number) {
     }
   }
 
+  // Group 11: platform super admins have admin powers in EVERY room
+  // (HTTP moderation endpoints still rank them above the owner).
+  try {
+    const supers = await (prisma as any).user.findMany({
+      where: { isSuperAdmin: true },
+      select: { id: true },
+    });
+    for (const s of supers) admins.add(s.id);
+  } catch (e) {
+    console.warn('populateAdmins super-admin lookup failed:', e);
+  }
+
   roomAdmins.set(roomId, admins);
 }
 
@@ -1141,6 +1153,20 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
   await populateAdmins(rid);
   const admins = getAdmins(rid);
   if (!admins.has(socket.userId)) return;
+
+  // Group 11: nobody removes a platform super admin from a seat except
+  // another super admin (the room owner can't touch them).
+  try {
+    const roles = await (prisma as any).user.findMany({
+      where: { id: { in: [target, socket.userId] } },
+      select: { id: true, isSuperAdmin: true },
+    });
+    const targetIsSuper = roles.find((r: any) => r.id === target)?.isSuperAdmin;
+    const requesterIsSuper = roles.find((r: any) => r.id === socket.userId)?.isSuperAdmin;
+    if (targetIsSuper && !requesterIsSuper) return;
+  } catch (e) {
+    console.warn('remove_from_seat super check failed:', e);
+  }
 
   const seats = getSeats(rid);
   if (seats.get(sn) !== target) return;

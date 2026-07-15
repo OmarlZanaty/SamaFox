@@ -10,7 +10,19 @@ const toInt = (v: any): number | null => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
+/** Platform-wide super admin (group 11): outranks room owners in every room. */
+async function isPlatformSuperAdmin(userId: number): Promise<boolean> {
+  const u = await (prisma as any).user.findUnique({
+    where: { id: userId },
+    select: { isSuperAdmin: true },
+  });
+  return Boolean(u?.isSuperAdmin);
+}
+
 async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isAdmin: boolean; role: string | null }> {
+  // Group 11: platform super admins hold admin powers in every room.
+  if (await isPlatformSuperAdmin(userId)) return { isAdmin: true, role: 'super' };
+
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     include: { members: { where: { userId } } },
@@ -28,10 +40,14 @@ async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isA
   return { isAdmin: false, role: member?.role || null };
 }
 
-const ROLE_RANK: Record<string, number> = { owner: 3, admin: 2, supervisor: 1, member: 0 };
+const ROLE_RANK: Record<string, number> = { super: 4, owner: 3, admin: 2, supervisor: 1, member: 0 };
 
-/** Effective role of a user in a room: owner | admin | supervisor | member. */
+/** Effective role of a user in a room: super | owner | admin | supervisor | member. */
 async function getRoomRole(userId: number, roomId: number): Promise<string> {
+  // Group 11: super admins outrank the owner (owner can't mute/kick them,
+  // they can moderate anyone including the owner).
+  if (await isPlatformSuperAdmin(userId)) return 'super';
+
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     select: { ownerId: true, members: { where: { userId }, select: { role: true } } },

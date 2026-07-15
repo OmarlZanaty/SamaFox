@@ -48,8 +48,9 @@ router.patch('/users/:id/display-id', adminChangeUserDisplayId);
 // CP / target settings (professional defaults, admin-editable)
 router.patch('/settings', require('../controllers/settings.controller').updateSettings);
 
-// Room management
+// Room management (super admin only — enforced in the controller, group 11)
 router.delete('/rooms/:roomId', adminController.deleteRoom);
+router.patch('/rooms/:roomId/active', adminController.setRoomActive);
 
 // ✅ ADD THIS BELOW
 router.delete('/products/:id', adminController.deleteProduct);

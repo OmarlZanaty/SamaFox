@@ -201,8 +201,22 @@ export const getAllTransactions = async (req: Request, res: Response) => {
   }
 };
 
+// Group 11: only super admins control rooms — regular admins cannot close/delete them.
+const requireSuper = async (req: Request): Promise<boolean> => {
+  const requesterId = (req as any).userId as number | undefined;
+  if (!requesterId) return false;
+  const u = await (prisma as any).user.findUnique({
+    where: { id: requesterId },
+    select: { isSuperAdmin: true },
+  });
+  return Boolean(u?.isSuperAdmin);
+};
+
 export const deleteRoom = async (req: Request, res: Response) => {
   try {
+    if (!(await requireSuper(req))) {
+      return res.status(403).json({ message: 'إغلاق/حذف الغرف متاح للسوبر أدمن فقط' });
+    }
     const roomIdNum = intParam(req.params.roomId);
     if (!roomIdNum) return res.status(400).json({ message: 'Invalid roomId' });
     await prisma.room.delete({ where: { id: roomIdNum } });
@@ -213,6 +227,51 @@ export const deleteRoom = async (req: Request, res: Response) => {
   }
 };
 
+// PATCH /admin/rooms/:roomId/active — super admin closes/reopens a room from
+// inside the app (group 11). Closing kicks everyone live.
+export const setRoomActive = async (req: Request, res: Response) => {
+  try {
+    if (!(await requireSuper(req))) {
+      return res.status(403).json({ message: 'إغلاق/فتح الغرف متاح للسوبر أدمن فقط' });
+    }
+    const roomIdNum = intParam(req.params.roomId);
+    if (!roomIdNum) return res.status(400).json({ message: 'Invalid roomId' });
+    const isActive = Boolean(req.body?.isActive);
+
+    const room = await prisma.room.update({ where: { id: roomIdNum }, data: { isActive } });
+
+    if (!isActive) {
+      try {
+        const { io } = await import('../index');
+        const reason = String(req.body?.reason || 'تم إغلاق الغرفة من الإدارة').trim();
+        io.to(`room:${roomIdNum}`).emit('room_force_closed', { roomId: roomIdNum, reason });
+      } catch (e) {
+        console.warn('room_force_closed emit failed:', e);
+      }
+    }
+
+    return res.json({ message: isActive ? 'Room opened' : 'Room closed', room: { id: room.id, isActive: room.isActive } });
+  } catch (error: any) {
+    if (error?.code === 'P2025') return res.status(404).json({ message: 'Room not found' });
+    console.error('setRoomActive error:', error);
+    return res.status(500).json({ message: 'Failed to update room' });
+  }
+};
+
+// Group 11: role-tiered in-app ban durations (ms).
+// Regular admins may only issue short bans; supers go up to permanent.
+const ADMIN_BAN_DURATIONS: Record<string, number | null> = {
+  '1d': 24 * 60 * 60 * 1000,
+  '2d': 2 * 24 * 60 * 60 * 1000,
+  '3d': 3 * 24 * 60 * 60 * 1000,
+};
+const SUPER_BAN_DURATIONS: Record<string, number | null> = {
+  '3d': 3 * 24 * 60 * 60 * 1000,
+  '1m': 30 * 24 * 60 * 60 * 1000,
+  '1y': 365 * 24 * 60 * 60 * 1000,
+  permanent: null,
+};
+
 export const toggleUserBan = async (req: Request, res: Response) => {
   try {
     const userIdNum = intParam(req.params.userId);
@@ -220,23 +279,63 @@ export const toggleUserBan = async (req: Request, res: Response) => {
     const isBanned = !!req.body.isBanned;
     const reason = typeof req.body.reason === 'string' ? req.body.reason : null;
 
+    const requesterId = (req as any).userId as number | undefined;
+    const requester = requesterId
+      ? await (prisma as any).user.findUnique({
+          where: { id: requesterId },
+          select: { isAdmin: true, isSuperAdmin: true },
+        })
+      : null;
+    const isSuper = Boolean(requester?.isSuperAdmin);
+
     const target = await (prisma as any).user.findUnique({
       where: { id: userIdNum },
-      select: { banSource: true },
+      select: { banSource: true, isSuperAdmin: true },
     });
     if (!target) return res.status(404).json({ message: 'User not found' });
+
+    // Nobody bans a super admin from the app; that is dashboard-only territory.
+    if (isBanned && target.isSuperAdmin) {
+      return res.status(403).json({ message: 'لا يمكن حظر سوبر أدمن من داخل التطبيق' });
+    }
 
     // A ban issued from the control panel can only be lifted from the control panel.
     if (!isBanned && target.banSource === 'dashboard') {
       return res.status(403).json({ message: 'This user was banned from the control panel and can only be unbanned there.' });
     }
 
+    let banExpiresAt: Date | null = null;
+    if (isBanned) {
+      // Group 11: regular admin → 1/2/3 days only; super admin → 3d/1m/1y/permanent.
+      const allowed = isSuper ? SUPER_BAN_DURATIONS : ADMIN_BAN_DURATIONS;
+      const duration = String(req.body?.duration || (isSuper ? 'permanent' : '1d'));
+      if (!(duration in allowed)) {
+        return res.status(403).json({
+          message: isSuper
+            ? 'المدد المتاحة: 3d / 1m / 1y / permanent'
+            : 'الأدمن العادي يحظر 1d / 2d / 3d فقط',
+        });
+      }
+      const ms = allowed[duration];
+      banExpiresAt = ms == null ? null : new Date(Date.now() + ms);
+    }
+
     await (prisma as any).user.update({
       where: { id: userIdNum },
       data: isBanned
-        ? { isBanned: true, bannedAt: new Date(), banReason: reason, banSource: 'admin' }
+        ? { isBanned: true, bannedAt: new Date(), banReason: reason, banExpiresAt, banSource: 'admin' }
         : { isBanned: false, bannedAt: null, banReason: null, banExpiresAt: null, banSource: null },
     });
+
+    // Kick the user off any live sockets immediately (same as dashboard bans).
+    if (isBanned) {
+      try {
+        const { io } = await import('../index');
+        io.emit('user_banned', { userId: userIdNum, reason, banExpiresAt });
+      } catch (e) {
+        console.warn('user_banned emit failed:', e);
+      }
+    }
 
     return res.json({ message: isBanned ? 'User banned successfully' : 'User unbanned successfully' });
   } catch (error) {
