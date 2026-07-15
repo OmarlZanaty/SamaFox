@@ -925,39 +925,112 @@ async function loadLeaderboard() {
 
 async function loadAdvanced() { await Promise.all([loadTransactions(), loadTopups(), loadReports(), loadAnalytics(), loadQuests(), loadLeaderboard()]); }
 
-// --- PRODUCTS ---
+// --- PRODUCTS (group 9: App Store + Private Store) ---
+const PRODUCT_TYPE_LABELS = {
+  ENTRANCE_EFFECT: "مركبة",
+  ENTRANCE_BANNER: "مدخل",
+  FRAME: "إطار",
+  PROFILE_FRAME: "إطار",
+  BADGE: "شارة",
+  background: "خلفية",
+  ROOM_THEME: "خلفية",
+};
+
+function renderProductRow(p, isPrivate) {
+  const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(p.file_url || "");
+  const preview = isVideo
+    ? `<a class="td-link" href="${p.file_url}" target="_blank">▶ تشغيل</a>`
+    : p.file_url
+      ? `<img src="${p.file_url}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
+      : "—";
+  const safeName = escapeHtml(p.name || "").replace(/'/g, "\\'");
+  const moveBtn = isPrivate
+    ? `<button class="btn-ghost-sm" onclick="setProductPrivacy('${p.id}', false)">نقل للتطبيق</button>`
+    : `<button class="btn-ghost-sm" onclick="setProductPrivacy('${p.id}', true)">نقل للخاص</button>`;
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><span class="cell-id">${p.id}</span></td>
+    <td>${escapeHtml(p.name)}</td>
+    <td><span class="cell-muted">${PRODUCT_TYPE_LABELS[p.type] || p.type}</span></td>
+    <td><strong>${p.price_coins}</strong></td>
+    <td>${preview}</td>
+    <td>
+      <div class="td-actions">
+        <button class="btn-ok" onclick="openGrantItemModal('${p.id}', '${safeName}')">منح</button>
+        ${moveBtn}
+        <button class="btn-bad" onclick="deleteProduct('${p.id}')">حذف</button>
+      </div>
+    </td>
+  `;
+  return tr;
+}
+
 window.loadProducts = async function () {
   try {
-    const d = await apiFetch("/store/products");
-    const tbody = document.querySelector("#productsTable tbody");
-    tbody.innerHTML = "";
+    // Dashboard list includes private-store items; fall back to the public
+    // endpoint if the backend hasn't been redeployed yet.
+    const d = await apiFetchAny(["/admin-products/products", "/store/products"]);
+    const appBody = document.querySelector("#productsTable tbody");
+    const privBody = document.querySelector("#privateProductsTable tbody");
+    appBody.innerHTML = "";
+    if (privBody) privBody.innerHTML = "";
 
     const rows = d.data || d.products || [];
     for (const p of rows) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><span class="cell-id">${p.id}</span></td>
-        <td>${escapeHtml(p.name)}</td>
-        <td><span class="cell-muted">${p.type}</span></td>
-        <td><strong>${p.price_coins}</strong></td>
-        <td>
-          ${p.type === "PROFILE_FRAME" || p.type === "FRAME"
-            ? `<img src="${p.file_url}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
-            : "—"}
-        </td>
-        <td>
-          ${p.type === "ENTRANCE_EFFECT"
-            ? `<a class="td-link" href="${p.file_url}" target="_blank">▶ تشغيل</a>`
-            : "—"}
-        </td>
-        <td>
-          <button class="btn-bad" onclick="deleteProduct('${p.id}')">حذف</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
+      if (p.is_private && privBody) {
+        privBody.appendChild(renderProductRow(p, true));
+      } else {
+        appBody.appendChild(renderProductRow(p, false));
+      }
+    }
+    if (privBody && !privBody.children.length) {
+      privBody.innerHTML = '<tr><td colspan="6" class="cell-muted">لا توجد منتجات خاصة</td></tr>';
     }
   } catch (e) {
     showToast("❌ خطأ: " + e.message);
+  }
+};
+
+window.setProductPrivacy = async function (id, isPrivate) {
+  try {
+    await apiFetch("/admin-products/products/" + id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_private: isPrivate }),
+    });
+    showToast(isPrivate ? "✓ نُقل إلى المتجر الخاص" : "✓ نُقل إلى متجر التطبيق");
+    await loadProducts();
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+// Grant an item to a user by 6-digit display ID
+let grantItemId = null;
+window.openGrantItemModal = function (itemId, itemName) {
+  grantItemId = itemId;
+  document.getElementById("grantItemSub").textContent = itemName || "";
+  document.getElementById("grantDisplayId").value = "";
+  document.getElementById("grantItemModal").classList.remove("hidden");
+};
+window.closeGrantItemModal = function () {
+  grantItemId = null;
+  document.getElementById("grantItemModal").classList.add("hidden");
+};
+window.confirmGrantItem = async function () {
+  try {
+    if (!grantItemId) return;
+    const displayId = Number(document.getElementById("grantDisplayId").value);
+    if (!displayId) return showToast("❗ أدخل Display ID صحيحاً");
+    const d = await apiFetch("/admin-products/grant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemId: grantItemId, displayId }),
+    });
+    showToast(`✓ ${d.message || "تم منح المنتج"} — ${d.user?.name ?? ""}`);
+    closeGrantItemModal();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to grant item"));
   }
 };
 
@@ -984,6 +1057,7 @@ window.addProduct = async function () {
     formData.append("name",        document.getElementById("p_name").value);
     formData.append("type",        document.getElementById("p_type").value);
     formData.append("price_coins", document.getElementById("p_price").value);
+    formData.append("is_private",  document.getElementById("p_private")?.checked ? "true" : "false");
     formData.append("file", file);
 
     await apiFetch("/admin-products/products", {

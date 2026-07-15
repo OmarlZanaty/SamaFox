@@ -24,6 +24,7 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
     const purchaseResult = await prisma.$transaction(async (tx) => {
       const item = await tx.item.findUnique({ where: { id: itemId } });
       if (!item) return { ok: false as const, status: 404, message: "المنتج غير موجود" };
+      if (!item.isPurchasable) return { ok: false as const, status: 403, message: "هذا المنتج غير متاح للشراء" };
 
       const user = await tx.user.findUnique({
         where: { id: userId },
@@ -105,6 +106,7 @@ router.post("/send", buyLimiter, async (req: any, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const item = await tx.item.findUnique({ where: { id: itemId } });
       if (!item) return { ok: false as const, status: 404, message: "المنتج غير موجود" };
+      if (!item.isPurchasable) return { ok: false as const, status: 403, message: "هذا المنتج غير متاح للشراء" };
 
       const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { id: true, name: true } });
       if (!recipient) return { ok: false as const, status: 404, message: "المستلم غير موجود" };
@@ -315,7 +317,9 @@ router.get("/my-frames", async (req: any, res) => {
 
 router.get("/products", async (_req, res) => {
   try {
-    const items = await prisma.item.findMany();
+    // Private-store items (isPurchasable=false) are hidden from the app —
+    // they can only be granted manually from the dashboard (group 9).
+    const items = await prisma.item.findMany({ where: { isPurchasable: true } });
 
     res.json({
       data: items.map((i) => ({

@@ -20,6 +20,8 @@ class Product {
       if (type == "ENTRANCE_EFFECT") return "seat_effect";
       if (type == "PROFILE_FRAME") return "avatar_frame";
       if (type == "FRAME") return "avatar_frame";
+      if (type == "ENTRANCE_BANNER") return "entrance";
+      if (type == "BADGE") return "badge";
       return type ?? "";
     }
 

@@ -150,7 +150,11 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                         children: [
                           _buildTab("مركبة", "seat_effect"),
                           const SizedBox(width: 10),
+                          _buildTab("مداخل", "entrance"),
+                          const SizedBox(width: 10),
                           _buildTab("إطارات", "avatar_frame"),
+                          const SizedBox(width: 10),
+                          _buildTab("شارات", "badge"),
                           const SizedBox(width: 10),
                           _buildTab("خلفيات", "background"),
                         ],

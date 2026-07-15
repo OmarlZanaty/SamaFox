@@ -34,6 +34,14 @@ class InventoryItem {
       case "avatar_frame":
         normalizedType = "avatar_frame";
         break;
+      case "ENTRANCE_BANNER":
+      case "entrance":
+        normalizedType = "entrance";
+        break;
+      case "BADGE":
+      case "badge":
+        normalizedType = "badge";
+        break;
       default:
         normalizedType = rawType;
     }

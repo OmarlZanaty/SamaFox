@@ -428,7 +428,9 @@
           <input id="p_name" class="form-input" placeholder="اسم المنتج" />
           <select id="p_type" class="form-select">
             <option value="seat_effect">مركبة (تأثير الدخول)</option>
+            <option value="entrance">مدخل (بانر الدخول)</option>
             <option value="avatar_frame">إطار</option>
+            <option value="badge">شارة</option>
             <option value="background">خلفية الغرفة</option>
           </select>
           <input id="p_price" type="number" class="form-input" placeholder="السعر (coins)" />
@@ -439,6 +441,9 @@
             <span id="fileLabelText">اختر ملف (صورة أو فيديو)</span>
             <input id="p_file" type="file" accept="image/*,video/*" style="display:none" />
           </label>
+          <label class="modal-sub" style="display:flex;align-items:center;gap:6px">
+            <input id="p_private" type="checkbox" /> متجر خاص (لا يظهر في التطبيق — يُمنح يدوياً بالمعرف)
+          </label>
           <button class="btn btn-primary" onclick="addProduct()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             إضافة المنتج
@@ -446,21 +451,42 @@
         </div>
       </div>
 
-      <div class="table-wrap" style="margin-top:16px">
-        <table id="productsTable">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>الاسم</th>
-              <th>النوع</th>
-              <th>السعر</th>
-              <th>Preview</th>
-              <th>Video</th>
-              <th>إجراءات</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+      <div class="form-card" style="margin-top:16px">
+        <div class="form-card-title">🏬 متجر التطبيق (ظاهر للمستخدمين)</div>
+        <div class="table-wrap">
+          <table id="productsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>الاسم</th>
+                <th>النوع</th>
+                <th>السعر</th>
+                <th>Preview</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="form-card" style="margin-top:16px">
+        <div class="form-card-title">🔒 المتجر الخاص (يُمنح يدوياً فقط)</div>
+        <div class="table-wrap">
+          <table id="privateProductsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>الاسم</th>
+                <th>النوع</th>
+                <th>السعر</th>
+                <th>Preview</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="form-card" style="margin-top:16px">
@@ -675,6 +701,25 @@
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="confirmBan()">تأكيد الحظر</button>
       <button class="btn btn-outline" onclick="closeBanModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="grantItemModal" onclick="closeGrantItemModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">منح منتج لمستخدم</h3>
+        <p class="modal-sub" id="grantItemSub"></p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">Display ID للمستخدم (6 أرقام)</label>
+      <input id="grantDisplayId" class="form-input" type="number" placeholder="مثال: 123456" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmGrantItem()">منح</button>
+      <button class="btn btn-outline" onclick="closeGrantItemModal()">إلغاء</button>
     </div>
   </div>
 </div>
