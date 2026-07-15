@@ -109,25 +109,21 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         }
       }
 
-      // ---- Recipient crediting rules (#19, #20) --------------------------
-      // A self-gift must actually cost the sender: we already decremented above,
-      // so we DO NOT credit anything back. This kills the old net-zero exploit
-      // where agents inflated target for free (#19).
-      //
-      // For a real recipient:
-      //   • agency host (member of a HOSTING agency) -> 0 coins to balance; the
-      //     full value is "earnings"/target, tracked via GiftTransaction below.
+      // ---- Recipient crediting rules (client spec, 2026-07) --------------
+      //   • registered hosting-agency member -> 0 coins to balance; the full
+      //     value is "earnings"/target, tracked via GiftTransaction below.
       //   • everyone else (not in a hosting agency) -> half the coins land in
-      //     their spendable balance, the other half is burned (#20).
+      //     their spendable balance, the other half is burned.
+      //   • self-gift -> same 50% rule applies to the sender: still a net
+      //     50% loss each time (not a duplication exploit), just a way to
+      //     partially cash out coins into "confirmed" spendable balance.
       const isSelfGift = input.recipientId === input.senderId;
       let recipientCredit = 0;
-      if (!isSelfGift) {
-        const hostMembership = await tx.agencyMember.findFirst({
-          where: { userId: input.recipientId, agency: { type: 'HOSTING' } },
-          select: { id: true },
-        });
-        recipientCredit = hostMembership ? 0 : Math.floor(totalCoins / 2);
-      }
+      const hostMembership = await tx.agencyMember.findFirst({
+        where: { userId: input.recipientId, agency: { type: 'HOSTING' } },
+        select: { id: true },
+      });
+      recipientCredit = hostMembership && !isSelfGift ? 0 : Math.floor(totalCoins / 2);
 
       let recipientBalance: number;
       if (recipientCredit > 0) {

@@ -20,6 +20,7 @@ router.get('/search-user', authMiddleware, A.searchUserForInvite);
 router.get('/members-stats', authMiddleware, A.getMembersStats);
 // Target system (#13, #24)
 router.get('/my-target', authMiddleware, A.getMyTarget);
+router.post('/target/convert', authMiddleware, A.convertTarget);
 router.patch('/members/:userId/target', authMiddleware, A.setMemberTarget);
 router.get('/my-membership', authMiddleware, A.getMyMembership);
 router.get('/my-memberships', authMiddleware, A.getMyMemberships);

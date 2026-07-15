@@ -47,6 +47,23 @@ const getVoiceSet = (roomId: number) => {
   return voiceUsers.get(roomId)!;
 };
 
+// #25/#31: which room a user is ACTUALLY connected to right now (as host or
+// guest) — distinct from Room.ownerId, which only tells you rooms they own.
+// The "live" badge on follow lists / other-user profiles must jump here, not
+// to a room they own but aren't currently in.
+const userCurrentRoom = new Map<number, number>();
+export function getUserCurrentRoomId(userId: number): number | null {
+  return userCurrentRoom.get(userId) ?? null;
+}
+export function getUserCurrentRoomIds(userIds: number[]): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const id of userIds) {
+    const rid = userCurrentRoom.get(id);
+    if (rid) out.set(id, rid);
+  }
+  return out;
+}
+
 // ── Online presence: userId -> set of live socket ids. A user is "online"
 // while they have >=1 connected socket. Returns true when the online state
 // actually flipped, so callers only broadcast on real transitions. ──
@@ -716,6 +733,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       const locked = getLockedSeats(rid);
 
       socket.join(`room:${rid}`);
+      userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
       await populateAdmins(rid);
 
       const admins = getAdmins(rid);
@@ -864,6 +882,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
   if (!uid || !rid) return;
 
   socket.leave(`room:${rid}`);
+  if (userCurrentRoom.get(uid) === rid) userCurrentRoom.delete(uid); // #25/#31
   console.log('[leave_room]', { uid, rid });
 
   // cleanup: remove from queue
@@ -1426,6 +1445,8 @@ socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
           emitVoiceUsers(io, rid); // ✅ ADD
         }
       }
+
+      userCurrentRoom.delete(uid); // #25/#31: no longer in any room
 
 
       console.log('[disconnect]', { uid });

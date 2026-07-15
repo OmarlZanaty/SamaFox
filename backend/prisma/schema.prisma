@@ -840,6 +840,13 @@ model AgencyMember {
   // remaining = targetGoalCoins - earned. 0 = no goal set. (#13, #24)
   targetGoalCoins BigInt @default(0)
 
+  // Cumulative amount of *earned* target this member has already cashed out
+  // via تبديل الكوينزات (target-swap, 50% conversion to coins). The target
+  // total shown to the member is never reduced by a conversion — this field
+  // exists purely to cap future conversions at (earned - convertedTargetCoins)
+  // so the same earned coins can't be swapped for cash twice.
+  convertedTargetCoins BigInt @default(0)
+
   @@unique([agencyId, userId])
 }
 

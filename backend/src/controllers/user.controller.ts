@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { firstStr } from '../utils/http';
 import { getAgencyRole } from '../agencies/agency.controller';
+import { getUserCurrentRoomId } from '../services/socket.service';
 interface UpdateProfileRequest {
   name?: string;
   bio?: string;
@@ -90,13 +91,15 @@ export const getUserById = async (req: Request, res: Response) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const [followerCount, followingCount, agencyInfo, liveRoom] = await Promise.all([
+    const [followerCount, followingCount, agencyInfo] = await Promise.all([
       prisma.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
       prisma.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
       getAgencyRole(userId).catch(() => null),
-      // #31: the active room this user is hosting, for the live badge / مسار button.
-      prisma.room.findFirst({ where: { ownerId: userId, isActive: true }, select: { id: true } }),
     ]);
+
+    // #31: the room this user is ACTUALLY in right now (guest or host), for
+    // the live badge / مسار button — not just a room they happen to own.
+    const currentRoomId = getUserCurrentRoomId(userId);
 
     return res.status(200).json({
       success: true,
@@ -105,7 +108,7 @@ export const getUserById = async (req: Request, res: Response) => {
         followerCount, followingCount, followersCount: followerCount,
         agencyRole: agencyInfo?.agencyRole ?? null,
         agencyName: agencyInfo?.agencyName ?? null,
-        liveRoomId: liveRoom?.id ?? null,
+        liveRoomId: currentRoomId,
       },
     });
   } catch (e: any) {
@@ -446,6 +449,41 @@ export const deleteMyAccount = async (req: Request, res: Response) => {
     return res.json({ success: true, message: 'تم حذف الحساب' });
   } catch (e: any) {
     console.error('deleteMyAccount error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
+
+// ------------------------------------
+// GET /users/:userId/badges — #28 badges row. One representative icon per
+// distinct special-item type this user owns (frame, entrance effect, room
+// theme, ...), for a compact badge row next to the name on the profile.
+// ------------------------------------
+export const getUserBadges = async (req: Request, res: Response) => {
+  try {
+    const userId = Number(req.params.userId);
+    if (!userId || userId <= 0) return res.status(400).json({ success: false, message: 'Invalid userId' });
+
+    const owned = await (prisma as any).userItem.findMany({
+      where: { userId },
+      include: { item: { select: { id: true, name: true, type: true, assetUrl: true } } },
+      orderBy: { acquiredAt: 'asc' },
+    });
+
+    const byType = new Map<string, any>();
+    for (const o of owned) {
+      if (!o.item) continue;
+      if (!byType.has(o.item.type)) byType.set(o.item.type, o.item);
+    }
+
+    const data = Array.from(byType.values()).map((item: any) => ({
+      type: item.type,
+      name: item.name,
+      iconUrl: item.assetUrl,
+    }));
+
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    console.error('getUserBadges error:', e);
     return res.status(500).json({ success: false, message: 'Failed' });
   }
 };

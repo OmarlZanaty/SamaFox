@@ -1011,6 +1011,20 @@ export const removeBranch = async (req: AuthReq, res: Response) => {
 // TARGET system (#13, #24)
 // ============================================================
 
+// Dollar value for a given earned-coins amount, derived from admin-managed
+// TargetTier rows: use the ratio (dollars/coins) of the highest tier whose
+// coins threshold is <= the earned amount. No tier reached yet -> $0.
+async function coinsToDollars(coins: number): Promise<number> {
+  if (coins <= 0) return 0;
+  const tiers = await (db as any).targetTier.findMany({ orderBy: { coins: 'asc' } });
+  let ratio = 0;
+  for (const t of tiers) {
+    const tierCoins = Number(t.coins);
+    if (tierCoins <= coins && tierCoins > 0) ratio = t.dollars / tierCoins;
+  }
+  return Math.round(coins * ratio * 100) / 100;
+}
+
 // GET /agencies/my-target — the logged-in user's own target(s) as a host.
 // earned = gifts received since joining (excluding self-gifts); the goal is
 // set per-membership by the agency owner; remaining = goal - earned.
@@ -1038,6 +1052,7 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
         });
         const earnedCoins = Number(earned._sum.totalCoins ?? 0);
         const goal = Number(mm.targetGoalCoins ?? 0n);
+        const converted = Number(mm.convertedTargetCoins ?? 0n);
         return {
           agencyId: mm.agency.id,
           agencyName: mm.agency.agencyName,
@@ -1045,17 +1060,76 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
           earnedCoins,
           targetGoalCoins: goal,
           remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
+          earnedDollars: await coinsToDollars(earnedCoins),
+          convertedTargetCoins: converted,
+          convertibleCoins: Math.max(0, earnedCoins - converted),
         };
       }),
     );
 
     const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
+    const totalDollars = await coinsToDollars(totalEarned);
     return res.json({
       success: true,
-      data: { totalEarned, hasTarget: items.length > 0, items },
+      data: { totalEarned, totalDollars, hasTarget: items.length > 0, items },
     });
   } catch (e) {
     console.error('[agency.getMyTarget] failed:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// POST /agencies/target/convert { agencyId, amount } — تبديل الكوينزات:
+// cash out `amount` of ACCUMULATED (uncashed) target as coins at 50%. The
+// target total itself is never reduced by this — only future conversions
+// are capped by what's already been cashed out (convertedTargetCoins).
+export const convertTarget = async (req: AuthReq, res: Response) => {
+  try {
+    const userId = req.userId;
+    if (!userId) return fail(res, 401, 'Unauthorized');
+
+    const agencyId = Number(req.body?.agencyId);
+    const amount = Math.floor(Number(req.body?.amount));
+    if (!agencyId || !Number.isFinite(amount) || amount <= 0) {
+      return fail(res, 400, 'agencyId و amount مطلوبة');
+    }
+
+    const membership = await db.agencyMember.findFirst({
+      where: { userId, agencyId, role: { not: 'OWNER' }, agency: { type: 'HOSTING', status: 'approved' } },
+    });
+    if (!membership) return fail(res, 404, 'لست عضو مضيف في هذه الوكالة');
+
+    const earned = await db.giftTransaction.aggregate({
+      where: { recipientId: userId, senderId: { not: userId }, createdAt: { gte: membership.joinedAt } },
+      _sum: { totalCoins: true },
+    });
+    const earnedCoins = Number(earned._sum.totalCoins ?? 0);
+    const converted = Number(membership.convertedTargetCoins ?? 0n);
+    const available = Math.max(0, earnedCoins - converted);
+
+    if (amount > available) {
+      return fail(res, 400, `أقصى مبلغ متاح للتبديل الآن هو ${available} كوينز`);
+    }
+
+    const credit = Math.floor(amount / 2);
+    const [, updatedUser] = await db.$transaction([
+      db.agencyMember.update({
+        where: { id: membership.id },
+        data: { convertedTargetCoins: { increment: amount } },
+      }),
+      db.user.update({
+        where: { id: userId },
+        data: { coinsBalance: { increment: credit } },
+        select: { coinsBalance: true },
+      }),
+    ]);
+
+    return res.json({
+      success: true,
+      data: { convertedAmount: amount, creditedCoins: credit, newBalance: updatedUser.coinsBalance, remainingConvertible: available - amount },
+    });
+  } catch (e) {
+    console.error('[agency.convertTarget] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };

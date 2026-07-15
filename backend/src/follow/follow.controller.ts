@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { AuthReq } from '../types';
 import { io } from '../index';
 import { createNotification } from '../services/notification.service';
+import { getUserCurrentRoomIds } from '../services/socket.service';
 
 export const sendFollowRequest = async (req: AuthReq, res: Response) => {
   const followerId = req.userId!;
@@ -142,21 +143,25 @@ const l = Math.min(100, Math.max(1, Number.isFinite(Number(req.query.limit)) ? N
       include: { following: { select: { id: true, name: true, avatarUrl: true, displayId: true, level: true } } },
     }),
   ]);
-  // #25: attach the active room each followed user is hosting (if any) so the
-  // client can show a "live" badge and let you jump into their room.
+  // #25: attach the room each followed user is ACTUALLY in right now — as a
+  // guest in someone else's room, or hosting their own — so the "live" badge
+  // jumps to where they really are, not just a room they happen to own.
   const followedIds = follows.map((f) => f.following.id);
-  const liveRooms = followedIds.length
-    ? await prisma.room.findMany({
-        where: { ownerId: { in: followedIds }, isActive: true },
-        select: { id: true, ownerId: true, name: true },
-      })
+  const currentRooms = getUserCurrentRoomIds(followedIds);
+  const liveRoomIds = Array.from(currentRooms.values());
+  const liveRoomsInfo = liveRoomIds.length
+    ? await prisma.room.findMany({ where: { id: { in: liveRoomIds } }, select: { id: true, name: true } })
     : [];
-  const roomByOwner = new Map(liveRooms.map((r) => [r.ownerId, r]));
-  const data = follows.map((f) => ({
-    ...f.following,
-    liveRoomId: roomByOwner.get(f.following.id)?.id ?? null,
-    liveRoomName: roomByOwner.get(f.following.id)?.name ?? null,
-  }));
+  const roomInfoById = new Map(liveRoomsInfo.map((r) => [r.id, r]));
+  const data = follows.map((f) => {
+    const rid = currentRooms.get(f.following.id) ?? null;
+    const info = rid ? roomInfoById.get(rid) : null;
+    return {
+      ...f.following,
+      liveRoomId: rid,
+      liveRoomName: info?.name ?? null,
+    };
+  });
   return res.json({ success: true, data, pagination: { page: p, limit: l, total, totalPages: Math.ceil(total / l) } });
 };
 

@@ -16,6 +16,7 @@ import {
   blockUser,
   unblockUser,
   deleteMyAccount,
+  getUserBadges,
 } from '../controllers/user.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 
@@ -43,6 +44,9 @@ router.post('/:targetUserId/unfollow', authMiddleware, unfollowUser);
 // followers/following list
 router.get('/:userId/followers', getFollowers);
 router.get('/:userId/following', getFollowing);
+
+// #28: badges row — distinct owned special items (frames/effects/themes)
+router.get('/:userId/badges', getUserBadges);
 
 // profile
 router.get('/:userId', getUserById);
