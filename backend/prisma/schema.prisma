@@ -554,13 +554,14 @@ model AppSetting {
 // (500k per level up to 5, then +30% each level). badgeUrl + frameItemId are
 // uploaded/assigned from the admin dashboard and auto-granted on level-up.
 model VipLevelConfig {
-  level       Int      @id
-  name        String?
-  threshold   Int? // cumulative coins required; null => computed
-  badgeUrl    String?
-  frameItemId String? // Item.id of the seat frame granted at this level
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  level         Int      @id
+  name          String?
+  threshold     Int? // cumulative coins required; null => computed
+  badgeUrl      String?
+  frameItemId   String? // Item.id of the seat frame granted at this level
+  rewardItemIds String[] @default([]) // Item.ids (badges/frames/entrances, app or private store) auto-granted at this level (group 10)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@map("vip_level_configs")
 }

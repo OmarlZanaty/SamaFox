@@ -1131,8 +1131,27 @@ export const adminRemoveAgencyMember = async (req: AdminReq, res: Response) => {
 // ── VIP level configuration (badge image + seat frame per level) ──
 export const adminListVipLevels = async (_req: AdminReq, res: Response) => {
   try {
-    const levels = await prisma.vipLevelConfig.findMany({ orderBy: { level: 'asc' } });
-    return res.json({ success: true, data: levels });
+    const levels: any[] = await prisma.vipLevelConfig.findMany({ orderBy: { level: 'asc' } });
+
+    // Attach reward item details so the dashboard can show what each tier grants.
+    const allIds = [...new Set(levels.flatMap((l) => l.rewardItemIds ?? []))] as string[];
+    const items = allIds.length
+      ? await prisma.item.findMany({
+          where: { id: { in: allIds } },
+          select: { id: true, name: true, type: true, assetUrl: true, isPurchasable: true },
+        })
+      : [];
+    const itemById = new Map(items.map((i) => [i.id, i]));
+
+    return res.json({
+      success: true,
+      data: levels.map((l) => ({
+        ...l,
+        rewardItems: (l.rewardItemIds ?? [])
+          .map((id: string) => itemById.get(id))
+          .filter(Boolean),
+      })),
+    });
   } catch (e) {
     console.error('adminListVipLevels error:', e);
     return res.status(500).json({ success: false, message: 'Failed to list VIP levels' });
@@ -1145,13 +1164,26 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
     if (!level || level < 1 || level > 100) {
       return res.status(400).json({ success: false, message: 'level must be 1-100' });
     }
-    const data = {
+
+    // Group 10: multiple reward items per tier, from app or private store.
+    // Keep only ids that exist so a stale dashboard can't save dangling grants.
+    let rewardItemIds: string[] | undefined;
+    if (Array.isArray(req.body?.rewardItemIds)) {
+      const requested = [...new Set(req.body.rewardItemIds.map(String))] as string[];
+      const existing = requested.length
+        ? await prisma.item.findMany({ where: { id: { in: requested } }, select: { id: true } })
+        : [];
+      rewardItemIds = existing.map((i) => i.id);
+    }
+
+    const data: any = {
       name: req.body?.name != null ? String(req.body.name) : undefined,
       threshold: req.body?.threshold != null ? Number(req.body.threshold) : undefined,
       badgeUrl: req.body?.badgeUrl != null ? String(req.body.badgeUrl) : undefined,
       frameItemId: req.body?.frameItemId != null ? String(req.body.frameItemId) : undefined,
+      ...(rewardItemIds !== undefined ? { rewardItemIds } : {}),
     };
-    const saved = await prisma.vipLevelConfig.upsert({
+    const saved = await (prisma as any).vipLevelConfig.upsert({
       where: { level },
       update: data,
       create: { level, ...data },

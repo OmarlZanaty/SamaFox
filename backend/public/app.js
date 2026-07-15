@@ -1612,22 +1612,42 @@ window.setAgencyStatus = setAgencyStatus;
 const VIP_BASE_STEP = 500000;
 const VIP_MAX_LEVEL = 5;
 
+// Group 10 state: all store items (app + private) and per-level reward selections.
+let vipAllProducts = [];
+const vipRewardSelections = {}; // level -> Set of item ids
+let vipRewardsEditingLevel = null;
+
+const VIP_REWARD_TYPE_LABELS = {
+  BADGE: "شارة",
+  FRAME: "إطار",
+  PROFILE_FRAME: "إطار",
+  ENTRANCE_BANNER: "مدخل",
+  ENTRANCE_EFFECT: "مركبة",
+};
+
 window.loadVipLevels = async function () {
   const tbody = document.querySelector("#vipTable tbody");
   if (!tbody) return;
 
   const [levelsRes, productsRes] = await Promise.all([
     apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"]),
-    apiFetch("/store/products"),
+    apiFetchAny(["/admin-products/products", "/store/products"]),
   ]);
   const saved = {};
   for (const c of levelsRes.data || []) saved[c.level] = c;
-  const frames = (productsRes.data || productsRes.products || [])
-    .filter(p => /frame/i.test(String(p.type || "")));
+  vipAllProducts = productsRes.data || productsRes.products || [];
+  const frames = vipAllProducts.filter(p => /frame/i.test(String(p.type || "")));
+
+  // Render every configured level plus the 1..5 defaults, sorted.
+  const levels = [...new Set([
+    ...Array.from({ length: VIP_MAX_LEVEL }, (_, i) => i + 1),
+    ...Object.keys(saved).map(Number),
+  ])].sort((a, b) => a - b);
 
   tbody.innerHTML = "";
-  for (let level = 1; level <= VIP_MAX_LEVEL; level++) {
+  for (const level of levels) {
     const c = saved[level] || {};
+    vipRewardSelections[level] = new Set(c.rewardItemIds || []);
     const badge = normalizeGiftImageUrl(c.badgeUrl);
     const options = ['<option value="">— بدون إطار —</option>']
       .concat(frames.map(p =>
@@ -1650,10 +1670,76 @@ window.loadVipLevels = async function () {
         </div>
       </td>
       <td><select id="vip_frame_${level}" class="form-select" style="max-width:180px">${options}</select></td>
+      <td><button class="btn btn-outline" id="vip_rewards_btn_${level}" onclick="openVipRewardsModal(${level})">🎁 منتجات (${vipRewardSelections[level].size})</button></td>
       <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button></td>
     `;
     tbody.appendChild(tr);
   }
+};
+
+// Add a brand-new tier: save level + required coins, then edit it in the table.
+window.addVipTier = async function () {
+  try {
+    const level = Number(document.getElementById("newVipLevel").value);
+    const threshold = Number(document.getElementById("newVipThreshold").value);
+    if (!level || level < 1 || level > 100) return showToast("❗ رقم المستوى يجب أن يكون 1-100");
+    if (!threshold || threshold < 1) return showToast("❗ أدخل عدد الكوينز المطلوبة");
+    await apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level, name: `VIP ${level}`, threshold }),
+    });
+    document.getElementById("newVipLevel").value = "";
+    document.getElementById("newVipThreshold").value = "";
+    showToast(`✓ تم إضافة مستوى VIP ${level}`);
+    await loadVipLevels();
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+// Rewards picker: checkboxes over all store items (app + private), grouped by type.
+window.openVipRewardsModal = function (level) {
+  vipRewardsEditingLevel = level;
+  const selected = vipRewardSelections[level] || new Set();
+  document.getElementById("vipRewardsSub").textContent =
+    `VIP ${level} — اختر الشارات/الإطارات/المداخل التي تُمنح تلقائياً (من متجر التطبيق أو الخاص)`;
+
+  const groups = {};
+  for (const p of vipAllProducts) {
+    const label = VIP_REWARD_TYPE_LABELS[p.type] || p.type;
+    (groups[label] = groups[label] || []).push(p);
+  }
+
+  const listEl = document.getElementById("vipRewardsList");
+  listEl.innerHTML = Object.entries(groups).map(([label, items]) => `
+    <div style="margin-bottom:10px">
+      <div class="form-card-title" style="margin-bottom:4px">${escapeHtml(label)}</div>
+      ${items.map(p => `
+        <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer">
+          <input type="checkbox" class="vip-reward-check" value="${p.id}" ${selected.has(p.id) ? "checked" : ""} />
+          <span>${escapeHtml(p.name)}</span>
+          <span class="cell-muted">${p.price_coins ?? 0} coins${p.is_private ? " · 🔒 خاص" : ""}</span>
+        </label>`).join("")}
+    </div>`).join("") || '<p class="cell-muted">لا توجد منتجات في المتجر — أضف منتجات أولاً</p>';
+
+  document.getElementById("vipRewardsModal").classList.remove("hidden");
+};
+
+window.closeVipRewardsModal = function () {
+  vipRewardsEditingLevel = null;
+  document.getElementById("vipRewardsModal").classList.add("hidden");
+};
+
+window.confirmVipRewards = function () {
+  const level = vipRewardsEditingLevel;
+  if (level == null) return;
+  const checked = [...document.querySelectorAll(".vip-reward-check:checked")].map(el => el.value);
+  vipRewardSelections[level] = new Set(checked);
+  const btn = document.getElementById(`vip_rewards_btn_${level}`);
+  if (btn) btn.textContent = `🎁 منتجات (${checked.length})`;
+  closeVipRewardsModal();
+  showToast(`اختيار VIP ${level} جاهز — اضغط حفظ لتثبيته`);
 };
 
 window.uploadVipBadge = async function (level) {
@@ -1683,6 +1769,8 @@ window.saveVipLevel = async function (level) {
       threshold: Number(document.getElementById(`vip_threshold_${level}`).value || 0),
       badgeUrl: document.getElementById(`vip_badge_url_${level}`).value || undefined,
       frameItemId: document.getElementById(`vip_frame_${level}`).value || undefined,
+      // Group 10: the multi-item grant list picked in the rewards modal.
+      rewardItemIds: [...(vipRewardSelections[level] || new Set())],
     };
     await apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"], {
       method: "POST",

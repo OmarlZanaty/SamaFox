@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import prisma from '../utils/prisma';
-import { vipThreshold } from '../services/vip.service';
+import { vipThreshold, getVipThresholdOverrides, vipThresholdWithOverrides } from '../services/vip.service';
 import { authMiddleware } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -27,7 +27,8 @@ router.get('/progress', authMiddleware, async (req, res) => {
     const nextLevel = user.level + 1;
     const nextLevelXp = levelXpThreshold(nextLevel);
     const nextVip = user.vipLevel + 1;
-    const nextVipThreshold = vipThreshold(nextVip);
+    const overrides = await getVipThresholdOverrides();
+    const nextVipThreshold = vipThresholdWithOverrides(nextVip, overrides);
 
     return res.json({
       success: true,

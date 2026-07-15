@@ -513,19 +513,24 @@
       <div class="section-header">
         <div>
           <h2 class="section-title">مستويات VIP</h2>
-          <p class="section-sub">حدد العتبة وصورة الشارة وإطار المقعد لكل مستوى — تُمنح تلقائياً عند الشحن</p>
+          <p class="section-sub">حدد العتبة وصورة الشارة والمنتجات الممنوحة (شارات/إطارات/مداخل من متجر التطبيق أو الخاص) — تُمنح تلقائياً عند الشحن</p>
         </div>
-        <button class="btn btn-outline" onclick="loadVipLevels()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-          تحديث
-        </button>
+        <div class="section-actions">
+          <input id="newVipLevel" type="number" min="1" max="100" class="form-input form-input--sm" placeholder="رقم المستوى الجديد" />
+          <input id="newVipThreshold" type="number" min="1" class="form-input form-input--sm" placeholder="الكوينز المطلوبة" />
+          <button class="btn btn-primary" onclick="addVipTier()">+ إضافة مستوى</button>
+          <button class="btn btn-outline" onclick="loadVipLevels()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            تحديث
+          </button>
+        </div>
       </div>
 
       <div class="table-wrap">
         <table id="vipTable">
           <thead>
             <tr>
-              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>الشارة</th><th>إطار المقعد</th><th>إجراءات</th>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>الشارة</th><th>إطار المقعد</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -701,6 +706,22 @@
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="confirmBan()">تأكيد الحظر</button>
       <button class="btn btn-outline" onclick="closeBanModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="vipRewardsModal" onclick="closeVipRewardsModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:560px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">منتجات المستوى</h3>
+        <p class="modal-sub" id="vipRewardsSub"></p>
+      </div>
+    </div>
+    <div id="vipRewardsList" style="margin-top:12px;max-height:340px;overflow-y:auto"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmVipRewards()">تأكيد الاختيار</button>
+      <button class="btn btn-outline" onclick="closeVipRewardsModal()">إلغاء</button>
     </div>
   </div>
 </div>
