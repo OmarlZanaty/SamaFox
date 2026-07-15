@@ -450,8 +450,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     );
   }
 
-  // #9: fixed quantities only — the ones the owner explicitly kept.
-  static const List<int> _kMultipliers = [7, 20, 50];
+  // #17: fixed quantities only — checklist set 7/10/20/50.
+  static const List<int> _kMultipliers = [7, 10, 20, 50];
 
   Widget _multiplierRow() {
     return SizedBox(
