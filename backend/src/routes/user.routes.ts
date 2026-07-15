@@ -12,6 +12,10 @@ import {
   unfollowUser,
   getFollowers,
   getFollowing,
+  getMyBlocks,
+  blockUser,
+  unblockUser,
+  deleteMyAccount,
 } from '../controllers/user.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 
@@ -21,6 +25,12 @@ const router = Router();
 router.get('/me', authMiddleware, getMe);
 router.put('/me', authMiddleware, updateProfile);
 router.put('/me/gender-country', authMiddleware, updateGenderAndCountry);
+router.delete('/me', authMiddleware, deleteMyAccount);
+
+// personal blacklist (#2 settings menu) — /me/blocks must stay above /:userId
+router.get('/me/blocks', authMiddleware, getMyBlocks);
+router.post('/:targetUserId/block', authMiddleware, blockUser);
+router.delete('/:targetUserId/block', authMiddleware, unblockUser);
 
 // search (BEFORE /:userId) — auth required; previously leaked coins/email/phone unauthenticated
 router.get('/search', authMiddleware, searchUsers);

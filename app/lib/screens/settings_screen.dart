@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/user_account_service.dart';
+import 'blocked_users_screen.dart';
+import 'edit_profile_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -46,20 +50,9 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.person_outline,
                 title: strings.editProfile,
                 onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(strings.searchComingSoon)),
-                  );
-                },
-                theme: theme,
-                isDark: isDark,
-              ),
-              _buildDivider(isDark),
-              _buildSettingsTile(
-                icon: Icons.lock_outline,
-                title: strings.changePassword,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(strings.searchComingSoon)),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const EditProfileScreen()),
                   );
                 },
                 theme: theme,
@@ -70,10 +63,19 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.block,
                 title: strings.blockedUsers,
                 onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(strings.searchComingSoon)),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const BlockedUsersScreen()),
                   );
                 },
+                theme: theme,
+                isDark: isDark,
+              ),
+              _buildDivider(isDark),
+              _buildSettingsTile(
+                icon: Icons.swap_horiz,
+                title: 'تبديل الحساب',
+                onTap: () => _showSwitchAccountDialog(context, ref, strings, theme, isDark),
                 theme: theme,
                 isDark: isDark,
               ),
@@ -243,7 +245,7 @@ class SettingsScreen extends ConsumerWidget {
               _buildSettingsTile(
                 icon: Icons.logout,
                 title: strings.logout,
-                onTap: () => _showLogoutDialog(context, strings, theme, isDark),
+                onTap: () => _showLogoutDialog(context, ref, strings, theme, isDark),
                 theme: theme,
                 isDark: isDark,
                 isDestructive: true,
@@ -252,7 +254,7 @@ class SettingsScreen extends ConsumerWidget {
               _buildSettingsTile(
                 icon: Icons.delete_forever,
                 title: strings.deleteAccount,
-                onTap: () => _showDeleteAccountDialog(context, strings, theme, isDark),
+                onTap: () => _showDeleteAccountDialog(context, ref, strings, theme, isDark),
                 theme: theme,
                 isDark: isDark,
                 isDestructive: true,
@@ -390,15 +392,23 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  /// Signs out and returns to the login screen, clearing the whole stack.
+  Future<void> _logoutToLogin(BuildContext context, WidgetRef ref) async {
+    final navigator = Navigator.of(context);
+    await ref.read(authStateProvider.notifier).logout();
+    navigator.pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
   void _showLogoutDialog(
       BuildContext context,
+      WidgetRef ref,
       dynamic strings,
       ThemeData theme,
       bool isDark,
       ) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
         title: Text(
           strings.logout,
@@ -410,7 +420,7 @@ class SettingsScreen extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogCtx),
             child: Text(
               strings.cancel,
               style: TextStyle(
@@ -420,11 +430,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              // TODO: Implement logout
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(strings.searchComingSoon)),
-              );
+              Navigator.pop(dialogCtx);
+              _logoutToLogin(context, ref);
             },
             child: Text(
               strings.logout,
@@ -436,27 +443,30 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _showDeleteAccountDialog(
+  /// تبديل الحساب: sign out of this account and go to the login screen to
+  /// sign in with a different one.
+  void _showSwitchAccountDialog(
       BuildContext context,
+      WidgetRef ref,
       dynamic strings,
       ThemeData theme,
       bool isDark,
       ) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
         title: Text(
-          strings.deleteAccount,
+          'تبديل الحساب',
           style: TextStyle(color: theme.textTheme.bodyLarge?.color),
         ),
         content: Text(
-          strings.deleteAccountConfirm,
+          'سيتم تسجيل خروجك للدخول بحساب آخر. متابعة؟',
           style: TextStyle(color: theme.textTheme.bodyMedium?.color),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogCtx),
             child: Text(
               strings.cancel,
               style: TextStyle(
@@ -466,11 +476,58 @@ class SettingsScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              // TODO: Implement delete account
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(strings.searchComingSoon)),
-              );
+              Navigator.pop(dialogCtx);
+              _logoutToLogin(context, ref);
+            },
+            child: const Text('تبديل'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteAccountDialog(
+      BuildContext context,
+      WidgetRef ref,
+      dynamic strings,
+      ThemeData theme,
+      bool isDark,
+      ) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
+        title: Text(
+          strings.deleteAccount,
+          style: TextStyle(color: theme.textTheme.bodyLarge?.color),
+        ),
+        content: Text(
+          'سيتم حذف حسابك نهائياً ولن تتمكن من الدخول به مرة أخرى. هل أنت متأكد؟',
+          style: TextStyle(color: theme.textTheme.bodyMedium?.color),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: Text(
+              strings.cancel,
+              style: TextStyle(
+                color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              try {
+                await UserAccountService.deleteAccount();
+                if (context.mounted) await _logoutToLogin(context, ref);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('تعذّر حذف الحساب: $e')),
+                  );
+                }
+              }
             },
             child: Text(
               strings.delete,

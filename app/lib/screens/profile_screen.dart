@@ -7,6 +7,7 @@ import 'package:samafox/screens/edit_profile_screen.dart';
 import 'package:samafox/screens/chat_screen.dart';
 import 'package:samafox/screens/room_screen.dart';
 import 'package:samafox/services/follow_service.dart';
+import 'package:samafox/services/user_account_service.dart';
 import 'package:samafox/screens/feature_screens.dart';
 import 'package:samafox/screens/store_screen.dart';
 import '../models/InventoryItem.dart';
@@ -73,6 +74,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   String _followStatus = 'none'; // none | pending | following
   bool _followBusy = false;
   bool _followLoaded = false; // guard: load follow status only once per viewed user
+  bool _targetBlocked = false; // #2 blacklist: whether I blocked the viewed user
   Future<User?>? _otherUserFuture; // cached so build() doesn't re-fetch every frame
   int? _otherUserFutureId;
 
@@ -91,6 +93,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       final s = await FollowService.getFollowStatus(userId);
       if (mounted) setState(() => _followStatus = s);
     } catch (_) {}
+    try {
+      final blocked = await UserAccountService.isBlocked(userId);
+      if (mounted) setState(() => _targetBlocked = blocked);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleBlock(int userId) async {
+    try {
+      if (_targetBlocked) {
+        await UserAccountService.unblock(userId);
+      } else {
+        await UserAccountService.block(userId);
+      }
+      if (!mounted) return;
+      setState(() => _targetBlocked = !_targetBlocked);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_targetBlocked ? 'تم حظر المستخدم' : 'تم إلغاء الحظر')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذّر تنفيذ العملية: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _toggleFollow(int userId) async {
@@ -897,6 +924,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   right: 14,
                   bottom: 16,
                   child: _buildOtherUserActionBar(user),
+                ),
+
+              // #2 القائمة السوداء: block/unblock from another user's profile.
+              if (!isOwnProfile)
+                Positioned(
+                  top: 4,
+                  left: 8,
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white70),
+                    color: const Color(0xFF2A1A5E),
+                    onSelected: (v) {
+                      if (v == 'block') _toggleBlock(user.id);
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'block',
+                        child: Text(
+                          _targetBlocked ? 'إلغاء الحظر' : 'حظر (القائمة السوداء)',
+                          style: TextStyle(
+                            color: _targetBlocked ? Colors.white : Colors.redAccent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
             ],
           ),

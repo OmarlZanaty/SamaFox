@@ -1021,3 +1021,16 @@ model GiftAdminAudit {
   @@index([adminId, createdAt])
   @@map("gift_admin_audits")
 }
+
+// Personal blacklist (القائمة السوداء in app settings): plain scalar ids —
+// no relation fields on User to keep the additive migration tiny.
+model UserBlock {
+  id        Int      @id @default(autoincrement())
+  blockerId Int
+  blockedId Int
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@map("user_blocks")
+}

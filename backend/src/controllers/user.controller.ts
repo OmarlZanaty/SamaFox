@@ -349,3 +349,103 @@ export const getFollowing = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'Failed', error: e?.message || 'Unknown' });
   }
 };
+
+// ------------------------------------
+// Personal blacklist (القائمة السوداء) — #2 settings menu
+// ------------------------------------
+export const getMyBlocks = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as number | undefined;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const blocks = await (prisma as any).userBlock.findMany({
+      where: { blockerId: userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    const ids = blocks.map((b: any) => b.blockedId);
+    const users = ids.length
+      ? await prisma.user.findMany({ where: { id: { in: ids } } })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const data = blocks.map((b: any) => ({
+      blockedAt: b.createdAt,
+      user: byId.has(b.blockedId) ? pickPublicUserFields(byId.get(b.blockedId)) : { id: b.blockedId, name: 'مستخدم محذوف' },
+    }));
+    return res.json({ success: true, data });
+  } catch (e: any) {
+    console.error('getMyBlocks error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
+
+export const blockUser = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as number | undefined;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const targetId = Number(req.params.targetUserId);
+    if (!targetId || targetId <= 0) return res.status(400).json({ success: false, message: 'Invalid userId' });
+    if (targetId === userId) return res.status(400).json({ success: false, message: 'لا يمكنك حظر نفسك' });
+
+    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+    if (!target) return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
+
+    await (prisma as any).userBlock.upsert({
+      where: { blockerId_blockedId: { blockerId: userId, blockedId: targetId } },
+      create: { blockerId: userId, blockedId: targetId },
+      update: {},
+    });
+    return res.json({ success: true, message: 'تم الحظر' });
+  } catch (e: any) {
+    console.error('blockUser error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
+
+export const unblockUser = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as number | undefined;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const targetId = Number(req.params.targetUserId);
+    if (!targetId || targetId <= 0) return res.status(400).json({ success: false, message: 'Invalid userId' });
+
+    await (prisma as any).userBlock.deleteMany({ where: { blockerId: userId, blockedId: targetId } });
+    return res.json({ success: true, message: 'تم إلغاء الحظر' });
+  } catch (e: any) {
+    console.error('unblockUser error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
+
+// ------------------------------------
+// DELETE /users/me — delete (anonymize + disable) the caller's account (#2).
+// Rows with FK history (gifts, transactions, rooms) survive; the account
+// itself can never log in again and its identity fields are wiped.
+// ------------------------------------
+export const deleteMyAccount = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as number | undefined;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: 'حساب محذوف',
+        email: `deleted+${userId}.${Date.now()}@deleted.samafox`,
+        phone: null,
+        googleId: null,
+        passwordHash: null,
+        avatarUrl: null,
+        avatarFrameUrl: null,
+        bio: null,
+        isBanned: true,
+        bannedAt: new Date(),
+        banReason: 'حذف الحساب بواسطة صاحبه',
+        banSource: 'system',
+      } as any,
+    });
+    return res.json({ success: true, message: 'تم حذف الحساب' });
+  } catch (e: any) {
+    console.error('deleteMyAccount error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
