@@ -992,7 +992,7 @@ export const adminListGifts = async (_req: AdminReq, res: Response) => {
 };
 
 export const adminCreateGift = async (req: AdminReq, res: Response) => {
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible } = req.body;
   if (!nameAr || !iconUrl || coinCost == null) {
     return res.status(400).json({ success: false, message: 'nameAr, iconUrl, coinCost required' });
   }
@@ -1008,6 +1008,8 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
       format: (format ?? 'SVG_CSS') as any,
       tier: (tier ?? 'SMALL') as any,
       category: 'admin',
+      ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+      ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
     },
   });
 
@@ -1016,7 +1018,7 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
 
 export const adminUpdateGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible } = req.body;
 
   const gift = await prisma.gift.update({
     where: { id },
@@ -1028,6 +1030,7 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
       ...(coinCost !== undefined && { coinCost: Number(coinCost) }),
       ...(sortOrder !== undefined && { sortOrder: Number(sortOrder) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+      ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
       ...(tier !== undefined && { tier: tier as any }),
       ...(format !== undefined && { format: format as any }),
     },

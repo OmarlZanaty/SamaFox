@@ -1080,20 +1080,22 @@ window.loadGifts = async function () {
   tbody.innerHTML = "";
   rows.forEach((g) => {
     const tr = document.createElement("tr");
+    // Gift ids are cuid strings — they must be quoted in the onclick handlers,
+    // and the API fields are iconUrl/coinCost (not imageUrl/coinsValue).
     tr.innerHTML = `
       <td>${g.id}</td>
-      <td>${escapeHtml(g.nameAr || g.name)}</td>
+      <td>${escapeHtml(g.nameAr || g.name)}${g.cpEligible ? ' <span title="تحتسب ضمن CP">⚡CP</span>' : ''}</td>
       <td>${
-        normalizeGiftImageUrl(g.imageUrl)
-          ? `<img src="${normalizeGiftImageUrl(g.imageUrl)}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
+        normalizeGiftImageUrl(g.iconUrl)
+          ? `<img src="${normalizeGiftImageUrl(g.iconUrl)}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
           : '<span class="cell-muted">—</span>'
       }</td>
-      <td>${g.coinsValue ?? g.priceCoins}</td>
+      <td>${g.coinCost ?? 0}</td>
       <td>${g.sortOrder ?? 0}</td>
       <td>${g.isActive ? "✅" : "⛔"}</td>
       <td>
-        <button class="btn btn-outline" onclick="openGiftModal(${g.id})">تعديل</button>
-        <button class="btn-bad" onclick="removeGift(${g.id})">حذف</button>
+        <button class="btn btn-outline" onclick="openGiftModal('${g.id}')">تعديل</button>
+        <button class="btn-bad" onclick="removeGift('${g.id}')">حذف</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1151,18 +1153,19 @@ window.openGiftModal = async function (id = null) {
 
   if (id) {
     const d = await apiFetchAny(['/admin-dashboard/gifts', '/admin/gifts']);
-    const gift = (d.data || d.gifts || []).find((g) => Number(g.id) === Number(id));
+    const gift = (d.data || d.gifts || []).find((g) => String(g.id) === String(id));
     if (!gift) throw new Error('الهدية غير موجودة');
     idInput.value = String(gift.id);
     document.getElementById('gift_nameAr').value = gift.nameAr || gift.name || '';
-    document.getElementById('gift_imageUrl').value = gift.imageUrl || '';
+    document.getElementById('gift_imageUrl').value = gift.iconUrl || '';
     document.getElementById('gift_animationUrl').value = gift.animationUrl || '';
-    document.getElementById('gift_coinsValue').value = gift.coinsValue ?? gift.priceCoins ?? 0;
+    document.getElementById('gift_coinsValue').value = gift.coinCost ?? 0;
     document.getElementById('gift_sortOrder').value = gift.sortOrder ?? 0;
     document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
+    document.getElementById('gift_cpEligible').checked = Boolean(gift.cpEligible);
     document.getElementById('gift_tier').value = gift.tier || 'SMALL';
     const preview = document.getElementById("giftImagePreview");
-    const safeGiftImage = normalizeGiftImageUrl(gift.imageUrl);
+    const safeGiftImage = normalizeGiftImageUrl(gift.iconUrl);
     if (safeGiftImage) {
       preview.src = safeGiftImage;
       preview.style.display = "block";
@@ -1171,6 +1174,7 @@ window.openGiftModal = async function (id = null) {
     }
   } else {
     document.getElementById('gift_isActive').checked = true;
+    document.getElementById('gift_cpEligible').checked = false;
     document.getElementById("giftImagePreview").style.display = "none";
   }
   document.getElementById("gift_imageFile").value = "";
@@ -1190,20 +1194,23 @@ window.saveGift = async function () {
   // default from the coin value so the simple form stays just image/video/coins.
   const tierField = document.getElementById('gift_tier').value;
   const autoTier = coinsValue >= 5000 ? 'LEGENDARY' : coinsValue >= 1000 ? 'LARGE' : coinsValue >= 200 ? 'MEDIUM' : 'SMALL';
+  // Server field names: iconUrl + coinCost (the old imageUrl/coinsValue names
+  // were silently rejected by the API — gifts could never be saved).
   const payload = {
     nameAr: document.getElementById('gift_nameAr').value.trim(),
-    imageUrl: document.getElementById('gift_imageUrl').value.trim(),
+    iconUrl: document.getElementById('gift_imageUrl').value.trim(),
     animationUrl: document.getElementById('gift_animationUrl').value.trim() || null,
-    coinsValue,
+    coinCost: coinsValue,
     sortOrder: Number(document.getElementById('gift_sortOrder').value || 0),
     isActive: document.getElementById('gift_isActive').checked,
+    cpEligible: document.getElementById('gift_cpEligible').checked,
     tier: tierField || autoTier,
   };
   // Video gifts play their clip on send; image gifts use the flying-image animation.
   payload.format = payload.animationUrl ? 'VIDEO' : 'SVG_CSS';
 
-  if (!payload.nameAr || !payload.imageUrl || payload.coinsValue <= 0) {
-    return showToast('❗ nameAr / imageUrl / coinsValue مطلوبة');
+  if (!payload.nameAr || !payload.iconUrl || payload.coinCost <= 0) {
+    return showToast('❗ الاسم والصورة والقيمة بالكوينز مطلوبة');
   }
 
   if (id) {
