@@ -10,6 +10,7 @@ import '../widgets/glass_bottom_bar.dart';
 import '../services/store_service.dart';
 import '../utils/storage_service.dart';
 import '../widgets/video_preview_widget.dart';
+import '../widgets/FramedAvatar.dart';
 import 'home_screen.dart'; // product tile widget
 
 class StoreScreen extends ConsumerStatefulWidget {
@@ -296,6 +297,67 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
         url.toLowerCase().endsWith('.mov');
   }
 
+  /// Preview before buying: a frame is tried on the current user's own
+  /// avatar; an entrance/seat effect plays full-screen. Everything else
+  /// (badges, themes) just doesn't get a preview — tapping does nothing.
+  void _previewProduct(BuildContext context, Product product) {
+    final isFrame = product.type == 'avatar_frame';
+    final isEffect = product.type == 'seat_effect' || product.type == 'entrance';
+    if (!isFrame && !isEffect) return;
+
+    if (isFrame) {
+      final me = ref.read(authStateProvider).user;
+      showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: const Color(0xFF1A0E3E),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FramedAvatar(
+                  size: 160,
+                  avatarSize: 110,
+                  frame: AvatarFrame.fromUrl(product.fileUrl),
+                  imageUrl: me?.avatarUrl,
+                  fallbackText: me?.name ?? '',
+                ),
+                const SizedBox(height: 16),
+                Text(product.name, style: const TextStyle(color: Colors.white, fontSize: 15)),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Entrance/seat effect: fullscreen playback.
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox.expand(
+          child: Stack(
+            children: [
+              Center(child: VideoPreview(url: product.fileUrl)),
+              Positioned(
+                top: 40,
+                left: 16,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Ask for the recipient's 6-digit ID, then gift this product to them.
   Future<void> _promptSendProduct(BuildContext context, String productId) async {
     final ctrl = TextEditingController();
@@ -368,20 +430,24 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          /// IMAGE / VIDEO
+          /// IMAGE / VIDEO — tap for a preview before buying (frame try-on /
+          /// fullscreen entrance playback).
           Expanded(
-            child: ClipRRect(
-              borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(16)),
-              child: isVideo(product.fileUrl)
-                  ? SizedBox.expand(
-                child: VideoPreview(url: product.fileUrl),
-              )
-                  : Image.network(
-                product.fileUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                const Icon(Icons.broken_image),
+            child: GestureDetector(
+              onTap: () => _previewProduct(context, product),
+              child: ClipRRect(
+                borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(16)),
+                child: isVideo(product.fileUrl)
+                    ? SizedBox.expand(
+                  child: VideoPreview(url: product.fileUrl),
+                )
+                    : Image.network(
+                  product.fileUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.broken_image),
+                ),
               ),
             ),
           ),

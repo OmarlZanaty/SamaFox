@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/dio_client.dart';
+import 'profile_screen.dart';
 
 /// Search Screen - Search users and rooms by name or ID
 class SearchScreen extends ConsumerStatefulWidget {
@@ -227,7 +228,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
 
     if (type == 'user') {
-      Navigator.pushNamed(context, '/user-profile', arguments: id);
+      // #29/#37: '/user-profile' was never a registered route — tapping a
+      // user from search silently did nothing. Push the real profile screen.
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ProfileScreen(userId: id as int)),
+      );
     }
   }
 

@@ -10,7 +10,7 @@ import '../providers/room_provider.dart';
 import '../providers/localization_provider.dart';
 import '../services/dio_client.dart';
 import 'room_screen.dart';
-import 'user_profile_screen.dart';
+import 'profile_screen.dart';
 import 'create_room_dialog.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 class HomeScreen extends ConsumerStatefulWidget {
@@ -599,8 +599,11 @@ class SearchResultTile extends StatelessWidget {
               MaterialPageRoute(builder: (_) => RoomScreen(roomId: result.id)),
             );
           } else {
+            // #29/#37: use the same full profile screen everywhere — the old
+            // UserProfileScreen was a stripped-down stub with none of the
+            // room/message/follow row, badges, or caching fixes.
             Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => UserProfileScreen(userId: result.id)),
+              MaterialPageRoute(builder: (_) => ProfileScreen(userId: result.id)),
             );
           }
         },

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/dio_client.dart';
 import '../services/user_account_service.dart';
 import 'blocked_users_screen.dart';
 import 'edit_profile_screen.dart';
@@ -76,6 +77,14 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.swap_horiz,
                 title: 'تبديل الحساب',
                 onTap: () => _showSwitchAccountDialog(context, ref, strings, theme, isDark),
+                theme: theme,
+                isDark: isDark,
+              ),
+              _buildDivider(isDark),
+              _buildSettingsTile(
+                icon: Icons.currency_exchange,
+                title: 'تبديل الكوينزات',
+                onTap: () => _showTargetConvertDialog(context, theme, isDark),
                 theme: theme,
                 isDark: isDark,
               ),
@@ -536,6 +545,155 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  /// تبديل الكوينزات — cash out accumulated (uncashed) target at 50% into
+  /// spendable coins. Target total itself is unaffected.
+  void _showTargetConvertDialog(BuildContext context, ThemeData theme, bool isDark) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => _TargetConvertDialog(theme: theme, isDark: isDark),
+    );
+  }
+}
+
+class _TargetConvertDialog extends StatefulWidget {
+  const _TargetConvertDialog({required this.theme, required this.isDark});
+  final ThemeData theme;
+  final bool isDark;
+
+  @override
+  State<_TargetConvertDialog> createState() => _TargetConvertDialogState();
+}
+
+class _TargetConvertDialogState extends State<_TargetConvertDialog> {
+  bool _loading = true;
+  bool _submitting = false;
+  String? _error;
+  List<Map<String, dynamic>> _items = const [];
+  Map<String, dynamic>? _selected;
+  final _amountCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await DioClient.dio.get('/agencies/my-target');
+      final data = (res.data as Map)['data'] as Map;
+      final items = ((data['items'] as List?) ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .where((e) => (e['convertibleCoins'] as num?) != null)
+          .toList();
+      setState(() {
+        _items = items;
+        _selected = items.isNotEmpty ? items.first : null;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'تعذّر تحميل التارجت';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    final sel = _selected;
+    if (sel == null) return;
+    final amount = int.tryParse(_amountCtrl.text.trim());
+    final convertible = (sel['convertibleCoins'] as num?)?.toInt() ?? 0;
+    if (amount == null || amount <= 0 || amount > convertible) {
+      setState(() => _error = 'أدخل مبلغًا صحيحًا لا يتجاوز $convertible كوينز');
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      final res = await DioClient.dio.post('/agencies/target/convert', data: {
+        'agencyId': sel['agencyId'],
+        'amount': amount,
+      });
+      final data = (res.data as Map)['data'] as Map;
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم إضافة ${data['creditedCoins']} كوينز لرصيدك')),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _submitting = false;
+        _error = 'فشل التبديل: $e';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    final isDark = widget.isDark;
+    final convertible = (_selected?['convertibleCoins'] as num?)?.toInt() ?? 0;
+
+    return AlertDialog(
+      backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
+      title: Text('تبديل الكوينزات', style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
+      content: _loading
+          ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+          : _items.isEmpty
+              ? Text(
+                  'لا يوجد تارجت متاح للتبديل حاليًا',
+                  style: TextStyle(color: theme.textTheme.bodyMedium?.color),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'المتاح للتبديل: $convertible كوينز (سيتحول نصفه، ${convertible ~/ 2} كحد أقصى، لرصيدك)',
+                      style: TextStyle(color: theme.textTheme.bodyMedium?.color, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _amountCtrl,
+                      keyboardType: TextInputType.number,
+                      style: TextStyle(color: theme.textTheme.bodyLarge?.color),
+                      decoration: const InputDecoration(
+                        labelText: 'المبلغ المراد تبديله',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    ],
+                  ],
+                ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        if (_items.isNotEmpty)
+          TextButton(
+            onPressed: _submitting ? null : _submit,
+            child: _submitting
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('تبديل'),
+          ),
+      ],
     );
   }
 }

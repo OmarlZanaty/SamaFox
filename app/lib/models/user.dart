@@ -17,7 +17,7 @@ class User {
   final String? gender;
   final String? birthday;
   final int? age;
-  final int? liveRoomId; // #31: active room this user is hosting (null if none)
+  final int? liveRoomId; // #31: room this user is ACTUALLY in right now, guest or host (null if none)
   final String? bio;
   final String? avatarFrameUrl;
   @JsonKey(defaultValue: 1)

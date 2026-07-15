@@ -20,6 +20,7 @@ import '../widgets/FramedAvatar.dart';
 import '../widgets/glass_bottom_bar.dart';
 import '../widgets/video_preview_widget.dart';
 import '../services/socket_service.dart';
+import '../config/app_config.dart';
 import 'home_screen.dart';
 
 /// Model for Received Gift
@@ -75,6 +76,72 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   bool _followBusy = false;
   bool _followLoaded = false; // guard: load follow status only once per viewed user
   bool _targetBlocked = false; // #2 blacklist: whether I blocked the viewed user
+
+  // #28: badges row cache, keyed by userId so switching profiles refetches once.
+  int? _badgesUserId;
+  Future<List<Map<String, dynamic>>>? _badgesFuture;
+
+  Future<List<Map<String, dynamic>>> _fetchBadges(int userId) async {
+    try {
+      final res = await DioClient.dio.get('/users/$userId/badges');
+      final list = (res.data is Map) ? (res.data['data'] as List? ?? const []) : const [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  IconData _badgeIconFor(String type) {
+    switch (type) {
+      case 'FRAME':
+      case 'PROFILE_FRAME':
+        return Icons.filter_frames;
+      case 'ENTRANCE_EFFECT':
+      case 'ENTRANCE_BANNER':
+        return Icons.auto_awesome;
+      case 'ROOM_THEME':
+        return Icons.wallpaper;
+      default:
+        return Icons.military_tech;
+    }
+  }
+
+  Widget _buildBadgesRow(int userId) {
+    if (_badgesUserId != userId) {
+      _badgesUserId = userId;
+      _badgesFuture = _fetchBadges(userId);
+    }
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _badgesFuture,
+      builder: (context, snapshot) {
+        final badges = snapshot.data ?? const [];
+        if (badges.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.center,
+            children: badges.map((b) {
+              return Tooltip(
+                message: (b['name'] ?? '').toString(),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF9C6BFF).withOpacity(0.18),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF9C6BFF).withOpacity(0.5)),
+                  ),
+                  child: Icon(_badgeIconFor((b['type'] ?? '').toString()),
+                      size: 16, color: const Color(0xFFDCC8FF)),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
   Future<User?>? _otherUserFuture; // cached so build() doesn't re-fetch every frame
   int? _otherUserFutureId;
 
@@ -814,6 +881,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     _buildLevelBadge(user.level ?? 1),
                     const SizedBox(height: 4),
 
+                    // #28: badges row — owned special items (frames/effects/themes).
+                    _buildBadgesRow(user.id),
+                    const SizedBox(height: 4),
+
                     if (user.agencyRole != null) ...[
                       GestureDetector(
                         onTap: () => Navigator.pushNamed(context, '/agency-panel'),
@@ -1039,12 +1110,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     return Stack(
       alignment: Alignment.center,
       children: [
-        FramedAvatar(
-          size: 120,
-          avatarSize: 80,
-          frame: frame,
-          imageUrl: user.avatarUrl,
-          fallbackText: user.name,
+        GestureDetector(
+          onTap: () => _openFullImage(context, user.avatarUrl),
+          child: FramedAvatar(
+            size: 120,
+            avatarSize: 80,
+            frame: frame,
+            imageUrl: user.avatarUrl,
+            fallbackText: user.name,
+          ),
         ),
         // Edit button only for own profile
         if (isOwnProfile)
@@ -1071,6 +1145,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             ),
           ),
       ],
+    );
+  }
+
+  /// Any user's photo can be opened full-screen (view/save), not just own.
+  void _openFullImage(BuildContext context, String? avatarUrl) {
+    if (avatarUrl == null || avatarUrl.isEmpty) return;
+    String url = avatarUrl;
+    if (!url.startsWith('http')) {
+      url = AppConfig.socketUrl.replaceFirst(RegExp(r'/+$'), '') +
+          (url.startsWith('/') ? url : '/$url');
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _FullImageViewer(imageUrl: url),
+        fullscreenDialog: true,
+      ),
     );
   }
 
@@ -1381,6 +1472,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     final t = _myTarget!;
     final items = (t['items'] as List?) ?? const [];
     final int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
+    final double earnedDollars = (t['totalDollars'] as num?)?.toDouble() ?? 0.0;
     // Sum goals/remaining across memberships (usually just one).
     int goal = 0;
     int remaining = 0;
@@ -1428,6 +1520,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          // Dollar meter — moves with the target as it's set from the
+          // dashboard's تارجت tiers (coins threshold -> $ payout).
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2ECC71).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF2ECC71).withOpacity(0.4)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.attach_money, color: Color(0xFF2ECC71), size: 18),
+                Text(
+                  earnedDollars.toStringAsFixed(2),
+                  style: const TextStyle(
+                    color: Color(0xFF2ECC71),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
           ),
           if (goal > 0) ...[
             const SizedBox(height: 12),
@@ -1690,6 +1807,35 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen viewer for any user's photo — pinch to zoom.
+class _FullImageViewer extends StatelessWidget {
+  const _FullImageViewer({required this.imageUrl});
+  final String imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4,
+          child: Image.network(
+            imageUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54, size: 64),
+          ),
         ),
       ),
     );

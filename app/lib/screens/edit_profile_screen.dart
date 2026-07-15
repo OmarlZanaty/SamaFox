@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
 import '../providers/auth_provider.dart';
@@ -57,10 +58,34 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     try {
       final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (pickedFile == null) return;
-      final bytes = await pickedFile.readAsBytes();
-      if (!kIsWeb) setState(() => _avatarImage = File(pickedFile.path));
+
+      // Crop tool: let the user pick exactly the region to use before upload
+      // (drag/resize the box themselves). Native crop UI isn't wired for web
+      // here, so web keeps the previous direct-upload behavior.
+      XFile fileToUpload = pickedFile;
+      if (!kIsWeb) {
+        final cropped = await ImageCropper().cropImage(
+          sourcePath: pickedFile.path,
+          aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+          compressQuality: 90,
+          uiSettings: [
+            AndroidUiSettings(
+              toolbarTitle: 'تحديد الصورة',
+              toolbarColor: const Color(0xFF1A0E3E),
+              toolbarWidgetColor: Colors.white,
+              lockAspectRatio: false,
+            ),
+            IOSUiSettings(title: 'تحديد الصورة'),
+          ],
+        );
+        if (cropped == null) return; // user cancelled the crop step
+        fileToUpload = XFile(cropped.path);
+      }
+
+      final bytes = await fileToUpload.readAsBytes();
+      if (!kIsWeb) setState(() => _avatarImage = File(fileToUpload.path));
       setState(() => _avatarBytes = bytes);
-      await _uploadAvatar(pickedFile);
+      await _uploadAvatar(fileToUpload);
     } finally {
       _picking = false;
     }
