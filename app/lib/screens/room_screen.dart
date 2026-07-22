@@ -45,6 +45,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../repositories/message_repository.dart';
 import '../repositories/room_repository.dart';
+import '../repositories/user_repository.dart';
+import '../utils/country_flag.dart';
+import '../utils/result.dart';
 import '../widgets/room/seats_grid.dart';
 import 'package:video_player/video_player.dart';
 import '../models/room_event.dart';
@@ -4000,9 +4003,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             // Collect all room users (incl. seated + online), self always included.
                             final ids = <int>{};
                             final list = <GiftRecipient>[];
-                            void add(int id, String name, String? avatarUrl) {
+                            void add(int id, String name, String? avatarUrl, {int? seatNumber}) {
                               if (ids.add(id)) {
-                                list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
+                                list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl, seatNumber: seatNumber));
                               }
                             }
                             // Self first
@@ -4010,7 +4013,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             // Seated users
                             for (final s in state.seats.values) {
                               if (s.userId != null) {
-                                add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
+                                add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl, seatNumber: s.seatNumber);
                               }
                             }
                             // Other online users
@@ -4242,14 +4245,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final state = ref.read(roomControllerProvider(widget.roomId));
     final ids = <int>{};
     final list = <GiftRecipient>[];
-    void add(int id, String name, String? avatarUrl) {
-      if (ids.add(id)) list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
+    void add(int id, String name, String? avatarUrl, {int? seatNumber}) {
+      if (ids.add(id)) list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl, seatNumber: seatNumber));
     }
     // Pre-selected user first, self, then everyone else
     add(r.id, r.name, r.avatarUrl);
     add(me.id, me.name ?? 'أنا', me.avatarUrl);
     for (final s in state.seats.values) {
-      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
+      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl, seatNumber: s.seatNumber);
     }
     for (final u in state.onlineUsers.values) {
       add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
@@ -4549,12 +4552,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
 
     // ── Unified profile dialog (self / admin / regular user) ──
+    // Fetched once, outside the builder, so sheet-internal rebuilds (e.g.
+    // OnlineDot ticking) don't refire the request. Only real user data is
+    // ever shown here — age/gender/country/agency-role/family/medals stay
+    // hidden until this resolves rather than showing placeholders.
+    final profileFuture = UserRepository().getUserProfile(seat.userId!);
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) {
-        return Container(
+        // Capped at 50% of the screen — this card must never take over the
+        // whole view.
+        final maxHeight = MediaQuery.of(context).size.height * 0.5;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               colors: [Color(0xFF1E1347), Color(0xFF2B1760), Color(0xFF1A1040)],
@@ -4668,112 +4682,132 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                   const SizedBox(height: 6),
 
-                  // BADGES ROW
+                  // BADGES ROW — level (from live seat data, instant) + ID/VIP
+                  // (already real, unchanged from before).
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _badgePill('مملكة ريتنا', const Color(0xFF8B5CF6), Icons.auto_awesome),
+                        _badgePill('Lv.${seat.level}', const Color(0xFF10B981), Icons.terrain),
                         const SizedBox(width: 6),
-                        _badgePill('14', const Color(0xFFF59E0B), Icons.emoji_events),
-                        const SizedBox(width: 6),
-                        _badgePill('30', const Color(0xFF10B981), Icons.star),
-                        const SizedBox(width: 6),
-                        _badgePill('25', const Color(0xFFEC4899), Icons.favorite),
-                        const SizedBox(width: 6),
-                        _badgePill('2', const Color(0xFF6366F1), Icons.people),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // ID ROW
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.07),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white.withOpacity(0.14)),
-                        ),
-                        child: Row(children: [
-                          const Icon(Icons.badge_outlined, size: 14, color: Colors.white54),
-                          const SizedBox(width: 6),
-                          Text('ID: #${seat.displayId ?? seat.userId ?? ''}',
-                              style: const TextStyle(fontSize: 12, color: Colors.white60)),
-                          const SizedBox(width: 6),
-                          const Icon(Icons.copy, size: 12, color: Colors.white38),
-                          if (seat.vipLevel > 0) ...[
-                            const SizedBox(width: 8),
-                            VipBadge(level: seat.vipLevel),
-                          ],
-                          const SizedBox(width: 8),
-                          MicPerfectBadge(userId: seat.userId),
-                        ]),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text('SY', style: TextStyle(fontSize: 11, color: Colors.white38)),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  // GIFT GALLERY BAR
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF7C2D9E), Color(0xFF9C1F6E), Color(0xFF6B21A8)],
-                      ),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: Colors.white.withOpacity(0.18)),
-                    ),
-                    child: Row(
-                      children: [
-                        // thumbnails
-                        ...List.generate(4, (i) => Container(
-                          width: 46, height: 46,
-                          margin: const EdgeInsets.only(left: 7),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.white.withOpacity(0.2)),
+                            color: Colors.white.withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withOpacity(0.14)),
                           ),
-                          child: const Icon(Icons.card_giftcard, color: Colors.white70, size: 22),
-                        )),
-                        const SizedBox(width: 10),
-                        const VerticalDivider(color: Colors.white24, width: 1, thickness: 1, indent: 4, endIndent: 4),
-                        const SizedBox(width: 10),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('معرض الهدايا',
-                                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
-                              Text('(39/355)',
-                                  style: TextStyle(color: Colors.white60, fontSize: 11)),
+                          child: Row(children: [
+                            const Icon(Icons.badge_outlined, size: 14, color: Colors.white54),
+                            const SizedBox(width: 6),
+                            Text('ID: #${seat.displayId ?? seat.userId ?? ''}',
+                                style: const TextStyle(fontSize: 12, color: Colors.white60)),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.copy, size: 12, color: Colors.white38),
+                            if (seat.vipLevel > 0) ...[
+                              const SizedBox(width: 8),
+                              VipBadge(level: seat.vipLevel),
                             ],
-                          ),
+                            const SizedBox(width: 8),
+                            MicPerfectBadge(userId: seat.userId),
+                          ]),
                         ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.arrow_back_ios, size: 14, color: Colors.white60),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
 
-                  // STATS
-                  Row(children: [
-                    Expanded(child: _statCard('14', 'مستوى الجاذبية',
-                        const Color(0xFF166534), const Color(0xFF15803D), const Color(0xFF4ADE80), Icons.favorite)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _statCard('30', 'مستوى الثروة',
-                        const Color(0xFF0F766E), const Color(0xFF0D9488), const Color(0xFF2DD4BF), Icons.star)),
-                  ]),
-                  const SizedBox(height: 14),
+                  // REAL PROFILE ENRICHMENT — age/gender, country flag, agency
+                  // role, family, and recently-unlocked medals. All of this
+                  // requires the async profile fetch, and per the no-fake-data
+                  // rule nothing here ever shows a placeholder: each piece is
+                  // simply omitted until real data says otherwise.
+                  FutureBuilder<Result<User>>(
+                    future: profileFuture,
+                    builder: (context, snapshot) {
+                      final profile = snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
+                      if (profile == null) return const SizedBox.shrink();
+
+                      final flag = countryFlagEmoji(profile.countryCode);
+                      final genderSymbol = profile.gender == 'female'
+                          ? '♀'
+                          : profile.gender == 'male'
+                              ? '♂'
+                              : null;
+
+                      final chips = <Widget>[
+                        if (profile.age != null || genderSymbol != null)
+                          _badgePill(
+                            [if (profile.age != null) '${profile.age}', if (genderSymbol != null) genderSymbol]
+                                .join(' '),
+                            const Color(0xFF3B82F6),
+                            profile.gender == 'female' ? Icons.female : Icons.male,
+                          ),
+                        if (flag != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.07),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(flag, style: const TextStyle(fontSize: 16)),
+                          ),
+                        if (profile.agencyRole != null)
+                          _badgePill(
+                            profile.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                            profile.agencyRole == 'agent' ? const Color(0xFFF59E0B) : const Color(0xFF14B8A6),
+                            Icons.workspace_premium,
+                          ),
+                        if (profile.familyName != null && profile.familyName!.isNotEmpty)
+                          _badgePill(profile.familyName!, const Color(0xFF8B5CF6), Icons.shield),
+                      ];
+
+                      final medals = profile.achievements ?? const <AchievementBadge>[];
+                      if (chips.isEmpty && medals.isEmpty) return const SizedBox.shrink();
+
+                      return Column(
+                        children: [
+                          if (chips.isNotEmpty) ...[
+                            Wrap(alignment: WrapAlignment.center, spacing: 6, runSpacing: 6, children: chips),
+                            const SizedBox(height: 10),
+                          ],
+                          if (medals.isNotEmpty)
+                            SizedBox(
+                              height: 44,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: medals.length,
+                                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                                itemBuilder: (_, i) {
+                                  final m = medals[i];
+                                  return Tooltip(
+                                    message: m.name,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Image.network(
+                                        m.iconUrl,
+                                        width: 40,
+                                        height: 40,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Container(
+                                          width: 40,
+                                          height: 40,
+                                          color: Colors.white12,
+                                          child: const Icon(Icons.emoji_events, color: Colors.white38, size: 18),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          const SizedBox(height: 4),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
 
                   // ACTIONS — role-based
                   if (isMine) ...[
@@ -4795,55 +4829,41 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                   ] else ...[
-                    // Other user: gift + social buttons
+                    // Other user: 4 equal circular buttons — same handlers as
+                    // before, just restyled (icon + label, matching reference).
                     Row(children: [
                       Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            Navigator.pop(context);
-                            _openGiftSheetToUser(context, _Recipient(
-                                id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
-                          },
-                          child: Container(
-                            height: 50,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [Color(0xFF9333EA), Color(0xFFDB2777)]),
-                              borderRadius: BorderRadius.circular(28),
-                              border: Border.all(color: Colors.white.withOpacity(0.15)),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.card_giftcard, color: Colors.white, size: 22),
-                                SizedBox(width: 8),
-                                Text('إرسال', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                              ],
-                            ),
-                          ),
-                        ),
+                        child: _circleActionBtn(Icons.alternate_email_rounded, '@', const Color(0xFF4ADE80), () {
+                          Navigator.pop(context);
+                          setState(() => _showChatPanel = true);
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _topChatFocus.requestFocus();
+                            final mention = '@${seat.username ?? 'user'} ';
+                            _externalTextController.text = mention;
+                            _externalTextController.selection = TextSelection.fromPosition(
+                                TextPosition(offset: _externalTextController.text.length));
+                          });
+                        }),
                       ),
-                      const SizedBox(width: 10),
-                      _actionBtn(Icons.chat_bubble_rounded, const Color(0xFFF472B6), () {
-                        Navigator.pop(context);
-                        _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
-                      }),
-                      const SizedBox(width: 8),
-                      _actionBtn(Icons.person_add_rounded, const Color(0xFF22D3EE), () {
-                        Navigator.pop(context);
-                        unawaited(_handleFollowFromRoom(seat.userId!));
-                      }),
-                      const SizedBox(width: 8),
-                      _actionBtn(Icons.alternate_email_rounded, const Color(0xFF4ADE80), () {
-                        Navigator.pop(context);
-                        setState(() => _showChatPanel = true);
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          _topChatFocus.requestFocus();
-                          final mention = '@${seat.username ?? 'user'} ';
-                          _externalTextController.text = mention;
-                          _externalTextController.selection = TextSelection.fromPosition(
-                              TextPosition(offset: _externalTextController.text.length));
-                        });
-                      }),
+                      Expanded(
+                        child: _circleActionBtn(Icons.favorite, 'متابعة', const Color(0xFF22D3EE), () {
+                          Navigator.pop(context);
+                          unawaited(_handleFollowFromRoom(seat.userId!));
+                        }),
+                      ),
+                      Expanded(
+                        child: _circleActionBtn(Icons.chat_bubble_rounded, 'الدردشة', const Color(0xFFF472B6), () {
+                          Navigator.pop(context);
+                          _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                        }),
+                      ),
+                      Expanded(
+                        child: _circleActionBtn(Icons.card_giftcard, 'إرسال هدية', const Color(0xFFDB2777), () {
+                          Navigator.pop(context);
+                          _openGiftSheetToUser(context, _Recipient(
+                              id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                        }),
+                      ),
                     ]),
                     // Admin-only controls below
                     if (isAdmin) ...[
@@ -4907,6 +4927,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
               ),
             ),
+          ),
           ),
         );
       },
@@ -5437,6 +5458,31 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           border: Border.all(color: color.withOpacity(0.5)),
         ),
         child: Icon(icon, color: color, size: 20),
+      ),
+    );
+  }
+
+  /// Circular icon button with a label underneath — the profile card's
+  /// action row (@ / متابعة / الدردشة / إرسال هدية).
+  Widget _circleActionBtn(IconData icon, String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withOpacity(0.18),
+              border: Border.all(color: color.withOpacity(0.5)),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        ],
       ),
     );
   }

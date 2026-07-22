@@ -86,7 +86,17 @@ export const getUserById = async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { achievements: true },
+      include: {
+        // Room-card medals row (#redesign): most recently unlocked first, only
+        // need the latest 4 — the card has no room for more.
+        achievements: {
+          include: { achievement: true },
+          orderBy: { unlockedAt: 'desc' },
+          take: 4,
+        },
+        ownedFamily: { select: { name: true } },
+        familyMembership: { include: { family: { select: { name: true } } } },
+      },
     });
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
@@ -109,6 +119,14 @@ export const getUserById = async (req: Request, res: Response) => {
         agencyRole: agencyInfo?.agencyRole ?? null,
         agencyName: agencyInfo?.agencyName ?? null,
         liveRoomId: currentRoomId,
+        // Real only — null when the user owns/joined no family, never a
+        // placeholder name (matches the room-card redesign's no-fake-data rule).
+        familyName: (user as any).ownedFamily?.name ?? (user as any).familyMembership?.family?.name ?? null,
+        achievements: (user as any).achievements.map((ua: any) => ({
+          name: ua.achievement.name,
+          iconUrl: ua.achievement.iconUrl,
+          unlockedAt: ua.unlockedAt,
+        })),
       },
     });
   } catch (e: any) {

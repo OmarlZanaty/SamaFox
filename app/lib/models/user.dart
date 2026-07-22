@@ -56,6 +56,15 @@ class User {
   final String? agencyRole;
   final String? agencyName;
 
+  /// Real family/kingdom name — null when the user owns/joined no family.
+  /// Never a placeholder; the room profile card only shows this badge when
+  /// it's non-null.
+  final String? familyName;
+
+  /// Most recently unlocked achievements (newest first, capped server-side
+  /// at 4) — feeds the room profile card's medals row.
+  final List<AchievementBadge>? achievements;
+
   User({
     required this.id,
     this.displayId,
@@ -85,6 +94,8 @@ class User {
     this.avatarFrameUrl,
     this.agencyRole,
     this.agencyName,
+    this.familyName,
+    this.achievements,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -127,6 +138,11 @@ class User {
       avatarFrameUrl: source['avatarFrameUrl']?.toString(),
       agencyRole: source['agencyRole']?.toString(),
       agencyName: source['agencyName']?.toString(),
+      familyName: source['familyName']?.toString(),
+      achievements: (source['achievements'] as List?)
+          ?.whereType<Map>()
+          .map((e) => AchievementBadge.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
     );
   }
   Map<String, dynamic> toJson() => _$UserToJson(this);
@@ -172,6 +188,8 @@ class User {
     String? avatarFrameUrl,
     String? agencyRole,
     String? agencyName,
+    String? familyName,
+    List<AchievementBadge>? achievements,
   }) {
     return User(
       id: id ?? this.id,
@@ -202,6 +220,21 @@ class User {
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
       agencyRole: agencyRole ?? this.agencyRole,
       agencyName: agencyName ?? this.agencyName,
+      familyName: familyName ?? this.familyName,
+      achievements: achievements ?? this.achievements,
     );
   }
+}
+
+/// One unlocked achievement, as shown in the room profile card's medals row.
+class AchievementBadge {
+  final String name;
+  final String iconUrl;
+
+  const AchievementBadge({required this.name, required this.iconUrl});
+
+  factory AchievementBadge.fromJson(Map<String, dynamic> json) => AchievementBadge(
+        name: (json['name'] ?? '').toString(),
+        iconUrl: (json['iconUrl'] ?? '').toString(),
+      );
 }
