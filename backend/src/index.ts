@@ -32,6 +32,7 @@ import adminDashboardRoutes from './routes/adminDashboard.routes';
 import adminDashAuthRoutes from './routes/admin-dashboard-auth.routes';
 import storeRoutes from "./routes/store.routes";
 import { initializeSocketHandlers } from './services/socket.service';
+import { startSkillDiceEngine } from './services/skillDice.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
 import searchRoutes from './search/search.routes';
@@ -211,6 +212,7 @@ const io = new Server(httpServer, {
 
 initializeSocketHandlers(io);
 setGiftIo(io);
+startSkillDiceEngine(io);
 
 // error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -4,6 +4,7 @@ import 'games/roulette_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/fish_shooter_screen.dart';
 import 'games/lion_tiger_screen.dart';
+import 'games/skill_dice_screen.dart';
 
 const List<_GameEntry> _games = [
   _GameEntry(
@@ -21,11 +22,11 @@ const List<_GameEntry> _games = [
     badge: 'إثارة',
   ),
   _GameEntry(
-    title: 'صيد السمك',
-    subtitle: 'اصطد الأسماك واربح العملات',
-    emoji: '🎣',
-    gradient: [Color(0xFF0f0c29), Color(0xFF302b63), Color(0xFF24243e)],
-    badge: 'مهارة',
+    title: 'صياد السمك',
+    subtitle: 'أطلق النار على الأسماك واربح العملات',
+    emoji: '🐠',
+    gradient: [Color(0xFF063E7A), Color(0xFF0A5A8C), Color(0xFF0E7C9B)],
+    badge: 'أركيد',
   ),
   _GameEntry(
     title: 'الأسد vs النمر',
@@ -33,6 +34,13 @@ const List<_GameEntry> _games = [
     emoji: '🦁',
     gradient: [Color(0xFF1a0a00), Color(0xFF8B4513)],
     badge: 'رهان',
+  ),
+  _GameEntry(
+    title: 'نرد المهارة',
+    subtitle: 'أوقف النرد على المهمة واربح مكافأتك',
+    emoji: '🎲',
+    gradient: [Color(0xFF0B3B2A), Color(0xFF146A48), Color(0xFF0E5138)],
+    badge: 'مهارة',
   ),
 ];
 
@@ -70,6 +78,7 @@ class GamesHubScreen extends ConsumerWidget {
                   case 1: screen = const CrashGameScreen(); break;
                   case 2: screen = const FishShooterScreen(); break;
                   case 3: screen = const LionTigerScreen(); break;
+                  case 4: screen = const SkillDiceScreen(); break;
                   default: return;
                 }
                 Navigator.push(context, MaterialPageRoute(builder: (_) => screen));

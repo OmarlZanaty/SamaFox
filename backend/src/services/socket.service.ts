@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
+import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 // Gift sending is handled via the REST endpoint POST /api/v1/gifts/send
 // which emits 'gift_sent' / 'gift_legendary_incoming' / 'gift_broadcast'
 // socket events directly. The legacy 'send_gift' socket handler was
@@ -336,6 +337,18 @@ if (uid) {
 // Client can request the online roster at any time (e.g. opening a list).
 socket.on('get_online_users', () => {
   socket.emit('presence:snapshot', { online: getOnlineUserIds() });
+});
+
+// ── Skill dice table: joining only subscribes you to the live round state.
+// Entering a round (and paying the entry price) goes through the REST
+// endpoints so the coin movement stays atomic. ──
+socket.on('dice_join_table', () => {
+  socket.join(DICE_TABLE_ROOM);
+  socket.emit('dice_round_state', getCurrentRoundPublic());
+});
+
+socket.on('dice_leave_table', () => {
+  socket.leave(DICE_TABLE_ROOM);
 });
 
 // Step 5: voice quality check. A speaker reports their mic self-test result
