@@ -121,6 +121,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// served from the API: it's one shared design for every card, so there's no
   /// reason to pay a network round-trip (and a loading flicker) per open.
   static const String _profileCardBackground = 'assets/images/profile_card_bg.png';
+  static const String _profileCardCrown = 'assets/images/profile_card_crown.png';
   // ===== Admin bottom panel controllers (PERSISTENT) =====
   final TextEditingController _roomImageCtrl = TextEditingController();
   final TextEditingController _bgImageCtrl = TextEditingController();
@@ -4740,6 +4741,39 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 },
                               ),
                             ],
+                          ),
+                        ),
+                      ),
+
+                      // CROWN — the gold ornament from the supplied nameplate
+                      // art, sitting across the banner's top edge.
+                      //
+                      // The asset is a full nameplate: gold crown on top of a
+                      // large opaque purple plaque. Showing only the crown is
+                      // purely an alignment problem — BoxFit.fitWidth scales
+                      // the image to the card width, which makes it far taller
+                      // than this 46px box, and the DEFAULT centre alignment
+                      // then crops to the middle band (the plaque). Anchoring
+                      // to topCenter keeps the crop on the gold instead.
+                      Positioned(
+                        top: -20,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                          child: ClipRect(
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              heightFactor: 1,
+                              child: SizedBox(
+                                height: 46,
+                                child: Image.asset(
+                                  _profileCardCrown,
+                                  fit: BoxFit.fitWidth,
+                                  alignment: Alignment.topCenter,
+                                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
