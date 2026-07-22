@@ -33,7 +33,10 @@ class SkillDiceScreen extends ConsumerStatefulWidget {
 }
 
 class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
-  static const _spinTick = Duration(milliseconds: 110);
+  /// How long each face is shown while a die is spinning. This is the game's
+  /// difficulty dial: the shorter it is, the harder it is to stop a die on the
+  /// face you want, so scores — and therefore payouts — drop with it.
+  static const _spinTick = Duration(milliseconds: 70);
   static const _bgTop = Color(0xFF1A0E3E);
   static const _bgBottom = Color(0xFF0D0620);
   static const _felt = Color(0xFF0E5138);
