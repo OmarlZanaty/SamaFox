@@ -117,12 +117,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   final Completer<void> _roomReady = Completer<void>();
   static const double _bottomBarH = 64.0; // 👈 bottom bar height
 
-  /// Artwork behind the seat-tap profile card banner. Null → the purple
-  /// gradient stands in, so the card layout is already final and correct
-  /// without it. To switch the artwork on, upload the image (e.g. to
-  /// /uploads/profile-card-bg.png on the API host) and set this to its URL —
-  /// that's the only change needed.
-  static const String? _profileCardBackground = null;
+  /// Artwork for the seat-tap profile card. Bundled as app assets rather than
+  /// served from the API: it's one shared design for every card, so there's no
+  /// reason to pay a network round-trip (and a loading flicker) per open.
+  static const String _profileCardBackground = 'assets/images/profile_card_bg.png';
+  static const String _profileCardCrown = 'assets/images/profile_card_crown.png';
   // ===== Admin bottom panel controllers (PERSISTENT) =====
   final TextEditingController _roomImageCtrl = TextEditingController();
   final TextEditingController _bgImageCtrl = TextEditingController();
@@ -4618,25 +4617,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         constraints: const BoxConstraints(minHeight: 150),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(22),
+                          // Gradient shows through if the asset is missing, so
+                          // the card degrades to a solid look instead of a
+                          // broken-image box.
                           gradient: const LinearGradient(
                             colors: [Color(0xFF4C1D95), Color(0xFF6D28D9), Color(0xFF3B1173)],
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
                           ),
-                          image: _profileCardBackground == null
-                              ? null
-                              : DecorationImage(
-                                  image: NetworkImage(_profileCardBackground!),
-                                  fit: BoxFit.cover,
-                                  colorFilter: ColorFilter.mode(
-                                    Colors.black.withOpacity(0.25),
-                                    BlendMode.darken,
-                                  ),
-                                ),
+                          image: DecorationImage(
+                            image: const AssetImage(_profileCardBackground),
+                            fit: BoxFit.cover,
+                            onError: (_, __) {},
+                            colorFilter: ColorFilter.mode(
+                              Colors.black.withOpacity(0.15),
+                              BlendMode.darken,
+                            ),
+                          ),
                         ),
                         child: Padding(
                           // Right padding leaves room for the overlapping avatar.
-                          padding: const EdgeInsets.fromLTRB(14, 14, 104, 14),
+                          padding: const EdgeInsets.fromLTRB(14, 22, 104, 14),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             mainAxisSize: MainAxisSize.min,
@@ -4731,6 +4732,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 },
                               ),
                             ],
+                          ),
+                        ),
+                      ),
+
+                      // CROWN — ornament across the banner's top edge. Sits
+                      // behind the avatar in the stack so the avatar stays
+                      // fully visible over it.
+                      Positioned(
+                        top: -18,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                          child: Image.asset(
+                            _profileCardCrown,
+                            height: 54,
+                            fit: BoxFit.fitWidth,
+                            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                           ),
                         ),
                       ),
