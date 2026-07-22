@@ -121,7 +121,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// served from the API: it's one shared design for every card, so there's no
   /// reason to pay a network round-trip (and a loading flicker) per open.
   static const String _profileCardBackground = 'assets/images/profile_card_bg.png';
-  static const String _profileCardCrown = 'assets/images/profile_card_crown.png';
   // ===== Admin bottom panel controllers (PERSISTENT) =====
   final TextEditingController _roomImageCtrl = TextEditingController();
   final TextEditingController _bgImageCtrl = TextEditingController();
@@ -4614,7 +4613,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     children: [
                       Container(
                         width: double.infinity,
-                        constraints: const BoxConstraints(minHeight: 150),
+                        height: 150,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(22),
                           // Gradient shows through if the asset is missing, so
@@ -4628,6 +4627,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           image: DecorationImage(
                             image: const AssetImage(_profileCardBackground),
                             fit: BoxFit.cover,
+                            // Anchor left: the artwork puts the fox in its left
+                            // third, and a centred crop cuts the head off.
+                            alignment: Alignment.centerLeft,
                             onError: (_, __) {},
                             colorFilter: ColorFilter.mode(
                               Colors.black.withOpacity(0.15),
@@ -4639,7 +4641,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           // Right padding leaves room for the overlapping avatar.
                           padding: const EdgeInsets.fromLTRB(14, 22, 104, 14),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                            // The app runs RTL, so `start` is the RIGHT edge —
+                            // which is where the identity block belongs, away
+                            // from the fox artwork on the left.
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               // NAME + flag
@@ -4651,7 +4656,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   final flag = countryFlagEmoji(profile?.countryCode);
                                   return Row(
                                     mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    mainAxisAlignment: MainAxisAlignment.start,
                                     children: [
                                       if (flag != null) ...[
                                         Text(flag, style: const TextStyle(fontSize: 20)),
@@ -4695,7 +4700,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                           : null;
 
                                   return Wrap(
-                                    alignment: WrapAlignment.end,
+                                    alignment: WrapAlignment.start,
                                     spacing: 6,
                                     runSpacing: 6,
                                     children: [
@@ -4732,23 +4737,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 },
                               ),
                             ],
-                          ),
-                        ),
-                      ),
-
-                      // CROWN — ornament across the banner's top edge. Sits
-                      // behind the avatar in the stack so the avatar stays
-                      // fully visible over it.
-                      Positioned(
-                        top: -18,
-                        left: 0,
-                        right: 0,
-                        child: IgnorePointer(
-                          child: Image.asset(
-                            _profileCardCrown,
-                            height: 54,
-                            fit: BoxFit.fitWidth,
-                            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                           ),
                         ),
                       ),
@@ -4901,9 +4889,30 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                   ] else ...[
-                    // Other user: 4 equal circular buttons — same handlers as
-                    // before, just restyled (icon + label, matching reference).
+                    // Other user: 4 equal circular buttons. Listed gift-first
+                    // because the app is RTL — the first child lands on the
+                    // RIGHT, which puts إرسال هدية rightmost and @ leftmost,
+                    // matching the reference.
                     Row(children: [
+                      Expanded(
+                        child: _circleActionBtn(Icons.card_giftcard, 'إرسال هدية', const Color(0xFFDB2777), () {
+                          Navigator.pop(context);
+                          _openGiftSheetToUser(context, _Recipient(
+                              id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                        }),
+                      ),
+                      Expanded(
+                        child: _circleActionBtn(Icons.chat_bubble_rounded, 'الدردشة', const Color(0xFFF472B6), () {
+                          Navigator.pop(context);
+                          _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                        }),
+                      ),
+                      Expanded(
+                        child: _circleActionBtn(Icons.favorite, 'متابعة', const Color(0xFF22D3EE), () {
+                          Navigator.pop(context);
+                          unawaited(_handleFollowFromRoom(seat.userId!));
+                        }),
+                      ),
                       Expanded(
                         child: _circleActionBtn(Icons.alternate_email_rounded, '@', const Color(0xFF4ADE80), () {
                           Navigator.pop(context);
@@ -4915,25 +4924,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             _externalTextController.selection = TextSelection.fromPosition(
                                 TextPosition(offset: _externalTextController.text.length));
                           });
-                        }),
-                      ),
-                      Expanded(
-                        child: _circleActionBtn(Icons.favorite, 'متابعة', const Color(0xFF22D3EE), () {
-                          Navigator.pop(context);
-                          unawaited(_handleFollowFromRoom(seat.userId!));
-                        }),
-                      ),
-                      Expanded(
-                        child: _circleActionBtn(Icons.chat_bubble_rounded, 'الدردشة', const Color(0xFFF472B6), () {
-                          Navigator.pop(context);
-                          _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
-                        }),
-                      ),
-                      Expanded(
-                        child: _circleActionBtn(Icons.card_giftcard, 'إرسال هدية', const Color(0xFFDB2777), () {
-                          Navigator.pop(context);
-                          _openGiftSheetToUser(context, _Recipient(
-                              id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
                         }),
                       ),
                     ]),
