@@ -90,10 +90,13 @@ class AgencyService {
     }
   }
 
-  Future<void> transferOwnership(int toUserId) async {
+  /// [agencyType] disambiguates when the caller owns both a HOSTING and a
+  /// CHARGING agency — without it, the backend transfers whichever one it
+  /// finds first, which is only safe for a single-agency owner.
+  Future<void> transferOwnership(int toUserId, {String? agencyType}) async {
     await DioClient.dio.post(
       '/agencies/transfer-ownership',
-      data: {'toUserId': toUserId},
+      data: {'toUserId': toUserId, if (agencyType != null) 'agencyType': agencyType},
       options: await _auth(),
     );
   }

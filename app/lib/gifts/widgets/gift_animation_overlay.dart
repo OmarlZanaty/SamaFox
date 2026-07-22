@@ -8,6 +8,7 @@ import '../models/gift.dart';
 import '../services/gift_socket_service.dart';
 import 'broadcast_banner_layer.dart';
 import 'fireworks_overlay.dart';
+import 'gift_player.dart';
 
 /// Full-screen gift animation stack. Mount above the voice room UI.
 ///
@@ -55,12 +56,21 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   }
 
   void _onGift(GiftSendEvent event) {
-    final qty = event.quantity.clamp(1, 30);
-    for (int i = 0; i < qty; i++) {
-      Future.delayed(Duration(milliseconds: i * _staggerMs), () {
-        if (!mounted) return;
-        _spawnFlight(event, i, qty);
-      });
+    // Video gifts carry sound and a real clip — repeating that N times for a
+    // ×N send would replay the same video N times over each other. They
+    // spawn exactly ONE flight, badged with the send count, and play once.
+    // Image/SVG gifts have no audio and are cheap to repeat, so those keep
+    // spawning one flight per unit as before.
+    if (event.gift.format == GiftFormat.video) {
+      _spawnFlight(event, 0, 1, displayQuantity: event.quantity.clamp(1, 30));
+    } else {
+      final qty = event.quantity.clamp(1, 30);
+      for (int i = 0; i < qty; i++) {
+        Future.delayed(Duration(milliseconds: i * _staggerMs), () {
+          if (!mounted) return;
+          _spawnFlight(event, i, qty);
+        });
+      }
     }
 
     // VIP tier (LEGENDARY) → fireworks + sound + banner
@@ -69,7 +79,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     }
   }
 
-  void _spawnFlight(GiftSendEvent event, int index, int total) {
+  void _spawnFlight(GiftSendEvent event, int index, int total, {int? displayQuantity}) {
     while (_flights.length >= _maxConcurrent) {
       final old = _flights.removeAt(0);
       old.controller.dispose();
@@ -91,6 +101,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       controller: controller,
       index: index,
       total: total,
+      displayQuantity: displayQuantity,
     );
 
     setState(() => _flights.add(flight));
@@ -191,6 +202,7 @@ class _Flight {
     required this.controller,
     required this.index,
     required this.total,
+    this.displayQuantity,
   });
   final int id;
   final GiftSendEvent event;
@@ -199,6 +211,9 @@ class _Flight {
   final AnimationController controller;
   final int index;
   final int total;
+  /// Set only for the single-flight video case — the ×N badge to show since
+  /// this one flight represents the whole send, not one unit of it.
+  final int? displayQuantity;
 }
 
 class _VipBurst {
@@ -299,7 +314,7 @@ class _FlightWidget extends StatelessWidget {
             opacity: opacity.clamp(0.0, 1.0),
             child: Transform.rotate(
               angle: rotation,
-              child: _GiftVisual(gift: flight.event.gift, progress: t),
+              child: _GiftVisual(gift: flight.event.gift, quantity: flight.displayQuantity),
             ),
           ),
         );
@@ -308,102 +323,29 @@ class _FlightWidget extends StatelessWidget {
   }
 }
 
-/// Visual for an in-flight gift. The emoji + colour pair is hashed from
-/// the gift's id so each gift has a stable, distinct look. Also rotates
-/// through 4 decoration styles so adjacent gifts feel different.
+/// Visual for an in-flight gift — the gift's OWN art: its static icon, or for
+/// a VIDEO-format gift its uploaded clip (via the existing [GiftPlayer],
+/// previously built but never mounted anywhere live). [quantity] is only set
+/// for the single-flight video case, where it renders as a "×N" badge since
+/// one flight is standing in for the whole send.
 class _GiftVisual extends StatelessWidget {
-  const _GiftVisual({required this.gift, required this.progress});
+  const _GiftVisual({required this.gift, this.quantity});
   final Gift gift;
-  final double progress;
-
-  static const List<String> _emojiPool = [
-    '💖','🌹','⭐','🎁','💎','👑','🏆','🚀','🛥️','🏰',
-    '🌌','🦄','🐉','🎂','🍰','☕','🍫','🎈','🍾','💍',
-    '🧸','🎀','🌟','🎆','✈️','🚗','🔥','✨','🌈','🎉',
-  ];
-
-  // Gradient pairs ordered roughly: pinks, oranges, blues, purples, greens.
-  static const List<List<Color>> _colorPool = [
-    [Color(0xFFFF80AB), Color(0xFFF50057)],
-    [Color(0xFFFFAB91), Color(0xFFD84315)],
-    [Color(0xFFFFD54F), Color(0xFFFF6F00)],
-    [Color(0xFFFFF59D), Color(0xFFF57F17)],
-    [Color(0xFFA5D6A7), Color(0xFF2E7D32)],
-    [Color(0xFF80DEEA), Color(0xFF00838F)],
-    [Color(0xFF80D8FF), Color(0xFF0277BD)],
-    [Color(0xFF9FA8DA), Color(0xFF283593)],
-    [Color(0xFFB39DDB), Color(0xFF4527A0)],
-    [Color(0xFFE1BEE7), Color(0xFF6A1B9A)],
-    [Color(0xFFF48FB1), Color(0xFFAD1457)],
-    [Color(0xFFFFE082), Color(0xFFEF6C00)],
-  ];
-
-  /// Stable hash of the gift id (cuid) → int.
-  static int _hash(String s) {
-    var h = 5381;
-    for (var i = 0; i < s.length; i++) {
-      h = ((h << 5) + h + s.codeUnitAt(i)) & 0x7fffffff;
-    }
-    return h;
-  }
+  final int? quantity;
 
   @override
   Widget build(BuildContext context) {
-    final h = _hash(gift.id);
-    final emoji = _emojiPool[h % _emojiPool.length];
-    final colors = _colorPool[(h ~/ 31) % _colorPool.length];
-    final style = h % 4; // 0..3 decoration variants
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final side = math.min(constraints.maxWidth, constraints.maxHeight);
         return Stack(
           alignment: Alignment.center,
           children: [
-            // Outer glow halo, breathing with progress
-            Container(
-              width: side,
-              height: side,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [colors.first.withOpacity(0.55), Colors.transparent],
-                  stops: const [0.0, 1.0],
-                ),
-              ),
-            ),
-
-            // Style-specific decoration ring
-            _decoration(style, side, colors),
-
-            // Solid inner disc
-            Container(
-              width: side * 0.62,
-              height: side * 0.62,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: colors,
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: colors.first.withOpacity(0.5),
-                    blurRadius: side * 0.10,
-                    spreadRadius: side * 0.02,
-                  ),
-                ],
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                emoji,
-                style: TextStyle(
-                  fontSize: side * 0.32,
-                  shadows: const [
-                    Shadow(blurRadius: 8, color: Colors.black54, offset: Offset(0, 2)),
-                  ],
-                ),
+            ClipOval(
+              child: SizedBox(
+                width: side * 0.9,
+                height: side * 0.9,
+                child: GiftPlayer(gift: gift, onComplete: () {}, onError: () {}),
               ),
             ),
 
@@ -427,92 +369,33 @@ class _GiftVisual extends StatelessWidget {
                   ),
                 ),
               ),
+
+            // ×N badge — this one flight represents the whole send.
+            if (quantity != null && quantity! > 1)
+              Positioned(
+                top: side * 0.06,
+                right: side * 0.06,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF50057),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 6)],
+                  ),
+                  child: Text(
+                    '×$quantity',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: side * 0.06,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       },
     );
-  }
-
-  Widget _decoration(int style, double side, List<Color> colors) {
-    switch (style) {
-      case 0:
-        // Dashed rotating ring
-        return Transform.rotate(
-          angle: progress * math.pi * 2,
-          child: Container(
-            width: side * 0.85,
-            height: side * 0.85,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: colors.first.withOpacity(0.6), width: 2),
-            ),
-          ),
-        );
-      case 1:
-        // Double concentric rings
-        return Stack(alignment: Alignment.center, children: [
-          Container(
-            width: side * 0.88,
-            height: side * 0.88,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
-            ),
-          ),
-          Container(
-            width: side * 0.76,
-            height: side * 0.76,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: colors.last.withOpacity(0.5), width: 1.5),
-            ),
-          ),
-        ]);
-      case 2:
-        // Sparkle dots around the disc
-        return SizedBox(
-          width: side * 0.92,
-          height: side * 0.92,
-          child: Stack(
-            children: List.generate(8, (i) {
-              final a = i * math.pi / 4 + progress * math.pi * 2;
-              final r = side * 0.42;
-              return Positioned(
-                left: side * 0.46 + math.cos(a) * r - 4,
-                top: side * 0.46 + math.sin(a) * r - 4,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white,
-                    boxShadow: [BoxShadow(color: colors.first, blurRadius: 6)],
-                  ),
-                ),
-              );
-            }),
-          ),
-        );
-      case 3:
-      default:
-        // Pulsing aura ring
-        final pulse = 0.85 + 0.10 * math.sin(progress * math.pi * 4);
-        return Container(
-          width: side * 0.92 * pulse,
-          height: side * 0.92 * pulse,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: SweepGradient(
-              colors: [
-                colors.first.withOpacity(0.0),
-                colors.first.withOpacity(0.6),
-                colors.last.withOpacity(0.6),
-                colors.first.withOpacity(0.0),
-              ],
-            ),
-          ),
-        );
-    }
   }
 }
 

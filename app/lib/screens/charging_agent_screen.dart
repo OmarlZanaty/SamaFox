@@ -15,11 +15,21 @@ import '../utils/result.dart';
 import 'package:dio/dio.dart';
 
 /// Charging Agent Screen - وكيل الشحن
-class ChargingAgentScreen extends ConsumerWidget {
+class ChargingAgentScreen extends ConsumerStatefulWidget {
   const ChargingAgentScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ChargingAgentScreen> createState() => _ChargingAgentScreenState();
+}
+
+class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
+  // #10: when a user owns/works BOTH a hosting and a charging agency, they
+  // pick which interface to work in rather than seeing both stacked at once.
+  // null = not chosen yet (only relevant when they actually have both).
+  String? _activeInterface;
+
+  @override
+  Widget build(BuildContext context) {
     final chargingAsync = ref.watch(chargingAgenciesProvider);
     final hostingAsync = ref.watch(hostingAgenciesProvider);
     final membershipsAsync = ref.watch(myMembershipsProvider);
@@ -31,6 +41,14 @@ class ChargingAgentScreen extends ConsumerWidget {
       data: (items) => items,
       orElse: () => const <int, String>{},
     );
+
+    final hasCharging = isSystemAdmin ||
+        chargingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
+    final hasHosting = isSystemAdmin ||
+        hostingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
+    final needsChoice = hasCharging && hasHosting;
+    final showCharging = !needsChoice || _activeInterface == 'CHARGING';
+    final showHosting = !needsChoice || _activeInterface == 'HOSTING';
 
     return Scaffold(
       backgroundColor: const Color(0xFF1A0E3E),
@@ -67,78 +85,133 @@ class ChargingAgentScreen extends ConsumerWidget {
             ref.invalidate(chargingAgenciesProvider);
             ref.invalidate(hostingAgenciesProvider);
           },
-          child: ListView(
-            padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 30),
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: _CreateAgencyButton(
-                      label: ' وكالة شحن',
-                      onTap: () => _handleCreateAgencyRequest(context, ref, type: 'CHARGING'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _CreateAgencyButton(
-                      label: 'وكالة استضافة',
-                      onTap: () => _handleCreateAgencyRequest(context, ref, type: 'HOSTING'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _AgencySidePanel(
-                title: 'وكالات الشحن',
-                children: [
-                  chargingAsync.when(
-                    data: (items) => items.isEmpty
-                        ? _emptyText('لا توجد وكالات شحن معتمدة حالياً')
-                        : _buildAgencyGrid(
-                            items,
-                            onTap: (agency) => _onAgencyTap(
-                              context,
-                              ref,
-                              agency,
-                              isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
-                              isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
-                            ),
+          child: needsChoice && _activeInterface == null
+              ? _buildInterfaceChooser()
+              : ListView(
+                  padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 30),
+                  children: [
+                    if (needsChoice)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: TextButton.icon(
+                          onPressed: () => setState(() => _activeInterface = null),
+                          icon: const Icon(Icons.swap_horiz, color: Colors.white70, size: 18),
+                          label: Text(
+                            'تبديل الواجهة (حالياً: ${_activeInterface == 'CHARGING' ? 'الشحن' : 'الاستضافة'})',
+                            style: const TextStyle(color: Colors.white70),
                           ),
-                    loading: () => const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (_, __) => _emptyText('تعذر تحميل وكالات الشحن حالياً'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              _AgencySidePanel(
-                title: 'وكالات الاستضافة',
-                children: [
-                  hostingAsync.when(
-                    data: (items) => items.isEmpty
-                        ? _emptyText('لا توجد وكالات استضافة معتمدة حالياً')
-                        : _buildAgencyGrid(
-                            items,
-                            onTap: (agency) => _onAgencyTap(
-                              context,
-                              ref,
-                              agency,
-                              isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
-                              isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
-                            ),
+                        ),
+                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _CreateAgencyButton(
+                            label: ' وكالة شحن',
+                            onTap: () => _handleCreateAgencyRequest(context, ref, type: 'CHARGING'),
                           ),
-                    loading: () => const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Center(child: CircularProgressIndicator()),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _CreateAgencyButton(
+                            label: 'وكالة استضافة',
+                            onTap: () => _handleCreateAgencyRequest(context, ref, type: 'HOSTING'),
+                          ),
+                        ),
+                      ],
                     ),
-                    error: (_, __) => _emptyText('تعذر تحميل وكالات الاستضافة حالياً'),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    if (showCharging) ...[
+                      _AgencySidePanel(
+                        title: 'وكالات الشحن',
+                        children: [
+                          chargingAsync.when(
+                            data: (items) => items.isEmpty
+                                ? _emptyText('لا توجد وكالات شحن معتمدة حالياً')
+                                : _buildAgencyGrid(
+                                    items,
+                                    onTap: (agency) => _onAgencyTap(
+                                      context,
+                                      ref,
+                                      agency,
+                                      isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
+                                      isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
+                                    ),
+                                  ),
+                            loading: () => const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                            error: (_, __) => _emptyText('تعذر تحميل وكالات الشحن حالياً'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    if (showHosting)
+                      _AgencySidePanel(
+                        title: 'وكالات الاستضافة',
+                        children: [
+                          hostingAsync.when(
+                            data: (items) => items.isEmpty
+                                ? _emptyText('لا توجد وكالات استضافة معتمدة حالياً')
+                                : _buildAgencyGrid(
+                                    items,
+                                    onTap: (agency) => _onAgencyTap(
+                                      context,
+                                      ref,
+                                      agency,
+                                      isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
+                                      isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
+                                    ),
+                                  ),
+                            loading: () => const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                            error: (_, __) => _emptyText('تعذر تحميل وكالات الاستضافة حالياً'),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInterfaceChooser() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'تعمل كوكيل شحن ووكيل استضافة معاً — اختر الواجهة التي تريد العمل عليها الآن',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70, fontSize: 15),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => setState(() => _activeInterface = 'CHARGING'),
+                icon: const Icon(Icons.attach_money),
+                label: const Text('العمل كوكيل شحن'),
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => setState(() => _activeInterface = 'HOSTING'),
+                icon: const Icon(Icons.mic),
+                label: const Text('العمل كوكيل استضافة'),
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -237,7 +310,7 @@ Future<void> _showChargingActions(
               ),
               // Branches (فرع) — same system access, no ownership (#2-4). Only
               // the owner manages who the branches are.
-              if (isOwner)
+              if (isOwner) ...[
                 ListTile(
                   textColor: Colors.white,
                   iconColor: Colors.white,
@@ -248,6 +321,20 @@ Future<void> _showChargingActions(
                     await _manageBranches(context, agency, agencyType: 'CHARGING');
                   },
                 ),
+                // #7: backend already supported this for CHARGING agencies —
+                // it just wasn't exposed from this screen (only the hosting
+                // panel had the button).
+                ListTile(
+                  textColor: Colors.white,
+                  iconColor: Colors.white,
+                  leading: const Icon(Icons.swap_horiz),
+                  title: const Text('نقل ملكية الوكالة'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _transferAgencyOwnership(context, agencyType: 'CHARGING');
+                  },
+                ),
+              ],
             ] else ...[
               ListTile(
                 textColor: Colors.white,
@@ -465,6 +552,106 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context) async {
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الشحن بنجاح')));
   } catch (_) {
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل الشحن')));
+  }
+}
+
+// #7: same search-then-confirm pattern as _sendAgencyCoinsToUser — enter the
+// new owner's ID, their name/photo appear so the owner confirms it's the
+// right person, then transfer. agencyType disambiguates for a user who owns
+// both a hosting and a charging agency (backend picks the wrong one without it).
+Future<void> _transferAgencyOwnership(BuildContext context, {required String agencyType}) async {
+  final idCtrl = TextEditingController();
+  Map<String, dynamic>? foundUser;
+  bool searching = false;
+  String? error;
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) {
+        Future<void> doSearch() async {
+          final q = idCtrl.text.trim();
+          if (q.isEmpty) return;
+          setState(() { searching = true; error = null; foundUser = null; });
+          try {
+            final resp = await DioClient.dio.get('/agencies/search-user', queryParameters: {'q': q});
+            final list = (resp.data is Map) ? (resp.data['data'] as List? ?? const []) : const [];
+            if (list.isNotEmpty) {
+              setState(() { foundUser = Map<String, dynamic>.from(list.first as Map); searching = false; });
+            } else {
+              setState(() { error = 'لم يتم العثور على مستخدم بهذا الرقم'; searching = false; });
+            }
+          } catch (_) {
+            setState(() { error = 'فشل البحث'; searching = false; });
+          }
+        }
+
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1F1247),
+          title: const Text('نقل ملكية الوكالة', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'ستفقد صلاحيات الوكيل وتصبح مضيفاً في هذه الوكالة.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: _MiniField(controller: idCtrl, label: 'رقم المستخدم الجديد (ID)')),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: searching ? null : doSearch,
+                    icon: const Icon(Icons.search, color: Colors.white),
+                  ),
+                ],
+              ),
+              if (searching) const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: CircularProgressIndicator(),
+              ),
+              if (error != null) Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(error!, style: const TextStyle(color: Colors.redAccent)),
+              ),
+              if (foundUser != null) Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage: (foundUser!['avatarUrl'] ?? '').toString().isNotEmpty
+                        ? NetworkImage(foundUser!['avatarUrl'].toString())
+                        : null,
+                    child: (foundUser!['avatarUrl'] ?? '').toString().isEmpty
+                        ? const Icon(Icons.person)
+                        : null,
+                  ),
+                  title: Text((foundUser!['name'] ?? '').toString(), style: const TextStyle(color: Colors.white)),
+                  subtitle: Text('#${foundUser!['displayId'] ?? foundUser!['id']}', style: const TextStyle(color: Colors.white70)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              onPressed: foundUser == null ? null : () => Navigator.pop(dialogContext, true),
+              child: const Text('نقل'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  if (ok != true || foundUser == null) return;
+  try {
+    await DioClient.dio.post('/agencies/transfer-ownership', data: {
+      'toUserId': foundUser!['id'],
+      'agencyType': agencyType,
+    });
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نقل الملكية بنجاح')));
+  } catch (_) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل نقل الملكية')));
   }
 }
 
