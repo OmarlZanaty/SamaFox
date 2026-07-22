@@ -20,6 +20,7 @@ const ok = (res: Response, data: any) => res.json({ success: true, ...data });
 
 const serialize = (obj: any): any => {
   if (typeof obj === 'bigint') return obj.toString();
+  if (obj instanceof Date) return obj.toISOString();
   if (Array.isArray(obj)) return obj.map(serialize);
   if (obj && typeof obj === 'object') {
     return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, serialize(v)]));
