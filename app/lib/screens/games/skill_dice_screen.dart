@@ -77,9 +77,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       if (mounted && r != null) _applyRound(r);
     }).catchError((_) {});
 
-    _spinTimer = Timer.periodic(_spinTick, (_) => _tickSpin());
     _countdown = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!mounted) return;
+      if (!mounted || _msLeft <= 0) return; // idle between rounds: no rebuild
       setState(() => _msLeft = max(0, _msLeft - 200));
     });
   }
@@ -117,6 +116,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         }
       }
     });
+    _syncSpinTimer();
   }
 
   void _onRoundResult(dynamic data) {
@@ -160,18 +160,36 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
   }
 
   // ── Dice spin / stop ──────────────────────────────────────
-  void _tickSpin() {
-    if (!mounted) return;
-    final spinning = _round?.isPlaying == true && _joinedCurrentRound && !_submitted;
-    var changed = false;
-    for (var i = 0; i < 3; i++) {
-      // Idle dice tumble too, so the table always looks alive.
-      final shouldSpin = spinning ? !_locked[i] : true;
-      if (!shouldSpin) continue;
-      _faces[i] = _faces[i] % 6 + 1;
-      changed = true;
+  /// The spin timer rebuilds this screen ~9x a second, so it only runs while
+  /// there is actually a die in motion — during our own play phase, with at
+  /// least one die still unlocked. Between rounds, while watching someone
+  /// else's round, or once all three are stopped, it is cancelled outright
+  /// rather than left ticking against a static table.
+  bool get _shouldSpin =>
+      _round?.isPlaying == true &&
+      _joinedCurrentRound &&
+      !_submitted &&
+      _locked.any((l) => !l);
+
+  void _syncSpinTimer() {
+    if (_shouldSpin) {
+      _spinTimer ??= Timer.periodic(_spinTick, (_) => _tickSpin());
+    } else {
+      _spinTimer?.cancel();
+      _spinTimer = null;
     }
-    if (changed) setState(() {});
+  }
+
+  void _tickSpin() {
+    if (!mounted || !_shouldSpin) {
+      _syncSpinTimer();
+      return;
+    }
+    setState(() {
+      for (var i = 0; i < 3; i++) {
+        if (!_locked[i]) _faces[i] = _faces[i] % 6 + 1;
+      }
+    });
   }
 
   void _tapDie(int index) {
@@ -186,6 +204,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         _notice = 'استخدمت إعادة الرمي';
       }
     });
+    _syncSpinTimer(); // stops once all three are locked, restarts on a re-roll
   }
 
   // ── Actions ───────────────────────────────────────────────
@@ -210,6 +229,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           _locked[i] = false;
         }
       });
+      _syncSpinTimer();
       ref.read(authStateProvider.notifier).updateCoinsBalance(result.balance);
     } on SkillDiceException catch (e) {
       if (mounted) setState(() => _notice = e.message);
@@ -220,6 +240,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     final r = _round;
     if (r == null || !r.isPlaying || !_joinedCurrentRound || _submitted) return;
     setState(() => _submitted = true);
+    _syncSpinTimer();
     try {
       final result = await _repo.submit(roundId: r.roundId, dice: List<int>.from(_faces));
       if (!mounted) return;
@@ -234,6 +255,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           _submitted = false;
           _notice = e.message;
         });
+        _syncSpinTimer(); // submit failed — let the player stop the dice again
       }
     }
   }
