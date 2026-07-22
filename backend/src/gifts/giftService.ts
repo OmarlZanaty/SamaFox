@@ -3,6 +3,7 @@ import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
 import { getCpConfig } from '../controllers/settings.controller';
 import { awardUserXP } from '../services/xp.service';
+import { checkAchievements } from '../controllers/achievement.controller';
 
 export interface SendGiftInput {
   senderId: number;
@@ -259,6 +260,22 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     } catch (e) {
       console.warn('agency commission notification failed:', e);
     }
+  }
+
+  // Medals: unlock any gifts_sent / level achievements this send earned.
+  // Best-effort and non-blocking — checkAchievements existed but had no
+  // caller anywhere, so no medal could ever unlock before this.
+  try {
+    const [giftsSent, sender] = await Promise.all([
+      prisma.giftTransaction.count({ where: { senderId: input.senderId } }),
+      prisma.user.findUnique({ where: { id: input.recipientId }, select: { level: true } }),
+    ]);
+    await checkAchievements(input.senderId, 'gifts_sent', giftsSent);
+    if (sender?.level != null) {
+      await checkAchievements(input.recipientId, 'level', sender.level);
+    }
+  } catch (e) {
+    console.warn('achievement check failed:', e);
   }
 
   return {

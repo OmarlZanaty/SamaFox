@@ -116,6 +116,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   bool _currentSeatMuted = true;
   final Completer<void> _roomReady = Completer<void>();
   static const double _bottomBarH = 64.0; // 👈 bottom bar height
+
+  /// Artwork behind the seat-tap profile card banner. Null → the purple
+  /// gradient stands in, so the card layout is already final and correct
+  /// without it. To switch the artwork on, upload the image (e.g. to
+  /// /uploads/profile-card-bg.png on the API host) and set this to its URL —
+  /// that's the only change needed.
+  static const String? _profileCardBackground = null;
   // ===== Admin bottom panel controllers (PERSISTENT) =====
   final TextEditingController _roomImageCtrl = TextEditingController();
   final TextEditingController _bgImageCtrl = TextEditingController();
@@ -4597,217 +4604,264 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
 
-                  // AVATAR + FRAME
-                  GestureDetector(
-                    onTap: isMine ? null : () {
-                      Navigator.pop(context);
-                      final roomState = ref.read(roomControllerProvider(widget.roomId));
-                      ref.read(pipProvider.notifier).activate(
-                        roomId: widget.roomId,
-                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
-                        roomImageUrl: roomState.roomImageUrl,
-                      );
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ProfileScreen(userId: seat.userId!),
+                  // ── BANNER HEADER ──
+                  // Artwork background + right-aligned identity block, with
+                  // the avatar overlapping the top-right corner. Matches the
+                  // reference card layout. When no card artwork asset exists
+                  // yet the gradient below stands in for it, so the layout is
+                  // final and only the image drops in later.
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        constraints: const BoxConstraints(minHeight: 150),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF4C1D95), Color(0xFF6D28D9), Color(0xFF3B1173)],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                          ),
+                          image: _profileCardBackground == null
+                              ? null
+                              : DecorationImage(
+                                  image: NetworkImage(_profileCardBackground!),
+                                  fit: BoxFit.cover,
+                                  colorFilter: ColorFilter.mode(
+                                    Colors.black.withOpacity(0.25),
+                                    BlendMode.darken,
+                                  ),
+                                ),
                         ),
-                      );
-                    },
-                    child: SizedBox(
-                      height: 160,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // pink glow behind
-                          Container(
-                            width: 150, height: 150,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: RadialGradient(colors: [
-                                Colors.purpleAccent.withOpacity(0.45),
-                                Colors.pink.withOpacity(0.2),
-                                Colors.transparent,
-                              ], stops: const [0.0, 0.5, 0.75]),
-                            ),
-                          ),
-                          // Show frame only when user has an activated one
-                          if (seat.avatarFrameUrl != null &&
-                              seat.avatarFrameUrl!.isNotEmpty)
-                            FramedAvatar(
-                              size: 160,
-                              avatarSize: 84,
-                              frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
-                              imageUrl: seat.avatarUrl,
-                              fallbackText: seat.username,
-                              glow: false,
-                            )
-                          else
-                            CircleAvatar(
-                              radius: 42,
-                              backgroundImage: seat.avatarUrl != null
-                                  ? NetworkImage(seat.avatarUrl!)
-                                  : null,
-                              child: seat.avatarUrl == null
-                                  ? const Icon(Icons.person, color: Colors.white, size: 36)
-                                  : null,
-                            ),
-                          // Online presence dot (Step 7).
-                          Positioned(
-                            right: 8,
-                            bottom: 8,
-                            child: OnlineDot(userId: seat.userId, size: 20),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        child: Padding(
+                          // Right padding leaves room for the overlapping avatar.
+                          padding: const EdgeInsets.fromLTRB(14, 14, 104, 14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // NAME + flag
+                              FutureBuilder<Result<User>>(
+                                future: profileFuture,
+                                builder: (context, snapshot) {
+                                  final profile =
+                                      snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
+                                  final flag = countryFlagEmoji(profile?.countryCode);
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      if (flag != null) ...[
+                                        Text(flag, style: const TextStyle(fontSize: 20)),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Flexible(
+                                        child: Text(
+                                          seat.username ?? 'Unknown',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                            shadows: [
+                                              Shadow(color: Colors.black87, blurRadius: 6, offset: Offset(0, 2)),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 8),
 
-                  // NAME
-                  Transform.rotate(
-                    angle: -0.021,
-                    child: Text(
-                      seat.username ?? 'Unknown',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'Georgia',
-                        fontSize: 28, fontWeight: FontWeight.w700,
-                        color: Colors.white, letterSpacing: 0.5,
-                        shadows: [
-                          Shadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
-                          Shadow(color: Color(0x66E040FB), blurRadius: 24),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
+                              // BADGE ROWS — level/ID/VIP render instantly from
+                              // live seat data; age/gender/agency/family fill in
+                              // when the profile fetch resolves. Nothing is ever
+                              // a placeholder: each chip is omitted until real.
+                              FutureBuilder<Result<User>>(
+                                future: profileFuture,
+                                builder: (context, snapshot) {
+                                  final profile =
+                                      snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
+                                  final genderSymbol = profile?.gender == 'female'
+                                      ? '♀'
+                                      : profile?.gender == 'male'
+                                          ? '♂'
+                                          : null;
 
-                  // BADGES ROW — level (from live seat data, instant) + ID/VIP
-                  // (already real, unchanged from before).
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _badgePill('Lv.${seat.level}', const Color(0xFF10B981), Icons.terrain),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.07),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white.withOpacity(0.14)),
-                          ),
-                          child: Row(children: [
-                            const Icon(Icons.badge_outlined, size: 14, color: Colors.white54),
-                            const SizedBox(width: 6),
-                            Text('ID: #${seat.displayId ?? seat.userId ?? ''}',
-                                style: const TextStyle(fontSize: 12, color: Colors.white60)),
-                            const SizedBox(width: 6),
-                            const Icon(Icons.copy, size: 12, color: Colors.white38),
-                            if (seat.vipLevel > 0) ...[
-                              const SizedBox(width: 8),
-                              VipBadge(level: seat.vipLevel),
+                                  return Wrap(
+                                    alignment: WrapAlignment.end,
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      if (profile?.age != null || genderSymbol != null)
+                                        _badgePill(
+                                          [
+                                            if (profile?.age != null) '${profile!.age}',
+                                            if (genderSymbol != null) genderSymbol,
+                                          ].join(' '),
+                                          const Color(0xFF3B82F6),
+                                          profile?.gender == 'female' ? Icons.female : Icons.male,
+                                        ),
+                                      _badgePill('${seat.level}', const Color(0xFF10B981), Icons.terrain),
+                                      if (seat.vipLevel > 0) VipBadge(level: seat.vipLevel),
+                                      _badgePill(
+                                        '#${seat.displayId ?? seat.userId ?? ''}',
+                                        const Color(0xFFF59E0B),
+                                        Icons.badge_outlined,
+                                      ),
+                                      if (profile?.agencyRole != null)
+                                        _badgePill(
+                                          profile!.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                                          profile.agencyRole == 'agent'
+                                              ? const Color(0xFFF59E0B)
+                                              : const Color(0xFF14B8A6),
+                                          Icons.workspace_premium,
+                                        ),
+                                      if (profile?.familyName != null && profile!.familyName!.isNotEmpty)
+                                        _badgePill(
+                                            profile.familyName!, const Color(0xFF8B5CF6), Icons.shield),
+                                      MicPerfectBadge(userId: seat.userId),
+                                    ],
+                                  );
+                                },
+                              ),
                             ],
-                            const SizedBox(width: 8),
-                            MicPerfectBadge(userId: seat.userId),
-                          ]),
+                          ),
                         ),
-                      ],
-                    ),
+                      ),
+
+                      // AVATAR — overlaps the banner's top-right corner.
+                      Positioned(
+                        top: -14,
+                        right: 10,
+                        child: GestureDetector(
+                          onTap: isMine
+                              ? null
+                              : () {
+                                  Navigator.pop(context);
+                                  final roomState = ref.read(roomControllerProvider(widget.roomId));
+                                  ref.read(pipProvider.notifier).activate(
+                                        roomId: widget.roomId,
+                                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+                                        roomImageUrl: roomState.roomImageUrl,
+                                      );
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ProfileScreen(userId: seat.userId!),
+                                    ),
+                                  );
+                                },
+                          child: SizedBox(
+                            width: 96,
+                            height: 96,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                if (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
+                                  FramedAvatar(
+                                    size: 96,
+                                    avatarSize: 58,
+                                    frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
+                                    imageUrl: seat.avatarUrl,
+                                    fallbackText: seat.username,
+                                    glow: false,
+                                  )
+                                else
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white, width: 2.5),
+                                    ),
+                                    child: CircleAvatar(
+                                      radius: 34,
+                                      backgroundImage:
+                                          seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                      child: seat.avatarUrl == null
+                                          ? const Icon(Icons.person, color: Colors.white, size: 30)
+                                          : null,
+                                    ),
+                                  ),
+                                Positioned(
+                                  right: 6,
+                                  bottom: 6,
+                                  child: OnlineDot(userId: seat.userId, size: 16),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 10),
 
-                  // REAL PROFILE ENRICHMENT — age/gender, country flag, agency
-                  // role, family, and recently-unlocked medals. All of this
-                  // requires the async profile fetch, and per the no-fake-data
-                  // rule nothing here ever shows a placeholder: each piece is
-                  // simply omitted until real data says otherwise.
+                  // ── MEDALS BAR (الميداليات) ──
+                  // Hidden entirely when the user has unlocked nothing — an
+                  // empty medal rail would just be decoration pretending to be
+                  // data.
                   FutureBuilder<Result<User>>(
                     future: profileFuture,
                     builder: (context, snapshot) {
                       final profile = snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
-                      if (profile == null) return const SizedBox.shrink();
+                      final medals = profile?.achievements ?? const <AchievementBadge>[];
+                      if (medals.isEmpty) return const SizedBox.shrink();
 
-                      final flag = countryFlagEmoji(profile.countryCode);
-                      final genderSymbol = profile.gender == 'female'
-                          ? '♀'
-                          : profile.gender == 'male'
-                              ? '♂'
-                              : null;
-
-                      final chips = <Widget>[
-                        if (profile.age != null || genderSymbol != null)
-                          _badgePill(
-                            [if (profile.age != null) '${profile.age}', if (genderSymbol != null) genderSymbol]
-                                .join(' '),
-                            const Color(0xFF3B82F6),
-                            profile.gender == 'female' ? Icons.female : Icons.male,
-                          ),
-                        if (flag != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.07),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(flag, style: const TextStyle(fontSize: 16)),
-                          ),
-                        if (profile.agencyRole != null)
-                          _badgePill(
-                            profile.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
-                            profile.agencyRole == 'agent' ? const Color(0xFFF59E0B) : const Color(0xFF14B8A6),
-                            Icons.workspace_premium,
-                          ),
-                        if (profile.familyName != null && profile.familyName!.isNotEmpty)
-                          _badgePill(profile.familyName!, const Color(0xFF8B5CF6), Icons.shield),
-                      ];
-
-                      final medals = profile.achievements ?? const <AchievementBadge>[];
-                      if (chips.isEmpty && medals.isEmpty) return const SizedBox.shrink();
-
-                      return Column(
-                        children: [
-                          if (chips.isNotEmpty) ...[
-                            Wrap(alignment: WrapAlignment.center, spacing: 6, runSpacing: 6, children: chips),
-                            const SizedBox(height: 10),
-                          ],
-                          if (medals.isNotEmpty)
-                            SizedBox(
-                              height: 44,
-                              child: ListView.separated(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: medals.length,
-                                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                                itemBuilder: (_, i) {
-                                  final m = medals[i];
-                                  return Tooltip(
-                                    message: m.name,
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.28),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.white.withOpacity(0.10)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.arrow_back_ios, size: 13, color: Colors.white38),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: SizedBox(
+                                height: 38,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  reverse: true,
+                                  itemCount: medals.length,
+                                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                                  itemBuilder: (_, i) {
+                                    final m = medals[i];
+                                    return Tooltip(
+                                      message: m.name,
                                       child: Image.network(
                                         m.iconUrl,
-                                        width: 40,
-                                        height: 40,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => Container(
-                                          width: 40,
-                                          height: 40,
-                                          color: Colors.white12,
-                                          child: const Icon(Icons.emoji_events, color: Colors.white38, size: 18),
-                                        ),
+                                        width: 34,
+                                        height: 34,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (_, __, ___) => const Icon(
+                                            Icons.emoji_events,
+                                            color: Colors.white24,
+                                            size: 26),
                                       ),
-                                    ),
-                                  );
-                                },
+                                    );
+                                  },
+                                ),
                               ),
                             ),
-                          const SizedBox(height: 4),
-                        ],
+                            const SizedBox(width: 8),
+                            const Text('الميداليات',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700)),
+                          ],
+                        ),
                       );
                     },
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
 
                   // ACTIONS — role-based
                   if (isMine) ...[

@@ -121,5 +121,13 @@ export async function evaluateVip(
     console.warn('VIP level-up notification failed:', e);
   }
 
+  // Medals: unlock any vip_level achievements this promotion earned.
+  try {
+    const { checkAchievements } = await import('../controllers/achievement.controller');
+    await checkAchievements(userId, 'vip_level', newLevel);
+  } catch (e) {
+    console.warn('VIP achievement check failed:', e);
+  }
+
   return { leveledUp: true, vipLevel: newLevel };
 }
