@@ -2,6 +2,7 @@ import prisma from '../utils/prisma';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
 import { getCpConfig } from '../controllers/settings.controller';
+import { awardUserXP } from '../services/xp.service';
 
 export interface SendGiftInput {
   senderId: number;
@@ -121,9 +122,35 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       let recipientCredit = 0;
       const hostMembership = await tx.agencyMember.findFirst({
         where: { userId: input.recipientId, agency: { type: 'HOSTING' } },
-        select: { id: true },
+        select: { id: true, agencyId: true, role: true },
       });
       recipientCredit = hostMembership && !isSelfGift ? 0 : Math.floor(totalCoins / 2);
+
+      // #4: agency owner's 20% commission on a host's gift earnings. Only
+      // fires on the exact event that constitutes a host "earning" here —
+      // the same condition that zeroed their direct credit above (real gift,
+      // not self-gift, recipient is a hosting-agency member). Credited
+      // straight to the owner's balance now, not gated behind the host's own
+      // target conversion (client said "يذهب مباشرة" — goes directly).
+      // Skipped when the recipient IS the owner (no separate agent to pay).
+      let commission: { ownerId: number; agencyId: number; amount: number } | null = null;
+      if (hostMembership && !isSelfGift && hostMembership.role !== 'OWNER') {
+        const COMMISSION_RATE = Number(process.env.AGENCY_COMMISSION_RATE ?? 0.2);
+        const owner = await tx.agencyMember.findFirst({
+          where: { agencyId: hostMembership.agencyId, role: 'OWNER' },
+          select: { userId: true },
+        });
+        if (owner) {
+          const amount = Math.floor(totalCoins * COMMISSION_RATE);
+          if (amount > 0) {
+            await tx.user.update({
+              where: { id: owner.userId },
+              data: { coinsBalance: { increment: amount } },
+            });
+            commission = { ownerId: owner.userId, agencyId: hostMembership.agencyId, amount };
+          }
+        }
+      }
 
       let recipientBalance: number;
       if (recipientCredit > 0) {
@@ -145,6 +172,16 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         where: { id: input.senderId },
         select: { coinsBalance: true },
       });
+
+      // Level/XP: previously dead code (nothing called awardUserXP), so
+      // "in-app support" never moved a user's level as the client reported.
+      // The recipient's level now grows with the coin value of gifts they
+      // receive. Rate is a default (no client spec given) — tune via env.
+      const XP_PER_COIN = Number(process.env.GIFT_XP_PER_COIN ?? 0.01);
+      const xpGained = Math.floor(totalCoins * XP_PER_COIN);
+      if (xpGained > 0) {
+        await awardUserXP(input.recipientId, xpGained, tx);
+      }
 
       const txRow = await tx.giftTransaction.create({
         data: {
@@ -178,6 +215,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         recipientBalance,
         recipientCredit,
         broadcast,
+        commission,
       };
     },
     { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
@@ -200,6 +238,26 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       });
     } catch (e) {
       console.warn('gift notification failed:', e);
+    }
+  }
+
+  // #4: notify the agency owner about their commission (best-effort, mirrors
+  // the recipient notification above — never blocks the gift itself).
+  if (result.commission) {
+    try {
+      const recipientUser = await prisma.user.findUnique({
+        where: { id: input.recipientId },
+        select: { name: true },
+      });
+      await createNotification({
+        userId: result.commission.ownerId,
+        type: 'AGENCY_COMMISSION',
+        title: '💰 عمولة وكيل',
+        body: `حصلت على ${result.commission.amount} كوينز كعمولة من هدية استلمها ${recipientUser?.name ?? 'أحد أعضاء وكالتك'}`,
+        data: { agencyId: result.commission.agencyId, amount: result.commission.amount, fromUserId: input.recipientId },
+      });
+    } catch (e) {
+      console.warn('agency commission notification failed:', e);
     }
   }
 

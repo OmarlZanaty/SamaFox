@@ -230,8 +230,11 @@ function renderEditor() {
           <div class="field"><label>Format</label>
             <select id="f-format">${['SVG_CSS','VIDEO'].map((t) => `<option ${d.format===t?'selected':''}>${t}</option>`).join('')}</select>
           </div>
-          <div class="field"><label>Category</label>
-            <select id="f-category">${['love','luxury','fun','vip','festive','general'].map((t) => `<option ${d.category===t?'selected':''}>${t}</option>`).join('')}</select>
+          <div class="field"><label>Category (tab in the app)</label>
+            <select id="f-category">${[
+              ['love','العلاقة'], ['luxury','خاص'], ['lucky','محظوظ'],
+              ['magic','ماجيك'], ['flag','علم'], ['bag','كيس'],
+            ].map(([v,label]) => `<option value="${v}" ${d.category===v?'selected':''}>${v} — ${label}</option>`).join('')}</select>
           </div>
         </div>
         <div class="row3">

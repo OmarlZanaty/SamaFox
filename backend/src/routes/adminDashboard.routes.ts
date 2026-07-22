@@ -7,6 +7,7 @@ import {
   adminDashboardBroadcast,
   adminChangeUserDisplayId,
   adminUpdateUserProfile,
+  adminUpdateUserProgression,
   adminDashboardCreateQuest,
   adminDashboardDeleteQuest,
   adminDashboardForceCloseRoom,
@@ -28,6 +29,8 @@ import {
   adminDashboardUpdateReport,
   adminListAgencyRequests,
   adminReviewAgencyRequest,
+  adminAssignAgency,
+  adminListAssignedAgencies,
   adminTopupAgency,
   adminSetAgencyTarget,
   adminCreateGift,
@@ -67,6 +70,7 @@ router.get('/users', adminDashboardListUsers);
 router.patch('/users/:id/ban', adminDashboardBanUser);
 router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);
 router.patch('/users/:id/profile', adminUpdateUserProfile);
+router.patch('/users/:id/progression', adminUpdateUserProgression);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);
@@ -90,6 +94,8 @@ router.patch('/agencies/:id', adminDashboardUpdateAgency);
 router.get('/agencies/:id/charges', adminDashboardAgencyCharges);
 router.get('/agency-requests', adminListAgencyRequests);
 router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
+router.post('/agencies/assign', adminAssignAgency);
+router.get('/agencies/assigned-by-me', adminListAssignedAgencies);
 router.patch('/agencies/:id/topup', adminTopupAgency);
 router.patch('/agencies/:id/target', adminSetAgencyTarget);
 router.get('/agencies/:id/members', adminListAgencyMembers);

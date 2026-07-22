@@ -210,6 +210,7 @@
               <th>الهاتف</th>
               <th>الجنس</th>
               <th>الكوينز</th>
+              <th>المستوى / VIP / التارجت</th>
               <th>أدمن</th>
               <th>تاريخ الإنشاء</th>
               <th>إجراءات</th>
@@ -282,6 +283,23 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             تحميل
           </button>
+        </div>
+      </div>
+
+      <!-- Direct assign: admin enters a user ID and makes them owner of a new agency, no request/approval needed (#21) -->
+      <div class="form-card" style="margin-bottom:16px">
+        <div class="form-card-title">تعيين وكالة مباشرة (بدون طلب)</div>
+        <div class="form-row">
+          <input id="assignUserId" class="form-input" type="number" placeholder="رقم المستخدم (ID)" />
+          <select id="assignAgencyType" class="form-select">
+            <option value="HOSTING">استضافة</option>
+            <option value="CHARGING">شحن</option>
+          </select>
+          <input id="assignAgencyName" class="form-input" placeholder="اسم الوكالة (اختياري)" />
+          <button class="btn btn-primary" onclick="confirmAssignAgency()">تعيين</button>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+          <label class="modal-sub"><input id="assignedByMeFilter" type="checkbox" onchange="loadAgencies()" /> عرض الوكالات التي عيّنتها أنا فقط</label>
         </div>
       </div>
 
@@ -432,6 +450,7 @@
             <option value="avatar_frame">إطار</option>
             <option value="badge">شارة</option>
             <option value="chat_bubble">فقاعة دردشة</option>
+            <option value="chat_top_banner">أعلى قاعة الدردشة</option>
             <option value="background">خلفية الغرفة</option>
           </select>
           <input id="p_price" type="number" class="form-input" placeholder="السعر (coins)" />
@@ -862,6 +881,33 @@
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="confirmEditProfile()">تأكيد</button>
       <button class="btn btn-outline" onclick="closeEditProfileModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="progressionModal" onclick="closeProgressionModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل المستوى / VIP / XP</h3>
+        <p class="modal-sub">تعديل يدوي مباشر — كل حقل مستقل عن الآخر</p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">المستوى (Level)</label>
+      <input id="progLevel" class="form-input" type="number" min="1" placeholder="— بدون تغيير —" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">نقاط الخبرة (XP)</label>
+      <input id="progXp" class="form-input" type="number" min="0" placeholder="— بدون تغيير —" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">مستوى VIP</label>
+      <input id="progVip" class="form-input" type="number" min="0" placeholder="— بدون تغيير —" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditProgression()">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeProgressionModal()">إلغاء</button>
     </div>
   </div>
 </div>

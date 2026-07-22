@@ -88,14 +88,39 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
           banReason: true,
           coinsBalance: true,
           vipLevel: true,
+          level: true,
+          xp: true,
           createdAt: true,
           updatedAt: true,
         },
       }),
     ]);
 
+    // Target (#18) only applies to users who are a host or agent — pull each
+    // one's AgencyMember row in a single batched query rather than N+1.
+    const memberships = users.length
+      ? await (prisma as any).agencyMember.findMany({
+          where: { userId: { in: users.map((u) => u.id) } },
+          select: { userId: true, role: true, targetGoalCoins: true, agency: { select: { type: true } } },
+        })
+      : [];
+    const membershipByUser = new Map(memberships.map((m: any) => [m.userId, m]));
+
     return ok(res, {
-      data: users.map((u) => ({ ...u, coinsBalance: String(u.coinsBalance ?? 0) })),
+      data: users.map((u) => {
+        const membership = membershipByUser.get(u.id) as any;
+        return {
+          ...u,
+          coinsBalance: String(u.coinsBalance ?? 0),
+          target: membership
+            ? {
+                agencyType: membership.agency.type,
+                role: membership.role,
+                targetGoalCoins: String(membership.targetGoalCoins ?? 0n),
+              }
+            : null,
+        };
+      }),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (e) {
@@ -128,6 +153,47 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
     return res.json({ success: true, data: updated });
   } catch {
     return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Manual override of level/xp/vipLevel (#12, #18) — the automatic level/XP
+// system was previously dead (nothing awarded XP) and vipLevel only follows
+// totalRecharge, so an admin has no way to correct a user's standing. Each
+// field is independently settable (no forced recompute between them) so this
+// works as a true manual override, not a recalculation trigger.
+export const adminUpdateUserProgression = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid user id');
+
+    const data: any = {};
+    if (req.body?.level != null) {
+      const level = Number(req.body.level);
+      if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'level must be an integer >= 1');
+      data.level = level;
+    }
+    if (req.body?.xp != null) {
+      const xp = Number(req.body.xp);
+      if (!Number.isInteger(xp) || xp < 0) return fail(res, 400, 'xp must be an integer >= 0');
+      data.xp = xp;
+    }
+    if (req.body?.vipLevel != null) {
+      const vipLevel = Number(req.body.vipLevel);
+      if (!Number.isInteger(vipLevel) || vipLevel < 0) return fail(res, 400, 'vipLevel must be an integer >= 0');
+      data.vipLevel = vipLevel;
+    }
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    const updated = await (prisma as any).user.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, level: true, xp: true, vipLevel: true },
+    });
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'User not found');
+    console.error('adminUpdateUserProgression error:', e);
+    return fail(res, 500, 'Server error');
   }
 };
 
@@ -196,6 +262,17 @@ export const adminDashboardBanUser = async (req: Request, res: Response) => {
 
     const duration = String(req.body?.duration || 'permanent');
     if (!(duration in BAN_DURATIONS)) return fail(res, 400, 'Invalid duration');
+
+    // Regular admins may only ban up to 3 days; longer/permanent bans are
+    // super-admin only (#22).
+    const caller = await (prisma as any).user.findUnique({
+      where: { id: req.userId },
+      select: { isSuperAdmin: true },
+    });
+    if (!caller?.isSuperAdmin && duration !== '1d' && duration !== '3d') {
+      return fail(res, 403, 'Only a super-admin can use this ban duration');
+    }
+
     const ms = BAN_DURATIONS[duration];
     const now = new Date();
     const banExpiresAt = ms == null ? null : new Date(now.getTime() + ms);
@@ -865,6 +942,90 @@ export const adminReviewAgencyRequest = async (req: AdminReq, res: Response) => 
   }
 };
 
+// #21: admin/super-admin directly assigns a user as owner of a NEW hosting or
+// charging agency by ID — bypasses the self-request+approval flow entirely
+// (no KYC photos to review; the admin is vouching for this user directly).
+// Any dashboard admin may do this (not super-admin only) per the client spec.
+export const adminAssignAgency = async (req: AdminReq, res: Response) => {
+  try {
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+
+    const type = String(req.body?.type || '').toUpperCase();
+    if (!['HOSTING', 'CHARGING'].includes(type)) return fail(res, 400, "type must be 'HOSTING' or 'CHARGING'");
+
+    const rawUserId = req.body?.userId;
+    const rawDisplayId = req.body?.displayId;
+    const user = rawUserId != null
+      ? await db.user.findUnique({ where: { id: Number(rawUserId) }, select: { id: true, name: true, displayId: true } })
+      : rawDisplayId != null
+        ? await db.user.findUnique({ where: { displayId: Number(rawDisplayId) }, select: { id: true, name: true, displayId: true } })
+        : null;
+    if (!user) return fail(res, 404, 'User not found');
+
+    const existing = await db.chargingAgency.findFirst({
+      where: { userId: user.id, type, status: { not: 'rejected' } },
+    });
+    if (existing) return fail(res, 400, 'This user already has an agency of this type');
+
+    const agencyName = String(req.body?.agencyName || `وكالة ${user.name ?? user.id}`).trim();
+
+    const result = await db.$transaction(async (tx: any) => {
+      const agency = await tx.chargingAgency.create({
+        data: {
+          userId: user.id,
+          agencyName,
+          phoneNumber: '-',
+          agencyImageUrl: '',
+          idFrontUrl: '',
+          idBackUrl: '',
+          type,
+          status: 'approved',
+          assignedByAdminId: req.userId,
+        },
+      });
+      await tx.agencyMember.create({
+        data: { agencyId: agency.id, userId: user.id, role: 'OWNER' },
+      });
+      return agency;
+    });
+
+    try {
+      const { createNotification } = await import('../services/notification.service');
+      await createNotification({
+        userId: user.id,
+        type: 'AGENCY_ASSIGNED',
+        title: '🏢 تم تعيينك وكيلاً',
+        body: `تم تعيينك كوكيل ${type === 'HOSTING' ? 'استضافة' : 'شحن'} لوكالة "${agencyName}" بواسطة الإدارة`,
+        data: { agencyId: result.id, type },
+      });
+    } catch (e) {
+      console.warn('adminAssignAgency notification failed:', e);
+    }
+
+    return ok(res, { data: serialize(result) });
+  } catch (e) {
+    console.error('adminAssignAgency error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// #23: a dashboard admin's own view of agencies THEY specifically assigned via
+// adminAssignAgency, as opposed to every agency on the platform.
+export const adminListAssignedAgencies = async (req: AdminReq, res: Response) => {
+  try {
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+    const agencies = await db.chargingAgency.findMany({
+      where: { assignedByAdminId: req.userId },
+      include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return ok(res, { data: serialize(agencies) });
+  } catch (e) {
+    console.error('adminListAssignedAgencies error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 export const adminTopupAgency = async (req: AdminReq, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -1066,7 +1227,9 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
 
     const members = await db.agencyMember.findMany({
       where: { agencyId },
-      include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      include: {
+        user: { select: { id: true, name: true, avatarUrl: true, displayId: true, level: true, xp: true, vipLevel: true } },
+      },
       orderBy: { joinedAt: 'asc' },
     });
 
@@ -1090,6 +1253,15 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
         };
       }),
     );
+
+    // Owner/branch first, then by target (earnedCoins) descending — matches
+    // the agent-facing roster ordering (#3).
+    const rolePriority = (role: string) => (role === 'OWNER' ? 0 : role === 'BRANCH' ? 1 : 2);
+    withTargets.sort((a: any, b: any) => {
+      const roleDiff = rolePriority(a.role) - rolePriority(b.role);
+      if (roleDiff !== 0) return roleDiff;
+      return b.earnedCoins - a.earnedCoins;
+    });
 
     return ok(res, { data: serialize(withTargets) });
   } catch (e) {

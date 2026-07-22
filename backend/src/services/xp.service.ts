@@ -1,4 +1,7 @@
 import prisma from '../utils/prisma';
+import type { Prisma } from '@prisma/client';
+
+type DbClient = typeof prisma | Prisma.TransactionClient;
 
 /**
  * Calculate level from XP
@@ -56,11 +59,13 @@ export const awardRoomXP = async (roomId: number, xpAmount: number) => {
 };
 
 /**
- * Award XP to a user
+ * Award XP to a user. Pass a transaction client (`tx`) when called from
+ * inside another `$transaction` (e.g. gift receipt) so the XP/level update
+ * commits atomically with the rest of that operation.
  */
-export const awardUserXP = async (userId: number, xpAmount: number) => {
+export const awardUserXP = async (userId: number, xpAmount: number, client: DbClient = prisma) => {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await client.user.findUnique({
       where: { id: userId }
     });
 
@@ -72,7 +77,7 @@ export const awardUserXP = async (userId: number, xpAmount: number) => {
     const newLevel = calculateLevel(newXP);
     const leveledUp = newLevel > user.level;
 
-    await prisma.user.update({
+    await client.user.update({
       where: { id: userId },
       data: {
         xp: newXP,

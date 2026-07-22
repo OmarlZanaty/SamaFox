@@ -577,6 +577,16 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
       }),
     );
 
+    // Owner/branch (the "agent" row) always first, then members sorted by
+    // target (earnedCoins) descending — the roster is meant to read as a
+    // leaderboard under the agent, not a join-date list.
+    const rolePriority = (role: string) => (role === 'OWNER' ? 0 : role === 'BRANCH' ? 1 : 2);
+    stats.sort((a, b) => {
+      const roleDiff = rolePriority(a.role) - rolePriority(b.role);
+      if (roleDiff !== 0) return roleDiff;
+      return b.earnedCoins - a.earnedCoins;
+    });
+
     return res.json({
       success: true,
       data: {
@@ -811,7 +821,13 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
     if (!toUserId) return fail(res, 400, 'toUserId required');
     if (toUserId === ownerId) return fail(res, 400, 'Already the owner');
 
-    const m = await findOwnerMembership(ownerId);
+    // A user can own both a HOSTING and a CHARGING agency at once (#8) —
+    // without a type filter, findOwnerMembership's findFirst picks whichever
+    // one happens to come back first, which could silently transfer the
+    // WRONG agency. The client passes which one it means; only fall back to
+    // "whichever agency" for a caller with just one.
+    const requestedType = req.body?.agencyType ? String(req.body.agencyType).toUpperCase() : undefined;
+    const m = await findOwnerMembership(ownerId, requestedType);
     if (!m) return fail(res, 403, 'Not an agency owner');
 
     const target = await db.user.findUnique({ where: { id: toUserId }, select: { id: true } });
@@ -1130,6 +1146,80 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
     });
   } catch (e) {
     console.error('[agency.convertTarget] failed:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// POST /agencies/target/sell  { memberUserId, amount }
+// "بيع المستهدف" (#5) — the agency owner/branch cashes out PART OF A MEMBER's
+// own earned-but-unconverted target on their behalf, at the same 50% rate as
+// the member's self-service convertTarget above. The coins land on the
+// MEMBER's balance (this sells the member's target for them, it does not
+// move money to the owner) — distinct from the #4 commission, which is the
+// owner's own separate cut credited on gift receipt.
+export const sellMemberTarget = async (req: AuthReq, res: Response) => {
+  try {
+    const ownerId = req.userId;
+    if (!ownerId) return fail(res, 401, 'Unauthorized');
+
+    const memberUserId = Number(req.body?.memberUserId);
+    const amount = Math.floor(Number(req.body?.amount));
+    if (!memberUserId || !Number.isFinite(amount) || amount <= 0) {
+      return fail(res, 400, 'memberUserId و amount مطلوبة');
+    }
+
+    const manager = await findManagerMembership(ownerId, 'HOSTING');
+    if (!manager) return fail(res, 403, 'لست وكيل أو فرع في وكالة استضافة');
+
+    const membership = await db.agencyMember.findFirst({
+      where: { userId: memberUserId, agencyId: manager.agencyId, role: { not: 'OWNER' } },
+    });
+    if (!membership) return fail(res, 404, 'هذا المستخدم ليس عضواً في وكالتك');
+
+    const earned = await db.giftTransaction.aggregate({
+      where: { recipientId: memberUserId, senderId: { not: memberUserId }, createdAt: { gte: membership.joinedAt } },
+      _sum: { totalCoins: true },
+    });
+    const earnedCoins = Number(earned._sum.totalCoins ?? 0);
+    const converted = Number(membership.convertedTargetCoins ?? 0n);
+    const available = Math.max(0, earnedCoins - converted);
+
+    if (amount > available) {
+      return fail(res, 400, `أقصى مبلغ متاح للبيع الآن هو ${available} كوينز`);
+    }
+
+    const credit = Math.floor(amount / 2);
+    const [, updatedUser] = await db.$transaction([
+      db.agencyMember.update({
+        where: { id: membership.id },
+        data: { convertedTargetCoins: { increment: amount } },
+      }),
+      db.user.update({
+        where: { id: memberUserId },
+        data: { coinsBalance: { increment: credit } },
+        select: { coinsBalance: true },
+      }),
+    ]);
+
+    try {
+      await createNotification({
+        userId: memberUserId,
+        actorId: ownerId,
+        type: 'TARGET_SOLD',
+        title: '🎯 تم بيع جزء من المستهدف',
+        body: `قام الوكيل ببيع ${amount} كوينز من رصيد المستهدف الخاص بك مقابل ${credit} كوينز في رصيدك`,
+        data: { agencyId: manager.agencyId, amount, credit },
+      });
+    } catch (e) {
+      console.warn('sellMemberTarget notification failed:', e);
+    }
+
+    return res.json({
+      success: true,
+      data: { soldAmount: amount, creditedCoins: credit, memberNewBalance: updatedUser.coinsBalance, remainingConvertible: available - amount },
+    });
+  } catch (e) {
+    console.error('[agency.sellMemberTarget] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };

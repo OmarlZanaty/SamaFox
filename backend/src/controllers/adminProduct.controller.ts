@@ -19,10 +19,9 @@ export const createProduct = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "يجب رفع فيديو لهذا النوع" });
     }
 
-    if ((type === "avatar_frame" || type === "frame" || type === "background" || type === "badge" || type === "chat_bubble") && !isImage) {
+    if ((type === "avatar_frame" || type === "frame" || type === "background" || type === "badge" || type === "chat_bubble" || type === "entrance" || type === "chat_top_banner") && !isImage) {
       return res.status(400).json({ message: "يجب رفع صورة لهذا النوع" });
     }
-    // "entrance" (entry banner design) accepts image or video — no extra check.
 
     const configuredBaseUrl = String(process.env.BASE_URL || "").trim().replace(/\/+$/, "");
     const forwardedProto = (String(req.headers["x-forwarded-proto"] || "").split(",")[0] || "").trim();
@@ -43,7 +42,9 @@ export const createProduct = async (req: Request, res: Response) => {
               ? "BADGE"
               : type === "chat_bubble"
                 ? "CHAT_BUBBLE"
-                : type;
+                : type === "chat_top_banner"
+                  ? "CHAT_TOP_BANNER"
+                  : type;
 
     // Group 9: is_private=true puts the item in the Private Store — hidden
     // from the in-app store, only grantable by ID from the dashboard.

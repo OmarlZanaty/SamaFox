@@ -79,6 +79,7 @@ model User {
   bannedFromRooms          RoomBan[]                 @relation("BannedFromRoom")
   roomBans                 RoomBan[]                 @relation("RoomBanner")
   chargingAgencies         ChargingAgency[]
+  agenciesAssignedByMe     ChargingAgency[]          @relation("AgencyAssignedBy")
   agencyRequests           AgencyRequest[]
   agencyMembers            AgencyMember[]
   reviewedTopups           AgencyTopupRequest[]      @relation("TopupReviewedBy")
@@ -757,8 +758,15 @@ model ChargingAgency {
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   transfers AgencyTransfer[]
 
+  // #21/#23: set only when an admin/super-admin directly assigns this agency
+  // to a user (bypassing the self-request+approval flow). Lets a super-admin
+  // filter to "agencies I assigned" instead of seeing every agency.
+  assignedByAdminId Int?
+  assignedByAdmin   User? @relation("AgencyAssignedBy", fields: [assignedByAdminId], references: [id], onDelete: SetNull)
+
   @@index([userId])
   @@index([status])
+  @@index([assignedByAdminId])
   @@map("charging_agencies")
 }
 

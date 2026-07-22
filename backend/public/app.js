@@ -424,6 +424,9 @@ async function loadUsers() {
       <td><span class="cell-muted">${escapeHtml(u.phone ?? "")}</span></td>
       <td><span class="cell-muted">${escapeHtml(genderLabel(u.gender))}</span></td>
       <td><strong>${u.coinsBalance ?? u.coins ?? 0}</strong></td>
+      <td>
+        <span class="cell-muted">Lv.${u.level ?? 1} · VIP${u.vipLevel ?? 0}${u.target ? ` · 🎯${u.target.targetGoalCoins}` : ""}</span>
+      </td>
       <td>${u.isAdmin ? '<span class="badge badge-admin">أدمن</span>' : ""}</td>
       <td><span class="cell-muted">${fmtDate(u.createdAt)}</span></td>
       <td>
@@ -432,6 +435,7 @@ async function loadUsers() {
           <button class="btn-bad" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}', 'remove')">- كوينز</button>
           <button class="btn-outline" onclick="openDisplayIdModal(${Number(u.id || 0)}, this)">Change ID</button>
           <button class="btn-outline" onclick="openEditProfileModal(${Number(u.id || 0)}, ${JSON.stringify(u.name ?? "").replace(/"/g, '&quot;')}, '${escapeHtml(u.gender ?? "")}', ${u.nameLocked ? "true" : "false"})">تعديل</button>
+          <button class="btn-outline" onclick="openProgressionModal(${Number(u.id || 0)}, ${Number(u.level || 1)}, ${Number(u.xp || 0)}, ${Number(u.vipLevel || 0)})">المستوى/VIP</button>
           <button class="btn-bad" onclick="toggleUserBan(${u.id}, ${u.isBanned ? "false" : "true"})">${u.isBanned ? "فك حظر" : "حظر"}</button>
         </div>
       </td>
@@ -615,15 +619,24 @@ window.reviewAgencyRequest = async function (id, status) {
 // --- AGENCIES ---
 async function loadAgencies() {
   try { await loadAgencyRequests(); } catch (_) {}
-  const status = document.getElementById("agencyStatus").value;
-  const type   = document.getElementById("agencyType")?.value || "";
-  const search = (document.getElementById("agencySearch")?.value || "").trim();
-  const params = new URLSearchParams();
-  if (status) params.set("status", status);
-  if (type)   params.set("type", type);
-  if (search) params.set("search", search);
-  const qs = params.toString();
-  const d      = await apiFetch("/admin-dashboard/charging-agencies" + (qs ? `?${qs}` : ""));
+
+  // #23: "assigned by me" is a separate, unfiltered view — the agencies this
+  // specific admin directly created via تعيين وكالة مباشرة.
+  const onlyMine = document.getElementById("assignedByMeFilter")?.checked;
+  let d;
+  if (onlyMine) {
+    d = await apiFetch("/admin-dashboard/agencies/assigned-by-me");
+  } else {
+    const status = document.getElementById("agencyStatus").value;
+    const type   = document.getElementById("agencyType")?.value || "";
+    const search = (document.getElementById("agencySearch")?.value || "").trim();
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (type)   params.set("type", type);
+    if (search) params.set("search", search);
+    const qs = params.toString();
+    d = await apiFetch("/admin-dashboard/charging-agencies" + (qs ? `?${qs}` : ""));
+  }
   const tbody  = document.querySelector("#agenciesTable tbody");
   tbody.innerHTML = "";
 
@@ -661,6 +674,30 @@ async function loadAgencies() {
     tbody.appendChild(tr);
   }
 }
+
+// Direct assign (#21): admin enters a user ID, picks HOSTING/CHARGING, no
+// request/approval step. Separate from the self-service request flow above.
+window.confirmAssignAgency = async function () {
+  try {
+    const userId = Number(document.getElementById("assignUserId").value);
+    if (!userId) return showToast("❗ أدخل رقم المستخدم (ID)");
+    const type = document.getElementById("assignAgencyType").value;
+    const agencyName = document.getElementById("assignAgencyName").value.trim();
+
+    await apiFetch("/admin-dashboard/agencies/assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, type, agencyName: agencyName || undefined }),
+    });
+
+    showToast("✓ تم تعيين الوكالة");
+    document.getElementById("assignUserId").value = "";
+    document.getElementById("assignAgencyName").value = "";
+    await loadAgencies();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to assign agency"));
+  }
+};
 
 // Agency edit modal (name + nameLocked) — group 7
 let editAgencyId = null;
@@ -751,15 +788,23 @@ window.showAgencyMembers = async function (agencyId, agencyName) {
         // Group 8: dollar value of earnings + join date.
         const dollars = m.dollars != null ? `<span class="cell-muted">💵 $${Number(m.dollars).toFixed(2)}</span>` : "";
         const joined = m.joinedAt ? `<span class="cell-muted">📅 ${fmtDate(m.joinedAt)}</span>` : "";
+        // #19: level/VIP alongside target, editable via the same manual-override modal used in the users tab.
+        const level = Number(m.user?.level ?? 1);
+        const xp = Number(m.user?.xp ?? 0);
+        const vip = Number(m.user?.vipLevel ?? 0);
+        const progressionLabel = `<span class="cell-muted">Lv.${level} · VIP${vip}</span>`;
         return `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid var(--card-border);">
           <div>
             <strong>${escapeHtml(m.user?.name ?? "")}</strong>
             <span class="cell-muted">#${m.user?.displayId ?? m.userId}</span>
             <span class="cell-muted">— ${m.role === "OWNER" ? "وكيل" : "مضيف"}</span>
-            <div style="margin-top:2px;display:flex;gap:10px;flex-wrap:wrap">${targetLabel} ${dollars} ${joined}</div>
+            <div style="margin-top:2px;display:flex;gap:10px;flex-wrap:wrap">${targetLabel} ${progressionLabel} ${dollars} ${joined}</div>
           </div>
-          ${m.role === "OWNER" ? "" : `<button class="btn-bad" onclick="adminRemoveAgencyMember(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}')">إزالة (بدون رسوم)</button>`}
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn-outline" onclick="openProgressionModal(${Number(m.userId)}, ${level}, ${xp}, ${vip})">المستوى/VIP</button>
+            ${m.role === "OWNER" ? "" : `<button class="btn-bad" onclick="adminRemoveAgencyMember(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}')">إزالة (بدون رسوم)</button>`}
+          </div>
         </div>`;
       }).join("");
     }
@@ -820,10 +865,20 @@ window.toggleUserBan = async function(userId, shouldBan) {
   openBanModal(userId);
 };
 
-window.openBanModal = function (userId) {
+window.openBanModal = async function (userId) {
   selectedUserId = userId;
   document.getElementById("banReason").value = "";
-  document.getElementById("banDuration").value = "permanent";
+
+  // Regular admins may only ban up to 3 days (#22) — hide the longer
+  // options rather than let the request round-trip and 403.
+  const isSuper = await ensureAdminRoleKnown();
+  const sel = document.getElementById("banDuration");
+  for (const opt of sel.options) {
+    const longDuration = opt.value === "1m" || opt.value === "1y" || opt.value === "permanent";
+    opt.disabled = longDuration && !isSuper;
+  }
+  document.getElementById("banDuration").value = isSuper ? "permanent" : "3d";
+
   document.getElementById("banModal").classList.remove("hidden");
 };
 
@@ -1243,13 +1298,18 @@ const typeSelect   = document.getElementById("p_type");
 const fileLabelText = document.getElementById("fileLabelText");
 const p_fileInput  = document.getElementById("p_file");
 
+// Only "مركبة (تأثير الدخول)" (seat_effect / ENTRANCE_EFFECT) is actually a
+// video asset. Every other type — entrance banner, frame, badge, chat bubble,
+// room background — is a static image; they were incorrectly forced to
+// accept=video/* here, which made it impossible to pick an image file for
+// them even though the backend already validates them as images.
 typeSelect.addEventListener("change", () => {
-  if (typeSelect.value === "avatar_frame" || typeSelect.value === "frame") {
-    p_fileInput.accept     = "image/*";
-    fileLabelText.textContent = "اختر صورة الإطار";
-  } else {
-    p_fileInput.accept     = "video/*";
+  if (typeSelect.value === "seat_effect") {
+    p_fileInput.accept        = "video/*";
     fileLabelText.textContent = "اختر ملف الفيديو";
+  } else {
+    p_fileInput.accept        = "image/*";
+    fileLabelText.textContent = "اختر صورة";
   }
 });
 
@@ -1407,6 +1467,46 @@ window.confirmEditProfile = async function () {
   }
 };
 
+// --- Manual override: level / xp / vipLevel (#12, #18) ---
+window.openProgressionModal = function (userId, level, xp, vipLevel) {
+  selectedUserId = userId;
+  document.getElementById("progLevel").value = level ?? "";
+  document.getElementById("progXp").value = xp ?? "";
+  document.getElementById("progVip").value = vipLevel ?? "";
+  document.getElementById("progressionModal").classList.remove("hidden");
+};
+
+window.closeProgressionModal = function () {
+  selectedUserId = null;
+  document.getElementById("progressionModal").classList.add("hidden");
+};
+
+window.confirmEditProgression = async function () {
+  try {
+    if (!selectedUserId) return showToast("❗ اختر مستخدماً أولاً");
+    const body = {};
+    const level = document.getElementById("progLevel").value;
+    const xp = document.getElementById("progXp").value;
+    const vip = document.getElementById("progVip").value;
+    if (level !== "") body.level = Number(level);
+    if (xp !== "") body.xp = Number(xp);
+    if (vip !== "") body.vipLevel = Number(vip);
+    if (Object.keys(body).length === 0) return showToast("❗ عدّل حقلاً واحداً على الأقل");
+
+    await apiFetch(`/admin-dashboard/users/${selectedUserId}/progression`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    showToast("✓ تم حفظ المستوى/VIP");
+    closeProgressionModal();
+    await loadUsers();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to update progression"));
+  }
+};
+
 // ============================================================
 // EVENT LISTENERS
 // ============================================================
@@ -1517,14 +1617,22 @@ document.getElementById("btnAddGift")?.addEventListener("click", () => openGiftM
 // ============================================================
 // ADMINS (#22, #23) — roster + role management (super-admin only mutates)
 // ============================================================
-let currentAdminIsSuper = false;
+let currentAdminIsSuper = null; // null = not yet known, else boolean
 
-async function loadAdmins() {
-  // Learn the current dashboard user's own role to gate the controls.
+// Resolves currentAdminIsSuper once and caches it; safe to call from any
+// section (ban modal, admins tab, ...) without depending on load order.
+async function ensureAdminRoleKnown() {
+  if (currentAdminIsSuper !== null) return currentAdminIsSuper;
   try {
     const me = await apiFetch("/admin-dashboard/me");
     currentAdminIsSuper = !!(me.data && me.data.isSuperAdmin);
   } catch { currentAdminIsSuper = false; }
+  return currentAdminIsSuper;
+}
+
+async function loadAdmins() {
+  // Learn the current dashboard user's own role to gate the controls.
+  await ensureAdminRoleKnown();
 
   const note = document.getElementById("adminsSuperNote");
   if (note) note.style.display = currentAdminIsSuper ? "none" : "block";
