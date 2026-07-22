@@ -4639,13 +4639,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ),
                         child: Padding(
                           // Right padding leaves room for the overlapping avatar.
-                          padding: const EdgeInsets.fromLTRB(14, 22, 104, 14),
+                          padding: const EdgeInsets.fromLTRB(12, 14, 100, 12),
                           child: Column(
                             // The app runs RTL, so `start` is the RIGHT edge —
                             // which is where the identity block belongs, away
                             // from the fox artwork on the left.
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
+                            // Centred so the block sits in the card's optical
+                            // middle instead of hugging the top and leaving a
+                            // dead band underneath.
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               // NAME + flag
                               FutureBuilder<Result<User>>(
@@ -4763,15 +4766,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   );
                                 },
                           child: SizedBox(
-                            width: 96,
-                            height: 96,
+                            width: 84,
+                            height: 84,
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
                                 if (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
                                   FramedAvatar(
-                                    size: 96,
-                                    avatarSize: 58,
+                                    size: 84,
+                                    avatarSize: 52,
                                     frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
                                     imageUrl: seat.avatarUrl,
                                     fallbackText: seat.username,
@@ -4784,7 +4787,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                       border: Border.all(color: Colors.white, width: 2.5),
                                     ),
                                     child: CircleAvatar(
-                                      radius: 34,
+                                      radius: 30,
                                       backgroundImage:
                                           seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
                                       child: seat.avatarUrl == null
