@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'games/roulette_screen.dart';
 import 'games/crash_game_screen.dart';
+import 'games/skill_wheel_screen.dart';
 import 'games/fish_shooter_screen.dart';
 import 'games/lion_tiger_screen.dart';
 import 'games/skill_dice_screen.dart';
 
 const List<_GameEntry> _games = [
   _GameEntry(
-    title: 'روليت',
-    subtitle: 'ارهن على الأرقام والألوان',
-    emoji: '🎰',
-    gradient: [Color(0xFF1a0533), Color(0xFF6B21A8)],
-    badge: 'حظ',
+    title: 'طيّار',
+    subtitle: 'اسحب رهانك قبل أن تطير الطائرة',
+    emoji: '✈️',
+    gradient: [Color(0xFF1B1B1B), Color(0xFF3A0A16), Color(0xFF9B1C31)],
+    badge: 'رهان',
   ),
   _GameEntry(
-    title: 'كراش',
-    subtitle: 'اسحب قبل الانهيار',
-    emoji: '🚀',
-    gradient: [Color(0xFF0f2027), Color(0xFF203a43), Color(0xFF2c5364)],
-    badge: 'إثارة',
+    title: 'عجلة المهارة',
+    subtitle: 'أوقف العجلة على الرقم المطلوب واربح مكافأتك',
+    emoji: '🎯',
+    gradient: [Color(0xFF1a0533), Color(0xFF6B21A8)],
+    badge: 'مهارة',
   ),
   _GameEntry(
     title: 'صياد السمك',
@@ -29,11 +29,11 @@ const List<_GameEntry> _games = [
     badge: 'أركيد',
   ),
   _GameEntry(
-    title: 'الأسد vs النمر',
-    subtitle: 'من سيفوز؟ راهن الآن',
-    emoji: '🦁',
-    gradient: [Color(0xFF1a0a00), Color(0xFF8B4513)],
-    badge: 'رهان',
+    title: 'حلبة الأسد والنمر',
+    subtitle: 'ادخل الحلبة وسدّد لكماتك في الوقت المناسب',
+    emoji: '🥊',
+    gradient: [Color(0xFF4A148C), Color(0xFF7B1FA2), Color(0xFF2B1055)],
+    badge: 'مهارة',
   ),
   _GameEntry(
     title: 'نرد المهارة',
@@ -74,8 +74,8 @@ class GamesHubScreen extends ConsumerWidget {
               onTap: () {
                 Widget screen;
                 switch (index) {
-                  case 0: screen = const RouletteScreen(); break;
-                  case 1: screen = const CrashGameScreen(); break;
+                  case 0: screen = const CrashGameScreen(); break;
+                  case 1: screen = const SkillWheelScreen(); break;
                   case 2: screen = const FishShooterScreen(); break;
                   case 3: screen = const LionTigerScreen(); break;
                   case 4: screen = const SkillDiceScreen(); break;

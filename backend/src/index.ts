@@ -33,6 +33,9 @@ import adminDashAuthRoutes from './routes/admin-dashboard-auth.routes';
 import storeRoutes from "./routes/store.routes";
 import { initializeSocketHandlers } from './services/socket.service';
 import { startSkillDiceEngine } from './services/skillDice.service';
+import { startSkillWheelEngine } from './services/skillWheel.service';
+import { startCrashEngine } from './services/crash.service';
+import { startBoxingEngine } from './services/boxing.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
 import searchRoutes from './search/search.routes';
@@ -213,6 +216,9 @@ const io = new Server(httpServer, {
 initializeSocketHandlers(io);
 setGiftIo(io);
 startSkillDiceEngine(io);
+startSkillWheelEngine(io);
+startCrashEngine(io);
+startBoxingEngine(io);
 
 // error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

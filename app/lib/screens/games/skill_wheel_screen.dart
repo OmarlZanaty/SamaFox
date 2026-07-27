@@ -5,79 +5,95 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/auth_provider.dart';
-import '../../repositories/skill_dice_repository.dart';
+import '../../repositories/skill_wheel_repository.dart';
 import '../../services/socket_service.dart';
 
-/// نرد المهارة — Skill Dice.
+/// عجلة المهارة — Skill Wheel.
 ///
-/// This is the halal replacement for the classic "Greedy Dice" casino table.
-/// The original wagers coins on Small/Big/Tiger at 2x/35x odds, which is قمار:
-/// you stake money on an uncertain outcome and either multiply it or lose it.
+/// This is the halal replacement for the casino roulette table. The original
+/// stakes coins on a number / colour / dozen at 36x / 3x / 2x odds, which is
+/// قمار: you wager money on an uncertain outcome and either multiply it or lose
+/// it entirely.
 ///
-/// Here there is no wager at all. You pay a fixed, known entry price for one
-/// play — like paying for an arcade round — and the server announces a mission
-/// (e.g. "اجمع ١١ بالضبط"). Three dice spin; you tap to stop each one on the
-/// face you want, and you get one re-roll to fix your worst die. Your reward
-/// comes from how well you performed the mission, and every entrant is
-/// guaranteed a reward, so nobody ever walks away with nothing. Nobody wins
-/// another player's coins either — the podium is bragging rights only.
+/// Here there is no wager and no betting zone at all. You pay a fixed, known
+/// entry price for one play — like paying for an arcade round — and the server
+/// announces the target pocket BEFORE the wheel starts. The wheel then spins at
+/// a fixed, known speed and you tap to stop it: the closer the pointer lands to
+/// the announced pocket, the bigger the reward. Every entrant is guaranteed a
+/// reward, so nobody ever walks away with nothing, and nobody wins another
+/// player's coins — the podium is bragging rights only.
 ///
-/// The server owns the mission, the score and the reward table
-/// (backend/src/services/skillDice.service.ts); this screen only animates and
-/// reports the faces the player landed on.
-class SkillDiceScreen extends ConsumerStatefulWidget {
-  const SkillDiceScreen({super.key});
+/// The server owns the target, the score and the reward table
+/// (backend/src/services/skillWheel.service.ts); this screen only animates the
+/// wheel and reports the pocket the player stopped on.
+class SkillWheelScreen extends ConsumerStatefulWidget {
+  const SkillWheelScreen({super.key});
 
   @override
-  ConsumerState<SkillDiceScreen> createState() => _SkillDiceScreenState();
+  ConsumerState<SkillWheelScreen> createState() => _SkillWheelScreenState();
 }
 
-class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
-  /// How long each face is shown while a die is spinning. This is the game's
-  /// difficulty dial: the shorter it is, the harder it is to stop a die on the
-  /// face you want, so scores — and therefore payouts — drop with it.
-  /// At 70ms an elite player returned ~0.97x — effectively break-even for the
-  /// platform. 55ms holds them to ~0.89x while a casual player still gets
-  /// ~0.58x.
-  static const _spinTick = Duration(milliseconds: 55);
+class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
+    with SingleTickerProviderStateMixin {
+  /// Pocket order on the physical wheel — must match WHEEL_SEQUENCE in
+  /// backend/src/services/skillWheel.service.ts, since the server scores by
+  /// distance along this ring.
+  static const List<int> _sequence = [
+    0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5,
+    24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26,
+  ];
+
+  /// One full revolution. This is the game's difficulty dial: the faster it
+  /// spins, the harder it is to stop on the announced pocket, so scores — and
+  /// therefore payouts — drop with it. 2s over 37 pockets ≈ 54ms per pocket,
+  /// which is what the server's DISTANCE_SCORE table is calibrated against —
+  /// slowing it down makes the game player-positive and the platform loses
+  /// coins to skilled players.
+  static const _revolution = Duration(milliseconds: 2000);
+
   static const _bgTop = Color(0xFF1A0E3E);
   static const _bgBottom = Color(0xFF0D0620);
-  static const _felt = Color(0xFF0E5138);
+  static const _gold = Color(0xFFFFD54F);
 
-  final SkillDiceRepository _repo = SkillDiceRepository();
+  final SkillWheelRepository _repo = SkillWheelRepository();
   final SocketService _socket = SocketService();
 
-  DiceRound? _round;
-  List<DicePodiumEntry> _podium = const [];
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: _revolution,
+  );
+
+  WheelRound? _round;
+  List<WheelPodiumEntry> _podium = const [];
   int _resultRoundId = 0;
 
   // Local play state for the round we paid into.
   int _joinedRoundId = 0;
   int _entry = 1000;
   int _balance = 0;
-  final List<int> _faces = [1, 1, 1];
-  final List<bool> _locked = [false, false, false];
-  bool _rerollUsed = false;
+  int? _landed; // pocket we stopped on, once stopped
   bool _submitted = false;
   int _lastScore = 0;
   int _lastReward = 0;
   String? _notice;
 
-  Timer? _spinTimer;
   Timer? _countdown;
   int _msLeft = 0;
 
   bool get _joinedCurrentRound => _round != null && _joinedRoundId == _round!.roundId;
-  bool get _allLocked => _locked.every((l) => l);
+
+  /// The wheel should only turn while we are actually playing our own round.
+  bool get _shouldSpin =>
+      _round?.isPlaying == true && _joinedCurrentRound && _landed == null && !_submitted;
 
   @override
   void initState() {
     super.initState();
     _balance = ref.read(authStateProvider).user?.coinsBalance ?? 0;
 
-    _socket.on('dice_round_state', _onRoundState);
-    _socket.on('dice_round_result', _onRoundResult);
-    _socket.emit('dice_join_table', {});
+    _socket.on('wheel_round_state', _onRoundState);
+    _socket.on('wheel_round_result', _onRoundResult);
+    _socket.emit('wheel_join_table', {});
 
     _repo.fetchRound().then((r) {
       if (mounted && r != null) _applyRound(r);
@@ -91,21 +107,21 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
 
   @override
   void dispose() {
-    _spinTimer?.cancel();
+    _spin.dispose();
     _countdown?.cancel();
-    _socket.off('dice_round_state');
-    _socket.off('dice_round_result');
-    _socket.emit('dice_leave_table', {});
+    _socket.off('wheel_round_state');
+    _socket.off('wheel_round_result');
+    _socket.emit('wheel_leave_table', {});
     super.dispose();
   }
 
   // ── Socket ────────────────────────────────────────────────
   void _onRoundState(dynamic data) {
     if (data is! Map) return;
-    _applyRound(DiceRound.fromJson(Map<String, dynamic>.from(data)));
+    _applyRound(WheelRound.fromJson(Map<String, dynamic>.from(data)));
   }
 
-  void _applyRound(DiceRound r) {
+  void _applyRound(WheelRound r) {
     if (!mounted) return;
     final previous = _round;
     setState(() {
@@ -115,14 +131,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       if (previous != null && previous.roundId != r.roundId) {
         _resetPlay();
       }
-      // The play phase just opened for a round we paid into: start the dice.
-      if (r.isPlaying && _joinedRoundId == r.roundId && !_submitted) {
-        for (var i = 0; i < 3; i++) {
-          _locked[i] = false;
-        }
-      }
     });
-    _syncSpinTimer();
+    _syncSpin();
   }
 
   void _onRoundResult(dynamic data) {
@@ -133,7 +143,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       _resultRoundId = (map['roundId'] as num?)?.toInt() ?? 0;
       _podium = rows
           .whereType<Map>()
-          .map((e) => DicePodiumEntry.fromJson(Map<String, dynamic>.from(e)))
+          .map((e) => WheelPodiumEntry.fromJson(Map<String, dynamic>.from(e)))
           .toList();
     });
 
@@ -155,62 +165,37 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
 
   void _resetPlay() {
     _joinedRoundId = 0;
-    _rerollUsed = false;
+    _landed = null;
     _submitted = false;
     _lastScore = 0;
     _lastReward = 0;
     _notice = null;
-    for (var i = 0; i < 3; i++) {
-      _locked[i] = false;
-    }
   }
 
-  // ── Dice spin / stop ──────────────────────────────────────
-  /// The spin timer rebuilds this screen ~9x a second, so it only runs while
-  /// there is actually a die in motion — during our own play phase, with at
-  /// least one die still unlocked. Between rounds, while watching someone
-  /// else's round, or once all three are stopped, it is cancelled outright
-  /// rather than left ticking against a static table.
-  bool get _shouldSpin =>
-      _round?.isPlaying == true &&
-      _joinedCurrentRound &&
-      !_submitted &&
-      _locked.any((l) => !l);
-
-  void _syncSpinTimer() {
+  // ── Wheel ─────────────────────────────────────────────────
+  void _syncSpin() {
     if (_shouldSpin) {
-      _spinTimer ??= Timer.periodic(_spinTick, (_) => _tickSpin());
-    } else {
-      _spinTimer?.cancel();
-      _spinTimer = null;
+      if (!_spin.isAnimating) _spin.repeat();
+    } else if (_spin.isAnimating) {
+      _spin.stop();
     }
   }
 
-  void _tickSpin() {
-    if (!mounted || !_shouldSpin) {
-      _syncSpinTimer();
-      return;
-    }
-    setState(() {
-      for (var i = 0; i < 3; i++) {
-        if (!_locked[i]) _faces[i] = _faces[i] % 6 + 1;
-      }
-    });
+  /// The pocket sitting under the pointer (top of the wheel) right now.
+  int _pocketUnderPointer() {
+    final sector = 2 * pi / _sequence.length;
+    final theta = (_spin.value * 2 * pi) % (2 * pi);
+    final index = ((_sequence.length - theta / sector).round()) % _sequence.length;
+    return _sequence[index];
   }
 
-  void _tapDie(int index) {
-    if (_round?.isPlaying != true || !_joinedCurrentRound || _submitted) return;
+  void _stopWheel() {
+    if (!_shouldSpin) return;
+    _spin.stop();
     setState(() {
-      if (!_locked[index]) {
-        _locked[index] = true; // stop it on the face showing right now
-      } else if (!_rerollUsed) {
-        // Spend the single re-roll on this die.
-        _locked[index] = false;
-        _rerollUsed = true;
-        _notice = 'استخدمت إعادة الرمي';
-      }
+      _landed = _pocketUnderPointer();
+      _notice = null;
     });
-    _syncSpinTimer(); // stops once all three are locked, restarts on a re-roll
   }
 
   // ── Actions ───────────────────────────────────────────────
@@ -227,41 +212,39 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       setState(() {
         _joinedRoundId = result.roundId;
         _balance = result.balance;
-        _rerollUsed = false;
+        _landed = null;
         _submitted = false;
         _notice = 'دخلت الجولة — مكافأتك المضمونة ${_fmt(result.minReward)} '
             'وتصل إلى ${_fmt(result.maxReward)}';
-        for (var i = 0; i < 3; i++) {
-          _locked[i] = false;
-        }
       });
-      _syncSpinTimer();
+      _syncSpin();
       ref.read(authStateProvider.notifier).updateCoinsBalance(result.balance);
-    } on SkillDiceException catch (e) {
+    } on SkillWheelException catch (e) {
       if (mounted) setState(() => _notice = e.message);
     }
   }
 
   Future<void> _submit() async {
     final r = _round;
-    if (r == null || !r.isPlaying || !_joinedCurrentRound || _submitted) return;
+    final landed = _landed;
+    if (r == null || !r.isPlaying || !_joinedCurrentRound || _submitted || landed == null) {
+      return;
+    }
     setState(() => _submitted = true);
-    _syncSpinTimer();
     try {
-      final result = await _repo.submit(roundId: r.roundId, dice: List<int>.from(_faces));
+      final result = await _repo.submit(roundId: r.roundId, landed: landed);
       if (!mounted) return;
       setState(() {
         _lastScore = result.score;
         _lastReward = result.reward;
         _notice = 'نتيجتك ${result.score}/100 — مكافأتك ${_fmt(result.reward)}';
       });
-    } on SkillDiceException catch (e) {
+    } on SkillWheelException catch (e) {
       if (mounted) {
         setState(() {
           _submitted = false;
           _notice = e.message;
         });
-        _syncSpinTimer(); // submit failed — let the player stop the dice again
       }
     }
   }
@@ -281,7 +264,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('نرد المهارة',
+        title: const Text('عجلة المهارة',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -303,7 +286,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                 const SizedBox(height: 12),
                 _phaseHeader(r),
                 const SizedBox(height: 12),
-                _table(),
+                _wheel(r),
                 const SizedBox(height: 12),
                 if (_notice != null) _noticeBar(_notice!),
                 const SizedBox(height: 8),
@@ -339,13 +322,13 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           const Text('رصيدك', style: TextStyle(color: Colors.white70)),
           Text('🪙 ${_fmt(_balance)}',
               style: const TextStyle(
-                  color: Color(0xFFFFD54F), fontWeight: FontWeight.bold, fontSize: 18)),
+                  color: _gold, fontWeight: FontWeight.bold, fontSize: 18)),
         ],
       ),
     );
   }
 
-  Widget _phaseHeader(DiceRound? r) {
+  Widget _phaseHeader(WheelRound? r) {
     final String title;
     final String subtitle;
     if (r == null) {
@@ -357,7 +340,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     } else if (r.isPlaying) {
       title = r.missionLabel ?? 'المهمة';
       subtitle = _joinedCurrentRound
-          ? 'أوقف كل نردة على الرقم المناسب'
+          ? 'العجلة تدور بسرعة ثابتة — أوقفها على الرقم المطلوب'
           : 'الجولة جارية — انتظر الجولة القادمة';
     } else {
       title = 'النتائج';
@@ -389,52 +372,83 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     );
   }
 
-  Widget _table() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 28),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF146A48), _felt],
+  Widget _wheel(WheelRound? r) {
+    final target = r?.isPlaying == true ? r?.target : null;
+    return GestureDetector(
+      onTap: _stopWheel,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF3B1170), Color(0xFF1a0533)],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _gold.withOpacity(0.35), width: 2),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 6)),
+          ],
         ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFFFD54F).withOpacity(0.35), width: 2),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 6)),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: List.generate(3, (i) => _die(i)),
+        child: AspectRatio(
+          aspectRatio: 1,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AnimatedBuilder(
+                animation: _spin,
+                builder: (_, child) =>
+                    Transform.rotate(angle: _spin.value * 2 * pi, child: child),
+                // Painted once and rotated, rather than repainted every frame.
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: _WheelPainter(sequence: _sequence, target: target),
+                ),
+              ),
+              // Pointer: fixed at the top, the wheel turns underneath it.
+              const Align(
+                alignment: Alignment.topCenter,
+                child: Icon(Icons.arrow_drop_down, color: _gold, size: 46),
+              ),
+              _hubLabel(r, target),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _die(int index) {
-    final locked = _locked[index];
-    final active = _round?.isPlaying == true && _joinedCurrentRound && !_submitted;
-    return GestureDetector(
-      onTap: () => _tapDie(index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 74,
-        height: 74,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: locked ? const Color(0xFFFFD54F) : Colors.white.withOpacity(0.4),
-            width: locked ? 3 : 1,
-          ),
-          boxShadow: [
-            if (locked)
-              BoxShadow(color: const Color(0xFFFFD54F).withOpacity(0.6), blurRadius: 14),
-            if (!locked && active)
-              BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 8),
-          ],
-        ),
-        child: CustomPaint(painter: _DiePainter(_faces[index])),
+  Widget _hubLabel(WheelRound? r, int? target) {
+    final String big;
+    final String small;
+    if (_landed != null) {
+      big = '$_landed';
+      small = target != null ? 'المطلوب $target' : '';
+    } else if (target != null) {
+      big = '$target';
+      small = 'الهدف';
+    } else {
+      big = '★';
+      small = '';
+    }
+    return Container(
+      width: 96,
+      height: 96,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xFF1a0533),
+        border: Border.all(color: _gold.withOpacity(0.6), width: 2),
+        boxShadow: [BoxShadow(color: _gold.withOpacity(0.25), blurRadius: 18)],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(big,
+              style: const TextStyle(color: _gold, fontSize: 30, fontWeight: FontWeight.bold)),
+          if (small.isNotEmpty)
+            Text(small, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+        ],
       ),
     );
   }
@@ -453,7 +467,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     );
   }
 
-  Widget _controls(DiceRound? r) {
+  Widget _controls(WheelRound? r) {
     if (r == null) return const SizedBox.shrink();
 
     if (r.isJoining && !_joinedCurrentRound) {
@@ -472,7 +486,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                 selected: selected,
                 onSelected: (_) => setState(() => _entry = t),
                 backgroundColor: Colors.white.withOpacity(0.08),
-                selectedColor: const Color(0xFFFFD54F),
+                selectedColor: _gold,
                 labelStyle: TextStyle(
                     color: selected ? Colors.black : Colors.white,
                     fontWeight: FontWeight.bold),
@@ -484,7 +498,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
             width: double.infinity,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFFD54F),
+                backgroundColor: _gold,
                 foregroundColor: Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -499,12 +513,13 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     }
 
     if (r.isPlaying && _joinedCurrentRound && !_submitted) {
+      final stopped = _landed != null;
       return Column(
         children: [
           Text(
-            _rerollUsed
-                ? 'اضغط على النردة لإيقافها'
-                : 'اضغط على النردة لإيقافها — واضغط على نردة متوقفة لإعادة رميها (مرة واحدة)',
+            stopped
+                ? 'وقفت على $_landed — سجّل نتيجتك'
+                : 'اضغط على العجلة أو على الزر لإيقافها',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
           ),
@@ -513,29 +528,29 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
             width: double.infinity,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: _allLocked ? const Color(0xFF4CAF50) : Colors.white24,
-                foregroundColor: Colors.white,
+                backgroundColor: stopped ? const Color(0xFF4CAF50) : _gold,
+                foregroundColor: stopped ? Colors.white : Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
-              onPressed: _allLocked ? _submit : null,
-              child: const Text('سجّل النتيجة',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              onPressed: stopped ? _submit : _stopWheel,
+              child: Text(stopped ? 'سجّل النتيجة' : 'أوقف العجلة',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ),
           ),
         ],
       );
     }
 
-    if (_submitted && _lastScore > 0) {
+    if (_submitted && _lastReward > 0) {
       return _noticeBar('نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
     }
 
     return const SizedBox.shrink();
   }
 
-  Widget _playersStrip(DiceRound? r) {
-    final players = r?.players ?? const <DicePlayer>[];
+  Widget _playersStrip(WheelRound? r) {
+    final players = r?.players ?? const <WheelPlayer>[];
     if (players.isEmpty) {
       return Text('لا يوجد لاعبون في هذه الجولة بعد',
           style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12));
@@ -567,10 +582,9 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                     child: CircleAvatar(
                       radius: 18,
                       backgroundColor: Colors.white10,
-                      backgroundImage:
-                          (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
-                              ? NetworkImage(p.avatarUrl!)
-                              : null,
+                      backgroundImage: (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
+                          ? NetworkImage(p.avatarUrl!)
+                          : null,
                       child: (p.avatarUrl == null || p.avatarUrl!.isEmpty)
                           ? const Icon(Icons.person, size: 18, color: Colors.white54)
                           : null,
@@ -624,7 +638,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                           style: const TextStyle(color: Colors.white)),
                     ),
                     Text('${e.score}/100  •  🪙 ${_fmt(e.reward)}',
-                        style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 12)),
+                        style: const TextStyle(color: _gold, fontSize: 12)),
                   ],
                 ),
               )),
@@ -643,9 +657,10 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.25)),
       ),
       child: const Text(
-        'لعبة مهارة وليست مراهنة: رسوم الدخول ثابتة ومعروفة قبل الدفع، '
-        'وكل مشترك يحصل على مكافأة مضمونة، والمكافأة تعتمد على أدائك في المهمة '
-        'ولا أحد يربح من خسارة لاعب آخر.',
+        'لعبة مهارة وليست مراهنة: لا توجد رهانات ولا مضاعفات، رسوم الدخول ثابتة '
+        'ومعروفة قبل الدفع، والرقم المطلوب يُعلن قبل بدء الدوران، وكل مشترك يحصل '
+        'على مكافأة مضمونة تعتمد على دقة إيقافه للعجلة، ولا أحد يربح من خسارة '
+        'لاعب آخر.',
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.6),
       ),
@@ -653,42 +668,84 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
   }
 }
 
-/// Draws the pips for a die face.
-class _DiePainter extends CustomPainter {
-  final int face;
-  const _DiePainter(this.face);
+/// Draws the wheel: one coloured sector per pocket, its number along the rim,
+/// and a gold ring around the announced target so the player can see what they
+/// are aiming at.
+class _WheelPainter extends CustomPainter {
+  final List<int> sequence;
+  final int? target;
 
-  static const _layouts = <int, List<Offset>>{
-    1: [Offset(0.5, 0.5)],
-    2: [Offset(0.28, 0.28), Offset(0.72, 0.72)],
-    3: [Offset(0.26, 0.26), Offset(0.5, 0.5), Offset(0.74, 0.74)],
-    4: [Offset(0.3, 0.3), Offset(0.7, 0.3), Offset(0.3, 0.7), Offset(0.7, 0.7)],
-    5: [
-      Offset(0.28, 0.28),
-      Offset(0.72, 0.28),
-      Offset(0.5, 0.5),
-      Offset(0.28, 0.72),
-      Offset(0.72, 0.72),
-    ],
-    6: [
-      Offset(0.3, 0.24),
-      Offset(0.7, 0.24),
-      Offset(0.3, 0.5),
-      Offset(0.7, 0.5),
-      Offset(0.3, 0.76),
-      Offset(0.7, 0.76),
-    ],
+  const _WheelPainter({required this.sequence, required this.target});
+
+  static const Set<int> _red = {
+    1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
   };
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = const Color(0xFF1A0E3E);
-    final radius = size.shortestSide * 0.09;
-    for (final p in _layouts[face] ?? const <Offset>[]) {
-      canvas.drawCircle(Offset(p.dx * size.width, p.dy * size.height), radius, paint);
-    }
+  Color _colorFor(int n) {
+    if (n == 0) return const Color(0xFF1B7A3E);
+    return _red.contains(n) ? const Color(0xFFB3172B) : const Color(0xFF16121F);
   }
 
   @override
-  bool shouldRepaint(covariant _DiePainter oldDelegate) => oldDelegate.face != face;
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.shortestSide / 2;
+    final sector = 2 * pi / sequence.length;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    for (var i = 0; i < sequence.length; i++) {
+      final n = sequence[i];
+      // Sector i is centred at the top when the wheel is unrotated.
+      final start = -pi / 2 + (i - 0.5) * sector;
+      canvas.drawArc(rect, start, sector, true, Paint()..color = _colorFor(n));
+
+      if (n == target) {
+        canvas.drawArc(
+          rect.deflate(2),
+          start,
+          sector,
+          true,
+          Paint()
+            ..color = const Color(0xFFFFD54F)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 4,
+        );
+      }
+
+      final label = TextPainter(
+        text: TextSpan(
+          text: '$n',
+          style: TextStyle(
+            color: n == target ? const Color(0xFFFFD54F) : Colors.white,
+            fontSize: radius * 0.11,
+            fontWeight: n == target ? FontWeight.bold : FontWeight.w500,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      // Place the number along the rim, rotated to face outwards.
+      final angle = -pi / 2 + i * sector;
+      canvas.save();
+      canvas.translate(
+        center.dx + cos(angle) * radius * 0.82,
+        center.dy + sin(angle) * radius * 0.82,
+      );
+      canvas.rotate(angle + pi / 2);
+      label.paint(canvas, Offset(-label.width / 2, -label.height / 2));
+      canvas.restore();
+    }
+
+    // Gold rim + hub ring.
+    final rim = Paint()
+      ..color = const Color(0xFFFFD54F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4;
+    canvas.drawCircle(center, radius - 2, rim);
+    canvas.drawCircle(center, radius * 0.32, rim..strokeWidth = 2);
+  }
+
+  @override
+  bool shouldRepaint(covariant _WheelPainter oldDelegate) =>
+      oldDelegate.target != target;
 }

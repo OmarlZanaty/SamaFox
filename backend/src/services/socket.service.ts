@@ -3,6 +3,12 @@ import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
+import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
+import { CRASH_ROOM, getCrashStatePublic, getCrashChat } from './crash.service';
+import {
+  BOXING_RING_ROOM,
+  getCurrentRoundPublic as getCurrentBoxingRoundPublic,
+} from './boxing.service';
 // Gift sending is handled via the REST endpoint POST /api/v1/gifts/send
 // which emits 'gift_sent' / 'gift_legendary_incoming' / 'gift_broadcast'
 // socket events directly. The legacy 'send_gift' socket handler was
@@ -349,6 +355,41 @@ socket.on('dice_join_table', () => {
 
 socket.on('dice_leave_table', () => {
   socket.leave(DICE_TABLE_ROOM);
+});
+
+// ── Skill wheel table: joining only subscribes you to the live round state;
+// entering a round (and paying the entry price) goes through REST. ──
+socket.on('wheel_join_table', () => {
+  socket.join(WHEEL_TABLE_ROOM);
+  socket.emit('wheel_round_state', getCurrentWheelRoundPublic());
+});
+
+socket.on('wheel_leave_table', () => {
+  socket.leave(WHEEL_TABLE_ROOM);
+});
+
+// ── Crash (طيّار): subscribing to the table is free — betting, cashing out and
+// chatting all go through the REST endpoints so they stay authenticated and
+// rate-limited. The socket only pushes state.
+socket.on('crash_join_table', () => {
+  socket.join(CRASH_ROOM);
+  socket.emit('crash_state', getCrashStatePublic());
+  socket.emit('crash_chat_history', getCrashChat(50));
+});
+
+socket.on('crash_leave_table', () => {
+  socket.leave(CRASH_ROOM);
+});
+
+// ── Lion & tiger arena: same deal — subscribing to the ring is free, entering
+// a round (and paying the ticket price) goes through the REST endpoints. ──
+socket.on('boxing_join_table', () => {
+  socket.join(BOXING_RING_ROOM);
+  socket.emit('boxing_round_state', getCurrentBoxingRoundPublic());
+});
+
+socket.on('boxing_leave_table', () => {
+  socket.leave(BOXING_RING_ROOM);
 });
 
 // Step 5: voice quality check. A speaker reports their mic self-test result

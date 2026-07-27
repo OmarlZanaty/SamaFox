@@ -7,6 +7,19 @@ import {
   joinRound,
   submitRound,
 } from '../services/skillDice.service';
+import {
+  WHEEL_ENTRY_TIERS,
+  getCurrentWheelRoundPublic,
+  joinWheelRound,
+  submitWheelRound,
+} from '../services/skillWheel.service';
+import {
+  BOXING_ENTRY_TIERS,
+  PUNCHES_PER_ROUND,
+  getCurrentRoundPublic as getCurrentBoxingRoundPublic,
+  joinRound as joinBoxingRoundEngine,
+  submitRound as submitBoxingRoundEngine,
+} from '../services/boxing.service';
 export const playDice = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
@@ -181,6 +194,106 @@ export const submitDiceRound = async (req: Request, res: Response) => {
     res.json({ success: true, score: result.score, reward: result.reward });
   } catch (error) {
     console.error('Dice submit error:', error);
+    res.status(500).json({ success: false, message: 'Failed to submit round' });
+  }
+};
+
+// ============================================
+// SKILL WHEEL (عجلة المهارة) — fixed entry price, guaranteed reward
+// ============================================
+// The halal replacement for the roulette table: no betting zones and no odds.
+// See the design note at the top of services/skillWheel.service.ts. The round
+// engine owns the target, the scoring and the reward table; these endpoints
+// only move coins.
+export const getWheelRound = async (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    round: getCurrentWheelRoundPublic(),
+    entryTiers: WHEEL_ENTRY_TIERS,
+  });
+};
+
+export const joinWheelRoundHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const entry = Number((req.body ?? {}).entry);
+    const result = await joinWheelRound(userId, entry);
+    if (!result.ok) {
+      const status = result.code === 'INSUFFICIENT_COINS' ? 402 : 400;
+      return res.status(status).json({ success: false, code: result.code, message: result.message });
+    }
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Wheel join error:', error);
+    res.status(500).json({ success: false, message: 'Failed to join round' });
+  }
+};
+
+export const submitWheelRoundHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const body = req.body ?? {};
+    const result = submitWheelRound(userId, Number(body.roundId), Number(body.landed));
+    if (!result.ok) {
+      return res.status(400).json({ success: false, code: result.code, message: result.message });
+    }
+    res.json({ success: true, score: result.score, reward: result.reward, target: result.target });
+  } catch (error) {
+    console.error('Wheel submit error:', error);
+    res.status(500).json({ success: false, message: 'Failed to submit round' });
+  }
+};
+
+// ============================================
+// LION & TIGER ARENA (حلبة الأسد والنمر) — fixed entry price, guaranteed reward
+// ============================================
+// Not a betting game: see the design note at the top of
+// services/boxing.service.ts. The round engine owns the mission, the scoring
+// and the reward table; these endpoints only move coins.
+export const getBoxingRound = async (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    round: getCurrentBoxingRoundPublic(),
+    entryTiers: BOXING_ENTRY_TIERS,
+    punches: PUNCHES_PER_ROUND,
+  });
+};
+
+export const joinBoxingRound = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const body = req.body ?? {};
+    const result = await joinBoxingRoundEngine(userId, Number(body.entry), String(body.corner ?? ''));
+    if (!result.ok) {
+      const status = result.code === 'INSUFFICIENT_COINS' ? 402 : 400;
+      return res.status(status).json({ success: false, code: result.code, message: result.message });
+    }
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Boxing join error:', error);
+    res.status(500).json({ success: false, message: 'Failed to join round' });
+  }
+};
+
+export const submitBoxingRound = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const body = req.body ?? {};
+    const result = submitBoxingRoundEngine(userId, Number(body.roundId), body.punches);
+    if (!result.ok) {
+      return res.status(400).json({ success: false, code: result.code, message: result.message });
+    }
+    res.json({ success: true, score: result.score, reward: result.reward });
+  } catch (error) {
+    console.error('Boxing submit error:', error);
     res.status(500).json({ success: false, message: 'Failed to submit round' });
   }
 };
