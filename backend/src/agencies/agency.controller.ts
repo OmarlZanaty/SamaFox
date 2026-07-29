@@ -68,14 +68,15 @@ export const listChargingAgencies = async (_req: Request, res: Response) => {
         contactInfo: true,
         members: {
           where: { role: 'OWNER' },
-          include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+          select: { id: true, role: true, user: { select: { id: true, name: true, avatarUrl: true } } },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     return res.json({ success: true, data: agencies });
-  } catch {
+  } catch (err) {
+    console.error('[listChargingAgencies]', err);
     return fail(res, 500, 'Server error');
   }
 };
@@ -858,7 +859,8 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
     }
 
     return res.json({ success: true });
-  } catch {
+  } catch (err) {
+    console.error('[transferOwnership]', err);
     return fail(res, 500, 'Server error');
   }
 };

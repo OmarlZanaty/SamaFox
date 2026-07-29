@@ -65,6 +65,7 @@ export async function listCatalog(_req: Request, res: Response) {
         broadcastGlobal: g.broadcastGlobal,
         category: g.category,
         sortOrder: g.sortOrder,
+        createdAt: g.createdAt,
       });
     }
     const body = JSON.stringify({ success: true, version, gifts: grouped });

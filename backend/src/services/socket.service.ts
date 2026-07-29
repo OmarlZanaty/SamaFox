@@ -4,6 +4,7 @@ import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
+import { CRAZY_ROOM, getPublicState as getCrazyWheelState } from './crazyWheel.service';
 import { CRASH_ROOM, getCrashStatePublic, getCrashChat } from './crash.service';
 import {
   BOXING_RING_ROOM,
@@ -366,6 +367,17 @@ socket.on('wheel_join_table', () => {
 
 socket.on('wheel_leave_table', () => {
   socket.leave(WHEEL_TABLE_ROOM);
+});
+
+// ── Crazy wheel (عجلة الحظ): subscribing is free — betting, clearing and bonus
+// picks all go through REST so they stay authenticated and rate-limited.
+socket.on('crazy_join_table', () => {
+  socket.join(CRAZY_ROOM);
+  socket.emit('crazy_state', getCrazyWheelState());
+});
+
+socket.on('crazy_leave_table', () => {
+  socket.leave(CRAZY_ROOM);
 });
 
 // ── Crash (طيّار): subscribing to the table is free — betting, cashing out and

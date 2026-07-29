@@ -165,8 +165,10 @@ export const myAgencyBalance = async (req: any, res: Response) => {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
+  // Scoped to type:'CHARGING' — a user who also owns a HOSTING agency must
+  // not have that one picked up here (dual-owner bug, see agency.controller.ts).
   const agency = await prisma.chargingAgency.findFirst({
-    where: { userId }, // ✅ remove approved filter
+    where: { userId, type: 'CHARGING' }, // ✅ remove approved filter
     select: { id: true, balanceCoins: true, agencyName: true, status: true },
     orderBy: { createdAt: 'desc' },
   });
@@ -187,7 +189,7 @@ export const myAgencyTransfers = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     const agency = await prisma.chargingAgency.findFirst({
-      where: { userId, status: 'approved' },
+      where: { userId, status: 'approved', type: 'CHARGING' },
       select: { id: true },
     });
 
@@ -233,7 +235,7 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
   }
 
   const agency = await prisma.chargingAgency.findFirst({
-    where: { userId, status: 'approved' },
+    where: { userId, status: 'approved', type: 'CHARGING' },
     select: { id: true },
   });
 
@@ -347,7 +349,7 @@ export const createTopupRequest = async (req: Request, res: Response) => {
     }
 
     const agency = await prisma.chargingAgency.findFirst({
-      where: { userId, status: 'approved' },
+      where: { userId, status: 'approved', type: 'CHARGING' },
       select: { id: true },
     });
 
@@ -373,7 +375,7 @@ export const myTopupRequests = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     const agency = await prisma.chargingAgency.findFirst({
-      where: { userId },
+      where: { userId, type: 'CHARGING' },
       select: { id: true },
     });
 

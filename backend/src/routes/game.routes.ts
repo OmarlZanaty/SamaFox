@@ -30,6 +30,14 @@ import {
   postCrashChatHandler,
   claimCrashRainHandler,
 } from '../controllers/crash.controller';
+import {
+  getCrazyState,
+  placeCrazyBet,
+  clearCrazyBets,
+  repeatCrazyBets,
+  submitCrazyPick,
+  getCrazyHistory,
+} from '../controllers/crazyWheel.controller';
 
 const router = Router();
 
@@ -142,6 +150,24 @@ router.get('/crash/stats', authenticate, getCrashStatsHandler);
 router.get('/crash/chat', authenticate, getCrashChatHandler);
 router.post('/crash/chat', authenticate, crashChatLimiter, postCrashChatHandler);
 router.post('/crash/rain/claim', authenticate, crashLimiter, claimCrashRainHandler);
+
+// عجلة الحظ (Crazy Wheel): a player can stack chips on all 8 spots inside a
+// 20s betting window and still repeat/clear, so this needs crash-level headroom.
+const crazyWheelLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `crazy-wheel:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/crazy/state', authenticate, getCrazyState);
+router.post('/crazy/bet', authenticate, crazyWheelLimiter, placeCrazyBet);
+router.post('/crazy/clear', authenticate, crazyWheelLimiter, clearCrazyBets);
+router.post('/crazy/repeat', authenticate, crazyWheelLimiter, repeatCrazyBets);
+router.post('/crazy/pick', authenticate, crazyWheelLimiter, submitCrazyPick);
+router.get('/crazy/history', authenticate, getCrazyHistory);
 
 router.get('/boxing/round', authenticate, getBoxingRound);
 router.post('/boxing/round/join', authenticate, boxingLimiter, joinBoxingRound);
