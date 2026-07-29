@@ -65,6 +65,7 @@ class Gift {
   final bool broadcastGlobal;
   final String? category;
   final int sortOrder;
+  final DateTime? createdAt;
 
   const Gift({
     required this.id,
@@ -84,6 +85,7 @@ class Gift {
     this.broadcastGlobal = false,
     this.category,
     this.sortOrder = 0,
+    this.createdAt,
   });
 
   factory Gift.fromJson(Map<String, dynamic> json) {
@@ -108,6 +110,7 @@ class Gift {
       broadcastGlobal: json['broadcastGlobal'] as bool? ?? false,
       category: json['category'] as String?,
       sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'] as String) : null,
     );
   }
 }

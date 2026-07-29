@@ -149,7 +149,8 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
         _toast('لم يتم العثور على المستخدم');
         return;
       }
-      await _service.transferOwnership((results.first['id'] as num).toInt(), agencyType: 'HOSTING');
+      final agencyType = (_membership?['agency']?['type'] as String?) ?? 'HOSTING';
+      await _service.transferOwnership((results.first['id'] as num).toInt(), agencyType: agencyType);
       _toast('✓ تم نقل الملكية');
       _load();
     } catch (e) {

@@ -38,6 +38,15 @@ import {
   submitCrazyPick,
   getCrazyHistory,
 } from '../controllers/crazyWheel.controller';
+import {
+  getPlinkoState,
+  dropPlinkoBall,
+  getPlinkoHistory,
+  getPlinkoFairness,
+  setPlinkoClientSeed,
+  rotatePlinkoSeed,
+  verifyPlinkoDrop,
+} from '../controllers/plinko.controller';
 
 const router = Router();
 
@@ -168,6 +177,25 @@ router.post('/crazy/clear', authenticate, crazyWheelLimiter, clearCrazyBets);
 router.post('/crazy/repeat', authenticate, crazyWheelLimiter, repeatCrazyBets);
 router.post('/crazy/pick', authenticate, crazyWheelLimiter, submitCrazyPick);
 router.get('/crazy/history', authenticate, getCrazyHistory);
+
+// بلينكو: every drop is its own request and auto-bet fires them back to back, so
+// this needs the highest allowance of any game.
+const plinkoLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `plinko:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/plinko/state', authenticate, getPlinkoState);
+router.post('/plinko/drop', authenticate, plinkoLimiter, dropPlinkoBall);
+router.get('/plinko/history', authenticate, getPlinkoHistory);
+router.get('/plinko/fair', authenticate, getPlinkoFairness);
+router.post('/plinko/seed', authenticate, plinkoLimiter, setPlinkoClientSeed);
+router.post('/plinko/seed/rotate', authenticate, plinkoLimiter, rotatePlinkoSeed);
+router.post('/plinko/verify', authenticate, verifyPlinkoDrop);
 
 router.get('/boxing/round', authenticate, getBoxingRound);
 router.post('/boxing/round/join', authenticate, boxingLimiter, joinBoxingRound);
