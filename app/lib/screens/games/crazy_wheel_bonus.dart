@@ -22,9 +22,11 @@ class CoinFlipBonus extends StatefulWidget {
   State<CoinFlipBonus> createState() => _CoinFlipBonusState();
 }
 
-class _CoinFlipBonusState extends State<CoinFlipBonus> with SingleTickerProviderStateMixin {
-  late final AnimationController _flip =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..forward();
+class _CoinFlipBonusState extends State<CoinFlipBonus>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _flip = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2600))
+    ..forward();
 
   @override
   void dispose() {
@@ -63,8 +65,12 @@ class _CoinFlipBonusState extends State<CoinFlipBonus> with SingleTickerProvider
               final showRed = (angle / pi).floor().isEven;
               return Transform(
                 alignment: Alignment.center,
-                transform: Matrix4.identity()..setEntry(3, 2, 0.0015)..rotateX(angle),
-                child: _coinFace(showRed ? const Color(0xFFD32F2F) : const Color(0xFF1565C0)),
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.0015)
+                  ..rotateX(angle),
+                child: _coinFace(showRed
+                    ? const Color(0xFFD32F2F)
+                    : const Color(0xFF1565C0)),
               );
             },
           ),
@@ -72,7 +78,8 @@ class _CoinFlipBonusState extends State<CoinFlipBonus> with SingleTickerProvider
           if (_flip.isCompleted || _flip.value > 0.9)
             Text(
               'x${winner == 'red' ? red : blue}',
-              style: const TextStyle(color: _gold, fontSize: 34, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  color: _gold, fontSize: 34, fontWeight: FontWeight.bold),
             ),
         ],
       ),
@@ -84,22 +91,29 @@ class _CoinFlipBonusState extends State<CoinFlipBonus> with SingleTickerProvider
         height: 120,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: RadialGradient(colors: [color.withOpacity(0.95), color.withOpacity(0.55)]),
+          gradient: RadialGradient(
+              colors: [color.withOpacity(0.95), color.withOpacity(0.55)]),
           border: Border.all(color: _gold, width: 4),
           boxShadow: [BoxShadow(color: color.withOpacity(0.6), blurRadius: 30)],
         ),
       );
 
-  Widget _multiplierPlate(int value, Color color, bool isWinner) => AnimatedContainer(
+  Widget _multiplierPlate(int value, Color color, bool isWinner) =>
+      AnimatedContainer(
         duration: const Duration(milliseconds: 400),
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
         decoration: BoxDecoration(
           color: color.withOpacity(isWinner ? 0.95 : 0.35),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isWinner ? _gold : Colors.white24, width: isWinner ? 3 : 1),
+          border: Border.all(
+              color: isWinner ? _gold : Colors.white24,
+              width: isWinner ? 3 : 1),
         ),
         child: Text('x$value',
-            style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 26,
+                fontWeight: FontWeight.bold)),
       );
 }
 
@@ -125,8 +139,12 @@ class CashHuntBonus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grid = ((data['grid'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    final symbols = ((data['symbols'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+    final grid = ((data['grid'] as List?) ?? const [])
+        .map((e) => (e as num).toInt())
+        .toList();
+    final symbols = ((data['symbols'] as List?) ?? const [])
+        .map((e) => (e as num).toInt())
+        .toList();
 
     return _BonusShell(
       title: 'CASH HUNT',
@@ -160,7 +178,8 @@ class CashHuntBonus extends StatelessWidget {
                         ? _gold.withOpacity(0.85)
                         : Colors.white.withOpacity(revealed ? 0.10 : 0.16),
                     borderRadius: BorderRadius.circular(4),
-                    border: mine ? Border.all(color: Colors.white, width: 2) : null,
+                    border:
+                        mine ? Border.all(color: Colors.white, width: 2) : null,
                   ),
                   child: FittedBox(
                     child: Padding(
@@ -171,7 +190,9 @@ class CashHuntBonus extends StatelessWidget {
                                 color: mine ? Colors.black : Colors.white,
                                 fontWeight: FontWeight.bold,
                               ))
-                          : Text(_symbols[(i < symbols.length ? symbols[i] : 0) % _symbols.length]),
+                          : Text(_symbols[
+                              (i < symbols.length ? symbols[i] : 0) %
+                                  _symbols.length]),
                     ),
                   ),
                 ),
@@ -194,9 +215,11 @@ class PachinkoBonus extends StatefulWidget {
   State<PachinkoBonus> createState() => _PachinkoBonusState();
 }
 
-class _PachinkoBonusState extends State<PachinkoBonus> with SingleTickerProviderStateMixin {
-  late final AnimationController _drop =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 2400))..forward();
+class _PachinkoBonusState extends State<PachinkoBonus>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _drop = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2400))
+    ..forward();
   int _dropIndex = 0;
 
   @override
@@ -223,9 +246,14 @@ class _PachinkoBonusState extends State<PachinkoBonus> with SingleTickerProvider
   Widget build(BuildContext context) {
     final drops = (widget.data['drops'] as List?) ?? const [];
     if (drops.isEmpty) return const SizedBox.shrink();
-    final drop = Map<String, dynamic>.from(drops[_dropIndex.clamp(0, drops.length - 1)] as Map);
-    final slots = ((drop['slots'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    final path = ((drop['path'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+    final drop = Map<String, dynamic>.from(
+        drops[_dropIndex.clamp(0, drops.length - 1)] as Map);
+    final slots = ((drop['slots'] as List?) ?? const [])
+        .map((e) => (e as num).toInt())
+        .toList();
+    final path = ((drop['path'] as List?) ?? const [])
+        .map((e) => (e as num).toInt())
+        .toList();
 
     return _BonusShell(
       title: 'PACHINKO',
@@ -253,7 +281,8 @@ class _PachinkoPainter extends CustomPainter {
   final List<int> slots;
   final List<int> path;
   final double progress;
-  _PachinkoPainter({required this.slots, required this.path, required this.progress});
+  _PachinkoPainter(
+      {required this.slots, required this.path, required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -277,11 +306,15 @@ class _PachinkoPainter extends CustomPainter {
     // Slot labels along the bottom.
     for (var i = 0; i < slots.length; i++) {
       final x = colGap * (i + 1) - colGap / 2;
-      final rect = Rect.fromLTWH(x, wallHeight, colGap - 2, size.height - wallHeight - 4);
+      final rect = Rect.fromLTWH(
+          x, wallHeight, colGap - 2, size.height - wallHeight - 4);
       final isDouble = slots[i] == 0;
       canvas.drawRRect(
         RRect.fromRectAndRadius(rect, const Radius.circular(4)),
-        Paint()..color = isDouble ? const Color(0xFFFFD54F) : const Color(0xFFD81B60).withOpacity(0.75),
+        Paint()
+          ..color = isDouble
+              ? const Color(0xFFFFD54F)
+              : const Color(0xFFD81B60).withOpacity(0.75),
       );
       _label(
         canvas,
@@ -306,17 +339,22 @@ class _PachinkoPainter extends CustomPainter {
       rowGap * step.clamp(0.0, rows.toDouble()),
     );
     canvas.drawCircle(puck, 9, Paint()..color = Colors.white);
-    canvas.drawCircle(puck, 9, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = const Color(0xFFFFD54F));
+    canvas.drawCircle(
+        puck,
+        9,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = const Color(0xFFFFD54F));
   }
 
-  void _label(Canvas canvas, String text, Offset center, Color color, double fontSize) {
+  void _label(
+      Canvas canvas, String text, Offset center, Color color, double fontSize) {
     final tp = TextPainter(
       text: TextSpan(
         text: text,
-        style: TextStyle(color: color, fontSize: fontSize, fontWeight: FontWeight.bold),
+        style: TextStyle(
+            color: color, fontSize: fontSize, fontWeight: FontWeight.bold),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -376,15 +414,22 @@ class CrazyTimeBonus extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: e.value.withOpacity(mine ? 0.95 : 0.4),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: mine ? _gold : Colors.white24, width: mine ? 3 : 1),
+                    border: Border.all(
+                        color: mine ? _gold : Colors.white24,
+                        width: mine ? 3 : 1),
                   ),
                   child: Column(
                     children: [
-                      const Icon(Icons.arrow_drop_down, color: Colors.white, size: 34),
+                      const Icon(Icons.arrow_drop_down,
+                          color: Colors.white, size: 34),
                       Text(
-                        !picking && value != null ? 'x$value' : (mine ? 'اخترته' : '؟'),
+                        !picking && value != null
+                            ? 'x$value'
+                            : (mine ? 'اخترته' : '؟'),
                         style: const TextStyle(
-                            color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -460,7 +505,8 @@ class _BonusShell extends StatelessWidget {
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 4),
-            Text(subtitle!, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(subtitle!,
+                style: const TextStyle(color: Colors.white70, fontSize: 13)),
           ],
           const SizedBox(height: 18),
           Flexible(child: child),

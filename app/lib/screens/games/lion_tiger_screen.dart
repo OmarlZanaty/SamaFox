@@ -83,6 +83,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
   int _lastScore = 0;
   int _lastReward = 0;
   String? _notice;
+
   /// Accuracy of the punch just thrown, for the hit flash.
   int? _flash;
   Timer? _flashTimer;
@@ -94,14 +95,19 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
   Timer? _countdown;
   int _msLeft = 0;
 
-  bool get _joinedCurrentRound => _round != null && _joinedRoundId == _round!.roundId;
+  bool get _joinedCurrentRound =>
+      _round != null && _joinedRoundId == _round!.roundId;
   int get _punchCount => _round?.punches ?? 6;
   bool get _punchesLeft => _punches.length < _punchCount;
   bool get _canPunch =>
-      _round?.isPlaying == true && _joinedCurrentRound && !_submitted && _punchesLeft;
+      _round?.isPlaying == true &&
+      _joinedCurrentRound &&
+      !_submitted &&
+      _punchesLeft;
 
   /// Half-width of the sweet spot for the punch about to be thrown.
-  double get _zoneHalf => max(_zoneMin, _zoneStart - _punches.length * _zoneShrink);
+  double get _zoneHalf =>
+      max(_zoneMin, _zoneStart - _punches.length * _zoneShrink);
 
   @override
   void initState() {
@@ -288,8 +294,10 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
   }
 
   String _fmt(int v) {
-    if (v >= 1000000) return '${(v / 1000000).toStringAsFixed(v % 1000000 == 0 ? 0 : 1)}M';
-    if (v >= 1000) return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
+    if (v >= 1000000)
+      return '${(v / 1000000).toStringAsFixed(v % 1000000 == 0 ? 0 : 1)}M';
+    if (v >= 1000)
+      return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
     return '$v';
   }
 
@@ -396,11 +404,15 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       children: [
         Text(title,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
         Text(subtitle,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
@@ -410,7 +422,9 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           ),
           child: Text('⏱ $seconds',
               style: const TextStyle(
-                  color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold)),
         ),
       ],
     );
@@ -430,7 +444,10 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _gold.withOpacity(0.35), width: 2),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 6)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 16,
+              offset: const Offset(0, 6)),
         ],
       ),
       child: Column(
@@ -468,7 +485,8 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
               width: mine ? 3 : 1,
             ),
             boxShadow: [
-              if (mine) BoxShadow(color: _gold.withOpacity(0.5), blurRadius: 14),
+              if (mine)
+                BoxShadow(color: _gold.withOpacity(0.5), blurRadius: 14),
             ],
           ),
           alignment: Alignment.center,
@@ -515,7 +533,10 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           text,
           key: ValueKey(text),
           textAlign: TextAlign.center,
-          style: TextStyle(color: color, fontSize: acc == null ? 28 : 16, fontWeight: FontWeight.bold),
+          style: TextStyle(
+              color: color,
+              fontSize: acc == null ? 28 : 16,
+              fontWeight: FontWeight.bold),
         ),
       ),
     );
@@ -569,7 +590,11 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(3),
-                        boxShadow: [BoxShadow(color: Colors.white.withOpacity(0.6), blurRadius: 8)],
+                        boxShadow: [
+                          BoxShadow(
+                              color: Colors.white.withOpacity(0.6),
+                              blurRadius: 8)
+                        ],
                       ),
                     ),
                   );
@@ -613,7 +638,9 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           child: thrown
               ? Text('$acc',
                   style: const TextStyle(
-                      fontSize: 9, color: Colors.black87, fontWeight: FontWeight.bold))
+                      fontSize: 9,
+                      color: Colors.black87,
+                      fontWeight: FontWeight.bold))
               : null,
         );
       }),
@@ -638,11 +665,14 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
     if (r == null) return const SizedBox.shrink();
 
     if (r.isJoining && !_joinedCurrentRound) {
-      final tiers = r.entryTiers.isEmpty ? const [1000, 5000, 10000, 50000] : r.entryTiers;
+      final tiers = r.entryTiers.isEmpty
+          ? const [1000, 5000, 10000, 50000]
+          : r.entryTiers;
       return Column(
         children: [
           Text('اختر شخصيتك',
-              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -653,10 +683,12 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           ),
           const SizedBox(height: 6),
           Text('الاختيار للمظهر فقط ولا يغيّر مكافأتك',
-              style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.4), fontSize: 11)),
           const SizedBox(height: 14),
           Text('اختر رسوم الدخول',
-              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -682,11 +714,13 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                 backgroundColor: _gold,
                 foregroundColor: Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _join,
               child: Text('ادخل الحلبة — ${_fmt(_entry)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
             ),
           ),
         ],
@@ -696,9 +730,11 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
     if (r.isPlaying && _joinedCurrentRound && !_submitted) {
       return Column(
         children: [
-          Text('باقي ${_punchCount - _punches.length} لكمات — كل لكمة تضيّق المنطقة الذهبية',
+          Text(
+              'باقي ${_punchCount - _punches.length} لكمات — كل لكمة تضيّق المنطقة الذهبية',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12)),
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.6), fontSize: 12)),
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
@@ -707,7 +743,8 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                 backgroundColor: const Color(0xFFE53935),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 18),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _throwPunch,
               child: const Text('🥊 لكمة',
@@ -743,7 +780,8 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           ),
           child: Text(label,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold)),
         ),
       ),
     );
@@ -756,13 +794,15 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('آخر نتائجك',
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
         Wrap(
           spacing: 6,
           children: _myHistory
               .map((s) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(10),
@@ -789,7 +829,8 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('في الحلبة (${players.length})',
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
         SizedBox(
           height: 62,
@@ -805,18 +846,22 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: p.submitted ? const Color(0xFF4CAF50) : Colors.white24,
+                        color: p.submitted
+                            ? const Color(0xFF4CAF50)
+                            : Colors.white24,
                         width: 2,
                       ),
                     ),
                     child: CircleAvatar(
                       radius: 18,
                       backgroundColor: Colors.white10,
-                      backgroundImage: (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
-                          ? NetworkImage(p.avatarUrl!)
-                          : null,
+                      backgroundImage:
+                          (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
+                              ? NetworkImage(p.avatarUrl!)
+                              : null,
                       child: (p.avatarUrl == null || p.avatarUrl!.isEmpty)
-                          ? const Icon(Icons.person, size: 18, color: Colors.white54)
+                          ? const Icon(Icons.person,
+                              size: 18, color: Colors.white54)
                           : null,
                     ),
                   ),
@@ -827,7 +872,8 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white60, fontSize: 10)),
+                        style: const TextStyle(
+                            color: Colors.white60, fontSize: 10)),
                   ),
                 ],
               );
@@ -852,7 +898,8 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('أفضل أداء — جولة $_resultRoundId',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           ..._podium.map((e) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),

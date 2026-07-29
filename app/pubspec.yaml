@@ -1,7 +1,7 @@
 name: samafox
 description: A modern social voice chat application built with Flutter
 publish_to: 'none'
-version: 1.0.11+17
+version: 1.0.12+18
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -107,6 +107,13 @@ flutter:
 
   assets:
     - assets/images/
+    # Directory entries are NOT recursive, so the crash artwork needs its own
+    # line even though it lives under assets/images/.
+    - assets/images/crash/
+    # عجلة الحظ artwork — same non-recursive rule as the crash folder.
+    - assets/images/crazy/
+    # بلينكو artwork — likewise.
+    - assets/images/plinko/
     - assets/fonts/
     - assets/frames/gold_wings.png
     - assets/icons/
@@ -114,6 +121,10 @@ flutter:
     - assets/seat_effect.mp4
     - assets/sounds/
     - android/app/src/main/assets/adi-registration.properties
+  # Bloom post-process for the crash game. Loaded at runtime with a fallback to
+  # the plain blur stack if the device cannot compile it.
+  shaders:
+    - shaders/bloom.frag
   fonts:
         - family: ElMessiri
           fonts:

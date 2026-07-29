@@ -67,7 +67,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
   Timer? _countdown;
   int _msLeft = 0;
 
-  bool get _joinedCurrentRound => _round != null && _joinedRoundId == _round!.roundId;
+  bool get _joinedCurrentRound =>
+      _round != null && _joinedRoundId == _round!.roundId;
   bool get _allLocked => _locked.every((l) => l);
 
   @override
@@ -248,7 +249,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     setState(() => _submitted = true);
     _syncSpinTimer();
     try {
-      final result = await _repo.submit(roundId: r.roundId, dice: List<int>.from(_faces));
+      final result =
+          await _repo.submit(roundId: r.roundId, dice: List<int>.from(_faces));
       if (!mounted) return;
       setState(() {
         _lastScore = result.score;
@@ -267,8 +269,10 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
   }
 
   String _fmt(int v) {
-    if (v >= 1000000) return '${(v / 1000000).toStringAsFixed(v % 1000000 == 0 ? 0 : 1)}M';
-    if (v >= 1000) return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
+    if (v >= 1000000)
+      return '${(v / 1000000).toStringAsFixed(v % 1000000 == 0 ? 0 : 1)}M';
+    if (v >= 1000)
+      return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
     return '$v';
   }
 
@@ -339,7 +343,9 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           const Text('رصيدك', style: TextStyle(color: Colors.white70)),
           Text('🪙 ${_fmt(_balance)}',
               style: const TextStyle(
-                  color: Color(0xFFFFD54F), fontWeight: FontWeight.bold, fontSize: 18)),
+                  color: Color(0xFFFFD54F),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18)),
         ],
       ),
     );
@@ -353,7 +359,9 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       subtitle = '';
     } else if (r.isJoining) {
       title = 'وقت الدخول';
-      subtitle = _joinedCurrentRound ? 'أنت داخل الجولة، استعد' : 'ادفع رسوم الدخول للمشاركة';
+      subtitle = _joinedCurrentRound
+          ? 'أنت داخل الجولة، استعد'
+          : 'ادفع رسوم الدخول للمشاركة';
     } else if (r.isPlaying) {
       title = r.missionLabel ?? 'المهمة';
       subtitle = _joinedCurrentRound
@@ -369,11 +377,15 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       children: [
         Text(title,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
         Text(subtitle,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
@@ -383,7 +395,9 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           ),
           child: Text('⏱ $seconds',
               style: const TextStyle(
-                  color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold)),
         ),
       ],
     );
@@ -399,9 +413,13 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           colors: [Color(0xFF146A48), _felt],
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFFFD54F).withOpacity(0.35), width: 2),
+        border: Border.all(
+            color: const Color(0xFFFFD54F).withOpacity(0.35), width: 2),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 6)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 16,
+              offset: const Offset(0, 6)),
         ],
       ),
       child: Row(
@@ -413,7 +431,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
 
   Widget _die(int index) {
     final locked = _locked[index];
-    final active = _round?.isPlaying == true && _joinedCurrentRound && !_submitted;
+    final active =
+        _round?.isPlaying == true && _joinedCurrentRound && !_submitted;
     return GestureDetector(
       onTap: () => _tapDie(index),
       child: AnimatedContainer(
@@ -424,12 +443,16 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: locked ? const Color(0xFFFFD54F) : Colors.white.withOpacity(0.4),
+            color: locked
+                ? const Color(0xFFFFD54F)
+                : Colors.white.withOpacity(0.4),
             width: locked ? 3 : 1,
           ),
           boxShadow: [
             if (locked)
-              BoxShadow(color: const Color(0xFFFFD54F).withOpacity(0.6), blurRadius: 14),
+              BoxShadow(
+                  color: const Color(0xFFFFD54F).withOpacity(0.6),
+                  blurRadius: 14),
             if (!locked && active)
               BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 8),
           ],
@@ -457,11 +480,14 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     if (r == null) return const SizedBox.shrink();
 
     if (r.isJoining && !_joinedCurrentRound) {
-      final tiers = r.entryTiers.isEmpty ? const [1000, 5000, 10000, 50000] : r.entryTiers;
+      final tiers = r.entryTiers.isEmpty
+          ? const [1000, 5000, 10000, 50000]
+          : r.entryTiers;
       return Column(
         children: [
           Text('اختر رسوم الدخول',
-              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -487,11 +513,13 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                 backgroundColor: const Color(0xFFFFD54F),
                 foregroundColor: Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _join,
               child: Text('ادخل الجولة — ${_fmt(_entry)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
             ),
           ),
         ],
@@ -506,17 +534,20 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                 ? 'اضغط على النردة لإيقافها'
                 : 'اضغط على النردة لإيقافها — واضغط على نردة متوقفة لإعادة رميها (مرة واحدة)',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
           ),
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: _allLocked ? const Color(0xFF4CAF50) : Colors.white24,
+                backgroundColor:
+                    _allLocked ? const Color(0xFF4CAF50) : Colors.white24,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _allLocked ? _submit : null,
               child: const Text('سجّل النتيجة',
@@ -528,7 +559,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     }
 
     if (_submitted && _lastScore > 0) {
-      return _noticeBar('نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
+      return _noticeBar(
+          'نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
     }
 
     return const SizedBox.shrink();
@@ -544,7 +576,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('اللاعبون (${players.length})',
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
         SizedBox(
           height: 62,
@@ -560,7 +593,9 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: p.submitted ? const Color(0xFF4CAF50) : Colors.white24,
+                        color: p.submitted
+                            ? const Color(0xFF4CAF50)
+                            : Colors.white24,
                         width: 2,
                       ),
                     ),
@@ -572,7 +607,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                               ? NetworkImage(p.avatarUrl!)
                               : null,
                       child: (p.avatarUrl == null || p.avatarUrl!.isEmpty)
-                          ? const Icon(Icons.person, size: 18, color: Colors.white54)
+                          ? const Icon(Icons.person,
+                              size: 18, color: Colors.white54)
                           : null,
                     ),
                   ),
@@ -583,7 +619,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white60, fontSize: 10)),
+                        style: const TextStyle(
+                            color: Colors.white60, fontSize: 10)),
                   ),
                 ],
               );
@@ -608,7 +645,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('أفضل أداء — جولة $_resultRoundId',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           ..._podium.map((e) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -624,7 +662,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                           style: const TextStyle(color: Colors.white)),
                     ),
                     Text('${e.score}/100  •  🪙 ${_fmt(e.reward)}',
-                        style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 12)),
+                        style: const TextStyle(
+                            color: Color(0xFFFFD54F), fontSize: 12)),
                   ],
                 ),
               )),
@@ -685,10 +724,12 @@ class _DiePainter extends CustomPainter {
     final paint = Paint()..color = const Color(0xFF1A0E3E);
     final radius = size.shortestSide * 0.09;
     for (final p in _layouts[face] ?? const <Offset>[]) {
-      canvas.drawCircle(Offset(p.dx * size.width, p.dy * size.height), radius, paint);
+      canvas.drawCircle(
+          Offset(p.dx * size.width, p.dy * size.height), radius, paint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _DiePainter oldDelegate) => oldDelegate.face != face;
+  bool shouldRepaint(covariant _DiePainter oldDelegate) =>
+      oldDelegate.face != face;
 }

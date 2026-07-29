@@ -211,8 +211,8 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         b.bounces++;
       }
     }
-    _bullets.removeWhere((b) =>
-        b.life <= 0 || b.bounces > 5 || b.pos.dy > h + 30);
+    _bullets
+        .removeWhere((b) => b.life <= 0 || b.bounces > 5 || b.pos.dy > h + 30);
 
     // Collisions.
     _handleCollisions();
@@ -258,9 +258,11 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
   void _capture(_Fish f) {
     _fish.remove(f);
     final reward = f.value;
-    _balance += reward; // optimistic; reconciled by _syncCapture against the real balance
+    _balance +=
+        reward; // optimistic; reconciled by _syncCapture against the real balance
     HapticFeedback.mediumImpact();
-    _floats.add(_FloatText(x: f.x, y: f.y, text: '+${_fmt(reward)}', color: f.glow));
+    _floats.add(
+        _FloatText(x: f.x, y: f.y, text: '+${_fmt(reward)}', color: f.glow));
     // Coin burst.
     final n = f.isBoss ? 26 : 12;
     for (int i = 0; i < n; i++) {
@@ -284,7 +286,8 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
       ref.read(authStateProvider.notifier).updateCoinsBalance(result.balance);
     } on FishGameException catch (e) {
       if (!mounted) return;
-      setState(() => _balance -= expectedReward); // rollback the optimistic credit
+      setState(
+          () => _balance -= expectedReward); // rollback the optimistic credit
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(SnackBar(content: Text(e.message)));
@@ -403,7 +406,8 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         content: Text(
           'ارفع الرهان إلى ${_fmt(f.spec.minBet)} لاستهداف ${f.spec.name}',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          style:
+              const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
       ));
   }
@@ -415,7 +419,8 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
       return;
     }
     final betCharged = _bet;
-    _balance -= betCharged; // optimistic; reconciled by _syncShot against the real balance
+    _balance -=
+        betCharged; // optimistic; reconciled by _syncShot against the real balance
     _recoil = 1;
     SystemSound.play(SystemSoundType.click);
 
@@ -541,7 +546,9 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                   ..._buildDecor(),
                   ..._bubbles.map(_buildBubble),
                   ..._fish.map(_buildFish),
-                  ..._fish.where((f) => f.targetable(_bet)).map(_buildFishLabel),
+                  ..._fish
+                      .where((f) => f.targetable(_bet))
+                      .map(_buildFishLabel),
                   for (final b in _bullets) ..._buildBullet(b),
                   _buildMuzzleFlash(),
                   ..._particles.map(_buildParticle),
@@ -665,35 +672,47 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
       Positioned(
         left: 10,
         bottom: 6,
-        child: Text('🪸', style: TextStyle(fontSize: 46, shadows: _softGlow(Colors.pinkAccent))),
+        child: Text('🪸',
+            style:
+                TextStyle(fontSize: 46, shadows: _softGlow(Colors.pinkAccent))),
       ),
       Positioned(
         left: 70,
         bottom: 0,
-        child: Text('🌿', style: TextStyle(fontSize: 54, shadows: _softGlow(Colors.greenAccent))),
+        child: Text('🌿',
+            style: TextStyle(
+                fontSize: 54, shadows: _softGlow(Colors.greenAccent))),
       ),
       Positioned(
         right: 24,
         bottom: 2,
-        child: Text('🪸', style: TextStyle(fontSize: 40, shadows: _softGlow(Colors.deepOrangeAccent))),
+        child: Text('🪸',
+            style: TextStyle(
+                fontSize: 40, shadows: _softGlow(Colors.deepOrangeAccent))),
       ),
       Positioned(
         right: 84,
         bottom: 0,
-        child: Text('🌿', style: TextStyle(fontSize: 46, shadows: _softGlow(Colors.tealAccent))),
+        child: Text('🌿',
+            style:
+                TextStyle(fontSize: 46, shadows: _softGlow(Colors.tealAccent))),
       ),
       Positioned(
         left: _size.width * 0.5 - 30,
         bottom: -6,
         child: Opacity(
           opacity: 0.5,
-          child: Text('🚢', style: TextStyle(fontSize: 60, shadows: _softGlow(Colors.blueGrey))),
+          child: Text('🚢',
+              style:
+                  TextStyle(fontSize: 60, shadows: _softGlow(Colors.blueGrey))),
         ),
       ),
       Positioned(
         left: 4,
         top: h * 0.4,
-        child: Opacity(opacity: 0.35, child: const Text('⚓', style: TextStyle(fontSize: 30))),
+        child: Opacity(
+            opacity: 0.35,
+            child: const Text('⚓', style: TextStyle(fontSize: 30))),
       ),
     ];
   }
@@ -812,7 +831,12 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: RadialGradient(colors: [Colors.white, b.color]),
-            boxShadow: [BoxShadow(color: b.color.withOpacity(0.9), blurRadius: 14, spreadRadius: 1)],
+            boxShadow: [
+              BoxShadow(
+                  color: b.color.withOpacity(0.9),
+                  blurRadius: 14,
+                  spreadRadius: 1)
+            ],
           ),
         ),
       ),
@@ -833,7 +857,9 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: p.color,
-              boxShadow: [BoxShadow(color: p.color.withOpacity(0.8), blurRadius: 6)],
+              boxShadow: [
+                BoxShadow(color: p.color.withOpacity(0.8), blurRadius: 6)
+              ],
             ),
           ),
         ),
@@ -879,7 +905,8 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
             children: [
               // Balance card (top-start).
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.35),
                   borderRadius: BorderRadius.circular(20),
@@ -891,12 +918,15 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                     CircleAvatar(
                       radius: 14,
                       backgroundColor: Colors.blueGrey.shade700,
-                      backgroundImage: (user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty)
+                      backgroundImage: (user?.avatarUrl != null &&
+                              user!.avatarUrl!.isNotEmpty)
                           ? NetworkImage(user.avatarUrl!)
                           : null,
-                      child: (user?.avatarUrl == null || user!.avatarUrl!.isEmpty)
-                          ? const Icon(Icons.person, size: 16, color: Colors.white)
-                          : null,
+                      child:
+                          (user?.avatarUrl == null || user!.avatarUrl!.isEmpty)
+                              ? const Icon(Icons.person,
+                                  size: 16, color: Colors.white)
+                              : null,
                     ),
                     const SizedBox(width: 8),
                     const Text('🪙', style: TextStyle(fontSize: 15)),
@@ -1035,7 +1065,8 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                         offset: Offset(0, recoilDy),
                         child: Transform.flip(
                           flipX: true,
-                          child: const Text('🔫', style: TextStyle(fontSize: 40)),
+                          child:
+                              const Text('🔫', style: TextStyle(fontSize: 40)),
                         ),
                       ),
                     ],
@@ -1067,7 +1098,8 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Column(
               children: [
-                const Text('الرهان', style: TextStyle(color: Colors.white54, fontSize: 8)),
+                const Text('الرهان',
+                    style: TextStyle(color: Colors.white54, fontSize: 8)),
                 Text(
                   _fmt(_bet),
                   style: const TextStyle(
@@ -1127,16 +1159,22 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                 width: 2,
               ),
               boxShadow: active
-                  ? [BoxShadow(color: Colors.cyanAccent.withOpacity(0.6), blurRadius: 12)]
+                  ? [
+                      BoxShadow(
+                          color: Colors.cyanAccent.withOpacity(0.6),
+                          blurRadius: 12)
+                    ]
                   : null,
             ),
             child: Opacity(
               opacity: disabled ? 0.4 : 1,
-              child: Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
+              child: Center(
+                  child: Text(emoji, style: const TextStyle(fontSize: 22))),
             ),
           ),
           const SizedBox(height: 2),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 10)),
         ],
       ),
     );
@@ -1160,7 +1198,10 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                   colors: [Color(0xFFB71C1C), Color(0xFFFF6D00)],
                 ),
                 borderRadius: BorderRadius.circular(14),
-                boxShadow: [BoxShadow(color: Colors.orange.withOpacity(0.7), blurRadius: 24)],
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.orange.withOpacity(0.7), blurRadius: 24)
+                ],
               ),
               child: const Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1187,29 +1228,153 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
   // Species table (ascending value; sidebar shows it reversed).
   // ---------------------------------------------------------------------------
   static const List<_Species> _species = [
-    _Species(shape: _FishShape.fish, name: 'سمكة استوائية', key: 'tropical', value: 2000, minBet: 1000, hp: 1, radius: 34, speed: 34, glow: Color(0xFFFFC107), body: Color(0xFFFF7043)),
-    _Species(shape: _FishShape.puffer, name: 'سمكة منتفخة', key: 'puffer', value: 3000, minBet: 1000, hp: 1, radius: 38, speed: 30, glow: Color(0xFFFF80AB), body: Color(0xFFF06292)),
-    _Species(shape: _FishShape.squid, name: 'حبار', key: 'squid', value: 4000, minBet: 1000, hp: 2, radius: 42, speed: 32, glow: Color(0xFFB388FF), body: Color(0xFF9575CD)),
-    _Species(shape: _FishShape.octopus, name: 'أخطبوط', key: 'octopus', value: 6000, minBet: 1000, hp: 2, radius: 46, speed: 27, glow: Color(0xFFFF5252), body: Color(0xFFE53935)),
-    _Species(shape: _FishShape.turtle, name: 'سلحفاة', key: 'turtle', value: 12000, minBet: 1000, hp: 3, radius: 50, speed: 24, glow: Color(0xFF69F0AE), body: Color(0xFF43A047)),
-    _Species(shape: _FishShape.dolphin, name: 'دلفين', key: 'dolphin', value: 30000, minBet: 5000, hp: 4, radius: 54, speed: 40, glow: Color(0xFF40C4FF), body: Color(0xFF29B6F6)),
-    _Species(shape: _FishShape.shark, name: 'قرش', key: 'shark', value: 50000, minBet: 5000, hp: 5, radius: 62, speed: 37, glow: Color(0xFFB0BEC5), body: Color(0xFF78909C)),
-    _Species(shape: _FishShape.lobster, name: 'كركند', key: 'lobster', value: 100000, minBet: 5000, hp: 6, radius: 54, speed: 22, glow: Color(0xFFFF6E40), body: Color(0xFFE64A19)),
-    _Species(shape: _FishShape.fish, name: 'السمكة الذهبية', key: 'golden', value: 500000, minBet: 10000, hp: 8, radius: 66, speed: 24, glow: Color(0xFFFFD54A), body: Color(0xFFFFB300), golden: true),
-    _Species(shape: _FishShape.whale, name: 'الحوت النادر', key: 'whale', value: 5000000, minBet: 10000, hp: 14, radius: 86, speed: 17, glow: Color(0xFF18FFFF), body: Color(0xFF0097A7)),
-    _Species(shape: _FishShape.shark, name: 'القرش الأسطوري', key: 'megashark', value: 10000000, minBet: 50000, hp: 18, radius: 78, speed: 26, glow: Color(0xFFE040FB), body: Color(0xFF8E24AA), golden: true),
+    _Species(
+        shape: _FishShape.fish,
+        name: 'سمكة استوائية',
+        key: 'tropical',
+        value: 2000,
+        minBet: 1000,
+        hp: 1,
+        radius: 34,
+        speed: 34,
+        glow: Color(0xFFFFC107),
+        body: Color(0xFFFF7043)),
+    _Species(
+        shape: _FishShape.puffer,
+        name: 'سمكة منتفخة',
+        key: 'puffer',
+        value: 3000,
+        minBet: 1000,
+        hp: 1,
+        radius: 38,
+        speed: 30,
+        glow: Color(0xFFFF80AB),
+        body: Color(0xFFF06292)),
+    _Species(
+        shape: _FishShape.squid,
+        name: 'حبار',
+        key: 'squid',
+        value: 4000,
+        minBet: 1000,
+        hp: 2,
+        radius: 42,
+        speed: 32,
+        glow: Color(0xFFB388FF),
+        body: Color(0xFF9575CD)),
+    _Species(
+        shape: _FishShape.octopus,
+        name: 'أخطبوط',
+        key: 'octopus',
+        value: 6000,
+        minBet: 1000,
+        hp: 2,
+        radius: 46,
+        speed: 27,
+        glow: Color(0xFFFF5252),
+        body: Color(0xFFE53935)),
+    _Species(
+        shape: _FishShape.turtle,
+        name: 'سلحفاة',
+        key: 'turtle',
+        value: 12000,
+        minBet: 1000,
+        hp: 3,
+        radius: 50,
+        speed: 24,
+        glow: Color(0xFF69F0AE),
+        body: Color(0xFF43A047)),
+    _Species(
+        shape: _FishShape.dolphin,
+        name: 'دلفين',
+        key: 'dolphin',
+        value: 30000,
+        minBet: 5000,
+        hp: 4,
+        radius: 54,
+        speed: 40,
+        glow: Color(0xFF40C4FF),
+        body: Color(0xFF29B6F6)),
+    _Species(
+        shape: _FishShape.shark,
+        name: 'قرش',
+        key: 'shark',
+        value: 50000,
+        minBet: 5000,
+        hp: 5,
+        radius: 62,
+        speed: 37,
+        glow: Color(0xFFB0BEC5),
+        body: Color(0xFF78909C)),
+    _Species(
+        shape: _FishShape.lobster,
+        name: 'كركند',
+        key: 'lobster',
+        value: 100000,
+        minBet: 5000,
+        hp: 6,
+        radius: 54,
+        speed: 22,
+        glow: Color(0xFFFF6E40),
+        body: Color(0xFFE64A19)),
+    _Species(
+        shape: _FishShape.fish,
+        name: 'السمكة الذهبية',
+        key: 'golden',
+        value: 500000,
+        minBet: 10000,
+        hp: 8,
+        radius: 66,
+        speed: 24,
+        glow: Color(0xFFFFD54A),
+        body: Color(0xFFFFB300),
+        golden: true),
+    _Species(
+        shape: _FishShape.whale,
+        name: 'الحوت النادر',
+        key: 'whale',
+        value: 5000000,
+        minBet: 10000,
+        hp: 14,
+        radius: 86,
+        speed: 17,
+        glow: Color(0xFF18FFFF),
+        body: Color(0xFF0097A7)),
+    _Species(
+        shape: _FishShape.shark,
+        name: 'القرش الأسطوري',
+        key: 'megashark',
+        value: 10000000,
+        minBet: 50000,
+        hp: 18,
+        radius: 78,
+        speed: 26,
+        glow: Color(0xFFE040FB),
+        body: Color(0xFF8E24AA),
+        golden: true),
   ];
 }
 
 // =============================================================================
 // Data classes
 // =============================================================================
-enum _FishShape { fish, puffer, squid, octopus, turtle, dolphin, shark, lobster, whale, dragon }
+enum _FishShape {
+  fish,
+  puffer,
+  squid,
+  octopus,
+  turtle,
+  dolphin,
+  shark,
+  lobster,
+  whale,
+  dragon
+}
 
 class _Species {
   final _FishShape shape;
   final String name;
-  final String key; // server-side lookup key — see FISH_SPECIES_VALUES in game.controller.ts
+  final String
+      key; // server-side lookup key — see FISH_SPECIES_VALUES in game.controller.ts
   final int value;
   final int minBet;
   final int hp;
@@ -1295,7 +1460,8 @@ class _Bubble {
   double y;
   final double r;
   final double speed;
-  _Bubble({required this.x, required this.y, required this.r, required this.speed});
+  _Bubble(
+      {required this.x, required this.y, required this.r, required this.speed});
 }
 
 class _FloatText {
@@ -1304,7 +1470,11 @@ class _FloatText {
   final String text;
   final Color color;
   double life = 1.2;
-  _FloatText({required this.x, required this.y, required this.text, required this.color});
+  _FloatText(
+      {required this.x,
+      required this.y,
+      required this.text,
+      required this.color});
 }
 
 class _Particle {
@@ -1312,7 +1482,11 @@ class _Particle {
   Offset vel;
   double life;
   final Color color;
-  _Particle({required this.pos, required this.vel, required this.life, required this.color});
+  _Particle(
+      {required this.pos,
+      required this.vel,
+      required this.life,
+      required this.color});
 }
 
 // =============================================================================
@@ -1405,8 +1579,10 @@ class _FishPainter extends CustomPainter {
 
   void _eye(Canvas c, double x, double y, [double r = 0.13]) {
     c.drawCircle(Offset(x, y), r, Paint()..color = Colors.white);
-    c.drawCircle(Offset(x + r * 0.25, y), r * 0.55, Paint()..color = Colors.black87);
-    c.drawCircle(Offset(x + r * 0.05, y - r * 0.25), r * 0.2, Paint()..color = Colors.white);
+    c.drawCircle(
+        Offset(x + r * 0.25, y), r * 0.55, Paint()..color = Colors.black87);
+    c.drawCircle(Offset(x + r * 0.05, y - r * 0.25), r * 0.2,
+        Paint()..color = Colors.white);
   }
 
   // ---- Classic fish ----
@@ -1444,7 +1620,12 @@ class _FishPainter extends CustomPainter {
       ..quadraticBezierTo(0.35, 0.68, 0.95, 0)
       ..close();
     c.drawPath(bodyPath, _grad(base, belly));
-    c.drawPath(bodyPath, Paint()..color = dark..style = PaintingStyle.stroke..strokeWidth = 0.03);
+    c.drawPath(
+        bodyPath,
+        Paint()
+          ..color = dark
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.03);
     // Pectoral fin
     c.drawPath(
         Path()
@@ -1453,8 +1634,12 @@ class _FishPainter extends CustomPainter {
           ..close(),
         Paint()..color = fin.withOpacity(0.85));
     // Gill + eye
-    c.drawLine(const Offset(0.45, -0.28), const Offset(0.4, 0.28),
-        Paint()..color = dark..strokeWidth = 0.03);
+    c.drawLine(
+        const Offset(0.45, -0.28),
+        const Offset(0.4, 0.28),
+        Paint()
+          ..color = dark
+          ..strokeWidth = 0.03);
     _eye(c, 0.6, -0.12);
   }
 
@@ -1475,8 +1660,13 @@ class _FishPainter extends CustomPainter {
           spikes);
     }
     c.drawCircle(Offset.zero, 0.75, _grad(base, belly, h: 0.75));
-    c.drawCircle(Offset.zero, 0.75,
-        Paint()..color = dark..style = PaintingStyle.stroke..strokeWidth = 0.03);
+    c.drawCircle(
+        Offset.zero,
+        0.75,
+        Paint()
+          ..color = dark
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.03);
     // small tail
     c.save();
     c.translate(-0.72, 0);
@@ -1491,8 +1681,15 @@ class _FishPainter extends CustomPainter {
     c.restore();
     _eye(c, 0.34, -0.14, 0.15);
     // little frown
-    c.drawArc(Rect.fromCircle(center: const Offset(0.5, 0.18), radius: 0.14),
-        pi, pi, false, Paint()..color = dark..style = PaintingStyle.stroke..strokeWidth = 0.035);
+    c.drawArc(
+        Rect.fromCircle(center: const Offset(0.5, 0.18), radius: 0.14),
+        pi,
+        pi,
+        false,
+        Paint()
+          ..color = dark
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.035);
   }
 
   // ---- Squid ----
@@ -1531,7 +1728,8 @@ class _FishPainter extends CustomPainter {
       c.drawPath(
           Path()
             ..moveTo(0.55, y)
-            ..quadraticBezierTo(0.85, y + wag * 0.1, 1.05, y + i * 0.05 + wag * 0.15),
+            ..quadraticBezierTo(
+                0.85, y + wag * 0.1, 1.05, y + i * 0.05 + wag * 0.15),
           tp);
     }
     _eye(c, 0.2, -0.14, 0.14);
@@ -1551,12 +1749,14 @@ class _FishPainter extends CustomPainter {
       c.drawPath(
           Path()
             ..moveTo(x * 0.6, 0.2)
-            ..quadraticBezierTo(x, 0.7, x * 1.15 + wag * 0.12 * (i.isEven ? 1 : -1), 0.98),
+            ..quadraticBezierTo(
+                x, 0.7, x * 1.15 + wag * 0.12 * (i.isEven ? 1 : -1), 0.98),
           tp);
     }
     // Head/mantle
     final head = Path()
-      ..addOval(Rect.fromCenter(center: const Offset(0, -0.15), width: 1.5, height: 1.5));
+      ..addOval(Rect.fromCenter(
+          center: const Offset(0, -0.15), width: 1.5, height: 1.5));
     c.drawPath(head, _grad(base, belly, h: 0.8));
     _eye(c, -0.28, -0.25, 0.17);
     _eye(c, 0.28, -0.25, 0.17);
@@ -1569,7 +1769,8 @@ class _FishPainter extends CustomPainter {
     c.save();
     c.translate(0.35, -0.35);
     c.rotate(wag * 0.2);
-    c.drawOval(Rect.fromCenter(center: Offset.zero, width: 0.5, height: 0.24), flip);
+    c.drawOval(
+        Rect.fromCenter(center: Offset.zero, width: 0.5, height: 0.24), flip);
     c.restore();
     c.drawOval(const Rect.fromLTWH(-0.7, 0.25, 0.5, 0.24), flip);
     c.drawOval(const Rect.fromLTWH(0.2, 0.3, 0.5, 0.22), flip);
@@ -1577,10 +1778,15 @@ class _FishPainter extends CustomPainter {
     c.drawCircle(const Offset(0.72, 0), 0.2, _grad(base, belly, h: 0.3));
     _eye(c, 0.8, -0.05, 0.07);
     // Shell
-    final shell = Rect.fromCenter(center: const Offset(-0.05, 0), width: 1.35, height: 1.1);
+    final shell = Rect.fromCenter(
+        center: const Offset(-0.05, 0), width: 1.35, height: 1.1);
     c.drawOval(shell, _grad(dark, base));
-    c.drawOval(shell,
-        Paint()..color = Colors.black26..style = PaintingStyle.stroke..strokeWidth = 0.04);
+    c.drawOval(
+        shell,
+        Paint()
+          ..color = Colors.black26
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.04);
     // Shell hex pattern
     final seg = Paint()
       ..color = Colors.black26
@@ -1666,7 +1872,12 @@ class _FishPainter extends CustomPainter {
       ..quadraticBezierTo(0.4, 0.5, 1.05, 0.02)
       ..close();
     c.drawPath(b, _grad(base, belly));
-    c.drawPath(b, Paint()..color = dark..style = PaintingStyle.stroke..strokeWidth = 0.03);
+    c.drawPath(
+        b,
+        Paint()
+          ..color = dark
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.03);
     // Big dorsal fin
     c.drawPath(
         Path()
@@ -1684,13 +1895,19 @@ class _FishPainter extends CustomPainter {
           ..close(),
         Paint()..color = fin);
     // Gills
-    final g = Paint()..color = dark..strokeWidth = 0.025;
+    final g = Paint()
+      ..color = dark
+      ..strokeWidth = 0.025;
     for (int i = 0; i < 3; i++) {
       c.drawLine(Offset(0.5 - i * 0.09, -0.22), Offset(0.5 - i * 0.09, 0.2), g);
     }
     // Mouth
-    c.drawLine(const Offset(1.02, 0.18), const Offset(0.7, 0.28),
-        Paint()..color = dark..strokeWidth = 0.03);
+    c.drawLine(
+        const Offset(1.02, 0.18),
+        const Offset(0.7, 0.28),
+        Paint()
+          ..color = dark
+          ..strokeWidth = 0.03);
     _eye(c, 0.75, -0.1, 0.1);
   }
 
@@ -1725,18 +1942,29 @@ class _FishPainter extends CustomPainter {
     // Segmented body
     for (int i = 0; i < 4; i++) {
       final x = -0.5 + i * 0.28;
-      c.drawOval(Rect.fromCenter(center: Offset(x, 0), width: 0.4, height: 0.6 - i * 0.02),
+      c.drawOval(
+          Rect.fromCenter(
+              center: Offset(x, 0), width: 0.4, height: 0.6 - i * 0.02),
           _grad(base, Color.lerp(base, dark, 0.3)!, h: 0.3));
     }
     // Head
-    c.drawOval(Rect.fromCenter(center: const Offset(0.62, 0), width: 0.5, height: 0.55), p);
+    c.drawOval(
+        Rect.fromCenter(
+            center: const Offset(0.62, 0), width: 0.5, height: 0.55),
+        p);
     // Antennae
     c.drawLine(const Offset(0.8, -0.1), Offset(1.15, -0.35 + wag * 0.1), legP);
     c.drawLine(const Offset(0.8, 0.1), Offset(1.15, 0.35 + wag * 0.1), legP);
     // Claws
     final claw = _grad(base, belly, h: 0.3);
-    c.drawOval(Rect.fromCenter(center: const Offset(1.05, -0.28), width: 0.42, height: 0.3), claw);
-    c.drawOval(Rect.fromCenter(center: const Offset(1.05, 0.28), width: 0.42, height: 0.3), claw);
+    c.drawOval(
+        Rect.fromCenter(
+            center: const Offset(1.05, -0.28), width: 0.42, height: 0.3),
+        claw);
+    c.drawOval(
+        Rect.fromCenter(
+            center: const Offset(1.05, 0.28), width: 0.42, height: 0.3),
+        claw);
     _eye(c, 0.78, -0.12, 0.08);
     _eye(c, 0.78, 0.12, 0.08);
   }
@@ -1792,7 +2020,10 @@ class _FishPainter extends CustomPainter {
         Path()
           ..moveTo(0.98, 0.05)
           ..quadraticBezierTo(0.7, 0.32, 0.4, 0.28),
-        Paint()..color = dark..style = PaintingStyle.stroke..strokeWidth = 0.03);
+        Paint()
+          ..color = dark
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.03);
     _eye(c, 0.62, 0.02, 0.09);
   }
 
@@ -1817,7 +2048,8 @@ class _FishPainter extends CustomPainter {
     }
     // Head
     final hx = 0.72, hy = sin(wag) * 0.28 * 0 + 0.0;
-    c.drawCircle(Offset(hx, hy), 0.42, _grad(Color.lerp(base, glow, 0.3)!, base, h: 0.4));
+    c.drawCircle(Offset(hx, hy), 0.42,
+        _grad(Color.lerp(base, glow, 0.3)!, base, h: 0.4));
     // Snout
     c.drawPath(
         Path()
@@ -1844,7 +2076,8 @@ class _FishPainter extends CustomPainter {
     c.drawPath(
         Path()
           ..moveTo(hx + 0.6, hy + 0.05)
-          ..quadraticBezierTo(hx + 0.9, hy - 0.2, hx + 1.05, hy + 0.15 + wag * 0.1),
+          ..quadraticBezierTo(
+              hx + 0.9, hy - 0.2, hx + 1.05, hy + 0.15 + wag * 0.1),
         wh);
     _eye(c, hx + 0.15, hy - 0.08, 0.11);
   }
@@ -1877,7 +2110,9 @@ class _RechargeDialog extends StatelessWidget {
             ),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: const Color(0xFF64B5F6), width: 2),
-            boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.5), blurRadius: 24)],
+            boxShadow: [
+              BoxShadow(color: Colors.blue.withOpacity(0.5), blurRadius: 24)
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1886,13 +2121,17 @@ class _RechargeDialog extends StatelessWidget {
               const SizedBox(height: 8),
               const Text(
                 'شحن الرصيد',
-                style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 8),
               Text(
                 'رصيدك غير كافٍ لهذا الرهان (${_FishShooterScreenState._fmt(bet)}).\nقم بشحن رصيدك للاستمرار في الصيد.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
+                style: const TextStyle(
+                    color: Colors.white70, fontSize: 13, height: 1.5),
               ),
               const SizedBox(height: 16),
               Row(
@@ -1900,7 +2139,8 @@ class _RechargeDialog extends StatelessWidget {
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('لاحقاً', style: TextStyle(color: Colors.white70)),
+                      child: const Text('لاحقاً',
+                          style: TextStyle(color: Colors.white70)),
                     ),
                   ),
                   Expanded(
@@ -1908,10 +2148,12 @@ class _RechargeDialog extends StatelessWidget {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFFD54A),
                         foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () => Navigator.pop(context, 'recharge'),
-                      child: const Text('شحن الآن', style: TextStyle(fontWeight: FontWeight.w900)),
+                      child: const Text('شحن الآن',
+                          style: TextStyle(fontWeight: FontWeight.w900)),
                     ),
                   ),
                 ],

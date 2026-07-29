@@ -282,7 +282,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
 
     // Anything of ours still pending at the crash is a loss — the stake was
     // already debited when the bet was placed.
-    for (final raw in ((map['results'] as List?) ?? const []).whereType<Map>()) {
+    for (final raw
+        in ((map['results'] as List?) ?? const []).whereType<Map>()) {
       final bet = CrashBet.fromJson(Map<String, dynamic>.from(raw));
       if (bet.userId != _myId) continue;
       final panel = _panels[bet.slot.clamp(0, _panels.length - 1)];
@@ -367,9 +368,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
     setState(() {
       _chat
         ..clear()
-        ..addAll(data
-            .whereType<Map>()
-            .map((e) => CrashChatMessage.fromJson(Map<String, dynamic>.from(e))));
+        ..addAll(data.whereType<Map>().map(
+            (e) => CrashChatMessage.fromJson(Map<String, dynamic>.from(e))));
     });
     _scrollChatToEnd();
   }
@@ -428,7 +428,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       _elapsedMs = elapsed;
     });
 
-    while (_nextMilestone < _milestones.length && m >= _milestones[_nextMilestone]) {
+    while (_nextMilestone < _milestones.length &&
+        m >= _milestones[_nextMilestone]) {
       _nextMilestone++;
       _pulse.forward(from: 0);
       HapticFeedback.selectionClick();
@@ -440,7 +441,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
   Color _multiplierColor(double m) {
     if (m < 2) return Colors.white;
     if (m < 10) {
-      return Color.lerp(Colors.white, _cashGold, ((m - 2) / 8).clamp(0.0, 1.0))!;
+      return Color.lerp(
+          Colors.white, _cashGold, ((m - 2) / 8).clamp(0.0, 1.0))!;
     }
     return Color.lerp(_cashGold, _curveRed, ((m - 10) / 40).clamp(0.0, 1.0))!;
   }
@@ -549,7 +551,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         panel.settledPayout = result.payout;
         panel.settledMultiplier = result.multiplier;
         _balance = result.balance;
-        _notice = 'سحبت عند ${result.multiplier.toStringAsFixed(2)}x — ربحت ${result.payout}';
+        _notice =
+            'سحبت عند ${result.multiplier.toStringAsFixed(2)}x — ربحت ${result.payout}';
       });
       ref.read(authStateProvider.notifier).updateCoinsBalance(_balance);
       _play('sounds/crash_cashout.wav');
@@ -618,7 +621,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           backgroundColor: _bg,
           elevation: 0,
           title: Row(children: [
-            const Text('طيّار', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            const Text('طيّار',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
             const Spacer(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -627,7 +632,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text('🪙 $_balance',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ]),
           actions: [
@@ -647,9 +653,18 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
             child: Stack(children: [
               _flightArea(),
               Positioned(top: 8, right: 8, child: _liveBetsPanel()),
-              Positioned(top: 12, left: 0, right: 0, child: Center(child: _bigWinToast())),
+              Positioned(
+                  top: 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(child: _bigWinToast())),
               if (_chatOpen)
-                Positioned(left: 0, top: 0, bottom: 0, width: 240, child: _chatPanel()),
+                Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 240,
+                    child: _chatPanel()),
               Positioned(
                 right: 8,
                 bottom: 8,
@@ -657,7 +672,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                   heroTag: 'crash-chat',
                   backgroundColor: Colors.white.withOpacity(0.12),
                   onPressed: () => setState(() => _chatOpen = !_chatOpen),
-                  child: Icon(_chatOpen ? Icons.close : Icons.chat_bubble_outline,
+                  child: Icon(
+                      _chatOpen ? Icons.close : Icons.chat_bubble_outline,
                       color: Colors.white),
                 ),
               ),
@@ -668,7 +684,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Text(_notice!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.amberAccent, fontSize: 12)),
+                  style:
+                      const TextStyle(color: Colors.amberAccent, fontSize: 12)),
             ),
           _betPanels(),
         ]),
@@ -696,7 +713,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
             ),
             if (!_rainClaimed)
               const Text('اضغط للاستلام',
-                  style: TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
+                  style:
+                      TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
           ]),
         ),
       );
@@ -753,7 +771,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                 const SizedBox(height: 8),
                 Text('${(_msLeft / 1000).ceil()}',
                     style: const TextStyle(
-                        color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
+                        color: Colors.white,
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 SizedBox(
                   width: 180,
@@ -835,7 +855,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                 '${_multiplier.toStringAsFixed(2)}x',
                 style: TextStyle(
                   color: color,
-                  fontSize: _multiplier >= 10 ? 64 : (_multiplier >= 2 ? 58 : 52),
+                  fontSize:
+                      _multiplier >= 10 ? 64 : (_multiplier >= 2 ? 58 : 52),
                   fontWeight: FontWeight.w900,
                   shadows: [
                     Shadow(color: color.withOpacity(0.55), blurRadius: 22),
@@ -900,9 +921,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
   /// backing so a successful cash-out is visible in peripheral vision; losers
   /// dim out of the way.
   Widget _liveBetRow(CrashBet b) {
-    final color = b.isWin
-        ? _win
-        : (b.isLoss ? Colors.white24 : Colors.white70);
+    final color = b.isWin ? _win : (b.isLoss ? Colors.white24 : Colors.white70);
 
     final row = Container(
       key: ValueKey(b.betId),
@@ -911,9 +930,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       decoration: BoxDecoration(
         color: b.isWin ? _win.withOpacity(0.14) : Colors.transparent,
         borderRadius: BorderRadius.circular(7),
-        border: b.isWin
-            ? Border.all(color: _win.withOpacity(0.35))
-            : null,
+        border: b.isWin ? Border.all(color: _win.withOpacity(0.35)) : null,
       ),
       child: Row(children: [
         _avatar(b),
@@ -924,9 +941,13 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
               style: TextStyle(color: color, fontSize: 10)),
         ),
         Text(
-          b.isWin ? '${b.cashOutMultiplier!.toStringAsFixed(2)}x' : '${b.amount}',
+          b.isWin
+              ? '${b.cashOutMultiplier!.toStringAsFixed(2)}x'
+              : '${b.amount}',
           style: TextStyle(
-              color: color, fontSize: 10, fontWeight: b.isWin ? FontWeight.bold : null),
+              color: color,
+              fontSize: 10,
+              fontWeight: b.isWin ? FontWeight.bold : null),
         ),
       ]),
     );
@@ -939,7 +960,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       curve: Curves.easeOut,
       builder: (context, v, child) => Opacity(
         opacity: v.clamp(0.0, 1.0),
-        child: Transform.translate(offset: Offset((1 - v) * 18, 0), child: child),
+        child:
+            Transform.translate(offset: Offset((1 - v) * 18, 0), child: child),
       ),
       child: row,
     );
@@ -972,7 +994,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       curve: Curves.easeOutBack,
       builder: (context, v, child) => Opacity(
         opacity: v.clamp(0.0, 1.0),
-        child: Transform.translate(offset: Offset(0, (1 - v) * -22), child: child),
+        child:
+            Transform.translate(offset: Offset(0, (1 - v) * -22), child: child),
       ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -982,7 +1005,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
-            BoxShadow(color: const Color(0xFFE91E63).withOpacity(0.5), blurRadius: 16),
+            BoxShadow(
+                color: const Color(0xFFE91E63).withOpacity(0.5),
+                blurRadius: 16),
           ],
         ),
         child: Text(
@@ -998,7 +1023,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         color: Colors.black.withOpacity(0.55),
         padding: const EdgeInsets.all(8),
         child: Column(children: [
-          const Text('الدردشة', style: TextStyle(color: _textDim, fontSize: 12)),
+          const Text('الدردشة',
+              style: TextStyle(color: _textDim, fontSize: 12)),
           const Divider(color: Colors.white12, height: 10),
           Expanded(
             child: ListView.builder(
@@ -1013,7 +1039,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                       TextSpan(
                         text: '${m.name}: ',
                         style: const TextStyle(
-                            color: _cashGold, fontSize: 11, fontWeight: FontWeight.bold),
+                            color: _cashGold,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold),
                       ),
                       TextSpan(
                         text: m.text,
@@ -1053,7 +1081,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: _panels
-              .map((p) => Expanded(child: Padding(
+              .map((p) => Expanded(
+                      child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: _betPanel(p),
                   )))
@@ -1079,19 +1108,27 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         Row(children: [
           IconButton(
             visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.remove_circle_outline, color: Colors.white54, size: 18),
-            onPressed: betting ? () => setState(() => panel.nudge(-100, s!.minBet, s.maxBet)) : null,
+            icon: const Icon(Icons.remove_circle_outline,
+                color: Colors.white54, size: 18),
+            onPressed: betting
+                ? () => setState(() => panel.nudge(-100, s!.minBet, s.maxBet))
+                : null,
           ),
           Expanded(
             child: Text('${panel.amount}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.add_circle_outline, color: Colors.white54, size: 18),
-            onPressed: betting ? () => setState(() => panel.nudge(100, s!.minBet, s.maxBet)) : null,
+            icon: const Icon(Icons.add_circle_outline,
+                color: Colors.white54, size: 18),
+            onPressed: betting
+                ? () => setState(() => panel.nudge(100, s!.minBet, s.maxBet))
+                : null,
           ),
         ]),
         Wrap(
@@ -1100,14 +1137,19 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           children: [
             for (final step in const [100, 500, 1000, 5000])
               _chip('+$step',
-                  onTap: betting ? () => setState(() => panel.nudge(step, s!.minBet, s.maxBet)) : null),
+                  onTap: betting
+                      ? () =>
+                          setState(() => panel.nudge(step, s!.minBet, s.maxBet))
+                      : null),
             _chip('½',
                 onTap: betting
-                    ? () => setState(() => panel.setAmount(_balance ~/ 2, s!.minBet, s.maxBet))
+                    ? () => setState(() =>
+                        panel.setAmount(_balance ~/ 2, s!.minBet, s.maxBet))
                     : null),
             _chip('الكل',
                 onTap: betting
-                    ? () => setState(() => panel.setAmount(_balance, s!.minBet, s.maxBet))
+                    ? () => setState(
+                        () => panel.setAmount(_balance, s!.minBet, s.maxBet))
                     : null),
           ],
         ),
@@ -1134,11 +1176,13 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                 controller: panel.autoController,
                 enabled: panel.autoCashOutOn,
                 textAlign: TextAlign.center,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 style: const TextStyle(color: Colors.white, fontSize: 12),
                 decoration: const InputDecoration(
                   isDense: true,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                   suffixText: 'x',
                   suffixStyle: TextStyle(color: _textDim, fontSize: 11),
                 ),
@@ -1161,16 +1205,20 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                     'CASH OUT\n${(panel.betAmount * _multiplier).floor()}',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13),
                   ),
                 )
               : panel.hasBet
                   ? ElevatedButton(
                       onPressed: betting ? () => _cancelBet(panel) : null,
-                      style: ElevatedButton.styleFrom(backgroundColor: _cancelRed),
+                      style:
+                          ElevatedButton.styleFrom(backgroundColor: _cancelRed),
                       child: const Text('CANCEL',
-                          style:
-                              TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
                     )
                   : ElevatedButton(
                       onPressed: betting ? () => _placeBet(panel) : null,
@@ -1179,8 +1227,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                         disabledBackgroundColor: Colors.white12,
                       ),
                       child: const Text('BET',
-                          style:
-                              TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
                     ),
         ),
         if (panel.settled != null)
@@ -1211,7 +1260,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           ),
           child: Text(label,
               style: TextStyle(
-                  color: onTap == null ? Colors.white24 : Colors.white70, fontSize: 10)),
+                  color: onTap == null ? Colors.white24 : Colors.white70,
+                  fontSize: 10)),
         ),
       );
 
@@ -1270,7 +1320,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           ),
           ListTile(
             leading: const Icon(Icons.verified_user, color: Colors.white70),
-            title: const Text('إثبات العدالة', style: TextStyle(color: Colors.white)),
+            title: const Text('إثبات العدالة',
+                style: TextStyle(color: Colors.white)),
             subtitle: Text('بذرتك: ${_clientSeed ?? '—'}',
                 style: const TextStyle(color: Colors.white38, fontSize: 11)),
             onTap: () {
@@ -1280,7 +1331,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           ),
           ListTile(
             leading: const Icon(Icons.bar_chart, color: Colors.white70),
-            title: const Text('إحصائياتي', style: TextStyle(color: Colors.white)),
+            title:
+                const Text('إحصائياتي', style: TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.pop(context);
               _openStats();
@@ -1306,7 +1358,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           style: TextStyle(color: Colors.white70, fontSize: 13),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('تمام')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('تمام')),
         ],
       ),
     );
@@ -1333,7 +1387,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           ),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء')),
           TextButton(
             onPressed: () async {
               final navigator = Navigator.of(context);
@@ -1373,14 +1429,17 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const Text('إحصائياتي',
                     style: TextStyle(
-                        color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
                 _statRow('جولات', '${st.rounds}'),
                 _statRow('رهنت', '${st.wagered}'),
                 _statRow('ربحت', '${st.won}'),
                 _statRow('الصافي', '${st.net}'),
                 _statRow('فوز / خسارة', '${st.wins} / ${st.losses}'),
-                _statRow('أعلى مضاعف', '${st.bestMultiplier.toStringAsFixed(2)}x'),
+                _statRow(
+                    'أعلى مضاعف', '${st.bestMultiplier.toStringAsFixed(2)}x'),
                 _statRow('أعلى ربح', '${st.bestPayout}'),
                 _statRow('متوسط مضاعف الجولات',
                     '${st.averageRoundMultiplier.toStringAsFixed(2)}x'),
@@ -1395,12 +1454,14 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                       return ListTile(
                         dense: true,
                         title: Text('${b.amount}',
-                            style: const TextStyle(color: _textDim, fontSize: 12)),
+                            style:
+                                const TextStyle(color: _textDim, fontSize: 12)),
                         trailing: Text(
-                          win ? '+${b.payout} (${b.cashOutMultiplier?.toStringAsFixed(2)}x)' : '-${b.amount}',
+                          win
+                              ? '+${b.payout} (${b.cashOutMultiplier?.toStringAsFixed(2)}x)'
+                              : '-${b.amount}',
                           style: TextStyle(
-                              color: win ? _win : Colors.white30,
-                              fontSize: 12),
+                              color: win ? _win : Colors.white30, fontSize: 12),
                         ),
                       );
                     },
@@ -1416,11 +1477,15 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
 
   Widget _statRow(String label, String value) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(label, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        child:
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(label,
+              style: const TextStyle(color: Colors.white54, fontSize: 12)),
           Text(value,
               style: const TextStyle(
-                  color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold)),
         ]),
       );
 
@@ -1430,7 +1495,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: _bgGlow,
-        title: const Text('إثبات العدالة', style: TextStyle(color: Colors.white)),
+        title:
+            const Text('إثبات العدالة', style: TextStyle(color: Colors.white)),
         content: FutureBuilder<CrashFairness>(
           future: _repo.fetchFairness(roundId),
           builder: (context, snap) {
@@ -1440,33 +1506,40 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
             }
             if (!snap.hasData) {
               return const SizedBox(
-                  height: 80, child: Center(child: CircularProgressIndicator()));
+                  height: 80,
+                  child: Center(child: CircularProgressIndicator()));
             }
             final f = snap.data!;
             return SingleChildScrollView(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                _fairRow('الجولة', '#${f.roundId}'),
-                _fairRow('العداد (nonce)', '${f.nonce}'),
-                _fairRow('نقطة التحطم', '${f.crashPoint.toStringAsFixed(2)}x'),
-                _fairRow('تجزئة البذرة (منشورة قبل الجولة)', f.serverSeedHash),
-                _fairRow('بذرة الخادم (مكشوفة)', f.serverSeed),
-                _fairRow('بذور اللاعبين', f.clientSeeds.join(', ')),
-                _fairRow('التجزئة النهائية', f.hash),
-                const SizedBox(height: 8),
-                Text(
-                  f.verified
-                      ? '✅ أعاد الخادم الحساب من البذور فطابقت النتيجة'
-                      : '⚠️ لم تتطابق النتيجة',
-                  style: TextStyle(
-                      color: f.verified ? _win : Colors.orangeAccent,
-                      fontSize: 12),
-                ),
-              ]),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _fairRow('الجولة', '#${f.roundId}'),
+                    _fairRow('العداد (nonce)', '${f.nonce}'),
+                    _fairRow(
+                        'نقطة التحطم', '${f.crashPoint.toStringAsFixed(2)}x'),
+                    _fairRow(
+                        'تجزئة البذرة (منشورة قبل الجولة)', f.serverSeedHash),
+                    _fairRow('بذرة الخادم (مكشوفة)', f.serverSeed),
+                    _fairRow('بذور اللاعبين', f.clientSeeds.join(', ')),
+                    _fairRow('التجزئة النهائية', f.hash),
+                    const SizedBox(height: 8),
+                    Text(
+                      f.verified
+                          ? '✅ أعاد الخادم الحساب من البذور فطابقت النتيجة'
+                          : '⚠️ لم تتطابق النتيجة',
+                      style: TextStyle(
+                          color: f.verified ? _win : Colors.orangeAccent,
+                          fontSize: 12),
+                    ),
+                  ]),
             );
           },
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إغلاق')),
         ],
       ),
     );
@@ -1475,7 +1548,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
   Widget _fairRow(String label, String value) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+          Text(label,
+              style: const TextStyle(color: Colors.white38, fontSize: 10)),
           SelectableText(value,
               style: const TextStyle(color: _textDim, fontSize: 11)),
         ]),
@@ -1499,9 +1573,11 @@ class _PanelState {
   int settledPayout = 0;
   double? settledMultiplier;
 
-  final TextEditingController autoController = TextEditingController(text: '2.00');
+  final TextEditingController autoController =
+      TextEditingController(text: '2.00');
 
-  void nudge(int delta, int min, int max) => setAmount(amount + delta, min, max);
+  void nudge(int delta, int min, int max) =>
+      setAmount(amount + delta, min, max);
 
   void setAmount(int value, int min, int max) => amount = value.clamp(min, max);
 
@@ -1676,7 +1752,6 @@ class _FlightPainter extends CustomPainter {
       return;
     }
 
-
     const night = Color(0xFF16123A); // violet-navy
     const dawn = Color(0xFF3D1B4F); // violet with a warm cast
     const strato = Color(0xFF141A4A); // deep blue-violet
@@ -1807,7 +1882,8 @@ class _FlightPainter extends CustomPainter {
 
         // Scroll left and settle downward as the plane climbs past the deck.
         final shift = (p * depth * size.width * 2.2) % w;
-        final y = size.height * (0.30 + depth * 0.30) + p * depth * size.height * 0.75;
+        final y = size.height * (0.30 + depth * 0.30) +
+            p * depth * size.height * 0.75;
         if (y - h > size.height) continue;
 
         for (var tile = -1; tile <= 1; tile++) {
@@ -1893,7 +1969,8 @@ class _FlightPainter extends CustomPainter {
         Paint()
           ..color = (lit ? _CrashGameScreenState._cashGold : Colors.white24)
               .withOpacity(lit ? 0.95 : 0.4)
-          ..maskFilter = lit ? const MaskFilter.blur(BlurStyle.normal, 4) : null,
+          ..maskFilter =
+              lit ? const MaskFilter.blur(BlurStyle.normal, 4) : null,
       );
     }
 
@@ -2193,7 +2270,8 @@ class _FlightPainter extends CustomPainter {
         ..close(),
       Paint()..color = dark,
     );
-    canvas.drawCircle(const Offset(4, -2), 1.8, Paint()..color = Colors.white70);
+    canvas.drawCircle(
+        const Offset(4, -2), 1.8, Paint()..color = Colors.white70);
     _paintPropeller(canvas, idle: idle);
   }
 
@@ -2333,35 +2411,37 @@ class _FlightPainter extends CustomPainter {
     }
 
     // Debris thrown outward and pulled down.
-    if (a == null) for (final r in _debris) {
-      final angle = r * math.pi * 2;
-      final speed = 90 + r * 220;
-      final x = at.dx + math.cos(angle) * speed * t;
-      final y = at.dy + math.sin(angle) * speed * t + 300 * t * t;
-      final opacity = (1 - t * 1.2).clamp(0.0, 1.0);
-      if (opacity <= 0) continue;
+    if (a == null)
+      for (final r in _debris) {
+        final angle = r * math.pi * 2;
+        final speed = 90 + r * 220;
+        final x = at.dx + math.cos(angle) * speed * t;
+        final y = at.dy + math.sin(angle) * speed * t + 300 * t * t;
+        final opacity = (1 - t * 1.2).clamp(0.0, 1.0);
+        if (opacity <= 0) continue;
 
-      canvas.drawCircle(
-        Offset(x, y),
-        1.4 + r * 2.2,
-        Paint()
-          ..color = Color.lerp(_CrashGameScreenState._cashGold, _flewAway, r)!
-              .withOpacity(opacity),
-      );
-    }
+        canvas.drawCircle(
+          Offset(x, y),
+          1.4 + r * 2.2,
+          Paint()
+            ..color = Color.lerp(_CrashGameScreenState._cashGold, _flewAway, r)!
+                .withOpacity(opacity),
+        );
+      }
 
     // Smoke lingering after the fire dies.
-    if (a == null) for (var i = 0; i < 8; i++) {
-      final r = _debris[i];
-      final drift = Offset(math.cos(r * 6.28) * 40, -30 - r * 40);
-      canvas.drawCircle(
-        at + drift * t,
-        6 + t * 26 + r * 8,
-        Paint()
-          ..color = Colors.white.withOpacity((0.09 * (1 - t)).clamp(0.0, 1.0))
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
-      );
-    }
+    if (a == null)
+      for (var i = 0; i < 8; i++) {
+        final r = _debris[i];
+        final drift = Offset(math.cos(r * 6.28) * 40, -30 - r * 40);
+        canvas.drawCircle(
+          at + drift * t,
+          6 + t * 26 + r * 8,
+          Paint()
+            ..color = Colors.white.withOpacity((0.09 * (1 - t)).clamp(0.0, 1.0))
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+        );
+      }
 
     // The plane spirals out of frame, fading as it goes.
     if (t < 0.85) {
@@ -2540,7 +2620,9 @@ class _CelebrationPainter extends CustomPainter {
           a.coin,
           src,
           Rect.fromCenter(
-              center: Offset.zero, width: cw, height: cw * src.height / src.width),
+              center: Offset.zero,
+              width: cw,
+              height: cw * src.height / src.width),
           Paint()
             ..filterQuality = FilterQuality.medium
             ..color = Colors.white.withOpacity(opacity),
@@ -2574,7 +2656,8 @@ class _CelebrationPainter extends CustomPainter {
             fontSize: 34,
             fontWeight: FontWeight.w900,
             shadows: [
-              Shadow(color: _green.withOpacity(textOpacity * 0.6), blurRadius: 16),
+              Shadow(
+                  color: _green.withOpacity(textOpacity * 0.6), blurRadius: 16),
             ],
           ),
         ),
@@ -2623,10 +2706,10 @@ class _HistoryBar extends StatelessWidget {
               decoration: BoxDecoration(
                 color: const Color(0xFFE91E63).withOpacity(0.20),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE91E63).withOpacity(0.6)),
+                border:
+                    Border.all(color: const Color(0xFFE91E63).withOpacity(0.6)),
               ),
-              child: const Text('🔥',
-                  style: TextStyle(fontSize: 13)),
+              child: const Text('🔥', style: TextStyle(fontSize: 13)),
             ),
           Expanded(
             child: ListView.builder(
@@ -2649,7 +2732,8 @@ class _HistoryBar extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.18 + heat * 0.14),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: color.withOpacity(0.5 + heat * 0.4)),
+                      border: Border.all(
+                          color: color.withOpacity(0.5 + heat * 0.4)),
                       boxShadow: heat > 0.05
                           ? [
                               BoxShadow(
@@ -2661,7 +2745,9 @@ class _HistoryBar extends StatelessWidget {
                     ),
                     child: Text('${t.crashPoint.toStringAsFixed(2)}x',
                         style: TextStyle(
-                            color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+                            color: color,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold)),
                   ),
                 );
 
@@ -2676,7 +2762,8 @@ class _HistoryBar extends StatelessWidget {
                     opacity: v.clamp(0.0, 1.0),
                     child: Transform.translate(
                       offset: Offset((1 - v) * 34, 0),
-                      child: Transform.scale(scale: 0.85 + v * 0.15, child: child),
+                      child:
+                          Transform.scale(scale: 0.85 + v * 0.15, child: child),
                     ),
                   ),
                   child: chip,

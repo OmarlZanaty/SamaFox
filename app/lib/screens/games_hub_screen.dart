@@ -34,6 +34,7 @@ const List<_GameEntry> _games = [
     gradient: [Color(0xFF120A26), Color(0xFF4A148C), Color(0xFF00897B)],
     badge: 'رهان',
     tall: true,
+    art: 'assets/images/plinko/tile_plinko.png',
   ),
 ];
 

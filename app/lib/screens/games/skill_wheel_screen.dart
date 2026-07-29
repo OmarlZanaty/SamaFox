@@ -39,8 +39,43 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
   /// backend/src/services/skillWheel.service.ts, since the server scores by
   /// distance along this ring.
   static const List<int> _sequence = [
-    0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5,
-    24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26,
+    0,
+    32,
+    15,
+    19,
+    4,
+    21,
+    2,
+    25,
+    17,
+    34,
+    6,
+    27,
+    13,
+    36,
+    11,
+    30,
+    8,
+    23,
+    10,
+    5,
+    24,
+    16,
+    33,
+    1,
+    20,
+    14,
+    31,
+    9,
+    22,
+    18,
+    29,
+    7,
+    28,
+    12,
+    35,
+    3,
+    26,
   ];
 
   /// One full revolution. This is the game's difficulty dial: the faster it
@@ -80,11 +115,15 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
   Timer? _countdown;
   int _msLeft = 0;
 
-  bool get _joinedCurrentRound => _round != null && _joinedRoundId == _round!.roundId;
+  bool get _joinedCurrentRound =>
+      _round != null && _joinedRoundId == _round!.roundId;
 
   /// The wheel should only turn while we are actually playing our own round.
   bool get _shouldSpin =>
-      _round?.isPlaying == true && _joinedCurrentRound && _landed == null && !_submitted;
+      _round?.isPlaying == true &&
+      _joinedCurrentRound &&
+      _landed == null &&
+      !_submitted;
 
   @override
   void initState() {
@@ -185,7 +224,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
   int _pocketUnderPointer() {
     final sector = 2 * pi / _sequence.length;
     final theta = (_spin.value * 2 * pi) % (2 * pi);
-    final index = ((_sequence.length - theta / sector).round()) % _sequence.length;
+    final index =
+        ((_sequence.length - theta / sector).round()) % _sequence.length;
     return _sequence[index];
   }
 
@@ -227,7 +267,11 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
   Future<void> _submit() async {
     final r = _round;
     final landed = _landed;
-    if (r == null || !r.isPlaying || !_joinedCurrentRound || _submitted || landed == null) {
+    if (r == null ||
+        !r.isPlaying ||
+        !_joinedCurrentRound ||
+        _submitted ||
+        landed == null) {
       return;
     }
     setState(() => _submitted = true);
@@ -250,8 +294,10 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
   }
 
   String _fmt(int v) {
-    if (v >= 1000000) return '${(v / 1000000).toStringAsFixed(v % 1000000 == 0 ? 0 : 1)}M';
-    if (v >= 1000) return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
+    if (v >= 1000000)
+      return '${(v / 1000000).toStringAsFixed(v % 1000000 == 0 ? 0 : 1)}M';
+    if (v >= 1000)
+      return '${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}K';
     return '$v';
   }
 
@@ -336,7 +382,9 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
       subtitle = '';
     } else if (r.isJoining) {
       title = 'وقت الدخول';
-      subtitle = _joinedCurrentRound ? 'أنت داخل الجولة، استعد' : 'ادفع رسوم الدخول للمشاركة';
+      subtitle = _joinedCurrentRound
+          ? 'أنت داخل الجولة، استعد'
+          : 'ادفع رسوم الدخول للمشاركة';
     } else if (r.isPlaying) {
       title = r.missionLabel ?? 'المهمة';
       subtitle = _joinedCurrentRound
@@ -352,11 +400,15 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
       children: [
         Text(title,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
         Text(subtitle,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13)),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
@@ -366,7 +418,9 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
           ),
           child: Text('⏱ $seconds',
               style: const TextStyle(
-                  color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold)),
         ),
       ],
     );
@@ -387,7 +441,10 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: _gold.withOpacity(0.35), width: 2),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 16, offset: const Offset(0, 6)),
+            BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 16,
+                offset: const Offset(0, 6)),
           ],
         ),
         child: AspectRatio(
@@ -445,9 +502,11 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(big,
-              style: const TextStyle(color: _gold, fontSize: 30, fontWeight: FontWeight.bold)),
+              style: const TextStyle(
+                  color: _gold, fontSize: 30, fontWeight: FontWeight.bold)),
           if (small.isNotEmpty)
-            Text(small, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+            Text(small,
+                style: const TextStyle(color: Colors.white54, fontSize: 11)),
         ],
       ),
     );
@@ -471,11 +530,14 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
     if (r == null) return const SizedBox.shrink();
 
     if (r.isJoining && !_joinedCurrentRound) {
-      final tiers = r.entryTiers.isEmpty ? const [1000, 5000, 10000, 50000] : r.entryTiers;
+      final tiers = r.entryTiers.isEmpty
+          ? const [1000, 5000, 10000, 50000]
+          : r.entryTiers;
       return Column(
         children: [
           Text('اختر رسوم الدخول',
-              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -501,11 +563,13 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
                 backgroundColor: _gold,
                 foregroundColor: Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _join,
               child: Text('ادخل الجولة — ${_fmt(_entry)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
             ),
           ),
         ],
@@ -521,7 +585,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
                 ? 'وقفت على $_landed — سجّل نتيجتك'
                 : 'اضغط على العجلة أو على الزر لإيقافها',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -531,11 +596,13 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
                 backgroundColor: stopped ? const Color(0xFF4CAF50) : _gold,
                 foregroundColor: stopped ? Colors.white : Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: stopped ? _submit : _stopWheel,
               child: Text(stopped ? 'سجّل النتيجة' : 'أوقف العجلة',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
             ),
           ),
         ],
@@ -543,7 +610,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
     }
 
     if (_submitted && _lastReward > 0) {
-      return _noticeBar('نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
+      return _noticeBar(
+          'نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
     }
 
     return const SizedBox.shrink();
@@ -559,7 +627,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('اللاعبون (${players.length})',
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
         SizedBox(
           height: 62,
@@ -575,18 +644,22 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: p.submitted ? const Color(0xFF4CAF50) : Colors.white24,
+                        color: p.submitted
+                            ? const Color(0xFF4CAF50)
+                            : Colors.white24,
                         width: 2,
                       ),
                     ),
                     child: CircleAvatar(
                       radius: 18,
                       backgroundColor: Colors.white10,
-                      backgroundImage: (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
-                          ? NetworkImage(p.avatarUrl!)
-                          : null,
+                      backgroundImage:
+                          (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
+                              ? NetworkImage(p.avatarUrl!)
+                              : null,
                       child: (p.avatarUrl == null || p.avatarUrl!.isEmpty)
-                          ? const Icon(Icons.person, size: 18, color: Colors.white54)
+                          ? const Icon(Icons.person,
+                              size: 18, color: Colors.white54)
                           : null,
                     ),
                   ),
@@ -597,7 +670,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white60, fontSize: 10)),
+                        style: const TextStyle(
+                            color: Colors.white60, fontSize: 10)),
                   ),
                 ],
               );
@@ -622,7 +696,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('أفضل أداء — جولة $_resultRoundId',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           ..._podium.map((e) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -678,7 +753,24 @@ class _WheelPainter extends CustomPainter {
   const _WheelPainter({required this.sequence, required this.target});
 
   static const Set<int> _red = {
-    1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
+    1,
+    3,
+    5,
+    7,
+    9,
+    12,
+    14,
+    16,
+    18,
+    19,
+    21,
+    23,
+    25,
+    27,
+    30,
+    32,
+    34,
+    36,
   };
 
   Color _colorFor(int n) {

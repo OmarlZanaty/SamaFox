@@ -50,12 +50,21 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   };
 
   static const Map<String, String> _segmentLabels = {
-    '1': '1', '2': '2', '5': '5', '10': '10',
-    'coinflip': 'CF', 'cashhunt': 'CH', 'pachinko': 'PK', 'crazytime': 'CT',
+    '1': '1',
+    '2': '2',
+    '5': '5',
+    '10': '10',
+    'coinflip': 'CF',
+    'cashhunt': 'CH',
+    'pachinko': 'PK',
+    'crazytime': 'CT',
   };
 
   static const Map<String, String> _spotNames = {
-    '1': '١', '2': '٢', '5': '٥', '10': '١٠',
+    '1': '١',
+    '2': '٢',
+    '5': '٥',
+    '10': '١٠',
     'coinflip': 'قلب العملة',
     'cashhunt': 'صيد النقود',
     'pachinko': 'باتشينكو',
@@ -63,8 +72,14 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   };
 
   static const Map<String, String> _spotEmoji = {
-    '1': '1️⃣', '2': '2️⃣', '5': '5️⃣', '10': '🔟',
-    'coinflip': '🪙', 'cashhunt': '🎯', 'pachinko': '📍', 'crazytime': '🌀',
+    '1': '1️⃣',
+    '2': '2️⃣',
+    '5': '5️⃣',
+    '10': '🔟',
+    'coinflip': '🪙',
+    'cashhunt': '🎯',
+    'pachinko': '📍',
+    'crazytime': '🌀',
   };
 
   /// Commissioned bonus icons. Coin Flip has no artwork yet, so it keeps the
@@ -103,9 +118,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
 
   late final AnimationController _spin =
       AnimationController(vsync: this, duration: _spinDuration);
-  late final AnimationController _pulse =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))
-        ..repeat(reverse: true);
+  late final AnimationController _pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1400))
+    ..repeat(reverse: true);
 
   /// The wheel chrome, decoded once. Null until it loads (and stays null if the
   /// asset is missing), in which case the painter falls back to its own rim.
@@ -157,7 +172,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   Future<void> _loadWheelArt() async {
     try {
       final data = await rootBundle.load(_wheelArtPath);
-      final frame = await (await ui.instantiateImageCodec(data.buffer.asUint8List())).getNextFrame();
+      final frame =
+          await (await ui.instantiateImageCodec(data.buffer.asUint8List()))
+              .getNextFrame();
       if (!mounted) return;
       setState(() => _wheelArt = frame.image);
     } catch (_) {
@@ -181,7 +198,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
 
   void _onState(dynamic raw) {
     if (!mounted || raw is! Map) return;
-    setState(() => _apply(CrazyState.fromJson(Map<String, dynamic>.from(raw)).withMineFrom(_state)));
+    setState(() => _apply(CrazyState.fromJson(Map<String, dynamic>.from(raw))
+        .withMineFrom(_state)));
   }
 
   void _onResult(dynamic raw) {
@@ -209,7 +227,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
 
     // Start the spin exactly once per round, the moment the server publishes
     // the winning index.
-    if (state.isSpinning && state.resultIndex != null && _animatedRound != state.roundId) {
+    if (state.isSpinning &&
+        state.resultIndex != null &&
+        _animatedRound != state.roundId) {
       _animatedRound = state.roundId;
       _startSpin(state.resultIndex!);
     }
@@ -299,7 +319,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
     return _copy(s, pick: pick);
   }
 
-  CrazyState _copy(CrazyState s, {Map<String, int>? bets, Object? pick}) => CrazyState(
+  CrazyState _copy(CrazyState s, {Map<String, int>? bets, Object? pick}) =>
+      CrazyState(
         phase: s.phase,
         roundId: s.roundId,
         msLeft: s.msLeft,
@@ -322,7 +343,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   @override
   Widget build(BuildContext context) {
     final state = _state;
-    final chips = _layout?.chipTiers ?? const [1000, 5000, 10000, 50000, 100000];
+    final chips =
+        _layout?.chipTiers ?? const [1000, 5000, 10000, 50000, 100000];
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -332,14 +354,16 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
           backgroundColor: Colors.transparent,
           elevation: 0,
           title: const Text('عجلة الحظ',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           centerTitle: true,
           actions: [
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 child: Text('🪙 ${_format(_balance)}',
-                    style: const TextStyle(color: _gold, fontWeight: FontWeight.bold)),
+                    style: const TextStyle(
+                        color: _gold, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -361,7 +385,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                   end: Alignment.bottomCenter,
                   // The studio render is already dark, so this only needs to be
                   // heavy enough to keep the betting grid legible at the bottom.
-                  colors: [_bgTop.withOpacity(0.35), _bgBottom.withOpacity(0.80)],
+                  colors: [
+                    _bgTop.withOpacity(0.35),
+                    _bgBottom.withOpacity(0.80)
+                  ],
                 ),
               ),
             ),
@@ -387,7 +414,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                           Padding(
                             padding: const EdgeInsets.only(bottom: 4),
                             child: Text(_notice!,
-                                style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                                style: const TextStyle(
+                                    color: Colors.redAccent, fontSize: 12)),
                           ),
                         // The wheel is cropped right behind this panel, so the
                         // panel needs its own ground to sit on or the two read
@@ -398,7 +426,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
-                              colors: [Colors.transparent, _bgBottom.withOpacity(0.92)],
+                              colors: [
+                                Colors.transparent,
+                                _bgBottom.withOpacity(0.92)
+                              ],
                               stops: const [0, 0.35],
                             ),
                           ),
@@ -451,7 +482,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                   ? '${_segmentLabels[e.segment]} x${e.multiplier}'
                   : _segmentLabels[e.segment] ?? '?',
               style: const TextStyle(
-                  color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold),
             ),
           );
         },
@@ -478,7 +511,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                 borderRadius: BorderRadius.circular(12),
                 // A top-slot hit is the moment worth lighting up.
                 boxShadow: matched
-                    ? [const BoxShadow(color: _gold, blurRadius: 28, spreadRadius: -8)]
+                    ? [
+                        const BoxShadow(
+                            color: _gold, blurRadius: 28, spreadRadius: -8)
+                      ]
                     : null,
               ),
             ),
@@ -488,9 +524,11 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
               errorBuilder: (_, __, ___) => const SizedBox.shrink(),
             ),
             // Left window: the bet spot. Right window: the multiplier.
-            _reelWindow(0.073, 0.502, top == null ? '؟' : (_segmentLabels[top.spot] ?? ''),
+            _reelWindow(0.073, 0.502,
+                top == null ? '؟' : (_segmentLabels[top.spot] ?? ''),
                 ltr: top != null),
-            _reelWindow(0.507, 0.919, top == null ? '؟' : '×${top.multiplier}', ltr: true),
+            _reelWindow(0.507, 0.919, top == null ? '؟' : '×${top.multiplier}',
+                ltr: true),
           ],
         ),
       ),
@@ -500,7 +538,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   /// Places text inside one of the frame's two glass windows. `left`/`right`
   /// are fractions of the artwork's width; both windows share the same vertical
   /// extent, so that is baked in here.
-  Widget _reelWindow(double left, double right, String text, {bool ltr = false}) {
+  Widget _reelWindow(double left, double right, String text,
+      {bool ltr = false}) {
     const top = 0.183;
     const bottom = 0.811;
     final width = right - left;
@@ -568,8 +607,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         // crop on the bottom arc, which carries no information.
         double alignY = 0;
         if (diameter > available) {
-          final windowStart = (diameter / 2 - available * 0.56).clamp(0.0, diameter - available);
-          alignY = (-1 + 2 * windowStart / (diameter - available)).clamp(-1.0, 1.0);
+          final windowStart = (diameter / 2 - available * 0.56)
+              .clamp(0.0, diameter - available);
+          alignY =
+              (-1 + 2 * windowStart / (diameter - available)).clamp(-1.0, 1.0);
         }
 
         return ClipRect(
@@ -577,7 +618,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             alignment: Alignment(0, alignY),
             maxHeight: diameter,
             maxWidth: diameter,
-            child: SizedBox(width: diameter, height: diameter, child: _wheel(state)),
+            child: SizedBox(
+                width: diameter, height: diameter, child: _wheel(state)),
           ),
         );
       },
@@ -683,7 +725,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
       _ => ('النتيجة', Colors.white70),
     };
     // Only the timed phases get a countdown ring; a spin has nothing to wait on.
-    final total = state.isBetting ? 20000.0 : (state.isBonusPick ? 10000.0 : 0.0);
+    final total =
+        state.isBetting ? 20000.0 : (state.isBonusPick ? 10000.0 : 0.0);
     final progress = total == 0 ? 0.0 : (_msLeft / total).clamp(0.0, 1.0);
 
     if (state.isResult) return _resultHub(state);
@@ -715,7 +758,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                     color: accent,
                     fontSize: size * 0.115,
                     fontWeight: FontWeight.bold,
-                    shadows: [Shadow(color: accent.withOpacity(0.6), blurRadius: 14)],
+                    shadows: [
+                      Shadow(color: accent.withOpacity(0.6), blurRadius: 14)
+                    ],
                   ),
                 ),
                 if (total > 0) ...[
@@ -727,7 +772,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                       fontSize: size * 0.34,
                       height: 1,
                       fontWeight: FontWeight.bold,
-                      shadows: const [Shadow(color: Colors.black87, blurRadius: 10)],
+                      shadows: const [
+                        Shadow(color: Colors.black87, blurRadius: 10)
+                      ],
                     ),
                   ),
                 ] else if (state.isSpinning)
@@ -799,7 +846,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                         fontSize: size * 0.20,
                         height: 1.1,
                         fontWeight: FontWeight.w900,
-                        shadows: const [Shadow(color: Colors.black, blurRadius: 12)],
+                        shadows: const [
+                          Shadow(color: Colors.black, blurRadius: 12)
+                        ],
                       ),
                     ),
                   ),
@@ -824,13 +873,16 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                           fontSize: size * 0.19,
                           height: 1,
                           fontWeight: FontWeight.w900,
-                          shadows: const [Shadow(color: Colors.black, blurRadius: 10)],
+                          shadows: const [
+                            Shadow(color: Colors.black, blurRadius: 10)
+                          ],
                         ),
                       ),
                     )
                   else if (played)
                     Text('حظ أوفر',
-                        style: TextStyle(color: Colors.white54, fontSize: size * 0.10)),
+                        style: TextStyle(
+                            color: Colors.white54, fontSize: size * 0.10)),
                 ],
               ),
             ),
@@ -857,12 +909,15 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         children: [
           Row(
             children: [
-              SizedBox(height: 22, child: _spotIcon(state.resultSegment ?? '1')),
+              SizedBox(
+                  height: 22, child: _spotIcon(state.resultSegment ?? '1')),
               const SizedBox(width: 8),
               Text(
                 _spotNames[state.resultSegment] ?? '',
                 style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14),
               ),
             ],
           ),
@@ -880,7 +935,17 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   }
 
   Widget _bettingGrid(CrazyState state) {
-    final spots = _layout?.betSpots ?? const ['1', '2', '5', '10', 'coinflip', 'cashhunt', 'pachinko', 'crazytime'];
+    final spots = _layout?.betSpots ??
+        const [
+          '1',
+          '2',
+          '5',
+          '10',
+          'coinflip',
+          'cashhunt',
+          'pachinko',
+          'crazytime'
+        ];
     return Column(
       children: [
         GridView.count(
@@ -901,7 +966,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: _actionButton('تكرار', Icons.replay, state.isBetting ? _repeat : null),
+              child: _actionButton(
+                  'تكرار', Icons.replay, state.isBetting ? _repeat : null),
             ),
           ],
         ),
@@ -928,18 +994,24 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             end: Alignment.bottomRight,
             colors: [
               color.withOpacity(enabled ? 0.92 : 0.45),
-              Color.lerp(color, Colors.black, 0.55)!.withOpacity(enabled ? 0.95 : 0.5),
+              Color.lerp(color, Colors.black, 0.55)!
+                  .withOpacity(enabled ? 0.95 : 0.5),
             ],
           ),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isWinner ? _gold : (mine > 0 ? Colors.white : Colors.white24),
+            color:
+                isWinner ? _gold : (mine > 0 ? Colors.white : Colors.white24),
             width: isWinner ? 3 : (mine > 0 ? 2 : 1),
           ),
           boxShadow: [
-            if (isWinner) const BoxShadow(color: _gold, blurRadius: 20, spreadRadius: -4),
+            if (isWinner)
+              const BoxShadow(color: _gold, blurRadius: 20, spreadRadius: -4),
             if (!isWinner && enabled)
-              BoxShadow(color: color.withOpacity(0.45), blurRadius: 10, offset: const Offset(0, 3)),
+              BoxShadow(
+                  color: color.withOpacity(0.45),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3)),
           ],
         ),
         child: Stack(
@@ -953,7 +1025,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.center,
-                    colors: [Colors.white.withOpacity(0.20), Colors.transparent],
+                    colors: [
+                      Colors.white.withOpacity(0.20),
+                      Colors.transparent
+                    ],
                   ),
                 ),
               ),
@@ -976,7 +1051,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                                   height: 1,
                                   fontWeight: FontWeight.w900,
                                   shadows: [
-                                    Shadow(color: Colors.black.withOpacity(0.6), blurRadius: 6),
+                                    Shadow(
+                                        color: Colors.black.withOpacity(0.6),
+                                        blurRadius: 6),
                                   ],
                                 ),
                               ),
@@ -1028,12 +1105,15 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   /// Commissioned artwork when we have it, the emoji otherwise.
   Widget _spotIcon(String spot) {
     final art = _spotArt[spot];
-    final emoji = Text(_spotEmoji[spot] ?? '', style: const TextStyle(fontSize: 22));
+    final emoji =
+        Text(_spotEmoji[spot] ?? '', style: const TextStyle(fontSize: 22));
     if (art == null) return emoji;
-    return Image.asset(art, fit: BoxFit.contain, errorBuilder: (_, __, ___) => emoji);
+    return Image.asset(art,
+        fit: BoxFit.contain, errorBuilder: (_, __, ___) => emoji);
   }
 
-  Widget _actionButton(String label, IconData icon, VoidCallback? onTap) => GestureDetector(
+  Widget _actionButton(String label, IconData icon, VoidCallback? onTap) =>
+      GestureDetector(
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 7),
@@ -1048,7 +1128,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 16, color: onTap == null ? Colors.white24 : _gold),
+              Icon(icon,
+                  size: 16, color: onTap == null ? Colors.white24 : _gold),
               const SizedBox(width: 6),
               Text(label,
                   style: TextStyle(
@@ -1079,7 +1160,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                     // The chip render carries its own denomination, so the only
                     // thing left to show is which one is armed.
                     boxShadow: selected
-                        ? [BoxShadow(color: _gold.withOpacity(0.75), blurRadius: 18)]
+                        ? [
+                            BoxShadow(
+                                color: _gold.withOpacity(0.75), blurRadius: 18)
+                          ]
                         : null,
                   ),
                   child: _chipFace(value, selected),
@@ -1098,15 +1182,18 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: RadialGradient(colors: _chipColors(value)),
-        border: Border.all(color: selected ? _gold : Colors.white24, width: selected ? 3 : 2),
+        border: Border.all(
+            color: selected ? _gold : Colors.white24, width: selected ? 3 : 2),
       ),
       child: Text(_format(value),
-          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+          style: const TextStyle(
+              color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
     );
     if (art == null) return painted;
     return Opacity(
       opacity: selected ? 1 : 0.72,
-      child: Image.asset(art, fit: BoxFit.contain, errorBuilder: (_, __, ___) => painted),
+      child: Image.asset(art,
+          fit: BoxFit.contain, errorBuilder: (_, __, ___) => painted),
     );
   }
 
@@ -1119,8 +1206,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
       };
 
   String _format(int value) {
-    if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
-    if (value >= 1000) return '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 1)}K';
+    if (value >= 1000000)
+      return '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
+    if (value >= 1000)
+      return '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 1)}K';
     return '$value';
   }
 }
@@ -1205,8 +1294,10 @@ class _WheelPainter extends CustomPainter {
         center,
         radius + 6,
         Paint()
-          ..shader = const LinearGradient(colors: [Color(0xFFFFE082), Color(0xFF8D6E63)])
-              .createShader(Rect.fromCircle(center: center, radius: radius + 6)),
+          ..shader = const LinearGradient(colors: [
+            Color(0xFFFFE082),
+            Color(0xFF8D6E63)
+          ]).createShader(Rect.fromCircle(center: center, radius: radius + 6)),
       );
     }
 
@@ -1235,7 +1326,10 @@ class _WheelPainter extends CustomPainter {
         start,
         slice,
         true,
-        Paint()..color = isWinner ? Color.lerp(color, Colors.white, 0.35 + glow * 0.3)! : color,
+        Paint()
+          ..color = isWinner
+              ? Color.lerp(color, Colors.white, 0.35 + glow * 0.3)!
+              : color,
       );
       // A hairline between segments: dark on the inside edge, bright on the
       // outside, which is what makes 54 thin wedges read as separate slats.
@@ -1248,7 +1342,8 @@ class _WheelPainter extends CustomPainter {
           ..color = Colors.black.withOpacity(0.45),
       );
 
-      _drawLabel(canvas, center, radius, start + slice / 2, labels[key] ?? '', isWinner);
+      _drawLabel(canvas, center, radius, start + slice / 2, labels[key] ?? '',
+          isWinner);
     }
 
     // Mark the winning wedge explicitly. A lightened fill alone is easy to miss
@@ -1258,9 +1353,12 @@ class _WheelPainter extends CustomPainter {
       final wedge = Path()
         ..moveTo(center.dx + cos(start) * inner, center.dy + sin(start) * inner)
         ..lineTo(center.dx + cos(start) * outer, center.dy + sin(start) * outer)
-        ..arcTo(Rect.fromCircle(center: center, radius: outer), start, slice, false)
-        ..lineTo(center.dx + cos(start + slice) * inner, center.dy + sin(start + slice) * inner)
-        ..arcTo(Rect.fromCircle(center: center, radius: inner), start + slice, -slice, false)
+        ..arcTo(
+            Rect.fromCircle(center: center, radius: outer), start, slice, false)
+        ..lineTo(center.dx + cos(start + slice) * inner,
+            center.dy + sin(start + slice) * inner)
+        ..arcTo(Rect.fromCircle(center: center, radius: inner), start + slice,
+            -slice, false)
         ..close();
 
       canvas.drawPath(
@@ -1288,7 +1386,11 @@ class _WheelPainter extends CustomPainter {
           ..shader = ui.Gradient.linear(
             Offset(center.dx, center.dy - outer),
             Offset(center.dx, center.dy + outer),
-            [Colors.white.withOpacity(0.22), Colors.transparent, Colors.black.withOpacity(0.28)],
+            [
+              Colors.white.withOpacity(0.22),
+              Colors.transparent,
+              Colors.black.withOpacity(0.28)
+            ],
             [0.0, 0.45, 1.0],
           ),
       );
@@ -1307,7 +1409,8 @@ class _WheelPainter extends CustomPainter {
       );
     }
 
-    canvas.drawCircle(center, radius * 0.24, Paint()..color = const Color(0xFF1B0B2E));
+    canvas.drawCircle(
+        center, radius * 0.24, Paint()..color = const Color(0xFF1B0B2E));
     canvas.drawCircle(
       center,
       radius * 0.24,
