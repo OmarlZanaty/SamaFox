@@ -496,6 +496,9 @@ class _PlinkoScreenState extends State<PlinkoScreen>
                       ),
                       isComplex: true,
                       willChange: true,
+                      // CustomPaint sizes to its child; without one it collapses
+                      // to Size.zero and the painter draws into nothing.
+                      child: const SizedBox.expand(),
                     ),
                   ),
                 ),
@@ -831,7 +834,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
               alignment: WrapAlignment.center,
               children: [5, 10, 25, 50, 100].map((n) {
                 return SizedBox(
-                  width: 74,
+                  width: 84,
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(sheetContext);
@@ -840,10 +843,20 @@ class _PlinkoScreenState extends State<PlinkoScreen>
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF6B21A8),
                       foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),
                     ),
-                    child: Text('$n'),
+                    // Without softWrap:false the button wraps a digit per line
+                    // ("100" became three stacked characters).
+                    child: Text(
+                      '$n',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.visible,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 );
               }).toList(),
@@ -997,11 +1010,19 @@ class _PlinkoPainter extends CustomPainter {
         Paint()
           ..strokeWidth = math.max(2.0, g.spacing * 0.16)
           ..strokeCap = StrokeCap.round
-          ..shader = ui.Gradient.linear(from, to, const [
-            Color(0xFF00E5FF),
-            Color(0xFF7C4DFF),
-            Color(0xFFFF4081),
-          ]),
+          // Gradient.linear demands explicit stops for anything other than a
+          // two-colour ramp; omitting them throws mid-paint and kills the whole
+          // canvas, not just the rail.
+          ..shader = ui.Gradient.linear(
+            from,
+            to,
+            const [
+              Color(0xFF00E5FF),
+              Color(0xFF7C4DFF),
+              Color(0xFFFF4081),
+            ],
+            const [0.0, 0.55, 1.0],
+          ),
       );
     }
   }
