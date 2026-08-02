@@ -39,6 +39,10 @@ import {
   adminUpdateGift,
   adminListVipLevels,
   adminUpsertVipLevel,
+  adminListLevels,
+  adminUpsertLevel,
+  adminDeleteLevel,
+  adminBackfillLevelRewards,
   adminListTargetTiers,
   adminCreateTargetTier,
   adminUpdateTargetTier,
@@ -107,6 +111,11 @@ router.delete('/gifts/:id', authenticate, adminDeleteGift);
 
 router.get('/vip-levels', adminListVipLevels);
 router.post('/vip-levels', adminUpsertVipLevel);
+
+router.get('/levels', adminListLevels);
+router.post('/levels', adminUpsertLevel);
+router.post('/levels/backfill', adminBackfillLevelRewards);
+router.delete('/levels/:level', adminDeleteLevel);
 
 router.get('/target-tiers', adminListTargetTiers);
 router.post('/target-tiers', adminCreateTargetTier);

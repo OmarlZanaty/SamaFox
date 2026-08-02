@@ -42,6 +42,14 @@ class InventoryItem {
       case "badge":
         normalizedType = "badge";
         break;
+      case "CHAT_BUBBLE":
+      case "chat_bubble":
+        normalizedType = "chat_bubble";
+        break;
+      case "CHAT_TOP_BANNER":
+      case "chat_top_banner":
+        normalizedType = "chat_top_banner";
+        break;
       default:
         normalizedType = rawType;
     }

@@ -119,7 +119,9 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     }
     return SizedBox.expand(
       child: FittedBox(
-        fit: BoxFit.cover,
+        // `contain`, not `cover`: gift clips are usually portrait and `cover`
+        // cropped the sides of the artwork away.
+        fit: BoxFit.contain,
         child: SizedBox(
           width: c.value.size.width,
           height: c.value.size.height,

@@ -9,6 +9,12 @@ import '../../providers/room_controller_provider.dart';
 /// enters the room, a banner slides in from the left, pauses ~2.5s in the
 /// middle, then slides out to the right and disappears. Entries queue so
 /// simultaneous joins play one after another.
+///
+/// The banner is drawn as artwork, not a tinted rectangle: a crest sits on the
+/// left and a 9-sliced plate stretches behind the text, so long and short
+/// usernames both keep the rounded end-cap intact. A purchased entrance item
+/// replaces the plate texture; VIPs without one fall back to the bundled crest
+/// design.
 class EntranceBannerLayer extends ConsumerStatefulWidget {
   const EntranceBannerLayer({super.key, required this.roomId});
   final int roomId;
@@ -19,6 +25,19 @@ class EntranceBannerLayer extends ConsumerStatefulWidget {
 
 class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
     with SingleTickerProviderStateMixin {
+  /// Crest artwork is 123x77; the plate is 226x46 with its flat middle between
+  /// x 60..170 and y 18..28. Those numbers are the source-pixel slice guides —
+  /// only the middle stretches, the rounded right cap never distorts.
+  static const String _emblemAsset = 'assets/images/entrance_emblem.png';
+  static const String _barAsset = 'assets/images/entrance_bar.png';
+  static const Rect _barSlice = Rect.fromLTRB(60, 18, 170, 28);
+
+  static const double _bannerHeight = 68;
+  static const double _emblemWidth = _bannerHeight * 123 / 77; // ≈ 108
+  static const double _barHeight = 42;
+  // The plate is tucked under the crest so its straight left cut never shows.
+  static const double _barInset = 46;
+
   late final AnimationController _ctrl;
   late final Animation<Offset> _offset;
 
@@ -50,10 +69,14 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
     ]).animate(_ctrl);
   }
 
+  /// Who gets the animated banner: anyone with an entrance design equipped, or
+  /// any VIP (they fall back to the bundled crest). Everyone else still gets
+  /// the plain chat line from the controller.
+  bool _eligible(EntranceEvent e) =>
+      (e.bannerUrl ?? '').trim().isNotEmpty || e.vipLevel > 0;
+
   void _enqueue(EntranceEvent e) {
-    // Only users who own an entrance design get the animated banner;
-    // everyone still gets the chat line from the controller.
-    if ((e.bannerUrl ?? '').trim().isEmpty) return;
+    if (!_eligible(e)) return;
     _queue.add(e);
     _maybePlay();
   }
@@ -77,6 +100,24 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
     super.dispose();
   }
 
+  /// The stretchable plate. A purchased design fills the same footprint; the
+  /// bundled artwork is 9-sliced so only its middle grows.
+  DecorationImage _plate(EntranceEvent e) {
+    final url = (e.bannerUrl ?? '').trim();
+    if (url.isNotEmpty) {
+      return DecorationImage(
+        image: NetworkImage(url),
+        fit: BoxFit.fill,
+        onError: (_, __) {},
+      );
+    }
+    return const DecorationImage(
+      image: AssetImage(_barAsset),
+      centerSlice: _barSlice,
+      fit: BoxFit.fill,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<EntranceEvent?>(
@@ -91,6 +132,8 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
     final e = _current;
     if (e == null) return const SizedBox.shrink();
 
+    final maxBarWidth = MediaQuery.of(context).size.width * 0.86 - _barInset;
+
     return IgnorePointer(
       child: Align(
         alignment: Alignment.topCenter,
@@ -98,63 +141,68 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
           padding: const EdgeInsets.only(top: 118),
           child: SlideTransition(
             position: _offset,
-            child: Container(
-              height: 54,
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.86,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(27),
-                image: DecorationImage(
-                  image: NetworkImage(e.bannerUrl!),
-                  fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withOpacity(0.35),
-                    BlendMode.darken,
-                  ),
-                  onError: (_, __) {},
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.35),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+            child: SizedBox(
+              height: _bannerHeight,
+              child: Stack(
+                alignment: Alignment.centerLeft,
                 children: [
-                  if (e.vipLevel > 0) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD700).withOpacity(0.85),
-                        borderRadius: BorderRadius.circular(10),
+                  Padding(
+                    padding: const EdgeInsets.only(left: _barInset),
+                    child: Container(
+                      height: _barHeight,
+                      constraints: BoxConstraints(
+                        minWidth: 150,
+                        maxWidth: maxBarWidth,
                       ),
-                      child: Text(
-                        'VIP ${e.vipLevel}',
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      // Text clears the crest on the left and the rounded cap
+                      // on the right.
+                      padding: const EdgeInsets.only(left: 74, right: 30),
+                      decoration: BoxDecoration(image: _plate(e)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (e.vipLevel > 0) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFD700).withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                'VIP ${e.vipLevel}',
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          Flexible(
+                            child: Text(
+                              '${e.username} دخل الغرفة',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                shadows: [
+                                  Shadow(color: Colors.black87, blurRadius: 4)
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                  ],
-                  Flexible(
-                    child: Text(
-                      '${e.username} دخل الغرفة',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
-                      ),
-                    ),
+                  ),
+                  Image.asset(
+                    _emblemAsset,
+                    height: _bannerHeight,
+                    width: _emblemWidth,
+                    fit: BoxFit.contain,
                   ),
                 ],
               ),

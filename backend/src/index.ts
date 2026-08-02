@@ -45,6 +45,7 @@ import followRoutes from './follow/follow.routes';
 import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
 import vipRoutes from './routes/vip.routes';
+import levelRoutes from './routes/level.routes';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import { setGiftIo } from './gifts/controller';
@@ -59,7 +60,14 @@ const app: Application = express();
 // admin dashboard unstyled. Disable those two; keep the rest of Helmet.
 app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 
-app.set('trust proxy', true);
+// Clients hit this box directly on IP:3000 — there is no nginx/ALB in front.
+// `trust proxy: true` therefore trusted an X-Forwarded-For header that only an
+// attacker could set, letting anyone forge req.ip and walk around the per-IP
+// auth rate limiter (express-rate-limit flags this as
+// ERR_ERL_PERMISSIVE_TRUST_PROXY). Set TRUST_PROXY_HOPS when a real proxy is
+// added later — e.g. 1 behind a single ALB.
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
+app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : false);
 
 const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase();
 
@@ -178,6 +186,7 @@ app.use('/api/v1/follow', followRoutes);
 app.use('/api/v1/relations', relationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/vip', vipRoutes);
+app.use('/api/v1/levels', levelRoutes); // public LV catalog, mirrors /vip/levels
 app.get('/api/v1/settings', require('./controllers/settings.controller').getSettings); // public CP/target config read
 
 app.use('/api/v1/upload', uploadRoutes);

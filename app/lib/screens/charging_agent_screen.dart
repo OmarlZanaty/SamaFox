@@ -550,8 +550,15 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context) async {
       'amount': int.tryParse(amountCtrl.text.trim()) ?? 0,
     });
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الشحن بنجاح')));
-  } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل الشحن')));
+  } catch (e) {
+    // A blind 'فشل الشحن' made a 403 (wrong/unapproved agency) and an empty
+    // agency wallet look identical — show what the server actually said.
+    final message = e is DioException && e.response?.data is Map
+        ? (e.response!.data['message']?.toString() ?? 'فشل الشحن')
+        : 'فشل الشحن';
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 }
 

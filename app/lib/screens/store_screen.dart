@@ -153,6 +153,8 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                           const SizedBox(width: 10),
                           _buildTab("مداخل", "entrance"),
                           const SizedBox(width: 10),
+                          _buildTab("فقاعات", "chat_bubble"),
+                          const SizedBox(width: 10),
                           _buildTab("إطارات", "avatar_frame"),
                           const SizedBox(width: 10),
                           _buildTab("شارات", "badge"),
@@ -210,8 +212,6 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                   child: GlassBottomBar(
                     homeLabel: "الرئيسية",
                     searchLabel: "الرسائل",
-                    storeLabel: "المتجر",
-                    shippingAgentsLabel: "وكلاء الشحن",
                     gamesLabel: "الألعاب",
                     profileLabel: "حسابي",
                     hasRoom: false,
@@ -225,8 +225,6 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                     },
 
                     onSearch: () => Navigator.pushNamed(context, '/messages'),
-                    onStore: () {},
-                    onShippingAgents: () => Navigator.pushNamed(context, '/charging-agent'),
                     onGames: () => Navigator.pushNamed(context, '/games'),
                     onProfile: () => Navigator.pushNamed(context, '/profile'),
                     onCenter: () {},
@@ -298,12 +296,61 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
   }
 
   /// Preview before buying: a frame is tried on the current user's own
-  /// avatar; an entrance/seat effect plays full-screen. Everything else
-  /// (badges, themes) just doesn't get a preview — tapping does nothing.
+  /// avatar; a seat effect plays full-screen; entrance banners and chat
+  /// bubbles are still images, so they're shown in place instead. Everything
+  /// else (badges, themes) just doesn't get a preview — tapping does nothing.
   void _previewProduct(BuildContext context, Product product) {
     final isFrame = product.type == 'avatar_frame';
-    final isEffect = product.type == 'seat_effect' || product.type == 'entrance';
-    if (!isFrame && !isEffect) return;
+    final isEffect = product.type == 'seat_effect';
+    // 'entrance' used to be lumped in with seat effects and handed to the
+    // video player, which could never render a banner PNG.
+    final isStill = product.type == 'entrance' || product.type == 'chat_bubble';
+    if (!isFrame && !isEffect && !isStill) return;
+
+    if (isStill) {
+      final isBubble = product.type == 'chat_bubble';
+      showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: const Color(0xFF1A0E3E),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  height: isBubble ? 52 : 56,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isBubble ? 26 : 18,
+                    vertical: 12,
+                  ),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    image: DecorationImage(
+                      image: NetworkImage(product.fileUrl),
+                      fit: BoxFit.fill,
+                      onError: (_, __) {},
+                    ),
+                  ),
+                  child: Text(
+                    isBubble ? 'رسالة تجريبية' : 'اسمك دخل الغرفة',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(product.name, style: const TextStyle(color: Colors.white, fontSize: 15)),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
 
     if (isFrame) {
       final me = ref.read(authStateProvider).user;

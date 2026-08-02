@@ -260,6 +260,30 @@ router.post('/activate-frame', async (req: any, res) => {
   }
 });
 
+// Unequip a single item. deactivate-all clears EVERY category at once, which
+// unequipped the user's vehicle whenever they took off an entrance banner or a
+// chat bubble — now that more than one type can be active at a time, the client
+// deactivates by inventory id instead.
+router.post('/deactivate', async (req: any, res) => {
+  try {
+    const userId = req.userId!;
+    const { inventoryId } = req.body;
+    if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
+
+    const updated = await prisma.userItem.updateMany({
+      where: { id: String(inventoryId), userId },
+      data: { isActive: false },
+    });
+    if (updated.count === 0) {
+      return res.status(404).json({ success: false, message: 'Inventory item not found for user' });
+    }
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("DEACTIVATE ERROR:", e);
+    return res.status(500).json({ success: false, message: "Failed to deactivate item" });
+  }
+});
+
 router.post('/deactivate-all', async (req: any, res) => {
   try {
     const userId = req.userId!;

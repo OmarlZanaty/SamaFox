@@ -567,6 +567,21 @@ model VipLevelConfig {
   @@map("vip_level_configs")
 }
 
+// Admin-configurable LV (المستوى) tiers — the XP counterpart of
+// VipLevelConfig. While this table is EMPTY the built-in sqrt curve in
+// xp.service is used unchanged, so adding the model moves nobody's level.
+model LevelConfig {
+  level         Int      @id
+  name          String?
+  threshold     Int? // cumulative XP required to reach this level; null => computed
+  badgeUrl      String?
+  rewardItemIds String[] @default([]) // Item.ids auto-granted on reaching this level
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("level_configs")
+}
+
 // ============================================
 // USER SUBSCRIPTION MODEL
 // ============================================

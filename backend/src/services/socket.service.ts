@@ -1,6 +1,8 @@
 import { Server, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
+import { getBanState } from '../utils/banGuard';
+import { isBlockedBetween } from '../utils/blockGuard';
 import { createNotification } from './notification.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
@@ -26,7 +28,33 @@ const roomMicQueue = new Map<number, number[]>();
 const roomAdmins = new Map<number, Set<number>>();
 const MEGA_GIFT_THRESHOLD = Number(process.env.MEGA_GIFT_THRESHOLD ?? 5000);
 // Group 12: debounce entrance announcements per room+user (reconnects shouldn't spam).
+// Only a dropped connection is debounced — an explicit leave_room clears the key
+// below, so leaving and walking back in always replays the entrance.
 const recentRoomEntries = new Map<string, number>();
+const ENTRANCE_DEBOUNCE_MS = 15_000;
+
+/**
+ * Pending mic invitations, keyed by inviteId. An admin inviting a user no longer
+ * seats them outright — the invitee gets a قبول / رفض prompt and is only seated
+ * if they accept before the invite expires.
+ */
+interface PendingSeatInvite {
+  roomId: number;
+  seatNumber: number;
+  targetUserId: number;
+  fromUserId: number;
+  fromUsername: string;
+  expiresAt: number;
+}
+const pendingSeatInvites = new Map<string, PendingSeatInvite>();
+const SEAT_INVITE_TTL_MS = 60_000;
+
+function purgeExpiredSeatInvites() {
+  const now = Date.now();
+  for (const [id, inv] of pendingSeatInvites.entries()) {
+    if (inv.expiresAt <= now) pendingSeatInvites.delete(id);
+  }
+}
 
 function toInt(v: any): number | null {
   const n = Number(v);
@@ -70,6 +98,30 @@ export function getUserCurrentRoomIds(userIds: number[]): Map<number, number> {
     if (rid) out.set(id, rid);
   }
   return out;
+}
+
+/**
+ * Tell a just-banned user and drop their live connections.
+ *
+ * The ban controllers used to `io.emit('user_banned', …)` — a broadcast to
+ * every connected client, which told the whole app who had been banned and
+ * why, and which no client listened to anyway. This targets the banned user's
+ * own room and then disconnects them so they can't keep using the socket they
+ * already hold.
+ */
+export async function kickBannedUser(
+  userId: number,
+  reason: string | null,
+  banExpiresAt: Date | null,
+): Promise<void> {
+  if (!_io || !userId) return;
+  try {
+    _io.to(`user:${userId}`).emit('user_banned', { userId, reason, banExpiresAt });
+    const sockets = await _io.in(`user:${userId}`).fetchSockets();
+    for (const s of sockets) s.disconnect(true);
+  } catch (e) {
+    console.warn('[kickBannedUser] failed:', e);
+  }
 }
 
 // ── Online presence: userId -> set of live socket ids. A user is "online"
@@ -289,6 +341,37 @@ async function emitVoiceUsers(io: Server, rid: number) {
   io.to(`room:${rid}`).emit('voice_users', { roomId: rid, users });
 }
 
+/**
+ * Everyone currently connected to a room, derived from socket.io's own room
+ * membership. Clients had no way to learn who was already present — they only
+ * saw `user_joined` for people arriving after them — so lists like the
+ * "دعوة إلى المقعد" picker showed nothing but the viewer themselves.
+ */
+async function buildRoomUsers(io: Server, rid: number) {
+  const sockets = await io.in(`room:${rid}`).fetchSockets();
+  const ids = Array.from(
+    new Set(
+      sockets
+        .map((s) => Number((s.data as any)?.userId))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  );
+  if (ids.length === 0) return [];
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
+  });
+  return users.map((u) => ({
+    userId: u.id,
+    username: u.name ?? (u.displayId ? `#${u.displayId}` : 'مستخدم'),
+    avatarUrl: u.avatarUrl ?? null,
+    displayId: u.displayId ?? null,
+    level: u.level ?? 1,
+    vipLevel: u.vipLevel ?? 0,
+  }));
+}
+
 let _io: Server | null = null;
 
 export function invalidateAdminCacheAndRefresh(roomId: number) {
@@ -303,25 +386,35 @@ export function broadcastRoomClosed(roomId: number) {
 
 export const initializeSocketHandlers = (io: Server) => {
   _io = io;
-  io.use((socket: AuthenticatedSocket, next) => {
+  io.use(async (socket: AuthenticatedSocket, next) => {
+  let payload: { userId: number };
   try {
-    let token = socket.handshake.auth?.token 
+    let token = socket.handshake.auth?.token
       || socket.handshake.headers?.authorization?.replace('Bearer ', '');
-    
+
     if (!token) return next(new Error('no token'));
-    
+
     // ✅ Strip surrounding quotes if stored badly
     token = token.trim().replace(/^["']|["']$/g, '');
-    
+
     if (!token) return next(new Error('no token'));
-    
-    const payload = verifyAccessToken(token);
-    socket.userId = payload.userId;
-    return next();
+
+    payload = verifyAccessToken(token);
   } catch (err) {
     console.error('[socket auth error]', err);
     return next(new Error('invalid token'));
   }
+
+  // A banned account must not hold a socket either — otherwise they stay in
+  // rooms, chat and send gifts for as long as the connection lives.
+  const ban = await getBanState(payload.userId);
+  if (ban.banned) return next(new Error('banned'));
+
+  socket.userId = payload.userId;
+  // Mirrored onto `data` because fetchSockets() hands back RemoteSockets,
+  // which carry `data` but not custom properties — buildRoomUsers needs it.
+  socket.data.userId = payload.userId;
+  return next();
 });
 
   io.on('connection', (socket: AuthenticatedSocket) => {
@@ -344,6 +437,19 @@ if (uid) {
 // Client can request the online roster at any time (e.g. opening a list).
 socket.on('get_online_users', () => {
   socket.emit('presence:snapshot', { online: getOnlineUserIds() });
+});
+
+// Same idea, scoped to one room: who is in here right now. Lets a client
+// refresh its member list on demand (opening the invite sheet, reconnecting)
+// without waiting for the next join.
+socket.on('get_room_users', async ({ roomId }: any) => {
+  const rid = toInt(roomId);
+  if (!rid) return;
+  try {
+    socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid) });
+  } catch (e) {
+    console.warn('[get_room_users] failed:', e);
+  }
 });
 
 // ── Skill dice table: joining only subscribes you to the live round state.
@@ -420,6 +526,15 @@ socket.on('send_dm', async ({ toUserId, text }: any) => {
   const receiverId = Number(toUserId);
   const clean = (text ?? '').toString().trim();
   if (!senderId || !receiverId || !clean) return;
+
+  // القائمة السوداء — a block in either direction stops the DM.
+  if (await isBlockedBetween(senderId, receiverId)) {
+    socket.emit('dm_blocked', {
+      toUserId: receiverId,
+      message: 'لا يمكن إرسال رسالة — يوجد حظر بينكما',
+    });
+    return;
+  }
 
   const userAId = Math.min(senderId, receiverId);
   const userBId = Math.max(senderId, receiverId);
@@ -822,16 +937,20 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       // reconnects don't spam the room. ──
       const entryKey = `${rid}:${uid}`;
       const lastEntry = recentRoomEntries.get(entryKey) ?? 0;
-      if (Date.now() - lastEntry > 60_000) {
+      if (Date.now() - lastEntry > ENTRANCE_DEBOUNCE_MS) {
         recentRoomEntries.set(entryKey, Date.now());
         try {
-          const [entrant, activeBanner] = await Promise.all([
+          const [entrant, activeBanner, activeEffect] = await Promise.all([
             prisma.user.findUnique({
               where: { id: uid },
               select: { name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
             }),
             (prisma as any).userItem.findFirst({
               where: { userId: uid, isActive: true, item: { type: 'ENTRANCE_BANNER' } },
+              include: { item: { select: { assetUrl: true } } },
+            }),
+            (prisma as any).userItem.findFirst({
+              where: { userId: uid, isActive: true, item: { type: 'ENTRANCE_EFFECT' } },
               include: { item: { select: { assetUrl: true } } },
             }),
           ]);
@@ -845,6 +964,29 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
             vipLevel: entrant?.vipLevel ?? 0,
             bannerUrl: activeBanner?.item?.assetUrl ?? null,
           });
+
+          // The entrance video/sound used to be played locally by the entrant
+          // only, so nobody else in the room ever saw or heard it. Broadcast it
+          // to the whole room (entrant included) from this single event so every
+          // client starts it at the same moment.
+          const effectUrl = activeEffect?.item?.assetUrl ?? null;
+          console.log('[entrance]', {
+            uid,
+            rid,
+            effect: effectUrl ? 'yes' : 'none',
+            // How many sockets actually receive it — if this is 1 while two
+            // devices are in the room, the problem is room membership, not the
+            // effect itself.
+            recipients: io.sockets.adapter.rooms.get(`room:${rid}`)?.size ?? 0,
+          });
+          if (effectUrl) {
+            io.to(`room:${rid}`).emit('seat_effect', {
+              roomId: rid,
+              userId: uid,
+              video: effectUrl,
+              kind: 'entrance',
+            });
+          }
         } catch (e) {
           console.warn('[join_room] user_entered emit failed:', e);
         }
@@ -911,13 +1053,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   isMuted: false,
 });
 
-io.to(`room:${rid}`).emit('user_joined', {
-  userId: uid,
-  roomId: rid,
-  username: user?.name ?? (user?.displayId ? `#${user.displayId}` : 'مستخدم'),
-  avatarUrl: user?.avatarUrl ?? null,
-  displayId: user?.displayId ?? null,
-});
+// (user_joined is emitted once for every entrant below, not just here.)
 
 getVoiceSet(rid).add(uid);
 await emitVoiceUsers(io, rid);
@@ -931,6 +1067,33 @@ await emitVoiceUsers(io, rid);
 
       // Unified snapshot (full seats 1..maxSeats) to avoid payload mismatches.
       await emitRoomState(io, rid);
+
+      // Roster, both directions:
+      //  • `user_joined` for EVERY entrant — it used to fire only inside the
+      //    auto-seat-admin branch, so an ordinary user entering never appeared
+      //    in anyone else's member list.
+      //  • `room_users` back to the joiner, who otherwise has no way to learn
+      //    about the people already in the room.
+      // Together these are what makes "دعوة إلى المقعد" list the whole room
+      // instead of just the viewer.
+      try {
+        const joiner = await prisma.user.findUnique({
+          where: { id: uid },
+          select: { id: true, name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
+        });
+        io.to(`room:${rid}`).emit('user_joined', {
+          userId: uid,
+          roomId: rid,
+          username: joiner?.name ?? (joiner?.displayId ? `#${joiner.displayId}` : 'مستخدم'),
+          avatarUrl: joiner?.avatarUrl ?? null,
+          displayId: joiner?.displayId ?? null,
+          level: joiner?.level ?? 1,
+          vipLevel: joiner?.vipLevel ?? 0,
+        });
+        socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid) });
+      } catch (e) {
+        console.warn('[join_room] roster emit failed:', e);
+      }
 
       io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue });
       } catch (err) {
@@ -949,6 +1112,10 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   socket.leave(`room:${rid}`);
   if (userCurrentRoom.get(uid) === rid) userCurrentRoom.delete(uid); // #25/#31
+  // A deliberate exit ends the debounce window: coming back in is a real
+  // entrance and must play for the whole room, however fast they return.
+  // Reconnects never send leave_room, so they stay debounced.
+  recentRoomEntries.delete(`${rid}:${uid}`);
   console.log('[leave_room]', { uid, rid });
 
   // cleanup: remove from queue
@@ -1210,30 +1377,102 @@ socket.on('invite_to_seat', async ({ roomId, targetUserId, seatNumber }: any) =>
       return;
     }
 
-    // remove target from any current seat + the mic queue
-    for (const [num, occ] of seats.entries()) if (occ === targetId) seats.delete(num);
-    roomMicQueue.set(rid, getQueue(rid).filter((id) => id !== targetId));
+    // Do NOT seat the user here. Send an invitation they can accept or refuse;
+    // `seat_invite_response` below does the actual seating on acceptance.
+    purgeExpiredSeatInvites();
+    const inviter = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { name: true, displayId: true },
+    });
+    const fromUsername = inviter?.name ?? (inviter?.displayId ? `#${inviter.displayId}` : 'مشرف');
 
-    seats.set(seatNum, targetId);
-    getMuted(rid).set(targetId, false);
+    const inviteId = `${rid}:${seatNum}:${targetId}:${Date.now()}`;
+    pendingSeatInvites.set(inviteId, {
+      roomId: rid,
+      seatNumber: seatNum,
+      targetUserId: targetId,
+      fromUserId: adminId,
+      fromUsername,
+      expiresAt: Date.now() + SEAT_INVITE_TTL_MS,
+    });
+
+    io.to(targetId.toString()).emit('seat_invite', {
+      inviteId,
+      roomId: rid,
+      seatNumber: seatNum,
+      fromUserId: adminId,
+      fromUsername,
+      expiresInMs: SEAT_INVITE_TTL_MS,
+    });
+    socket.emit('seat_invite_sent', { inviteId, targetUserId: targetId, seatNumber: seatNum });
+  } catch (err) {
+    console.error('[socket.invite_to_seat] handler error:', err);
+    socket.emit('error', { event: 'invite_to_seat', message: 'Internal error' });
+  }
+});
+
+/** The invitee answers a mic invitation. Seats them only on `accept: true`. */
+socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
+  try {
+    const uid = socket.userId;
+    if (!uid || !inviteId) return;
+
+    purgeExpiredSeatInvites();
+    const invite = pendingSeatInvites.get(String(inviteId));
+    if (!invite) {
+      socket.emit('seat_error', { message: 'انتهت صلاحية الدعوة' });
+      return;
+    }
+    // Only the person who was invited may answer it.
+    if (invite.targetUserId !== uid) return;
+    pendingSeatInvites.delete(String(inviteId));
+
+    const rid = invite.roomId;
+    const seatNum = invite.seatNumber;
+
+    if (!accept) {
+      io.to(invite.fromUserId.toString()).emit('seat_invite_result', {
+        roomId: rid, seatNumber: seatNum, userId: uid, accepted: false,
+      });
+      return;
+    }
+
+    const seats = getSeats(rid);
+    if (seats.has(seatNum) && seats.get(seatNum) !== uid) {
+      socket.emit('seat_error', { message: 'المقعد مشغول الآن' });
+      io.to(invite.fromUserId.toString()).emit('seat_invite_result', {
+        roomId: rid, seatNumber: seatNum, userId: uid, accepted: false, reason: 'occupied',
+      });
+      return;
+    }
+
+    // remove the invitee from any current seat + the mic queue
+    for (const [num, occ] of seats.entries()) if (occ === uid) seats.delete(num);
+    roomMicQueue.set(rid, getQueue(rid).filter((id) => id !== uid));
+
+    seats.set(seatNum, uid);
+    getMuted(rid).set(uid, false);
 
     const u = await prisma.user.findUnique({
-      where: { id: targetId },
+      where: { id: uid },
       select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, activeFrame: { select: { assetUrl: true } }, level: true },
     });
     const avatarFrameUrl = u?.activeFrame?.assetUrl ?? u?.avatarFrameUrl ?? null;
 
     io.to(`room:${rid}`).emit('seat_occupied', {
-      seatNumber: seatNum, userId: targetId, username: u?.name ?? null,
+      seatNumber: seatNum, userId: uid, username: u?.name ?? null,
       avatarUrl: u?.avatarUrl ?? null, avatarFrameUrl, level: u?.level ?? 1, isMuted: false,
     });
-    getVoiceSet(rid).add(targetId);
+    getVoiceSet(rid).add(uid);
     await emitVoiceUsers(io, rid);
-    io.to(targetId.toString()).emit('approve_mic', { roomId: rid, userId: targetId });
+    io.to(uid.toString()).emit('approve_mic', { roomId: rid, userId: uid });
+    io.to(invite.fromUserId.toString()).emit('seat_invite_result', {
+      roomId: rid, seatNumber: seatNum, userId: uid, accepted: true, username: u?.name ?? null,
+    });
     await emitRoomState(io, rid);
   } catch (err) {
-    console.error('[socket.invite_to_seat] handler error:', err);
-    socket.emit('error', { event: 'invite_to_seat', message: 'Internal error' });
+    console.error('[socket.seat_invite_response] handler error:', err);
+    socket.emit('error', { event: 'seat_invite_response', message: 'Internal error' });
   }
 });
 

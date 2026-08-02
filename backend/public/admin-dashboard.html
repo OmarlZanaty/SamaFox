@@ -49,6 +49,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
       مستويات VIP
     </a>
+    <a href="#" class="nav-item" data-section="levels">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 20 9 20 9 11 4 11"/><polyline points="10 20 15 20 15 4 10 4"/><polyline points="16 20 21 20 21 14 16 14"/></svg>
+      مستويات LV
+    </a>
     <a href="#" class="nav-item" data-section="admins">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       المشرفون
@@ -558,6 +562,37 @@
       </div>
     </section>
 
+    <!-- ======================== LV LEVELS SECTION ======================== -->
+    <section class="section" id="section-levels">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">مستويات LV</h2>
+          <p class="section-sub">عتبة الـ XP لكل مستوى وصورة الشارة والمنتجات الممنوحة. المستويات بدون عتبة تتبع المعادلة الافتراضية، ولا يتغير مستوى أي مستخدم حالي</p>
+        </div>
+        <div class="section-actions">
+          <input id="newLvLevel" type="number" min="1" max="100" class="form-input form-input--sm" placeholder="رقم المستوى الجديد" />
+          <input id="newLvThreshold" type="number" min="0" class="form-input form-input--sm" placeholder="الـ XP المطلوبة" />
+          <button class="btn btn-primary" onclick="addLvTier()">+ إضافة مستوى</button>
+          <button class="btn btn-outline" onclick="backfillLvRewards()" title="منح منتجات كل المستويات للمستخدمين الذين بلغوها بالفعل">🎁 منح بأثر رجعي (الكل)</button>
+          <button class="btn btn-outline" onclick="loadLvLevels()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            تحديث
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="lvTable">
+          <thead>
+            <tr>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الـ XP</th><th>الشارة</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- ======================== ADMINS SECTION (#22, #23) ======================== -->
     <section class="section" id="section-admins">
       <div class="section-header">
@@ -742,6 +777,46 @@
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="confirmVipRewards()">تأكيد الاختيار</button>
       <button class="btn btn-outline" onclick="closeVipRewardsModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="lvRewardsModal" onclick="closeLvRewardsModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:560px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">منتجات مستوى LV</h3>
+        <p class="modal-sub" id="lvRewardsSub"></p>
+      </div>
+    </div>
+    <div id="lvRewardsList" style="margin-top:12px;max-height:340px;overflow-y:auto"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmLvRewards()">تأكيد الاختيار</button>
+      <button class="btn btn-outline" onclick="closeLvRewardsModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="lvBackfillModal" onclick="closeLvBackfillModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:620px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">نتيجة المنح بأثر رجعي</h3>
+        <p class="modal-sub" id="lvBackfillSub"></p>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-top:12px;max-height:340px;overflow-y:auto">
+      <table id="lvBackfillTable">
+        <thead>
+          <tr>
+            <th>المستوى</th><th>المستخدمون المؤهلون</th><th>عدد المنتجات</th><th>مُنح فعلياً</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeLvBackfillModal()">إغلاق</button>
     </div>
   </div>
 </div>
@@ -956,6 +1031,8 @@
       <input id="gift_id" type="hidden" />
       <input id="gift_imageUrl" type="hidden" />
       <input id="gift_animationUrl" type="hidden" />
+      <input id="gift_animationMs" type="hidden" />
+      <input id="gift_videoHasAlpha" type="hidden" />
       <input id="gift_tier" type="hidden" />
       <input id="gift_sortOrder" type="hidden" />
 
@@ -971,6 +1048,7 @@
         <input id="gift_videoFile" type="file" accept="video/mp4,video/webm,video/quicktime" class="form-input" />
         <button type="button" class="btn btn-outline" id="giftUploadVideoBtn">رفع فيديو الهدية (اختياري)</button>
       </div>
+      <div id="giftVideoInfo" style="display:none;color:#9fd;font-size:13px;"></div>
 
       <input id="gift_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
       <label style="display:flex;align-items:center;gap:8px;color:#fff;"><input id="gift_isActive" type="checkbox" checked /> نشط</label>
@@ -983,6 +1061,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260715-gifts1"></script>
+<script src="app.js?v=20260731-giftvideo"></script>
 </body>
 </html>

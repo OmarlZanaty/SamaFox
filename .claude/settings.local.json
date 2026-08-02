@@ -40,7 +40,10 @@
       "Bash(aws --version)",
       "Bash(aws sts *)",
       "Bash(\"C:/Users/user/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin/gcloud.ps1\" --version)",
-      "Bash(ssh -V)"
+      "Bash(ssh -V)",
+      "Bash(ssh -i ~/.ssh/samafox-ec2.pem ubuntu@63.179.163.62 *)",
+      "Bash(ssh -i \"C:\\\\Users\\\\user\\\\.ssh\\\\samafox-ec2.pem\" -o StrictHostKeyChecking=no ubuntu@63.179.163.62 \"pm2 restart samafox-api && sleep 2 && curl -s http://localhost:3000/health\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

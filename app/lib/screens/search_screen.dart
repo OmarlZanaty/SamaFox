@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/dio_client.dart';
 import 'profile_screen.dart';
+import '../widgets/user_trail.dart';
 
 /// Search Screen - Search users and rooms by name or ID
 class SearchScreen extends ConsumerStatefulWidget {
@@ -331,13 +332,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       borderRadius: BorderRadius.circular(14),
                       child: ListTile(
                         onTap: () => _onTapResult(result),
-                        leading: CircleAvatar(
-                          backgroundColor: isRoom
-                              ? const Color(0xFFFFA726)
-                              : const Color(0xFF4ECDC4),
-                          child: Icon(
-                            isRoom ? Icons.meeting_room : Icons.person,
-                            color: Colors.white,
+                        leading: TappableAvatar(
+                          userId: isRoom
+                              ? 0
+                              : (result['id'] is int
+                                  ? result['id'] as int
+                                  : int.tryParse(result['id']?.toString() ?? '') ?? 0),
+                          showTrail: !isRoom,
+                          trailSize: 18,
+                          child: CircleAvatar(
+                            backgroundColor: isRoom
+                                ? const Color(0xFFFFA726)
+                                : const Color(0xFF4ECDC4),
+                            child: Icon(
+                              isRoom ? Icons.meeting_room : Icons.person,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                         title: Text(

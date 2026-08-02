@@ -9,12 +9,44 @@ import '../services/user_account_service.dart';
 import 'blocked_users_screen.dart';
 import 'edit_profile_screen.dart';
 
+/// What the signed-in account is actually allowed to do with التارجت, so the
+/// settings screen only offers the actions that can succeed.
+class _TargetActions {
+  const _TargetActions({required this.canSell, required this.canConvert});
+  const _TargetActions.none() : canSell = false, canConvert = false;
+
+  /// Owner/branch of a HOSTING agency → may sell a member's target.
+  final bool canSell;
+
+  /// Has a hosting membership with target left to convert.
+  final bool canConvert;
+}
+
+final _targetActionsProvider = FutureProvider.autoDispose<_TargetActions>((ref) async {
+  try {
+    final res = await DioClient.dio.get('/agencies/my-target');
+    final data = (res.data as Map)['data'] as Map;
+    final items = (data['items'] as List?) ?? const [];
+    return _TargetActions(
+      canSell: data['canSellMemberTarget'] == true,
+      canConvert: items.any(
+        (e) => e is Map && ((e['convertibleCoins'] as num?)?.toInt() ?? 0) > 0,
+      ),
+    );
+  } catch (_) {
+    // Older server or offline — hide the section rather than offer a dead tile.
+    return const _TargetActions.none();
+  }
+});
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = ref.watch(stringsProvider);
+    final targetActions =
+        ref.watch(_targetActionsProvider).valueOrNull ?? const _TargetActions.none();
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentLocale = ref.watch(localeProvider);
@@ -89,31 +121,40 @@ class SettingsScreen extends ConsumerWidget {
           // Target Actions Section (#5) — "بيع المستهدف" is an agency-owner
           // action (sell a MEMBER's target for them, by their ID); "تبديل
           // الكوينزات" is the existing self-service conversion, kept here.
-          _buildSectionTitle('إجراءات المستهدف', theme, isDark),
-          const SizedBox(height: 12),
-          _buildSettingsCard(
-            theme: theme,
-            isDark: isDark,
-            children: [
-              _buildSettingsTile(
-                icon: Icons.sell_outlined,
-                title: 'بيع المستهدف',
-                onTap: () => _showSellTargetDialog(context, theme, isDark),
-                theme: theme,
-                isDark: isDark,
-              ),
-              _buildDivider(isDark),
-              _buildSettingsTile(
-                icon: Icons.currency_exchange,
-                title: 'تبديل الكوينزات',
-                onTap: () => _showTargetConvertDialog(context, theme, isDark),
-                theme: theme,
-                isDark: isDark,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
+          //
+          // Both are gated on what the account can actually do: selling needs a
+          // HOSTING agency the user owns or branches, converting needs a
+          // membership with target left to convert. Showing them to everyone
+          // meant most users tapped a tile that could only answer 403/empty.
+          if (targetActions.canSell || targetActions.canConvert) ...[
+            _buildSectionTitle('إجراءات المستهدف', theme, isDark),
+            const SizedBox(height: 12),
+            _buildSettingsCard(
+              theme: theme,
+              isDark: isDark,
+              children: [
+                if (targetActions.canSell)
+                  _buildSettingsTile(
+                    icon: Icons.sell_outlined,
+                    title: 'بيع المستهدف',
+                    onTap: () => _showSellTargetDialog(context, theme, isDark),
+                    theme: theme,
+                    isDark: isDark,
+                  ),
+                if (targetActions.canSell && targetActions.canConvert)
+                  _buildDivider(isDark),
+                if (targetActions.canConvert)
+                  _buildSettingsTile(
+                    icon: Icons.currency_exchange,
+                    title: 'تبديل الكوينزات',
+                    onTap: () => _showTargetConvertDialog(context, theme, isDark),
+                    theme: theme,
+                    isDark: isDark,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // Appearance Section
           _buildSectionTitle(strings.theme, theme, isDark),
@@ -661,9 +702,14 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
         );
       }
     } catch (e) {
+      // Show what the server actually said (e.g. the max convertible amount)
+      // instead of dumping the raw exception.
+      final message = e is DioException && e.response?.data is Map
+          ? (e.response!.data['message']?.toString() ?? 'فشل التبديل')
+          : 'فشل التبديل';
       setState(() {
         _submitting = false;
-        _error = 'فشل التبديل: $e';
+        _error = message;
       });
     }
   }

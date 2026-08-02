@@ -1,7 +1,7 @@
 name: samafox
 description: A modern social voice chat application built with Flutter
 publish_to: 'none'
-version: 1.0.12+18
+version: 1.0.14+20
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -114,6 +114,8 @@ flutter:
     - assets/images/crazy/
     # بلينكو artwork — likewise.
     - assets/images/plinko/
+    # Game-card banners for the hub.
+    - assets/images/cards/
     - assets/fonts/
     - assets/frames/gold_wings.png
     - assets/icons/

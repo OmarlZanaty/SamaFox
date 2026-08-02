@@ -1,0 +1,34 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flutter-web",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5757"
+      ],
+      "port": 5757
+    },
+    {
+      "name": "crazy-wheel-preview",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-t",
+        "lib/dev/crazy_wheel_preview.dart",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5758",
+        "--dart-define=API_BASE_URL=http://localhost:3100/api/v1/",
+        "--dart-define=SOCKET_URL=http://localhost:3100"
+      ],
+      "cwd": "app",
+      "port": 5758
+    }
+  ]
+}

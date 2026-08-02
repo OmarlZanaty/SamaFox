@@ -37,6 +37,12 @@ class RoomChatPanel extends ConsumerStatefulWidget {
 }
 
 class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
+  /// Default chat-bubble artwork and its 9-slice guides, in source pixels.
+  /// Everything outside the slice rect is an end-cap and never stretches, so
+  /// the bubble padding below has to clear those caps.
+  static const String _bubbleAsset = 'assets/images/chat_bubble.png';
+  static const Rect _bubbleSlice = Rect.fromLTRB(30, 13, 118, 23);
+
   final _text = TextEditingController();
   final _scroll = ScrollController();
 
@@ -96,41 +102,27 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   BoxDecoration _bubbleDecoration(SocketMessage m) {
     final url = (m.bubbleUrl ?? '').trim();
     if (url.isNotEmpty) {
+      // A purchased design is authored as a full bubble, so it fills the
+      // footprint rather than being sliced — its own art decides the shape.
       return BoxDecoration(
-        color: Colors.deepPurple.withOpacity(0.35),
         borderRadius: BorderRadius.circular(22),
         image: DecorationImage(
           image: NetworkImage(url),
           fit: BoxFit.fill,
-          colorFilter: ColorFilter.mode(
-            Colors.black.withOpacity(0.25),
-            BlendMode.darken,
-          ),
+          onError: (_, __) {},
         ),
       );
     }
 
-    // Level tiers: default → blue (10+) → purple (30+) → gold (60+).
-    List<Color> colors;
-    if (m.level >= 60) {
-      colors = [const Color(0xFFB8860B), const Color(0xFF8B6508)];
-    } else if (m.level >= 30) {
-      colors = [const Color(0xFF7B2FBE), const Color(0xFF4A1E86)];
-    } else if (m.level >= 10) {
-      colors = [const Color(0xFF1E6FD9), const Color(0xFF144A94)];
-    } else {
-      return BoxDecoration(
-        color: Colors.deepPurple.withOpacity(0.6),
-        borderRadius: BorderRadius.circular(22),
-      );
-    }
-    return BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topRight,
-        end: Alignment.bottomLeft,
-        colors: colors.map((c) => c.withOpacity(0.75)).toList(),
+    // Default bubble artwork. The source is 148x36 with its flat middle
+    // between x 30..118 and y 13..23; 9-slicing there keeps the gold end-caps
+    // undistorted no matter how long the message is.
+    return const BoxDecoration(
+      image: DecorationImage(
+        image: AssetImage(_bubbleAsset),
+        centerSlice: _bubbleSlice,
+        fit: BoxFit.fill,
       ),
-      borderRadius: BorderRadius.circular(22),
     );
   }
 
@@ -318,7 +310,8 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                       constraints: BoxConstraints(
                                         maxWidth: MediaQuery.of(context).size.width * 0.85,
                                       ),
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      // Clears the bubble's gold end-caps.
+                                      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
                                       decoration: _bubbleDecoration(m),
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.end,

@@ -90,23 +90,28 @@ export const listHostingAgencies = async (_req: Request, res: Response) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    return res.json({
-      success: true,
-      data: agencies.map((a: any) => ({
-        id: a.id,
-        agencyName: a.agencyName,
-        logoUrl: a.logoUrl,
-        imageUrl: a.agencyImageUrl,
-        targetCoins: a.targetCoins.toString(),
-        earnedCoins: a.earnedCoins.toString(),
-        memberCount: a.members.length,
-        progress:
-          a.targetCoins > 0n
-            ? Math.min(100, Math.round(Number((a.earnedCoins * 100n) / a.targetCoins)))
-            : 0,
-        members: a.members.map((m: any) => m.user),
-      })),
-    });
+    // `earnedCoins` on the row is a dead column — nothing has ever written it,
+    // so it always reads 0 and the progress bar was permanently empty. Compute
+    // the agency's real production instead.
+    const data = await Promise.all(
+      agencies.map(async (a: any) => {
+        const goal = Number(a.targetCoins ?? 0n);
+        const earned = await computeAgencyEarnedCoins(a.id);
+        return {
+          id: a.id,
+          agencyName: a.agencyName,
+          logoUrl: a.logoUrl,
+          imageUrl: a.agencyImageUrl,
+          targetCoins: goal.toString(),
+          earnedCoins: earned.toString(),
+          memberCount: a.members.length,
+          progress: goal > 0 ? Math.min(100, Math.round((earned * 100) / goal)) : 0,
+          members: a.members.map((m: any) => m.user),
+        };
+      }),
+    );
+
+    return res.json({ success: true, data });
   } catch {
     return fail(res, 500, 'Server error');
   }
@@ -164,18 +169,31 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
     }
 
     // Owners AND branches (فرع) may sell/send coins from the agency balance.
+    //
+    // The CHARGING + approved filter belongs in the query, not in a check after
+    // it: an untyped findFirst returns whichever membership comes first, so an
+    // agent who also owns a HOSTING agency got that one back and every charge
+    // died on 'Only charging agencies can send coins'. Owner rows are preferred
+    // over branch rows, and rejected/pending agencies never qualify.
     const membership = await db.agencyMember.findFirst({
-      where: { userId: senderId, role: { in: ['OWNER', 'BRANCH'] } },
+      where: {
+        userId: senderId,
+        role: { in: ['OWNER', 'BRANCH'] },
+        agency: { type: 'CHARGING', status: 'approved' },
+      },
       include: { agency: true },
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
     });
 
-    if (!membership) return fail(res, 403, 'Not an agency owner or branch');
-    if (membership.agency.type !== 'CHARGING') return fail(res, 403, 'Only charging agencies can send coins');
+    if (!membership) return fail(res, 403, 'لست وكيل أو فرع في وكالة شحن معتمدة');
 
     try {
       await db.$transaction(async (tx: any) => {
         const agency = await tx.chargingAgency.findUnique({ where: { id: membership.agencyId } });
-        if (!agency || agency.balanceCoins < coins) throw new Error('INSUFFICIENT_AGENCY_BALANCE');
+        if (!agency || agency.balanceCoins < coins) {
+          // Carry the balance so the caller can be told how short they are.
+          throw new Error(`INSUFFICIENT_AGENCY_BALANCE:${agency?.balanceCoins ?? 0}`);
+        }
 
         await tx.chargingAgency.update({
           where: { id: agency.id },
@@ -221,8 +239,9 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
         console.warn('agency topup notification failed:', e);
       }
     } catch (e: any) {
-      if (e?.message === 'INSUFFICIENT_AGENCY_BALANCE') {
-        return fail(res, 400, 'INSUFFICIENT_AGENCY_BALANCE');
+      if (String(e?.message ?? '').startsWith('INSUFFICIENT_AGENCY_BALANCE')) {
+        const balance = String(e.message).split(':')[1] ?? '0';
+        return fail(res, 400, `رصيد الوكالة غير كافٍ — المتاح ${balance} كوينز`);
       }
       throw e;
     }
@@ -243,7 +262,13 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
     const inviteeId = Number(req.params.userId);
     if (!inviteeId) return fail(res, 400, 'Invalid userId');
 
-    const m = await findManagerMembership(ownerId);
+    // Same type filter the roster uses. Without it an agent who owns BOTH a
+    // HOSTING and a CHARGING agency (#8) invites into whichever they joined
+    // first — so the host accepts, lands in the other agency, and never shows
+    // up in the panel the agent is looking at ("المضيف انحذف لوحده").
+    const requestedType = (req.query as any)?.agencyType ?? (req.body as any)?.agencyType;
+    const inviteType = requestedType ? String(requestedType).toUpperCase() : undefined;
+    const m = await findManagerMembership(ownerId, inviteType);
     if (!m) return fail(res, 403, 'Not an agency owner or branch');
 
     const existing = await db.agencyInvite.findFirst({
@@ -469,13 +494,19 @@ export const getMyInvites = async (req: AuthReq, res: Response) => {
 // checked after findFirst() — a user can own BOTH a HOSTING and a CHARGING
 // agency (#8), so an untyped findFirst() can grab the wrong-type row and then
 // wrongly report "no owner membership" even though a matching one exists.
+// `status` belongs in the WHERE clause for the same reason `type` does: checked
+// afterwards, a pending agency row returned by findFirst masks an approved one
+// the user actually owns, and the caller is wrongly told they own nothing.
 const findOwnerMembership = async (userId: number, type?: string) => {
-  const m = await db.agencyMember.findFirst({
-    where: { userId, role: 'OWNER', ...(type ? { agency: { type } } : {}) },
+  return db.agencyMember.findFirst({
+    where: {
+      userId,
+      role: 'OWNER',
+      agency: { status: 'approved', ...(type ? { type } : {}) },
+    },
     include: { agency: true },
+    orderBy: { joinedAt: 'asc' },
   });
-  if (!m || m.agency.status !== 'approved') return null;
-  return m;
 };
 
 // Resolves the caller's OWNER **or** BRANCH (فرع) membership. A branch has the
@@ -485,12 +516,17 @@ const findOwnerMembership = async (userId: number, type?: string) => {
 // Same multi-agency caveat as findOwnerMembership above — filter by type in
 // the query, not after the fact.
 const findManagerMembership = async (userId: number, type?: string) => {
-  const m = await db.agencyMember.findFirst({
-    where: { userId, role: { in: ['OWNER', 'BRANCH'] }, ...(type ? { agency: { type } } : {}) },
+  return db.agencyMember.findFirst({
+    where: {
+      userId,
+      role: { in: ['OWNER', 'BRANCH'] },
+      agency: { status: 'approved', ...(type ? { type } : {}) },
+    },
     include: { agency: true },
+    // Owner rows before branch rows, so managing your OWN agency always wins
+    // over an agency where you are merely a branch.
+    orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
   });
-  if (!m || m.agency.status !== 'approved') return null;
-  return m;
 };
 
 // GET /agencies/search-user?q=  — agent looks up a user by display ID (or name) to invite
@@ -499,7 +535,10 @@ export const searchUserForInvite = async (req: AuthReq, res: Response) => {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
 
-    const m = await findManagerMembership(userId);
+    const searchType = (req.query as any)?.agencyType
+      ? String((req.query as any).agencyType).toUpperCase()
+      : undefined;
+    const m = await findManagerMembership(userId, searchType);
     if (!m) return fail(res, 403, 'Not an agency owner or branch');
 
     const q = String((req.query as any)?.q ?? '').trim();
@@ -540,7 +579,15 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
 
-    const m = await findManagerMembership(userId);
+    // A user can own/branch BOTH a HOSTING and a CHARGING agency (#8). Without
+    // a type filter the untyped findFirst can return the WRONG agency, so the
+    // manager opens the roster and sees the other agency's members. Clients
+    // pass which one they mean; unspecified still falls back to "whichever"
+    // for older builds where the user only ever has one.
+    const requestedType = (req.query as any)?.agencyType
+      ? String((req.query as any).agencyType).toUpperCase()
+      : undefined;
+    const m = await findManagerMembership(userId, requestedType);
     if (!m) return fail(res, 403, 'Not an agency owner or branch');
 
     const members = await db.agencyMember.findMany({
@@ -588,6 +635,11 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
       return b.earnedCoins - a.earnedCoins;
     });
 
+    // The agent's own target rides along with the roster so the panel can show
+    // "how is MY agency doing" next to "how is each host doing".
+    const agencyGoal = Number(m.agency.targetCoins ?? 0n);
+    const agencyEarned = await computeAgencyEarnedCoins(m.agencyId);
+
     return res.json({
       success: true,
       data: {
@@ -597,6 +649,9 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
           type: m.agency.type,
           exitLocked: m.agency.exitLocked,
           exitPriceCoins: m.agency.exitPriceCoins,
+          targetGoalCoins: agencyGoal,
+          earnedCoins: agencyEarned,
+          remainingCoins: agencyGoal > 0 ? Math.max(0, agencyGoal - agencyEarned) : 0,
         },
         members: stats,
       },
@@ -616,7 +671,12 @@ export const removeMember = async (req: AuthReq, res: Response) => {
     if (!targetUserId) return fail(res, 400, 'Invalid userId');
     if (targetUserId === ownerId) return fail(res, 400, 'Owner cannot remove himself');
 
-    const m = await findManagerMembership(ownerId);
+    // Typed for the same reason as inviteMember above — otherwise the remove
+    // button can resolve to the agency the agent is NOT looking at.
+    const removeType = (req.query as any)?.agencyType
+      ? String((req.query as any).agencyType).toUpperCase()
+      : undefined;
+    const m = await findManagerMembership(ownerId, removeType);
     if (!m) return fail(res, 403, 'Not an agency owner or branch');
 
     const member = await db.agencyMember.findFirst({
@@ -656,7 +716,13 @@ export const setExitSettings = async (req: AuthReq, res: Response) => {
     const ownerId = req.userId;
     if (!ownerId) return fail(res, 401, 'Unauthorized');
 
-    const m = await findOwnerMembership(ownerId);
+    // Which agency the price is being set on. Untyped, an owner of both a
+    // hosting and a charging agency could set the fee from the hosting panel
+    // and have it silently written to the other agency.
+    const requestedType = (req.body as any)?.agencyType
+      ? String((req.body as any).agencyType).toUpperCase()
+      : undefined;
+    const m = await findOwnerMembership(ownerId, requestedType);
     if (!m) return fail(res, 403, 'Not an agency owner');
 
     const { exitLocked, exitPriceCoins } = req.body as {
@@ -690,8 +756,18 @@ export const getMyMembership = async (req: AuthReq, res: Response) => {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
 
+    // `agencyType` picks which one is meant. Without it this findFirst returned
+    // an arbitrary row, so a user who owns BOTH a hosting and a charging agency
+    // opened whichever the database happened to hand back first (#8).
+    const requestedType = (req.query as any)?.agencyType
+      ? String((req.query as any).agencyType).toUpperCase()
+      : undefined;
+
     const m = await db.agencyMember.findFirst({
-      where: { userId, agency: { status: 'approved' } },
+      where: {
+        userId,
+        agency: { status: 'approved', ...(requestedType ? { type: requestedType } : {}) },
+      },
       include: {
         agency: {
           select: {
@@ -700,9 +776,12 @@ export const getMyMembership = async (req: AuthReq, res: Response) => {
           },
         },
       },
+      // Manager rows first so owning an agency always beats merely belonging
+      // to one, then oldest — deterministic instead of database order.
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
     });
 
-    console.log('[my-membership]', { userId, found: !!m, role: m?.role });
+    console.log('[my-membership]', { userId, type: requestedType, found: !!m, role: m?.role });
     if (!m) return res.json({ success: true, data: null });
 
     return res.json({
@@ -758,9 +837,30 @@ export const leaveAgency = async (req: AuthReq, res: Response) => {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
 
+    // WHICH agency is being left. This used to be an unqualified findFirst, so
+    // a user with two memberships left an arbitrary one — typically the
+    // unlocked agency, which is why the exit fee "stopped working" the moment
+    // someone joined a second agency. `agencyId` is exact; `agencyType`
+    // narrows; neither given falls back to a deterministic pick that prefers a
+    // leavable (non-OWNER) row over an owner row.
+    const agencyId = req.body?.agencyId != null ? Number(req.body.agencyId) : undefined;
+    const agencyType = req.body?.agencyType
+      ? String(req.body.agencyType).toUpperCase()
+      : undefined;
+    if (agencyId !== undefined && !Number.isFinite(agencyId)) {
+      return fail(res, 400, 'agencyId must be a number');
+    }
+
     const m = await db.agencyMember.findFirst({
-      where: { userId, agency: { status: 'approved' } },
+      where: {
+        userId,
+        ...(agencyId !== undefined ? { agencyId } : {}),
+        agency: { status: 'approved', ...(agencyType ? { type: agencyType } : {}) },
+      },
       include: { agency: true },
+      // Ascending: 'BRANCH' < 'MEMBER' < 'OWNER', so leavable rows come first
+      // and an OWNER row can no longer shadow the membership the user meant.
+      orderBy: [{ role: 'asc' }, { joinedAt: 'asc' }],
     });
     if (!m) return fail(res, 404, 'Not a member of any agency');
     if (m.role === 'OWNER') return fail(res, 400, 'Owner cannot leave; transfer ownership first');
@@ -806,7 +906,17 @@ export const leaveAgency = async (req: AuthReq, res: Response) => {
       console.warn('agency leave notification failed:', e);
     }
 
-    return res.json({ success: true, data: { paidCoins: price } });
+    // Echo which agency was actually left so the client can show the right
+    // name and never has to assume it matched what was on screen.
+    return res.json({
+      success: true,
+      data: {
+        paidCoins: price,
+        agencyId: m.agencyId,
+        agencyName: m.agency.agencyName,
+        agencyType: m.agency.type,
+      },
+    });
   } catch {
     return fail(res, 500, 'Server error');
   }
@@ -836,8 +946,23 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
 
     await db.$transaction(async (tx: any) => {
       await tx.chargingAgency.update({ where: { id: m.agencyId }, data: { userId: toUserId } });
-      // Old owner steps down to MEMBER; new owner takes the OWNER seat.
-      await tx.agencyMember.update({ where: { id: m.id }, data: { role: 'MEMBER' } });
+      // Old owner steps down to MEMBER. Their joinedAt is RESET to now: a
+      // member's target is "gifts received since joinedAt", so keeping the
+      // original date would hand the ex-owner an instant target covering the
+      // agency's entire history — and make them owe commission on all of it.
+      // convertedTargetCoins is cleared for the same reason: it caps
+      // conversions against earnings that no longer count.
+      await tx.agencyMember.update({
+        where: { id: m.id },
+        data: {
+          role: 'MEMBER',
+          joinedAt: new Date(),
+          targetGoalCoins: BigInt(0),
+          convertedTargetCoins: BigInt(0),
+        },
+      });
+      // New owner takes the OWNER seat. An existing member being promoted
+      // keeps their row (and history); a brand-new owner gets a fresh one.
       await tx.agencyMember.upsert({
         where: { agencyId_userId: { agencyId: m.agencyId, userId: toUserId } },
         update: { role: 'OWNER' },
@@ -1017,7 +1142,12 @@ export const removeBranch = async (req: AuthReq, res: Response) => {
     });
     if (!branch) return fail(res, 404, 'Branch not found');
 
-    await db.agencyMember.delete({ where: { id: branch.id } });
+    // Demote rather than delete. A branch of a hosting agency is also a host
+    // whose target is derived from `joinedAt`; deleting the row would wipe
+    // that history and drop them out of the agency entirely, which is not
+    // what "revoke branch access" should mean. Earnings rules are identical
+    // for BRANCH and MEMBER, so this changes access only.
+    await db.agencyMember.update({ where: { id: branch.id }, data: { role: 'MEMBER' } });
     return res.json({ success: true });
   } catch (e) {
     console.error('[agency.removeBranch] failed:', e);
@@ -1028,6 +1158,73 @@ export const removeBranch = async (req: AuthReq, res: Response) => {
 // ============================================================
 // TARGET system (#13, #24)
 // ============================================================
+
+/**
+ * An agency's total production: the coins its hosts have earned in gifts,
+ * summed across every member, each counted only from their own `joinedAt`
+ * (same rule the per-member target uses) and excluding self-gifts.
+ *
+ * This is the basis of the AGENT's target. Deliberately computed live rather
+ * than read from `ChargingAgency.earnedCoins` — nothing has ever written that
+ * column, so it is always 0 and cannot be trusted.
+ */
+export const computeAgencyEarnedCoins = async (agencyId: number): Promise<number> => {
+  const members = await db.agencyMember.findMany({
+    where: { agencyId },
+    select: { userId: true, joinedAt: true },
+  });
+  if (members.length === 0) return 0;
+
+  const sums = await Promise.all(
+    members.map(async (m: any) => {
+      const agg = await db.giftTransaction.aggregate({
+        where: {
+          recipientId: m.userId,
+          senderId: { not: m.userId },
+          createdAt: { gte: m.joinedAt },
+        },
+        _sum: { totalCoins: true },
+      });
+      return Number(agg._sum.totalCoins ?? 0);
+    }),
+  );
+  return sums.reduce((a, b) => a + b, 0);
+};
+
+/**
+ * The AGENT's own target for EVERY approved agency they own: goal set by
+ * platform admin on the agency (`ChargingAgency.targetCoins`, PATCH
+ * /admin/agencies/:id/target), progress = that agency's total production.
+ *
+ * A user can own BOTH a HOSTING and a CHARGING agency (#8), and each carries
+ * its own goal — so this returns one entry per agency instead of picking an
+ * arbitrary one. Ordered by joinedAt so the default pick is stable.
+ * Empty array when the caller owns no approved agency.
+ */
+const buildAgentTargets = async (userId: number) => {
+  const owned = await db.agencyMember.findMany({
+    where: { userId, role: 'OWNER', agency: { status: 'approved' } },
+    include: { agency: true },
+    orderBy: { joinedAt: 'asc' },
+  });
+
+  return Promise.all(
+    owned.map(async (owner: any) => {
+      const goal = Number(owner.agency.targetCoins ?? 0n);
+      const earnedCoins = await computeAgencyEarnedCoins(owner.agencyId);
+      return {
+        agencyId: owner.agencyId,
+        agencyName: owner.agency.agencyName,
+        agencyType: owner.agency.type,
+        goalCoins: goal,
+        earnedCoins,
+        remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
+        earnedDollars: await coinsToDollars(earnedCoins),
+        hasGoal: goal > 0,
+      };
+    }),
+  );
+};
 
 // Dollar value for a given earned-coins amount, derived from admin-managed
 // TargetTier rows: use the ratio (dollars/coins) of the highest tier whose
@@ -1051,9 +1248,11 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
 
-    // Hosting memberships where the user is a host (not the owner).
+    // Hosting memberships. Owners are included too: an agent earns gifts like
+    // any host and has their own convertedTargetCoins row, so excluding them
+    // left تبديل الكوينزات permanently empty for every وكيل.
     const memberships = await db.agencyMember.findMany({
-      where: { userId, role: { not: 'OWNER' }, agency: { type: 'HOSTING', status: 'approved' } },
+      where: { userId, agency: { type: 'HOSTING', status: 'approved' } },
       include: { agency: { select: { id: true, agencyName: true } } },
       orderBy: { joinedAt: 'asc' },
     });
@@ -1085,11 +1284,64 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
       }),
     );
 
-    const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
+    // The target card must appear on EVERY profile, not only for hosts in a
+    // hosting agency. With no membership there is no goal to hit, but the
+    // user's lifetime gift earnings are still what the card reports — so fall
+    // back to those instead of returning nothing and hiding the card.
+    let totalEarned: number;
+    if (items.length > 0) {
+      totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
+    } else {
+      const lifetime = await db.giftTransaction.aggregate({
+        where: { recipientId: userId, senderId: { not: userId } },
+        _sum: { totalCoins: true },
+      });
+      totalEarned = Number(lifetime._sum.totalCoins ?? 0);
+    }
+
+    const totalGifts = await db.giftTransaction.aggregate({
+      where: { recipientId: userId, senderId: { not: userId } },
+      _sum: { quantity: true },
+    });
+
+    // The AGENT's own target, when this user owns an agency. Hosts get their
+    // per-membership goal above; the agent's goal is set on the agency by the
+    // platform admin and progresses with the whole agency's production.
+    //
+    // `agencyType` picks which owned agency is meant, exactly like the roster
+    // endpoint above — without it a user owning both a HOSTING and a CHARGING
+    // agency (#8) would see a different agency here than in وكالة/agency panel.
+    // No type given → every owned agency comes back in `agentTargets`, and
+    // `agentTarget` stays the earliest-joined one for older clients.
+    const requestedType = (req.query as any)?.agencyType
+      ? String((req.query as any).agencyType).toUpperCase()
+      : undefined;
+    const agentTargets = await buildAgentTargets(userId);
+    const agentTarget = requestedType
+      ? agentTargets.find((t) => t.agencyType === requestedType) ?? null
+      : agentTargets[0] ?? null;
+
+    // Drives whether the client offers بيع المستهدف at all — it is an
+    // OWNER/BRANCH action on a HOSTING agency, so everyone else was tapping a
+    // tile that could only ever answer 403.
+    const hostingManager = await findManagerMembership(userId, 'HOSTING');
+
     const totalDollars = await coinsToDollars(totalEarned);
     return res.json({
       success: true,
-      data: { totalEarned, totalDollars, hasTarget: items.length > 0, items },
+      data: {
+        totalEarned,
+        totalDollars,
+        totalGifts: Number(totalGifts._sum.quantity ?? 0),
+        canSellMemberTarget: !!hostingManager,
+        agentTarget,
+        agentTargets,
+        // Always true so the client renders the card; `hasGoal` says whether
+        // there is an agency-set goal to show progress against.
+        hasTarget: true,
+        hasGoal: items.length > 0,
+        items,
+      },
     });
   } catch (e) {
     console.error('[agency.getMyTarget] failed:', e);
@@ -1112,10 +1364,11 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
       return fail(res, 400, 'agencyId و amount مطلوبة');
     }
 
+    // Owners convert their own earned target too — same rule as getMyTarget.
     const membership = await db.agencyMember.findFirst({
-      where: { userId, agencyId, role: { not: 'OWNER' }, agency: { type: 'HOSTING', status: 'approved' } },
+      where: { userId, agencyId, agency: { type: 'HOSTING', status: 'approved' } },
     });
-    if (!membership) return fail(res, 404, 'لست عضو مضيف في هذه الوكالة');
+    if (!membership) return fail(res, 404, 'لست عضواً في هذه الوكالة');
 
     const earned = await db.giftTransaction.aggregate({
       where: { recipientId: userId, senderId: { not: userId }, createdAt: { gte: membership.joinedAt } },
@@ -1173,13 +1426,23 @@ export const sellMemberTarget = async (req: AuthReq, res: Response) => {
     const manager = await findManagerMembership(ownerId, 'HOSTING');
     if (!manager) return fail(res, 403, 'لست وكيل أو فرع في وكالة استضافة');
 
+    // The agent types the ID they can actually see — the public `displayId`
+    // printed on profiles and in the roster — not the internal user.id. Resolve
+    // it the same way invite-search does, then fall back to a raw id so an
+    // internal id still works.
+    const byDisplayId = await db.user.findFirst({
+      where: { displayId: memberUserId },
+      select: { id: true },
+    });
+    const resolvedUserId = byDisplayId?.id ?? memberUserId;
+
     const membership = await db.agencyMember.findFirst({
-      where: { userId: memberUserId, agencyId: manager.agencyId, role: { not: 'OWNER' } },
+      where: { userId: resolvedUserId, agencyId: manager.agencyId, role: { not: 'OWNER' } },
     });
     if (!membership) return fail(res, 404, 'هذا المستخدم ليس عضواً في وكالتك');
 
     const earned = await db.giftTransaction.aggregate({
-      where: { recipientId: memberUserId, senderId: { not: memberUserId }, createdAt: { gte: membership.joinedAt } },
+      where: { recipientId: resolvedUserId, senderId: { not: resolvedUserId }, createdAt: { gte: membership.joinedAt } },
       _sum: { totalCoins: true },
     });
     const earnedCoins = Number(earned._sum.totalCoins ?? 0);
@@ -1197,7 +1460,7 @@ export const sellMemberTarget = async (req: AuthReq, res: Response) => {
         data: { convertedTargetCoins: { increment: amount } },
       }),
       db.user.update({
-        where: { id: memberUserId },
+        where: { id: resolvedUserId },
         data: { coinsBalance: { increment: credit } },
         select: { coinsBalance: true },
       }),
@@ -1205,7 +1468,7 @@ export const sellMemberTarget = async (req: AuthReq, res: Response) => {
 
     try {
       await createNotification({
-        userId: memberUserId,
+        userId: resolvedUserId,
         actorId: ownerId,
         type: 'TARGET_SOLD',
         title: '🎯 تم بيع جزء من المستهدف',

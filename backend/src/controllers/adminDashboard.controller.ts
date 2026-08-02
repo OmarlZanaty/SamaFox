@@ -2,6 +2,10 @@ import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
+import { computeAgencyEarnedCoins } from '../agencies/agency.controller';
+import { bumpCatalogVersion } from '../gifts/catalogCache';
+import { invalidateBanCache } from '../utils/banGuard';
+import { kickBannedUser } from '../services/socket.service';
 
 const db = prisma as any;
 
@@ -255,6 +259,8 @@ export const adminDashboardBanUser = async (req: Request, res: Response) => {
         data: { isBanned: false, bannedAt: null, banReason: null, banExpiresAt: null, banSource: null },
         select: { id: true, isBanned: true },
       });
+      // Drop the cached ban state so they can sign back in straight away.
+      invalidateBanCache(id);
       return ok(res, { data: updated });
     }
 
@@ -290,10 +296,12 @@ export const adminDashboardBanUser = async (req: Request, res: Response) => {
       select: { id: true, isBanned: true, bannedAt: true, banReason: true, banExpiresAt: true, banSource: true },
     });
 
+    // Take effect now rather than up to a cache TTL later.
+    invalidateBanCache(id);
+
     // Kick the user off any live sockets immediately.
     try {
-      const { io } = await import('../index');
-      io.emit('user_banned', { userId: id, reason, banExpiresAt });
+      await kickBannedUser(id, reason, banExpiresAt);
     } catch (e) {
       console.warn('user_banned emit failed:', e);
     }
@@ -775,11 +783,19 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
       include: { user: true },
       orderBy: { createdAt: 'desc' },
     });
+    // `a.earnedCoins` is a dead column that nothing ever writes, so it always
+    // reads 0. The agency's real production is the sum of its hosts' gift
+    // earnings — that is what the target is measured against, and what the
+    // dollar figure here should reflect.
     const withDollars = await Promise.all(
-      agencies.map(async (a: any) => ({
-        ...serialize(a),
-        dollars: await computeDollarsFromCoins(a.earnedCoins ?? 0n),
-      })),
+      agencies.map(async (a: any) => {
+        const earned = await computeAgencyEarnedCoins(a.id);
+        return {
+          ...serialize(a),
+          earnedCoins: String(earned),
+          dollars: await computeDollarsFromCoins(BigInt(earned)),
+        };
+      }),
     );
     return ok(res, { data: withDollars });
   } catch {
@@ -1148,16 +1164,45 @@ export const adminSetAgencyTarget = async (req: AdminReq, res: Response) => {
 // existing admin dashboard UI; new clients should target the dedicated
 // admin gift routes which support format/tier/animation metadata.
 
+const GIFT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.m4v', '.ogv'];
+
+/**
+ * A gift can carry both a still icon and a video. If a video file was uploaded,
+ * the video is what must play — the client's GiftPlayer routes on `format`
+ * alone, so leaving it on SVG_CSS renders the still image forever.
+ */
+const giftFormatFor = (animationUrl: unknown, requested: unknown): string => {
+  if (typeof animationUrl === 'string' && animationUrl) {
+    const path = (animationUrl.split('?')[0] ?? '').split('#')[0]?.toLowerCase() ?? '';
+    if (GIFT_VIDEO_EXTENSIONS.some((ext) => path.endsWith(ext))) return 'VIDEO';
+  }
+  return String(requested ?? 'SVG_CSS');
+};
+
 export const adminListGifts = async (_req: AdminReq, res: Response) => {
   const gifts = await prisma.gift.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }] });
   return res.json({ success: true, data: gifts });
 };
 
+/**
+ * A video gift must play for as long as its clip actually runs. The 3000ms
+ * schema default silently truncated longer clips, so the dashboard now posts the
+ * probed duration and we clamp it to what the client's flight animation supports.
+ */
+const giftAnimationMsFor = (animationMs: unknown): number | undefined => {
+  const ms = Number(animationMs);
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  return Math.min(15000, Math.max(1000, Math.round(ms)));
+};
+
 export const adminCreateGift = async (req: AdminReq, res: Response) => {
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible, animationMs, videoHasAlpha } = req.body;
   if (!nameAr || !iconUrl || coinCost == null) {
     return res.status(400).json({ success: false, message: 'nameAr, iconUrl, coinCost required' });
   }
+
+  const resolvedFormat = giftFormatFor(animationUrl, format);
+  const resolvedMs = giftAnimationMsFor(animationMs);
 
   const gift = await prisma.gift.create({
     data: {
@@ -1167,20 +1212,26 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
       animationUrl: animationUrl ?? null,
       coinCost: Number(coinCost),
       sortOrder: Number(sortOrder ?? 0),
-      format: (format ?? 'SVG_CSS') as any,
+      format: resolvedFormat as any,
       tier: (tier ?? 'SMALL') as any,
       category: 'admin',
+      ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
+      ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
       ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
     },
   });
 
+  // Without this the /gifts catalog keeps serving the cached payload and the new
+  // gift does not reach the app until the cache expires.
+  await bumpCatalogVersion();
   return res.status(201).json({ success: true, data: gift });
 };
 
 export const adminUpdateGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible, animationMs, videoHasAlpha } = req.body;
+  const resolvedMs = giftAnimationMsFor(animationMs);
 
   const gift = await prisma.gift.update({
     where: { id },
@@ -1194,10 +1245,18 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
       ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
       ...(tier !== undefined && { tier: tier as any }),
-      ...(format !== undefined && { format: format as any }),
+      ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
+      ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
+      // A newly-attached video always wins over whatever format was posted.
+      ...(animationUrl !== undefined && giftFormatFor(animationUrl, format) === 'VIDEO'
+        ? { format: 'VIDEO' as any }
+        : format !== undefined
+          ? { format: format as any }
+          : {}),
     },
   });
 
+  await bumpCatalogVersion();
   return res.json({ success: true, data: gift });
 };
 
@@ -1205,12 +1264,14 @@ export const adminDeleteGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
   try {
     await prisma.gift.delete({ where: { id } });
+    await bumpCatalogVersion();
     return res.json({ success: true, message: 'Gift deleted' });
   } catch {
     await prisma.gift.update({
       where: { id },
       data: { isActive: false },
     });
+    await bumpCatalogVersion();
     return res.json({ success: true, message: 'Gift deactivated (used in history)' });
   }
 };
@@ -1368,6 +1429,168 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
   } catch (e) {
     console.error('adminUpsertVipLevel error:', e);
     return res.status(500).json({ success: false, message: 'Failed to save VIP level' });
+  }
+};
+
+// ── LV level configuration (المستوى) ──
+// The XP counterpart of the VIP tiers above. `threshold` is cumulative XP; a
+// tier with no threshold leaves that level on the built-in curve, and an empty
+// table means the whole system behaves exactly as before.
+export const adminListLevels = async (_req: AdminReq, res: Response) => {
+  try {
+    const levels: any[] = await (prisma as any).levelConfig.findMany({ orderBy: { level: 'asc' } });
+
+    const allIds = [...new Set(levels.flatMap((l) => l.rewardItemIds ?? []))] as string[];
+    const items = allIds.length
+      ? await prisma.item.findMany({
+          where: { id: { in: allIds } },
+          select: { id: true, name: true, type: true, assetUrl: true, isPurchasable: true },
+        })
+      : [];
+    const itemById = new Map(items.map((i) => [i.id, i]));
+
+    return res.json({
+      success: true,
+      data: levels.map((l) => ({
+        ...l,
+        rewardItems: (l.rewardItemIds ?? [])
+          .map((id: string) => itemById.get(id))
+          .filter(Boolean),
+      })),
+    });
+  } catch (e) {
+    console.error('adminListLevels error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to list levels' });
+  }
+};
+
+export const adminUpsertLevel = async (req: AdminReq, res: Response) => {
+  try {
+    const level = Number(req.body?.level);
+    if (!level || level < 1 || level > 100) {
+      return res.status(400).json({ success: false, message: 'level must be 1-100' });
+    }
+
+    const threshold = req.body?.threshold != null ? Number(req.body.threshold) : undefined;
+    if (threshold !== undefined && (!Number.isFinite(threshold) || threshold < 0)) {
+      return res.status(400).json({ success: false, message: 'threshold must be >= 0' });
+    }
+
+    // Drop ids that no longer exist so a stale dashboard can't save dangling grants.
+    let rewardItemIds: string[] | undefined;
+    if (Array.isArray(req.body?.rewardItemIds)) {
+      const requested = [...new Set(req.body.rewardItemIds.map(String))] as string[];
+      const existing = requested.length
+        ? await prisma.item.findMany({ where: { id: { in: requested } }, select: { id: true } })
+        : [];
+      rewardItemIds = existing.map((i) => i.id);
+    }
+
+    const data: any = {
+      name: req.body?.name != null ? String(req.body.name) : undefined,
+      threshold,
+      badgeUrl: req.body?.badgeUrl != null ? String(req.body.badgeUrl) : undefined,
+      ...(rewardItemIds !== undefined ? { rewardItemIds } : {}),
+    };
+    const saved = await (prisma as any).levelConfig.upsert({
+      where: { level },
+      update: data,
+      create: { level, ...data },
+    });
+    return res.json({ success: true, data: saved });
+  } catch (e) {
+    console.error('adminUpsertLevel error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to save level' });
+  }
+};
+
+/**
+ * Retroactively grant LV reward items to users who are ALREADY at or above a
+ * tier. Normal grants only fire when a level is crossed, so configuring a
+ * reward for LV 10 today leaves existing LV 40 users with nothing.
+ *
+ * Idempotent: `skipDuplicates` means re-running grants nothing new, and the
+ * response reports only rows actually created. Pass `{ level }` to backfill a
+ * single tier, or omit it for every configured tier.
+ */
+export const adminBackfillLevelRewards = async (req: AdminReq, res: Response) => {
+  try {
+    const onlyLevel = req.body?.level != null ? Number(req.body.level) : undefined;
+    if (onlyLevel !== undefined && (!Number.isFinite(onlyLevel) || onlyLevel < 1)) {
+      return res.status(400).json({ success: false, message: 'level must be >= 1' });
+    }
+
+    const configs: any[] = await (prisma as any).levelConfig.findMany({
+      where: onlyLevel !== undefined ? { level: onlyLevel } : {},
+      orderBy: { level: 'asc' },
+    });
+
+    let grantedRows = 0;
+    const usersAffected = new Set<number>();
+    const details: any[] = [];
+
+    for (const cfg of configs) {
+      const itemIds = [...new Set<string>((cfg.rewardItemIds ?? []).filter(Boolean))];
+      if (!itemIds.length) continue;
+
+      // Skip ids whose item was deleted since the tier was configured.
+      const items = await prisma.item.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true },
+      });
+      if (!items.length) continue;
+
+      const users = await prisma.user.findMany({
+        where: { level: { gte: cfg.level } },
+        select: { id: true },
+      });
+      if (!users.length) continue;
+
+      const rows = users.flatMap((u) =>
+        items.map((it) => ({ userId: u.id, itemId: it.id, isActive: false })),
+      );
+
+      // Chunked so a large user base can't build one oversized statement.
+      const CHUNK = 1000;
+      let createdForLevel = 0;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const r = await prisma.userItem.createMany({
+          data: rows.slice(i, i + CHUNK),
+          skipDuplicates: true,
+        });
+        createdForLevel += r.count;
+      }
+
+      grantedRows += createdForLevel;
+      users.forEach((u) => usersAffected.add(u.id));
+      details.push({
+        level: cfg.level,
+        users: users.length,
+        items: items.length,
+        granted: createdForLevel,
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: { grantedRows, usersAffected: usersAffected.size, details },
+    });
+  } catch (e) {
+    console.error('adminBackfillLevelRewards error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to backfill level rewards' });
+  }
+};
+
+export const adminDeleteLevel = async (req: AdminReq, res: Response) => {
+  try {
+    const level = Number(req.params.level);
+    if (!level) return res.status(400).json({ success: false, message: 'Invalid level' });
+    // Removing a tier returns that level to the built-in curve.
+    await (prisma as any).levelConfig.delete({ where: { level } }).catch(() => null);
+    return res.json({ success: true });
+  } catch (e) {
+    console.error('adminDeleteLevel error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to delete level' });
   }
 };
 

@@ -458,6 +458,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _socket.off('seat_updated');
     _socket.off('user_joined');
     _socket.off('user_entered');
+    _socket.off('room_users');
     _socket.off('user_left');
     _socket.off('seat_error');
     _socket.off('seat_mute_changed');
@@ -502,6 +503,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
       final uid = _safeInt(data['userId']);
       if (uid != null) {
+        // Also keep the member list current: user_entered is the only event
+        // every entrant produces, so the roster must be built from it too.
+        addOnlineUser(User(id: uid, name: username));
         state = state.copyWith(
           lastEntrance: EntranceEvent(
             seq: ++_entranceSeq,
@@ -514,6 +518,33 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         );
       }
     });
+
+    // The server's roster of everyone currently in the room — sent on join and
+    // on request. Without it onlineUsers only ever held me plus whoever
+    // arrived after me, which is why "دعوة إلى المقعد" showed just me.
+    _socket.on('room_users', (data) {
+      if (data is! Map) return;
+      final rid = _safeInt(data['roomId']);
+      if (rid != null && rid != roomId) return;
+
+      final list = data['users'];
+      if (list is! List) return;
+
+      final updated = <int, User>{};
+      for (final e in list) {
+        if (e is! Map) continue;
+        final uid = _safeInt(e['userId']);
+        if (uid == null) continue;
+        updated[uid] = User(id: uid, name: (e['username'] ?? 'مستخدم').toString());
+      }
+      // The snapshot is authoritative, but never let a malformed/empty payload
+      // wipe a list we already built from live events.
+      if (updated.isNotEmpty) state = state.copyWith(onlineUsers: updated);
+    });
+
+    // Pull the roster right away — join_room also pushes one, but this covers
+    // re-binding after a reconnect or re-entering the screen.
+    _socket.requestRoomUsers(roomId);
 
     _socket.on('user_left', (data) {
       if (data is! Map) return;

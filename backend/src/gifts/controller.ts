@@ -226,7 +226,13 @@ export async function leaderboard(req: Request, res: Response) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const rows = await prisma.giftTransaction.groupBy({
       by: ['senderId'],
-      where: { roomId, createdAt: { gte: since } },
+      // Self-gifts don't count: sending to yourself is not supporting anyone,
+      // and it let agents buy the top of the room board at half price.
+      where: {
+        roomId,
+        createdAt: { gte: since },
+        NOT: { senderId: { equals: prisma.giftTransaction.fields.recipientId } },
+      },
       _sum: { totalCoins: true },
       orderBy: { _sum: { totalCoins: 'desc' } },
       take: 20,

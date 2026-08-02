@@ -5,6 +5,7 @@ import prisma from '../utils/prisma';
 import { firstStr } from '../utils/http';
 import { getAgencyRole } from '../agencies/agency.controller';
 import { getUserCurrentRoomId } from '../services/socket.service';
+import { invalidateBanCache } from '../utils/banGuard';
 interface UpdateProfileRequest {
   name?: string;
   bio?: string;
@@ -101,10 +102,18 @@ export const getUserById = async (req: Request, res: Response) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const [followerCount, followingCount, agencyInfo] = await Promise.all([
+    const [followerCount, followingCount, agencyInfo, ownedRoom] = await Promise.all([
       prisma.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
       prisma.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
       getAgencyRole(userId).catch(() => null),
+      // The room this user OWNS — what the غرفة button on their profile opens,
+      // online or not. isActive:false means deleted (joinRoom rejects those), so
+      // only a live room counts; oldest first when they own more than one.
+      prisma.room.findFirst({
+        where: { ownerId: userId, isActive: true },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+      }),
     ]);
 
     // #31: the room this user is ACTUALLY in right now (guest or host), for
@@ -119,6 +128,7 @@ export const getUserById = async (req: Request, res: Response) => {
         agencyRole: agencyInfo?.agencyRole ?? null,
         agencyName: agencyInfo?.agencyName ?? null,
         liveRoomId: currentRoomId,
+        ownedRoomId: ownedRoom?.id ?? null,
         // Real only — null when the user owns/joined no family, never a
         // placeholder name (matches the room-card redesign's no-fake-data rule).
         familyName: (user as any).ownedFamily?.name ?? (user as any).familyMembership?.family?.name ?? null,
@@ -464,6 +474,8 @@ export const deleteMyAccount = async (req: Request, res: Response) => {
         banSource: 'system',
       } as any,
     });
+    // Self-deletion bans the account, so the guard has to see it right away.
+    invalidateBanCache(userId);
     return res.json({ success: true, message: 'تم حذف الحساب' });
   } catch (e: any) {
     console.error('deleteMyAccount error:', e);

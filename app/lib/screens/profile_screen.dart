@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,7 @@ import '../services/dio_client.dart';
 import '../services/store_service.dart';
 import '../utils/storage_service.dart';
 import '../widgets/FramedAvatar.dart';
+import '../widgets/level_badge.dart';
 import '../widgets/glass_bottom_bar.dart';
 import '../widgets/video_preview_widget.dart';
 import '../services/socket_service.dart';
@@ -76,6 +78,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   bool _followBusy = false;
   bool _followLoaded = false; // guard: load follow status only once per viewed user
   bool _targetBlocked = false; // #2 blacklist: whether I blocked the viewed user
+  bool _blockBusy = false;
 
   // #28: badges row cache, keyed by userId so switching profiles refetches once.
   int? _badgesUserId;
@@ -166,7 +169,41 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     } catch (_) {}
   }
 
-  Future<void> _toggleBlock(int userId) async {
+  /// Block/unblock the profile being viewed. This existed but was never wired
+  /// to anything, so there was no way to block a user from inside the app —
+  /// the blacklist screen could only unblock and so stayed empty.
+  Future<void> _toggleBlock(int userId, String name) async {
+    if (_blockBusy) return;
+
+    if (!_targetBlocked) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF1A0E3E),
+            title: const Text('حظر المستخدم', style: TextStyle(color: Colors.white)),
+            content: Text(
+              'لن يتمكن $name من مراسلتك، ولن تتمكن من مراسلته. يمكنك فك الحظر في أي وقت.',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dctx, false),
+                child: const Text('إلغاء', style: TextStyle(color: Colors.white70)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dctx, true),
+                child: const Text('حظر', style: TextStyle(color: Colors.redAccent)),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
+    setState(() => _blockBusy = true);
     try {
       if (_targetBlocked) {
         await UserAccountService.unblock(userId);
@@ -184,6 +221,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           SnackBar(content: Text('تعذّر تنفيذ العملية: $e')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _blockBusy = false);
     }
   }
 
@@ -209,7 +248,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     }
   }
 
-  /// #29: bottom action bar shown on another user's profile — room / message / follow.
+  /// #29: bottom action bar shown on another user's profile — room / message /
+  /// follow / block.
   Widget _buildOtherUserActionBar(User user) {
     final following = _followStatus == 'following' || _followStatus == 'pending';
     Widget btn(IconData icon, String label, Color color, VoidCallback onTap) {
@@ -240,14 +280,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     return Row(
       children: [
         btn(Icons.meeting_room, 'غرفة', const Color(0xFF9C6BFF), () {
-          if (user.liveRoomId != null) {
+          // Own room first: this button means "their room", so it must not drop
+          // us into whatever room they happen to be visiting as a guest, and it
+          // must still work while they're offline. liveRoomId is only a fallback
+          // for users who own no room but are currently in one.
+          final targetRoomId = user.ownedRoomId ?? user.liveRoomId;
+          if (targetRoomId != null) {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => RoomScreen(roomId: user.liveRoomId!)),
+              MaterialPageRoute(builder: (_) => RoomScreen(roomId: targetRoomId)),
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('لم يتم فتح الغرفة حتى الآن')),
+              const SnackBar(content: Text('لا توجد غرفة لهذا المستخدم')),
             );
           }
         }),
@@ -268,6 +313,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           following ? 'متابَع' : 'متابعة',
           const Color(0xFFFFB74D),
           () => _toggleFollow(user.id),
+        ),
+        btn(
+          _targetBlocked ? Icons.lock_open : Icons.block,
+          _targetBlocked ? 'فك الحظر' : 'حظر',
+          const Color(0xFFFF6B6B),
+          () => _toggleBlock(user.id, user.name),
         ),
       ],
     );
@@ -306,7 +357,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       final data = (resp.data is Map) ? resp.data['data'] : null;
-      if (mounted && data is Map && data['hasTarget'] == true) {
+      // The card shows for every user now — with an agency goal when one is
+      // set, and as a plain gift-earnings total when there isn't one.
+      if (mounted && data is Map) {
         setState(() => _myTarget = Map<String, dynamic>.from(data));
       }
     } catch (_) {
@@ -468,11 +521,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         await _service.deactivateFrame(token!);
         setState(() => activeFrame = null);
       } else if (item.type == "seat_effect") {
-        await _service.deactivateAll(token!);
+        await _service.deactivateItem(token!, item.id);
         await SocketService().waitUntilConnected();
         SocketService().sendSeatEffect({"video": ""});
       } else {
-        await _service.deactivateAll(token!);
+        // Only this item — deactivateAll used to strip the vehicle and frame
+        // too, so taking off an entrance banner unequipped everything.
+        await _service.deactivateItem(token!, item.id);
       }
       await loadInventory(force: true);
     } catch (e) {
@@ -610,12 +665,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildTab("مركبة", "seat_effect"),
-              _buildTab("إطارات", "avatar_frame"),
-            ],
+          // Entrance banners, bubbles and badges had no tab here, so a user
+          // could buy one and never equip it — which is why the entrance
+          // banner never appeared in rooms. Scrolls because five tabs no
+          // longer fit across the card.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildTab("مركبة", "seat_effect"),
+                _buildTab("مداخل", "entrance"),
+                _buildTab("فقاعات", "chat_bubble"),
+                _buildTab("إطارات", "avatar_frame"),
+                _buildTab("شارات", "badge"),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           if (loading)
@@ -887,7 +951,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
                     if (user.agencyRole != null) ...[
                       GestureDetector(
-                        onTap: () => Navigator.pushNamed(context, '/agency-panel'),
+                        onTap: () => Navigator.pushNamed(context, '/my-agencies'),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                           decoration: BoxDecoration(
@@ -930,14 +994,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       const SizedBox(height: 10),
                     ],
 
-                    _buildVIPCard(
-                      user.vipLevel ?? 0,
-                      user.xp ?? 0,
-                      context,
-                    ),
-
-                    const SizedBox(height: 10),
-
                     // #26: وكالة / متجر / إعدادات quick-access row (own profile)
                     if (isOwnProfile) ...[
                       _buildQuickAccessRow(),
@@ -966,8 +1022,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   child: GlassBottomBar(
                     homeLabel: "الرئيسية",
                     searchLabel: "الرسائل",
-                    storeLabel: "المتجر",
-                    shippingAgentsLabel: "وكلاء الشحن",
                     gamesLabel: "الألعاب",
                     profileLabel: "حسابي",
                     hasRoom: false,
@@ -980,8 +1034,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       );
                     },
                     onSearch: () => Navigator.pushNamed(context, '/messages'),
-                    onStore: () => Navigator.pushNamed(context, '/store'),
-                    onShippingAgents: () => Navigator.pushNamed(context, '/charging-agent'),
                     onGames: () => Navigator.pushNamed(context, '/games'),
                     onProfile: () {},
                     onCenter: () {},
@@ -997,30 +1049,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   child: _buildOtherUserActionBar(user),
                 ),
 
-              // #2 القائمة السوداء: block/unblock from another user's profile.
-              if (!isOwnProfile)
-                Positioned(
-                  top: 4,
-                  left: 8,
-                  child: PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert, color: Colors.white70),
-                    color: const Color(0xFF2A1A5E),
-                    onSelected: (v) {
-                      if (v == 'block') _toggleBlock(user.id);
-                    },
-                    itemBuilder: (_) => [
-                      PopupMenuItem(
-                        value: 'block',
-                        child: Text(
-                          _targetBlocked ? 'إلغاء الحظر' : 'حظر (القائمة السوداء)',
-                          style: TextStyle(
-                            color: _targetBlocked ? Colors.white : Colors.redAccent,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              // #2 القائمة السوداء now has its own button in the action bar
+              // below, next to متابعة — it was buried in this overflow menu,
+              // which is why blocking looked like it didn't exist.
             ],
           ),
         ),
@@ -1206,37 +1237,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   }
 
   Widget _buildLevelBadge(int level) {
+    // Appearance now comes from LevelBadge, which follows لوحة التحكم and falls
+    // back to the original cyan chip when the tier isn't configured.
     return GestureDetector(
       onTap: () => _showProgressDialog(context, vip: false),
-      child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF00BCD4),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00BCD4).withOpacity(0.5),
-            blurRadius: 10,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.male, color: Colors.white, size: 16),
-          const SizedBox(width: 4),
-          Text(
-            '$level',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    ),
+      child: LevelBadge(level: level),
     );
   }
 
@@ -1305,10 +1310,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          tile(Icons.workspaces, 'وكالة', const Color(0xFFFFD700),
-              () => Navigator.pushNamed(context, '/agency-panel')),
+          tile(Icons.workspaces, 'وكالتي', const Color(0xFFFFD700),
+              () => Navigator.pushNamed(context, '/my-agencies')),
           tile(Icons.storefront, 'متجر', const Color(0xFF4ECDC4),
               () => Navigator.pushNamed(context, '/store')),
+          tile(Icons.local_shipping, 'شحن', const Color(0xFFFF8A3D),
+              () => Navigator.pushNamed(context, '/charging-agent').then((_) => _refreshCoins()),),
           tile(Icons.settings, 'إعدادات', const Color(0xFF9C6BFF),
               () => Navigator.pushNamed(context, '/settings')),
         ],
@@ -1468,11 +1475,114 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   /// Build coins card with integrated recharge button
   // #13: TARGET card — earned gifts vs the goal set by the agent, with a
   // progress bar and the remaining amount so the host knows how much is left.
+  /// Compact target strip: 🎯 Target <goal> ──── $ earned.
+  /// Tapping it opens the full breakdown (gifts, remaining, agency target).
   Widget _buildTargetCard(BuildContext context) {
     final t = _myTarget!;
     final items = (t['items'] as List?) ?? const [];
     final int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
     final double earnedDollars = (t['totalDollars'] as num?)?.toDouble() ?? 0.0;
+    int goal = 0;
+    for (final e in items) {
+      if (e is Map) goal += (e['targetGoalCoins'] as num?)?.toInt() ?? 0;
+    }
+    final double progress =
+        goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+    final String dollars = earnedDollars == earnedDollars.roundToDouble()
+        ? earnedDollars.toStringAsFixed(0)
+        : earnedDollars.toStringAsFixed(2);
+
+    return GestureDetector(
+      onTap: () => _showTargetDetailsSheet(context),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF241A52),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.12)),
+        ),
+        // The strip reads left-to-right in the design, so it keeps its own
+        // direction instead of mirroring with the rest of the Arabic UI.
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Row(
+            children: [
+              const Text('🎯', style: TextStyle(fontSize: 22)),
+              const SizedBox(width: 10),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Target',
+                    style: TextStyle(
+                      color: Color(0xFFFFB74D),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    '$goal',
+                    style: const TextStyle(
+                      color: Color(0xFFFFB74D),
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 9,
+                    backgroundColor: const Color(0xFF14103A),
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(Color(0xFFFFB300)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '\$ $dollars',
+                style: const TextStyle(
+                  color: Color(0xFF2ECC71),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTargetDetailsSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(top: 24, bottom: 32),
+          child: _buildTargetDetails(),
+        ),
+      ),
+    );
+  }
+
+  /// Full target breakdown — used by the sheet behind the compact strip.
+  Widget _buildTargetDetails() {
+    final t = _myTarget!;
+    final items = (t['items'] as List?) ?? const [];
+    final int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
+    final double earnedDollars = (t['totalDollars'] as num?)?.toDouble() ?? 0.0;
+    final int totalGifts = (t['totalGifts'] as num?)?.toInt() ?? 0;
     // Sum goals/remaining across memberships (usually just one).
     int goal = 0;
     int remaining = 0;
@@ -1572,7 +1682,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           ] else ...[
             const SizedBox(height: 8),
             Text(
-              'إجمالي الهدايا المستلمة منذ انضمامك',
+              'إجمالي الكوينزات من الهدايا المستلمة',
               textAlign: TextAlign.right,
               style: TextStyle(
                 color: Colors.white.withOpacity(0.6),
@@ -1580,129 +1690,250 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               ),
             ),
           ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.card_giftcard, color: Color(0xFFFFD700), size: 16),
+              const SizedBox(width: 6),
+              Text(
+                'عدد الهدايا: $totalGifts',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.85),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          // Agents carry their own target on top of the personal one: the goal
+          // is set on the agency by the platform admin and progresses with the
+          // whole agency's production, not just the agent's own gifts. An agent
+          // who owns both a HOSTING and a CHARGING agency has one target each,
+          // so every owned agency gets its own block — showing just one would
+          // contradict what وكالة/agency panel reports for the other.
+          for (final a in _agentTargets()) ...[
+            const SizedBox(height: 14),
+            Divider(color: Colors.white.withOpacity(0.15), height: 1),
+            const SizedBox(height: 12),
+            _buildAgentTargetSection(a),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildCoinsCard(int coinsBalance, BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      height: 100,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFFFFF8E1),
-            Color(0xFFFFE0B2),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.orange.withOpacity(0.3),
-            blurRadius: 15,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            left: 20,
-            top: 0,
-            bottom: 0,
-            child: Row(
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade700,
-                    shape: BoxShape.circle,
+  /// Every agency the user owns, each with its own agent target. Falls back to
+  /// the single `agentTarget` field so an older server still renders the block.
+  List<Map<String, dynamic>> _agentTargets() {
+    final list = _myTarget?['agentTargets'];
+    if (list is List) {
+      return list
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    final single = _myTarget?['agentTarget'];
+    if (single is Map) return [Map<String, dynamic>.from(single)];
+    return const [];
+  }
+
+  /// The وكيل's agency-wide target block inside the التارجت card.
+  Widget _buildAgentTargetSection(Map<String, dynamic> a) {
+    final int goal = (a['goalCoins'] as num?)?.toInt() ?? 0;
+    final int earned = (a['earnedCoins'] as num?)?.toInt() ?? 0;
+    final int remaining = (a['remainingCoins'] as num?)?.toInt() ?? 0;
+    final String agencyName = (a['agencyName'] ?? '').toString();
+    // With two blocks on screen (hosting + charging) the name alone isn't
+    // enough to tell them apart, so the type rides along in the subtitle.
+    final String agencyType = (a['agencyType'] ?? '').toString().toUpperCase();
+    final String typeLabel = agencyType == 'HOSTING'
+        ? 'وكالة استضافة'
+        : agencyType == 'CHARGING'
+            ? 'وكالة شحن'
+            : '';
+    final String subtitle =
+        [agencyName, typeLabel].where((s) => s.isNotEmpty).join(' • ');
+    final double progress =
+        goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.workspace_premium, color: Color(0xFFFFD700), size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'تارجت الوكيل',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.monetization_on,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                  if (subtitle.isNotEmpty)
                     Text(
-                      '$coinsBalance',
-                      style: const TextStyle(
-                        color: Color(0xFF5D4037),
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.6),
+                        fontSize: 12,
                       ),
                     ),
-                    Text(
-                      'Coins',
-                      style: TextStyle(
-                        color: const Color(0xFF5D4037).withOpacity(0.7),
-                        fontSize: 16,
+                ],
+              ),
+            ),
+            Text(
+              goal > 0 ? '$earned / $goal' : '$earned',
+              style: const TextStyle(
+                color: Color(0xFFFFD700),
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (goal > 0) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 10,
+              backgroundColor: Colors.white.withOpacity(0.12),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD700)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            remaining > 0
+                ? 'متبقٍ $remaining كوينز لإغلاق تارجت الوكالة'
+                : 'اكتمل تارجت الوكالة 🎉',
+            textAlign: TextAlign.right,
+            style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
+          ),
+        ] else
+          Text(
+            'إجمالي إنتاج الوكالة — لم يحدد الأدمن تارجت بعد',
+            textAlign: TextAlign.right,
+            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+          ),
+      ],
+    );
+  }
+
+  /// Gold coins card — the whole card opens وكالة الشحن (the recharge button
+  /// that used to sit on the right is gone).
+  Widget _buildCoinsCard(int coinsBalance, BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(context, '/charging-agent').then((_) => _refreshCoins());
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 20),
+        height: 112,
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A1606),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFFFC24D), width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFF8A00).withOpacity(0.45),
+              blurRadius: 22,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(21),
+          // Coin on the left, balance on the right — fixed direction so the
+          // card does not mirror with the surrounding RTL layout.
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Stack(
+              children: [
+                // Golden sunburst radiating from behind the coin.
+                const Positioned.fill(
+                  child: CustomPaint(painter: _CoinBurstPainter()),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Two-tone coin: darker rim around a lighter face.
+                    Container(
+                      width: 70,
+                      height: 70,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFFF7B733), Color(0xFFC77800)],
+                        ),
+                        boxShadow: [
+                          BoxShadow(color: Color(0x99FFC107), blurRadius: 14),
+                        ],
                       ),
+                      child: Center(
+                        child: Container(
+                          width: 55,
+                          height: 55,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFFFE9A8), Color(0xFFFFB300)],
+                            ),
+                          ),
+                          child: const Icon(Icons.star, color: Colors.white, size: 32),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 18),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$coinsBalance',
+                          style: const TextStyle(
+                            color: Color(0xFFFFF8E1),
+                            fontSize: 38,
+                            fontWeight: FontWeight.bold,
+                            height: 1.05,
+                            shadows: [
+                              Shadow(color: Color(0xAA6B3B00), blurRadius: 8),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          'Coins',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.75),
+                            fontSize: 17,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ],
             ),
           ),
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: GestureDetector(
-              onTap: () {
-                Navigator.pushNamed(context, '/charging-agent').then((_) => _refreshCoins());
-              },
-              child: Container(
-                width: 140,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.orange.shade700,
-                      Colors.deepOrange.shade700,
-                    ],
-                  ),
-                  borderRadius: const BorderRadius.only(
-                    topRight: Radius.circular(20),
-                    bottomRight: Radius.circular(20),
-                    topLeft: Radius.circular(40),
-                    bottomLeft: Radius.circular(40),
-                  ),
-                ),
-                child: const Center(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.card_giftcard, color: Colors.white, size: 24),
-                      SizedBox(width: 8),
-                      Text(
-                        'First\nRecharge',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          height: 1.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  /// Build VIP card with XP progress bar
+  /// Build VIP card with XP progress bar. Removed from the profile layout on the
+  /// owner's request; kept here in case the section comes back.
+  // ignore: unused_element
   Widget _buildVIPCard(int vipLevel, int currentXp, BuildContext context) {
     const int xpPerLevel = 1000;
     final double progress = (currentXp % xpPerLevel) / xpPerLevel;
@@ -1811,6 +2042,71 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       ),
     );
   }
+}
+
+/// Sunburst backdrop for the coins card: a warm glow with light rays fanning
+/// out from behind the coin, darkening towards the corners.
+class _CoinBurstPainter extends CustomPainter {
+  const _CoinBurstPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final focal = Offset(size.width * 0.16, size.height * 0.5);
+    final reach = size.width * 1.25;
+
+    // Warm pool of light behind the coin.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(
+            (focal.dx / size.width) * 2 - 1,
+            (focal.dy / size.height) * 2 - 1,
+          ),
+          radius: 0.95,
+          colors: const [
+            Color(0xFFD9963A),
+            Color(0xFF8A5216),
+            Color(0xFF2A1606),
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(rect),
+    );
+
+    // Light rays.
+    const rayCount = 26;
+    final rayPaint = Paint()..color = const Color(0x2EFFE0A3);
+    for (var i = 0; i < rayCount; i++) {
+      final start = i * 2 * math.pi / rayCount;
+      final end = start + (math.pi / rayCount) * 0.85;
+      final path = Path()
+        ..moveTo(focal.dx, focal.dy)
+        ..lineTo(focal.dx + reach * math.cos(start), focal.dy + reach * math.sin(start))
+        ..lineTo(focal.dx + reach * math.cos(end), focal.dy + reach * math.sin(end))
+        ..close();
+      canvas.drawPath(path, rayPaint);
+    }
+
+    // Vignette so the rays fade into the dark corners.
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.35, 0),
+          radius: 1.15,
+          colors: [
+            const Color(0xFF2A1606).withOpacity(0.0),
+            const Color(0xFF2A1606).withOpacity(0.55),
+            const Color(0xFF1A0D02).withOpacity(0.9),
+          ],
+          stops: const [0.35, 0.75, 1.0],
+        ).createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CoinBurstPainter oldDelegate) => false;
 }
 
 /// Full-screen viewer for any user's photo — pinch to zoom.

@@ -12,6 +12,7 @@ import '../services/dio_client.dart';
 import 'room_screen.dart';
 import 'profile_screen.dart';
 import 'create_room_dialog.dart';
+import '../widgets/user_trail.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -513,8 +514,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                 child: _GlassBottomBar(
                   homeLabel: strings.home,
                   searchLabel: strings.messages, // ✅ label becomes Messages (or put "الرسائل")
-                  storeLabel: "المتجر",
-                  shippingAgentsLabel: "وكلاء الشحن",
                   gamesLabel: "الألعاب",
                   profileLabel: strings.profile,
 
@@ -522,8 +521,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                   roomImageUrl: userRoom?.coverImageUrl,
                   onHome: () {},
                   onSearch: () => Navigator.pushNamed(context, '/messages'), // ✅ go MessagesScreen
-                  onStore: () => Navigator.pushNamed(context, '/store'),
-                  onShippingAgents: () => Navigator.pushNamed(context, '/charging-agent'),
                   onGames: () => Navigator.pushNamed(context, '/games'),
                   onProfile: () => Navigator.pushNamed(context, '/profile'),
                   onCenter: () {
@@ -607,17 +604,23 @@ class SearchResultTile extends StatelessWidget {
             );
           }
         },
-        leading: CircleAvatar(
-          backgroundColor: Colors.white24,
-          backgroundImage: (result.imageUrl != null && result.imageUrl!.isNotEmpty)
-              ? NetworkImage(result.imageUrl!)
-              : null,
-          child: (result.imageUrl == null || result.imageUrl!.isEmpty)
-              ? Icon(
-                  result.type == 'room' ? Icons.meeting_room : Icons.person,
-                  color: Colors.white,
-                )
-              : null,
+        leading: TappableAvatar(
+          userId: result.type == 'room' ? 0 : result.id,
+          // Rooms are not people — no profile, no مسار.
+          showTrail: result.type != 'room',
+          trailSize: 18,
+          child: CircleAvatar(
+            backgroundColor: Colors.white24,
+            backgroundImage: (result.imageUrl != null && result.imageUrl!.isNotEmpty)
+                ? NetworkImage(result.imageUrl!)
+                : null,
+            child: (result.imageUrl == null || result.imageUrl!.isEmpty)
+                ? Icon(
+                    result.type == 'room' ? Icons.meeting_room : Icons.person,
+                    color: Colors.white,
+                  )
+                : null,
+          ),
         ),
         title: Text(
           result.name,
@@ -1319,14 +1322,10 @@ class _GlassBottomBar extends StatelessWidget {
   const _GlassBottomBar({
     required this.homeLabel,
     required this.searchLabel,
-    required this.storeLabel,
-    required this.shippingAgentsLabel,
     required this.gamesLabel,
     required this.profileLabel,
     required this.onHome,
     required this.onSearch,
-    required this.onStore,
-    required this.onShippingAgents,
     required this.onGames,
     required this.onProfile,
     required this.onCenter,
@@ -1337,15 +1336,11 @@ class _GlassBottomBar extends StatelessWidget {
 
   final String homeLabel;
   final String searchLabel;
-  final String storeLabel;
-  final String shippingAgentsLabel;
   final String gamesLabel;
   final String profileLabel;
   final bool hasRoom;
   final VoidCallback onHome;
   final VoidCallback onSearch;
-  final VoidCallback onStore;
-  final VoidCallback onShippingAgents;
   final VoidCallback onGames;
   final VoidCallback onProfile;
   final VoidCallback onCenter;
@@ -1403,25 +1398,7 @@ class _GlassBottomBar extends StatelessWidget {
                     ),
                   ),
 
-                  Expanded(
-                    child: _BarItem(
-                      icon: Icons.storefront_rounded,
-                      label: storeLabel,
-                      onTap: onStore, // ✅
-                      compact: true,
-                    ),
-                  ),
-
                   const SizedBox(width: 74),
-
-                  Expanded(
-                    child: _BarItem(
-                      icon: Icons.local_shipping_rounded,
-                      label: shippingAgentsLabel,
-                      onTap: onShippingAgents, // ✅ ChargingAgentScreen
-                      compact: true,
-                    ),
-                  ),
 
                   Expanded(
                     child: _BarItem(

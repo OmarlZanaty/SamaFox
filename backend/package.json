@@ -12,7 +12,10 @@
     "prisma:studio": "prisma studio",
     "seed": "ts-node prisma/seed.ts",
     "seed:gifts": "ts-node prisma/seed-gifts.ts",
-    "seed:achievements": "ts-node prisma/seed-achievements.ts"
+    "seed:achievements": "ts-node prisma/seed-achievements.ts",
+    "fix:gift-video-format": "ts-node prisma/fix-gift-video-format.ts",
+    "fix:gift-videos": "ts-node prisma/fix-existing-gift-videos.ts",
+    "audit:lost-host-coins": "ts-node prisma/audit-lost-host-coins.ts"
   },
   "keywords": [
     "voice-chat",

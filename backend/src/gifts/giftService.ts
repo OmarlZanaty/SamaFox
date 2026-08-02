@@ -2,7 +2,7 @@ import prisma from '../utils/prisma';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
 import { getCpConfig } from '../controllers/settings.controller';
-import { awardUserXP } from '../services/xp.service';
+import { awardUserXP, notifyLevelUp } from '../services/xp.service';
 import { checkAchievements } from '../controllers/achievement.controller';
 
 export interface SendGiftInput {
@@ -98,10 +98,14 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         throw new GiftSendError('INSUFFICIENT_COINS', 'Insufficient balance', 402);
       }
 
+      const isSelfGift = input.recipientId === input.senderId;
+
       // Account power (CP): only gifts flagged cpEligible strengthen the sender's
       // account. Rate is admin-configurable (cp_per_coin, default 1). No client
       // spec yet — professional default. See settings.controller CP_DEFAULTS.
-      if (gift.cpEligible) {
+      // Self-gifts are excluded: gifting yourself is not a display of support,
+      // and letting it build CP let agents buy standing at half price.
+      if (gift.cpEligible && !isSelfGift) {
         const cpGained = totalCoins * cpPerCoin;
         if (cpGained > 0) {
           await tx.user.update({
@@ -114,18 +118,30 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       // ---- Recipient crediting rules (client spec, 2026-07) --------------
       //   • registered hosting-agency member -> 0 coins to balance; the full
       //     value is "earnings"/target, tracked via GiftTransaction below.
+      //     This now holds for SELF-gifts too (2026-08): the old `!isSelfGift`
+      //     escape hatch let a وكيل gift himself and take 50% straight to
+      //     balance, bypassing التارجت entirely — the "بيرجع النص" complaint.
       //   • everyone else (not in a hosting agency) -> half the coins land in
-      //     their spendable balance, the other half is burned.
-      //   • self-gift -> same 50% rule applies to the sender: still a net
-      //     50% loss each time (not a duplication exploit), just a way to
-      //     partially cash out coins into "confirmed" spendable balance.
-      const isSelfGift = input.recipientId === input.senderId;
+      //     their spendable balance, the other half is burned. Self-gifts by
+      //     ordinary users keep this 50% rule, unchanged.
       let recipientCredit = 0;
+      // MUST match the membership that `getMyTarget` / `convertTarget` accept,
+      // which both require an APPROVED agency. Without the status filter a
+      // pending or rejected membership still zeroed the recipient's credit
+      // while their target stayed invisible and unconvertible — the coins
+      // reached neither the host nor the owner and were simply lost.
+      // `orderBy` makes the choice deterministic for someone who somehow
+      // belongs to more than one hosting agency, so the commission always
+      // goes to the same (oldest) one instead of an arbitrary row.
       const hostMembership = await tx.agencyMember.findFirst({
-        where: { userId: input.recipientId, agency: { type: 'HOSTING' } },
+        where: {
+          userId: input.recipientId,
+          agency: { type: 'HOSTING', status: 'approved' },
+        },
+        orderBy: { joinedAt: 'asc' },
         select: { id: true, agencyId: true, role: true },
       });
-      recipientCredit = hostMembership && !isSelfGift ? 0 : Math.floor(totalCoins / 2);
+      recipientCredit = hostMembership ? 0 : Math.floor(totalCoins / 2);
 
       // #4: agency owner's 20% commission on a host's gift earnings. Only
       // fires on the exact event that constitutes a host "earning" here —
@@ -178,10 +194,22 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       // "in-app support" never moved a user's level as the client reported.
       // The recipient's level now grows with the coin value of gifts they
       // receive. Rate is a default (no client spec given) — tune via env.
+      // Self-gifts excluded for the same reason as CP above — otherwise a user
+      // levels themselves up by cycling coins through their own account.
       const XP_PER_COIN = Number(process.env.GIFT_XP_PER_COIN ?? 0.01);
       const xpGained = Math.floor(totalCoins * XP_PER_COIN);
-      if (xpGained > 0) {
-        await awardUserXP(input.recipientId, xpGained, tx);
+      let levelUp: { level: number; grantedItemCount: number } | null = null;
+      if (xpGained > 0 && !isSelfGift) {
+        const xpResult: any = await awardUserXP(input.recipientId, xpGained, tx);
+        // The LevelConfig items are granted inside awardUserXP (atomically with
+        // the level change); the notification waits until this transaction
+        // commits, so a rollback can't announce a level-up that never happened.
+        if (xpResult?.leveledUp) {
+          levelUp = {
+            level: xpResult.level,
+            grantedItemCount: (xpResult.grantedItemIds ?? []).length,
+          };
+        }
       }
 
       const txRow = await tx.giftTransaction.create({
@@ -217,10 +245,20 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         recipientCredit,
         broadcast,
         commission,
+        levelUp,
       };
     },
     { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
   );
+
+  // Level-up notice, once the XP/level/item grants are safely committed.
+  if (result.levelUp) {
+    await notifyLevelUp(
+      input.recipientId,
+      result.levelUp.level,
+      result.levelUp.grantedItemCount,
+    );
+  }
 
   // Notify the recipient (best-effort; never blocks the gift). Skip self-gifts.
   if (input.recipientId !== input.senderId) {

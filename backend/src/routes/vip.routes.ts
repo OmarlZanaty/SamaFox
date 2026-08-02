@@ -1,17 +1,10 @@
 import { Router } from 'express';
 import prisma from '../utils/prisma';
 import { vipThreshold, getVipThresholdOverrides, vipThresholdWithOverrides } from '../services/vip.service';
+import { getLevelThresholdOverrides, levelThresholdWithOverrides } from '../services/xp.service';
 import { authMiddleware } from '../middlewares/auth.middleware';
 
 const router = Router();
-
-// Level progression: each level needs level*1000 xp more than the last (simple, tunable).
-function levelXpThreshold(level: number): number {
-  // cumulative xp required to REACH `level`
-  let total = 0;
-  for (let l = 1; l < level; l++) total += l * 1000;
-  return total;
-}
 
 // GET /vip/progress — for the tappable level / VIP rows on the profile (#23, #24).
 // Returns how far the user is from the next level and the next VIP tier.
@@ -25,7 +18,11 @@ router.get('/progress', authMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
     const nextLevel = user.level + 1;
-    const nextLevelXp = levelXpThreshold(nextLevel);
+    // LV reads the SAME source as the promotion itself (LevelConfig via
+    // xp.service), so the dialog can't promise a target that differs from the
+    // rule that actually levels the user up — matching how VIP already works.
+    const levelOverrides = await getLevelThresholdOverrides();
+    const nextLevelXp = levelThresholdWithOverrides(nextLevel, levelOverrides);
     const nextVip = user.vipLevel + 1;
     const overrides = await getVipThresholdOverrides();
     const nextVipThreshold = vipThresholdWithOverrides(nextVip, overrides);

@@ -18,6 +18,7 @@ class User {
   final String? birthday;
   final int? age;
   final int? liveRoomId; // #31: room this user is ACTUALLY in right now, guest or host (null if none)
+  final int? ownedRoomId; // room this user OWNS — what the غرفة button opens, online or not
   final String? bio;
   final String? avatarFrameUrl;
   @JsonKey(defaultValue: 1)
@@ -78,6 +79,7 @@ class User {
     this.birthday,
     this.age,
     this.liveRoomId,
+    this.ownedRoomId,
     this.bio,
     this.level,
     this.xp,
@@ -116,6 +118,7 @@ class User {
       birthday: source['birthday']?.toString(),
       age: source['age'] is int ? source['age'] as int : int.tryParse(source['age']?.toString() ?? ''),
       liveRoomId: source['liveRoomId'] is int ? source['liveRoomId'] as int : int.tryParse(source['liveRoomId']?.toString() ?? ''),
+      ownedRoomId: source['ownedRoomId'] is int ? source['ownedRoomId'] as int : int.tryParse(source['ownedRoomId']?.toString() ?? ''),
       bio: source['bio']?.toString(),
       level: asInt(source['level'], fallback: 1),
       xp: asInt(source['xp']),
@@ -172,6 +175,7 @@ class User {
     String? birthday,
     int? age,
     int? liveRoomId,
+    int? ownedRoomId,
     String? bio,
     int? level,
     int? xp,
@@ -204,6 +208,7 @@ class User {
       birthday: birthday ?? this.birthday,
       age: age ?? this.age,
       liveRoomId: liveRoomId ?? this.liveRoomId,
+      ownedRoomId: ownedRoomId ?? this.ownedRoomId,
       bio: bio ?? this.bio,
       level: level ?? this.level,
       xp: xp ?? this.xp,

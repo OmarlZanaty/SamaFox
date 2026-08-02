@@ -39,6 +39,7 @@ const sectionTitles = {
   advanced:  "ميزات الأدمن",
   store:     "إدارة المتجر",
   vip:       "مستويات VIP",
+  levels:    "مستويات LV",
   admins:    "المشرفون",
   settings:  "الإعدادات",
 };
@@ -56,6 +57,7 @@ function navigate(sec) {
   sections.forEach(s => s.classList.toggle("active", s.id === `section-${sec}`));
   pageTitle.textContent = sectionTitles[sec] || sec;
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "levels") loadLvLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} }
 }
@@ -654,7 +656,10 @@ async function loadAgencies() {
     tr.innerHTML = `
       <td><span class="cell-id">${a.id ?? ""}</span></td>
       <td>${userName} <span class="cell-muted">#${a.user?.displayId ?? a.userId ?? ""}</span></td>
-      <td>${escapeHtml(a.agencyName ?? "")} ${a.nameLocked ? "📌" : ""}</td>
+      <td>
+        ${escapeHtml(a.agencyName ?? "")} ${a.nameLocked ? "📌" : ""}
+        ${a.type === "HOSTING" ? "" : `<div class="cell-muted">رصيد المحفظة: ${Number(a.balanceCoins ?? 0).toLocaleString("en-US")}</div>`}
+      </td>
       <td><span class="cell-muted">${a.type === "HOSTING" ? "استضافة" : "شحن"}</span></td>
       <td><span class="cell-muted">${escapeHtml(a.phoneNumber ?? "")}</span></td>
       <td>${statusBadge(a.status ?? "pending")}</td>
@@ -667,13 +672,70 @@ async function loadAgencies() {
           <button class="btn-ghost-sm" onclick="setAgencyStatus(${a.id}, 'pending')">مراجعة</button>
           <button class="btn btn-outline" onclick="openEditAgencyModal(${a.id}, '${safeName}', ${!!a.nameLocked})">تعديل</button>
           <button class="btn btn-outline" onclick="showAgencyMembers(${a.id}, '${safeName}')">الأعضاء</button>
+          <button class="btn btn-outline" onclick="setAgencyTarget(${a.id}, '${safeName}', ${Number(a.targetCoins ?? 0)})">التارجت</button>
           ${a.type === "HOSTING" ? "" : `<button class="btn btn-outline" onclick="showAgencyCharges(${a.id}, '${safeName}')">الشحنات</button>`}
+          ${a.type === "HOSTING" ? "" : `<button class="btn btn-primary" onclick="topupAgencyBalance(${a.id}, '${safeName}', ${Number(a.balanceCoins ?? 0)})">شحن رصيد</button>`}
         </div>
       </td>
     `;
     tbody.appendChild(tr);
   }
 }
+
+// شحن رصيد الوكالة: credits the charging agency's WALLET — the pot it sends
+// coins to users from. Distinct from التارجت (a goal) and from approving a
+// topup request (the agent asking for it). Adds to the balance, never replaces
+// it, so entering 500000 twice leaves 1,000,000.
+window.topupAgencyBalance = async function (id, name, current) {
+  const currentText = Number(current ?? 0).toLocaleString("en-US");
+  const input = prompt(
+    `شحن رصيد وكالة ${name}\nالرصيد الحالي: ${currentText} كوينز\n\nأدخل المبلغ المراد إضافته:`,
+    ""
+  );
+  if (input === null) return;
+
+  const amount = Number(String(input).trim());
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return showToast("❗ أدخل مبلغاً أكبر من صفر");
+  }
+  if (!confirm(`إضافة ${amount.toLocaleString("en-US")} كوينز إلى محفظة وكالة ${name}؟`)) return;
+
+  try {
+    const d = await apiFetch(`/admin-dashboard/agencies/${id}/topup`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount }),
+    });
+    const balance = Number(d?.data?.balanceCoins ?? 0).toLocaleString("en-US");
+    showToast(`✓ تم الشحن — الرصيد الجديد: ${balance} كوينز`);
+    await loadAgencies();
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+// تارجت الوكيل: the goal an AGENT is held to, set here by the platform admin.
+// Progress against it is the agency's whole production (all its hosts' gift
+// earnings combined) and is computed live by the API — this only sets the bar.
+window.setAgencyTarget = async function (id, name, current) {
+  const input = prompt(`تارجت وكالة ${name} (كوينز)\n0 = بدون تارجت`, String(current ?? 0));
+  if (input === null) return;
+  const targetCoins = Number(String(input).trim());
+  if (!Number.isFinite(targetCoins) || targetCoins < 0) {
+    return showToast("❗ أدخل رقماً صحيحاً (0 أو أكثر)");
+  }
+  try {
+    await apiFetch(`/admin-dashboard/agencies/${id}/target`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetCoins }),
+    });
+    showToast("✓ تم تحديد التارجت");
+    await loadAgencies();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to set target"));
+  }
+};
 
 // Direct assign (#21): admin enters a user ID, picks HOSTING/CHARGING, no
 // request/approval step. Separate from the self-service request flow above.
@@ -1193,6 +1255,17 @@ window.uploadGiftVideo = async function () {
   if (!videoUrl) throw new Error("لم يتم إرجاع رابط الفيديو");
 
   document.getElementById("gift_animationUrl").value = videoUrl;
+  // The server probes the clip; store its real length so the app plays the whole
+  // video instead of cutting it at the 3 ثانية default.
+  if (d?.durationMs) document.getElementById("gift_animationMs").value = String(d.durationMs);
+  document.getElementById("gift_videoHasAlpha").value = d?.hasAlpha ? "1" : "0";
+
+  const info = document.getElementById("giftVideoInfo");
+  if (info) {
+    const secs = d?.durationMs ? (d.durationMs / 1000).toFixed(1) : "?";
+    info.textContent = `🎬 فيديو: ${secs} ث · ${d?.resolution || ""}${d?.hasAlpha ? " · خلفية شفافة" : ""}`;
+    info.style.display = "block";
+  }
   showToast("✓ تم رفع فيديو الهدية");
 };
 
@@ -1214,6 +1287,17 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_nameAr').value = gift.nameAr || gift.name || '';
     document.getElementById('gift_imageUrl').value = gift.iconUrl || '';
     document.getElementById('gift_animationUrl').value = gift.animationUrl || '';
+    document.getElementById('gift_animationMs').value = gift.animationMs ?? '';
+    document.getElementById('gift_videoHasAlpha').value = gift.videoHasAlpha ? '1' : '0';
+    const info = document.getElementById('giftVideoInfo');
+    if (info) {
+      if (gift.animationUrl) {
+        info.textContent = `🎬 فيديو مرفوع · ${((gift.animationMs ?? 3000) / 1000).toFixed(1)} ث`;
+        info.style.display = 'block';
+      } else {
+        info.style.display = 'none';
+      }
+    }
     document.getElementById('gift_coinsValue').value = gift.coinCost ?? 0;
     document.getElementById('gift_sortOrder').value = gift.sortOrder ?? 0;
     document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
@@ -1231,6 +1315,8 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_isActive').checked = true;
     document.getElementById('gift_cpEligible').checked = false;
     document.getElementById("giftImagePreview").style.display = "none";
+    const info = document.getElementById('giftVideoInfo');
+    if (info) info.style.display = 'none';
   }
   document.getElementById("gift_imageFile").value = "";
   document.getElementById("gift_videoFile").value = "";
@@ -1263,6 +1349,11 @@ window.saveGift = async function () {
   };
   // Video gifts play their clip on send; image gifts use the flying-image animation.
   payload.format = payload.animationUrl ? 'VIDEO' : 'SVG_CSS';
+  if (payload.animationUrl) {
+    const ms = Number(document.getElementById('gift_animationMs').value || 0);
+    if (ms > 0) payload.animationMs = ms;
+    payload.videoHasAlpha = document.getElementById('gift_videoHasAlpha').value === '1';
+  }
 
   if (!payload.nameAr || !payload.iconUrl || payload.coinCost <= 0) {
     return showToast('❗ الاسم والصورة والقيمة بالكوينز مطلوبة');
@@ -1895,6 +1986,241 @@ window.saveVipLevel = async function (level) {
       body: JSON.stringify(body),
     });
     showToast(`✓ تم حفظ VIP ${level}`);
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+// ============================================================
+// LV LEVELS (مستويات LV) — the XP counterpart of the VIP tiers.
+// A level with no saved threshold shows the built-in curve value
+// ((level-1)^2 * 100) as a hint; nothing is applied until you press حفظ, so
+// opening this page never changes anyone's level.
+// ============================================================
+const LV_DEFAULT_ROWS = 20;
+const lvRewardSelections = {}; // level -> Set of item ids
+let lvAllProducts = [];
+let lvRewardsEditingLevel = null;
+
+const lvFormulaThreshold = (level) => Math.pow(level - 1, 2) * 100;
+
+window.loadLvLevels = async function () {
+  const tbody = document.querySelector("#lvTable tbody");
+  if (!tbody) return;
+
+  const [levelsRes, productsRes] = await Promise.all([
+    apiFetchAny(["/admin-dashboard/levels", "/admin/levels"]),
+    apiFetchAny(["/admin-products/products", "/store/products"]),
+  ]);
+  const saved = {};
+  for (const c of levelsRes.data || []) saved[c.level] = c;
+  lvAllProducts = productsRes.data || productsRes.products || [];
+
+  const levels = [...new Set([
+    ...Array.from({ length: LV_DEFAULT_ROWS }, (_, i) => i + 1),
+    ...Object.keys(saved).map(Number),
+  ])].sort((a, b) => a - b);
+
+  tbody.innerHTML = "";
+  for (const level of levels) {
+    const c = saved[level] || {};
+    const isConfigured = c.threshold != null;
+    lvRewardSelections[level] = new Set(c.rewardItemIds || []);
+    const badge = normalizeGiftImageUrl(c.badgeUrl);
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>LV ${level}</strong>${isConfigured ? "" : ' <span class="settings-hint">(افتراضي)</span>'}</td>
+      <td><input id="lv_name_${level}" class="form-input" style="max-width:140px" value="${escapeHtml(c.name || "LV " + level)}" /></td>
+      <td><input id="lv_threshold_${level}" type="number" min="0" class="form-input" style="max-width:160px" value="${c.threshold ?? lvFormulaThreshold(level)}" /></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <img id="lv_badge_preview_${level}" src="${badge}" width="40" height="40"
+               style="border-radius:8px;object-fit:contain;${badge ? "" : "display:none;"}" />
+          <input id="lv_badge_url_${level}" type="hidden" value="${escapeHtml(c.badgeUrl || "")}" />
+          <input id="lv_badge_file_${level}" type="file" accept="image/*" style="display:none"
+                 onchange="uploadLvBadge(${level})" />
+          <button class="btn btn-outline" onclick="document.getElementById('lv_badge_file_${level}').click()">رفع الشارة</button>
+        </div>
+      </td>
+      <td><button class="btn btn-outline" id="lv_rewards_btn_${level}" onclick="openLvRewardsModal(${level})">🎁 منتجات (${lvRewardSelections[level].size})</button></td>
+      <td>
+        <button class="btn btn-primary" onclick="saveLvLevel(${level})">حفظ</button>
+        ${isConfigured ? `<button class="btn btn-outline" onclick="backfillLvRewards(${level})" title="منح منتجات هذا المستوى لمن بلغه بالفعل">🎁 بأثر رجعي</button>` : ""}
+        ${isConfigured ? `<button class="btn btn-outline" onclick="deleteLvLevel(${level})">إرجاع للافتراضي</button>` : ""}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+};
+
+window.addLvTier = async function () {
+  try {
+    const level = Number(document.getElementById("newLvLevel").value);
+    const thresholdRaw = document.getElementById("newLvThreshold").value;
+    const threshold = Number(thresholdRaw);
+    if (!level || level < 1 || level > 100) return showToast("❗ رقم المستوى يجب أن يكون 1-100");
+    if (thresholdRaw === "" || !Number.isFinite(threshold) || threshold < 0) {
+      return showToast("❗ أدخل عدد الـ XP المطلوبة");
+    }
+    await apiFetchAny(["/admin-dashboard/levels", "/admin/levels"], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level, name: `LV ${level}`, threshold }),
+    });
+    document.getElementById("newLvLevel").value = "";
+    document.getElementById("newLvThreshold").value = "";
+    showToast(`✓ تم إضافة مستوى LV ${level}`);
+    await loadLvLevels();
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+window.openLvRewardsModal = function (level) {
+  lvRewardsEditingLevel = level;
+  const selected = lvRewardSelections[level] || new Set();
+  document.getElementById("lvRewardsSub").textContent =
+    `LV ${level} — اختر المنتجات التي تُمنح تلقائياً عند بلوغ هذا المستوى`;
+
+  const groups = {};
+  for (const p of lvAllProducts) {
+    const label = VIP_REWARD_TYPE_LABELS[p.type] || p.type;
+    (groups[label] = groups[label] || []).push(p);
+  }
+
+  const listEl = document.getElementById("lvRewardsList");
+  listEl.innerHTML = Object.entries(groups).map(([label, items]) => `
+    <div style="margin-bottom:10px">
+      <div class="form-card-title" style="margin-bottom:4px">${escapeHtml(label)}</div>
+      ${items.map(p => `
+        <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer">
+          <input type="checkbox" class="lv-reward-check" value="${p.id}" ${selected.has(p.id) ? "checked" : ""} />
+          <span>${escapeHtml(p.name)}</span>
+          <span class="cell-muted">${p.price_coins ?? 0} coins${p.is_private ? " · 🔒 خاص" : ""}</span>
+        </label>`).join("")}
+    </div>`).join("") || '<p class="cell-muted">لا توجد منتجات في المتجر — أضف منتجات أولاً</p>';
+
+  document.getElementById("lvRewardsModal").classList.remove("hidden");
+};
+
+window.closeLvRewardsModal = function () {
+  lvRewardsEditingLevel = null;
+  document.getElementById("lvRewardsModal").classList.add("hidden");
+};
+
+window.confirmLvRewards = function () {
+  const level = lvRewardsEditingLevel;
+  if (level == null) return;
+  const checked = [...document.querySelectorAll(".lv-reward-check:checked")].map(el => el.value);
+  lvRewardSelections[level] = new Set(checked);
+  const btn = document.getElementById(`lv_rewards_btn_${level}`);
+  if (btn) btn.textContent = `🎁 منتجات (${checked.length})`;
+  closeLvRewardsModal();
+  showToast(`اختيار LV ${level} جاهز — اضغط حفظ لتثبيته`);
+};
+
+window.uploadLvBadge = async function (level) {
+  try {
+    const file = document.getElementById(`lv_badge_file_${level}`)?.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("image", file);
+    const d = await apiFetch("/upload/image", { method: "POST", body: formData });
+    const url = d?.url || d?.imageUrl;
+    if (!url) throw new Error("لم يتم إرجاع رابط الصورة");
+    document.getElementById(`lv_badge_url_${level}`).value = url;
+    const preview = document.getElementById(`lv_badge_preview_${level}`);
+    preview.src = normalizeGiftImageUrl(url);
+    preview.style.display = "block";
+    showToast(`✓ تم رفع شارة LV ${level} — اضغط حفظ`);
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+window.saveLvLevel = async function (level) {
+  try {
+    const body = {
+      level,
+      name: document.getElementById(`lv_name_${level}`).value.trim() || `LV ${level}`,
+      threshold: Number(document.getElementById(`lv_threshold_${level}`).value || 0),
+      badgeUrl: document.getElementById(`lv_badge_url_${level}`).value || undefined,
+      rewardItemIds: [...(lvRewardSelections[level] || new Set())],
+    };
+    await apiFetchAny(["/admin-dashboard/levels", "/admin/levels"], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    showToast(`✓ تم حفظ LV ${level}`);
+    await loadLvLevels();
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+// Retroactive grant: hands the configured items to users who are already at or
+// above a tier. Safe to press repeatedly — the server skips existing grants and
+// reports only what it actually created.
+window.backfillLvRewards = async function (level) {
+  const scope = level ? `المستوى LV ${level}` : "كل المستويات";
+  if (!confirm(`منح منتجات ${scope} لكل المستخدمين الذين بلغوه بالفعل؟`)) return;
+  try {
+    const d = await apiFetchAny(["/admin-dashboard/levels/backfill", "/admin/levels/backfill"], {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(level ? { level } : {}),
+    });
+    const granted = d?.data?.grantedRows ?? 0;
+    const users = d?.data?.usersAffected ?? 0;
+    const details = d?.data?.details || [];
+    showToast(granted > 0
+      ? `✓ تم منح ${granted} منتج لـ ${users} مستخدم`
+      : "لا يوجد جديد — الجميع لديه هذه المنتجات بالفعل");
+    showLvBackfillDetails(details, granted, users, scope);
+  } catch (e) {
+    showToast("❌ خطأ: " + e.message);
+  }
+};
+
+// Per-tier breakdown of what the backfill did. "مُنح فعلياً" is 0 when everyone
+// eligible already owned the items — that is a success, not a failure.
+window.showLvBackfillDetails = function (details, granted, users, scope) {
+  const tbody = document.querySelector("#lvBackfillTable tbody");
+  if (!tbody) return;
+
+  document.getElementById("lvBackfillSub").textContent =
+    `${scope} — ${granted} منتج مُنح لـ ${users} مستخدم`;
+
+  tbody.innerHTML = details.length
+    ? details.map(r => `
+        <tr>
+          <td><strong>LV ${Number(r.level)}</strong></td>
+          <td>${Number(r.users || 0)}</td>
+          <td>${Number(r.items || 0)}</td>
+          <td>${Number(r.granted || 0) > 0
+            ? `<strong>${Number(r.granted)}</strong>`
+            : '<span class="cell-muted">0 — موجود مسبقاً</span>'}</td>
+        </tr>`).join("")
+    : '<tr><td colspan="4" class="cell-muted">لا توجد مستويات بمنتجات مُهيأة — أضف منتجات لمستوى ثم أعد المحاولة</td></tr>';
+
+  document.getElementById("lvBackfillModal").classList.remove("hidden");
+};
+
+window.closeLvBackfillModal = function () {
+  document.getElementById("lvBackfillModal").classList.add("hidden");
+};
+
+// Removing a tier hands that level back to the built-in curve.
+window.deleteLvLevel = async function (level) {
+  if (!confirm(`إرجاع LV ${level} إلى المعادلة الافتراضية؟`)) return;
+  try {
+    await apiFetchAny([`/admin-dashboard/levels/${level}`, `/admin/levels/${level}`], {
+      method: "DELETE",
+    });
+    showToast(`✓ تم إرجاع LV ${level} للافتراضي`);
+    await loadLvLevels();
   } catch (e) {
     showToast("❌ خطأ: " + e.message);
   }

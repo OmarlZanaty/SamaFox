@@ -139,8 +139,17 @@ class AuthInterceptor extends Interceptor {
       final retryOptions = err.requestOptions;
       retryOptions.headers['Authorization'] = 'Bearer $newAccessToken';
       handler.resolve(await DioClient.dio.fetch(retryOptions));
-    } catch (_) {
+    } catch (e) {
       // Refresh failed — reject all pending and force logout.
+      // A banned account is refused here with 403 BANNED; surface the reason
+      // so the user is told why instead of being dropped at a silent login.
+      if (e is DioException && e.response?.statusCode == 403) {
+        final data = e.response?.data;
+        if (data is Map && (data['code'] ?? '').toString() == 'BANNED') {
+          final msg = (data['message'] ?? '').toString().trim();
+          ErrorInterceptor.onBanned?.call(msg.isEmpty ? 'تم حظر حسابك' : msg);
+        }
+      }
       _rejectAllPending();
       await StorageService.clearTokens();
       SocketService().disconnect();
@@ -166,9 +175,24 @@ class AuthInterceptor extends Interceptor {
 }
 
 class ErrorInterceptor extends Interceptor {
+  /// Called when the API reports the account is banned. Wired to the auth
+  /// notifier at startup; kept as a hook so this file stays free of Riverpod.
+  static void Function(String message)? onBanned;
+
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     String errorMessage = 'An error occurred';
+
+    // A banned account gets 403 + code BANNED from every authenticated
+    // endpoint, including /auth/refresh. End the session rather than let the
+    // app keep retrying against an account that can't come back.
+    if (err.response?.statusCode == 403) {
+      final data = err.response?.data;
+      if (data is Map && (data['code'] ?? '').toString() == 'BANNED') {
+        final msg = (data['message'] ?? '').toString().trim();
+        onBanned?.call(msg.isEmpty ? 'تم حظر حسابك' : msg);
+      }
+    }
 
     switch (err.type) {
       case DioExceptionType.connectionTimeout:

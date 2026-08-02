@@ -3,6 +3,8 @@ import prisma from '../utils/prisma';
 import { intParam } from '../utils/http';
 import { isValidPositiveAmount, MAX_COINS_BALANCE } from '../utils/coins';
 import { evaluateVip } from '../services/vip.service';
+import { invalidateBanCache } from '../utils/banGuard';
+import { kickBannedUser } from '../services/socket.service';
 
 const toBigInt = (v: unknown) => BigInt(v as number | string | bigint);
 
@@ -327,11 +329,14 @@ export const toggleUserBan = async (req: Request, res: Response) => {
         : { isBanned: false, bannedAt: null, banReason: null, banExpiresAt: null, banSource: null },
     });
 
+    // Take effect now rather than up to a cache TTL later — this covers the
+    // unban direction too, so a lifted ban lets them straight back in.
+    invalidateBanCache(userIdNum);
+
     // Kick the user off any live sockets immediately (same as dashboard bans).
     if (isBanned) {
       try {
-        const { io } = await import('../index');
-        io.emit('user_banned', { userId: userIdNum, reason, banExpiresAt });
+        await kickBannedUser(userIdNum, reason, banExpiresAt);
       } catch (e) {
         console.warn('user_banned emit failed:', e);
       }

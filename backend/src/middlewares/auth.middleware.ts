@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { verifyAccessToken } from '../utils/jwt';
+import { getBanState, banMessage } from '../utils/banGuard';
 
 // ✅ Extend Express.Request globally (NO req.user, no conflicts)
 declare global {
@@ -25,22 +26,36 @@ function extractToken(req: Request): string | null {
   return null;
 }
 
-export const authMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+export const authMiddleware: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
+  let payload: { userId: number };
   try {
     const token = extractToken(req);
     if (!token) return res.status(401).json({ success: false, message: 'Missing token' });
 
-    const payload = verifyAccessToken(token);
-
-    req.userId = payload.userId;
-    req.authUser = { id: payload.userId };
-
-    // ✅ add this line for old controllers that expect req.user.id
-    (req as any).user = { id: payload.userId };
-    return next();
+    payload = verifyAccessToken(token);
   } catch {
     return res.status(401).json({ success: false, message: 'Invalid token' });
   }
+
+  // A valid token used to be enough, so banning someone did nothing until
+  // their token expired — and the refresh endpoint kept minting new ones, so
+  // in practice never. Every authenticated request now checks the ban.
+  const ban = await getBanState(payload.userId);
+  if (ban.banned) {
+    return res.status(403).json({
+      success: false,
+      code: 'BANNED',
+      message: banMessage(ban),
+      banExpiresAt: ban.expiresAt,
+    });
+  }
+
+  req.userId = payload.userId;
+  req.authUser = { id: payload.userId };
+
+  // ✅ add this line for old controllers that expect req.user.id
+  (req as any).user = { id: payload.userId };
+  return next();
 };
 
 export const optionalAuth: RequestHandler = (req: Request, _res: Response, next: NextFunction) => {

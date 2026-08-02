@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:samafox/services/dio_client.dart';
 
 import '../models/gift.dart';
@@ -7,6 +9,41 @@ class GiftRepository {
   GiftRepository({Dio? dio}) : _dio = dio ?? DioClient.dio;
 
   final Dio _dio;
+
+  /// Video gift clips already pulled into the cache this session.
+  static final Set<String> _warmedVideos = <String>{};
+
+  /// Downloads every VIDEO gift clip into the shared cache ahead of time.
+  ///
+  /// [VideoGiftPlayer] fetches through the cache manager, so without this the
+  /// FIRST client to see a given gift stalls while it downloads and the clip's
+  /// audio lands seconds after everyone else's. Warming the cache on room entry
+  /// means playback starts from local disk for all of them.
+  ///
+  /// Best-effort and fire-and-forget: failures are swallowed, and each URL is
+  /// only attempted once per session.
+  Future<void> warmVideoCache() async {
+    try {
+      final catalog = await fetchCatalog();
+      final urls = catalog.all
+          .where((g) => g.format == GiftFormat.video)
+          .map((g) => g.animationUrl)
+          .whereType<String>()
+          .where((u) => u.isNotEmpty && !_warmedVideos.contains(u))
+          .toList();
+      for (final url in urls) {
+        _warmedVideos.add(url);
+        try {
+          await DefaultCacheManager().downloadFile(url);
+        } catch (_) {
+          // Missing/unreachable clip — the player falls back to streaming it.
+          _warmedVideos.remove(url);
+        }
+      }
+    } catch (e) {
+      debugPrint('[GiftRepository] video warm-up skipped: $e');
+    }
+  }
 
   Future<GiftCatalog> fetchCatalog() async {
     try {

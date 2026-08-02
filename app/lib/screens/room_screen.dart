@@ -59,6 +59,7 @@ import 'chat_screen.dart';
 import 'games_hub_screen.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/FramedAvatar.dart';
+import '../widgets/user_trail.dart';
 import '../screens/profile_screen.dart'; // adjust path to your project
 
 final isAndroid = !kIsWeb && Platform.isAndroid;
@@ -150,8 +151,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   static const Duration _seatEffectDedupWindow = Duration(seconds: 2);
 
   final AudioPlayer _audioPlayer = AudioPlayer();
-  bool _playedEntrance = false;
-
   bool _showGlow = false;
   Color _glowColor = Colors.purpleAccent;
 
@@ -169,6 +168,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   final FocusNode _topChatFocus = FocusNode();
   StreamSubscription? _seatEffectSub;
+  StreamSubscription? _seatInviteSub;
+  StreamSubscription? _seatInviteResultSub;
+
+  /// Guards against stacking invite dialogs if two invites land together.
+  bool _seatInviteDialogOpen = false;
 
   void _closeChat() {
     if (!_showChatPanel) return;
@@ -852,11 +856,63 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  /// An admin invited me onto a mic. Show "فلان دعاك إلى مايك (رقم N)" with
+  /// قبول / رفض — the server only seats me if I accept.
+  Future<void> _onSeatInvite(Map<String, dynamic> data) async {
+    if (!mounted || _seatInviteDialogOpen) return;
+
+    final rid = data['roomId'];
+    if (rid != null && rid != widget.roomId) return;
+
+    final inviteId = data['inviteId']?.toString();
+    final seatNumber = data['seatNumber'];
+    if (inviteId == null || seatNumber == null) return;
+
+    final fromUsername = (data['fromUsername'] ?? 'مشرف').toString();
+
+    _seatInviteDialogOpen = true;
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1A0E3E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('دعوة إلى المايك',
+              style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+          content: Text(
+            '$fromUsername دعاك إلى مايك (رقم $seatNumber)',
+            style: const TextStyle(color: Colors.white70, fontSize: 15),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dctx, false),
+              child: const Text('رفض', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent),
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('قبول', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+    _seatInviteDialogOpen = false;
+
+    SocketService().respondToSeatInvite(inviteId: inviteId, accept: accepted == true);
+    if (mounted && accepted == true) {
+      _showRoomSnack('تم صعودك إلى المايك $seatNumber');
+    }
+  }
+
   /// #12: pick an audience user (in the room, not on a mic) to invite to [seatNumber].
   void _showInviteToSeatSheet(int seatNumber) {
-    final st = ref.read(roomControllerProvider(widget.roomId));
-    final seatedIds = st.seats.values.map((s) => s.userId).whereType<int>().toSet();
-    final audience = st.onlineUsers.values.where((u) => !seatedIds.contains(u.id)).toList();
+    // Ask for a fresh roster as the sheet opens. The body watches the provider
+    // so a `room_users` answer arriving a moment later still fills the list
+    // while the sheet is on screen.
+    SocketService().requestRoomUsers(widget.roomId);
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A0E3E),
@@ -864,42 +920,54 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       builder: (sctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text('دعوة إلى المقعد $seatNumber',
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-              if (audience.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('لا يوجد أشخاص في الغرفة لدعوتهم', style: TextStyle(color: Colors.white54)),
-                )
-              else
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: audience.map((u) => ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: const Color(0xFF3D2B7A),
-                        child: Text((u.name ?? '?').isNotEmpty ? u.name![0].toUpperCase() : '?',
-                            style: const TextStyle(color: Colors.white)),
-                      ),
-                      title: Text(u.name ?? 'User #${u.id}', style: const TextStyle(color: Colors.white)),
-                      trailing: const Icon(Icons.person_add, color: Colors.pinkAccent),
-                      onTap: () {
-                        Navigator.pop(sctx);
-                        ref.read(roomControllerProvider(widget.roomId).notifier)
-                            .inviteToSeat(seatNumber: seatNumber, targetUserId: u.id);
-                        _showRoomSnack('تمت دعوة ${u.name ?? ''} إلى المقعد $seatNumber');
-                      },
-                    )).toList(),
+          child: Consumer(
+            builder: (ctx, sheetRef, _) {
+              final st = sheetRef.watch(roomControllerProvider(widget.roomId));
+              final seatedIds = st.seats.values.map((s) => s.userId).whereType<int>().toSet();
+              final audience =
+                  st.onlineUsers.values.where((u) => !seatedIds.contains(u.id)).toList();
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Text('دعوة إلى المقعد $seatNumber',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
-                ),
-              const SizedBox(height: 8),
-            ],
+                  if (audience.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text('لا يوجد أشخاص في الغرفة لدعوتهم',
+                          style: TextStyle(color: Colors.white54)),
+                    )
+                  else
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: audience.map((u) => ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(0xFF3D2B7A),
+                            child: Text(u.name.isNotEmpty ? u.name[0].toUpperCase() : '?',
+                                style: const TextStyle(color: Colors.white)),
+                          ),
+                          title: Text(u.name.isNotEmpty ? u.name : 'User #${u.id}',
+                              style: const TextStyle(color: Colors.white)),
+                          trailing: const Icon(Icons.person_add, color: Colors.pinkAccent),
+                          onTap: () {
+                            Navigator.pop(sctx);
+                            ref.read(roomControllerProvider(widget.roomId).notifier)
+                                .inviteToSeat(seatNumber: seatNumber, targetUserId: u.id);
+                            _showRoomSnack(
+                                'تم إرسال دعوة المايك إلى ${u.name} — في انتظار الرد');
+                          },
+                        )).toList(),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -2160,6 +2228,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // Bind the new gift socket; GiftAnimationOverlay handles its own subscriptions.
     _giftSocket.bind();
 
+    // Pull video gift clips into the cache now, so the first person to receive
+    // one doesn't stall on a download while everyone else has already heard it.
+    unawaited(_giftRepository.warmVideoCache());
+
     Future.microtask(() {
       ref.read(roomControllerProvider(widget.roomId).notifier)
           .loadRoomDetails(); // 🔥 ADD THIS
@@ -2256,6 +2328,29 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         controller.setSeatCountLocal(maxSeats);
       }
 
+      // Mic invitation aimed at ME → قبول / رفض prompt.
+      _seatInviteSub = SocketService().seatInviteStream.listen(_onSeatInvite);
+
+      // Outcome of an invitation I sent, so the inviter learns the answer.
+      _seatInviteResultSub = SocketService().seatInviteResultStream.listen((data) {
+        if (!mounted) return;
+        final accepted = data['accepted'] == true;
+        final seat = data['seatNumber'];
+        final name = (data['username'] ?? '').toString();
+        _showRoomSnack(accepted
+            ? '${name.isEmpty ? 'المستخدم' : name} قبل الصعود إلى المايك $seat'
+            : '${name.isEmpty ? 'المستخدم' : name} رفض دعوة المايك $seat');
+      });
+
+      // Subscribe BEFORE joining: the server broadcasts our own entrance effect
+      // as part of join_room, and a listener attached afterwards would miss it.
+      _seatEffectSub = SocketService().seatEffectStream.listen((event) {
+        final videoUrl = event['video'];
+        if (videoUrl == null || videoUrl.toString().isEmpty) return;
+        _seatEffectQueue.add(videoUrl);
+        _tryPlayNextEffect();
+      });
+
       // ✅ open room ONCE
       await controller.openRoom();
 
@@ -2270,17 +2365,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         );
       }
 
-      if (!_playedEntrance &&
-          _activeSeatEffectUrl != null &&
-          _activeSeatEffectUrl!.isNotEmpty) {
-
-        _playedEntrance = true;
-        // Route the entrance effect through the same serialized queue as other
-        // seat effects so it never disposes a video that is mid-play (and vice
-        // versa). Playing it directly here used to clobber an in-flight effect.
-        _seatEffectQueue.add(_activeSeatEffectUrl!);
-        _tryPlayNextEffect();
-      }
+      // NOTE: the entrance effect is no longer played locally here. The server
+      // broadcasts `seat_effect` to the whole room on join, so every client —
+      // including this one — starts it from the same event at the same moment.
 
 
       if (!_roomReady.isCompleted) _roomReady.complete();
@@ -2300,16 +2387,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           ok: _audioService.micHealthy,
         );
       }
-
-      _seatEffectSub = SocketService().seatEffectStream.listen((event) {
-
-        final videoUrl = event['video'];
-
-        _seatEffectQueue.add(videoUrl);
-
-        _tryPlayNextEffect();
-
-      });
 
       _socketErrSub = SocketService().errorStream.listen((msg) {
         if (!mounted) return;
@@ -2413,6 +2490,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _chatFocus.dispose();
     _topChatFocus.dispose();
     _seatEffectSub?.cancel();
+    _seatInviteSub?.cancel();
+    _seatInviteResultSub?.cancel();
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
 
@@ -2963,13 +3042,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             final isOnSeat = seat != null;
 
             return ListTile(
-              leading: CircleAvatar(
-                backgroundImage: user.avatarUrl != null
-                    ? NetworkImage(user.avatarUrl!)
-                    : null,
-                child: user.avatarUrl == null
-                    ? const Icon(Icons.person)
-                    : null,
+              // Everyone here is already in this room, so no مسار badge —
+              // just the shared "tap the picture for the profile" gesture.
+              leading: TappableAvatar(
+                userId: user.id,
+                showTrail: false,
+                child: CircleAvatar(
+                  backgroundImage: user.avatarUrl != null
+                      ? NetworkImage(user.avatarUrl!)
+                      : null,
+                  child: user.avatarUrl == null
+                      ? const Icon(Icons.person)
+                      : null,
+                ),
               ),
               title: Text(user.name, style: const TextStyle(color: Colors.white)),
               subtitle: Text(
@@ -4575,13 +4660,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         return ConstrainedBox(
           constraints: BoxConstraints(maxHeight: maxHeight),
           child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
+          // The fox artwork is the background of the WHOLE sheet now, not just
+          // the header card. BoxFit.cover fills both axes at any sheet height;
+          // the gradient stays underneath so a missing asset degrades to the
+          // old solid look instead of a broken-image box, and the colorFilter
+          // darkens the art enough for the white text on top to stay readable.
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
               colors: [Color(0xFF1E1347), Color(0xFF2B1760), Color(0xFF1A1040)],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
             ),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            image: DecorationImage(
+              image: const AssetImage(_profileCardBackground),
+              fit: BoxFit.cover,
+              onError: (_, __) {},
+              colorFilter: ColorFilter.mode(
+                Colors.black.withOpacity(0.45),
+                BlendMode.darken,
+              ),
+            ),
           ),
           child: SafeArea(
             child: Padding(
@@ -4615,28 +4714,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       Container(
                         width: double.infinity,
                         height: 150,
+                        // The artwork moved to the sheet background above, so
+                        // this is now just a translucent panel — it keeps the
+                        // identity block legible over the fox instead of
+                        // repeating the image inside itself.
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(22),
-                          // Gradient shows through if the asset is missing, so
-                          // the card degrades to a solid look instead of a
-                          // broken-image box.
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF4C1D95), Color(0xFF6D28D9), Color(0xFF3B1173)],
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                          ),
-                          image: DecorationImage(
-                            image: const AssetImage(_profileCardBackground),
-                            fit: BoxFit.cover,
-                            // Anchor left: the artwork puts the fox in its left
-                            // third, and a centred crop cuts the head off.
-                            alignment: Alignment.centerLeft,
-                            onError: (_, __) {},
-                            colorFilter: ColorFilter.mode(
-                              Colors.black.withOpacity(0.15),
-                              BlendMode.darken,
-                            ),
-                          ),
+                          color: Colors.black.withOpacity(0.32),
+                          border: Border.all(color: Colors.white.withOpacity(0.12)),
                         ),
                         child: Padding(
                           // Right padding leaves room for the overlapping avatar.
@@ -4717,20 +4802,48 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                           const Color(0xFF3B82F6),
                                           profile?.gender == 'female' ? Icons.female : Icons.male,
                                         ),
-                                      _badgePill('${seat.level}', const Color(0xFF10B981), Icons.terrain),
+                                      _badgePill('LV ${seat.level}', const Color(0xFF10B981), Icons.terrain),
                                       if (seat.vipLevel > 0) VipBadge(level: seat.vipLevel),
                                       _badgePill(
-                                        '#${seat.displayId ?? seat.userId ?? ''}',
+                                        'ID ${seat.displayId ?? seat.userId ?? ''}',
                                         const Color(0xFFF59E0B),
                                         Icons.badge_outlined,
                                       ),
+                                      // وكيل / مضيف with the agency name stacked
+                                      // underneath it, as its own column so the
+                                      // name tracks this chip rather than the
+                                      // whole row.
                                       if (profile?.agencyRole != null)
-                                        _badgePill(
-                                          profile!.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
-                                          profile.agencyRole == 'agent'
-                                              ? const Color(0xFFF59E0B)
-                                              : const Color(0xFF14B8A6),
-                                          Icons.workspace_premium,
+                                        Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          children: [
+                                            _badgePill(
+                                              profile!.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                                              profile.agencyRole == 'agent'
+                                                  ? const Color(0xFFF59E0B)
+                                                  : const Color(0xFF14B8A6),
+                                              Icons.workspace_premium,
+                                            ),
+                                            if (profile.agencyName != null &&
+                                                profile.agencyName!.isNotEmpty)
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 2),
+                                                child: Text(
+                                                  profile.agencyName!,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    shadows: [
+                                                      Shadow(color: Colors.black87, blurRadius: 4),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
                                         ),
                                       if (profile?.familyName != null && profile!.familyName!.isNotEmpty)
                                         _badgePill(
@@ -4799,43 +4912,51 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     ),
                                   );
                                 },
-                          child: SizedBox(
-                            width: 84,
-                            height: 84,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                if (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
-                                  FramedAvatar(
-                                    size: 84,
-                                    avatarSize: 52,
-                                    frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
-                                    imageUrl: seat.avatarUrl,
-                                    fallbackText: seat.username,
-                                    glow: false,
-                                  )
-                                else
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 2.5),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 84,
+                                height: 84,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    if (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
+                                      FramedAvatar(
+                                        size: 84,
+                                        avatarSize: 52,
+                                        frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
+                                        imageUrl: seat.avatarUrl,
+                                        fallbackText: seat.username,
+                                        glow: false,
+                                      )
+                                    else
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: Colors.white, width: 2.5),
+                                        ),
+                                        child: CircleAvatar(
+                                          radius: 30,
+                                          backgroundImage:
+                                              seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                          child: seat.avatarUrl == null
+                                              ? const Icon(Icons.person, color: Colors.white, size: 30)
+                                              : null,
+                                        ),
+                                      ),
+                                    Positioned(
+                                      right: 6,
+                                      bottom: 6,
+                                      child: OnlineDot(userId: seat.userId, size: 16),
                                     ),
-                                    child: CircleAvatar(
-                                      radius: 30,
-                                      backgroundImage:
-                                          seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
-                                      child: seat.avatarUrl == null
-                                          ? const Icon(Icons.person, color: Colors.white, size: 30)
-                                          : null,
-                                    ),
-                                  ),
-                                Positioned(
-                                  right: 6,
-                                  bottom: 6,
-                                  child: OnlineDot(userId: seat.userId, size: 16),
+                                  ],
                                 ),
-                              ],
-                            ),
+                              ),
+
+                              // (وكيل/مضيف lives in the badge row with the agency
+                              // name under it — not here.)
+                            ],
                           ),
                         ),
                       ),
@@ -5363,9 +5484,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                                 ],
                                               ),
                                             ),
-                                            const Text(
-                                              '67.00M',
-                                              style: TextStyle(color: Color(0xFFFF80AB), fontSize: 15, fontWeight: FontWeight.bold),
+                                            // Full coin count — abbreviations (K/M)
+                                            // are only allowed under the mic.
+                                            Text(
+                                              '${ref.read(roomControllerProvider(widget.roomId)).seatEarnings24h[seat.userId] ?? 0}',
+                                              style: const TextStyle(color: Color(0xFFFF80AB), fontSize: 15, fontWeight: FontWeight.bold),
                                             ),
                                           ],
                                         ),

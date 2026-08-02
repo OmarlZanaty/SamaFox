@@ -93,6 +93,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   late Set<int> _selectedRecipientIds;
   _RecipientScope _scope = _RecipientScope.allRoom;
 
+  // Anchors so the popups open next to their button, not at a fixed screen spot.
+  final GlobalKey _scopeKey = GlobalKey();
+  final GlobalKey _quantityKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -223,10 +227,42 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     );
   }
 
+  /// Builds the anchor rect for a popup so it opens ATTACHED to [key]'s widget
+  /// instead of at a hardcoded screen coordinate (which floated the menu up to
+  /// the top of the screen, far away from the button that opened it).
+  RelativeRect _menuPositionFor(GlobalKey key, {bool above = false}) {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final button = key.currentContext?.findRenderObject() as RenderBox?;
+    if (overlay == null || button == null) {
+      return const RelativeRect.fromLTRB(0, 0, 0, 0);
+    }
+    final topLeft = button.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight = button.localToGlobal(
+      button.size.bottomRight(Offset.zero),
+      ancestor: overlay,
+    );
+    final overlaySize = overlay.size;
+    return above
+        // Open upwards from the button's top edge (for the bottom bar).
+        ? RelativeRect.fromLTRB(
+            topLeft.dx,
+            overlaySize.height - topLeft.dy,
+            overlaySize.width - bottomRight.dx,
+            0,
+          )
+        // Open downwards from the button's bottom edge.
+        : RelativeRect.fromLTRB(
+            topLeft.dx,
+            bottomRight.dy,
+            overlaySize.width - bottomRight.dx,
+            0,
+          );
+  }
+
   void _showScopeMenu() async {
     final selected = await showMenu<_RecipientScope>(
       context: context,
-      position: const RelativeRect.fromLTRB(24, 90, 0, 0),
+      position: _menuPositionFor(_scopeKey),
       color: _kCardColor,
       items: const [
         PopupMenuItem(value: _RecipientScope.allRoom, child: Text('جميع الغرف', style: TextStyle(color: Colors.white))),
@@ -236,10 +272,16 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     if (selected != null && selected != _scope) {
       setState(() {
         _scope = selected;
-        final valid = _scopedRecipients.map((r) => r.id).toSet();
-        _selectedRecipientIds.removeWhere((id) => !valid.contains(id));
-        if (_selectedRecipientIds.isEmpty && _scopedRecipients.isNotEmpty) {
-          _selectedRecipientIds.add(_scopedRecipients.first.id);
+        final scoped = _scopedRecipients;
+        if (selected == _RecipientScope.micOnly) {
+          // "الميك الكامل" means EVERY seated user, not just the first one.
+          _selectedRecipientIds = scoped.map((r) => r.id).toSet();
+        } else {
+          final valid = scoped.map((r) => r.id).toSet();
+          _selectedRecipientIds.removeWhere((id) => !valid.contains(id));
+          if (_selectedRecipientIds.isEmpty && scoped.isNotEmpty) {
+            _selectedRecipientIds.add(scoped.first.id);
+          }
         }
       });
     }
@@ -252,49 +294,50 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: _kBorderColor)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              GestureDetector(
-                onTap: _showScopeMenu,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _scope == _RecipientScope.allRoom ? 'جميع الغرف' : 'الميك الكامل',
-                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.keyboard_arrow_down, color: Colors.white70, size: 18),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => Navigator.of(context).maybePop(),
-                child: const Icon(Icons.close, color: Colors.white54, size: 20),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          if (recipients.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: Text('لا يوجد مستلمون', style: TextStyle(color: Colors.white60))),
-            )
-          else
-            SizedBox(
-              height: 82,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: recipients.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (_, i) => _recipientChip(recipients[i]),
+      // Single row: scope dropdown (right in RTL) → recipient avatars → close.
+      child: SizedBox(
+        height: 64,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GestureDetector(
+              key: _scopeKey,
+              onTap: _showScopeMenu,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _scope == _RecipientScope.allRoom ? 'جميع الغرف' : 'الميك الكامل',
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(width: 2),
+                  const Icon(Icons.keyboard_arrow_down, color: Colors.white70, size: 18),
+                ],
               ),
             ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: recipients.isEmpty
+                  ? const Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text('لا يوجد مستلمون',
+                          style: TextStyle(color: Colors.white60, fontSize: 12)),
+                    )
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: recipients.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) => _recipientChip(recipients[i]),
+                    ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => Navigator.of(context).maybePop(),
+              child: const Icon(Icons.close, color: Colors.white54, size: 20),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -313,12 +356,13 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         });
       },
       child: SizedBox(
-        width: 60,
+        width: 46,
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
@@ -326,10 +370,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                   width: 2.5,
                 ),
                 boxShadow: selected
-                    ? [const BoxShadow(color: _kGoldColor, blurRadius: 8, spreadRadius: 1)]
+                    ? [const BoxShadow(color: _kGoldColor, blurRadius: 6, spreadRadius: 1)]
                     : null,
               ),
-              padding: const EdgeInsets.all(2),
+              padding: const EdgeInsets.all(1.5),
               child: ClipOval(
                 child: avatarUrl != null
                     ? Image.network(avatarUrl, fit: BoxFit.cover,
@@ -337,7 +381,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                     : _avatarFallback(r.name),
               ),
             ),
-            const SizedBox(height: 3),
+            const SizedBox(height: 2),
             Text(
               r.seatNumber != null ? '${r.seatNumber}' : r.name,
               maxLines: 1,
@@ -345,7 +389,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: selected ? _kGoldColor : Colors.white70,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
@@ -465,7 +509,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   void _showQuantityMenu() async {
     final selected = await showMenu<int>(
       context: context,
-      position: const RelativeRect.fromLTRB(200, 400, 0, 0),
+      // Opens upwards — the button lives in the sheet's bottom bar.
+      position: _menuPositionFor(_quantityKey, above: true),
       color: _kCardColor,
       items: _kQuantities
           .map((q) => PopupMenuItem(value: q, child: Text('x$q', style: const TextStyle(color: Colors.white))))
@@ -493,8 +538,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.chevron_left, color: Colors.white54, size: 16),
-                  const Text('إعادة الشحن', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 2),
                   const Text('🪙', style: TextStyle(fontSize: 14)),
                   const SizedBox(width: 4),
                   Text(_balance.toString(),
@@ -535,6 +579,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                     ),
                     Container(width: 1, height: 24, color: Colors.white24),
                     Material(
+                      key: _quantityKey,
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),

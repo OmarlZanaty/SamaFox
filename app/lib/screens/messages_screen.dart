@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../models/conversation_item.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
+import '../widgets/user_trail.dart';
 
 final unreadCountProvider = Provider<int>((ref) {
   final async = ref.watch(conversationsControllerProvider);
@@ -300,6 +301,13 @@ class _ConversationTile extends StatelessWidget {
                         ),
                       ),
                     ),
+                  // مسار — jump into whatever room this person is in. Sits
+                  // opposite the online dot so the two never overlap.
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    child: UserTrailButton(userId: conversation.partnerId, size: 20),
+                  ),
                 ],
                 ),
               ),

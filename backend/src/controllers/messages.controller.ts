@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { createNotification } from '../services/notification.service';
+import { isBlockedBetween, blockedUserIds } from '../utils/blockGuard';
 
 type AuthedRequest = Request & { userId?: number };
 
@@ -34,7 +35,13 @@ export async function getConversations(req: AuthedRequest, res: Response) {
       },
     });
 
-    const out = convs.map((c) => {
+    // Blocked people drop out of the inbox in both directions, so a block
+    // actually removes the thread instead of leaving it sitting there.
+    const blocked = await blockedUserIds(me);
+
+    const out = convs
+      .filter((c) => !blocked.has(c.userAId === me ? c.userBId : c.userAId))
+      .map((c) => {
       const partner = c.userAId === me ? c.userB : c.userA;
       const myPart = c.participants[0] ?? null;
 
@@ -68,6 +75,14 @@ export async function getOrCreateConversation(req: AuthedRequest, res: Response)
     const partnerId = toInt(req.body?.partnerId ?? req.params?.partnerId);
     if (!partnerId) return res.status(400).json({ message: 'partnerId is required' });
     if (partnerId === me) return res.status(400).json({ message: 'Cannot message yourself' });
+
+    // Don't even open the thread when a block is in place either way.
+    if (await isBlockedBetween(me, partnerId)) {
+      return res.status(403).json({
+        code: 'BLOCKED',
+        message: 'لا يمكن بدء محادثة — يوجد حظر بينكما',
+      });
+    }
 
     // enforce unique pair ordering to match @@unique([userAId,userBId])
     const userAId = Math.min(me, partnerId);
@@ -187,6 +202,20 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
     select: { id: true },
   });
   if (!part) return res.status(403).json({ message: 'Not a participant' });
+
+  // القائمة السوداء — a block in either direction stops the DM. Without this
+  // the block table was write-only and blocking someone changed nothing.
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { userAId: true, userBId: true },
+  });
+  const otherId = conv ? (conv.userAId === me ? conv.userBId : conv.userAId) : null;
+  if (otherId && (await isBlockedBetween(me, otherId))) {
+    return res.status(403).json({
+      code: 'BLOCKED',
+      message: 'لا يمكن إرسال رسالة — يوجد حظر بينكما',
+    });
+  }
 
   const created = await prisma.$transaction(async (tx) => {
     // Build data without triggering TS "unknown property" errors

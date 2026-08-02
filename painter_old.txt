@@ -1,0 +1,273 @@
+/// Draws the starfield, the parabolic flight curve, its filled area and the
+/// plane riding the tip of it.
+class _FlightPainter extends CustomPainter {
+  _FlightPainter({
+    required this.multiplier,
+    required this.flying,
+    required this.crashed,
+    required this.elapsedMs,
+  });
+
+  final double multiplier;
+  final bool flying;
+  final bool crashed;
+
+  /// Milliseconds since take-off — drives the propeller spin and the parallax,
+  /// which must keep moving even while the multiplier barely changes.
+  final int elapsedMs;
+
+  /// Three depth layers: the far ones barely drift, the near ones streak past.
+  /// That difference is what reads as speed.
+  static final List<List<Offset>> _starLayers = List.generate(3, (layer) {
+    final r = math.Random(7919 * (layer + 1));
+    return List.generate(
+      [34, 22, 14][layer],
+      (_) => Offset(r.nextDouble(), r.nextDouble()),
+    );
+  });
+
+  static const _layerDepth = [0.10, 0.30, 0.75];
+  static const _layerAlpha = [0.10, 0.16, 0.26];
+  static const _layerRadius = [0.9, 1.3, 1.9];
+
+  /// How far up the canvas the flight has climbed, 0..1 (log-scaled so a 100x
+  /// round still fits, just flatter).
+  double get _progress =>
+      (math.log(math.max(1, multiplier)) / math.log(10)).clamp(0.0, 1.0);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = _progress;
+    _paintGrid(canvas, size, p);
+    _paintStars(canvas, size, p);
+
+    if (!flying && !crashed) return;
+
+    final origin = Offset(size.width * 0.06, size.height * 0.92);
+    final tip = Offset(
+      size.width * (0.12 + 0.78 * p),
+      size.height * (0.9 - 0.75 * p),
+    );
+    // Control point of the quadratic: pulled along the baseline so the curve
+    // leaves the ground flat and steepens as it climbs.
+    final control = Offset(origin.dx + (tip.dx - origin.dx) * 0.65, origin.dy);
+
+    final path = Path()
+      ..moveTo(origin.dx, origin.dy)
+      ..quadraticBezierTo(control.dx, control.dy, tip.dx, tip.dy);
+
+    // Filled area under the curve.
+    canvas.drawPath(
+      Path.from(path)
+        ..lineTo(tip.dx, origin.dy)
+        ..close(),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            _CrashGameScreenState._curveRed.withOpacity(0.50),
+            _CrashGameScreenState._curveRed.withOpacity(0.06),
+            Colors.transparent,
+          ],
+        ).createShader(Offset.zero & size),
+    );
+
+    _paintNeonCurve(canvas, path);
+    if (!crashed) {
+      _paintTrail(canvas, origin, control, tip, p);
+      _paintPlane(canvas, tip, control);
+    }
+  }
+
+  // ── Background ────────────────────────────────────────────
+  /// Faint axis grid that scrolls with the climb — the strongest single cue
+  /// that the plane is actually gaining altitude rather than the curve growing.
+  void _paintGrid(Canvas canvas, Size size, double p) {
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.045)
+      ..strokeWidth = 1;
+
+    const spacing = 64.0;
+    final shiftX = (p * size.width * 0.9) % spacing;
+    final shiftY = (p * size.height * 0.8) % spacing;
+
+    for (double x = -shiftX; x < size.width; x += spacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = size.height + shiftY; y > 0; y -= spacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  void _paintStars(Canvas canvas, Size size, double p) {
+    for (var layer = 0; layer < _starLayers.length; layer++) {
+      final depth = _layerDepth[layer];
+      final paint = Paint()..color = Colors.white.withOpacity(_layerAlpha[layer]);
+      final radius = _layerRadius[layer];
+
+      // Stars stream down-left as the plane climbs up-right; wrap so the field
+      // never runs out.
+      final dx = (p * depth * 1.4) % 1.0;
+      final dy = (p * depth * 1.0) % 1.0;
+
+      for (final s in _starLayers[layer]) {
+        final x = ((s.dx - dx) % 1.0) * size.width;
+        final y = ((s.dy + dy) % 1.0) * size.height;
+        canvas.drawCircle(Offset(x, y), radius, paint);
+      }
+    }
+  }
+
+  // ── Curve ─────────────────────────────────────────────────
+  /// Three stacked passes — wide haze, mid glow, bright core — which is what
+  /// makes a stroke read as neon rather than as a coloured line.
+  void _paintNeonCurve(Canvas canvas, Path path) {
+    final base = crashed
+        ? _CrashGameScreenState._flewAway
+        : _CrashGameScreenState._curveRed;
+
+    void pass(Color color, double width, double blur) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = blur > 0 ? MaskFilter.blur(BlurStyle.normal, blur) : null,
+      );
+    }
+
+    pass(base.withOpacity(0.28), 16, 18); // outer haze
+    pass(base.withOpacity(0.55), 8, 7); // mid glow
+    pass(Color.lerp(base, Colors.white, 0.55)!, 3, 0); // hot core
+  }
+
+  // ── Vapour trail ──────────────────────────────────────────
+  /// Puffs sampled back along the curve, spreading and fading with age. Derived
+  /// from the curve itself rather than a particle list, so there is no state to
+  /// keep in sync and nothing to allocate per frame.
+  void _paintTrail(Canvas canvas, Offset p0, Offset p1, Offset p2, double p) {
+    const puffs = 16;
+    final drift = elapsedMs / 900.0;
+
+    for (var i = 1; i <= puffs; i++) {
+      final age = i / puffs; // 0 = just left the plane, 1 = oldest
+      final t = (1.0 - age * 0.34).clamp(0.0, 1.0);
+      final at = _quadAt(p0, p1, p2, t);
+
+      // Older puffs drift further off the curve and swell.
+      final wobble = math.sin(drift + i * 1.7) * age * 7;
+      final radius = 2.0 + age * 9.0;
+      final opacity = (1.0 - age) * 0.16 * (0.35 + p);
+
+      canvas.drawCircle(
+        Offset(at.dx - age * 10, at.dy + age * 5 + wobble),
+        radius,
+        Paint()
+          ..color = Colors.white.withOpacity(opacity.clamp(0.0, 1.0))
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+    }
+  }
+
+  static Offset _quadAt(Offset p0, Offset p1, Offset p2, double t) {
+    final u = 1 - t;
+    return Offset(
+      u * u * p0.dx + 2 * u * t * p1.dx + t * t * p2.dx,
+      u * u * p0.dy + 2 * u * t * p1.dy + t * t * p2.dy,
+    );
+  }
+
+  // ── Plane ─────────────────────────────────────────────────
+  /// Banks to the curve's real tangent (the derivative of a quadratic bezier at
+  /// t=1 is 2*(p2-p1)), so the nose always points where the plane is going.
+  void _paintPlane(Canvas canvas, Offset at, Offset control) {
+    final tangent = at - control;
+    final angle = math.atan2(tangent.dy, tangent.dx);
+
+    canvas.save();
+    canvas.translate(at.dx, at.dy);
+    canvas.rotate(angle);
+
+    const red = Color(0xFFE53935);
+    const dark = Color(0xFF8E1B1B);
+    final body = Paint()..color = red;
+
+    // Fuselage.
+    canvas.drawPath(
+      Path()
+        ..moveTo(16, 0)
+        ..quadraticBezierTo(6, -5, -10, -4)
+        ..lineTo(-13, 0)
+        ..lineTo(-10, 4)
+        ..quadraticBezierTo(6, 5, 16, 0)
+        ..close(),
+      body,
+    );
+
+    // Wing and tailplane, darker so the silhouette reads at small sizes.
+    canvas.drawPath(
+      Path()
+        ..moveTo(2, 0)
+        ..lineTo(-6, -11)
+        ..lineTo(-1, -11)
+        ..lineTo(6, 0)
+        ..close(),
+      Paint()..color = dark,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(-9, 0)
+        ..lineTo(-14, -7)
+        ..lineTo(-10, -7)
+        ..lineTo(-6, 0)
+        ..close(),
+      Paint()..color = dark,
+    );
+
+    // Cockpit glint.
+    canvas.drawCircle(const Offset(4, -2), 1.8, Paint()..color = Colors.white70);
+
+    _paintPropeller(canvas);
+    canvas.restore();
+  }
+
+  /// A spinning disc: two blurred blades plus a faint swept circle. The blades
+  /// turn fast enough to blur into the disc, exactly like the real thing.
+  void _paintPropeller(Canvas canvas) {
+    final spin = elapsedMs / 22.0; // radians — deliberately fast
+    canvas.save();
+    canvas.translate(17, 0);
+
+    canvas.drawCircle(
+      Offset.zero,
+      9,
+      Paint()
+        ..color = Colors.white.withOpacity(0.10)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+    );
+
+    final blade = Paint()
+      ..color = Colors.white.withOpacity(0.45)
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2);
+
+    for (var i = 0; i < 2; i++) {
+      final a = spin + i * math.pi;
+      final d = Offset(math.cos(a) * 1.6, math.sin(a) * 9);
+      canvas.drawLine(-d, d, blade);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _FlightPainter old) =>
+      old.multiplier != multiplier ||
+      old.flying != flying ||
+      old.crashed != crashed ||
+      old.elapsedMs != elapsedMs;
+}
+

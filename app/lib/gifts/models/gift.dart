@@ -1,4 +1,25 @@
 import 'package:flutter/foundation.dart';
+import '../../config/app_config.dart';
+
+const List<String> _kVideoExtensions = ['.mp4', '.webm', '.mov', '.m4v', '.ogv'];
+
+/// True when the URL points at a clip the video player can handle.
+bool _looksLikeVideo(String? url) {
+  if (url == null || url.isEmpty) return false;
+  final path = url.split('?').first.split('#').first.toLowerCase();
+  return _kVideoExtensions.any(path.endsWith);
+}
+
+/// Uploads made through the gift admin module return a site-relative path
+/// (`/assets/videos/x.mp4`). The video player and cache manager need an absolute
+/// URL, so make one here rather than in every widget.
+String? _absoluteUrl(String? url) {
+  if (url == null || url.isEmpty) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  final raw = AppConfig.socketUrl;
+  final base = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  return url.startsWith('/') ? '$base$url' : '$base/$url';
+}
 
 enum GiftFormat { svgCss, video }
 
@@ -90,14 +111,23 @@ class Gift {
 
   factory Gift.fromJson(Map<String, dynamic> json) {
     final colors = json['fireworksColors'];
+    final animationUrl = _absoluteUrl(json['animationUrl'] as String?);
+    // Safety net for rows saved before the server started deriving `format`:
+    // a gift that carries a video clip MUST route to the video player, otherwise
+    // GiftPlayer falls through to SvgCssGiftPlayer which — with no
+    // animationHtml — just paints the still icon. That is the "video gift shows
+    // up as an image" bug.
+    final format = _looksLikeVideo(animationUrl)
+        ? GiftFormat.video
+        : GiftFormatX.parse(json['format'] as String?);
     return Gift(
       id: json['id'] as String,
       name: json['name'] as String? ?? '',
       nameAr: json['nameAr'] as String?,
-      iconUrl: json['iconUrl'] as String? ?? '',
-      format: GiftFormatX.parse(json['format'] as String?),
+      iconUrl: _absoluteUrl(json['iconUrl'] as String?) ?? '',
+      format: format,
       animationHtml: json['animationHtml'] as String?,
-      animationUrl: json['animationUrl'] as String?,
+      animationUrl: animationUrl,
       videoHasAlpha: json['videoHasAlpha'] as bool? ?? false,
       fireworksEnabled: json['fireworksEnabled'] as bool? ?? false,
       fireworksColors: colors is List

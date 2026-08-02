@@ -21,6 +21,7 @@ import 'screens/messages_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/charging_agent_screen.dart';
 import 'screens/agency_panel_screen.dart';
+import 'screens/my_agencies_screen.dart';
 import 'screens/search_screen.dart';
 import 'theme/app_theme.dart';
 import 'utils/storage_service.dart';
@@ -292,6 +293,9 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
         '/store': (context) => const StoreScreen(),
         '/charging-agent': (_) => const ChargingAgentScreen(),
         '/agency-panel': (_) => const AgencyPanelScreen(),
+        // وكالتي — routes to the right agency, or lets the user pick when
+        // they hold both a hosting and a charging one.
+        '/my-agencies': (_) => const MyAgenciesScreen(),
         '/search': (context) => const SearchScreen(),
         '/games': (_) => const GamesHubScreen(),
       },

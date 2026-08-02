@@ -1,0 +1,123 @@
+<title>فحص ملاحظات العميل — مقابل قائمة الـ35</title>
+<style>
+:root{
+  --bg:#0d0620; --panel:#1a0e3e; --panel2:#241a52; --border:#372a6e;
+  --text:#f1eefc; --muted:#a99fd1; --accent:#ffd700;
+  --ok:#2ecc71; --warn:#f5a623; --bad:#ff5c5c; --new:#9c6bff;
+}
+:root[data-theme="light"]{
+  --bg:#f6f5fb; --panel:#ffffff; --panel2:#f0edfa; --border:#e2ddf5;
+  --text:#221a3d; --muted:#655e85; --accent:#a3760a;
+  --ok:#1e8e4f; --warn:#b5720a; --bad:#c8372f; --new:#6a3fd1;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f6f5fb; --panel:#ffffff; --panel2:#f0edfa; --border:#e2ddf5;
+    --text:#221a3d; --muted:#655e85; --accent:#a3760a;
+    --ok:#1e8e4f; --warn:#b5720a; --bad:#c8372f; --new:#6a3fd1;
+  }
+}
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--text); font-family:"Segoe UI",Tahoma,Arial,sans-serif; direction:rtl; padding:24px; max-width:1150px; margin:0 auto}
+h1{font-size:21px; margin:0 0 4px; color:var(--accent)}
+h2{font-size:16px; color:var(--accent); margin:26px 0 10px}
+.sub{color:var(--muted); font-size:13.5px; margin-bottom:16px}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:18px; font-size:13px}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.dot{width:10px; height:10px; border-radius:50%; display:inline-block}
+.dot.ok{background:var(--ok)} .dot.new{background:var(--new)} .dot.bad{background:var(--bad)}
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:12px; margin-bottom:8px}
+table{border-collapse:collapse; width:100%; min-width:900px; font-size:13.5px}
+th{background:var(--panel2); color:var(--accent); text-align:right; padding:9px 11px; border-bottom:2px solid var(--border)}
+td{padding:9px 11px; border-bottom:1px solid var(--border); vertical-align:top; background:var(--panel)}
+tr:last-child td{border-bottom:none}
+td.num{color:var(--muted); font-weight:700; width:30px}
+td.status{width:170px; font-weight:600}
+.status.ok{color:var(--ok)} .status.new{color:var(--new)} .status.bad{color:var(--bad)}
+.note{color:var(--muted); font-size:12.5px}
+.callout{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px}
+.callout b{color:var(--accent)}
+code{background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px; font-size:12.5px}
+</style>
+
+<h1>ما تم بناؤه اليوم — دفعة الإصلاحات الكاملة</h1>
+<div class="sub">إصدار جديد: 1.0.9+15 — كل شيء مبني ومُختبر بالكود (analyze/typecheck نظيف بالكامل)</div>
+
+<div class="legend">
+  <span><span class="dot ok"></span> تم البناء والفحص</span>
+  <span><span class="dot new"></span> مبني حسب مواصفتك بالضبط — يحتاج اختبارك على الأرقام الحقيقية</span>
+  <span><span class="dot bad"></span> يحتاج إجراء منك (ليس كود)</span>
+</div>
+
+<h2>الإصلاحات من قائمة الـ35 (25, 28, 29, 31, 37)</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th class="num">#</th><th>البند</th><th>ماذا تم</th><th class="status">الحالة</th></tr></thead>
+<tbody>
+
+<tr><td class="num">25 / 31</td><td>Live badge / مسار</td>
+<td>الباك إند بقى بيتتبع "المكان الفعلي" اللي المستخدم فيه دلوقتي (ضيف أو مضيف) بدل غرفته المملوكة بس. الضغط على Live دلوقتي بيوديك لمكانه الحقيقي.</td>
+<td class="status ok">تم</td></tr>
+
+<tr><td class="num">28</td><td>الشارات</td>
+<td>صف شارات جديد في الملف الشخصي — endpoint جديد بيرجع كل نوع مميز (إطار/دخولية/ثيم) المستخدم يمتلكه، بأيقونة تمثيلية لكل نوع.</td>
+<td class="status ok">تم</td></tr>
+
+<tr><td class="num">29 / 37</td><td>الضغط على أي صورة</td>
+<td><b>اكتشفت السبب الجذري</b>: صفحة ملف شخصي قديمة منفصلة كانت تُستخدم من نتيجة البحث فقط. حذفتها ووحّدت كل مكان (بحث الصفحة الرئيسية، الرسائل، شاشة البحث المنفصلة) على نفس الصفحة الكاملة. اكتشفت كمان إن شاشة البحث المنفصلة كانت بتحاول تفتح route مش مسجّل أصلًا — يعني الضغط ما كنش بيعمل حاجة خالص فيها.</td>
+<td class="status ok">تم</td></tr>
+
+</tbody>
+</table>
+</div>
+
+<h2>الطلبات الجديدة (من التسجيلات الصوتية)</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th>الطلب</th><th>ماذا تم</th><th class="status">الحالة</th></tr></thead>
+<tbody>
+
+<tr><td>نظام Target + علامة الدولار المتحركة</td>
+<td>وجدت نظام <code>TargetTier</code> جاهز أصلًا في لوحة التحكم (حدود كوينز → دولار). أضفت حساب الدولار الفعلي وربطته بكارت التارجت في الملف الشخصي — رقم الدولار يتحرك تلقائيًا مع كل هدية تستلمها.</td>
+<td class="status ok">تم</td></tr>
+
+<tr><td>تقسيم الهدايا (مسجل/غير مسجل/لنفسك 50%)</td>
+<td>القاعدة كانت <b>مبنية بالفعل</b> للمسجل وغير المسجل، لكن هديتك لنفسك كانت تاخد 0% (قرار سابق لمنع استغلال). عدّلتها لتاخد 50% مثل غير المسجل بالضبط كما وصفت — يبقى دايمًا خسارة صافية 50%، مش استغلال.</td>
+<td class="status ok">تم حسب الوصف بالضبط</td></tr>
+
+<tr><td>تبديل الكوينزات (Target → كوينز بـ50%)</td>
+<td>زر جديد في الإعدادات "تبديل الكوينزات" — تختار مبلغ من التارجت المتراكم (غير المُبدَّل من قبل)، يتحول نصفه كوينز فورًا، <b>والتارجت الأصلي يفضل زي ما هو</b> بالظبط زي ما طلبت.</td>
+<td class="status ok">تم حسب الوصف بالضبط</td></tr>
+
+<tr><td>حظر تلقائي للصور غير اللائقة</td>
+<td>لم يُبنَ — يحتاج خدمة فحص صور خارجية (AWS Rekognition أو Google Vision) بحساب/تكلفة لكل صورة. أنتظر قرارك على أي خدمة.</td>
+<td class="status bad">معلّق — قرارك مطلوب</td></tr>
+
+<tr><td>أداة قص الصورة قبل الرفع</td>
+<td>مربع قص قابل للتكبير/التصغير بإيدك قبل حفظ صورة البروفايل (على الموبايل).</td>
+<td class="status ok">تم</td></tr>
+
+<tr><td>فتح صورة أي مستخدم بحجم كامل</td>
+<td>الضغط على أي صورة بروفايل (لك أو لغيرك) يفتحها بشاشة كاملة مع تكبير/تصغير باللمس.</td>
+<td class="status ok">تم</td></tr>
+
+<tr><td>معاينة الإطار على صورتك قبل الشراء</td>
+<td>الضغط على أي إطار في المتجر (قبل الشراء) يعرضه فعليًا على صورتك الحالية.</td>
+<td class="status ok">تم</td></tr>
+
+<tr><td>معاينة الدخولية بشاشة كاملة قبل الشراء</td>
+<td>الضغط على أي دخولية/تأثير مقعد في المتجر يشغّله بشاشة كاملة كمعاينة قبل الشراء.</td>
+<td class="status ok">تم</td></tr>
+
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<b>ما يحتاج إجراء منك (مش كود):</b><br>
+1. <b>الوكالات (32-35):</b> لسه محتاجة تُنشئ وكالتك من جديد على لوحة التحكم بعد نشر هذا التحديث — البيانات القديمة اتفقدت في نقل GCP→AWS، مش عيب برمجي.<br>
+2. <b>نشر الباك إند:</b> فيه تحديث جديد لقاعدة البيانات (حقل واحد إضافي لتتبع تبديل الكوينزات) — محتاج تشغّل أمر النشر بنفسك زي المرة اللي فاتت.<br>
+3. <b>حظر الصور:</b> قرارك على خدمة الفحص (AWS/Google) قبل ما أقدر أبنيها.
+</div>
+
+<p class="note">كل التعديلات فُحصت بـ<code>flutter analyze</code> و<code>tsc --noEmit</code> بدون أي خطأ واحد على كامل المشروع. الإصدار 1.0.9+15 جاهز (APK للاختبار + AAB لمتجر Google).</p>

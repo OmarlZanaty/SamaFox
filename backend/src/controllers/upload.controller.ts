@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import prisma from '../utils/prisma';
+import { probeGiftVideo, needsTranscode, transcodeToH264 } from '../gifts/videoValidate';
 import { getPublicBaseUrl } from '../utils/public-url';
 import { firstStr } from '../utils/http';
 /**
@@ -39,6 +41,82 @@ export const uploadImage = async (req: Request, res: Response) => {
       success: false,
       message: 'Failed to upload image',
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+/**
+ * Upload a gift animation clip.
+ *
+ * Unlike the generic image upload this PROBES the file, so the caller learns the
+ * real duration (stored as the gift's `animationMs` — the 3000ms schema default
+ * used to truncate anything longer) and whether the clip carries an alpha
+ * channel. Anything the client cannot play is rejected here instead of silently
+ * showing a still icon in the room.
+ */
+export const uploadVideoAsset = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No video file provided' });
+    }
+    const file = req.file;
+
+    let probe;
+    try {
+      probe = await probeGiftVideo(file.path);
+    } catch (err) {
+      await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({
+        success: false,
+        message: err instanceof Error ? err.message : 'فشل التحقق من الفيديو',
+      });
+    }
+
+    // iPhone clips arrive as HEVC, which Chrome cannot decode at all — convert
+    // before the file is ever handed to a client.
+    let transcoded = false;
+    if (needsTranscode(probe.codec)) {
+      try {
+        await transcodeToH264(file.path);
+        transcoded = true;
+      } catch (err) {
+        console.error('[uploadVideoAsset] transcode failed', err);
+        await fsp.unlink(file.path).catch(() => {});
+        return res.status(400).json({
+          success: false,
+          message: `صيغة الفيديو (${probe.codec}) غير مدعومة وتعذّر تحويلها`,
+        });
+      }
+    }
+
+    const baseUrl = getPublicBaseUrl(req);
+    const url = `${baseUrl}/uploads/${file.filename}`;
+    console.log(
+      `✅ Gift video uploaded: ${file.filename} (${probe.durationMs}ms, codec=${probe.codec}` +
+        `${transcoded ? '→h264' : ''}, alpha=${probe.hasAlpha})`,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Video uploaded successfully',
+      url,
+      imageUrl: url, // backward compatibility
+      filename: file.filename,
+      size: probe.fileSize,
+      mimetype: file.mimetype,
+      durationMs: probe.durationMs,
+      hasAlpha: probe.hasAlpha,
+      codec: transcoded ? 'h264' : probe.codec,
+      transcoded,
+      resolution: `${probe.width}x${probe.height}`,
+      framerate: probe.framerate,
+    });
+  } catch (error) {
+    console.error('Upload video error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to upload video',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 };

@@ -44,6 +44,17 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   /// One reusable audio player for VIP fanfare. Keeps a single decoder alive.
   final AudioPlayer _vipPlayer = AudioPlayer();
 
+  /// Sound for ordinary (non-VIP) gifts. Fired the instant the broadcast
+  /// `gift_sent` event arrives — the same event every client in the room gets —
+  /// so the sound lands at the same moment for the sender and everyone else.
+  /// It is a bundled asset, so there is no download to wait on.
+  final AudioPlayer _giftPlayer = AudioPlayer();
+
+  /// A x50 send is one event, but combos can still arrive back to back. Don't
+  /// retrigger the chime more than this often or it turns into noise.
+  static const Duration _giftSoundThrottle = Duration(milliseconds: 320);
+  DateTime? _lastGiftSoundAt;
+
   static const int _maxConcurrent = 24;
   static const int _staggerMs = 180;
 
@@ -53,9 +64,38 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     widget.socket.bind();
     _sentSub = widget.socket.sentStream.listen(_onGift);
     _vipPlayer.setReleaseMode(ReleaseMode.stop);
+    _giftPlayer.setReleaseMode(ReleaseMode.stop);
+    // Low latency mode keeps the asset decoded so playback starts immediately
+    // rather than a few hundred ms after the event.
+    _giftPlayer.setPlayerMode(PlayerMode.lowLatency);
+  }
+
+  /// Plays the ordinary-gift chime. Best-effort: never throws, never blocks the
+  /// animation. VIDEO gifts carry their own audio track and LEGENDARY gifts get
+  /// the fanfare instead, so neither doubles up with this.
+  void _playGiftSound(GiftSendEvent event) {
+    if (event.gift.tier == GiftTier.legendary) return;
+    if (event.gift.format == GiftFormat.video) return;
+    final now = DateTime.now();
+    if (_lastGiftSoundAt != null && now.difference(_lastGiftSoundAt!) < _giftSoundThrottle) {
+      return;
+    }
+    _lastGiftSoundAt = now;
+    () async {
+      try {
+        await _giftPlayer.stop();
+        await _giftPlayer.play(AssetSource('sounds/gift_send.wav'), volume: 0.75);
+      } catch (e) {
+        debugPrint('[GiftOverlay] gift sound failed: $e');
+      }
+    }();
   }
 
   void _onGift(GiftSendEvent event) {
+    // Fire the sound FIRST, before any animation work, so it is as close to the
+    // socket event as possible on every device.
+    _playGiftSound(event);
+
     // Video gifts carry sound and a real clip — repeating that N times for a
     // ×N send would replay the same video N times over each other. They
     // spawn exactly ONE flight, badged with the send count, and play once.
@@ -88,8 +128,13 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     final start = widget.resolvePosition(event.senderId);
     final end = widget.resolvePosition(event.recipientId);
 
+    // A video gift's flight must outlast its clip, otherwise the flight is
+    // removed mid-playback and the video is cut short. Image/SVG gifts keep the
+    // tighter window so a burst of them stays snappy.
     final dur = Duration(
-      milliseconds: event.gift.animationMs.clamp(2000, 5500),
+      milliseconds: event.gift.format == GiftFormat.video
+          ? event.gift.animationMs.clamp(2000, 15000) + 400
+          : event.gift.animationMs.clamp(2000, 5500),
     );
     final controller = AnimationController(vsync: this, duration: dur);
 
@@ -132,7 +177,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     () async {
       try {
         await _vipPlayer.stop();
-        await _vipPlayer.play(AssetSource('sounds/vip_gift.mp3'), volume: 0.9);
+        await _vipPlayer.play(AssetSource('sounds/vip_gift.wav'), volume: 0.9);
       } catch (e) {
         // Asset missing or platform error — silent. Logged once to avoid spam.
         debugPrint('[GiftOverlay] vip sound failed: $e');
@@ -147,6 +192,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       f.controller.dispose();
     }
     _vipPlayer.dispose();
+    _giftPlayer.dispose();
     super.dispose();
   }
 
@@ -338,15 +384,21 @@ class _GiftVisual extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final side = math.min(constraints.maxWidth, constraints.maxHeight);
+        final isVideo = gift.format == GiftFormat.video;
         return Stack(
           alignment: Alignment.center,
           children: [
-            ClipOval(
-              child: SizedBox(
-                width: side * 0.9,
-                height: side * 0.9,
-                child: GiftPlayer(gift: gift, onComplete: () {}, onError: () {}),
-              ),
+            // A video clip is a rectangle with its own background: cropping it
+            // into a circle chopped the artwork and showed a black disc. Show
+            // the whole frame for video, keep the round badge for icons.
+            SizedBox(
+              width: side * (isVideo ? 1.0 : 0.9),
+              height: side * (isVideo ? 1.0 : 0.9),
+              child: isVideo
+                  ? GiftPlayer(gift: gift, onComplete: () {}, onError: () {})
+                  : ClipOval(
+                      child: GiftPlayer(gift: gift, onComplete: () {}, onError: () {}),
+                    ),
             ),
 
             // Gift name strip — only when big

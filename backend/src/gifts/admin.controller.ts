@@ -7,6 +7,7 @@ import { bumpCatalogVersion } from './catalogCache';
 import { recordGiftAudit } from './audit';
 import { validateGiftVideo, isAllowedVideoExtension, MAX_VIDEO_BYTES } from './videoValidate';
 import { GIFT_TEMPLATES } from './templates';
+import { getPublicBaseUrl } from '../utils/public-url';
 
 const ASSETS_DIR =
   process.env.GIFT_ASSETS_DIR?.trim() || path.join(process.cwd(), 'public', 'assets');
@@ -40,6 +41,15 @@ interface GiftWriteInput {
   category?: string | null;
 }
 
+const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.m4v', '.ogv'];
+
+/** True when the URL points at a video file we can play with the video player. */
+function looksLikeVideo(url: unknown): boolean {
+  if (typeof url !== 'string' || !url) return false;
+  const path = (url.split('?')[0] ?? '').split('#')[0]?.toLowerCase() ?? '';
+  return VIDEO_EXTENSIONS.some((ext) => path.endsWith(ext));
+}
+
 function normalize(input: GiftWriteInput, existing?: any) {
   const out: any = { ...existing };
   if (input.name !== undefined) out.name = String(input.name).trim();
@@ -59,6 +69,10 @@ function normalize(input: GiftWriteInput, existing?: any) {
   if (input.isActive !== undefined) out.isActive = !!input.isActive;
   if (input.sortOrder !== undefined) out.sortOrder = Math.floor(Number(input.sortOrder)) || 0;
   if (input.category !== undefined) out.category = input.category ? String(input.category).trim() : null;
+  // A gift can carry both a still icon and a video. If a video file was
+  // uploaded, the video is what must play — otherwise the client's GiftPlayer
+  // routes on `format` alone and renders the still image forever.
+  if (looksLikeVideo(out.animationUrl)) out.format = 'VIDEO';
   return out;
 }
 
@@ -219,7 +233,9 @@ export async function uploadVideo(req: Request, res: Response) {
     await ensureDir(VIDEOS_DIR);
     const target = path.join(VIDEOS_DIR, path.basename(file.path) + path.extname(file.originalname));
     await fs.rename(file.path, target);
-    const url = `/assets/videos/${path.basename(target)}`;
+    // Absolute — the Flutter video player parses this straight into a Uri, and a
+    // relative path there resolves to nothing playable.
+    const url = `${getPublicBaseUrl(req)}/assets/videos/${path.basename(target)}`;
     return res.json({
       success: true,
       url,
@@ -251,7 +267,7 @@ export async function uploadIcon(req: Request, res: Response) {
     await ensureDir(ICONS_DIR);
     const target = path.join(ICONS_DIR, path.basename(file.path) + ext);
     await fs.rename(file.path, target);
-    return res.json({ success: true, url: `/assets/icons/${path.basename(target)}` });
+    return res.json({ success: true, url: `${getPublicBaseUrl(req)}/assets/icons/${path.basename(target)}` });
   } catch (err) {
     console.error('[admin.gifts.uploadIcon]', err);
     return res.status(500).json({ success: false, message: 'Upload failed' });

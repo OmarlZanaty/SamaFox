@@ -35,6 +35,15 @@ class SocketService {
   final _seatLockController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get seatLockStream => _seatLockController.stream;
 
+  /// An admin banned this account. Carries the reason and the expiry (null =
+  /// permanent) so the app can log out and say why.
+  final _bannedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get bannedStream => _bannedController.stream;
+
+  /// A DM was refused because of a block in either direction.
+  final _dmBlockedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get dmBlockedStream => _dmBlockedController.stream;
+
   final _incomingMessageController = StreamController<IncomingMessage>.broadcast();
   Stream<IncomingMessage> get incomingMessageStream => _incomingMessageController.stream;
 
@@ -46,6 +55,21 @@ class SocketService {
 
   final _seatEffectController = StreamController<Map>.broadcast();
   Stream<Map> get seatEffectStream => _seatEffectController.stream;
+
+  // Mic invitation: an admin invited this user onto a specific seat. The user
+  // answers قبول / رفض and is only seated if they accept.
+  final _seatInviteController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get seatInviteStream => _seatInviteController.stream;
+
+  // Outcome of an invitation this user SENT (accepted / refused / expired).
+  final _seatInviteResultController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get seatInviteResultStream => _seatInviteResultController.stream;
+
+  /// Answer a mic invitation received on [seatInviteStream].
+  void respondToSeatInvite({required String inviteId, required bool accept}) {
+    emit('seat_invite_response', {'inviteId': inviteId, 'accept': accept});
+    debugPrint('🎤 seat_invite_response invite=$inviteId accept=$accept');
+  }
   final _notificationController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get notificationStream => _notificationController.stream;
 
@@ -61,6 +85,10 @@ class SocketService {
   Set<int> get onlineUsers => Set.unmodifiable(_onlineUsers);
   bool isUserOnline(int userId) => _onlineUsers.contains(userId);
   void requestOnlineUsers() => emit('get_online_users', {});
+
+  /// Ask the server who is currently in [roomId]. The answer arrives as a
+  /// `room_users` event, handled by the room controller.
+  void requestRoomUsers(int roomId) => emit('get_room_users', {'roomId': roomId});
 
   // Step 5: users whose mic passed the perfect-mic self-test (per room session).
   final Set<int> _micVerified = <int>{};
@@ -425,6 +453,21 @@ class SocketService {
       }
     }
 
+    // The server only sends this to the banned account's own room, and then
+    // disconnects them. The app listens so the session ends right away instead
+    // of lingering until the token expires.
+    _socket?.on('user_banned', (data) {
+      try {
+        _bannedController.add(data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
+    });
+
+    _socket?.on('dm_blocked', (data) {
+      try {
+        if (data is Map) _dmBlockedController.add(Map<String, dynamic>.from(data));
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
+    });
+
     // ✅ DM typing
     _socket?.on('dm_typing', (data) {
       try {
@@ -438,6 +481,18 @@ class SocketService {
     _socket?.on('seat_effect', (data) {
       debugPrint('🎬 seat_effect received: $data');
       _seatEffectController.add(Map<String, dynamic>.from(data));
+    });
+
+    _socket?.on('seat_invite', (data) {
+      if (data is! Map) return;
+      debugPrint('🎤 seat_invite received: $data');
+      _seatInviteController.add(Map<String, dynamic>.from(data));
+    });
+
+    _socket?.on('seat_invite_result', (data) {
+      if (data is! Map) return;
+      debugPrint('🎤 seat_invite_result: $data');
+      _seatInviteResultController.add(Map<String, dynamic>.from(data));
     });
 
     _socket!.on('relation_ended', (data) {
@@ -999,6 +1054,8 @@ class SocketService {
     _reactionController.close();
     _notificationController.close();
     _seatEffectController.close();
+    _seatInviteController.close();
+    _seatInviteResultController.close();
     _seatLockController.close();
     _incomingMessageController.close();
     _dmConversationController.close();

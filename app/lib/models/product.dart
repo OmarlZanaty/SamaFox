@@ -22,6 +22,8 @@ class Product {
       if (type == "FRAME") return "avatar_frame";
       if (type == "ENTRANCE_BANNER") return "entrance";
       if (type == "BADGE") return "badge";
+      if (type == "CHAT_BUBBLE") return "chat_bubble";
+      if (type == "CHAT_TOP_BANNER") return "chat_top_banner";
       return type ?? "";
     }
 

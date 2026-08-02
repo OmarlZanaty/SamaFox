@@ -91,6 +91,19 @@ class StoreService {
     );
   }
 
+  /// Unequip one item only. Prefer this over [deactivateAll] — several
+  /// categories (vehicle, entrance banner, chat bubble, frame) can be equipped
+  /// at the same time, so clearing everything is almost never what's wanted.
+  Future<void> deactivateItem(String token, String inventoryId) async {
+    await DioClient.dio.post(
+      '/store/deactivate',
+      data: {'inventoryId': inventoryId},
+      options: token.isNotEmpty
+          ? Options(headers: {'Authorization': 'Bearer $token'})
+          : null,
+    );
+  }
+
   Future<void> deactivateAll(String token) async {
     await DioClient.dio.post(
       '/store/deactivate-all',
