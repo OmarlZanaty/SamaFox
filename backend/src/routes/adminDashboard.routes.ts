@@ -8,6 +8,8 @@ import {
   adminChangeUserDisplayId,
   adminUpdateUserProfile,
   adminUpdateUserProgression,
+  adminDashboardSetTargetLock,
+  adminDashboardListTargetLocks,
   adminDashboardCreateQuest,
   adminDashboardDeleteQuest,
   adminDashboardForceCloseRoom,
@@ -75,6 +77,9 @@ router.patch('/users/:id/ban', adminDashboardBanUser);
 router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);
 router.patch('/users/:id/profile', adminUpdateUserProfile);
 router.patch('/users/:id/progression', adminUpdateUserProgression);
+// Target payout lock (owner request): stop/allow بيع واستبدال التارجيت.
+router.patch('/users/:id/target-lock', adminDashboardSetTargetLock);
+router.get('/target-locks', adminDashboardListTargetLocks);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);

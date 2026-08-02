@@ -1502,7 +1502,17 @@ window.addTargetTier = async function () {
 window.editTargetTier = async function (id, coins, dollars) {
   const newCoins = prompt('عدد الكوينز', coins);
   if (newCoins === null) return;
-  const newDollars = prompt('الدولار', dollars);
+
+  // Raising or lowering the coins now moves the dollar figure with it, at this
+  // tier's own rate, instead of leaving the admin to recompute it by hand.
+  // Still editable — the suggestion is pre-filled, not forced.
+  const rate = Number(coins) > 0 ? Number(dollars) / Number(coins) : 0;
+  const suggested =
+    rate > 0 && Number(newCoins) > 0
+      ? Math.round(Number(newCoins) * rate * 100) / 100
+      : dollars;
+
+  const newDollars = prompt('الدولار (محسوب تلقائياً — يمكن تعديله)', suggested);
   if (newDollars === null) return;
   try {
     await apiFetch(`/admin-dashboard/target-tiers/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coins: Number(newCoins), dollars: Number(newDollars) }) });

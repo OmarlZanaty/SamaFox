@@ -93,9 +93,17 @@ function validateForWrite(payload: any): string | null {
   return null;
 }
 
-export async function listAll(_req: Request, res: Response) {
+// A deleted gift used to vanish from the app but stay in this list forever,
+// because deletion is a soft delete. Deleted gifts are now hidden by default
+// and only returned with ?includeDeleted=1, so the dashboard matches what the
+// app shows while the rows stay available for history and for undelete.
+export async function listAll(req: Request, res: Response) {
   try {
+    const includeDeleted =
+      String((req.query as any)?.includeDeleted ?? '') === '1' ||
+      String((req.query as any)?.includeDeleted ?? '') === 'true';
     const gifts = await prisma.gift.findMany({
+      where: includeDeleted ? {} : { isActive: true },
       orderBy: [{ tier: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'desc' }],
     });
     return res.json({ success: true, total: gifts.length, gifts });
@@ -183,10 +191,23 @@ export async function softDelete(req: Request, res: Response) {
     const id = String(req.params.id);
     const before = await prisma.gift.findUnique({ where: { id } });
     if (!before) return res.status(404).json({ success: false, message: 'Not found' });
+
+    // A gift that was never sent has no history to protect, so it can go for
+    // real. One that HAS been sent must survive as a row: GiftTransaction
+    // references it, and hard-deleting would blank out past gifts in profiles,
+    // room history and the target/CP figures computed from them.
+    const sent = await prisma.giftTransaction.count({ where: { giftId: id } });
+    if (sent === 0) {
+      await recordGiftAudit({ adminId, giftId: id, action: 'DELETE', before, after: null });
+      await prisma.gift.delete({ where: { id } });
+      await bumpCatalogVersion();
+      return res.json({ success: true, hardDeleted: true });
+    }
+
     const gift = await prisma.gift.update({ where: { id }, data: { isActive: false } });
     await bumpCatalogVersion();
     await recordGiftAudit({ adminId, giftId: id, action: 'DELETE', before, after: gift });
-    return res.json({ success: true });
+    return res.json({ success: true, hardDeleted: false, sentCount: sent });
   } catch (err) {
     console.error('[admin.gifts.softDelete]', err);
     return res.status(500).json({ success: false, message: 'Delete failed' });

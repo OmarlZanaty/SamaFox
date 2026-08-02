@@ -1531,18 +1531,22 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
   const admins = getAdmins(rid);
   if (!admins.has(socket.userId)) return;
 
-  // Group 11: nobody removes a platform super admin from a seat except
-  // another super admin (the room owner can't touch them).
+  // Platform staff are immune on the seat path too, not just over REST:
+  // a super admin may only be pulled down by another super admin, and an
+  // admin only by an admin or above. Ranked so the room owner can never
+  // touch either of them.
   try {
     const roles = await (prisma as any).user.findMany({
       where: { id: { in: [target, socket.userId] } },
-      select: { id: true, isSuperAdmin: true },
+      select: { id: true, isSuperAdmin: true, isAdmin: true },
     });
-    const targetIsSuper = roles.find((r: any) => r.id === target)?.isSuperAdmin;
-    const requesterIsSuper = roles.find((r: any) => r.id === socket.userId)?.isSuperAdmin;
-    if (targetIsSuper && !requesterIsSuper) return;
+    const tier = (id: number) => {
+      const r = roles.find((x: any) => x.id === id);
+      return r?.isSuperAdmin ? 2 : r?.isAdmin ? 1 : 0;
+    };
+    if (tier(target) > 0 && tier(socket.userId) < tier(target)) return;
   } catch (e) {
-    console.warn('remove_from_seat super check failed:', e);
+    console.warn('remove_from_seat staff check failed:', e);
   }
 
   const seats = getSeats(rid);

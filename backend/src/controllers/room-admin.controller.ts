@@ -19,6 +19,23 @@ async function isPlatformSuperAdmin(userId: number): Promise<boolean> {
   return Boolean(u?.isSuperAdmin);
 }
 
+/**
+ * Platform staff tier for a user, independent of any room membership:
+ *   'super'    — super admin: moderates anyone and controls room settings
+ *   'platform' — admin: moderates anyone and is immune to moderation, but
+ *                deliberately gets NO room-settings powers
+ *   null       — ordinary user, ranked by their room role alone
+ */
+async function getPlatformTier(userId: number): Promise<'super' | 'platform' | null> {
+  const u = await (prisma as any).user.findUnique({
+    where: { id: userId },
+    select: { isSuperAdmin: true, isAdmin: true },
+  });
+  if (u?.isSuperAdmin) return 'super';
+  if (u?.isAdmin) return 'platform';
+  return null;
+}
+
 async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isAdmin: boolean; role: string | null }> {
   // Group 11: platform super admins hold admin powers in every room.
   if (await isPlatformSuperAdmin(userId)) return { isAdmin: true, role: 'super' };
@@ -40,13 +57,26 @@ async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isA
   return { isAdmin: false, role: member?.role || null };
 }
 
-const ROLE_RANK: Record<string, number> = { super: 4, owner: 3, admin: 2, supervisor: 1, member: 0 };
+// Platform staff sit above every room role, so a room owner can never kick,
+// mute or pull an admin off the mic — the immunity the owner asked for. Note
+// this ranking governs MODERATION only; room settings stay gated by
+// isRoomAdminOrOwner, which platform admins deliberately do not satisfy.
+const ROLE_RANK: Record<string, number> = {
+  super: 5,
+  platform: 4,
+  owner: 3,
+  admin: 2,
+  supervisor: 1,
+  member: 0,
+};
 
-/** Effective role of a user in a room: super | owner | admin | supervisor | member. */
+/** Effective role: super | platform | owner | admin | supervisor | member. */
 async function getRoomRole(userId: number, roomId: number): Promise<string> {
   // Group 11: super admins outrank the owner (owner can't mute/kick them,
-  // they can moderate anyone including the owner).
-  if (await isPlatformSuperAdmin(userId)) return 'super';
+  // they can moderate anyone including the owner). Platform admins rank just
+  // below them: same immunity and moderation reach, no settings control.
+  const tier = await getPlatformTier(userId);
+  if (tier) return tier;
 
   const room = await prisma.room.findUnique({
     where: { id: roomId },
@@ -556,6 +586,41 @@ export async function setSeatBlock(req: Request, res: Response) {
   } catch (e) {
     console.error('setSeatBlock error:', e);
     return res.status(500).json({ error: 'Failed' });
+  }
+}
+
+/**
+ * Close a room from inside the app. Super admins only — platform admins get
+ * moderation powers but deliberately no control over the room itself.
+ *
+ * Closing is the same operation the dashboard performs: isActive:false, which
+ * `join_room` rejects with `join_denied` ('closed'), plus a broadcast that
+ * empties the room immediately. So everyone inside leaves and nobody can get
+ * back in, which is what the owner asked for.
+ */
+export async function closeRoomAsSuperAdmin(req: Request, res: Response) {
+  try {
+    const roomId = toInt(req.body.roomId);
+    const requesterId = (req as any).userId as number | undefined;
+    const reason = req.body.reason?.toString()?.trim() || 'تم إغلاق الغرفة من الإدارة';
+
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roomId) return res.status(400).json({ error: 'roomId required' });
+
+    if (!(await isPlatformSuperAdmin(requesterId))) {
+      return res.status(403).json({ error: 'سوبر أدمن فقط يمكنه إغلاق الغرفة' });
+    }
+
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    await prisma.room.update({ where: { id: roomId }, data: { isActive: false } });
+    io.to(`room:${roomId}`).emit('room_force_closed', { roomId, reason });
+
+    return res.json({ success: true, message: 'Room closed' });
+  } catch (e) {
+    console.error('closeRoomAsSuperAdmin error:', e);
+    return res.status(500).json({ error: 'Failed to close room' });
   }
 }
 

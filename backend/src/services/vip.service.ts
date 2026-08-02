@@ -60,7 +60,7 @@ export function computeVipLevelWithOverrides(
  * frame plus every item in rewardItemIds — badges/frames/entrances from the
  * app OR private store (group 10). Idempotent: never double-grants a UserItem.
  */
-async function grantLevelRewards(userId: number, level: number): Promise<void> {
+export async function grantLevelRewards(userId: number, level: number): Promise<void> {
   const cfg: any = await prisma.vipLevelConfig.findUnique({ where: { level } });
   if (!cfg) return;
 
@@ -80,6 +80,24 @@ async function grantLevelRewards(userId: number, level: number): Promise<void> {
       update: {},
       create: { userId, itemId: item.id, isActive: false },
     });
+  }
+}
+
+/**
+ * Grant every VIP tier's rewards for the levels in (fromLevel, toLevel].
+ *
+ * Shared by the recharge path and by any manual promotion (dashboard override,
+ * VIP purchase) so that reaching a tier ALWAYS hands over the frame, badge,
+ * entrance and chat bubble configured on it — the owner-reported gap where a
+ * dashboard-set VIP level granted nothing at all.
+ */
+export async function grantVipRewardsForRange(
+  userId: number,
+  fromLevel: number,
+  toLevel: number,
+): Promise<void> {
+  for (let lvl = Math.max(0, fromLevel) + 1; lvl <= toLevel; lvl++) {
+    await grantLevelRewards(userId, lvl);
   }
 }
 
@@ -105,9 +123,7 @@ export async function evaluateVip(
   }
 
   await prisma.user.update({ where: { id: userId }, data: { vipLevel: newLevel } });
-  for (let lvl = user.vipLevel + 1; lvl <= newLevel; lvl++) {
-    await grantLevelRewards(userId, lvl);
-  }
+  await grantVipRewardsForRange(userId, user.vipLevel, newLevel);
 
   try {
     await createNotification({

@@ -6,6 +6,10 @@ import { computeAgencyEarnedCoins } from '../agencies/agency.controller';
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
+import { grantVipRewardsForRange } from '../services/vip.service';
+import { grantLevelRewards as grantLvLevelRewards, notifyLevelUp } from '../services/xp.service';
+import { createNotification } from '../services/notification.service';
+import { setTargetSellBlocked, listTargetSellBlocked } from '../utils/targetLock';
 
 const db = prisma as any;
 
@@ -189,11 +193,43 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
     }
     if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
 
+    // Rewards used to hang off the recharge path only, so a VIP level set here
+    // granted nothing — the tier's frame/badge/entrance/bubble never arrived.
+    // Capture the standing first so we can grant exactly the tiers crossed.
+    const before = await (prisma as any).user.findUnique({
+      where: { id },
+      select: { level: true, vipLevel: true },
+    });
+    if (!before) return fail(res, 404, 'User not found');
+
     const updated = await (prisma as any).user.update({
       where: { id },
       data,
       select: { id: true, name: true, level: true, xp: true, vipLevel: true },
     });
+
+    // Promotions only: lowering a level never strips items the user already owns.
+    if (updated.vipLevel > before.vipLevel) {
+      await grantVipRewardsForRange(id, before.vipLevel, updated.vipLevel).catch((e) =>
+        console.warn('[adminUpdateUserProgression] VIP reward grant failed:', e),
+      );
+      await createNotification({
+        userId: id,
+        type: 'vip_level_up',
+        title: 'ترقية VIP 👑',
+        body: `تهانينا! وصلت إلى مستوى VIP ${updated.vipLevel}`,
+        data: { vipLevel: updated.vipLevel },
+      }).catch(() => {});
+    }
+    if (updated.level > before.level) {
+      for (let lvl = before.level + 1; lvl <= updated.level; lvl++) {
+        await grantLvLevelRewards(id, lvl).catch((e) =>
+          console.warn('[adminUpdateUserProgression] LV reward grant failed:', e),
+        );
+      }
+      await notifyLevelUp(id, updated.level).catch(() => {});
+    }
+
     return ok(res, { data: updated });
   } catch (e: any) {
     if (e?.code === 'P2025') return fail(res, 404, 'User not found');
@@ -640,6 +676,45 @@ export const adminDashboardRoomDetails = async (req: Request, res: Response) => 
       },
     });
   } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * Stop / allow a user selling and converting their target (owner request).
+ * PATCH body: { blocked: boolean }. Blocking is per-account and takes effect
+ * on the next attempt — both the user's own استبدال and their agent's بيع.
+ */
+export const adminDashboardSetTargetLock = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid user id');
+    const blocked = Boolean(req.body?.blocked);
+
+    const user = await (prisma as any).user.findUnique({ where: { id }, select: { id: true } });
+    if (!user) return fail(res, 404, 'User not found');
+
+    const ids = await setTargetSellBlocked(id, blocked);
+    return ok(res, { data: { userId: id, blocked, blockedUserIds: ids } });
+  } catch (e) {
+    console.error('adminDashboardSetTargetLock error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/** Every account currently barred from selling/converting target. */
+export const adminDashboardListTargetLocks = async (_req: Request, res: Response) => {
+  try {
+    const ids = await listTargetSellBlocked();
+    const users = ids.length
+      ? await (prisma as any).user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true, displayId: true },
+        })
+      : [];
+    return ok(res, { data: users });
+  } catch (e) {
+    console.error('adminDashboardListTargetLocks error:', e);
     return fail(res, 500, 'Server error');
   }
 };

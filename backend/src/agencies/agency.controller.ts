@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
+import { isTargetSellBlocked, TARGET_LOCK_MESSAGE } from '../utils/targetLock';
 
 const db = prisma as any;
 
@@ -1334,6 +1335,8 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
         totalDollars,
         totalGifts: Number(totalGifts._sum.quantity ?? 0),
         canSellMemberTarget: !!hostingManager,
+        // Lets the app grey out بيع/استبدال instead of failing the call.
+        targetSellBlocked: await isTargetSellBlocked(userId),
         agentTarget,
         agentTargets,
         // Always true so the client renders the card; `hasGoal` says whether
@@ -1363,6 +1366,10 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
     if (!agencyId || !Number.isFinite(amount) || amount <= 0) {
       return fail(res, 400, 'agencyId و amount مطلوبة');
     }
+
+    // Admin lock on this account's payouts (owner request): a blocked user can
+    // neither convert nor sell target until the lock is lifted.
+    if (await isTargetSellBlocked(userId)) return fail(res, 403, TARGET_LOCK_MESSAGE);
 
     // Owners convert their own earned target too — same rule as getMyTarget.
     const membership = await db.agencyMember.findFirst({
@@ -1435,6 +1442,11 @@ export const sellMemberTarget = async (req: AuthReq, res: Response) => {
       select: { id: true },
     });
     const resolvedUserId = byDisplayId?.id ?? memberUserId;
+
+    // Checked on the RESOLVED id (the input may be a public displayId). The
+    // lock follows the account whose target is cashed out, so blocking a member
+    // also stops their agent selling it on their behalf.
+    if (await isTargetSellBlocked(resolvedUserId)) return fail(res, 403, TARGET_LOCK_MESSAGE);
 
     const membership = await db.agencyMember.findFirst({
       where: { userId: resolvedUserId, agencyId: manager.agencyId, role: { not: 'OWNER' } },
