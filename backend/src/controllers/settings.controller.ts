@@ -6,6 +6,8 @@ export const CP_DEFAULTS: Record<string, string> = {
   cp_per_coin: '1',              // CP earned per coin spent on a CP-eligible gift
   target_coins_per_dollar: '10000', // received-gift coins equal to $1 of target payout
   level_multiplier: '1.5',       // each level threshold = previous * this
+  room_background_price_coins: '1000', // device-uploaded room background: price
+  room_background_days: '20',          // …and how long it lasts before reverting
 };
 
 /** Read all app settings merged over the defaults. */
@@ -29,7 +31,17 @@ export async function getCpConfig() {
 // GET /settings  — public read (clients need target/payout rates to render progress).
 export async function getSettings(_req: Request, res: Response) {
   try {
-    return res.json({ success: true, data: await readSettings() });
+    const s = await readSettings();
+    return res.json({
+      success: true,
+      data: {
+        ...s,
+        // camelCase aliases for the app, which quotes the background price and
+        // term to the room owner before charging them.
+        roomBackgroundPriceCoins: Number(s.room_background_price_coins) || 1000,
+        roomBackgroundDays: Number(s.room_background_days) || 20,
+      },
+    });
   } catch (e) {
     console.error('[settings.getSettings]', e);
     return res.status(500).json({ success: false, message: 'Failed to load settings' });

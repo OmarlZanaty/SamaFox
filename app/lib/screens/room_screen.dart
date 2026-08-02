@@ -2832,15 +2832,33 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     required bool isBackground,
   }) async {
     try {
-      // Uploading a custom background from the device costs 20,000 coins.
+      // A device background is rented, not bought. Price and term come from
+      // the server so the dashboard can retune them without an app release —
+      // the old hardcoded "20,000" quoted a price that no longer applies.
       if (isBackground) {
+        int price = 1000;
+        int days = 20;
+        try {
+          final res = await DioClient.dio.get('/settings');
+          final data = res.data is Map ? (res.data['data'] ?? res.data) : null;
+          if (data is Map) {
+            price = int.tryParse('${data['roomBackgroundPriceCoins'] ?? ''}') ?? price;
+            days = int.tryParse('${data['roomBackgroundDays'] ?? ''}') ?? days;
+          }
+        } catch (_) {
+          // Fall back to the documented defaults; the server charges the real
+          // price either way, this text is only what we promise up front.
+        }
+        final priceText = price.toString().replaceAllMapped(
+            RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
         final ok = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: const Color(0xFF2A1A5E),
             title: const Text('خلفية مخصصة', style: TextStyle(color: Colors.white)),
-            content: const Text('سيتم خصم 20,000 كوينز لرفع خلفية من جهازك. متابعة؟',
-                style: TextStyle(color: Colors.white70)),
+            content: Text(
+                'سيتم خصم $priceText كوينز لرفع خلفية من جهازك، وتستمر $days يوماً. متابعة؟',
+                style: const TextStyle(color: Colors.white70)),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
               ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('متابعة')),

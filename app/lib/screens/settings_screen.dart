@@ -7,19 +7,32 @@ import '../providers/theme_provider.dart';
 import '../services/dio_client.dart';
 import '../services/user_account_service.dart';
 import 'blocked_users_screen.dart';
+import 'broadcast_time_screen.dart';
 import 'edit_profile_screen.dart';
 
 /// What the signed-in account is actually allowed to do with التارجت, so the
 /// settings screen only offers the actions that can succeed.
 class _TargetActions {
-  const _TargetActions({required this.canSell, required this.canConvert});
-  const _TargetActions.none() : canSell = false, canConvert = false;
+  const _TargetActions({
+    required this.canSell,
+    required this.canConvert,
+    this.blocked = false,
+  });
+  const _TargetActions.none()
+      : canSell = false,
+        canConvert = false,
+        blocked = false;
 
   /// Owner/branch of a HOSTING agency → may sell a member's target.
   final bool canSell;
 
   /// Has a hosting membership with target left to convert.
   final bool canConvert;
+
+  /// Admin has stopped this account selling or converting. The tiles stay
+  /// visible but disabled — a hidden tile reads as a bug, a disabled one with
+  /// a reason reads as a decision.
+  final bool blocked;
 }
 
 final _targetActionsProvider = FutureProvider.autoDispose<_TargetActions>((ref) async {
@@ -32,6 +45,7 @@ final _targetActionsProvider = FutureProvider.autoDispose<_TargetActions>((ref) 
       canConvert: items.any(
         (e) => e is Map && ((e['convertibleCoins'] as num?)?.toInt() ?? 0) > 0,
       ),
+      blocked: data['targetSellBlocked'] == true,
     );
   } catch (_) {
     // Older server or offline — hide the section rather than offer a dead tile.
@@ -133,11 +147,34 @@ class SettingsScreen extends ConsumerWidget {
               theme: theme,
               isDark: isDark,
               children: [
+                if (targetActions.blocked)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.lock_outline, size: 16, color: Color(0xFFFF9800)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'تم إيقاف بيع واستبدال التارجيت لحسابك من قِبَل الإدارة',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? Colors.orange.shade200 : Colors.orange.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (targetActions.canSell)
                   _buildSettingsTile(
                     icon: Icons.sell_outlined,
                     title: 'بيع المستهدف',
-                    onTap: () => _showSellTargetDialog(context, theme, isDark),
+                    // Blocked accounts see the tile greyed out rather than
+                    // tapping through to a 403.
+                    onTap: targetActions.blocked
+                        ? null
+                        : () => _showSellTargetDialog(context, theme, isDark),
                     theme: theme,
                     isDark: isDark,
                   ),
@@ -147,10 +184,24 @@ class SettingsScreen extends ConsumerWidget {
                   _buildSettingsTile(
                     icon: Icons.currency_exchange,
                     title: 'تبديل الكوينزات',
-                    onTap: () => _showTargetConvertDialog(context, theme, isDark),
+                    onTap: targetActions.blocked
+                        ? null
+                        : () => _showTargetConvertDialog(context, theme, isDark),
                     theme: theme,
                     isDark: isDark,
                   ),
+                _buildDivider(isDark),
+                // وقت البث — days/hours on air, which feed the target.
+                _buildSettingsTile(
+                  icon: Icons.podcasts,
+                  title: 'وقت البث',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const BroadcastTimeScreen()),
+                  ),
+                  theme: theme,
+                  isDark: isDark,
+                ),
               ],
             ),
             const SizedBox(height: 24),
@@ -376,7 +427,9 @@ class SettingsScreen extends ConsumerWidget {
     required IconData icon,
     required String title,
     Widget? trailing,
-    required VoidCallback onTap,
+    // Nullable so a tile can be shown disabled (e.g. an admin-locked payout)
+    // instead of being hidden, which users read as a missing feature.
+    required VoidCallback? onTap,
     required ThemeData theme,
     required bool isDark,
     bool isDestructive = false,

@@ -19,6 +19,7 @@ import '../services/store_service.dart';
 import '../utils/storage_service.dart';
 import '../widgets/FramedAvatar.dart';
 import '../widgets/level_badge.dart';
+import '../widgets/vip_buy_sheet.dart';
 import '../widgets/glass_bottom_bar.dart';
 import '../widgets/video_preview_widget.dart';
 import '../services/socket_service.dart';
@@ -578,6 +579,42 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     }
   }
 
+  /// Days-left badge for a time-limited product. Turns amber in the last three
+  /// days so an expiry doesn't take the user by surprise.
+  Widget _remainingChip(InventoryItem item) {
+    final days = item.daysRemaining ?? 0;
+    final urgent = days <= 3;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: (urgent ? const Color(0xFFFF9800) : Colors.black).withOpacity(0.82),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: urgent ? const Color(0xFFFFD180) : Colors.white24,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            urgent ? Icons.timer : Icons.schedule,
+            size: 11,
+            color: Colors.white,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            item.remainingLabel,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget buildItem(InventoryItem item) {
     return Container(
       decoration: BoxDecoration(
@@ -592,16 +629,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           children: [
             SizedBox(
               height: 120,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: isVideo(item.fileUrl)
-                    ? VideoPreview(url: item.fileUrl)
-                    : Image.network(
-                  item.previewUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                  const Icon(Icons.image_not_supported),
-                ),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: isVideo(item.fileUrl)
+                          ? VideoPreview(url: item.fileUrl)
+                          : Image.network(
+                        item.previewUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.image_not_supported),
+                      ),
+                    ),
+                  ),
+                  // Rented products say how long is left; permanent ones stay
+                  // unlabelled so the common case adds no visual noise.
+                  if (!item.isPermanent)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: _remainingChip(item),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 8),
@@ -1227,6 +1278,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         title: Text(title, style: const TextStyle(color: Colors.white)),
         content: Text(body, style: const TextStyle(color: Colors.white70, height: 1.6)),
         actions: [
+          // Tiers the dashboard priced can be bought outright instead of
+          // waiting to recharge to the threshold.
+          if (vip)
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                final bought = await VipBuySheet.show(
+                  context,
+                  currentVipLevel: (p['vipLevel'] as num?)?.toInt() ?? 0,
+                  coinsBalance: ref.read(authStateProvider).user?.coinsBalance,
+                );
+                if (bought == true && mounted) {
+                  _progress = null; // stale after a promotion
+                  await ref.read(authStateProvider.notifier).refreshUser();
+                  if (mounted) setState(() {});
+                }
+              },
+              child: const Text('شراء VIP', style: TextStyle(color: Color(0xFF4ECDC4))),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('حسناً', style: TextStyle(color: Color(0xFFFFD700))),
