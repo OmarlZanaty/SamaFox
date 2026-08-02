@@ -29,6 +29,7 @@ model User {
   xp                       Int                       @default(0)
   vipLevel                 Int                       @default(0)
   totalRecharge            Int                       @default(0) // cumulative coins ever charged (drives VIP level)
+  vipExpiresAt             DateTime? // set when VIP was BOUGHT for a term; null = earned by recharge and permanent
   cpPoints                 Int                       @default(0) // account power (CP) accumulated from CP-eligible gifts sent
   age                      Int?                      // user-editable age (#3), shown on profile
   isAdmin                  Boolean                   @default(false)
@@ -112,6 +113,9 @@ model Room {
   description        String?
   coverImageUrl      String?
   backgroundImageUrl String?
+  // A background uploaded from the owner's device is paid for and rented, not
+  // owned: this is when it reverts. null = the free/default background.
+  backgroundExpiresAt DateTime?
   ownerId            Int
   type               String   @default("public")
   passwordHash       String?
@@ -558,6 +562,10 @@ model VipLevelConfig {
   level         Int      @id
   name          String?
   threshold     Int? // cumulative coins required; null => computed
+  // Direct purchase (owner request): coin price for this tier, null = not for
+  // sale. durationDays null = the bought tier never expires.
+  priceCoins    Int?
+  durationDays  Int?
   badgeUrl      String?
   frameItemId   String? // Item.id of the seat frame granted at this level
   rewardItemIds String[] @default([]) // Item.ids (badges/frames/entrances, app or private store) auto-granted at this level (group 10)
@@ -570,6 +578,22 @@ model VipLevelConfig {
 // Admin-configurable LV (المستوى) tiers — the XP counterpart of
 // VipLevelConfig. While this table is EMPTY the built-in sqrt curve in
 // xp.service is used unchanged, so adding the model moves nobody's level.
+// Time a host actually spent broadcasting (on a mic seat), one row per stint.
+// Agents are measured on days-and-hours, so the raw stints are stored and
+// aggregated per calendar day on read rather than kept as a running total.
+model BroadcastSession {
+  id        String    @id @default(cuid())
+  userId    Int
+  roomId    Int
+  startedAt DateTime  @default(now())
+  endedAt   DateTime? // null = still on the mic
+  seconds   Int       @default(0) // filled in when the stint closes
+
+  @@index([userId, startedAt])
+  @@index([roomId, startedAt])
+  @@map("broadcast_sessions")
+}
+
 model LevelConfig {
   level         Int      @id
   name          String?
@@ -615,6 +639,9 @@ model Item {
   assetUrl      String
   priceCoins    Int      @default(0)
   isPurchasable Boolean  @default(true)
+  // How long this product stays equipped once acquired. null = permanent
+  // (أبدي), matching every item that existed before durations were added.
+  durationDays  Int?
   createdAt     DateTime @default(now())
 
   userItems  UserItem[]
@@ -633,6 +660,9 @@ model UserItem {
   userId     Int
   itemId     String
   acquiredAt DateTime @default(now())
+  // Stamped from Item.durationDays at acquisition. null = never expires, so
+  // every pre-existing row keeps working untouched.
+  expiresAt  DateTime?
   isActive   Boolean  @default(false)
   xp         Int      @default(0)
   level      Int      @default(1)

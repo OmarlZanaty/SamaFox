@@ -1488,11 +1488,22 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
       rewardItemIds = existing.map((i) => i.id);
     }
 
+    // Selling a tier (owner request): priceCoins 0/empty takes it off sale,
+    // durationDays 0/empty makes a bought tier permanent.
+    const priceRaw = req.body?.priceCoins;
+    const durRaw = req.body?.durationDays;
+
     const data: any = {
       name: req.body?.name != null ? String(req.body.name) : undefined,
       threshold: req.body?.threshold != null ? Number(req.body.threshold) : undefined,
       badgeUrl: req.body?.badgeUrl != null ? String(req.body.badgeUrl) : undefined,
       frameItemId: req.body?.frameItemId != null ? String(req.body.frameItemId) : undefined,
+      ...(priceRaw !== undefined
+        ? { priceCoins: Number(priceRaw) > 0 ? Math.floor(Number(priceRaw)) : null }
+        : {}),
+      ...(durRaw !== undefined
+        ? { durationDays: Number(durRaw) > 0 ? Math.floor(Number(durRaw)) : null }
+        : {}),
       ...(rewardItemIds !== undefined ? { rewardItemIds } : {}),
     };
     const saved = await (prisma as any).vipLevelConfig.upsert({

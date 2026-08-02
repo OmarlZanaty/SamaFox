@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { isTargetSellBlocked, TARGET_LOCK_MESSAGE } from '../utils/targetLock';
+import { getDailyBroadcast } from '../services/broadcast.service';
 
 const db = prisma as any;
 
@@ -1356,6 +1357,53 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
 // cash out `amount` of ACCUMULATED (uncashed) target as coins at 50%. The
 // target total itself is never reduced by this — only future conversions
 // are capped by what's already been cashed out (convertedTargetCoins).
+/**
+ * وقت البث — days and hours on air, for the caller or (for an agent) for one
+ * of their own members. Agents may only read their own agency's hosts, so this
+ * cannot be used to profile arbitrary users.
+ *
+ * GET /agencies/broadcast-time?userId=&from=&to=
+ */
+export const getBroadcastTime = async (req: AuthReq, res: Response) => {
+  try {
+    const requesterId = req.userId;
+    if (!requesterId) return fail(res, 401, 'Unauthorized');
+
+    const askedFor = Number(req.query?.userId) || requesterId;
+    if (askedFor !== requesterId) {
+      const manager = await findManagerMembership(requesterId, 'HOSTING');
+      if (!manager) return fail(res, 403, 'لست وكيلاً في وكالة استضافة');
+      const membership = await db.agencyMember.findFirst({
+        where: { userId: askedFor, agencyId: manager.agencyId },
+        select: { id: true },
+      });
+      if (!membership) return fail(res, 404, 'هذا المستخدم ليس عضواً في وكالتك');
+    }
+
+    const parseDate = (v: any): Date | undefined => {
+      if (!v) return undefined;
+      const d = new Date(String(v));
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+
+    const days = await getDailyBroadcast(askedFor, parseDate(req.query?.from), parseDate(req.query?.to));
+    const totalSeconds = days.reduce((s, d) => s + d.seconds, 0);
+
+    return res.json({
+      success: true,
+      data: {
+        userId: askedFor,
+        days,
+        totalSeconds,
+        totalHours: Math.round((totalSeconds / 3600) * 10) / 10,
+      },
+    });
+  } catch (e) {
+    console.error('getBroadcastTime error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 export const convertTarget = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId;

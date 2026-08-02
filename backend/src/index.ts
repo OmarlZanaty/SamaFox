@@ -46,6 +46,7 @@ import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
 import vipRoutes from './routes/vip.routes';
 import levelRoutes from './routes/level.routes';
+import { startExpirySweep } from './services/expiry.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import { setGiftIo } from './gifts/controller';
@@ -247,6 +248,9 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 const PORT = Number(process.env.PORT) || 3000;
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 SamaFox API Server is running on port ${PORT}`);
+  // Retire time-limited products, lapsed VIP terms and rented room
+  // backgrounds. Runs on boot and every 15 minutes.
+  startExpirySweep();
 });
 
 export { io };

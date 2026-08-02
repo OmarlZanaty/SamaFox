@@ -2,6 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
 import { getBanState } from '../utils/banGuard';
+import { startBroadcast, endBroadcast } from './broadcast.service';
 import { isBlockedBetween } from '../utils/blockGuard';
 import { createNotification } from './notification.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
@@ -797,6 +798,10 @@ try {
 
   getMuted(rid).set(uid, true); // start muted
 
+  // Airtime starts the moment the seat is held (owner request: أيام وساعات
+  // البث). Fire-and-forget — never let bookkeeping fail a seat claim.
+  startBroadcast(uid, rid).catch(() => {});
+
   const u = await prisma.user.findUnique({
     where: { id: uid },
     select: {
@@ -1128,6 +1133,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
     if (occupant === uid) {
       seats.delete(num);
       getMuted(rid).delete(uid);
+      endBroadcast(uid).catch(() => {}); // left the room while on the mic
 
       io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
 
@@ -1554,6 +1560,7 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
 
   seats.delete(sn);
   getMuted(rid).delete(target); // ✅ FIX
+  endBroadcast(target).catch(() => {}); // pulled off the mic → airtime stops
 
   io.to(`room:${rid}`).emit('seat_released', {
     roomId: rid,
@@ -1784,6 +1791,9 @@ roomSeats.forEach((seats, rid) => {
     }
   }
   if (changed) {
+    // Dropping off the mic — by leaving or by losing the connection — closes
+    // the airtime stint. Safe to call when none is open.
+    endBroadcast(uid).catch(() => {});
     emitRoomState(io, rid).catch(console.error);
     cleanupRoomStateIfEmpty(rid);
   }

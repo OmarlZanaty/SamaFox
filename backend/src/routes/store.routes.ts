@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import prisma from "../utils/prisma";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { createNotification } from "../services/notification.service";
+import { expiryFromDuration } from "../services/expiry.service";
 
 const router = Router();
 
@@ -44,14 +45,36 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
         data: { coinsBalance: { decrement: Number(itemPrice) } },
       });
 
+      // Time-limited products: stamp the term at purchase. Re-buying an
+      // expired item is allowed, and buying one you already own EXTENDS it
+      // rather than failing, which is what a rental is supposed to do.
+      const expiresAt = expiryFromDuration((item as any).durationDays);
       try {
         const userItem = await tx.userItem.create({
-          data: { userId, itemId },
+          data: { userId, itemId, expiresAt } as any,
         });
-        return { ok: true as const, userItemId: userItem.id };
+        return { ok: true as const, userItemId: userItem.id, expiresAt };
       } catch (err: any) {
         if (err?.code === "P2002") {
-          return { ok: false as const, status: 409, message: "تم الشراء مسبقاً" };
+          const existing = await tx.userItem.findUnique({
+            where: { userId_itemId: { userId, itemId } },
+            select: { id: true, expiresAt: true },
+          });
+          // A permanent copy is already owned — nothing to sell them.
+          if (!expiresAt || !existing || (existing as any).expiresAt === null) {
+            return { ok: false as const, status: 409, message: "تم الشراء مسبقاً" };
+          }
+          const base = new Date(
+            Math.max(Date.now(), new Date((existing as any).expiresAt).getTime()),
+          );
+          const extended = new Date(
+            base.getTime() + Number((item as any).durationDays) * 24 * 60 * 60 * 1000,
+          );
+          await tx.userItem.update({
+            where: { id: existing.id },
+            data: { expiresAt: extended } as any,
+          });
+          return { ok: true as const, userItemId: existing.id, expiresAt: extended };
         }
         throw err;
       }
@@ -68,6 +91,7 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
       success: true,
       message: "تم الشراء بنجاح",
       userItemId: purchaseResult.userItemId,
+      expiresAt: purchaseResult.expiresAt ?? null,
     });
   } catch (e) {
     console.error("BUY ERROR:", e);
@@ -175,8 +199,13 @@ router.get("/inventory", async (req: any, res) => {
   try {
     const userId = req.userId!;
 
+    // Expired rentals stop counting as owned the moment they lapse, without
+    // waiting for the 15-minute sweep to delete the row.
     const items = await prisma.userItem.findMany({
-      where: { userId },
+      where: {
+        userId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      } as any,
       include: { item: true },
     });
 
@@ -189,6 +218,9 @@ router.get("/inventory", async (req: any, res) => {
         file_url: i.item.assetUrl,
         preview_url: i.item.assetUrl,
         is_active: i.isActive,
+        // null = أبدي. The app shows the remaining term from this.
+        expires_at: (i as any).expiresAt ?? null,
+        duration_days: (i.item as any).durationDays ?? null,
       })),
     });
   } catch (e) {

@@ -50,6 +50,19 @@ export const createProduct = async (req: Request, res: Response) => {
     // from the in-app store, only grantable by ID from the dashboard.
     const isPrivate = req.body?.is_private === "true" || req.body?.is_private === true;
 
+    // Owner request: every product gets a term. `duration_days` empty, 0 or
+    // "permanent"/"أبدي" means it never expires — the dashboard sends either a
+    // day count or the permanent flag.
+    const rawDuration = req.body?.duration_days;
+    const isPermanent =
+      rawDuration === undefined ||
+      rawDuration === null ||
+      String(rawDuration).trim() === "" ||
+      String(rawDuration).trim() === "0" ||
+      req.body?.is_permanent === "true" ||
+      req.body?.is_permanent === true;
+    const durationDays = isPermanent ? null : Math.max(1, Math.floor(Number(rawDuration) || 0)) || null;
+
     const product = await prisma.item.create({
       data: {
         name,
@@ -58,7 +71,8 @@ export const createProduct = async (req: Request, res: Response) => {
         assetUrl,
         priceCoins: Number(price_coins),
         isPurchasable: !isPrivate,
-      },
+        durationDays,
+      } as any,
     });
 
     return res.json({
@@ -68,6 +82,7 @@ export const createProduct = async (req: Request, res: Response) => {
       price_coins: product.priceCoins,
       file_url: product.assetUrl,
       is_private: !product.isPurchasable,
+      duration_days: (product as any).durationDays ?? null,
     });
   } catch (error) {
     console.error("createProduct error:", error);

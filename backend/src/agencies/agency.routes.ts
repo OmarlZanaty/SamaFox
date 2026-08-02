@@ -23,6 +23,8 @@ router.get('/my-target', authMiddleware, A.getMyTarget);
 router.post('/target/convert', authMiddleware, A.convertTarget);
 router.post('/target/sell', authMiddleware, A.sellMemberTarget);
 router.patch('/members/:userId/target', authMiddleware, A.setMemberTarget);
+// وقت البث — days/hours on air for me, or for a member of my agency.
+router.get('/broadcast-time', authMiddleware, A.getBroadcastTime);
 router.get('/my-membership', authMiddleware, A.getMyMembership);
 router.get('/my-memberships', authMiddleware, A.getMyMemberships);
 router.delete('/members/:userId', authMiddleware, A.removeMember);

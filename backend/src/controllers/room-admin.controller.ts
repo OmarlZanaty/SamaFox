@@ -464,21 +464,38 @@ export async function updateRoomBackground(req: Request, res: Response) {
     const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can change room background' });
 
-    // Custom backgrounds uploaded from the device cost 20,000 coins.
+    // A background uploaded from the device is rented, not bought: the owner
+    // set 1,000 coins for 20 days. Both are AppSettings so the price and the
+    // term can be retuned from the dashboard without a deploy.
     const chargeUpload = req.body.chargeUpload === true || req.body.chargeUpload === 'true';
-    const UPLOAD_BG_COST = 20000;
+    let backgroundExpiresAt: Date | null = null;
     if (chargeUpload) {
+      const [priceRow, daysRow] = await Promise.all([
+        (prisma as any).appSetting.findUnique({ where: { key: 'room_background_price_coins' } }),
+        (prisma as any).appSetting.findUnique({ where: { key: 'room_background_days' } }),
+      ]);
+      const cost = Math.max(0, Math.floor(Number(priceRow?.value ?? 1000)) || 1000);
+      const days = Math.max(1, Math.floor(Number(daysRow?.value ?? 20)) || 20);
+
       const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { coinsBalance: true } });
-      if (!u || u.coinsBalance < UPLOAD_BG_COST) {
-        return res.status(400).json({ error: 'INSUFFICIENT_COINS', message: 'رصيد الكوينز غير كافٍ (تكلفة الخلفية 20,000)' });
+      if (!u || u.coinsBalance < cost) {
+        return res.status(400).json({
+          error: 'INSUFFICIENT_COINS',
+          message: `رصيد الكوينز غير كافٍ (تكلفة الخلفية ${cost.toLocaleString('en-US')})`,
+        });
       }
-      await prisma.user.update({ where: { id: requesterId }, data: { coinsBalance: { decrement: UPLOAD_BG_COST } } });
+      await prisma.user.update({ where: { id: requesterId }, data: { coinsBalance: { decrement: cost } } });
       await prisma.transaction.create({
-        data: { userId: requesterId, type: 'ROOM_BACKGROUND', amountCoins: -UPLOAD_BG_COST, status: 'completed' },
+        data: { userId: requesterId, type: 'ROOM_BACKGROUND', amountCoins: -cost, status: 'completed' },
       });
+      backgroundExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     }
 
-    const room = await prisma.room.update({ where: { id: roomId }, data: { backgroundImageUrl } });
+    const room = await prisma.room.update({
+      where: { id: roomId },
+      // Clearing or setting a free background also clears any running term.
+      data: { backgroundImageUrl, backgroundExpiresAt } as any,
+    });
 
     // Live update for everyone currently in the room.
     io.to(`room:${roomId}`).emit('room_background_changed', { roomId, backgroundImageUrl });
