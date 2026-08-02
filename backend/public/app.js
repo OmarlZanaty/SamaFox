@@ -68,8 +68,37 @@ function navigate(sec) {
 const sidebar       = document.getElementById("sidebar");
 const sidebarToggle = document.getElementById("sidebarToggle");
 
+// Tap-anywhere-outside backdrop. Created once and reused; on desktop the CSS
+// hides it entirely, so it costs nothing there.
+const sidebarBackdrop = document.createElement("div");
+sidebarBackdrop.className = "sidebar-backdrop";
+document.body.appendChild(sidebarBackdrop);
+
+function setSidebar(open) {
+  sidebar.classList.toggle("open", open);
+  sidebarBackdrop.classList.toggle("show", open);
+  // Stop the page scrolling behind the open drawer.
+  document.body.style.overflow = open ? "hidden" : "";
+}
+
 sidebarToggle.addEventListener("click", () => {
-  sidebar.classList.toggle("open");
+  setSidebar(!sidebar.classList.contains("open"));
+});
+
+sidebarBackdrop.addEventListener("click", () => setSidebar(false));
+
+// Picking a section closes the drawer on phones — otherwise it covers the
+// content the user just asked for.
+document.querySelectorAll(".nav-item").forEach((item) => {
+  item.addEventListener("click", () => {
+    if (window.matchMedia("(max-width: 768px)").matches) setSidebar(false);
+  });
+});
+
+// Rotating to landscape / resizing past the breakpoint must not leave the page
+// stuck with a hidden scrollbar.
+window.addEventListener("resize", () => {
+  if (!window.matchMedia("(max-width: 768px)").matches) setSidebar(false);
 });
 
 // ============================================================
@@ -1071,6 +1100,7 @@ function renderProductRow(p, isPrivate) {
     <td>${escapeHtml(p.name)}</td>
     <td><span class="cell-muted">${PRODUCT_TYPE_LABELS[p.type] || p.type}</span></td>
     <td><strong>${p.price_coins}</strong></td>
+    <td>${p.duration_days ? `${p.duration_days} يوم` : '<span class="cell-muted">أبدي</span>'}</td>
     <td>${preview}</td>
     <td>
       <div class="td-actions">
@@ -1102,7 +1132,7 @@ window.loadProducts = async function () {
       }
     }
     if (privBody && !privBody.children.length) {
-      privBody.innerHTML = '<tr><td colspan="6" class="cell-muted">لا توجد منتجات خاصة</td></tr>';
+      privBody.innerHTML = '<tr><td colspan="7" class="cell-muted">لا توجد منتجات خاصة</td></tr>';
     }
   } catch (e) {
     showToast("❌ خطأ: " + e.message);
@@ -1165,17 +1195,43 @@ window.deleteProduct = async function (id) {
   }
 };
 
+// Duration chips: one tap fills the day box and clears أبدي.
+window.setProductDuration = function (days) {
+  const box = document.getElementById("p_duration");
+  const perm = document.getElementById("p_permanent");
+  if (box) box.value = days;
+  if (perm) perm.checked = false;
+  if (box) box.disabled = false;
+};
+
+// أبدي and a day count are mutually exclusive — ticking أبدي empties the box.
+window.togglePermanent = function () {
+  const box = document.getElementById("p_duration");
+  const perm = document.getElementById("p_permanent");
+  if (!box || !perm) return;
+  box.disabled = perm.checked;
+  if (perm.checked) box.value = "";
+};
+
 window.addProduct = async function () {
   try {
     const fileInput = document.getElementById("p_file");
     const file = fileInput.files[0];
     if (!file) return showToast("❗ اختر ملفاً أولاً");
 
+    const permanent = document.getElementById("p_permanent")?.checked;
+    const durationDays = document.getElementById("p_duration")?.value;
+    if (!permanent && !durationDays) {
+      return showToast("❗ حدد مدة المنتج بالأيام أو اختر أبدي");
+    }
+
     const formData = new FormData();
     formData.append("name",        document.getElementById("p_name").value);
     formData.append("type",        document.getElementById("p_type").value);
     formData.append("price_coins", document.getElementById("p_price").value);
     formData.append("is_private",  document.getElementById("p_private")?.checked ? "true" : "false");
+    formData.append("is_permanent", permanent ? "true" : "false");
+    formData.append("duration_days", permanent ? "" : String(durationDays || ""));
     formData.append("file", file);
 
     await apiFetch("/admin-products/products", {
@@ -1877,6 +1933,10 @@ window.loadVipLevels = async function () {
       <td><strong>VIP ${level}</strong></td>
       <td><input id="vip_name_${level}" class="form-input" style="max-width:140px" value="${escapeHtml(c.name || "VIP " + level)}" /></td>
       <td><input id="vip_threshold_${level}" type="number" class="form-input" style="max-width:160px" value="${c.threshold ?? level * VIP_BASE_STEP}" /></td>
+      <td><input id="vip_price_${level}" type="number" min="0" class="form-input" style="max-width:140px"
+                 placeholder="لا يُباع" value="${c.priceCoins ?? ""}" title="سعر شراء المستوى بالكوينز — فارغ = غير معروض للبيع" /></td>
+      <td><input id="vip_duration_${level}" type="number" min="0" class="form-input" style="max-width:110px"
+                 placeholder="أبدي" value="${c.durationDays ?? ""}" title="مدة المستوى المُشترى بالأيام — فارغ = أبدي" /></td>
       <td>
         <div style="display:flex;align-items:center;gap:8px;">
           <img id="vip_badge_preview_${level}" src="${badge}" width="40" height="40"
@@ -1902,13 +1962,17 @@ window.addVipTier = async function () {
     const threshold = Number(document.getElementById("newVipThreshold").value);
     if (!level || level < 1 || level > 100) return showToast("❗ رقم المستوى يجب أن يكون 1-100");
     if (!threshold || threshold < 1) return showToast("❗ أدخل عدد الكوينز المطلوبة");
+    const priceCoins = Number(document.getElementById("newVipPrice")?.value || 0);
+    const durationDays = Number(document.getElementById("newVipDuration")?.value || 0);
     await apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"], {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ level, name: `VIP ${level}`, threshold }),
+      body: JSON.stringify({ level, name: `VIP ${level}`, threshold, priceCoins, durationDays }),
     });
     document.getElementById("newVipLevel").value = "";
     document.getElementById("newVipThreshold").value = "";
+    if (document.getElementById("newVipPrice")) document.getElementById("newVipPrice").value = "";
+    if (document.getElementById("newVipDuration")) document.getElementById("newVipDuration").value = "";
     showToast(`✓ تم إضافة مستوى VIP ${level}`);
     await loadVipLevels();
   } catch (e) {
@@ -1987,6 +2051,10 @@ window.saveVipLevel = async function (level) {
       threshold: Number(document.getElementById(`vip_threshold_${level}`).value || 0),
       badgeUrl: document.getElementById(`vip_badge_url_${level}`).value || undefined,
       frameItemId: document.getElementById(`vip_frame_${level}`).value || undefined,
+      // Empty price = off sale, empty duration = the bought tier never expires.
+      // Sent as 0 so the server stores null rather than leaving the old value.
+      priceCoins: Number(document.getElementById(`vip_price_${level}`)?.value || 0),
+      durationDays: Number(document.getElementById(`vip_duration_${level}`)?.value || 0),
       // Group 10: the multi-item grant list picked in the rewards modal.
       rewardItemIds: [...(vipRewardSelections[level] || new Set())],
     };

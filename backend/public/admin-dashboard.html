@@ -6,7 +6,7 @@
   <title>لوحة تحكم سمافوكس</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20260606-1" />
+  <link rel="stylesheet" href="style.css?v=20260802-mobile" />
 </head>
 <body>
 
@@ -459,6 +459,19 @@
           </select>
           <input id="p_price" type="number" class="form-input" placeholder="السعر (coins)" />
         </div>
+        <!-- مدة المنتج: عدد الأيام أو أبدي -->
+        <div class="form-row">
+          <input id="p_duration" type="number" min="1" class="form-input" placeholder="المدة بالأيام (7 / 15 / 20 / 30)" />
+          <div class="chip-row">
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(7)">7 أيام</button>
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(15)">15 يوم</button>
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(20)">20 يوم</button>
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(30)">30 يوم</button>
+          </div>
+          <label class="modal-sub" style="display:flex;align-items:center;gap:6px">
+            <input id="p_permanent" type="checkbox" onchange="togglePermanent()" /> أبدي (بدون مدة)
+          </label>
+        </div>
         <div class="form-row">
           <label class="file-label" id="fileLabel">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -485,6 +498,7 @@
                 <th>الاسم</th>
                 <th>النوع</th>
                 <th>السعر</th>
+                <th>المدة</th>
                 <th>Preview</th>
                 <th>إجراءات</th>
               </tr>
@@ -504,6 +518,7 @@
                 <th>الاسم</th>
                 <th>النوع</th>
                 <th>السعر</th>
+                <th>المدة</th>
                 <th>Preview</th>
                 <th>إجراءات</th>
               </tr>
@@ -542,6 +557,8 @@
         <div class="section-actions">
           <input id="newVipLevel" type="number" min="1" max="100" class="form-input form-input--sm" placeholder="رقم المستوى الجديد" />
           <input id="newVipThreshold" type="number" min="1" class="form-input form-input--sm" placeholder="الكوينز المطلوبة" />
+          <input id="newVipPrice" type="number" min="0" class="form-input form-input--sm" placeholder="سعر البيع (كوينز) — اتركه فارغاً لعدم البيع" />
+          <input id="newVipDuration" type="number" min="0" class="form-input form-input--sm" placeholder="مدة الشراء بالأيام — فارغ = أبدي" />
           <button class="btn btn-primary" onclick="addVipTier()">+ إضافة مستوى</button>
           <button class="btn btn-outline" onclick="loadVipLevels()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -554,7 +571,7 @@
         <table id="vipTable">
           <thead>
             <tr>
-              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>الشارة</th><th>إطار المقعد</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>سعر البيع</th><th>المدة</th><th>الشارة</th><th>إطار المقعد</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -1061,6 +1078,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260731-giftvideo"></script>
+<script src="app.js?v=20260802-mobile"></script>
 </body>
 </html>
