@@ -426,12 +426,22 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
       if (topup.status !== 'pending') return { ok: false as const, status: 409, message: 'Already reviewed' };
 
       if (status === 'approved') {
-        await tx.chargingAgency.update({
+        // Credited to the AGENT'S WALLET, not the agency pot — same rule as
+        // adminTopupAgency below: the agent charges, plays and gifts from one
+        // balance ("كوينزات وكيل الشحن تكون في محفظته الشخصيه").
+        const ownerRow = await tx.agencyMember.findFirst({
+          where: { agencyId: topup.agencyId, role: 'OWNER' },
+          select: { userId: true },
+        });
+        const agency = await tx.chargingAgency.update({
           where: { id: topup.agencyId },
-          data: {
-            balanceCoins: { increment: topup.amount },
-            totalTopupCoins: { increment: topup.amount },
-          },
+          data: { totalTopupCoins: { increment: topup.amount } },
+          select: { userId: true },
+        });
+        const ownerId = ownerRow?.userId ?? agency.userId;
+        await tx.user.update({
+          where: { id: ownerId },
+          data: { coinsBalance: { increment: topup.amount } },
         });
       }
 
@@ -869,6 +879,10 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
           ...serialize(a),
           earnedCoins: String(earned),
           dollars: await computeDollarsFromCoins(BigInt(earned)),
+          // The dashboard's "رصيد المحفظة" column. ChargingAgency.balanceCoins
+          // is a retired pot (charging is paid from the agent's own wallet), so
+          // report the wallet the admin actually tops up.
+          balanceCoins: String(a.user?.coinsBalance ?? 0),
         };
       }),
     );
@@ -1118,6 +1132,24 @@ export const adminListAssignedAgencies = async (req: AdminReq, res: Response) =>
   }
 };
 
+/**
+ * The agent who owns an agency. The OWNER member row is the source of truth
+ * (ownership can be transferred), with `ChargingAgency.userId` as the fallback
+ * for an agency that has no member rows yet.
+ */
+const resolveAgencyOwnerId = async (agencyId: number): Promise<number | null> => {
+  const ownerRow = await db.agencyMember.findFirst({
+    where: { agencyId, role: 'OWNER' },
+    select: { userId: true },
+  });
+  if (ownerRow) return ownerRow.userId;
+  const agency = await db.chargingAgency.findUnique({
+    where: { id: agencyId },
+    select: { userId: true },
+  });
+  return agency?.userId ?? null;
+};
+
 export const adminTopupAgency = async (req: AdminReq, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -1128,16 +1160,31 @@ export const adminTopupAgency = async (req: AdminReq, res: Response) => {
       return fail(res, 400, 'Positive amount required');
     }
 
-    const agency = await db.chargingAgency.update({
-      where: { id },
-      data: {
-        balanceCoins: { increment: numericAmount },
-        totalTopupCoins: { increment: numericAmount },
-      },
-    });
+    // 2026-08 (client complaint "كوينزات وكيل الشحن منفصله عن كوينزات المحفظه"):
+    // the top-up used to land in ChargingAgency.balanceCoins, a pot the agent
+    // could only ever spend on charging. Charging now comes out of his own
+    // wallet, so the top-up goes there too — the same coins he plays and gifts
+    // with. totalTopupCoins stays as the lifetime "how much was he given" stat.
+    const ownerId = await resolveAgencyOwnerId(id);
+    if (!ownerId) return fail(res, 404, 'Agency not found');
 
-    return ok(res, { data: { balanceCoins: String(agency.balanceCoins) } });
-  } catch {
+    const [, owner] = await db.$transaction([
+      db.chargingAgency.update({
+        where: { id },
+        data: { totalTopupCoins: { increment: numericAmount } },
+      }),
+      db.user.update({
+        where: { id: ownerId },
+        data: { coinsBalance: { increment: numericAmount } },
+        select: { coinsBalance: true },
+      }),
+    ]);
+
+    // Key kept as `balanceCoins` — the dashboard reads it to print the new
+    // balance, and it is now the agent's wallet.
+    return ok(res, { data: { balanceCoins: String(owner.coinsBalance) } });
+  } catch (e) {
+    console.error('adminTopupAgency error:', e);
     return fail(res, 500, 'Server error');
   }
 };

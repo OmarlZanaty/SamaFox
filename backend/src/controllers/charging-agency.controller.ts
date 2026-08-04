@@ -159,23 +159,31 @@ export const createChargingAgency = async (req: Request, res: Response) => {
 
 /**
  * GET /api/v1/charging-agencies/my/balance
- * Agent wallet balance (approved agency only)
+ * The coins the agent can charge with. That is his OWN wallet now (client rule
+ * 2026-08 — no separate agency pot), so a فرع gets his real spendable balance
+ * here instead of the 0 he saw when this only looked at agencies he owns.
  */
 export const myAgencyBalance = async (req: any, res: Response) => {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
+  const me = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { coinsBalance: true },
+  });
+  const balanceCoins = String(me?.coinsBalance ?? 0);
+
   // Scoped to type:'CHARGING' — a user who also owns a HOSTING agency must
   // not have that one picked up here (dual-owner bug, see agency.controller.ts).
   const agency = await prisma.chargingAgency.findFirst({
     where: { userId, type: 'CHARGING' }, // ✅ remove approved filter
-    select: { id: true, balanceCoins: true, agencyName: true, status: true },
+    select: { id: true, agencyName: true, status: true },
     orderBy: { createdAt: 'desc' },
   });
 
-  if (!agency) return res.json({ balanceCoins: "0", status: 'none' });
+  if (!agency) return res.json({ balanceCoins, status: 'none' });
 
-  return res.json({ ...agency, balanceCoins: agency.balanceCoins.toString() });
+  return res.json({ ...agency, balanceCoins });
 };
 
 
