@@ -189,17 +189,38 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
 
     if (!membership) return fail(res, 403, 'لست وكيل أو فرع في وكالة شحن معتمدة');
 
+    if (targetUserId === senderId) return fail(res, 400, 'لا يمكنك شحن نفسك');
+
+    const target = await db.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
+    if (!target) return fail(res, 404, 'المستخدم غير موجود');
+
     try {
       await db.$transaction(async (tx: any) => {
-        const agency = await tx.chargingAgency.findUnique({ where: { id: membership.agencyId } });
-        if (!agency || agency.balanceCoins < coins) {
+        // The charge comes out of the AGENT'S OWN WALLET. The agency used to
+        // hold its own separate coin pot (chargingAgency.balanceCoins) that only
+        // an admin could fill, so every send failed on an empty agency wallet —
+        // "تم الشحن لكنه غير فعال". The agency wallet is no longer a funding
+        // source; totalSentCoins is kept purely as a stat.
+        //
+        // updateMany with a `gte` guard does the check and the debit in one
+        // statement, so two concurrent charges can't both pass a read-then-write
+        // check and push the agent negative.
+        const debited = await tx.user.updateMany({
+          where: { id: senderId, coinsBalance: { gte: coins } },
+          data: { coinsBalance: { decrement: coins } },
+        });
+        if (debited.count === 0) {
           // Carry the balance so the caller can be told how short they are.
-          throw new Error(`INSUFFICIENT_AGENCY_BALANCE:${agency?.balanceCoins ?? 0}`);
+          const wallet = await tx.user.findUnique({
+            where: { id: senderId },
+            select: { coinsBalance: true },
+          });
+          throw new Error(`INSUFFICIENT_WALLET_BALANCE:${wallet?.coinsBalance ?? 0}`);
         }
 
         await tx.chargingAgency.update({
-          where: { id: agency.id },
-          data: { balanceCoins: { decrement: coins }, totalSentCoins: { increment: coins } },
+          where: { id: membership.agencyId },
+          data: { totalSentCoins: { increment: coins } },
         });
 
         await tx.user.update({
@@ -241,9 +262,9 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
         console.warn('agency topup notification failed:', e);
       }
     } catch (e: any) {
-      if (String(e?.message ?? '').startsWith('INSUFFICIENT_AGENCY_BALANCE')) {
+      if (String(e?.message ?? '').startsWith('INSUFFICIENT_WALLET_BALANCE')) {
         const balance = String(e.message).split(':')[1] ?? '0';
-        return fail(res, 400, `رصيد الوكالة غير كافٍ — المتاح ${balance} كوينز`);
+        return fail(res, 400, `رصيد محفظتك غير كافٍ — المتاح ${balance} كوينز`);
       }
       throw e;
     }
@@ -611,7 +632,11 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
           },
           _sum: { totalCoins: true },
         });
-        const earnedCoins = Number(earned._sum.totalCoins ?? 0);
+        // The owner's commission (#4) is part of HIS target, not his wallet —
+        // add it here so the agent row shows what he actually earned. 0 for
+        // every non-owner row.
+        const earnedCoins =
+          Number(earned._sum.totalCoins ?? 0) + Number(member.commissionTargetCoins ?? 0n);
         const goal = Number(member.targetGoalCoins ?? 0n);
         return {
           memberId: member.id,
@@ -954,6 +979,9 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
       // agency's entire history — and make them owe commission on all of it.
       // convertedTargetCoins is cleared for the same reason: it caps
       // conversions against earnings that no longer count.
+      // commissionTargetCoins goes with it — it is the OWNER's cut, and the
+      // reset above also wipes the conversion cap that already paid it out,
+      // so keeping it would let the ex-owner cash the same commission twice.
       await tx.agencyMember.update({
         where: { id: m.id },
         data: {
@@ -961,6 +989,7 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
           joinedAt: new Date(),
           targetGoalCoins: BigInt(0),
           convertedTargetCoins: BigInt(0),
+          commissionTargetCoins: BigInt(0),
         },
       });
       // New owner takes the OWNER seat. An existing member being promoted
@@ -969,6 +998,13 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
         where: { agencyId_userId: { agencyId: m.agencyId, userId: toUserId } },
         update: { role: 'OWNER' },
         create: { agencyId: m.agencyId, userId: toUserId, role: 'OWNER' },
+      });
+      // The per-source commission ledger belongs to the accrual that was just
+      // wiped above. Leaving it would make the new owner's fresh (small)
+      // commission look fully locked behind the old owner's history.
+      await tx.agencyMember.updateMany({
+        where: { agencyId: m.agencyId },
+        data: { commissionGeneratedCoins: BigInt(0) },
       });
     });
 
@@ -1245,6 +1281,78 @@ async function coinsToDollars(coins: number): Promise<number> {
 // GET /agencies/my-target — the logged-in user's own target(s) as a host.
 // earned = gifts received since joining (excluding self-gifts); the goal is
 // set per-membership by the agency owner; remaining = goal - earned.
+/**
+ * Split an OWNER row's accumulated commission (#4) into what the وكيل may cash
+ * out now and what is still held back.
+ *
+ * Client rule (2026-08, "العموله لا تذهب حتي يكمل التارجيت المحدد"): the
+ * commission is COUNTED on every gift his members receive — self-gifts, and
+ * gifts sent to the وكيل himself, included — but it only becomes payable once
+ * the member who generated it completes their target:
+ *   • a host      → his own member target (`targetGoalCoins`, set on the
+ *                   member from the panel: PATCH /agencies/members/:id/target)
+ *   • the وكيل    → the agency target set from the dashboard
+ *                   (`ChargingAgency.targetCoins`, PATCH /agencies/:id/target)
+ *
+ * A member with no target set (0) has nothing to complete, so their share is
+ * never held back. Commission accrued before this rule existed has no source
+ * attribution, which is why `locked` is derived from the per-source rows and
+ * subtracted — legacy amounts stay releasable instead of freezing.
+ */
+export const computeCommissionSplit = async (owner: {
+  agencyId: number;
+  userId: number;
+  commissionTargetCoins?: bigint | number | null;
+}): Promise<{ accrued: number; locked: number; released: number }> => {
+  const accrued = Number(owner.commissionTargetCoins ?? 0);
+  if (accrued <= 0) return { accrued: 0, locked: 0, released: 0 };
+
+  const sources = await db.agencyMember.findMany({
+    where: { agencyId: owner.agencyId, commissionGeneratedCoins: { gt: 0 } },
+    select: {
+      userId: true,
+      joinedAt: true,
+      targetGoalCoins: true,
+      commissionGeneratedCoins: true,
+    },
+  });
+
+  let locked = 0;
+  for (const src of sources as any[]) {
+    const generated = Number(src.commissionGeneratedCoins ?? 0n);
+    if (generated <= 0) continue;
+
+    let goal: number;
+    let earned = 0;
+    if (src.userId === owner.userId) {
+      const agency = await db.chargingAgency.findUnique({
+        where: { id: owner.agencyId },
+        select: { targetCoins: true },
+      });
+      goal = Number(agency?.targetCoins ?? 0n);
+      if (goal > 0) earned = await computeAgencyEarnedCoins(owner.agencyId);
+    } else {
+      goal = Number(src.targetGoalCoins ?? 0n);
+      if (goal > 0) {
+        const agg = await db.giftTransaction.aggregate({
+          where: {
+            recipientId: src.userId,
+            senderId: { not: src.userId },
+            createdAt: { gte: src.joinedAt },
+          },
+          _sum: { totalCoins: true },
+        });
+        earned = Number(agg._sum.totalCoins ?? 0);
+      }
+    }
+
+    if (goal > 0 && earned < goal) locked += generated;
+  }
+
+  locked = Math.min(locked, accrued);
+  return { accrued, locked, released: accrued - locked };
+};
+
 export const getMyTarget = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId;
@@ -1269,7 +1377,17 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
           },
           _sum: { totalCoins: true },
         });
-        const earnedCoins = Number(earned._sum.totalCoins ?? 0);
+        // Owner rows carry their accumulated agency commission (#4) as target,
+        // so it shows in التارجت and is convertible at the same 50% rate.
+        // The commission is always COUNTED here; the part whose source member
+        // hasn't completed their target yet is held out of `convertibleCoins`
+        // only (see computeCommissionSplit).
+        const commission = await computeCommissionSplit({
+          agencyId: mm.agencyId,
+          userId,
+          commissionTargetCoins: mm.commissionTargetCoins,
+        });
+        const earnedCoins = Number(earned._sum.totalCoins ?? 0) + commission.accrued;
         const goal = Number(mm.targetGoalCoins ?? 0n);
         const converted = Number(mm.convertedTargetCoins ?? 0n);
         return {
@@ -1281,7 +1399,12 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
           remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
           earnedDollars: await coinsToDollars(earnedCoins),
           convertedTargetCoins: converted,
-          convertibleCoins: Math.max(0, earnedCoins - converted),
+          convertibleCoins: Math.max(0, earnedCoins - converted - commission.locked),
+          // Commission breakdown, so the panel can show "محسوبة" vs "معلقة"
+          // instead of silently offering less than the target implies.
+          commissionCoins: commission.accrued,
+          commissionLockedCoins: commission.locked,
+          commissionReleasedCoins: commission.released,
         };
       }),
     );
@@ -1429,11 +1552,28 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
       where: { recipientId: userId, senderId: { not: userId }, createdAt: { gte: membership.joinedAt } },
       _sum: { totalCoins: true },
     });
-    const earnedCoins = Number(earned._sum.totalCoins ?? 0);
+    // Same total the target card shows: gifts received since joining plus, for
+    // an owner, the commission his hosts generated (#4) — which is target, not
+    // wallet coins, so this conversion is the only way it becomes spendable.
+    const commission = await computeCommissionSplit({
+      agencyId,
+      userId,
+      commissionTargetCoins: membership.commissionTargetCoins,
+    });
+    const earnedCoins = Number(earned._sum.totalCoins ?? 0) + commission.accrued;
     const converted = Number(membership.convertedTargetCoins ?? 0n);
-    const available = Math.max(0, earnedCoins - converted);
+    // The held-back commission is counted in the target but not payable until
+    // the member who generated it completes their own target.
+    const available = Math.max(0, earnedCoins - converted - commission.locked);
 
     if (amount > available) {
+      if (commission.locked > 0) {
+        return fail(
+          res,
+          400,
+          `أقصى مبلغ متاح للتبديل الآن هو ${available} كوينز — ${commission.locked} كوينز عمولة محجوزة حتى يكمل أصحابها التارجت المحدد`,
+        );
+      }
       return fail(res, 400, `أقصى مبلغ متاح للتبديل الآن هو ${available} كوينز`);
     }
 

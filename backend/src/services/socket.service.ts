@@ -77,6 +77,98 @@ function getAdminMutedSeats(roomId: number): Set<number> {
   return roomAdminMutedSeats.get(roomId)!;
 }
 
+// ============================================================
+// ROOM MUSIC (owner / room admin only)
+// ============================================================
+// The server is the single source of truth for what the room is listening to.
+// It does NOT stream audio: it relays "track N of this queue, playing, at
+// position P as of time T" and every client plays the same file from /uploads,
+// so a late joiner drops into the song where it already is.
+
+interface RoomMusicTrack {
+  id: number;
+  title: string;
+  url: string;
+}
+
+interface RoomMusicState {
+  hostId: number;
+  hostName: string;
+  tracks: RoomMusicTrack[];
+  index: number;
+  isPlaying: boolean;
+  /** Playback position at `updatedAt`; add the elapsed time while playing. */
+  positionMs: number;
+  updatedAt: number;
+}
+
+const roomMusic = new Map<number, RoomMusicState>();
+
+function sanitizeTracks(raw: any): RoomMusicTrack[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RoomMusicTrack[] = [];
+  for (const t of raw.slice(0, 100)) {
+    const url = (t?.url ?? '').toString().trim();
+    if (!url) continue;
+    out.push({
+      id: Number(t?.id) || 0,
+      title: (t?.title ?? 'أغنية').toString().slice(0, 120),
+      url,
+    });
+  }
+  return out;
+}
+
+function buildMusicPayload(rid: number) {
+  const st = roomMusic.get(rid);
+  if (!st || st.tracks.length === 0) {
+    return { roomId: rid, active: false, serverTime: Date.now() };
+  }
+  const elapsed = st.isPlaying ? Date.now() - st.updatedAt : 0;
+  return {
+    roomId: rid,
+    active: true,
+    hostId: st.hostId,
+    hostName: st.hostName,
+    tracks: st.tracks,
+    index: st.index,
+    track: st.tracks[st.index] ?? null,
+    isPlaying: st.isPlaying,
+    positionMs: Math.max(0, st.positionMs + elapsed),
+    serverTime: Date.now(),
+  };
+}
+
+function broadcastMusic(io: Server, rid: number) {
+  io.to(`room:${rid}`).emit('room_music_state', buildMusicPayload(rid));
+}
+
+/** Owner / room admin / supervisor / platform super admin — same gate as the
+ *  other room settings. Everyone else can listen but not control. */
+async function canControlMusic(rid: number, uid: number): Promise<boolean> {
+  await populateAdmins(rid);
+  return getAdmins(rid).has(uid);
+}
+
+/** Freeze the current position so a pause/skip starts from the right place. */
+function settleMusicPosition(st: RoomMusicState) {
+  if (st.isPlaying) {
+    st.positionMs = Math.max(0, st.positionMs + (Date.now() - st.updatedAt));
+  }
+  st.updatedAt = Date.now();
+}
+
+/** Nobody left in the room → drop the queue instead of leaking it forever. */
+async function clearMusicIfRoomEmpty(io: Server, rid: number) {
+  if (!roomMusic.has(rid)) return;
+  try {
+    const sockets = await io.in(`room:${rid}`).fetchSockets();
+    if (sockets.length === 0) roomMusic.delete(rid);
+  } catch (e) {
+    console.warn('[music] room-empty check failed:', e);
+  }
+}
+
 // ✅ Track voice participants per room (GLOBAL ONLY)
 const voiceUsers = new Map<number, Set<number>>();
 const getVoiceSet = (roomId: number) => {
@@ -120,6 +212,10 @@ export async function kickBannedUser(
     _io.to(`user:${userId}`).emit('user_banned', { userId, reason, banExpiresAt });
     const sockets = await _io.in(`user:${userId}`).fetchSockets();
     for (const s of sockets) s.disconnect(true);
+    // A ban is not a dropped connection: skip the disconnect grace window and
+    // free their seat / room slot right now.
+    cancelPendingRelease(userId);
+    releaseUserFromRooms(_io, userId);
   } catch (e) {
     console.warn('[kickBannedUser] failed:', e);
   }
@@ -373,6 +469,97 @@ async function buildRoomUsers(io: Server, rid: number) {
   }));
 }
 
+// ── Disconnect grace window ────────────────────────────────────────────────
+// A dropped socket is NOT the same thing as leaving the room. Phones suspend
+// the app on screen lock / app switch and the OS kills the websocket within
+// seconds, so tearing the seat down on `disconnect` is what made users fall
+// out of rooms they never left. Instead we hold their seat / room membership
+// for a grace window and only release it if they don't come back.
+// An explicit `leave_room` still releases everything immediately.
+const DISCONNECT_GRACE_MS = Number(process.env.ROOM_DISCONNECT_GRACE_MS ?? 120_000);
+const pendingRoomRelease = new Map<number, NodeJS.Timeout>();
+
+function cancelPendingRelease(uid: number) {
+  const t = pendingRoomRelease.get(uid);
+  if (!t) return;
+  clearTimeout(t);
+  pendingRoomRelease.delete(uid);
+  console.log('[disconnect grace cancelled]', { uid });
+}
+
+/** Is the user back inside the room we're still holding for them? */
+async function hasLiveRoomSocket(io: Server, uid: number): Promise<boolean> {
+  const rid = userCurrentRoom.get(uid);
+  if (!rid) return false;
+  const sockets = await io.in(`room:${rid}`).fetchSockets();
+  return sockets.some((s) => Number((s.data as any)?.userId) === uid);
+}
+
+/**
+ * Release a user from every room they still hold state in: voice, mic queue
+ * and seats. Runs when the grace window expires without them reconnecting.
+ */
+function releaseUserFromRooms(io: Server, uid: number) {
+  const lastRoom = userCurrentRoom.get(uid) ?? null;
+  userCurrentRoom.delete(uid); // #25/#31: no longer in any room
+  const notifiedRooms = new Set<number>();
+
+  // voice cleanup
+  for (const [rid, set] of voiceUsers.entries()) {
+    if (set.delete(uid)) {
+      io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
+      emitVoiceUsers(io, rid).catch(console.error);
+    }
+  }
+
+  // remove from all queues
+  roomMicQueue.forEach((q, rid) => {
+    if (q.includes(uid)) {
+      const nq = q.filter((id) => id !== uid);
+      roomMicQueue.set(rid, nq);
+      io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: nq });
+    }
+  });
+
+  // remove from all seats
+  roomSeats.forEach((seats, rid) => {
+    let changed = false;
+    for (const [num, occupant] of seats.entries()) {
+      if (occupant === uid) {
+        seats.delete(num);
+        roomMuted.get(rid)?.delete(uid);
+        io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
+        io.to(`room:${rid}`).emit('user_left', { userId: uid, roomId: rid });
+        notifiedRooms.add(rid);
+        changed = true;
+      }
+    }
+    if (changed) {
+      // Dropping off the mic — by leaving or by losing the connection — closes
+      // the airtime stint. Safe to call when none is open.
+      endBroadcast(uid).catch(() => {});
+      emitRoomState(io, rid).catch(console.error);
+      cleanupRoomStateIfEmpty(rid);
+    }
+  });
+
+  // A listener (no seat) still has to disappear from the room's member list.
+  if (lastRoom && !notifiedRooms.has(lastRoom)) {
+    io.to(`room:${lastRoom}`).emit('user_left', { userId: uid, roomId: lastRoom });
+    cleanupRoomStateIfEmpty(lastRoom);
+  }
+
+  // They really are gone now — a rejoin is a fresh entrance again.
+  for (const key of recentRoomEntries.keys()) {
+    if (key.endsWith(`:${uid}`)) recentRoomEntries.delete(key);
+  }
+
+  // Dropped connection emptying the room stops the music too.
+  if (lastRoom) clearMusicIfRoomEmpty(io, lastRoom).catch(() => {});
+
+  console.log('[room release]', { uid, lastRoom });
+}
+
 let _io: Server | null = null;
 
 export function invalidateAdminCacheAndRefresh(roomId: number) {
@@ -622,6 +809,171 @@ socket.on('set_seat_count', async ({ roomId, seatCount }: any) => {
     console.error('[socket.set_seat_count] handler error:', err);
     socket.emit('error', { event: 'set_seat_count', message: 'Internal error' });
   }
+});
+
+// ============================================================
+// ROOM MUSIC CONTROLS — owner / room admin only
+// ============================================================
+// Every handler ends in a `room_music_state` broadcast, so the control bar and
+// the audio of every listener are driven by exactly one payload shape.
+
+/** Start (or restart) the queue. `tracks` is the controller's playlist. */
+socket.on('music_play', async ({ roomId, tracks, index, positionMs }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    if (!(await canControlMusic(rid, uid))) {
+      socket.emit('music_denied', { roomId: rid, message: 'تشغيل الموسيقى متاح لصاحب الغرفة والمشرفين فقط' });
+      return;
+    }
+
+    const incoming = sanitizeTracks(tracks);
+    const existing = roomMusic.get(rid);
+    const queue = incoming.length > 0 ? incoming : existing?.tracks ?? [];
+    if (queue.length === 0) return;
+
+    const rawIndex = Number(index);
+    const requested = Number.isFinite(rawIndex) ? Math.trunc(rawIndex) : existing?.index ?? 0;
+    const safeIndex = Math.min(Math.max(0, requested), queue.length - 1);
+    const startAt = Math.max(0, Number(positionMs) || 0);
+
+    const user = await prisma.user.findUnique({ where: { id: uid }, select: { name: true } });
+
+    roomMusic.set(rid, {
+      hostId: uid,
+      hostName: user?.name ?? 'مستخدم',
+      tracks: queue,
+      index: safeIndex,
+      isPlaying: true,
+      positionMs: startAt,
+      updatedAt: Date.now(),
+    });
+
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_play] handler error:', err);
+  }
+});
+
+socket.on('music_pause', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    const st = roomMusic.get(rid);
+    if (!st) return;
+    if (!(await canControlMusic(rid, uid))) return;
+
+    settleMusicPosition(st);
+    st.isPlaying = false;
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_pause] handler error:', err);
+  }
+});
+
+socket.on('music_resume', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    const st = roomMusic.get(rid);
+    if (!st) return;
+    if (!(await canControlMusic(rid, uid))) return;
+
+    st.isPlaying = true;
+    st.updatedAt = Date.now();
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_resume] handler error:', err);
+  }
+});
+
+/** ⏭ / ⏪ — the queue wraps in both directions, so it never dead-ends. */
+async function stepMusic(rid: number, uid: number, delta: number) {
+  const st = roomMusic.get(rid);
+  if (!st || st.tracks.length === 0) return;
+  if (!(await canControlMusic(rid, uid))) return;
+
+  const n = st.tracks.length;
+  st.index = ((st.index + delta) % n + n) % n;
+  st.positionMs = 0;
+  st.isPlaying = true;
+  st.updatedAt = Date.now();
+  broadcastMusic(io, rid);
+}
+
+socket.on('music_next', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    await stepMusic(rid, uid, 1);
+  } catch (err) {
+    console.error('[socket.music_next] handler error:', err);
+  }
+});
+
+socket.on('music_prev', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    await stepMusic(rid, uid, -1);
+  } catch (err) {
+    console.error('[socket.music_prev] handler error:', err);
+  }
+});
+
+// ❌ — stop everything and make the bar disappear for the whole room.
+socket.on('music_stop', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    if (!roomMusic.has(rid)) return;
+    if (!(await canControlMusic(rid, uid))) return;
+
+    roomMusic.delete(rid);
+    io.to(`room:${rid}`).emit('room_music_state', { roomId: rid, active: false, serverTime: Date.now() });
+  } catch (err) {
+    console.error('[socket.music_stop] handler error:', err);
+  }
+});
+
+/**
+ * A track finished on a listener's device. Every client reports it at roughly
+ * the same moment, so the first report wins and the rest are ignored — the
+ * `index` guard plus the 1.5s window stops the queue from skipping several
+ * songs at once.
+ */
+socket.on('music_ended', async ({ roomId, index }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    const st = roomMusic.get(rid);
+    if (!st) return;
+    if (Number(index) !== st.index) return;
+    if (Date.now() - st.updatedAt < 1500) return;
+
+    const n = st.tracks.length;
+    st.index = (st.index + 1) % n; // last song → back to the first
+    st.positionMs = 0;
+    st.isPlaying = true;
+    st.updatedAt = Date.now();
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_ended] handler error:', err);
+  }
+});
+
+/** Client-side resync (app resumed, socket reconnected). */
+socket.on('music_sync', ({ roomId }: any) => {
+  const rid = toInt(roomId);
+  if (!rid) return;
+  socket.emit('room_music_state', buildMusicPayload(rid));
 });
 
 socket.on('moveSeat', async ({ roomId, fromSeat, toSeat }: any) => {
@@ -918,6 +1270,11 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
 
       const locked = getLockedSeats(rid);
 
+      // Already counted as being in this room → this join is a re-sync after a
+      // reconnect/foreground, not a new entrance.
+      const isResync = userCurrentRoom.get(uid) === rid;
+
+      cancelPendingRelease(uid); // back in time — keep whatever they still hold
       socket.join(`room:${rid}`);
       userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
       await populateAdmins(rid);
@@ -942,7 +1299,9 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       // reconnects don't spam the room. ──
       const entryKey = `${rid}:${uid}`;
       const lastEntry = recentRoomEntries.get(entryKey) ?? 0;
-      if (Date.now() - lastEntry > ENTRANCE_DEBOUNCE_MS) {
+      // `isResync`: they never left (grace window / still-open session), so the
+      // room must not see them "enter" again, however long they were away.
+      if (!isResync && Date.now() - lastEntry > ENTRANCE_DEBOUNCE_MS) {
         recentRoomEntries.set(entryKey, Date.now());
         try {
           const [entrant, activeBanner, activeEffect] = await Promise.all([
@@ -1101,6 +1460,10 @@ await emitVoiceUsers(io, rid);
       }
 
       io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue });
+
+      // Music already playing? Hand the newcomer the current track AND its
+      // position so they join mid-song instead of starting it over.
+      socket.emit('room_music_state', buildMusicPayload(rid));
       } catch (err) {
         console.error('[socket.join_room] handler error:', err);
         socket.emit('error', { event: 'join_room', message: 'Internal error' });
@@ -1152,6 +1515,9 @@ socket.on('leave_room', async ({ roomId }: any) => {
   userId: uid,
   roomId: rid
 });
+
+  // Last one out turns the music off.
+  await clearMusicIfRoomEmpty(io, rid);
 
 });
 
@@ -1679,7 +2045,7 @@ await emitRoomState(io, rid);
     // ----------------------------
     // Voice presence (ONE SET ONLY)
     // ----------------------------
-    socket.on('user_joined_voice', async ({ roomId }: any) => {
+    socket.on('user_joined_voice', async ({ roomId, resume }: any) => {
       const rid = Number(roomId);
       // ✅ FIX: always use socket.userId — never trust client-provided userId (was IDOR)
       const uid = socket.userId;
@@ -1690,7 +2056,17 @@ await emitRoomState(io, rid);
 
       console.log('🎤 user_joined_voice', { rid, uid });
 
-      getVoiceSet(rid).add(uid);
+      // `resume: true` = re-announce after a reconnect. The room kept them in
+      // the voice set (we no longer drop people on a dead socket), so every
+      // peer still holds a dead RTCPeerConnection for them and would skip
+      // re-creating it. Tell the room to tear that peer down first, then
+      // re-add — otherwise the returning user comes back mute.
+      const voice = getVoiceSet(rid);
+      if (resume === true && voice.has(uid)) {
+        socket.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
+      }
+
+      voice.add(uid);
       await emitVoiceUsers(io, rid);
     });
 
@@ -1749,56 +2125,38 @@ socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
       const uid = socket.userId;
       if (!uid) return;
 
+      // Another device/tab of the same user is still connected → nothing to
+      // tear down, they're demonstrably still here.
+      if (!markOffline(uid, socket.id)) {
+        console.log('[disconnect] (other sockets still live)', { uid });
+        return;
+      }
+
       // Presence: announce only when the user's last socket goes away.
-      if (markOffline(uid, socket.id)) {
-        io.emit('presence:update', { userId: uid, online: false });
-      }
+      io.emit('presence:update', { userId: uid, online: false });
 
-      // voice cleanup
-      for (const [rid, set] of voiceUsers.entries()) {
-        if (set.delete(uid)) {
-          socket.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
-          emitVoiceUsers(io, rid); // ✅ ADD
-        }
-      }
-
-      userCurrentRoom.delete(uid); // #25/#31: no longer in any room
-
-
-      console.log('[disconnect]', { uid });
-
-      // remove from all queues
-      roomMicQueue.forEach((q, rid) => {
-        if (q.includes(uid)) {
-          const nq = q.filter((id) => id !== uid);
-          roomMicQueue.set(rid, nq);
-          io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: nq });
-        }
-      });
-
-      // remove from all seats
-      // Inside the disconnect handler, after the roomSeats.forEach loop:
-roomSeats.forEach((seats, rid) => {
-  let changed = false;
-  for (const [num, occupant] of seats.entries()) {
-    if (occupant === uid) {
-      seats.delete(num);
-      roomMuted.get(rid)?.delete(uid);
-      io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
-      // ✅ ADD THIS:
-      io.to(`room:${rid}`).emit('user_left', { userId: uid, roomId: rid });
-      changed = true;
-    }
-  }
-  if (changed) {
-    // Dropping off the mic — by leaving or by losing the connection — closes
-    // the airtime stint. Safe to call when none is open.
-    endBroadcast(uid).catch(() => {});
-    emitRoomState(io, rid).catch(console.error);
-    cleanupRoomStateIfEmpty(rid);
-  }
-});
-
+      // Seat / room membership are NOT released here — a screen lock or an
+      // app switch kills the socket, and the user must stay in the room as if
+      // they never moved. Hold everything for the grace window; if they come
+      // back (reconnect), the timer is cancelled and nobody in the room ever
+      // saw them leave.
+      console.log('[disconnect]', { uid, graceMs: DISCONNECT_GRACE_MS });
+      cancelPendingRelease(uid);
+      const timer = setTimeout(() => {
+        pendingRoomRelease.delete(uid);
+        // Safety net for the case where they reconnected but never re-joined
+        // the room (app relaunched onto the home screen): only a socket that
+        // is actually back inside the room keeps the seat. A real re-join
+        // already cancelled this timer.
+        hasLiveRoomSocket(io, uid)
+          .then((back) => {
+            if (back) return;
+            releaseUserFromRooms(io, uid);
+          })
+          .catch(() => releaseUserFromRooms(io, uid));
+      }, DISCONNECT_GRACE_MS);
+      timer.unref?.();
+      pendingRoomRelease.set(uid, timer);
     });
   });
 

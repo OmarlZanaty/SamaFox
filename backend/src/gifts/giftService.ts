@@ -143,27 +143,55 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       });
       recipientCredit = hostMembership ? 0 : Math.floor(totalCoins / 2);
 
-      // #4: agency owner's 20% commission on a host's gift earnings. Only
-      // fires on the exact event that constitutes a host "earning" here —
-      // the same condition that zeroed their direct credit above (real gift,
-      // not self-gift, recipient is a hosting-agency member). Credited
-      // straight to the owner's balance now, not gated behind the host's own
-      // target conversion (client said "يذهب مباشرة" — goes directly).
-      // Skipped when the recipient IS the owner (no separate agent to pay).
+      // #4: agency owner's 20% commission on a host's gift earnings, cut from
+      // every gift a hosting-agency member receives.
+      //
+      // 2026-08 (client complaint "عمولة الوكيل بتروح كوينزات اضافيه"): the
+      // commission used to be credited straight to the owner's coinsBalance,
+      // which minted spendable coins out of thin air on every gift. It now
+      // only raises the owner's OWN TARGET (`commissionTargetCoins`), so he
+      // cashes it out through the normal 50% تبديل الكوينزات path like any
+      // other earned target — no wallet credit here.
+      //
+      // 2026-08 (client complaint "لو رمي هدايا علي نفسه او حد رمي عليه هدايا
+      // لا تحسب له عموله"): the commission is now COUNTED on every such gift —
+      // the old `!isSelfGift` and `role !== 'OWNER'` guards dropped it silently
+      // when a host gifted himself and when the recipient was the وكيل himself.
+      // What those cases must NOT do is pay out early, and that is handled by
+      // the release gate, not by skipping the accrual: the mirror copy on the
+      // SOURCE member's row (`commissionGeneratedCoins`) keeps the commission
+      // locked until that member completes their target — see
+      // `computeCommissionSplit` in agency.controller.
       let commission: { ownerId: number; agencyId: number; amount: number } | null = null;
-      if (hostMembership && !isSelfGift && hostMembership.role !== 'OWNER') {
+      if (hostMembership) {
         const COMMISSION_RATE = Number(process.env.AGENCY_COMMISSION_RATE ?? 0.2);
         const owner = await tx.agencyMember.findFirst({
           where: { agencyId: hostMembership.agencyId, role: 'OWNER' },
-          select: { userId: true },
+          select: { id: true, userId: true },
         });
         if (owner) {
           const amount = Math.floor(totalCoins * COMMISSION_RATE);
           if (amount > 0) {
-            await tx.user.update({
-              where: { id: owner.userId },
-              data: { coinsBalance: { increment: amount } },
-            });
+            if (owner.id === hostMembership.id) {
+              // The recipient IS the وكيل: both sides of the ledger are the
+              // same row, so one update (two increments) instead of two.
+              await tx.agencyMember.update({
+                where: { id: owner.id },
+                data: {
+                  commissionTargetCoins: { increment: BigInt(amount) },
+                  commissionGeneratedCoins: { increment: BigInt(amount) },
+                },
+              });
+            } else {
+              await tx.agencyMember.update({
+                where: { id: owner.id },
+                data: { commissionTargetCoins: { increment: BigInt(amount) } },
+              });
+              await tx.agencyMember.update({
+                where: { id: hostMembership.id },
+                data: { commissionGeneratedCoins: { increment: BigInt(amount) } },
+              });
+            }
             commission = { ownerId: owner.userId, agencyId: hostMembership.agencyId, amount };
           }
         }
@@ -292,7 +320,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         userId: result.commission.ownerId,
         type: 'AGENCY_COMMISSION',
         title: '💰 عمولة وكيل',
-        body: `حصلت على ${result.commission.amount} كوينز كعمولة من هدية استلمها ${recipientUser?.name ?? 'أحد أعضاء وكالتك'}`,
+        body: `أضيفت ${result.commission.amount} كوينز إلى التارجت الخاص بك كعمولة من هدية استلمها ${recipientUser?.name ?? 'أحد أعضاء وكالتك'} — تصبح قابلة للتبديل بعد إكماله التارجت المحدد`,
         data: { agencyId: result.commission.agencyId, amount: result.commission.amount, fromUserId: input.recipientId },
       });
     } catch (e) {

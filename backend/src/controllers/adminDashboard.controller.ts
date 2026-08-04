@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
-import { computeAgencyEarnedCoins } from '../agencies/agency.controller';
+import { computeAgencyEarnedCoins, computeCommissionSplit } from '../agencies/agency.controller';
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
@@ -1379,14 +1379,31 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
           where: { recipientId: m.userId, senderId: { not: m.userId }, createdAt: { gte: m.joinedAt } },
           _sum: { totalCoins: true },
         });
-        const earnedCoins = Number(earned._sum.totalCoins ?? 0);
+        // Owner rows also carry their agency commission (#4), which is target
+        // and not wallet coins — same total the agent sees in his own panel.
+        const earnedCoins =
+          Number(earned._sum.totalCoins ?? 0) + Number(m.commissionTargetCoins ?? 0n);
         const goal = Number(m.targetGoalCoins ?? 0n);
+        // How much of that commission is still held back because the member
+        // who generated it hasn't completed their target (2026-08 rule). Only
+        // the owner row can carry any, so nobody else pays for the extra work.
+        const commission =
+          m.role === 'OWNER'
+            ? await computeCommissionSplit({
+                agencyId,
+                userId: m.userId,
+                commissionTargetCoins: m.commissionTargetCoins,
+              })
+            : { accrued: 0, locked: 0, released: 0 };
         return {
           ...m,
           targetGoalCoins: goal,
           earnedCoins,
           remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
           dollars: await computeDollarsFromCoins(earnedCoins),
+          commissionCoins: commission.accrued,
+          commissionLockedCoins: commission.locked,
+          commissionReleasedCoins: commission.released,
         };
       }),
     );

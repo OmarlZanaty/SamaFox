@@ -15,7 +15,8 @@
     "seed:achievements": "ts-node prisma/seed-achievements.ts",
     "fix:gift-video-format": "ts-node prisma/fix-gift-video-format.ts",
     "fix:gift-videos": "ts-node prisma/fix-existing-gift-videos.ts",
-    "audit:lost-host-coins": "ts-node prisma/audit-lost-host-coins.ts"
+    "audit:lost-host-coins": "ts-node prisma/audit-lost-host-coins.ts",
+    "drain:agency-balances": "ts-node prisma/drain-agency-balances.ts"
   },
   "keywords": [
     "voice-chat",

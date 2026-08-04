@@ -1,0 +1,3 @@
+-- Agent commission goes to the agent's TARGET only, never to his wallet.
+-- Accumulator lives on the OWNER's AgencyMember row; stays 0 for everyone else.
+ALTER TABLE "AgencyMember" ADD COLUMN IF NOT EXISTS "commissionTargetCoins" BIGINT NOT NULL DEFAULT 0;

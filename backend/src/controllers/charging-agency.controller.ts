@@ -219,7 +219,9 @@ export const myAgencyTransfers = async (req: Request, res: Response) => {
 /**
  * POST /api/v1/charging-agencies/transfer
  * Body: { toUserId:number, amount:number, note?:string }
- * ✅ Atomic: decrement agency balance, increment user.coinsBalance, create AgencyTransfer
+ * ✅ Atomic: decrement the AGENT'S OWN wallet, increment user.coinsBalance,
+ * create AgencyTransfer. The agency no longer holds a separate coin pot — see
+ * agency.controller.ts sendCoinsToUser for the same change on the app's path.
  */
 export const agencyTransferCoins = async (req: Request, res: Response) => {
   const userId = getUserId(req);
@@ -248,28 +250,19 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
 
   if (!receiver) return res.status(404).json({ message: 'Receiver user not found' });
 
+  if (toUserId === userId) return res.status(400).json({ message: 'Cannot charge yourself' });
+
   try {
     type TransferTxResult =
-      | { ok: false; reason: 'insufficient_balance' }
+      | { ok: false; reason: 'insufficient_balance'; available: bigint }
       | {
           ok: true;
-          updatedAgency: { id: number; balanceCoins: number | bigint };
+          senderBalance: bigint;
           updatedUser: { id: number; coinsBalance: bigint };
           transfer: { id: number };
         };
 
     const result: TransferTxResult = await prisma.$transaction(async (tx) => {
-      const agencyNow = await tx.chargingAgency.findUnique({
-        where: { id: agency.id },
-        select: { balanceCoins: true },
-      });
-
-      if (!agencyNow) throw new Error('agency_missing');
-
-      if (BigInt(agencyNow.balanceCoins) < BigInt(amount)) {
-        return { ok: false as const, reason: 'insufficient_balance' as const };
-      }
-
       const receiverNow = await tx.user.findUnique({
         where: { id: toUserId },
         select: { coinsBalance: true },
@@ -279,13 +272,33 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
         throw new Error('coins_overflow');
       }
 
-      const updatedAgency = await tx.chargingAgency.update({
+      // Debit the agent's own wallet. The `gte` guard makes the check and the
+      // debit one statement so concurrent charges can't drive it negative.
+      const debited = await tx.user.updateMany({
+        where: { id: userId, coinsBalance: { gte: Number(BigInt(amount)) } },
+        data: { coinsBalance: { decrement: Number(BigInt(amount)) } },
+      });
+      if (debited.count === 0) {
+        const wallet = await tx.user.findUnique({
+          where: { id: userId },
+          select: { coinsBalance: true },
+        });
+        return {
+          ok: false as const,
+          reason: 'insufficient_balance' as const,
+          available: BigInt(wallet?.coinsBalance ?? 0),
+        };
+      }
+
+      const senderNow = await tx.user.findUnique({
+        where: { id: userId },
+        select: { coinsBalance: true },
+      });
+
+      // Kept as a lifetime stat only — it is no longer a funding source.
+      await tx.chargingAgency.update({
         where: { id: agency.id },
-        data: {
-          balanceCoins: { decrement: Number(BigInt(amount)) },
-          totalSentCoins: { increment: Number(BigInt(amount)) },
-        },
-        select: { id: true, balanceCoins: true },
+        data: { totalSentCoins: { increment: Number(BigInt(amount)) } },
       });
 
       const updatedUserDb = await tx.user.update({
@@ -304,11 +317,18 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
         select: { id: true },
       });
 
-      return { ok: true as const, updatedAgency, updatedUser, transfer };
+      return {
+        ok: true as const,
+        senderBalance: BigInt(senderNow?.coinsBalance ?? 0),
+        updatedUser,
+        transfer,
+      };
     });
 
     if (result.ok === false) {
-      return res.status(409).json({ message: 'Insufficient agency balance' });
+      return res.status(409).json({
+        message: `رصيد محفظتك غير كافٍ — المتاح ${result.available.toString()} كوينز`,
+      });
     }
 
     // Top-up counts toward VIP — re-evaluate after the transfer commits.
@@ -316,7 +336,10 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
 
     return res.json({
       message: 'Transfer successful',
-      agencyBalance: result.updatedAgency.balanceCoins.toString(),
+      // `agencyBalance` is kept in the response shape for old clients, but it
+      // now reports the agent's wallet — the only balance a charge touches.
+      agencyBalance: result.senderBalance.toString(),
+      senderBalance: result.senderBalance.toString(),
       userBalance: result.updatedUser.coinsBalance.toString(),
       transferId: result.transfer.id,
     });
@@ -461,12 +484,18 @@ export const reviewTopupRequest = async (req: Request, res: Response) => {
       }
 
       if (status === 'approved') {
-        await tx.chargingAgency.update({
+        // Charges are paid out of the agent's own wallet now, so an approved
+        // top-up has to land THERE. Crediting the agency pot left the agent
+        // with an approved request and still no coins to charge anyone with.
+        const agency = await tx.chargingAgency.update({
           where: { id: request.agencyId },
-          data: {
-            balanceCoins: { increment: request.amount },
-            totalTopupCoins: { increment: request.amount },
-          },
+          data: { totalTopupCoins: { increment: request.amount } },
+          select: { userId: true },
+        });
+
+        await tx.user.update({
+          where: { id: agency.userId },
+          data: { coinsBalance: { increment: request.amount } },
         });
       }
 

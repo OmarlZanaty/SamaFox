@@ -89,6 +89,7 @@ model User {
   conversationsB           Conversation[]            @relation("ConvUserB")
   conversationParticipants ConversationParticipant[]
   directMessagesSent       DirectMessage[]
+  musicTracks              MusicTrack[]
   avatarFrameUrl           String?
   displayId                Int?                      @unique
   activeFrameId            String?
@@ -101,6 +102,28 @@ model User {
 model UserIdSequence {
   id     Int @id @default(1)
   nextId Int @default(10000)
+}
+
+// ============================================
+// MUSIC TRACK MODEL
+// ============================================
+
+// A song the user uploaded from their phone. It is a PERSONAL library: the row
+// (and the file) survive until the user deletes it themselves, so the same
+// playlist is there the next time they open any room.
+model MusicTrack {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  title     String
+  url       String
+  filename  String
+  sizeBytes Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("music_tracks")
 }
 
 // ============================================
@@ -899,6 +922,24 @@ model AgencyMember {
   // exists purely to cap future conversions at (earned - convertedTargetCoins)
   // so the same earned coins can't be swapped for cash twice.
   convertedTargetCoins BigInt @default(0)
+
+  // Agency-owner commission (#4) accumulated on this OWNER row. The client's
+  // rule (2026-08): the وكيل's commission must NOT land in his wallet as extra
+  // coins — it only raises HIS OWN TARGET, which he can then cash out through
+  // the same تبديل/بيع 50% path as any other earned target. Always 0 for
+  // non-owner rows. Counted into the owner's `earnedCoins` everywhere the
+  // personal target is computed (never into the agency's production total,
+  // which already contains the full gift the commission was cut from).
+  commissionTargetCoins BigInt @default(0)
+
+  // Commission this member GENERATED for their agency owner (#4) — the same
+  // coins that landed in the owner's `commissionTargetCoins`, but attributed
+  // to their source. Client rule (2026-08): commission is COUNTED on every
+  // gift a member receives (self-gifts included), yet the owner may not cash
+  // it out until that member completes their target. This column is what makes
+  // the gate per-host; the owner's own row holds the commission cut from gifts
+  // HE received, released by the agency target set on the dashboard.
+  commissionGeneratedCoins BigInt @default(0)
 
   @@unique([agencyId, userId])
 }

@@ -28,6 +28,7 @@ import messageRoutes from './routes/messages.routes';
 import uploadRoutes from './routes/upload.routes';
 import gameRoutes from './routes/game.routes';
 import roomAdminRoutes from './routes/room-admin.routes';
+import musicRoutes from './routes/music.routes';
 import adminDashboardRoutes from './routes/adminDashboard.routes';
 import adminDashAuthRoutes from './routes/admin-dashboard-auth.routes';
 import storeRoutes from "./routes/store.routes";
@@ -193,6 +194,7 @@ app.get('/api/v1/settings', require('./controllers/settings.controller').getSett
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/upload', uploadRoutes); // backward-compatible path
 app.use('/api/v1/room-admin', roomAdminRoutes);
+app.use('/api/v1/music', musicRoutes);
 app.use('/api/messages', messageRoutes); // ✅ same router
 
 const giftAssetsDir =
