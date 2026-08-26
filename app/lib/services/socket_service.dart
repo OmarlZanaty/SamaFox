@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../config/app_config.dart';
 import '../utils/logger.dart';
+import 'token_refresher.dart';
 import '../models/incoming_message.dart';
 import '../models/message_events.dart';
 import '../models/product_layout.dart';
@@ -14,6 +15,14 @@ class SocketService {
 
   IO.Socket? _socket;
   String? _token;
+
+  /// Guards for the auth-failure refresh below. The handshake is rejected once
+  /// per reconnect attempt, so without these a single expired token would fire
+  /// a refresh per attempt, and a token the server still refuses would loop
+  /// forever. Reset once a connection actually succeeds.
+  bool _refreshingAuth = false;
+  int _authRefreshCount = 0;
+  static const int _maxAuthRefreshes = 2;
 
   final _dmConversationController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get dmConversationStream => _dmConversationController.stream;
@@ -210,6 +219,7 @@ class SocketService {
 
     _socket!.onConnectError((e) {
       debugPrint("❌ CONNECT ERROR: $e");
+      _maybeRefreshAuth(e);
     });
 
     _socket!.onError((e) {
@@ -392,7 +402,48 @@ class SocketService {
     io.options = opts;
   }
 
-  void updateToken(String newToken) {
+  /// The handshake was rejected. When that's because the access token expired,
+  /// exchange it and reconnect — the token is captured into the handshake
+  /// options at connect() time, so a socket that outlives its token can never
+  /// recover on its own, however many times it retries.
+  ///
+  /// Only an auth rejection qualifies: a network failure has no token to fix,
+  /// and a ban must not be retried at all.
+  Future<void> _maybeRefreshAuth(dynamic error) async {
+    final reason = error.toString().toLowerCase();
+    final isAuthFailure =
+        reason.contains('invalid token') || reason.contains('no token');
+    if (!isAuthFailure) return;
+
+    if (_refreshingAuth) return;
+    if (_authRefreshCount >= _maxAuthRefreshes) {
+      AppLogger.error('Socket auth refresh gave up after $_authRefreshCount attempts');
+      return;
+    }
+
+    _refreshingAuth = true;
+    _authRefreshCount++;
+    try {
+      final result = await TokenRefresher.refresh();
+      if (result.ok) {
+        AppLogger.info('Socket auth refreshed; reconnecting');
+        // Forced: the token may be unchanged if another caller just rotated it,
+        // but this socket is still the broken one that has to be rebuilt.
+        updateToken(result.accessToken!, force: true);
+        return;
+      }
+
+      // Refresh failed. Stop retrying with a token the server won't accept and
+      // leave the session verdict to the Dio interceptor, which owns logout and
+      // will reach the same failure on the next request.
+      AppLogger.warning('Socket auth refresh failed; disconnecting');
+      disconnect();
+    } finally {
+      _refreshingAuth = false;
+    }
+  }
+
+  void updateToken(String newToken, {bool force = false}) {
     final jwt = _cleanJwt(newToken);
     if (jwt.isEmpty) return;
 
@@ -400,6 +451,13 @@ class SocketService {
     final parts = jwt.split('.');
     if (parts.length != 3) {
       AppLogger.error('updateToken aborted: invalid JWT');
+      return;
+    }
+
+    // A refresh shared between the socket and an HTTP call lands here twice.
+    // Rebuilding a healthy socket for a token it already carries would drop the
+    // user out of their room for nothing.
+    if (!force && jwt == _token && _socket != null && _socket!.connected) {
       return;
     }
 
@@ -555,6 +613,8 @@ class SocketService {
 
     _socket!.onConnect((_) {
       AppLogger.info('✅ Socket connected!');
+      // The token in hand works; let a future expiry refresh from a clean slate.
+      _authRefreshCount = 0;
       _connectionController.add(true);
     });
 
