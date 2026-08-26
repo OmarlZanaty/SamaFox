@@ -424,3 +424,154 @@ export const adminLimits = {
   htmlBytes: MAX_HTML_BYTES,
   videoBytes: MAX_VIDEO_BYTES,
 };
+
+// ============================================================
+// B4 / B5 / B6 — قوائم الهدايا (gift lists)
+//
+// The dashboard used to offer a hard-coded <select> of six category strings,
+// so "أضف قائمة هدايا" was impossible without an app release. A list is now a
+// row: create one here, pick it when adding a gift (B5), and move existing
+// gifts between lists (B6). The app reads the same table through the public
+// catalog and builds its tabs from it.
+// ============================================================
+
+/** Category keys are used as URL-ish identifiers and stored on every gift. */
+function normalizeCategoryKey(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .replace(/\s+/g, '_')
+    .slice(0, 40);
+}
+
+export async function listCategories(req: Request, res: Response) {
+  try {
+    const includeInactive = req.query.includeInactive === '1';
+    const categories = await prisma.giftCategory.findMany({
+      where: includeInactive ? {} : { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    // Gift counts per list, so the dashboard can warn before deleting a
+    // non-empty one instead of silently orphaning its gifts.
+    const counts = await prisma.gift.groupBy({
+      by: ['category'],
+      _count: { _all: true },
+    });
+    const countByKey = new Map(counts.map((c) => [c.category ?? '', c._count._all]));
+    return res.json({
+      success: true,
+      data: categories.map((c) => ({ ...c, giftCount: countByKey.get(c.key) ?? 0 })),
+    });
+  } catch (err) {
+    console.error('[admin.gifts.listCategories]', err);
+    return res.status(500).json({ success: false, message: 'Failed to load gift lists' });
+  }
+}
+
+export async function createCategory(req: Request, res: Response) {
+  try {
+    const nameAr = String(req.body?.nameAr ?? '').trim();
+    if (!nameAr) return res.status(400).json({ success: false, message: 'اسم القائمة مطلوب' });
+    // An Arabic-only name has no usable ASCII key, so fall back to a stable
+    // generated one rather than rejecting the most common input.
+    const key = normalizeCategoryKey(req.body?.key) || `list_${Date.now().toString(36)}`;
+
+    const existing = await prisma.giftCategory.findUnique({ where: { key } });
+    if (existing) return res.status(409).json({ success: false, message: 'هذه القائمة موجودة بالفعل' });
+
+    const last = await prisma.giftCategory.findFirst({ orderBy: { sortOrder: 'desc' } });
+    const category = await prisma.giftCategory.create({
+      data: {
+        key,
+        nameAr,
+        sortOrder: Number(req.body?.sortOrder) || (last?.sortOrder ?? 0) + 10,
+        isActive: req.body?.isActive === undefined ? true : !!req.body.isActive,
+      },
+    });
+    await bumpCatalogVersion();
+    return res.json({ success: true, data: category });
+  } catch (err) {
+    console.error('[admin.gifts.createCategory]', err);
+    return res.status(500).json({ success: false, message: 'Failed to create gift list' });
+  }
+}
+
+export async function updateCategory(req: Request, res: Response) {
+  try {
+    const id = String(req.params.id);
+    const existing = await prisma.giftCategory.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ success: false, message: 'القائمة غير موجودة' });
+
+    const data: any = {};
+    if (req.body?.nameAr !== undefined) data.nameAr = String(req.body.nameAr).trim();
+    if (req.body?.sortOrder !== undefined) data.sortOrder = Math.floor(Number(req.body.sortOrder)) || 0;
+    if (req.body?.isActive !== undefined) data.isActive = !!req.body.isActive;
+
+    const category = await prisma.giftCategory.update({ where: { id }, data });
+    await bumpCatalogVersion();
+    return res.json({ success: true, data: category });
+  } catch (err) {
+    console.error('[admin.gifts.updateCategory]', err);
+    return res.status(500).json({ success: false, message: 'Failed to update gift list' });
+  }
+}
+
+/**
+ * Deleting a list never deletes gifts. Its gifts are moved to `moveTo` if one
+ * is given, otherwise they are left uncategorised and show up under the app's
+ * "عادي" tab — losing a tab must not lose a product.
+ */
+export async function deleteCategory(req: Request, res: Response) {
+  try {
+    const id = String(req.params.id);
+    const existing = await prisma.giftCategory.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ success: false, message: 'القائمة غير موجودة' });
+
+    const moveTo = req.body?.moveTo ? normalizeCategoryKey(req.body.moveTo) : null;
+    if (moveTo) {
+      const target = await prisma.giftCategory.findUnique({ where: { key: moveTo } });
+      if (!target) return res.status(400).json({ success: false, message: 'القائمة الهدف غير موجودة' });
+    }
+
+    await prisma.$transaction([
+      prisma.gift.updateMany({ where: { category: existing.key }, data: { category: moveTo } }),
+      prisma.giftCategory.delete({ where: { id } }),
+    ]);
+    await bumpCatalogVersion();
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[admin.gifts.deleteCategory]', err);
+    return res.status(500).json({ success: false, message: 'Failed to delete gift list' });
+  }
+}
+
+/** B6 — "نقل إلى قائمة" on an existing gift. */
+export async function moveGiftToCategory(req: Request, res: Response) {
+  try {
+    const adminId = req.userId!;
+    const id = String(req.params.id);
+    const gift = await prisma.gift.findUnique({ where: { id } });
+    if (!gift) return res.status(404).json({ success: false, message: 'الهدية غير موجودة' });
+
+    const rawKey = req.body?.category;
+    // An explicit empty value means "no list" — that is a valid destination.
+    const key = rawKey == null || rawKey === '' ? null : normalizeCategoryKey(rawKey);
+    if (key) {
+      const target = await prisma.giftCategory.findUnique({ where: { key } });
+      if (!target) return res.status(400).json({ success: false, message: 'القائمة غير موجودة' });
+    }
+
+    const updated = await prisma.gift.update({ where: { id }, data: { category: key } });
+    await bumpCatalogVersion();
+    await recordGiftAudit({
+      adminId,
+      giftId: id,
+      action: 'UPDATE',
+      before: { category: gift.category },
+      after: { category: key },
+    });
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('[admin.gifts.moveGiftToCategory]', err);
+    return res.status(500).json({ success: false, message: 'Failed to move gift' });
+  }
+}

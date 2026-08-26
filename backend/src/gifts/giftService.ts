@@ -141,7 +141,25 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         orderBy: { joinedAt: 'asc' },
         select: { id: true, agencyId: true, role: true },
       });
-      recipientCredit = hostMembership ? 0 : Math.floor(totalCoins / 2);
+
+      // 2026-08-23 — a وكيل شحن (and his فروع) is in the same boat as a host:
+      // "ولو اترمي عليه هدايا لا ياخذ نصف قيمتها كوينزات لا لا لا — قيمة الهدايا
+      // هتروح في التارجيت عنده". Only the 50% wallet credit is suppressed; the
+      // 20% owner commission below stays HOSTING-only, because a charging agent
+      // already took his cut at charge time ("نسبته اخذها وقت الشحن").
+      const chargingMembership = hostMembership
+        ? null
+        : await tx.agencyMember.findFirst({
+            where: {
+              userId: input.recipientId,
+              role: { in: ['OWNER', 'BRANCH'] },
+              agency: { type: 'CHARGING', status: 'approved' },
+            },
+            orderBy: { joinedAt: 'asc' },
+            select: { id: true },
+          });
+
+      recipientCredit = hostMembership || chargingMembership ? 0 : Math.floor(totalCoins / 2);
 
       // #4: agency owner's 20% commission on a host's gift earnings, cut from
       // every gift a hosting-agency member receives.
@@ -218,17 +236,21 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         select: { coinsBalance: true },
       });
 
-      // Level/XP: previously dead code (nothing called awardUserXP), so
-      // "in-app support" never moved a user's level as the client reported.
-      // The recipient's level now grows with the coin value of gifts they
-      // receive. Rate is a default (no client spec given) — tune via env.
-      // Self-gifts excluded for the same reason as CP above — otherwise a user
-      // levels themselves up by cycling coins through their own account.
-      const XP_PER_COIN = Number(process.env.GIFT_XP_PER_COIN ?? 0.01);
+      // Level/XP (2026-08-23 client spec: "عندما ينفق المستخدم هدايا على
+      // المستخدمين كل عدد محدد بلوحة التحكم يرتفع الليفل الخاص به").
+      //
+      // The level belongs to the SENDER and tracks coins SPENT on gifts — it
+      // used to be credited to the recipient, which is why supporting nobody
+      // still moved a level and why the dashboard thresholds looked inert.
+      // XP is 1:1 with coins spent so the numbers an admin types into the LV
+      // table are literally "كوينزات مُهداة", not an invisible XP currency.
+      // Self-gifts excluded — otherwise a user levels himself up by cycling
+      // coins through his own account.
+      const XP_PER_COIN = Number(process.env.GIFT_XP_PER_COIN ?? 1);
       const xpGained = Math.floor(totalCoins * XP_PER_COIN);
       let levelUp: { level: number; grantedItemCount: number } | null = null;
       if (xpGained > 0 && !isSelfGift) {
-        const xpResult: any = await awardUserXP(input.recipientId, xpGained, tx);
+        const xpResult: any = await awardUserXP(input.senderId, xpGained, tx);
         // The LevelConfig items are granted inside awardUserXP (atomically with
         // the level change); the notification waits until this transaction
         // commits, so a rollback can't announce a level-up that never happened.
@@ -282,7 +304,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   // Level-up notice, once the XP/level/item grants are safely committed.
   if (result.levelUp) {
     await notifyLevelUp(
-      input.recipientId,
+      input.senderId,
       result.levelUp.level,
       result.levelUp.grantedItemCount,
     );

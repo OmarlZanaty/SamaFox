@@ -218,6 +218,62 @@ export async function transcodeToH264(filePath: string): Promise<void> {
   await fs.rename(outPath, filePath);
 }
 
+/**
+ * Write a still poster next to [filePath] and return its path, or null when a
+ * frame could not be produced.
+ *
+ * A25/B5 — the store stopped building a VideoPlayerController per tile (which
+ * is what made فتح المتجر crawl) and falls back to `preview_url`. That field
+ * was always just the clip itself, so every مركبة tile rendered as an empty
+ * grey placeholder. One JPEG per product, taken once at upload time, gives the
+ * grid real artwork at a fraction of the cost of a decoder.
+ *
+ * Best-effort by design: a server without ffmpeg, or a clip ffmpeg dislikes,
+ * simply has no poster and the tile keeps its placeholder — never a failed
+ * upload.
+ */
+export async function extractPosterFrame(filePath: string): Promise<string | null> {
+  const outPath = `${filePath}.poster.jpg`;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(getFfmpegPath(), [
+        '-y', '-loglevel', 'error',
+        // Seek BEFORE -i so ffmpeg jumps instead of decoding up to the mark.
+        // Many entrance clips fade in from black, so the first frame is a
+        // useless black square; a third of a second in is representative.
+        '-ss', '0.35',
+        '-i', filePath,
+        '-frames:v', '1',
+        // Cap the long edge: the grid cell is ~200px and a 4K still would cost
+        // more to decode than the clip it replaces.
+        '-vf', "scale='min(640,iw)':-2",
+        '-q:v', '4',
+        outPath,
+      ]);
+      const errChunks: Buffer[] = [];
+      proc.stderr.on('data', (b: Buffer) => errChunks.push(b));
+      proc.on('error', reject);
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          return reject(new Error(`ffmpeg exited ${code}: ${Buffer.concat(errChunks).toString('utf8')}`));
+        }
+        resolve();
+      });
+    });
+    // A clip shorter than the seek point produces no frame and exits 0.
+    const stat = await fs.stat(outPath).catch(() => null);
+    if (!stat || stat.size === 0) {
+      await fs.unlink(outPath).catch(() => undefined);
+      return null;
+    }
+    return outPath;
+  } catch (e) {
+    console.warn('[videoValidate] poster extraction failed:', (e as Error).message);
+    await fs.unlink(outPath).catch(() => undefined);
+    return null;
+  }
+}
+
 export function isAllowedVideoExtension(filename: string): boolean {
   const ext = path.extname(filename).toLowerCase();
   return ext === '.mp4' || ext === '.webm' || ext === '.mov';
