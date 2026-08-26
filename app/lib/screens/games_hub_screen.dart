@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'games/aetherfall_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/plinko_screen.dart';
@@ -36,6 +37,14 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFF9800),
     gradient: [Color(0xFF0D1B3E), Color(0xFF1A3A6B)],
     art: 'assets/images/cards/card_crash.png',
+  ),
+  _GameEntry(
+    title: 'أثيرفول',
+    tagline: 'افتح خزائن السماء',
+    emoji: '⚡',
+    accent: Color(0xFF4DD8E6),
+    gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
+    art: 'assets/images/cards/card_aetherfall.png',
   ),
 ];
 
@@ -158,12 +167,15 @@ class GamesHubScreen extends ConsumerWidget {
       case 2:
         screen = const CrashGameScreen();
         break;
+      case 3:
+        screen = const AetherfallScreen();
+        break;
       // Hidden games — indices follow whatever position they are restored to
       // in _games:
-      // case 3: screen = const SkillWheelScreen(); break;
-      // case 4: screen = const FishShooterScreen(); break;
-      // case 5: screen = const LionTigerScreen(); break;
-      // case 6: screen = const SkillDiceScreen(); break;
+      // case 4: screen = const SkillWheelScreen(); break;
+      // case 5: screen = const FishShooterScreen(); break;
+      // case 6: screen = const LionTigerScreen(); break;
+      // case 7: screen = const SkillDiceScreen(); break;
       default:
         return;
     }
