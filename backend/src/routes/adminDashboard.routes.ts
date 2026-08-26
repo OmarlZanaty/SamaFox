@@ -10,6 +10,8 @@ import {
   adminUpdateUserProgression,
   adminDashboardSetTargetLock,
   adminDashboardListTargetLocks,
+  adminDashboardGetTargetSellPolicy,
+  adminDashboardSetTargetSellPolicy,
   adminDashboardCreateQuest,
   adminDashboardDeleteQuest,
   adminDashboardForceCloseRoom,
@@ -34,6 +36,9 @@ import {
   adminAssignAgency,
   adminListAssignedAgencies,
   adminTopupAgency,
+  adminListAgencyChargeRewards,
+  adminSaveAgencyChargeReward,
+  adminDeleteAgencyChargeReward,
   adminSetAgencyTarget,
   adminCreateGift,
   adminDeleteGift,
@@ -51,6 +56,9 @@ import {
   adminDeleteTargetTier,
   adminListAgencyMembers,
   adminRemoveAgencyMember,
+  adminAdjustMemberTarget,
+  adminListTopSupporters,
+  adminResetSupporterCounter,
   adminDashboardMe,
   adminListAdmins,
   adminGrantAdmin,
@@ -78,8 +86,12 @@ router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);
 router.patch('/users/:id/profile', adminUpdateUserProfile);
 router.patch('/users/:id/progression', adminUpdateUserProgression);
 // Target payout lock (owner request): stop/allow بيع واستبدال التارجيت.
+// The global freeze is super-admin only — it stops payouts for the whole
+// platform, so a plain dashboard admin must not be able to lift it.
 router.patch('/users/:id/target-lock', adminDashboardSetTargetLock);
 router.get('/target-locks', adminDashboardListTargetLocks);
+router.get('/target-sell-policy', adminDashboardGetTargetSellPolicy);
+router.patch('/target-sell-policy', requireSuperAdmin, adminDashboardSetTargetSellPolicy);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);
@@ -106,9 +118,18 @@ router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
 router.post('/agencies/assign', adminAssignAgency);
 router.get('/agencies/assigned-by-me', adminListAssignedAgencies);
 router.patch('/agencies/:id/topup', adminTopupAgency);
+// B11 — automatic charge rewards ladder
+router.get('/agency-charge-rewards', adminListAgencyChargeRewards);
+router.post('/agency-charge-rewards', adminSaveAgencyChargeReward);
+router.delete('/agency-charge-rewards/:id', adminDeleteAgencyChargeReward);
 router.patch('/agencies/:id/target', adminSetAgencyTarget);
 router.get('/agencies/:id/members', adminListAgencyMembers);
 router.delete('/agency-members/:memberId', adminRemoveAgencyMember);
+// B8 - add/deduct one member's target (negative amountCoins deducts).
+router.post('/agency-members/:memberId/target-adjust', adminAdjustMemberTarget);
+// B9 - top supporters board + per-account counter reset.
+router.get('/top-supporters', adminListTopSupporters);
+router.post('/users/:id/reset-supporter-counter', adminResetSupporterCounter);
 router.get('/gifts', authenticate, adminListGifts);
 router.post('/gifts', authenticate, adminCreateGift);
 router.patch('/gifts/:id', authenticate, adminUpdateGift);

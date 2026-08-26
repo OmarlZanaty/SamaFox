@@ -268,6 +268,10 @@ const ADMIN_BAN_DURATIONS: Record<string, number | null> = {
   '3d': 3 * 24 * 60 * 60 * 1000,
 };
 const SUPER_BAN_DURATIONS: Record<string, number | null> = {
+  // يوم / شهر / أبدي is the set the owner asked a super admin for; 2d/3d/1y
+  // stay available so nothing that already worked breaks.
+  '1d': 24 * 60 * 60 * 1000,
+  '2d': 2 * 24 * 60 * 60 * 1000,
   '3d': 3 * 24 * 60 * 60 * 1000,
   '1m': 30 * 24 * 60 * 60 * 1000,
   '1y': 365 * 24 * 60 * 60 * 1000,
@@ -292,13 +296,18 @@ export const toggleUserBan = async (req: Request, res: Response) => {
 
     const target = await (prisma as any).user.findUnique({
       where: { id: userIdNum },
-      select: { banSource: true, isSuperAdmin: true },
+      select: { banSource: true, isAdmin: true, isSuperAdmin: true },
     });
     if (!target) return res.status(404).json({ message: 'User not found' });
 
-    // Nobody bans a super admin from the app; that is dashboard-only territory.
+    // Staff immunity ("ولا احد ياخد اجراء ضده"): platform staff are not a
+    // moderation target from inside the app at all. A super admin outranks a
+    // plain admin, so he may still act on one; nobody bans a super admin here.
     if (isBanned && target.isSuperAdmin) {
       return res.status(403).json({ message: 'لا يمكن حظر سوبر أدمن من داخل التطبيق' });
+    }
+    if (isBanned && target.isAdmin && !isSuper) {
+      return res.status(403).json({ message: 'لا يمكن اتخاذ إجراء ضد أدمن' });
     }
 
     // A ban issued from the control panel can only be lifted from the control panel.

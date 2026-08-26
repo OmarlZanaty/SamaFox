@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
-import { isTargetSellBlocked, TARGET_LOCK_MESSAGE } from '../utils/targetLock';
+import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
 
 const db = prisma as any;
@@ -177,6 +177,7 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
     // agent who also owns a HOSTING agency got that one back and every charge
     // died on 'Only charging agencies can send coins'. Owner rows are preferred
     // over branch rows, and rejected/pending agencies never qualify.
+    await backfillOwnerMemberships(senderId);
     const membership = await db.agencyMember.findFirst({
       where: {
         userId: senderId,
@@ -189,6 +190,12 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
 
     if (!membership) return fail(res, 403, 'لست وكيل أو فرع في وكالة شحن معتمدة');
 
+    // WHOSE coins fund the charge: ALWAYS the seller's own wallet, owner and
+    // فرع alike (client rule — "يشحن من كوينزاته الخاصه وليس من كوينزات وكيل
+    // الشحن"). A branch is topped up like any agent and sells what he holds;
+    // the owner's wallet is never touched by a branch's sale.
+    const funderId = senderId;
+
     if (targetUserId === senderId) return fail(res, 400, 'لا يمكنك شحن نفسك');
 
     const target = await db.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
@@ -196,9 +203,10 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
 
     try {
       await db.$transaction(async (tx: any) => {
-        // The charge comes out of the AGENT'S OWN WALLET. The agency used to
-        // hold its own separate coin pot (chargingAgency.balanceCoins) that only
-        // an admin could fill, so every send failed on an empty agency wallet —
+        // The charge comes out of the SELLER'S OWN WALLET (`funderId` — the
+        // owner, or the فرع himself). The agency used to hold its own
+        // separate coin pot (chargingAgency.balanceCoins) that only an admin
+        // could fill, so every send failed on an empty agency wallet —
         // "تم الشحن لكنه غير فعال". The agency wallet is no longer a funding
         // source; totalSentCoins is kept purely as a stat.
         //
@@ -206,13 +214,13 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
         // statement, so two concurrent charges can't both pass a read-then-write
         // check and push the agent negative.
         const debited = await tx.user.updateMany({
-          where: { id: senderId, coinsBalance: { gte: coins } },
+          where: { id: funderId, coinsBalance: { gte: coins } },
           data: { coinsBalance: { decrement: coins } },
         });
         if (debited.count === 0) {
           // Carry the balance so the caller can be told how short they are.
           const wallet = await tx.user.findUnique({
-            where: { id: senderId },
+            where: { id: funderId },
             select: { coinsBalance: true },
           });
           throw new Error(`INSUFFICIENT_WALLET_BALANCE:${wallet?.coinsBalance ?? 0}`);
@@ -520,7 +528,41 @@ export const getMyInvites = async (req: AuthReq, res: Response) => {
 // `status` belongs in the WHERE clause for the same reason `type` does: checked
 // afterwards, a pending agency row returned by findFirst masks an approved one
 // the user actually owns, and the caller is wrongly told they own nothing.
+/**
+ * Backfills the OWNER AgencyMember row for every approved agency the caller owns
+ * (ChargingAgency.userId) but has no membership row for.
+ *
+ * Ownership lives in two places: ChargingAgency.userId and an AgencyMember row
+ * with role 'OWNER'. Every owner-gated feature reads the *membership*, so an
+ * agency approved by a path that only flipped `status` (the dashboard's agency
+ * list) left its owner with no فروع, no شحن مستخدم and no roster — the agency
+ * "stopped". Both approve paths now create the row; this repairs the agencies
+ * that were approved before that, on the owner's next request, so nothing has
+ * to be fixed by hand in the database.
+ */
+const backfillOwnerMemberships = async (userId: number) => {
+  const owned = await db.chargingAgency.findMany({
+    where: { userId, status: 'approved' },
+    select: { id: true },
+  });
+  if (!owned.length) return;
+
+  const existing = await db.agencyMember.findMany({
+    where: { userId, agencyId: { in: owned.map((a: any) => a.id) } },
+    select: { agencyId: true },
+  });
+  const have = new Set(existing.map((r: any) => r.agencyId));
+  const missing = owned.filter((a: any) => !have.has(a.id));
+  if (!missing.length) return;
+
+  await db.agencyMember.createMany({
+    data: missing.map((a: any) => ({ agencyId: a.id, userId, role: 'OWNER' })),
+    skipDuplicates: true,
+  });
+};
+
 const findOwnerMembership = async (userId: number, type?: string) => {
+  await backfillOwnerMemberships(userId);
   return db.agencyMember.findFirst({
     where: {
       userId,
@@ -539,6 +581,7 @@ const findOwnerMembership = async (userId: number, type?: string) => {
 // Same multi-agency caveat as findOwnerMembership above — filter by type in
 // the query, not after the fact.
 const findManagerMembership = async (userId: number, type?: string) => {
+  await backfillOwnerMemberships(userId);
   return db.agencyMember.findFirst({
     where: {
       userId,
@@ -621,22 +664,13 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
 
     const stats = await Promise.all(
       members.map(async (member: any) => {
-        const earned = await db.giftTransaction.aggregate({
-          // Target = gifts RECEIVED since joining, excluding self-gifts so a
-          // member can't inflate their own target (#19). createdAt >= joinedAt
-          // makes the target start at 0 on join automatically (#21).
-          where: {
-            recipientId: member.userId,
-            senderId: { not: member.userId },
-            createdAt: { gte: member.joinedAt },
-          },
-          _sum: { totalCoins: true },
-        });
+        // Target = gifts RECEIVED since joining (self-gifts excluded, #19/#21)
+        // plus/minus anything بيع التارجيت moved on this row.
+        const earnedBase = await memberTargetEarned(member);
         // The owner's commission (#4) is part of HIS target, not his wallet —
         // add it here so the agent row shows what he actually earned. 0 for
         // every non-owner row.
-        const earnedCoins =
-          Number(earned._sum.totalCoins ?? 0) + Number(member.commissionTargetCoins ?? 0n);
+        const earnedCoins = earnedBase + Number(member.commissionTargetCoins ?? 0n);
         const goal = Number(member.targetGoalCoins ?? 0n);
         return {
           memberId: member.id,
@@ -790,7 +824,9 @@ export const getMyMembership = async (req: AuthReq, res: Response) => {
       ? String((req.query as any).agencyType).toUpperCase()
       : undefined;
 
-    const m = await db.agencyMember.findFirst({
+    await backfillOwnerMemberships(userId);
+
+    const rows = await db.agencyMember.findMany({
       where: {
         userId,
         agency: { status: 'approved', ...(requestedType ? { type: requestedType } : {}) },
@@ -803,10 +839,15 @@ export const getMyMembership = async (req: AuthReq, res: Response) => {
           },
         },
       },
-      // Manager rows first so owning an agency always beats merely belonging
-      // to one, then oldest — deterministic instead of database order.
-      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
+      orderBy: { joinedAt: 'asc' },
     });
+
+    // Manager rows first so managing an agency always beats merely belonging to
+    // one. This used to be `orderBy role desc`, which sorts alphabetically:
+    // 'OWNER' > 'MEMBER' > 'BRANCH', so a فرع who was also a host somewhere
+    // else was handed his MEMBER row and lost the branch panel entirely.
+    const rank = (role: string) => (role === 'OWNER' ? 0 : role === 'BRANCH' ? 1 : 2);
+    const m = rows.slice().sort((a: any, b: any) => rank(a.role) - rank(b.role))[0] ?? null;
 
     console.log('[my-membership]', { userId, type: requestedType, found: !!m, role: m?.role });
     if (!m) return res.json({ success: true, data: null });
@@ -833,6 +874,10 @@ export const getMyMemberships = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
+
+    // The app derives "can I manage this agency" from these rows, so an owner
+    // missing his OWNER row sees his own agency as a stranger's.
+    await backfillOwnerMemberships(userId);
 
     const rows = await db.agencyMember.findMany({
       where: { userId, agency: { status: 'approved' } },
@@ -1206,24 +1251,66 @@ export const removeBranch = async (req: AuthReq, res: Response) => {
  * than read from `ChargingAgency.earnedCoins` — nothing has ever written that
  * column, so it is always 0 and cannot be trusted.
  */
+/**
+ * A member's TARGET: gifts received since they joined (self-gifts excluded, so
+ * nobody inflates their own target) plus whatever بيع التارجيت has moved onto
+ * or off the row (`targetAdjustmentCoins`, signed — see the schema).
+ *
+ * Every place that shows or spends a target goes through this, so a sale is
+ * reflected identically in the roster, the target card, تبديل الكوينزات and
+ * the dollar figure. The OWNER's commission (#4) is added on top by the
+ * callers that deal with owner rows, since it is role-specific.
+ */
+export const memberTargetEarnedRaw = async (m: {
+  userId: number;
+  joinedAt: Date;
+  targetAdjustmentCoins?: bigint | number | null;
+}): Promise<number> => {
+  // SELF-GIFTS COUNT (client rule, 2026-08: "لما يرمي على نفسه يتخصم سعر الهدية
+  // كامل من محفظته وأيضاً يذهب إلى التارجيت سعر الهدية كامل").
+  //
+  // They used to be filtered out here with `senderId: { not: m.userId }`, and
+  // an agency member's recipient credit is 0 by design — so a وكيل who gifted
+  // himself paid the full price and the coins landed NOWHERE: not in his
+  // wallet, not in his target. That is the "التارجيت بيكون مش كامل" report.
+  // The supporters board still excludes self-gifts; that is a ranking of
+  // support, which this is not.
+  const agg = await db.giftTransaction.aggregate({
+    where: {
+      recipientId: m.userId,
+      createdAt: { gte: m.joinedAt },
+    },
+    _sum: { totalCoins: true },
+  });
+  return Number(agg._sum.totalCoins ?? 0) + Number(m.targetAdjustmentCoins ?? 0);
+};
+
+/**
+ * Same figure, floored at zero — what every UI surface shows.
+ *
+ * The RAW variant exists because an owner's row can legitimately go negative
+ * on `targetAdjustmentCoins` (he sold/swapped more than his gift income) while
+ * still holding commission target on top; clamping before the commission is
+ * added would swallow the deduction and the client's
+ * "عند تبديل التارجيت او بيعه يخصم العدد ... من التارجيت عندي" would silently
+ * stop working for agents.
+ */
+export const memberTargetEarned = async (m: {
+  userId: number;
+  joinedAt: Date;
+  targetAdjustmentCoins?: bigint | number | null;
+}): Promise<number> => Math.max(0, await memberTargetEarnedRaw(m));
+
 export const computeAgencyEarnedCoins = async (agencyId: number): Promise<number> => {
   const members = await db.agencyMember.findMany({
     where: { agencyId },
-    select: { userId: true, joinedAt: true },
+    select: { userId: true, joinedAt: true, targetAdjustmentCoins: true },
   });
   if (members.length === 0) return 0;
 
   const sums = await Promise.all(
     members.map(async (m: any) => {
-      const agg = await db.giftTransaction.aggregate({
-        where: {
-          recipientId: m.userId,
-          senderId: { not: m.userId },
-          createdAt: { gte: m.joinedAt },
-        },
-        _sum: { totalCoins: true },
-      });
-      return Number(agg._sum.totalCoins ?? 0);
+      return memberTargetEarned(m);
     }),
   );
   return sums.reduce((a, b) => a + b, 0);
@@ -1314,6 +1401,7 @@ export const computeCommissionSplit = async (owner: {
       joinedAt: true,
       targetGoalCoins: true,
       commissionGeneratedCoins: true,
+      targetAdjustmentCoins: true,
     },
   });
 
@@ -1333,17 +1421,7 @@ export const computeCommissionSplit = async (owner: {
       if (goal > 0) earned = await computeAgencyEarnedCoins(owner.agencyId);
     } else {
       goal = Number(src.targetGoalCoins ?? 0n);
-      if (goal > 0) {
-        const agg = await db.giftTransaction.aggregate({
-          where: {
-            recipientId: src.userId,
-            senderId: { not: src.userId },
-            createdAt: { gte: src.joinedAt },
-          },
-          _sum: { totalCoins: true },
-        });
-        earned = Number(agg._sum.totalCoins ?? 0);
-      }
+      if (goal > 0) earned = await memberTargetEarned(src);
     }
 
     if (goal > 0 && earned < goal) locked += generated;
@@ -1353,6 +1431,28 @@ export const computeCommissionSplit = async (owner: {
   return { accrued, locked, released: accrued - locked };
 };
 
+/**
+ * Which memberships carry TARGET.
+ *
+ * Any member of an approved hosting agency, plus the وكيل شحن and his فروع on
+ * an approved charging agency (2026-08-23). Charging agents hold target both
+ * from gifts thrown at them and from target they BUY off other users
+ * ("وكيل الشحن ممكن يشتري تارجتات من الناس فتنزل عنده في التارجيت"), so every
+ * target surface — the card, تبديل and بيع, on both sides of a sale — has to
+ * accept the same set or the target would be visible in one place and
+ * unusable in another.
+ */
+const targetMembershipWhere = (userId: number) => ({
+  userId,
+  OR: [
+    { agency: { type: 'HOSTING', status: 'approved' } },
+    {
+      role: { in: ['OWNER', 'BRANCH'] },
+      agency: { type: 'CHARGING', status: 'approved' },
+    },
+  ],
+});
+
 export const getMyTarget = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId;
@@ -1361,33 +1461,37 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
     // Hosting memberships. Owners are included too: an agent earns gifts like
     // any host and has their own convertedTargetCoins row, so excluding them
     // left تبديل الكوينزات permanently empty for every وكيل.
+    //
+    // 2026-08-23 — a وكيل شحن and his فروع hold target as well
+    // ("وكيل الشحن ملوش تارجيت ... المطلوب هينزله تارجيت لانه وكيل لكن بدون
+    // نسبه"). They are OWNER/BRANCH rows on a CHARGING agency: gifts they
+    // receive and target they BUY from others land here, while the 20%
+    // commission stays hosting-only because their cut was already taken at
+    // charge time.
     const memberships = await db.agencyMember.findMany({
-      where: { userId, agency: { type: 'HOSTING', status: 'approved' } },
-      include: { agency: { select: { id: true, agencyName: true } } },
+      where: targetMembershipWhere(userId),
+      include: { agency: { select: { id: true, agencyName: true, type: true } } },
       orderBy: { joinedAt: 'asc' },
     });
 
     const items = await Promise.all(
       memberships.map(async (mm: any) => {
-        const earned = await db.giftTransaction.aggregate({
-          where: {
-            recipientId: userId,
-            senderId: { not: userId },
-            createdAt: { gte: mm.joinedAt },
-          },
-          _sum: { totalCoins: true },
-        });
+        const earnedBase = await memberTargetEarnedRaw(mm);
         // Owner rows carry their accumulated agency commission (#4) as target,
         // so it shows in التارجت and is convertible at the same 50% rate.
         // The commission is always COUNTED here; the part whose source member
         // hasn't completed their target yet is held out of `convertibleCoins`
         // only (see computeCommissionSplit).
-        const commission = await computeCommissionSplit({
-          agencyId: mm.agencyId,
-          userId,
-          commissionTargetCoins: mm.commissionTargetCoins,
-        });
-        const earnedCoins = Number(earned._sum.totalCoins ?? 0) + commission.accrued;
+        // No commission on a charging agency — "بدون نسبه لان نسبته اخذها
+        // وقت الشحن".
+        const commission = mm.agency?.type === 'CHARGING'
+            ? { accrued: 0, locked: 0, released: 0 }
+            : await computeCommissionSplit({
+                agencyId: mm.agencyId,
+                userId,
+                commissionTargetCoins: mm.commissionTargetCoins,
+              });
+        const earnedCoins = Math.max(0, earnedBase + commission.accrued);
         const goal = Number(mm.targetGoalCoins ?? 0n);
         const converted = Number(mm.convertedTargetCoins ?? 0n);
         return {
@@ -1399,7 +1503,7 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
           remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
           earnedDollars: await coinsToDollars(earnedCoins),
           convertedTargetCoins: converted,
-          convertibleCoins: Math.max(0, earnedCoins - converted - commission.locked),
+          convertibleCoins: Math.max(0, earnedCoins - commission.locked),
           // Commission breakdown, so the panel can show "محسوبة" vs "معلقة"
           // instead of silently offering less than the target implies.
           commissionCoins: commission.accrued,
@@ -1409,20 +1513,12 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
       }),
     );
 
-    // The target card must appear on EVERY profile, not only for hosts in a
-    // hosting agency. With no membership there is no goal to hit, but the
-    // user's lifetime gift earnings are still what the card reports — so fall
-    // back to those instead of returning nothing and hiding the card.
-    let totalEarned: number;
-    if (items.length > 0) {
-      totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
-    } else {
-      const lifetime = await db.giftTransaction.aggregate({
-        where: { recipientId: userId, senderId: { not: userId } },
-        _sum: { totalCoins: true },
-      });
-      totalEarned = Number(lifetime._sum.totalCoins ?? 0);
-    }
+    // 2026-08-23 — the card is for وكيل and مضيف ONLY. It used to fall back to
+    // "lifetime gift earnings" for anyone, which is why an unregistered user
+    // saw a target he has no claim to: he already took his 5% at support time
+    // ("الشخص غير المسجل (وكيل- مضيف) بيظهر له تارجيت — المطلوب لا يظهر له").
+    // `hasTarget` below is what the app gates the card on.
+    const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
 
     const totalGifts = await db.giftTransaction.aggregate({
       where: { recipientId: userId, senderId: { not: userId } },
@@ -1446,10 +1542,11 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
       ? agentTargets.find((t) => t.agencyType === requestedType) ?? null
       : agentTargets[0] ?? null;
 
-    // Drives whether the client offers بيع المستهدف at all — it is an
-    // OWNER/BRANCH action on a HOSTING agency, so everyone else was tapping a
-    // tile that could only ever answer 403.
-    const hostingManager = await findManagerMembership(userId, 'HOSTING');
+    // Drives whether the client offers بيع التارجيت. Since 2026-08 it is open
+    // to hosts as well as agents ("يجوز بيع التارجيت وتبديله للمضيف والوكيل"),
+    // so the only requirement is having target on a hosting membership. The
+    // sellable pool is per item (`convertibleCoins`).
+    const canSell = items.some((i) => i.convertibleCoins > 0);
 
     const totalDollars = await coinsToDollars(totalEarned);
     return res.json({
@@ -1458,14 +1555,18 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
         totalEarned,
         totalDollars,
         totalGifts: Number(totalGifts._sum.quantity ?? 0),
-        canSellMemberTarget: !!hostingManager,
+        canSellTarget: canSell,
+        // Old key, same meaning for the app's tile gate — kept so a client
+        // build that predates the rename keeps showing the tile.
+        canSellMemberTarget: canSell,
         // Lets the app grey out بيع/استبدال instead of failing the call.
         targetSellBlocked: await isTargetSellBlocked(userId),
         agentTarget,
         agentTargets,
-        // Always true so the client renders the card; `hasGoal` says whether
+        // Only a hosting-agency member (مضيف) or an agency owner (وكيل) has a
+        // target at all — everyone else gets no card. `hasGoal` says whether
         // there is an agency-set goal to show progress against.
-        hasTarget: true,
+        hasTarget: items.length > 0 || agentTargets.length > 0,
         hasGoal: items.length > 0,
         items,
       },
@@ -1538,33 +1639,50 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
       return fail(res, 400, 'agencyId و amount مطلوبة');
     }
 
-    // Admin lock on this account's payouts (owner request): a blocked user can
-    // neither convert nor sell target until the lock is lifted.
-    if (await isTargetSellBlocked(userId)) return fail(res, 403, TARGET_LOCK_MESSAGE);
+    // Admin lock on payouts (owner request): neither convert nor sell target
+    // while blocked — either by the platform-wide freeze or a personal block.
+    const convertLock = await checkTargetSellLock(userId);
+    if (convertLock.blocked) return fail(res, 403, convertLock.message);
 
     // Owners convert their own earned target too — same rule as getMyTarget.
     const membership = await db.agencyMember.findFirst({
-      where: { userId, agencyId, agency: { type: 'HOSTING', status: 'approved' } },
+      where: { ...targetMembershipWhere(userId), agencyId },
     });
     if (!membership) return fail(res, 404, 'لست عضواً في هذه الوكالة');
 
-    const earned = await db.giftTransaction.aggregate({
-      where: { recipientId: userId, senderId: { not: userId }, createdAt: { gte: membership.joinedAt } },
-      _sum: { totalCoins: true },
+    // Same total the target card shows: gifts received since joining, adjusted
+    // by any بيع التارجيت, plus for an owner the commission his hosts generated
+    // (#4) — which is target, not wallet coins, so this conversion is the only
+    // way it becomes spendable.
+    const convertAgency = await db.chargingAgency.findUnique({
+      where: { id: agencyId },
+      select: { type: true },
     });
-    // Same total the target card shows: gifts received since joining plus, for
-    // an owner, the commission his hosts generated (#4) — which is target, not
-    // wallet coins, so this conversion is the only way it becomes spendable.
-    const commission = await computeCommissionSplit({
-      agencyId,
-      userId,
-      commissionTargetCoins: membership.commissionTargetCoins,
-    });
-    const earnedCoins = Number(earned._sum.totalCoins ?? 0) + commission.accrued;
-    const converted = Number(membership.convertedTargetCoins ?? 0n);
+    const commission = convertAgency?.type === 'CHARGING'
+      ? { accrued: 0, locked: 0, released: 0 }
+      : await computeCommissionSplit({
+          agencyId,
+          userId,
+          commissionTargetCoins: membership.commissionTargetCoins,
+        });
+    // 2026-08-23 client rule: تبديل now WITHDRAWS the target, exactly like بيع
+    // ("عند تبديل التارجيت او بيعه يخصم العدد الذي قمت بتبديله او بيعه من
+    // التارجيت عندي وايضا يخصم قيمته بالدولار"). The swapped amount is booked
+    // onto `targetAdjustmentCoins` below, so the target — and the dollar figure
+    // derived from it through the TargetTier table — both go down.
+    //
+    // `convertedTargetCoins` is therefore no longer a spending cap; it stays as
+    // a lifetime "كم بدّلت" counter only. Legacy rows are reconciled once by the
+    // 20260823_target_convert_deducts migration, which subtracts each row's
+    // historical convertedTargetCoins from its adjustment — without that, every
+    // pre-existing conversion would become spendable a second time.
+    const earnedCoins = Math.max(
+      0,
+      (await memberTargetEarnedRaw(membership)) + commission.accrued,
+    );
     // The held-back commission is counted in the target but not payable until
     // the member who generated it completes their own target.
-    const available = Math.max(0, earnedCoins - converted - commission.locked);
+    const available = Math.max(0, earnedCoins - commission.locked);
 
     if (amount > available) {
       if (commission.locked > 0) {
@@ -1581,7 +1699,12 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
     const [, updatedUser] = await db.$transaction([
       db.agencyMember.update({
         where: { id: membership.id },
-        data: { convertedTargetCoins: { increment: amount } },
+        data: {
+          // The withdrawal itself…
+          targetAdjustmentCoins: { decrement: BigInt(amount) },
+          // …and the lifetime counter the target card displays.
+          convertedTargetCoins: { increment: amount },
+        },
       }),
       db.user.update({
         where: { id: userId },
@@ -1600,94 +1723,178 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
   }
 };
 
-// POST /agencies/target/sell  { memberUserId, amount }
-// "بيع المستهدف" (#5) — the agency owner/branch cashes out PART OF A MEMBER's
-// own earned-but-unconverted target on their behalf, at the same 50% rate as
-// the member's self-service convertTarget above. The coins land on the
-// MEMBER's balance (this sells the member's target for them, it does not
-// move money to the owner) — distinct from the #4 commission, which is the
-// owner's own separate cut credited on gift receipt.
-export const sellMemberTarget = async (req: AuthReq, res: Response) => {
+/**
+ * POST /agencies/target/sell  { toUserId, amount, agencyId? }
+ *
+ * بيع التارجيت, rewritten to the client's 2026-08 rule:
+ *   • ANY account holding target may sell — host and وكيل alike. It used to be
+ *     an OWNER/BRANCH-only action ("بيع التارجيت وتبديله للوكيل فقط ❎").
+ *   • No fixed quantity: any amount up to the seller's whole available target
+ *     ("حتي لو اردت بيع التارجيت كامل او تبديله لا بأس").
+ *   • A sale MOVES target between accounts instead of cashing it out. `amount`
+ *     leaves the seller's target and lands on the buyer's, so the seller's
+ *     dollar value drops by what he sold and the buyer's rises with his new
+ *     total.
+ *
+ * The dollars follow automatically because they are derived from the target
+ * through the admin's TargetTier table: a buyer sitting at 800k against a
+ * 1,000,000 = $10 tier is still worth $0 and only crosses into $10 when the
+ * remaining 200k arrives — exactly the example in the request.
+ *
+ * تبديل الكوينزات (convertTarget) is the other half of the pair and keeps its
+ * own rule: half the amount, in coins, into your own wallet.
+ */
+export const sellTarget = async (req: AuthReq, res: Response) => {
   try {
-    const ownerId = req.userId;
-    if (!ownerId) return fail(res, 401, 'Unauthorized');
+    const sellerId = req.userId;
+    if (!sellerId) return fail(res, 401, 'Unauthorized');
 
-    const memberUserId = Number(req.body?.memberUserId);
+    // `memberUserId` was the key the previous (agent-only) version took; still
+    // accepted so an app build that predates this change keeps working.
+    const rawTarget = Number(req.body?.toUserId ?? req.body?.memberUserId);
     const amount = Math.floor(Number(req.body?.amount));
-    if (!memberUserId || !Number.isFinite(amount) || amount <= 0) {
-      return fail(res, 400, 'memberUserId و amount مطلوبة');
+    if (!rawTarget || !Number.isFinite(amount) || amount <= 0) {
+      return fail(res, 400, 'toUserId و amount مطلوبة');
     }
 
-    const manager = await findManagerMembership(ownerId, 'HOSTING');
-    if (!manager) return fail(res, 403, 'لست وكيل أو فرع في وكالة استضافة');
+    // The lock follows the account whose target leaves — the SELLER now, since
+    // he is the one disposing of it.
+    const sellLock = await checkTargetSellLock(sellerId);
+    if (sellLock.blocked) return fail(res, 403, sellLock.message);
 
-    // The agent types the ID they can actually see — the public `displayId`
-    // printed on profiles and in the roster — not the internal user.id. Resolve
-    // it the same way invite-search does, then fall back to a raw id so an
-    // internal id still works.
+    // Buyers are typed in by the ID people can actually see — the public
+    // `displayId` on profiles — with a fallback to the internal id.
     const byDisplayId = await db.user.findFirst({
-      where: { displayId: memberUserId },
-      select: { id: true },
+      where: { displayId: rawTarget },
+      select: { id: true, name: true },
     });
-    const resolvedUserId = byDisplayId?.id ?? memberUserId;
+    const buyer =
+      byDisplayId ?? (await db.user.findUnique({ where: { id: rawTarget }, select: { id: true, name: true } }));
+    if (!buyer) return fail(res, 404, 'المستخدم غير موجود');
+    if (buyer.id === sellerId) return fail(res, 400, 'لا يمكنك بيع التارجت لنفسك');
 
-    // Checked on the RESOLVED id (the input may be a public displayId). The
-    // lock follows the account whose target is cashed out, so blocking a member
-    // also stops their agent selling it on their behalf.
-    if (await isTargetSellBlocked(resolvedUserId)) return fail(res, 403, TARGET_LOCK_MESSAGE);
-
-    const membership = await db.agencyMember.findFirst({
-      where: { userId: resolvedUserId, agencyId: manager.agencyId, role: { not: 'OWNER' } },
+    // Seller's row: the agency they named, else their oldest hosting membership.
+    const sellerMembership = await db.agencyMember.findFirst({
+      where: {
+        ...targetMembershipWhere(sellerId),
+        ...(Number(req.body?.agencyId) ? { agencyId: Number(req.body.agencyId) } : {}),
+      },
+      orderBy: { joinedAt: 'asc' },
     });
-    if (!membership) return fail(res, 404, 'هذا المستخدم ليس عضواً في وكالتك');
+    if (!sellerMembership) return fail(res, 404, 'لا يوجد لديك تارجت قابل للبيع');
 
-    const earned = await db.giftTransaction.aggregate({
-      where: { recipientId: resolvedUserId, senderId: { not: resolvedUserId }, createdAt: { gte: membership.joinedAt } },
-      _sum: { totalCoins: true },
+    // Target lives on a membership row, so a buyer outside every hosting agency
+    // has nowhere to put it.
+    const buyerMembership = await db.agencyMember.findFirst({
+      where: targetMembershipWhere(buyer.id),
+      orderBy: { joinedAt: 'asc' },
     });
-    const earnedCoins = Number(earned._sum.totalCoins ?? 0);
-    const converted = Number(membership.convertedTargetCoins ?? 0n);
-    const available = Math.max(0, earnedCoins - converted);
+    if (!buyerMembership) return fail(res, 404, 'المستفيد لا يملك حساباً يستقبل التارجت');
+
+    // Sellable = the same pool تبديل الكوينزات offers: target earned, minus what
+    // was already cashed out, minus commission still held back. No other
+    // ceiling — selling the entire target is allowed.
+    const sellerAgency = await db.chargingAgency.findUnique({
+      where: { id: sellerMembership.agencyId },
+      select: { type: true },
+    });
+    const commission = sellerAgency?.type === 'CHARGING'
+      ? { accrued: 0, locked: 0, released: 0 }
+      : await computeCommissionSplit({
+          agencyId: sellerMembership.agencyId,
+          userId: sellerId,
+          commissionTargetCoins: sellerMembership.commissionTargetCoins,
+        });
+    const earnedCoins = Math.max(
+      0,
+      (await memberTargetEarnedRaw(sellerMembership)) + commission.accrued,
+    );
+    // See convertTarget: withdrawals are booked on targetAdjustmentCoins now,
+    // so subtracting convertedTargetCoins here would charge for them twice.
+    const available = Math.max(0, earnedCoins - commission.locked);
 
     if (amount > available) {
+      if (commission.locked > 0) {
+        return fail(
+          res,
+          400,
+          `أقصى مبلغ متاح للبيع الآن هو ${available} كوينز — ${commission.locked} كوينز عمولة محجوزة حتى يكمل أصحابها التارجت المحدد`,
+        );
+      }
       return fail(res, 400, `أقصى مبلغ متاح للبيع الآن هو ${available} كوينز`);
     }
 
-    const credit = Math.floor(amount / 2);
-    const [, updatedUser] = await db.$transaction([
+    // Priced at the tier rate in force right now and stored on the sale row, so
+    // a later change to the tiers doesn't rewrite what this sale was worth.
+    const dollarsValue = await coinsToDollars(amount);
+
+    await db.$transaction([
       db.agencyMember.update({
-        where: { id: membership.id },
-        data: { convertedTargetCoins: { increment: amount } },
+        where: { id: sellerMembership.id },
+        data: { targetAdjustmentCoins: { decrement: BigInt(amount) } },
       }),
-      db.user.update({
-        where: { id: resolvedUserId },
-        data: { coinsBalance: { increment: credit } },
-        select: { coinsBalance: true },
+      db.agencyMember.update({
+        where: { id: buyerMembership.id },
+        data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
+      }),
+      (db as any).targetSale.create({
+        data: {
+          sellerId,
+          buyerId: buyer.id,
+          amountCoins: BigInt(amount),
+          sellerAgencyId: sellerMembership.agencyId,
+          buyerAgencyId: buyerMembership.agencyId,
+          dollarsValue,
+        },
       }),
     ]);
 
+    const sellerTargetNow = Math.max(0, earnedCoins - amount);
+    const buyerTargetNow = await memberTargetEarned({
+      userId: buyer.id,
+      joinedAt: buyerMembership.joinedAt,
+      targetAdjustmentCoins: Number(buyerMembership.targetAdjustmentCoins ?? 0n) + amount,
+    });
+    const buyerGoal = Number(buyerMembership.targetGoalCoins ?? 0n);
+
     try {
+      const seller = await db.user.findUnique({ where: { id: sellerId }, select: { name: true } });
       await createNotification({
-        userId: resolvedUserId,
-        actorId: ownerId,
+        userId: buyer.id,
+        actorId: sellerId,
         type: 'TARGET_SOLD',
-        title: '🎯 تم بيع جزء من المستهدف',
-        body: `قام الوكيل ببيع ${amount} كوينز من رصيد المستهدف الخاص بك مقابل ${credit} كوينز في رصيدك`,
-        data: { agencyId: manager.agencyId, amount, credit },
+        title: '🎯 أضيف تارجت إلى حسابك',
+        body: `باع لك ${seller?.name ?? 'أحد المستخدمين'} ${amount} كوينز تارجت — إجمالي التارجت لديك الآن ${buyerTargetNow} كوينز`,
+        data: { amount, fromUserId: sellerId, agencyId: buyerMembership.agencyId },
       });
     } catch (e) {
-      console.warn('sellMemberTarget notification failed:', e);
+      console.warn('sellTarget notification failed:', e);
     }
 
     return res.json({
       success: true,
-      data: { soldAmount: amount, creditedCoins: credit, memberNewBalance: updatedUser.coinsBalance, remainingConvertible: available - amount },
+      data: {
+        soldAmount: amount,
+        dollarsValue,
+        buyer: { userId: buyer.id, name: buyer.name },
+        sellerTargetCoins: sellerTargetNow,
+        sellerTargetDollars: await coinsToDollars(sellerTargetNow),
+        buyerTargetCoins: buyerTargetNow,
+        buyerTargetDollars: await coinsToDollars(buyerTargetNow),
+        // 0 goal = no target set for the buyer, so there is nothing to complete.
+        buyerRemainingCoins: buyerGoal > 0 ? Math.max(0, buyerGoal - buyerTargetNow) : 0,
+        remainingSellable: available - amount,
+      },
     });
   } catch (e) {
-    console.error('[agency.sellMemberTarget] failed:', e);
+    console.error('[agency.sellTarget] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };
+
+// Previous export name — kept so the route file (and any older import) still
+// resolves to the rewritten handler.
+export const sellMemberTarget = sellTarget;
 
 // PATCH /agencies/members/:userId/target  { targetGoalCoins }
 // A hosting-agency owner sets a member's target goal.

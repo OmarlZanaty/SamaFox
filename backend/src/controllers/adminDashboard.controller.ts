@@ -2,14 +2,20 @@ import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
-import { computeAgencyEarnedCoins, computeCommissionSplit } from '../agencies/agency.controller';
+import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned } from '../agencies/agency.controller';
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
 import { grantVipRewardsForRange } from '../services/vip.service';
 import { grantLevelRewards as grantLvLevelRewards, notifyLevelUp } from '../services/xp.service';
+import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { createNotification } from '../services/notification.service';
-import { setTargetSellBlocked, listTargetSellBlocked } from '../utils/targetLock';
+import {
+  setTargetSellBlocked,
+  listTargetSellBlocked,
+  isTargetSellGloballyBlocked,
+  setTargetSellGlobalBlock,
+} from '../utils/targetLock';
 
 const db = prisma as any;
 
@@ -420,6 +426,10 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
     if (!id || !['approved', 'rejected'].includes(status)) return fail(res, 400, 'Invalid payload');
     const adminId = req.userId!;
 
+    // Set inside the transaction, acted on after it commits.
+    let chargedAgencyId = 0;
+    let chargedAmount = 0;
+
     const result = await db.$transaction(async (tx: any) => {
       const topup = await tx.agencyTopupRequest.findUnique({ where: { id } });
       if (!topup) return { ok: false as const, status: 404, message: 'Topup request not found' };
@@ -433,9 +443,8 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
           where: { agencyId: topup.agencyId, role: 'OWNER' },
           select: { userId: true },
         });
-        const agency = await tx.chargingAgency.update({
+        const agency = await tx.chargingAgency.findUniqueOrThrow({
           where: { id: topup.agencyId },
-          data: { totalTopupCoins: { increment: topup.amount } },
           select: { userId: true },
         });
         const ownerId = ownerRow?.userId ?? agency.userId;
@@ -443,6 +452,8 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
           where: { id: ownerId },
           data: { coinsBalance: { increment: topup.amount } },
         });
+        chargedAgencyId = topup.agencyId;
+        chargedAmount = topup.amount;
       }
 
       const updated = await tx.agencyTopupRequest.update({
@@ -454,6 +465,11 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
     });
 
     if (!result.ok) return fail(res, result.status, result.message);
+
+    // Outside the transaction: the reward ladder must not be able to roll back
+    // an approved top-up.
+    if (chargedAgencyId) await recordAgencySelfCharge(chargedAgencyId, chargedAmount);
+
     return ok(res, { data: serialize(result.data) });
   } catch {
     return fail(res, 500, 'Server error');
@@ -697,15 +713,40 @@ export const adminDashboardRoomDetails = async (req: Request, res: Response) => 
  */
 export const adminDashboardSetTargetLock = async (req: Request, res: Response) => {
   try {
-    const id = Number(req.params.id);
-    if (!id) return fail(res, 400, 'Invalid user id');
+    const raw = Number(req.params.id);
+    if (!Number.isFinite(raw) || raw <= 0) return fail(res, 400, 'Invalid user id');
     const blocked = Boolean(req.body?.blocked);
 
-    const user = await (prisma as any).user.findUnique({ where: { id }, select: { id: true } });
-    if (!user) return fail(res, 404, 'User not found');
+    // WHICH id was typed. The admin reads the ID off the profile card — that is
+    // `displayId` — but this only ever looked up the internal row id, so the
+    // per-account block answered "User not found" and did nothing (the global
+    // freeze worked, which is why "المنع شغال لكل المستخدمين، أما مستخدم
+    // بالايدي ليس فعال"). displayId wins; the internal id still resolves so the
+    // list's فك المنع button (which holds the real row id) keeps working, and
+    // `?by=id` forces that reading when the caller knows it.
+    const byInternalId = String((req.query as any)?.by ?? '') === 'id';
+    const user = byInternalId
+      ? await (prisma as any).user.findUnique({ where: { id: raw }, select: { id: true, name: true, displayId: true } })
+      : (await (prisma as any).user.findFirst({
+          where: { displayId: raw },
+          select: { id: true, name: true, displayId: true },
+        })) ??
+        (await (prisma as any).user.findUnique({
+          where: { id: raw },
+          select: { id: true, name: true, displayId: true },
+        }));
+    if (!user) return fail(res, 404, 'لا يوجد مستخدم بهذا الرقم');
 
-    const ids = await setTargetSellBlocked(id, blocked);
-    return ok(res, { data: { userId: id, blocked, blockedUserIds: ids } });
+    const ids = await setTargetSellBlocked(user.id, blocked);
+    return ok(res, {
+      data: {
+        userId: user.id,
+        displayId: user.displayId ?? null,
+        name: user.name ?? null,
+        blocked,
+        blockedUserIds: ids,
+      },
+    });
   } catch (e) {
     console.error('adminDashboardSetTargetLock error:', e);
     return fail(res, 500, 'Server error');
@@ -725,6 +766,48 @@ export const adminDashboardListTargetLocks = async (_req: Request, res: Response
     return ok(res, { data: users });
   } catch (e) {
     console.error('adminDashboardListTargetLocks error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * The whole بيع/تبديل التارجيت policy in one call: the platform-wide freeze
+ * plus the per-account block list, so the dashboard card renders in one round
+ * trip.
+ */
+export const adminDashboardGetTargetSellPolicy = async (_req: Request, res: Response) => {
+  try {
+    const [globallyBlocked, ids] = await Promise.all([
+      isTargetSellGloballyBlocked(),
+      listTargetSellBlocked(),
+    ]);
+    const users = ids.length
+      ? await (prisma as any).user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true, displayId: true },
+        })
+      : [];
+    return ok(res, { data: { globallyBlocked, blockedUsers: users } });
+  } catch (e) {
+    console.error('adminDashboardGetTargetSellPolicy error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * Flip the platform-wide freeze. PATCH body: { blocked: boolean }.
+ * Blocked is the default state, so this is how the owner lifts it — and how
+ * they put it back.
+ */
+export const adminDashboardSetTargetSellPolicy = async (req: Request, res: Response) => {
+  try {
+    if (typeof req.body?.blocked !== 'boolean') {
+      return fail(res, 400, 'blocked (boolean) is required');
+    }
+    const blocked = await setTargetSellGlobalBlock(req.body.blocked);
+    return ok(res, { data: { globallyBlocked: blocked } });
+  } catch (e) {
+    console.error('adminDashboardSetTargetSellPolicy error:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -883,6 +966,11 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
           // is a retired pot (charging is paid from the agent's own wallet), so
           // report the wallet the admin actually tops up.
           balanceCoins: String(a.user?.coinsBalance ?? 0),
+          // B10 — "كل وكاله شحنت كام مره لنفسها": how often this agency topped
+          // ITSELF up, and the coins behind those charges, so the owner can
+          // rank agencies and reward the biggest charger.
+          selfChargeCount: Number(a.selfChargeCount ?? 0),
+          selfChargeCoins: String(a.totalTopupCoins ?? 0),
         };
       }),
     );
@@ -971,7 +1059,22 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
     const status = req.body?.status;
     if (!['approved', 'rejected', 'pending'].includes(status)) return fail(res, 400, 'Invalid status');
 
-    const updated = await prisma.chargingAgency.update({ where: { id }, data: { status } });
+    const updated = await prisma.$transaction(async (tx: any) => {
+      const agency = await tx.chargingAgency.update({ where: { id }, data: { status } });
+      // Approving here used to flip the column and nothing else, so an agency
+      // created through POST /charging-agencies never got its OWNER
+      // AgencyMember row. Every owner-gated feature reads that row, so the
+      // owner ended up with no الفروع button, `GET/POST /agencies/branches`
+      // answering 403 and even شحن مستخدم refused — "فروع وكالة الشحن توقفت".
+      if (status === 'approved') {
+        await tx.agencyMember.upsert({
+          where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
+          update: { role: 'OWNER' },
+          create: { agencyId: agency.id, userId: agency.userId, role: 'OWNER' },
+        });
+      }
+      return agency;
+    });
     return ok(res, { data: serialize(updated) });
   } catch {
     return fail(res, 500, 'Server error');
@@ -1168,23 +1271,104 @@ export const adminTopupAgency = async (req: AdminReq, res: Response) => {
     const ownerId = await resolveAgencyOwnerId(id);
     if (!ownerId) return fail(res, 404, 'Agency not found');
 
-    const [, owner] = await db.$transaction([
-      db.chargingAgency.update({
-        where: { id },
-        data: { totalTopupCoins: { increment: numericAmount } },
-      }),
-      db.user.update({
-        where: { id: ownerId },
-        data: { coinsBalance: { increment: numericAmount } },
-        select: { coinsBalance: true },
-      }),
-    ]);
+    const owner = await db.user.update({
+      where: { id: ownerId },
+      data: { coinsBalance: { increment: numericAmount } },
+      select: { coinsBalance: true },
+    });
+
+    // Counts as one self-charge for the dashboard ranking, and pays out any
+    // reward rung it crosses. It also owns the `totalTopupCoins` increment
+    // that used to sit in the transaction above — keeping both in one place is
+    // what makes the reward high-water mark trustworthy.
+    await recordAgencySelfCharge(id, numericAmount);
 
     // Key kept as `balanceCoins` — the dashboard reads it to print the new
     // balance, and it is now the agent's wallet.
     return ok(res, { data: { balanceCoins: String(owner.coinsBalance) } });
   } catch (e) {
     console.error('adminTopupAgency error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ── B11: automatic reward when a charging agency tops itself up past a
+// threshold ("لو تخليني احدد من لوحة التحكم الوكاله لما تشحن عدد كوينزات معين
+// احدد مكافأة تروح تلقائي"). One row per rung; see agencyReward.service for
+// how they are paid out.
+export const adminListAgencyChargeRewards = async (_req: AdminReq, res: Response) => {
+  try {
+    const rows = await (prisma as any).agencyChargeReward.findMany({
+      orderBy: { thresholdCoins: 'asc' },
+    });
+    return ok(res, { data: serialize(rows) });
+  } catch (e) {
+    console.error('adminListAgencyChargeRewards error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSaveAgencyChargeReward = async (req: AdminReq, res: Response) => {
+  try {
+    const threshold = Number(req.body?.thresholdCoins);
+    if (!Number.isFinite(threshold) || threshold <= 0) {
+      return fail(res, 400, 'thresholdCoins must be a positive number');
+    }
+
+    const rewardCoins = Math.max(0, Math.floor(Number(req.body?.rewardCoins ?? 0)));
+    let rewardItemIds: string[] = [];
+    if (Array.isArray(req.body?.rewardItemIds)) {
+      const requested = [...new Set(req.body.rewardItemIds.map(String))] as string[];
+      // Drop ids that no longer exist, so a deleted product can't wedge payouts.
+      const existing = await prisma.item.findMany({
+        where: { id: { in: requested } },
+        select: { id: true },
+      });
+      rewardItemIds = existing.map((i) => i.id);
+    }
+
+    if (rewardCoins <= 0 && rewardItemIds.length === 0) {
+      return fail(res, 400, 'حدد كوينزات أو منتجات للمكافأة');
+    }
+
+    const agencyIdRaw = req.body?.agencyId;
+    const agencyId =
+      agencyIdRaw === undefined || agencyIdRaw === null || String(agencyIdRaw).trim() === ''
+        ? null
+        : Number(agencyIdRaw);
+    if (agencyId !== null && !Number.isInteger(agencyId)) {
+      return fail(res, 400, 'agencyId must be an integer or empty for all agencies');
+    }
+
+    const data = {
+      thresholdCoins: BigInt(Math.floor(threshold)),
+      rewardCoins,
+      rewardItemIds,
+      agencyId,
+      isActive: req.body?.isActive === undefined ? true : Boolean(req.body.isActive),
+    };
+
+    const id = Number(req.body?.id);
+    const row = Number.isInteger(id) && id > 0
+      ? await (prisma as any).agencyChargeReward.update({ where: { id }, data })
+      : await (prisma as any).agencyChargeReward.create({ data });
+
+    return ok(res, { data: serialize(row) });
+  } catch (e) {
+    console.error('adminSaveAgencyChargeReward error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDeleteAgencyChargeReward = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    await (prisma as any).agencyChargeReward.delete({ where: { id } });
+    return ok(res, { data: { id } });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Reward not found');
+    console.error('adminDeleteAgencyChargeReward error:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -1422,14 +1606,11 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
     // Group 8: also the dollar value of what they earned (real money).
     const withTargets = await Promise.all(
       members.map(async (m: any) => {
-        const earned = await db.giftTransaction.aggregate({
-          where: { recipientId: m.userId, senderId: { not: m.userId }, createdAt: { gte: m.joinedAt } },
-          _sum: { totalCoins: true },
-        });
         // Owner rows also carry their agency commission (#4), which is target
         // and not wallet coins — same total the agent sees in his own panel.
+        // memberTargetEarned folds in بيع التارجيت movements.
         const earnedCoins =
-          Number(earned._sum.totalCoins ?? 0) + Number(m.commissionTargetCoins ?? 0n);
+          (await memberTargetEarned(m)) + Number(m.commissionTargetCoins ?? 0n);
         const goal = Number(m.targetGoalCoins ?? 0n);
         // How much of that commission is still held back because the member
         // who generated it hasn't completed their target (2026-08 rule). Only
@@ -1569,6 +1750,11 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
         ? { durationDays: Number(durRaw) > 0 ? Math.floor(Number(durRaw)) : null }
         : {}),
       ...(rewardItemIds !== undefined ? { rewardItemIds } : {}),
+      // A16 — "الصوره المتحركه تكون خاصية لفئة معينة من الـ VIP، مثلاً VIP10
+      // وما فوق". Off by default, so no tier silently gains the permission.
+      ...(req.body?.allowAnimatedAvatar !== undefined
+        ? { allowAnimatedAvatar: !!req.body.allowAnimatedAvatar }
+        : {}),
     };
     const saved = await (prisma as any).vipLevelConfig.upsert({
       where: { level },
@@ -1844,6 +2030,174 @@ export const adminSetSuperAdmin = async (req: AdminReq, res: Response) => {
     return ok(res, { data: { id: target.id, isSuperAdmin: value } });
   } catch (e) {
     console.error('adminSetSuperAdmin error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// B8 — إضافة / خصم التارجيت لعضو
+//
+// The dashboard could set an agency's overall `targetCoins` but had no way to
+// move one member's target, which is what the client actually asked for:
+// "اضافة تارجيت (يضيف العدد وقيمته بالدولار)، والخصم يعكس الاثنين".
+//
+// The dollar value is deliberately NOT stored. A member's dollars are derived
+// from their target through the TargetTier table (`computeDollarsFromCoins`),
+// so moving the coins moves the dollars by construction — which is exactly the
+// proportional behaviour the client described for التبديل in item #10 and the
+// only way the two figures can never drift apart.
+// ============================================================
+export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
+  try {
+    const memberId = Number(req.params.memberId);
+    if (!memberId) return fail(res, 400, 'Invalid member id');
+
+    const raw = (req.body as { amountCoins?: number | string })?.amountCoins;
+    const amount = Math.floor(Number(raw));
+    if (!Number.isFinite(amount) || amount === 0) {
+      return fail(res, 400, 'amountCoins must be a non-zero number (negative deducts)');
+    }
+
+    const member = await db.agencyMember.findUnique({
+      where: { id: memberId },
+      include: { user: { select: { id: true, name: true } } },
+    });
+    if (!member) return fail(res, 404, 'Member not found');
+
+    // A deduction may not push the member's target below zero — the panel is
+    // an accounting tool, not a way to invent negative earnings.
+    const currentEarned =
+      (await memberTargetEarned(member)) + Number(member.commissionTargetCoins ?? 0n);
+    if (amount < 0 && currentEarned + amount < 0) {
+      return fail(res, 400, `لا يمكن الخصم: التارجيت الحالي ${currentEarned} فقط`);
+    }
+
+    const updated = await db.agencyMember.update({
+      where: { id: memberId },
+      data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
+    });
+
+    const newEarned =
+      (await memberTargetEarned(updated)) + Number(updated.commissionTargetCoins ?? 0n);
+
+    try {
+      const { createNotification } = await import('../services/notification.service');
+      await createNotification({
+        userId: member.userId,
+        type: 'TARGET_ADJUSTED',
+        title: amount > 0 ? 'تمت إضافة تارجيت' : 'تم خصم تارجيت',
+        body:
+          amount > 0
+            ? `أضافت الإدارة ${amount} إلى التارجيت الخاص بك`
+            : `خصمت الإدارة ${Math.abs(amount)} من التارجيت الخاص بك`,
+        data: { amountCoins: amount, agencyId: member.agencyId },
+      });
+    } catch (e) {
+      console.warn('target adjustment notification failed:', e);
+    }
+
+    return ok(res, {
+      data: {
+        memberId,
+        amountCoins: amount,
+        earnedCoins: newEarned,
+        dollars: await computeDollarsFromCoins(newEarned),
+      },
+    });
+  } catch (e) {
+    console.error('adminAdjustMemberTarget error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// B9 — أعلى المستويات: "تصفير العداد" for one account
+//
+// Not a deletion and not a permanent ban from the board. Stamping
+// `supportersResetAt` makes the board count only what the account gifts from
+// that moment on, which is precisely what the client asked for: he tests by
+// gifting heavily, wants to stop occupying #1, and wants to reappear "بالمستوى
+// اللي هو وصل له" the moment he supports again.
+// ============================================================
+export const adminListTopSupporters = async (req: AdminReq, res: Response) => {
+  try {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+
+    const resetUsers = await db.user.findMany({
+      where: { supportersResetAt: { not: null } },
+      select: { id: true, supportersResetAt: true },
+    });
+    const resetIds = resetUsers.map((u: { id: number }) => u.id);
+
+    const rows = await db.giftTransaction.groupBy({
+      by: ['senderId'],
+      where: {
+        AND: [
+          { NOT: { senderId: { equals: db.giftTransaction.fields.recipientId } } },
+          ...(resetIds.length
+            ? [
+                {
+                  OR: [
+                    { senderId: { notIn: resetIds } },
+                    ...resetUsers.map((u: { id: number; supportersResetAt: Date }) => ({
+                      senderId: u.id,
+                      createdAt: { gte: u.supportersResetAt },
+                    })),
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      _sum: { totalCoins: true },
+      orderBy: { _sum: { totalCoins: 'desc' } },
+      take: limit,
+    });
+
+    const users = rows.length
+      ? await db.user.findMany({
+          where: { id: { in: rows.map((r: { senderId: number }) => r.senderId) } },
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            displayId: true,
+            level: true,
+            vipLevel: true,
+            supportersResetAt: true,
+          },
+        })
+      : [];
+    const byId = new Map(users.map((u: { id: number }) => [u.id, u]));
+
+    return ok(res, {
+      data: rows.map((r: { senderId: number; _sum: { totalCoins: number | null } }, i: number) => ({
+        rank: i + 1,
+        user: byId.get(r.senderId) ?? null,
+        coins: Number(r._sum.totalCoins ?? 0),
+      })),
+    });
+  } catch (e) {
+    console.error('adminListTopSupporters error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminResetSupporterCounter = async (req: AdminReq, res: Response) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!userId) return fail(res, 400, 'Invalid user id');
+    // `undo: true` puts the whole history back on the board.
+    const undo = (req.body as { undo?: boolean })?.undo === true;
+
+    const user = await db.user.update({
+      where: { id: userId },
+      data: { supportersResetAt: undo ? null : new Date() },
+      select: { id: true, name: true, supportersResetAt: true },
+    });
+    return ok(res, { data: user });
+  } catch (e) {
+    console.error('adminResetSupporterCounter error:', e);
     return fail(res, 500, 'Server error');
   }
 };
