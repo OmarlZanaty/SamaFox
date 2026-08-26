@@ -9,6 +9,12 @@ import '../services/gift_socket_service.dart';
 
 /// Cross-room broadcast banner — listens to `gift_broadcast` from
 /// the socket service and surfaces a top notification ticker.
+///
+/// The banner is the ornate crystal frame artwork: a narrow plaque across the
+/// top holds the label and the wide inner panel holds the sender → gift →
+/// recipient line. The frame keeps its aspect ratio so the gold corners and
+/// crystals never skew, and the text scales down to fit instead of wrapping
+/// outside the panel.
 class BroadcastBannerLayer extends ConsumerStatefulWidget {
   const BroadcastBannerLayer({super.key, required this.socket});
   final GiftSocketService socket;
@@ -19,6 +25,13 @@ class BroadcastBannerLayer extends ConsumerStatefulWidget {
 
 class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
     with SingleTickerProviderStateMixin {
+  /// Artwork is 419x117. These fractions mark the two transparent text wells
+  /// inside the frame, measured off that source image.
+  static const String _frameAsset = 'assets/images/gift_broadcast_banner.png';
+  static const double _frameAspect = 419 / 117;
+  static const Rect _plaque = Rect.fromLTRB(0.36, 0.10, 0.645, 0.35);
+  static const Rect _panel = Rect.fromLTRB(0.11, 0.40, 0.90, 0.88);
+
   final Queue<GiftSendEvent> _queue = Queue();
   GiftSendEvent? _current;
   StreamSubscription? _sub;
@@ -60,6 +73,20 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
     super.dispose();
   }
 
+  /// Places a child inside one of the artwork's text wells, using fractions of
+  /// the frame so it tracks the image at any width.
+  Widget _well(Rect area, double w, double h, Widget child) {
+    return Positioned(
+      left: area.left * w,
+      top: area.top * h,
+      width: (area.right - area.left) * w,
+      height: (area.bottom - area.top) * h,
+      child: Center(
+        child: FittedBox(fit: BoxFit.scaleDown, child: child),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ev = _current;
@@ -68,43 +95,66 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
       top: 0,
       left: 0,
       right: 0,
-      child: IgnorePointer(
-        ignoring: false,
-        child: SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
-              .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack)),
-          child: SafeArea(
-            child: GestureDetector(
-              onTap: () {
-                // Tapping the banner takes the viewer into the gift's room.
-                if (ev.roomId != null) {
-                  Navigator.of(context).pushNamed('/room', arguments: ev.roomId);
-                }
-              },
-              child: Container(
-                margin: const EdgeInsets.all(8),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF4081), Color(0xFFFFD54F)],
-                  ),
-                  borderRadius: BorderRadius.circular(40),
-                  boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 4))],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('🎉', style: TextStyle(fontSize: 20)),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        _bannerText(ev),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+      child: SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
+            .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack)),
+        child: SafeArea(
+          child: GestureDetector(
+            onTap: () {
+              // Tapping the banner takes the viewer into the gift's room.
+              if (ev.roomId != null) {
+                Navigator.of(context).pushNamed('/room', arguments: ev.roomId);
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: AspectRatio(
+                aspectRatio: _frameAspect,
+                child: LayoutBuilder(
+                  builder: (context, c) {
+                    final w = c.maxWidth;
+                    final h = c.maxHeight;
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Image.asset(_frameAsset, fit: BoxFit.fill),
+                        ),
+                        _well(
+                          _plaque,
+                          w,
+                          h,
+                          const Text(
+                            'هدية كبيرة',
+                            style: TextStyle(
+                              color: Color(0xFFFFE7A3),
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
+                            ),
+                          ),
+                        ),
+                        _well(
+                          _panel,
+                          w,
+                          h,
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Text(
+                              _bannerText(ev),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                shadows: [Shadow(color: Colors.black87, blurRadius: 5)],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -115,9 +165,10 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
   }
 
   String _bannerText(GiftSendEvent ev) {
-    final sender = ev.sender?.name ?? 'Someone';
-    final recipient = ev.recipient?.name ?? 'someone';
+    final sender = ev.sender?.name ?? 'مستخدم';
+    final recipient = ev.recipient?.name ?? 'مستخدم';
     final gift = ev.gift.nameAr ?? ev.gift.name;
-    return '$sender sent $gift to $recipient${ev.quantity > 1 ? ' ×${ev.quantity}' : ''}';
+    final qty = ev.quantity > 1 ? ' ×${ev.quantity}' : '';
+    return '$sender أهدى $gift$qty إلى $recipient';
   }
 }

@@ -16,6 +16,9 @@ class User {
   final String? country;
   final String? gender;
   final String? birthday;
+  final int? age;
+  final int? liveRoomId; // #31: room this user is ACTUALLY in right now, guest or host (null if none)
+  final int? ownedRoomId; // room this user OWNS — what the غرفة button opens, online or not
   final String? bio;
   final String? avatarFrameUrl;
   @JsonKey(defaultValue: 1)
@@ -54,6 +57,31 @@ class User {
   final String? agencyRole;
   final String? agencyName;
 
+  /// Real family/kingdom name — null when the user owns/joined no family.
+  /// Never a placeholder; the room profile card only shows this badge when
+  /// it's non-null.
+  final String? familyName;
+
+  /// Most recently unlocked achievements (newest first, capped server-side
+  /// at 4) — feeds the room profile card's medals row.
+  final List<AchievementBadge>? achievements;
+
+  /// The user's own profile-page background: a still image, an animated GIF, or
+  /// a video clip. `profileBgType` is 'image' or 'video'; null means the page
+  /// keeps its default gradient.
+  final String? profileBgUrl;
+  final String? profileBgType;
+
+  /// إطار تزيين الصفحة الشخصية — a hollow decorated frame drawn ON the profile
+  /// page's border, never over its content. Set by equipping a PROFILE_DECOR
+  /// item in the store; `profileDecorType` is 'image' or 'video'.
+  final String? profileDecorUrl;
+  final String? profileDecorType;
+
+  /// Platform staff flag. `isAdmin` alone cannot tell the two tiers apart, and
+  /// the room UI has to (close-room and long bans are super-only).
+  final bool? isSuperAdmin;
+
   User({
     required this.id,
     this.displayId,
@@ -65,6 +93,9 @@ class User {
     this.country,
     this.gender,
     this.birthday,
+    this.age,
+    this.liveRoomId,
+    this.ownedRoomId,
     this.bio,
     this.level,
     this.xp,
@@ -81,6 +112,13 @@ class User {
     this.avatarFrameUrl,
     this.agencyRole,
     this.agencyName,
+    this.familyName,
+    this.achievements,
+    this.profileBgUrl,
+    this.profileBgType,
+    this.profileDecorUrl,
+    this.profileDecorType,
+    this.isSuperAdmin,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -99,6 +137,9 @@ class User {
       country: source['country']?.toString(),
       gender: source['gender']?.toString(),
       birthday: source['birthday']?.toString(),
+      age: source['age'] is int ? source['age'] as int : int.tryParse(source['age']?.toString() ?? ''),
+      liveRoomId: source['liveRoomId'] is int ? source['liveRoomId'] as int : int.tryParse(source['liveRoomId']?.toString() ?? ''),
+      ownedRoomId: source['ownedRoomId'] is int ? source['ownedRoomId'] as int : int.tryParse(source['ownedRoomId']?.toString() ?? ''),
       bio: source['bio']?.toString(),
       level: asInt(source['level'], fallback: 1),
       xp: asInt(source['xp']),
@@ -121,6 +162,16 @@ class User {
       avatarFrameUrl: source['avatarFrameUrl']?.toString(),
       agencyRole: source['agencyRole']?.toString(),
       agencyName: source['agencyName']?.toString(),
+      familyName: source['familyName']?.toString(),
+      profileBgUrl: source['profileBgUrl']?.toString(),
+      profileBgType: source['profileBgType']?.toString(),
+      profileDecorUrl: source['profileDecorUrl']?.toString(),
+      profileDecorType: source['profileDecorType']?.toString(),
+      isSuperAdmin: asBool(source['isSuperAdmin']),
+      achievements: (source['achievements'] as List?)
+          ?.whereType<Map>()
+          .map((e) => AchievementBadge.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
     );
   }
   Map<String, dynamic> toJson() => _$UserToJson(this);
@@ -132,6 +183,9 @@ class User {
   int get userCoinsBalance => coinsBalance ?? 0;
   int get userVipLevel => vipLevel ?? 0;
   bool get userIsAdmin => isAdmin ?? false;
+  /// Super admin: everything an admin can do, plus closing a room and the long
+  /// ban durations. Gated separately everywhere the two differ.
+  bool get userIsSuperAdmin => isSuperAdmin ?? false;
   bool get userIsOnline => isOnline ?? false;
   int get userFollowersCount => followersCount ?? 0;
   int get userFollowingCount => followingCount ?? 0;
@@ -148,6 +202,9 @@ class User {
     String? country,
     String? gender,
     String? birthday,
+    int? age,
+    int? liveRoomId,
+    int? ownedRoomId,
     String? bio,
     int? level,
     int? xp,
@@ -164,6 +221,13 @@ class User {
     String? avatarFrameUrl,
     String? agencyRole,
     String? agencyName,
+    String? familyName,
+    List<AchievementBadge>? achievements,
+    String? profileBgUrl,
+    String? profileBgType,
+    String? profileDecorUrl,
+    String? profileDecorType,
+    bool? isSuperAdmin,
   }) {
     return User(
       id: id ?? this.id,
@@ -176,6 +240,9 @@ class User {
       country: country ?? this.country,
       gender: gender ?? this.gender,
       birthday: birthday ?? this.birthday,
+      age: age ?? this.age,
+      liveRoomId: liveRoomId ?? this.liveRoomId,
+      ownedRoomId: ownedRoomId ?? this.ownedRoomId,
       bio: bio ?? this.bio,
       level: level ?? this.level,
       xp: xp ?? this.xp,
@@ -192,6 +259,26 @@ class User {
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
       agencyRole: agencyRole ?? this.agencyRole,
       agencyName: agencyName ?? this.agencyName,
+      familyName: familyName ?? this.familyName,
+      achievements: achievements ?? this.achievements,
+      profileBgUrl: profileBgUrl ?? this.profileBgUrl,
+      profileBgType: profileBgType ?? this.profileBgType,
+      profileDecorUrl: profileDecorUrl ?? this.profileDecorUrl,
+      profileDecorType: profileDecorType ?? this.profileDecorType,
+      isSuperAdmin: isSuperAdmin ?? this.isSuperAdmin,
     );
   }
+}
+
+/// One unlocked achievement, as shown in the room profile card's medals row.
+class AchievementBadge {
+  final String name;
+  final String iconUrl;
+
+  const AchievementBadge({required this.name, required this.iconUrl});
+
+  factory AchievementBadge.fromJson(Map<String, dynamic> json) => AchievementBadge(
+        name: (json['name'] ?? '').toString(),
+        iconUrl: (json['iconUrl'] ?? '').toString(),
+      );
 }

@@ -16,6 +16,8 @@
     <div class="bar-actions">
       <span id="me" class="muted"></span>
       <button id="btn-new" class="primary">+ New Gift</button>
+      <!-- B4: "أضف قائمة هدايا" - creates a tab on the app's gift sheet. -->
+      <button id="btn-lists" class="ghost">Gift lists</button>
       <button id="btn-export" class="ghost">Export JSON</button>
       <button id="btn-import" class="ghost">Bulk import</button>
       <button id="btn-audit" class="ghost">Audit log</button>
@@ -38,6 +40,9 @@
           <option value="">Active+inactive</option>
           <option value="true">Active only</option>
           <option value="false">Inactive only</option>
+        </select>
+        <select id="filter-category">
+          <option value="">All lists</option>
         </select>
       </div>
       <div id="gift-list" class="gift-list"></div>

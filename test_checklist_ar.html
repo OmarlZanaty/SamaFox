@@ -1,0 +1,164 @@
+<title>قائمة اختبار SamaFox الشاملة</title>
+<style>
+:root{
+  --bg:#0d0620; --panel:#1a0e3e; --panel2:#241a52; --border:#372a6e;
+  --text:#f1eefc; --muted:#a99fd1; --accent:#ffd700; --accent2:#00a3ff;
+  --ok:#2ecc71; --warn:#f5a623; --bad:#ff5c5c;
+}
+:root[data-theme="light"]{
+  --bg:#f6f5fb; --panel:#ffffff; --panel2:#f0edfa; --border:#e2ddf5;
+  --text:#221a3d; --muted:#655e85; --accent:#a3760a; --accent2:#0077b8;
+  --ok:#1e8e4f; --warn:#b5720a; --bad:#c8372f;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f6f5fb; --panel:#ffffff; --panel2:#f0edfa; --border:#e2ddf5;
+    --text:#221a3d; --muted:#655e85; --accent:#a3760a; --accent2:#0077b8;
+    --ok:#1e8e4f; --warn:#b5720a; --bad:#c8372f;
+  }
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--text); font-family:"Segoe UI",Tahoma,Arial,sans-serif;
+  direction:rtl; padding:24px; max-width:1100px; margin:0 auto;
+}
+h1{font-size:22px; margin:0 0 4px; color:var(--accent)}
+.sub{color:var(--muted); font-size:14px; margin-bottom:20px}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:18px; font-size:13px}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.dot{width:10px; height:10px; border-radius:50%; display:inline-block}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:12px}
+table{border-collapse:collapse; width:100%; min-width:820px; font-size:14px}
+th{
+  background:var(--panel2); color:var(--accent); text-align:right; padding:10px 12px;
+  position:sticky; top:0; border-bottom:2px solid var(--border);
+}
+td{padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:top; background:var(--panel)}
+tr:last-child td{border-bottom:none}
+td.num{color:var(--muted); font-weight:700; width:32px}
+td.status{width:120px; font-weight:600; white-space:nowrap}
+.status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.bad{color:var(--bad)}
+.section-row td{
+  background:var(--panel2); color:var(--accent); font-weight:700; font-size:13px;
+  padding:8px 12px;
+}
+.note{color:var(--muted); font-size:12.5px; margin-top:4px}
+@media (max-width:700px){ body{padding:12px} }
+</style>
+
+<h1>قائمة اختبار SamaFox — كل البنود (35 + 4 إصلاحات)</h1>
+<div class="sub">آخر تحديث: بعد نشر التعديلات على السيرفر (63.179.163.62) — 2026-07-15</div>
+
+<div class="legend">
+  <span><span class="dot ok"></span> مؤكد يعمل (فحص مباشر على السيرفر أو في الكود)</span>
+  <span><span class="dot warn"></span> يحتاج تجربة يدوية على الجهاز</span>
+  <span><span class="dot bad"></span> ملاحظة / يحتاج قرارك</span>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead>
+<tr><th style="width:32px">#</th><th>الميزة</th><th>طريقة الاختبار</th><th>النتيجة المتوقعة</th><th class="status">الحالة</th></tr>
+</thead>
+<tbody>
+
+<tr class="section-row"><td colspan="5">تسجيل الدخول والإعدادات</td></tr>
+
+<tr><td class="num">1</td><td>تسجيل الدخول بالفيسبوك</td><td>شاشة الدخول ← زر Facebook</td><td>يسجّل الدخول وينتقل للتطبيق</td><td class="status warn">يحتاج Meta Live-mode</td></tr>
+
+<tr><td class="num">2</td><td>قائمة الإعدادات</td><td>الصفحة الشخصية ← إعدادات ← جرّب: تسجيل الخروج، حذف الحساب، تبديل الحساب، القائمة السوداء (حظر مستخدم من ملفه ثم شوفه في القائمة)</td><td>كل الأزرار تعمل فعليًا (مش رسالة "قريبًا")</td><td class="status ok">تم البناء والنشر</td></tr>
+
+<tr><td class="num">3</td><td>تعديل السن</td><td>الملف الشخصي ← تعديل ← العمر ← حفظ</td><td>يُحفظ العمر ويظهر "X سنة" على الملف</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr class="section-row"><td colspan="5">الغرفة</td></tr>
+
+<tr><td class="num">4</td><td>تصفير عدّاد الكوينزات</td><td>إعدادات الغرفة (أدمن) ← تصفير عدّاد الكوينزات</td><td>تُصفّر الأرقام تحت كل مستخدم</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">5</td><td>الأكتفتي "دخل الغرفة"</td><td>ادخل بمستخدم ثانٍ للغرفة</td><td>تظهر "فلان انضم إلى الغرفة" في لوحة النشاط</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">6</td><td>تعديل اسم/صورة الغرفة</td><td>كأدمن، اضغط على اسم أو صورة الغرفة (بالأعلى)</td><td>يفتح Dialog لتغيير الاسم/الصورة ويُحفظ</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">7</td><td>الدخولية تظهر مرة واحدة</td><td>افتح الغرفة ← صغّرها ← ارجع (لا تتكرر)؛ اقفلها وادخل (تتكرر)</td><td>تعمل مرة واحدة لكل دخول حقيقي</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">8</td><td>الإطار على المايك</td><td>مستخدم لديه إطار مُفعّل يجلس على مايك</td><td>يظهر الإطار حول الصورة</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">9</td><td>الإطار + الدخولية معًا</td><td>ادخل بدخولية أثناء تشغيل إطار</td><td>يعملان معًا دون أن يُلغي أحدهما الآخر</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">10</td><td>نقل المقعد</td><td>كأدمن، اجلس ← اضغط مايك فارغ ← الانتقال</td><td>تنتقل للمقعد الجديد</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">11</td><td>علامة الكتم على مقعد فارغ</td><td>الأدمن يكتم مقعدًا فارغًا</td><td>تظهر أيقونة كتم برتقالية عليه</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">12</td><td>دعوة إلى المايك</td><td>اضغط مايك فارغ (أدمن) ← دعوة إلى المقعد ← اختر شخصًا من التحت</td><td>يُرفع الشخص على ذلك المايك</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">13</td><td>طرد من الشات</td><td>اضغط على اسم الكاتب في الشات ← طرد من الغرفة</td><td>يُطرد المستخدم من الغرفة</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr class="section-row"><td colspan="5">الهدايا والكوينز</td></tr>
+
+<tr><td class="num">14</td><td>خصم الهدية لأكثر من شخص</td><td>اختر 3 مقاعد ← أرسل هدية بـ100</td><td>يُخصم 300</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">15</td><td>سرعة خصم الكوينز</td><td>أرسل أي هدية</td><td>ينخفض الرصيد فورًا</td><td class="status warn">موجود بالكود (خصم فوري)</td></tr>
+
+<tr><td class="num">16</td><td>صفحة الهدايا</td><td>افتح لوحة الهدايا</td><td>7 تبويبات منها ماجيك وبطاقات الهدايا</td><td class="status bad">التبويبات: عادي/محظوظ/ماجيك/العلاقة/خاص/علم/كيس — لا يوجد "بطاقات الهدايا"</td></tr>
+
+<tr><td class="num">17</td><td>مضاعفات الإرسال</td><td>افتح لوحة الهدايا</td><td>أزرار 7/10/20/50 موجودة</td><td class="status ok">تم إصلاحه (كانت 7/20/50 فقط)</td></tr>
+
+<tr><td class="num">18</td><td>رفع هدايا CP</td><td>لوحة التحكم ← الهدايا ← مربع "⚡ تحتسب ضمن CP"</td><td>يظهر مربع CP ويُحفظ مع الهدية</td><td class="status ok">تم إصلاحه ونُشر (الفورم كان معطّلاً بالكامل)</td></tr>
+
+<tr><td class="num">19</td><td>هدايا CP تقوّي الحساب</td><td>أرسل هدية مُعلّمة بـCP</td><td>ترتفع نقاط CP للمُرسِل</td><td class="status ok">مؤكد (فحص مباشر: cpPoints=12000)</td></tr>
+
+<tr class="section-row"><td colspan="5">الملف الشخصي</td></tr>
+
+<tr><td class="num">20</td><td>صورة/رأس الملف الشخصي</td><td>افتح أي ملف شخصي</td><td>يظهر الغلاف + الصورة + الإطار</td><td class="status bad">الصورة والإطار موجودان، الغلاف غير موجود (مؤجل — يحتاج صورة مرجعية منك)</td></tr>
+
+<tr><td class="num">21</td><td>الهدايا المستلمة + العدد</td><td>افتح ملفًا شخصيًا</td><td>تظهر شبكة الهدايا المستلمة مع العدد</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">22</td><td>تارجت المضيف/الوكيل</td><td>ملف الوكيل</td><td>تخطيط التارجت + علامة الدولار (الباك جاهز)</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">23</td><td>الضغط على الليفل ← التقدّم</td><td>الملف ← اضغط شارة Level</td><td>Dialog: "تحتاج X نقطة للمستوى التالي"</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">24</td><td>الضغط على VIP ← التقدّم</td><td>الملف ← اضغط بطاقة VIP</td><td>Dialog: "تحتاج X كوينز لـ VIP التالي"</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">25</td><td>المتابَعون + علامة Live</td><td>الملف ← اضغط Following</td><td>قائمة؛ شارة LIVE ← الضغط يدخل غرفته</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">26</td><td>صف وكالة/متجر/إعدادات</td><td>ملفك الشخصي</td><td>صف 3 أزرار قبل الهدايا</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">27</td><td>نقل المتجر لزر المتجر</td><td>الملف ← متجر</td><td>يفتح المتجر</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">28</td><td>الشارات</td><td>افتح ملفًا شخصيًا</td><td>يظهر صف الشارات</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">29</td><td>صف غرفة/رسالة/متابعة</td><td>افتح ملف مستخدم آخر</td><td>صف غرفة / رسالة / متابعة بالأسفل</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">30</td><td>الضغط على الصورة في أي مكان</td><td>اضغط صورة مستخدم (شات/قائمة/غرفة)</td><td>يفتح ملفه الشخصي</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">31</td><td>مسار + علامة Live</td><td>مستخدم آخر يفتح غرفة ← ملفه</td><td>شارة مسار•LIVE ← الضغط يدخل غرفته</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr class="section-row"><td colspan="5">الوكالات</td></tr>
+
+<tr><td class="num">32</td><td>شحن مستخدم + رسالة</td><td>مالك وكالة شحن ← أرسل كوينز لمستخدم</td><td>يستلم الكوينز + إشعار</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">33</td><td>الفرع (وكالة الشحن)</td><td>لوحة الوكالة ← أضف فرعًا بالـ ID</td><td>الفرع يقدر يبيع/يشحن</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">34</td><td>الوكيل يشحن نفسه + تارجت</td><td>كفرع/وكيل، اشحن نفسك</td><td>تُضاف الكوينز ويُحسب التارجت</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr><td class="num">35</td><td>دعوة لوكالة المضيفين</td><td>مالك الوكالة ← ادعُ مستخدمًا</td><td>تُرسل الدعوة (بدون خطأ)</td><td class="status ok">مؤكد (فحص مباشر)</td></tr>
+
+<tr class="section-row"><td colspan="5">إصلاحات إضافية</td></tr>
+
+<tr><td class="num">36</td><td>إلغاء استخدام الإطار</td><td>الملف ← الإطار ← إلغاء الاستخدام</td><td>يختفي من المقعد والملف</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">37</td><td>ملف مستخدم آخر لا يعلق</td><td>افتح ملف مستخدم آخر</td><td>يفتح ويثبت (لا يعيد التحميل باستمرار)</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">38</td><td>رصيد الكوينز في لوحة الهدايا</td><td>افتح الهدايا</td><td>يظهر رصيدك الحقيقي (ليس 0)</td><td class="status warn">موجود بالكود</td></tr>
+
+<tr><td class="num">39</td><td>زر الخروج من أعلى الملف</td><td>الملف الشخصي</td><td>لا يوجد زر خروج بالأعلى (موجود في الإعدادات)</td><td class="status warn">موجود بالكود</td></tr>
+
+</tbody>
+</table>
+</div>
+
+<p class="note">
+🟢 = تم فحصه فعليًا (إما مباشرة على السيرفر أو تأكيد من الكود مع نتيجة حقيقية).<br>
+🟡 = موجود في الكود ومكتوب صح، لكن لسه محتاج تجربة يدوية باللمس على الموبايل/الشاشة لتأكيد الشكل والسلوك الفعلي.<br>
+🔴 = فيه ملاحظة أو قرار مطلوب منك (١٦ التبويبات، ٢٠ الغلاف مؤجل بانتظار الصورة، ١ يحتاج إعداد خارجي في Meta).
+</p>

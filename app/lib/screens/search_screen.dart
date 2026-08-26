@@ -1,10 +1,11 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/dio_client.dart';
+import 'profile_screen.dart';
+import '../widgets/user_trail.dart';
 
 /// Search Screen - Search users and rooms by name or ID
 class SearchScreen extends ConsumerStatefulWidget {
@@ -20,7 +21,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   List<Map<String, dynamic>> _results = [];
   bool _isSearching = false;
   String? _errorMessage;
-  bool _searchRouteUnavailable = false;
 
   @override
   void initState() {
@@ -74,6 +74,40 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Future<List<Map<String, dynamic>>> _searchWithFallback(String q) async {
     final results = <Map<String, dynamic>>[];
+
+    // PRIMARY: unified search endpoint. Matches users by name AND by numeric
+    // display id, plus rooms by name/id, in a single authenticated call.
+    try {
+      final resp = await DioClient.dio.get(
+        '/search',
+        queryParameters: {'q': q, 'type': 'all'},
+      );
+      final raw = (resp.data is Map)
+          ? ((resp.data['data'] as List?) ?? const [])
+          : const [];
+      if (raw.isNotEmpty) {
+        results.addAll(
+          raw.map((e) {
+            final m = Map<String, dynamic>.from(e as Map);
+            return <String, dynamic>{
+              'type': m['type'],
+              'id': m['id'],
+              'name': m['name'],
+              'imageUrl': m['imageUrl'],
+              'subtitle': m['subtitle'],
+            };
+          }),
+        );
+        // Endpoint succeeded — dedupe and return without hitting legacy fallbacks.
+        final deduped = <String, Map<String, dynamic>>{};
+        for (final r in results) {
+          deduped['${r['type']}:${r['id']}'] = r;
+        }
+        return deduped.values.toList();
+      }
+    } catch (_) {
+      // Endpoint unavailable (older server) — fall through to legacy fallbacks.
+    }
 
     // A: users search endpoint (old backend)
     try {
@@ -195,7 +229,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
 
     if (type == 'user') {
-      Navigator.pushNamed(context, '/user-profile', arguments: id);
+      // #29/#37: '/user-profile' was never a registered route — tapping a
+      // user from search silently did nothing. Push the real profile screen.
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ProfileScreen(userId: id as int)),
+      );
     }
   }
 
@@ -293,13 +332,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       borderRadius: BorderRadius.circular(14),
                       child: ListTile(
                         onTap: () => _onTapResult(result),
-                        leading: CircleAvatar(
-                          backgroundColor: isRoom
-                              ? const Color(0xFFFFA726)
-                              : const Color(0xFF4ECDC4),
-                          child: Icon(
-                            isRoom ? Icons.meeting_room : Icons.person,
-                            color: Colors.white,
+                        leading: TappableAvatar(
+                          userId: isRoom
+                              ? 0
+                              : (result['id'] is int
+                                  ? result['id'] as int
+                                  : int.tryParse(result['id']?.toString() ?? '') ?? 0),
+                          showTrail: !isRoom,
+                          trailSize: 18,
+                          child: CircleAvatar(
+                            backgroundColor: isRoom
+                                ? const Color(0xFFFFA726)
+                                : const Color(0xFF4ECDC4),
+                            child: Icon(
+                              isRoom ? Icons.meeting_room : Icons.person,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                         title: Text(

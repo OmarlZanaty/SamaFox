@@ -3,13 +3,21 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { nextDisplayId } from '../utils/displayId';
+import { grantAutoItemsToUser } from '../services/auto-grant.service';
 
 async function createUserWithDisplayId(
   tx: Prisma.TransactionClient,
   userData: Omit<Prisma.UserCreateInput, 'displayId'>,
 ) {
   const displayId = await nextDisplayId(tx); // 6-digit, unique
-  return tx.user.create({ data: { ...userData, displayId } });
+  const user = await tx.user.create({ data: { ...userData, displayId } });
+  // منتجات "جميع المستخدمين" تُمنح للحساب الجديد تلقائياً.
+  try {
+    await grantAutoItemsToUser(user.id, tx);
+  } catch (e) {
+    console.warn('auto-grant on google register failed:', e);
+  }
+  return user;
 }
 
 // Google OAuth Strategy

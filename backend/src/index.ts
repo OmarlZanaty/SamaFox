@@ -28,10 +28,16 @@ import messageRoutes from './routes/messages.routes';
 import uploadRoutes from './routes/upload.routes';
 import gameRoutes from './routes/game.routes';
 import roomAdminRoutes from './routes/room-admin.routes';
+import musicRoutes from './routes/music.routes';
 import adminDashboardRoutes from './routes/adminDashboard.routes';
 import adminDashAuthRoutes from './routes/admin-dashboard-auth.routes';
 import storeRoutes from "./routes/store.routes";
 import { initializeSocketHandlers } from './services/socket.service';
+import { startSkillDiceEngine } from './services/skillDice.service';
+import { startSkillWheelEngine } from './services/skillWheel.service';
+import { startCrashEngine } from './services/crash.service';
+import { startCrazyWheelEngine } from './services/crazyWheel.service';
+import { startBoxingEngine } from './services/boxing.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
 import searchRoutes from './search/search.routes';
@@ -40,6 +46,11 @@ import followRoutes from './follow/follow.routes';
 import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
 import vipRoutes from './routes/vip.routes';
+import levelRoutes from './routes/level.routes';
+import betaRoutes from './routes/beta.routes';
+import cpRoutes from './routes/cp.routes';
+import { startExpirySweep } from './services/expiry.service';
+import { startBetaSyncWatchdog } from './services/betaWatchdog.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import { setGiftIo } from './gifts/controller';
@@ -54,7 +65,14 @@ const app: Application = express();
 // admin dashboard unstyled. Disable those two; keep the rest of Helmet.
 app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 
-app.set('trust proxy', true);
+// Clients hit this box directly on IP:3000 — there is no nginx/ALB in front.
+// `trust proxy: true` therefore trusted an X-Forwarded-For header that only an
+// attacker could set, letting anyone forge req.ip and walk around the per-IP
+// auth rate limiter (express-rate-limit flags this as
+// ERR_ERL_PERMISSIVE_TRUST_PROXY). Set TRUST_PROXY_HOPS when a real proxy is
+// added later — e.g. 1 behind a single ALB.
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
+app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : false);
 
 const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase();
 
@@ -173,10 +191,19 @@ app.use('/api/v1/follow', followRoutes);
 app.use('/api/v1/relations', relationRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/vip', vipRoutes);
+app.use('/api/v1/levels', levelRoutes); // public LV catalog, mirrors /vip/levels
+app.get('/api/v1/settings', require('./controllers/settings.controller').getSettings); // public CP/target config read
 
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/upload', uploadRoutes); // backward-compatible path
 app.use('/api/v1/room-admin', roomAdminRoutes);
+app.use('/api/v1/music', musicRoutes);
+// A15 — نظام الـ CP: gift invitations, accept/reject, and the pair list the
+// home-page CP box and the profile CP card both read.
+app.use('/api/v1/cp', cpRoutes);
+// Closed-testing signup for the Al Mobarmg store page + the operator's
+// beta-sync daemon that whitelists those addresses in Play Console.
+app.use('/api/v1/beta', betaRoutes);
 app.use('/api/messages', messageRoutes); // ✅ same router
 
 const giftAssetsDir =
@@ -210,6 +237,11 @@ const io = new Server(httpServer, {
 
 initializeSocketHandlers(io);
 setGiftIo(io);
+startSkillDiceEngine(io);
+startSkillWheelEngine(io);
+startCrashEngine(io);
+startCrazyWheelEngine(io);
+startBoxingEngine(io);
 
 // error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -227,6 +259,12 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 const PORT = Number(process.env.PORT) || 3000;
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 SamaFox API Server is running on port ${PORT}`);
+  // Retire time-limited products, lapsed VIP terms and rented room
+  // backgrounds. Runs on boot and every 15 minutes.
+  startExpirySweep();
+  // Notice when the operator's beta-sync PC goes dark and fall back to the
+  // email invite, so a signup never just spins. Every minute.
+  startBetaSyncWatchdog();
 });
 
 export { io };

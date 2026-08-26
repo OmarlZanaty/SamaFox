@@ -14,6 +14,12 @@ const API = {
   uploadVideo: (file) => { const fd = new FormData(); fd.append('file', file); return fetch('/api/v2/admin/gifts/upload-video', { method: 'POST', credentials: 'include', body: fd }).then(r => r.json()); },
   uploadIcon: (file) => { const fd = new FormData(); fd.append('file', file); return fetch('/api/v2/admin/gifts/upload-icon', { method: 'POST', credentials: 'include', body: fd }).then(r => r.json()); },
   me: () => fetch('/api/v1/admin-dashboard-auth/status', { credentials: 'include' }).then(r => r.json()).catch(() => ({ success: false })),
+  // B4/B5/B6 - gift lists (قوائم الهدايا).
+  listCategories: () => fetch('/api/v2/admin/gifts/categories?includeInactive=1', { credentials: 'include' }).then(r => r.json()),
+  createCategory: (body) => fetch('/api/v2/admin/gifts/categories', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
+  updateCategory: (id, body) => fetch('/api/v2/admin/gifts/categories/' + id, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
+  deleteCategory: (id, moveTo) => fetch('/api/v2/admin/gifts/categories/' + id, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ moveTo: moveTo || null }) }).then(r => r.json()),
+  moveGift: (id, category) => fetch('/api/v2/admin/gifts/' + id + '/move', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category }) }).then(r => r.json()),
 };
 
 const state = {
@@ -22,7 +28,8 @@ const state = {
   currentId: null,
   draft: null,
   saving: false,
-  filters: { q: '', tier: '', format: '', active: '' },
+  categories: [],
+  filters: { q: '', tier: '', format: '', active: '', category: '' },
 };
 
 function toast(msg, kind = 'ok') {
@@ -52,8 +59,9 @@ async function loadList() {
 }
 
 function applyFilters() {
-  const { q, tier, format, active } = state.filters;
+  const { q, tier, format, active, category } = state.filters;
   state.filtered = state.gifts.filter((g) => {
+    if (category && (g.category || '') !== category) return false;
     if (q && !((g.name || '').toLowerCase().includes(q.toLowerCase()) || (g.nameAr || '').includes(q))) return false;
     if (tier && g.tier !== tier) return false;
     if (format && g.format !== format) return false;
@@ -213,6 +221,7 @@ function renderEditor() {
       <h3>${isEdit ? 'Edit Gift' : 'New Gift'}${d.name ? `: ${escapeHtml(d.name)}` : ''} <span class="tier-pill tier-${d.tier}">${d.tier}</span></h3>
       <div class="actions-row" style="margin:0">
         <button class="ghost" id="btn-cancel">Cancel</button>
+        ${isEdit ? `<button class="ghost" id="btn-move">Move to list</button>` : ''}
         ${isEdit ? `<button class="danger" id="btn-delete">Deactivate</button>` : ''}
         <button class="primary" id="btn-save">${isEdit ? 'Save changes' : 'Create gift'}</button>
       </div>
@@ -230,8 +239,10 @@ function renderEditor() {
           <div class="field"><label>Format</label>
             <select id="f-format">${['SVG_CSS','VIDEO'].map((t) => `<option ${d.format===t?'selected':''}>${t}</option>`).join('')}</select>
           </div>
-          <div class="field"><label>Category</label>
-            <select id="f-category">${['love','luxury','fun','vip','festive','general'].map((t) => `<option ${d.category===t?'selected':''}>${t}</option>`).join('')}</select>
+          <div class="field"><label>List (tab in the app)</label>
+            <!-- B5: the choices come from the gift-lists table, so a list created
+                 in "Gift lists" is immediately pickable here. -->
+            <select id="f-category">${categoryOptions(d.category)}</select>
           </div>
         </div>
         <div class="row3">
@@ -331,6 +342,9 @@ function bindFieldEvents() {
   document.getElementById('btn-cancel').addEventListener('click', () => { state.draft = null; state.currentId = null; renderList(); renderEditor(); });
   const delBtn = document.getElementById('btn-delete');
   if (delBtn) delBtn.addEventListener('click', deactivateGift);
+  // B6 - move an existing gift between lists without editing anything else.
+  const moveBtn = document.getElementById('btn-move');
+  if (moveBtn) moveBtn.addEventListener('click', moveCurrentGift);
   document.getElementById('btn-save').addEventListener('click', saveDraft);
 
   const iconUpload = document.getElementById('f-iconUpload');
@@ -477,6 +491,142 @@ async function openBulkImportModal() {
   });
 }
 
+
+// ============================================================
+// B4 / B5 / B6 - قوائم الهدايا (gift lists)
+//
+// A list is a row in gift_categories, not a hard-coded dropdown entry, so
+// "أضف قائمة هدايا" creates a new tab on the app's gift sheet with no app
+// release. Deleting a list never deletes its gifts - they are moved to another
+// list, or left uncategorised under the app's default tab.
+// ============================================================
+
+async function loadCategories() {
+  const res = await API.listCategories();
+  state.categories = res.success ? (res.data || []) : [];
+  const sel = document.getElementById('filter-category');
+  if (sel) {
+    const current = state.filters.category;
+    sel.innerHTML = '<option value="">All lists</option>' +
+      state.categories.map((c) =>
+        `<option value="${escapeHtml(c.key)}" ${current === c.key ? 'selected' : ''}>${escapeHtml(c.nameAr)} (${c.giftCount})</option>`
+      ).join('');
+  }
+}
+
+/** Options for the editor's list picker, including the gift's own (possibly
+ *  stale) list so editing a gift never silently re-files it. */
+function categoryOptions(selected) {
+  const known = state.categories.map((c) => [c.key, c.nameAr]);
+  if (selected && !known.some(([k]) => k === selected)) known.unshift([selected, selected]);
+  return ['<option value="">— no list —</option>']
+    .concat(known.map(([key, name]) =>
+      `<option value="${escapeHtml(key)}" ${selected === key ? 'selected' : ''}>${escapeHtml(name)}</option>`))
+    .join('');
+}
+
+async function openCategoriesModal() {
+  await loadCategories();
+  const root = document.getElementById('modal-root');
+  const rows = state.categories.map((c) => `
+    <tr data-id="${c.id}">
+      <td><input class="cat-name" data-id="${c.id}" type="text" value="${escapeHtml(c.nameAr)}" dir="rtl" style="width:100%"></td>
+      <td class="muted">${escapeHtml(c.key)}</td>
+      <td><input class="cat-sort" data-id="${c.id}" type="number" value="${c.sortOrder}" style="width:70px"></td>
+      <td style="text-align:center"><input class="cat-active" data-id="${c.id}" type="checkbox" ${c.isActive ? 'checked' : ''}></td>
+      <td class="muted">${c.giftCount}</td>
+      <td>
+        <button class="ghost cat-save" data-id="${c.id}">Save</button>
+        <button class="danger cat-del" data-id="${c.id}" data-key="${escapeHtml(c.key)}" data-count="${c.giftCount}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  root.innerHTML = `
+    <div class="modal-mask">
+      <div class="modal">
+        <h3>Gift lists (قوائم الهدايا)</h3>
+        <p class="muted">Each active list becomes a tab on the gift sheet in the app.</p>
+        <div class="row2" style="margin-bottom:10px">
+          <input id="cat-new-name" type="text" placeholder="اسم القائمة (عربي)" dir="rtl">
+          <button class="primary" id="cat-new-go">+ Add list</button>
+        </div>
+        <table style="width:100%;font-size:12px">
+          <thead><tr><th>Name</th><th>Key</th><th>Order</th><th>Active</th><th>Gifts</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" class="muted">No lists yet.</td></tr>'}</tbody>
+        </table>
+        <div style="margin-top:12px;display:flex;justify-content:flex-end"><button class="ghost" id="cat-close">Close</button></div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('cat-close').addEventListener('click', async () => {
+    root.innerHTML = '';
+    // The editor's picker and the sidebar filter both read state.categories.
+    await loadCategories();
+    if (state.draft) renderEditor();
+  });
+
+  document.getElementById('cat-new-go').addEventListener('click', async () => {
+    const nameAr = document.getElementById('cat-new-name').value.trim();
+    if (!nameAr) return toast('Enter a list name', 'err');
+    const res = await API.createCategory({ nameAr });
+    if (res.success) { toast('List created'); await openCategoriesModal(); }
+    else toast(res.message || 'Create failed', 'err');
+  });
+
+  root.querySelectorAll('.cat-save').forEach((btn) => btn.addEventListener('click', async () => {
+    const id = btn.dataset.id;
+    const res = await API.updateCategory(id, {
+      nameAr: root.querySelector(`.cat-name[data-id="${id}"]`).value.trim(),
+      sortOrder: Number(root.querySelector(`.cat-sort[data-id="${id}"]`).value || 0),
+      isActive: root.querySelector(`.cat-active[data-id="${id}"]`).checked,
+    });
+    if (res.success) { toast('Saved'); await openCategoriesModal(); }
+    else toast(res.message || 'Save failed', 'err');
+  }));
+
+  root.querySelectorAll('.cat-del').forEach((btn) => btn.addEventListener('click', async () => {
+    const count = Number(btn.dataset.count || 0);
+    let moveTo = null;
+    if (count > 0) {
+      // Losing a tab must never lose a product, so the admin is asked where the
+      // gifts go before the list disappears.
+      const others = state.categories.filter((c) => c.key !== btn.dataset.key).map((c) => c.key);
+      moveTo = prompt(
+        'This list holds ' + count + ' gift(s). Move them to which list key?\n' +
+        'Leave empty to leave them with no list.\n\nAvailable: ' + (others.join(', ') || '(none)'),
+        others[0] || '',
+      );
+      if (moveTo === null) return;
+      moveTo = moveTo.trim() || null;
+    } else if (!confirm('Delete this list?')) {
+      return;
+    }
+    const res = await API.deleteCategory(btn.dataset.id, moveTo);
+    if (res.success) { toast('List deleted'); await loadList(); await openCategoriesModal(); }
+    else toast(res.message || 'Delete failed', 'err');
+  }));
+}
+
+/** B6 - "نقل إلى قائمة" on the gift currently open in the editor. */
+async function moveCurrentGift() {
+  if (!state.currentId) return;
+  await loadCategories();
+  const keys = state.categories.map((c) => c.key + ' (' + c.nameAr + ')').join(', ');
+  const target = prompt(
+    'Move this gift to which list key?\nLeave empty for no list.\n\nAvailable: ' + (keys || '(none)'),
+    (state.draft && state.draft.category) || '',
+  );
+  if (target === null) return;
+  const res = await API.moveGift(state.currentId, target.trim());
+  if (res.success) {
+    toast('Gift moved');
+    await loadList();
+    await openGift(state.currentId);
+  } else toast(res.message || 'Move failed', 'err');
+}
+
 function bindToolbar() {
   document.getElementById('btn-new').addEventListener('click', openTemplatesModal);
   document.getElementById('btn-new-empty').addEventListener('click', openTemplatesModal);
@@ -487,11 +637,15 @@ function bindToolbar() {
   document.getElementById('filter-tier').addEventListener('change', (e) => { state.filters.tier = e.target.value; applyFilters(); });
   document.getElementById('filter-format').addEventListener('change', (e) => { state.filters.format = e.target.value; applyFilters(); });
   document.getElementById('filter-active').addEventListener('change', (e) => { state.filters.active = e.target.value; applyFilters(); });
+  document.getElementById('filter-category')?.addEventListener('change', (e) => { state.filters.category = e.target.value; applyFilters(); });
+  document.getElementById('btn-lists')?.addEventListener('click', openCategoriesModal);
 }
 
 (async function init() {
   bindToolbar();
   const me = await API.me();
   if (me?.user) document.getElementById('me').textContent = `Admin #${me.user.id}`;
+  // Lists first: the editor's list picker and the sidebar filter both read them.
+  await loadCategories();
   await loadList();
 })();

@@ -2,8 +2,15 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { uploadImage, uploadAvatar, deleteImage } from '../controllers/upload.controller';
+import {
+  uploadImage,
+  uploadAvatar,
+  uploadVideoAsset,
+  uploadBackgroundVideo,
+  deleteImage,
+} from '../controllers/upload.controller';
 import { authenticate } from '../middlewares/auth.middleware';
+import { MAX_DASHBOARD_VIDEO_BYTES } from '../gifts/videoValidate';
 
 const router = express.Router();
 
@@ -71,7 +78,7 @@ const videoStorage = multer.diskStorage({
 
 const uploadVideoMulter = multer({
   storage: videoStorage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: MAX_DASHBOARD_VIDEO_BYTES },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_VIDEO_TYPES[file.mimetype]) cb(null, true);
     else cb(new Error(`Unsupported video type: ${file.mimetype}. Only MP4, WebM and MOV are allowed.`));
@@ -80,7 +87,25 @@ const uploadVideoMulter = multer({
 
 router.post('/avatar', authenticate, upload.single('avatar'), uploadAvatar);
 router.post('/image', authenticate, upload.single('image'), uploadImage);
-router.post('/video', authenticate, uploadVideoMulter.single('video'), uploadImage);
+// Gift clips go through uploadVideoAsset (not uploadImage) so the file is probed
+// and the caller gets back the real duration + alpha flag.
+router.post('/video', authenticate, uploadVideoMulter.single('video'), uploadVideoAsset);
+// Profile-page background clip: same multer, none of the gift rules.
+router.post('/background-video', authenticate, uploadVideoMulter.single('video'), uploadBackgroundVideo);
 router.delete('/image/:filename', authenticate, deleteImage);
+
+// A rejected file (wrong type, too large) used to bubble up as a bare 500, so the
+// dashboard showed "Internal Server Error" instead of the real reason.
+router.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (!err) return next();
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? `حجم الملف أكبر من ${Math.round(MAX_DASHBOARD_VIDEO_BYTES / 1024 / 1024)} ميجابايت`
+        : err.message;
+    return res.status(400).json({ success: false, message });
+  }
+  return res.status(400).json({ success: false, message: err.message || 'فشل رفع الملف' });
+});
 
 export default router;

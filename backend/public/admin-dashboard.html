@@ -6,7 +6,7 @@
   <title>لوحة تحكم سمافوكس</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20260606-1" />
+  <link rel="stylesheet" href="style.css?v=20260802-mobile" />
 </head>
 <body>
 
@@ -48,6 +48,14 @@
     <a href="#" class="nav-item" data-section="vip">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
       مستويات VIP
+    </a>
+    <a href="#" class="nav-item" data-section="levels">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 20 9 20 9 11 4 11"/><polyline points="10 20 15 20 15 4 10 4"/><polyline points="16 20 21 20 21 14 16 14"/></svg>
+      مستويات LV
+    </a>
+    <a href="#" class="nav-item" data-section="admins">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      المشرفون
     </a>
 
     <div class="nav-section-label" style="margin-top:16px">الإعدادات</div>
@@ -204,7 +212,9 @@
               <th>الاسم</th>
               <th>الإيميل</th>
               <th>الهاتف</th>
+              <th>الجنس</th>
               <th>الكوينز</th>
+              <th>المستوى / VIP / التارجت</th>
               <th>أدمن</th>
               <th>تاريخ الإنشاء</th>
               <th>إجراءات</th>
@@ -224,6 +234,8 @@
           <p class="section-sub">جميع الغرف المنشأة على المنصة</p>
         </div>
         <div class="section-actions">
+          <input id="roomSearch" class="form-input form-input--sm" placeholder="بحث بالمعرف أو الاسم" />
+          <button class="btn btn-primary" id="btnRoomSearch">بحث</button>
           <button class="btn btn-outline" id="btnRooms">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             تحميل الغرف
@@ -238,6 +250,7 @@
               <th>المعرف</th>
               <th>الاسم</th>
               <th>النوع</th>
+              <th>الحالة</th>
               <th>المقاعد</th>
               <th>المالك</th>
               <th>الغلاف</th>
@@ -258,6 +271,12 @@
           <p class="section-sub">مراجعة وإدارة طلبات الوكالات</p>
         </div>
         <div class="section-actions">
+          <input id="agencySearch" class="form-input form-input--sm" placeholder="بحث بالاسم أو الهاتف أو المعرف" />
+          <select id="agencyType" class="form-select">
+            <option value="">كل الأنواع</option>
+            <option value="CHARGING">شحن</option>
+            <option value="HOSTING">استضافة</option>
+          </select>
           <select id="agencyStatus" class="form-select">
             <option value="">الكل</option>
             <option value="pending" selected>قيد المراجعة</option>
@@ -268,6 +287,23 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             تحميل
           </button>
+        </div>
+      </div>
+
+      <!-- Direct assign: admin enters a user ID and makes them owner of a new agency, no request/approval needed (#21) -->
+      <div class="form-card" style="margin-bottom:16px">
+        <div class="form-card-title">تعيين وكالة مباشرة (بدون طلب)</div>
+        <div class="form-row">
+          <input id="assignUserId" class="form-input" type="number" placeholder="رقم المستخدم (ID)" />
+          <select id="assignAgencyType" class="form-select">
+            <option value="HOSTING">استضافة</option>
+            <option value="CHARGING">شحن</option>
+          </select>
+          <input id="assignAgencyName" class="form-input" placeholder="اسم الوكالة (اختياري)" />
+          <button class="btn btn-primary" onclick="confirmAssignAgency()">تعيين</button>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+          <label class="modal-sub"><input id="assignedByMeFilter" type="checkbox" onchange="loadAgencies()" /> عرض الوكالات التي عيّنتها أنا فقط</label>
         </div>
       </div>
 
@@ -310,8 +346,10 @@
               <th>المعرف</th>
               <th>المستخدم</th>
               <th>اسم الوكالة</th>
+              <th>النوع</th>
               <th>الهاتف</th>
               <th>الحالة</th>
+              <th>شحنت لنفسها</th>
               <th>الصور</th>
               <th>تاريخ الإنشاء</th>
               <th>إجراءات</th>
@@ -320,7 +358,46 @@
           <tbody></tbody>
         </table>
       </div>
+
+      <!-- B11: مكافأة تلقائية عند بلوغ الوكالة عدد كوينزات شحن معيّن -->
+      <div class="form-card" style="margin-top:16px">
+        <div class="form-card-title">🎁 مكافآت الشحن التلقائية</div>
+        <p class="settings-hint" style="margin:0 0 10px">
+          عندما تشحن الوكالة لنفسها إجمالي الكوينزات المحدد، تُمنح المكافأة تلقائياً — مرة واحدة لكل درجة.
+          اترك «الوكالة» فارغة لتطبيق الدرجة على كل وكالات الشحن.
+        </p>
+        <div class="form-row">
+          <input id="acr_threshold" type="number" min="1" class="form-input" placeholder="عتبة الشحن (كوينز)" />
+          <input id="acr_coins" type="number" min="0" class="form-input" placeholder="مكافأة كوينز" />
+          <input id="acr_agency" type="number" min="1" class="form-input" placeholder="رقم الوكالة (اختياري)" />
+          <button class="btn btn-outline" onclick="openAcrItemsModal()" id="acr_items_btn">🎁 منتجات (0)</button>
+          <button class="btn btn-primary" onclick="saveAgencyChargeReward()">حفظ الدرجة</button>
+        </div>
+        <div class="table-wrap" style="margin-top:12px">
+          <table id="agencyChargeRewardsTable">
+            <thead>
+              <tr><th>العتبة</th><th>كوينز</th><th>منتجات</th><th>الوكالة</th><th>إجراءات</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
+
+    <!-- منتجات مكافأة الشحن -->
+    <div class="modal hidden" id="acrItemsModal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 class="modal-title">منتجات المكافأة</h3>
+          <button class="modal-x" onclick="closeAcrItemsModal()">×</button>
+        </div>
+        <div id="acrItemsList" style="max-height:50vh;overflow:auto"></div>
+        <div class="modal-actions">
+          <button class="btn btn-outline" onclick="closeAcrItemsModal()">إلغاء</button>
+          <button class="btn btn-primary" onclick="confirmAcrItems()">تأكيد</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ======================== ADVANCED SECTION ======================== -->
     <section class="section" id="section-advanced">
@@ -386,6 +463,16 @@
         </div>
         <div class="table-wrap" style="margin-top:10px"><table id="questsTable"><thead><tr><th>ID</th><th>الاسم</th><th>metric</th><th>target</th><th>reward</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
       </div>
+
+      <!-- B9: أعلى المستويات — per-account counter reset -->
+      <div class="form-card">
+        <div class="form-card-title">أعلى المستويات — تصفير العداد</div>
+        <p class="section-sub" style="margin:0 0 10px">التصفير غير دائم: الحساب يخرج من القائمة ويعود بما يدعمه بعد التصفير فقط — لا يُحذف أي سجل.</p>
+        <div class="form-row">
+          <button class="btn btn-outline" id="btnTopSupporters">تحميل القائمة</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px"><table id="topSupportersTable"><thead><tr><th>#</th><th>الاسم</th><th>ID</th><th>الكوينز</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody></tbody></table></div>
+      </div>
     </section>
 
     <!-- ======================== STORE SECTION ======================== -->
@@ -413,10 +500,29 @@
           <input id="p_name" class="form-input" placeholder="اسم المنتج" />
           <select id="p_type" class="form-select">
             <option value="seat_effect">مركبة (تأثير الدخول)</option>
+            <option value="entrance">مدخل (بانر الدخول)</option>
             <option value="avatar_frame">إطار</option>
+            <option value="badge">شارة</option>
+            <option value="chat_bubble">فقاعة دردشة</option>
+            <option value="chat_top_banner">أعلى قاعة الدردشة</option>
             <option value="background">خلفية الغرفة</option>
+            <option value="profile_background">خلفية الصفحة الشخصية</option>
+            <option value="profile_decor">إطار تزيين الصفحة الشخصية</option>
           </select>
           <input id="p_price" type="number" class="form-input" placeholder="السعر (coins)" />
+        </div>
+        <!-- مدة المنتج: عدد الأيام أو أبدي -->
+        <div class="form-row">
+          <input id="p_duration" type="number" min="1" class="form-input" placeholder="المدة بالأيام (7 / 15 / 20 / 30)" />
+          <div class="chip-row">
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(7)">7 أيام</button>
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(15)">15 يوم</button>
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(20)">20 يوم</button>
+            <button type="button" class="btn btn-outline btn-chip" onclick="setProductDuration(30)">30 يوم</button>
+          </div>
+          <label class="modal-sub" style="display:flex;align-items:center;gap:6px">
+            <input id="p_permanent" type="checkbox" onchange="togglePermanent()" /> أبدي (بدون مدة)
+          </label>
         </div>
         <div class="form-row">
           <label class="file-label" id="fileLabel">
@@ -424,28 +530,77 @@
             <span id="fileLabelText">اختر ملف (صورة أو فيديو)</span>
             <input id="p_file" type="file" accept="image/*,video/*" style="display:none" />
           </label>
+          <label class="modal-sub" style="display:flex;align-items:center;gap:6px">
+            <input id="p_private" type="checkbox" /> متجر خاص (لا يظهر في التطبيق — يُمنح يدوياً بالمعرف)
+          </label>
           <button class="btn btn-primary" onclick="addProduct()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             إضافة المنتج
           </button>
         </div>
+
+        <!-- المربع الفارغ بالداخل: للفقاعات/شرائط الدخول/الإطارات. يحدد أين
+             يُسمح للتطبيق بالكتابة أو وضع الصورة داخل الزخرفة. -->
+        <div id="innerBoxEditor" class="form-row" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
+          <div class="form-card-title" style="margin:0">
+            📐 المربع الفارغ بالداخل — النسبة من كل جهة (%)
+          </div>
+          <p class="settings-hint" style="margin:0">
+            حدد المساحة الفارغة داخل الزخرفة. التطبيق لن يكتب أو يرسم خارجها إطلاقاً،
+            مهما كانت الزخرفة. اتركها فارغة لاستخدام إعدادات التطبيق الافتراضية.
+          </p>
+          <div class="chip-row" style="gap:10px;flex-wrap:wrap">
+            <label class="modal-sub">يسار <input id="p_inset_l" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <label class="modal-sub">أعلى <input id="p_inset_t" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <label class="modal-sub">يمين <input id="p_inset_r" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <label class="modal-sub">أسفل <input id="p_inset_b" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <button type="button" class="btn btn-outline btn-chip" onclick="previewInnerBox()">معاينة</button>
+          </div>
+          <div id="innerBoxPreview" style="display:none;position:relative;max-width:360px;border-radius:10px;overflow:hidden">
+            <img id="innerBoxImg" style="width:100%;display:block" />
+            <div id="innerBoxRect" style="position:absolute;border:2px dashed #4ECDC4;background:rgba(78,205,196,.18);pointer-events:none"></div>
+          </div>
+        </div>
       </div>
 
-      <div class="table-wrap" style="margin-top:16px">
-        <table id="productsTable">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>الاسم</th>
-              <th>النوع</th>
-              <th>السعر</th>
-              <th>Preview</th>
-              <th>Video</th>
-              <th>إجراءات</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+      <div class="form-card" style="margin-top:16px">
+        <div class="form-card-title">🏬 متجر التطبيق (ظاهر للمستخدمين)</div>
+        <div class="table-wrap">
+          <table id="productsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>الاسم</th>
+                <th>النوع</th>
+                <th>السعر</th>
+                <th>المدة</th>
+                <th>Preview</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="form-card" style="margin-top:16px">
+        <div class="form-card-title">🔒 المتجر الخاص (يُمنح يدوياً فقط)</div>
+        <div class="table-wrap">
+          <table id="privateProductsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>الاسم</th>
+                <th>النوع</th>
+                <th>السعر</th>
+                <th>المدة</th>
+                <th>Preview</th>
+                <th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="form-card" style="margin-top:16px">
@@ -472,24 +627,97 @@
       <div class="section-header">
         <div>
           <h2 class="section-title">مستويات VIP</h2>
-          <p class="section-sub">حدد العتبة وصورة الشارة وإطار المقعد لكل مستوى — تُمنح تلقائياً عند الشحن</p>
+          <p class="section-sub">حدد العتبة وصورة الشارة والمنتجات الممنوحة (شارات/إطارات/مداخل من متجر التطبيق أو الخاص) — تُمنح تلقائياً عند الشحن</p>
         </div>
-        <button class="btn btn-outline" onclick="loadVipLevels()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-          تحديث
-        </button>
+        <div class="section-actions">
+          <input id="newVipLevel" type="number" min="1" max="100" class="form-input form-input--sm" placeholder="رقم المستوى الجديد" />
+          <input id="newVipThreshold" type="number" min="1" class="form-input form-input--sm" placeholder="الكوينز المطلوبة" />
+          <input id="newVipPrice" type="number" min="0" class="form-input form-input--sm" placeholder="سعر البيع (كوينز) — اتركه فارغاً لعدم البيع" />
+          <input id="newVipDuration" type="number" min="0" class="form-input form-input--sm" placeholder="مدة الشراء بالأيام — فارغ = أبدي" />
+          <button class="btn btn-primary" onclick="addVipTier()">+ إضافة مستوى</button>
+          <button class="btn btn-outline" onclick="loadVipLevels()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            تحديث
+          </button>
+        </div>
       </div>
 
       <div class="table-wrap">
         <table id="vipTable">
           <thead>
             <tr>
-              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>الشارة</th><th>إطار المقعد</th><th>إجراءات</th>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>سعر البيع</th><th>المدة</th><th>الشارة</th><th>إطار المقعد</th><th title="أقل مستوى مُفعّل يمنح الخاصية له ولما فوقه">صورة متحركة</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
+    </section>
+
+    <!-- ======================== LV LEVELS SECTION ======================== -->
+    <section class="section" id="section-levels">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">مستويات LV</h2>
+          <p class="section-sub">عتبة الكوينزات <strong>المُهداة</strong> لكل مستوى (المستوى يرتفع بما ينفقه المستخدم على الهدايا فقط) وصورة الشارة والمنتجات الممنوحة. المستويات بدون عتبة تتبع المعادلة الافتراضية، ولا يتغير مستوى أي مستخدم حالي</p>
+        </div>
+        <div class="section-actions">
+          <input id="newLvLevel" type="number" min="1" max="100" class="form-input form-input--sm" placeholder="رقم المستوى الجديد" />
+          <input id="newLvThreshold" type="number" min="0" class="form-input form-input--sm" placeholder="الـ XP المطلوبة" />
+          <button class="btn btn-primary" onclick="addLvTier()">+ إضافة مستوى</button>
+          <button class="btn btn-outline" onclick="backfillLvRewards()" title="منح منتجات كل المستويات للمستخدمين الذين بلغوها بالفعل">🎁 منح بأثر رجعي (الكل)</button>
+          <button class="btn btn-outline" onclick="loadLvLevels()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            تحديث
+          </button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="lvTable">
+          <thead>
+            <tr>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الكوينزات المُهداة</th><th>الشارة</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======================== ADMINS SECTION (#22, #23) ======================== -->
+    <section class="section" id="section-admins">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">المشرفون</h2>
+          <p class="section-sub">تعيين وإلغاء صلاحيات الأدمن و السوبر أدمن</p>
+        </div>
+        <div class="section-actions">
+          <input id="adminGrantId" class="form-input form-input--sm" placeholder="رقم المستخدم (Display ID)" />
+          <button class="btn btn-primary" id="btnGrantAdmin">+ تعيين أدمن</button>
+          <button class="btn btn-outline" id="btnAdmins">تحديث</button>
+        </div>
+      </div>
+
+      <div id="adminsSuperNote" class="section-sub" style="margin:0 0 10px;color:#e0a800;display:none">
+        أنت أدمن عادي — التعيين والإلغاء متاح للسوبر أدمن فقط.
+      </div>
+
+      <div class="table-wrap">
+        <table id="adminsTable">
+          <thead>
+            <tr>
+              <th>المعرف</th>
+              <th>Display ID</th>
+              <th>الاسم</th>
+              <th>الدور</th>
+              <th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="table-meta" id="adminsMeta"></div>
     </section>
 
     <!-- ======================== SETTINGS SECTION ======================== -->
@@ -512,6 +740,86 @@
         </div>
         <p class="settings-hint">يتم تخزين قاعدة الـ API محلياً في المتصفح.</p>
       </div>
+
+      <!-- CP / TARGET CONFIG -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          إعدادات قوة الحساب (CP) والتارجت
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">نقاط CP لكل كوين (هدايا CP)</label>
+          <input id="cpPerCoin" type="number" step="0.1" class="form-input" placeholder="1" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">كوينز التارجت مقابل 1 دولار</label>
+          <input id="cpTargetPerDollar" type="number" class="form-input" placeholder="10000" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">معامل الترقية بين المستويات</label>
+          <input id="cpLevelMultiplier" type="number" step="0.1" class="form-input" placeholder="1.5" />
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" onclick="saveCpSettings()">حفظ إعدادات CP</button>
+          <button class="btn btn-outline" onclick="loadCpSettings()">تحديث</button>
+        </div>
+        <p class="settings-hint">قيم افتراضية احترافية — عدّلها عند وصول مواصفات العميل. الهدايا التي تحتسب ضمن CP تُفعّل بخيار "CP" في إدارة الهدايا.</p>
+      </div>
+
+      <!-- TARGET TIERS (coins -> dollars) -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          مستويات التارجت (كوينز ↔ دولار)
+        </div>
+        <div class="form-row">
+          <input id="tierCoins" type="number" class="form-input" placeholder="عدد الكوينز (مثال 200000)" min="1" />
+          <input id="tierDollars" type="number" step="0.01" class="form-input" placeholder="الدولار (مثال 1)" min="0" />
+          <button class="btn btn-primary" onclick="addTargetTier()">إضافة تارجت</button>
+          <button class="btn btn-outline" onclick="loadTargetTiers()">تحديث</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="targetTiersTable">
+            <thead><tr><th>ID</th><th>الكوينز</th><th>الدولار</th><th>إجراءات</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="settings-hint">يُحسب دولار الوكالة من أعلى تارجت وصلت إليه نقاطها. مثال: 200000 كوينز = 1 دولار.</p>
+      </div>
+
+      <!-- TARGET SELL / CONVERT LOCK -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          التحكم في بيع وتبديل التارجيت
+        </div>
+
+        <div class="form-row" style="align-items:center">
+          <span class="settings-hint" style="min-width:220px">الحالة الحالية</span>
+          <span id="targetSellStatus" class="badge badge-pending">جاري التحميل…</span>
+        </div>
+
+        <div class="form-row">
+          <button class="btn btn-bad" id="btnBlockTargetSell" onclick="setTargetSellPolicy(true)">منع البيع والتبديل</button>
+          <button class="btn btn-primary" id="btnUnblockTargetSell" onclick="setTargetSellPolicy(false)">فك المنع</button>
+          <button class="btn btn-outline" onclick="loadTargetSellPolicy()">تحديث</button>
+        </div>
+        <p class="settings-hint">المنع مُفعّل افتراضياً. عند التفعيل يتوقف بيع واستبدال التارجيت لكل المستخدمين — من العضو نفسه ومن وكيله — حتى يتم فك المنع من هنا.</p>
+
+        <div class="form-card-title" style="margin-top:18px">منع حسابات محددة</div>
+        <div class="form-row">
+          <input id="targetLockUserId" type="number" class="form-input" placeholder="ID المستخدم الظاهر في ملفه" min="1" />
+          <button class="btn btn-bad" onclick="setUserTargetLock(true)">منع الحساب</button>
+          <button class="btn btn-outline" onclick="setUserTargetLock(false)">فك منع الحساب</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="targetLocksTable">
+            <thead><tr><th>ID</th><th>الاسم</th><th>المعرّف</th><th>إجراءات</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="settings-hint">تُستخدم عند رغبتك في منع أشخاص بعينهم بينما البيع مفتوح للباقين.</p>
+      </div>
     </section>
 
   </main>
@@ -528,8 +836,8 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
       </div>
       <div>
-        <h3 class="modal-title">إضافة كوينز</h3>
-        <p class="modal-sub">أدخل عدد الكوينز المراد إضافتها</p>
+        <h3 class="modal-title" id="coinsModalTitle">إضافة كوينز</h3>
+        <p class="modal-sub">أدخل عدد الكوينز</p>
       </div>
     </div>
     <input id="coinsAmount" type="number" class="form-input" placeholder="عدد الكوينز" min="1" />
@@ -550,6 +858,297 @@
     <div class="modal-actions">
       <button class="btn btn-primary" id="confirmYesBtn">تأكيد</button>
       <button class="btn btn-outline" onclick="closeConfirmModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="banModal" onclick="closeBanModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">حظر المستخدم</h3>
+        <p class="modal-sub">اختر المدة والسبب</p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">المدة</label>
+      <select id="banDuration" class="form-input">
+        <option value="1d">يوم واحد</option>
+        <option value="3d">3 أيام</option>
+        <option value="1m">شهر</option>
+        <option value="1y">سنة</option>
+        <option value="permanent">دائم (أبدي)</option>
+      </select>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">السبب</label>
+      <input id="banReason" class="form-input" type="text" placeholder="سبب الحظر" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmBan()">تأكيد الحظر</button>
+      <button class="btn btn-outline" onclick="closeBanModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="vipRewardsModal" onclick="closeVipRewardsModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:560px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">منتجات المستوى</h3>
+        <p class="modal-sub" id="vipRewardsSub"></p>
+      </div>
+    </div>
+    <div id="vipRewardsList" style="margin-top:12px;max-height:340px;overflow-y:auto"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmVipRewards()">تأكيد الاختيار</button>
+      <button class="btn btn-outline" onclick="closeVipRewardsModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="lvRewardsModal" onclick="closeLvRewardsModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:560px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">منتجات مستوى LV</h3>
+        <p class="modal-sub" id="lvRewardsSub"></p>
+      </div>
+    </div>
+    <div id="lvRewardsList" style="margin-top:12px;max-height:340px;overflow-y:auto"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmLvRewards()">تأكيد الاختيار</button>
+      <button class="btn btn-outline" onclick="closeLvRewardsModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="lvBackfillModal" onclick="closeLvBackfillModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:620px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">نتيجة المنح بأثر رجعي</h3>
+        <p class="modal-sub" id="lvBackfillSub"></p>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-top:12px;max-height:340px;overflow-y:auto">
+      <table id="lvBackfillTable">
+        <thead>
+          <tr>
+            <th>المستوى</th><th>المستخدمون المؤهلون</th><th>عدد المنتجات</th><th>مُنح فعلياً</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeLvBackfillModal()">إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="grantItemModal" onclick="closeGrantItemModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">منح منتج لمستخدم</h3>
+        <p class="modal-sub" id="grantItemSub"></p>
+      </div>
+    </div>
+    <!-- اختيار نطاق المنح: كل المستخدمين أو مستخدم واحد بالـ ID -->
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-outline" id="grantScopeAllBtn" onclick="setGrantScope('all')">جميع المستخدمين</button>
+      <button class="btn btn-outline" id="grantScopeUserBtn" onclick="setGrantScope('user')">مستخدم ID</button>
+    </div>
+    <div style="margin-top:12px" id="grantUserBox">
+      <label class="modal-sub">Display ID للمستخدم (6 أرقام)</label>
+      <input id="grantDisplayId" class="form-input" type="number" placeholder="مثال: 123456" />
+    </div>
+    <p class="modal-sub" id="grantScopeHint" style="margin-top:10px"></p>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmGrantItem()">منح</button>
+      <button class="btn btn-outline" onclick="closeGrantItemModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- تعديل المنتج: الاسم/السعر/المدة بالأيام (المنتجات القديمة بلا مدة) -->
+<div class="modal-overlay hidden" id="editProductModal" onclick="closeEditProductModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل المنتج</h3>
+        <p class="modal-sub" id="editProductSub"></p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">اسم المنتج</label>
+      <input id="editProductName" class="form-input" type="text" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">السعر (كوينز)</label>
+      <input id="editProductPrice" class="form-input" type="number" min="0" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">المدة بالأيام (اتركها فارغة أو 0 = أبدي)</label>
+      <input id="editProductDuration" class="form-input" type="number" min="0" placeholder="مثال: 30" />
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(7)">7 أيام</button>
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(15)">15 يوم</button>
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(30)">30 يوم</button>
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(0)">أبدي</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditProduct()">حفظ</button>
+      <button class="btn btn-outline" onclick="closeEditProductModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="editAgencyModal" onclick="closeEditAgencyModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل الوكالة</h3>
+        <p class="modal-sub" id="editAgencySub"></p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">اسم الوكالة</label>
+      <input id="editAgencyName" class="form-input" type="text" placeholder="اسم الوكالة" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub"><input id="editAgencyNameLocked" type="checkbox" /> تثبيت اسم الوكالة (منع المالك من تغييره)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditAgency()">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeEditAgencyModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="agencyChargesModal" onclick="closeAgencyChargesModal()">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:640px">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">سجل الشحن</h3>
+        <p class="modal-sub" id="agencyChargesSub"></p>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-top:12px;max-height:340px;overflow-y:auto">
+      <table id="agencyChargesTable">
+        <thead><tr><th>المستفيد</th><th>Coins</th><th>بواسطة</th><th>التاريخ</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="table-meta" id="agencyChargesMeta"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeAgencyChargesModal()">إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="editRoomModal" onclick="closeEditRoomModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل الغرفة</h3>
+        <p class="modal-sub" id="editRoomSub"></p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">اسم الغرفة</label>
+      <input id="editRoomName" class="form-input" type="text" placeholder="اسم الغرفة" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub"><input id="editRoomNameLocked" type="checkbox" /> تثبيت اسم الغرفة (منع المالك من تغييره)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditRoom()">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeEditRoomModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="roomDetailsModal" onclick="closeRoomDetailsModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تفاصيل الغرفة</h3>
+        <p class="modal-sub" id="roomDetailsSub"></p>
+      </div>
+    </div>
+    <div id="roomDetailsPin" style="margin-top:12px"></div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">المتواجدون الآن (<span id="roomDetailsCount">0</span>)</label>
+      <div class="table-wrap" style="margin-top:6px;max-height:260px;overflow-y:auto">
+        <table id="roomMembersTable">
+          <thead><tr><th>Display ID</th><th>الاسم</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeRoomDetailsModal()">إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="editProfileModal" onclick="closeEditProfileModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل بيانات المستخدم</h3>
+        <p class="modal-sub">الاسم والجنس</p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">الاسم</label>
+      <input id="editName" class="form-input" type="text" placeholder="اسم المستخدم" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">الجنس</label>
+      <select id="editGender" class="form-input">
+        <option value="">— بدون تغيير —</option>
+        <option value="male">ذكر</option>
+        <option value="female">أنثى</option>
+        <option value="other">آخر</option>
+      </select>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub"><input id="editNameLocked" type="checkbox" /> تثبيت الاسم (منع المستخدم من تغييره)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditProfile()">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeEditProfileModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="progressionModal" onclick="closeProgressionModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل المستوى / VIP / XP</h3>
+        <p class="modal-sub">تعديل يدوي مباشر — كل حقل مستقل عن الآخر</p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">المستوى (Level)</label>
+      <input id="progLevel" class="form-input" type="number" min="1" placeholder="— بدون تغيير —" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">نقاط الخبرة (XP)</label>
+      <input id="progXp" class="form-input" type="number" min="0" placeholder="— بدون تغيير —" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">مستوى VIP</label>
+      <input id="progVip" class="form-input" type="number" min="0" placeholder="— بدون تغيير —" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditProgression()">تأكيد</button>
+      <button class="btn btn-outline" onclick="closeProgressionModal()">إلغاء</button>
     </div>
   </div>
 </div>
@@ -586,29 +1185,40 @@
 <div class="modal-overlay hidden" id="giftModal" onclick="closeGiftModal()">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-header"><div><h3 class="modal-title" id="giftModalTitle">إضافة هدية</h3></div></div>
+    <!--
+      #14-16 simplified flow: just "upload an image" or "upload an image +
+      video", plus the coin value. No manual link/URL field, no tier picker,
+      no sort-order field — those confused the owner ("مش عايز رابط ولا حاجات
+      غريبة"). imageUrl/animationUrl/tier/sortOrder stay as hidden inputs —
+      the upload buttons fill them, and tier/sortOrder get sane computed
+      defaults in saveGift() — so the existing save/edit JS keeps working.
+    -->
     <form id="giftForm" class="form-row" style="display:flex;flex-direction:column;gap:10px;">
       <input id="gift_id" type="hidden" />
-      <input id="gift_nameAr" class="form-input" placeholder="الاسم العربي" />
-      <input id="gift_imageUrl" class="form-input" placeholder="رابط الصورة بعد الرفع" readonly />
-      <div class="form-row" style="gap:8px;">
+      <input id="gift_imageUrl" type="hidden" />
+      <input id="gift_animationUrl" type="hidden" />
+      <input id="gift_animationMs" type="hidden" />
+      <input id="gift_videoHasAlpha" type="hidden" />
+      <input id="gift_tier" type="hidden" />
+      <input id="gift_sortOrder" type="hidden" />
+
+      <input id="gift_nameAr" class="form-input" placeholder="اسم الهدية" />
+
+      <div class="form-row" style="gap:8px;align-items:center;">
         <input id="gift_imageFile" type="file" accept="image/*" class="form-input" />
-        <button type="button" class="btn btn-outline" id="giftUploadImageBtn">رفع الصورة من الجهاز</button>
+        <button type="button" class="btn btn-outline" id="giftUploadImageBtn">رفع صورة الهدية</button>
       </div>
       <img id="giftImagePreview" alt="gift preview" style="display:none;width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--card-border);" />
-      <input id="gift_animationUrl" class="form-input" placeholder="رابط الفيديو/الأنيميشن (اختياري)" />
-      <div class="form-row" style="gap:8px;">
+
+      <div class="form-row" style="gap:8px;align-items:center;">
         <input id="gift_videoFile" type="file" accept="video/mp4,video/webm,video/quicktime" class="form-input" />
-        <button type="button" class="btn btn-outline" id="giftUploadVideoBtn">رفع فيديو الهدية</button>
+        <button type="button" class="btn btn-outline" id="giftUploadVideoBtn">رفع فيديو الهدية (اختياري)</button>
       </div>
-      <select id="gift_tier" class="form-select">
-        <option value="SMALL">مميزة</option>
-        <option value="MEDIUM">محظوظ</option>
-        <option value="LARGE">تخصيص</option>
-        <option value="LEGENDARY">VIP</option>
-      </select>
+      <div id="giftVideoInfo" style="display:none;color:#9fd;font-size:13px;"></div>
+
       <input id="gift_coinsValue" type="number" class="form-input" placeholder="القيمة بالكوينز" />
-      <input id="gift_sortOrder" type="number" class="form-input" placeholder="الترتيب" />
       <label style="display:flex;align-items:center;gap:8px;color:#fff;"><input id="gift_isActive" type="checkbox" checked /> نشط</label>
+      <label style="display:flex;align-items:center;gap:8px;color:#fff;" title="الهدايا المفعّلة تزيد نقاط CP لمرسلها"><input id="gift_cpEligible" type="checkbox" /> ⚡ تحتسب ضمن CP (تقوّي الحساب)</label>
     </form>
     <div class="modal-actions">
       <button class="btn btn-primary" id="giftSaveBtn">حفظ</button>
@@ -617,6 +1227,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260610-3"></script>
+<script src="app.js?v=20260802-mobile"></script>
 </body>
 </html>

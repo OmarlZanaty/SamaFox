@@ -7,7 +7,11 @@ import '../services/agency_service.dart';
 /// and transfer the whole system to another user.
 /// Host (مضيف): sees his agency and can leave (paying the exit fee if locked).
 class AgencyPanelScreen extends StatefulWidget {
-  const AgencyPanelScreen({super.key});
+  /// Which agency this panel acts on. Passed by the وكالتي chooser when the
+  /// user has more than one; null lets the server pick (older entry points).
+  const AgencyPanelScreen({super.key, this.agencyType});
+
+  final String? agencyType;
 
   @override
   State<AgencyPanelScreen> createState() => _AgencyPanelScreenState();
@@ -17,6 +21,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
   final _service = AgencyService();
   final _searchCtrl = TextEditingController();
   final _exitPriceCtrl = TextEditingController();
+  final _branchIdCtrl = TextEditingController();
 
   bool _loading = true;
   Map<String, dynamic>? _membership; // my role + agency
@@ -26,6 +31,21 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
   bool _exitLocked = false;
 
   bool get _isAgent => (_membership?['role'] ?? '') == 'OWNER';
+
+  /// A فرع has the same host-management rights as the owner.
+  bool get _canManage {
+    final role = _membership?['role'] ?? '';
+    return role == 'OWNER' || role == 'BRANCH';
+  }
+
+  /// Which of the caller's agencies this panel acts on. Sent with every call so
+  /// a user who also owns a charging agency never gets that one by mistake.
+  /// The type the caller asked for wins; otherwise fall back to whatever the
+  /// loaded membership turned out to be.
+  String get _agencyType =>
+      widget.agencyType ??
+      (_membership?['agency']?['type'] as String?) ??
+      'HOSTING';
 
   @override
   void initState() {
@@ -37,15 +57,24 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
   void dispose() {
     _searchCtrl.dispose();
     _exitPriceCtrl.dispose();
+    _branchIdCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final membership = await _service.getMyMembership();
+    final membership = await _service.getMyMembership(agencyType: widget.agencyType);
     Map<String, dynamic>? stats;
-    if (membership != null && membership['role'] == 'OWNER') {
-      stats = await _service.getMembersStats();
+    // A فرع (BRANCH) manages hosts exactly like the owner, so it must see the
+    // roster too — the backend already allows it. Pass the agency type so a
+    // user who also owns a charging agency doesn't get that one's members.
+    final role = membership?['role'];
+    if (membership != null && (role == 'OWNER' || role == 'BRANCH')) {
+      stats = await _service.getMembersStats(
+        agencyType: widget.agencyType ??
+            (membership['agency']?['type'] as String?) ??
+            'HOSTING',
+      );
     }
     if (!mounted) return;
     setState(() {
@@ -68,7 +97,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
     if (q.isEmpty) return;
     setState(() => _searching = true);
     try {
-      final results = await _service.searchUser(q);
+      final results = await _service.searchUser(q, agencyType: _agencyType);
       if (mounted) setState(() => _searchResults = results);
     } catch (e) {
       _toast('فشل البحث: $e');
@@ -79,7 +108,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
 
   Future<void> _invite(Map<String, dynamic> user) async {
     try {
-      await _service.inviteUser((user['id'] as num).toInt());
+      await _service.inviteUser((user['id'] as num).toInt(), agencyType: _agencyType);
       _toast('✓ تم إرسال الدعوة إلى ${user['name']}');
     } catch (e) {
       _toast('فشل إرسال الدعوة: $e');
@@ -91,7 +120,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
     final yes = await _confirm('إزالة مضيف', 'سيتم إخراج ${user['name']} من الوكالة. متابعة؟');
     if (yes != true) return;
     try {
-      await _service.removeMember((user['id'] as num).toInt());
+      await _service.removeMember((user['id'] as num).toInt(), agencyType: _agencyType);
       _toast('✓ تمت الإزالة');
       _load();
     } catch (e) {
@@ -104,6 +133,9 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       await _service.setExitSettings(
         exitLocked: _exitLocked,
         exitPriceCoins: int.tryParse(_exitPriceCtrl.text.trim()) ?? 0,
+        // Set the fee on the agency this panel is showing, not on whichever
+        // one the server would have picked.
+        agencyType: _agencyType,
       );
       _toast('✓ تم حفظ إعدادات الخروج');
     } catch (e) {
@@ -144,12 +176,12 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
     final q = ctrl.text.trim();
     if (q.isEmpty) return;
     try {
-      final results = await _service.searchUser(q);
+      final results = await _service.searchUser(q, agencyType: _agencyType);
       if (results.isEmpty) {
         _toast('لم يتم العثور على المستخدم');
         return;
       }
-      await _service.transferOwnership((results.first['id'] as num).toInt());
+      await _service.transferOwnership((results.first['id'] as num).toInt(), agencyType: _agencyType);
       _toast('✓ تم نقل الملكية');
       _load();
     } catch (e) {
@@ -157,17 +189,166 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
     }
   }
 
+  /// Owner-only: add/remove the فروع who share host-management access.
+  Future<void> _manageBranches() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1F1247),
+      isScrollControlled: true,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          Future<void> reload() async => setSheet(() {});
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('الفروع',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 4),
+                  const Text('نفس صلاحيات إدارة المضيفين بدون امتلاك الوكالة — حتى 3 فروع',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  const SizedBox(height: 14),
+                  FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _service.listBranches(agencyType: _agencyType),
+                    builder: (c, snap) {
+                      if (snap.connectionState != ConnectionState.done) {
+                        return const Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final branches = snap.data ?? const [];
+                      if (branches.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Text('لا يوجد فروع حالياً',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.white70)),
+                        );
+                      }
+                      return Column(
+                        children: branches.map((b) {
+                          final user = (b['user'] as Map?) ?? b;
+                          final uid = (b['userId'] ?? user['id']) as num?;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const CircleAvatar(child: Icon(Icons.person)),
+                            title: Text('${user['name'] ?? 'عضو'}',
+                                style: const TextStyle(color: Colors.white)),
+                            subtitle: Text('#${user['displayId'] ?? uid ?? ''}',
+                                style: const TextStyle(color: Colors.white54)),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.redAccent),
+                              onPressed: uid == null
+                                  ? null
+                                  : () async {
+                                      try {
+                                        await _service.removeBranch(uid.toInt(),
+                                            agencyType: _agencyType);
+                                        _toast('✓ تم إلغاء الفرع');
+                                        await reload();
+                                      } catch (e) {
+                                        _toast('فشل: $e');
+                                      }
+                                    },
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                  const Divider(color: Colors.white24),
+                  const SizedBox(height: 6),
+                  const Text('إضافة فرع بالـ ID',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _branchIdCtrl,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'ID المستخدم',
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: Colors.black26,
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF6B4CE6)),
+                        onPressed: () async {
+                          final q = _branchIdCtrl.text.trim();
+                          if (q.isEmpty) return;
+                          try {
+                            // Resolve by display ID / name first, the same way
+                            // invites do, so the owner types the ID they see.
+                            final results =
+                                await _service.searchUser(q, agencyType: _agencyType);
+                            if (results.isEmpty) {
+                              _toast('لم يتم العثور على المستخدم');
+                              return;
+                            }
+                            await _service.addBranch(
+                                (results.first['id'] as num).toInt(),
+                                agencyType: _agencyType);
+                            _branchIdCtrl.clear();
+                            _toast('✓ تمت إضافة الفرع');
+                            await reload();
+                          } catch (e) {
+                            _toast('فشل: $e');
+                          }
+                        },
+                        child: const Text('إضافة', style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    if (mounted) _load();
+  }
+
   Future<void> _leave() async {
     final agency = _membership?['agency'] as Map? ?? {};
     final locked = agency['exitLocked'] == true;
     final price = (agency['exitPriceCoins'] as num?)?.toInt() ?? 0;
+    // The dialog quotes THIS agency's fee, so the request must name the same
+    // agency — otherwise the user could be promised a fee and leave another.
+    final agencyId = (agency['id'] as num?)?.toInt();
+    final name = (agency['agencyName'] ?? '').toString();
     final body = locked && price > 0
-        ? 'الخروج من هذه الوكالة مقفول — ستدفع $price كوينز للمغادرة. متابعة؟'
-        : 'هل تريد مغادرة الوكالة؟';
+        ? 'الخروج من وكالة $name مقفول — ستدفع $price كوينز للمغادرة. متابعة؟'
+        : 'هل تريد مغادرة وكالة $name؟';
     final yes = await _confirm('مغادرة الوكالة', body);
     if (yes != true) return;
     try {
-      final paid = await _service.leaveAgency();
+      final paid = await _service.leaveAgency(
+        agencyId: agencyId,
+        agencyType: agencyId == null ? _agencyType : null,
+      );
       _toast(paid > 0 ? '✓ غادرت الوكالة بعد دفع $paid كوينز' : '✓ غادرت الوكالة');
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -198,7 +379,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          _isAgent ? 'لوحة الوكيل' : 'وكالتي',
+          _isAgent ? 'لوحة الوكيل' : (_canManage ? 'لوحة الفرع' : 'وكالتي'),
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
@@ -213,7 +394,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                   child: Text('أنت لست عضواً في أي وكالة',
                       style: TextStyle(color: Colors.white70, fontSize: 16)),
                 )
-              : _isAgent
+              : _canManage
                   ? _agentView()
                   : _memberView(),
     );
@@ -229,6 +410,60 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
         ),
         child: child,
       );
+
+  /// تارجت الوكيل — goal set on the agency by the platform admin, progress is
+  /// the agency's whole production (all hosts' gift earnings combined).
+  Widget _agencyTargetCard(Map agency) {
+    final goal = (agency['targetGoalCoins'] as num?)?.toInt() ?? 0;
+    final earned = (agency['earnedCoins'] as num?)?.toInt() ?? 0;
+    final remaining = (agency['remainingCoins'] as num?)?.toInt() ?? 0;
+    final progress = goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.flag, color: Color(0xFFFFD700), size: 22),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('تارجت الوكيل',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+              Text(
+                goal > 0 ? '$earned / $goal' : '$earned',
+                style: const TextStyle(
+                    color: Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (goal > 0) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 10,
+                backgroundColor: Colors.white24,
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD700)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              remaining > 0
+                  ? 'متبقٍ $remaining كوينز لإغلاق تارجت الوكالة'
+                  : 'اكتمل تارجت الوكالة 🎉',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ] else
+            const Text('إجمالي إنتاج الوكالة — لم يحدد الأدمن تارجت بعد',
+                style: TextStyle(color: Colors.white54, fontSize: 12)),
+        ],
+      ),
+    );
+  }
 
   Widget _agentView() {
     final agency = _stats?['agency'] as Map? ?? {};
@@ -251,18 +486,24 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                     Text('${agency['agencyName'] ?? ''}',
                         style: const TextStyle(
                             color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                    const Text('وكيل',
-                        style: TextStyle(color: Color(0xFFFFD700), fontSize: 13)),
+                    Text(_isAgent ? 'وكيل' : 'فرع',
+                        style: const TextStyle(color: Color(0xFFFFD700), fontSize: 13)),
                   ],
                 ),
               ),
-              TextButton(
-                onPressed: _transferOwnership,
-                child: const Text('نقل الملكية', style: TextStyle(color: Colors.orangeAccent)),
-              ),
+              // Ownership actions belong to the owner alone — a فرع manages
+              // hosts but never owns or hands over the agency.
+              if (_isAgent)
+                TextButton(
+                  onPressed: _transferOwnership,
+                  child: const Text('نقل الملكية', style: TextStyle(color: Colors.orangeAccent)),
+                ),
             ],
           ),
         ),
+
+        // The agency's own target — the agent's, as opposed to each host's.
+        _agencyTargetCard(agency),
 
         // Invite by ID
         _card(
@@ -328,7 +569,33 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
           ),
         ),
 
-        // Exit policy
+        // Branches (فرع) — owner-only: who gets the same management access.
+        if (_isAgent)
+          _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('الفروع (حتى 3)',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                const Text('نفس صلاحيات إدارة المضيفين بدون امتلاك الوكالة',
+                    style: TextStyle(color: Colors.white54, fontSize: 12)),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _manageBranches,
+                    icon: const Icon(Icons.groups, color: Colors.white),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6B4CE6)),
+                    label: const Text('إدارة الفروع', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // Exit policy — owner-only (the backend gates it on OWNER too).
+        if (_isAgent)
         _card(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

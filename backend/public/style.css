@@ -766,20 +766,101 @@ tr:hover td { background: rgba(255,255,255,.02); }
 }
 
 /* ============================================================
-   RESPONSIVE — SIDEBAR COLLAPSE
+   PRODUCT DURATION CHIPS
+   ============================================================ */
+.chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn-chip { padding: 6px 12px; font-size: 12px; }
+
+/* ============================================================
+   RESPONSIVE — TABLET
+   ============================================================ */
+@media (max-width: 1024px) {
+  .content { padding: 18px 16px; }
+  table { min-width: 620px; }
+}
+
+/* ============================================================
+   RESPONSIVE — PHONE
+
+   The dashboard is used from a phone as often as a desktop, so below 768px
+   the sidebar goes off-canvas behind a tap-to-dismiss backdrop, every control
+   becomes full width and finger-sized, and wide tables scroll inside their own
+   container rather than stretching the page.
    ============================================================ */
 @media (max-width: 768px) {
-  .sidebar {
-    transform: translateX(100%);
-  }
+  .sidebar { transform: translateX(100%); z-index: 60; }
+  .sidebar.open { transform: translateX(0); box-shadow: -12px 0 40px rgba(0,0,0,.5); }
+  .main-layout { margin-right: 0; }
 
-  .sidebar.open {
-    transform: translateX(0);
+  /* Tapping outside the drawer closes it — added by app.js alongside .open */
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+    backdrop-filter: blur(2px);
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
   }
+  .sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
 
-  .main-layout {
-    margin-right: 0;
+  .content { padding: 14px 12px; }
+  .topbar { padding: 0 12px; }
+  .page-title { font-size: 15px; }
+  /* The API URL pill is the first thing to go — it is diagnostic, not daily. */
+  .api-pill { display: none; }
+
+  .section-title { font-size: 17px; }
+  .section-sub { font-size: 12px; }
+  .section-header { margin-bottom: 14px; }
+
+  /* Controls stack and fill the width instead of wrapping into a ragged grid. */
+  .section-actions,
+  .config-row,
+  .form-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .section-actions > *,
+  .config-row > *,
+  .form-row > * { width: 100%; }
+  /* …except chips and inline action clusters, which stay side by side. */
+  .chip-row,
+  .td-actions { flex-direction: row; }
+  .chip-row > * { width: auto; }
+
+  .form-input, .form-select, .form-input--sm {
+    width: 100%;
+    max-width: none !important;
+    font-size: 16px; /* iOS zooms the page for anything under 16px */
+    min-height: 44px;
   }
+  .btn, .btn-refresh, .btn-logout { min-height: 44px; justify-content: center; }
+  .btn-ghost-sm, .btn-ok, .btn-bad { min-height: 36px; }
+  .btn-chip { min-height: 36px; }
+
+  /* Tables keep their shape and scroll sideways; the page itself never does. */
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+  table { min-width: 560px; font-size: 13px; }
+  th, td { padding: 9px 10px; }
+  th { font-size: 10px; }
+  /* Inputs sitting inside table cells must not blow the row open. */
+  td .form-input, td .form-select { min-width: 110px; font-size: 14px; min-height: 38px; }
+
+  .modal-box { width: calc(100vw - 24px); max-width: none; padding: 16px; }
+  .modal-actions { flex-direction: column-reverse; gap: 8px; }
+  .modal-actions > * { width: 100%; }
+
+  .stat-card { padding: 14px; }
+  .json-box { font-size: 11px; max-height: 160px; }
+
+  /* Hover lifts are meaningless on touch and cause sticky states. */
+  .nav-item:hover, .btn:hover { transform: none; }
+}
+
+/* Very narrow phones — buy back a little more room. */
+@media (max-width: 380px) {
+  .content { padding: 10px 8px; }
+  th, td { padding: 8px 7px; }
+  table { min-width: 480px; }
 }
 
 /* ============================================================

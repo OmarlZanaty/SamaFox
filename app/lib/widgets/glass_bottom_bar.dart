@@ -6,14 +6,10 @@ class GlassBottomBar extends StatelessWidget {
     super.key,
     required this.homeLabel,
     required this.searchLabel,
-    required this.storeLabel,
-    required this.shippingAgentsLabel,
     required this.gamesLabel,
     required this.profileLabel,
     required this.onHome,
     required this.onSearch,
-    required this.onStore,
-    required this.onShippingAgents,
     required this.onGames,
     required this.onProfile,
     required this.onCenter,
@@ -23,15 +19,11 @@ class GlassBottomBar extends StatelessWidget {
 
   final String homeLabel;
   final String searchLabel;
-  final String storeLabel;
-  final String shippingAgentsLabel;
   final String gamesLabel;
   final String profileLabel;
   final bool hasRoom;
   final VoidCallback onHome;
   final VoidCallback onSearch;
-  final VoidCallback onStore;
-  final VoidCallback onShippingAgents;
   final VoidCallback onGames;
   final VoidCallback onProfile;
   final VoidCallback onCenter;
@@ -55,8 +47,7 @@ class GlassBottomBar extends StatelessWidget {
             children: [
               Expanded(child: BarItem(icon: Icons.home_rounded, label: homeLabel, onTap: onHome)),
               Expanded(child: BarItem(icon: Icons.message_rounded, label: searchLabel, onTap: onSearch)),
-              Expanded(child: BarItem(icon: Icons.storefront_rounded, label: storeLabel, onTap: onStore)),
-              Expanded(child: BarItem(icon: Icons.local_shipping_rounded, label: shippingAgentsLabel, onTap: onShippingAgents)),
+              // المتجر / وكلاء الشحن moved to the profile screen's quick-access row.
               Expanded(child: BarItem(icon: Icons.videogame_asset_rounded, label: gamesLabel, onTap: onGames)),
               Expanded(child: BarItem(icon: Icons.person_rounded, label: profileLabel, onTap: onProfile)),
             ],

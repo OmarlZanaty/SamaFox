@@ -1,7 +1,18 @@
 import { Server, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
+import { getBanState } from '../utils/banGuard';
+import { startBroadcast, endBroadcast } from './broadcast.service';
+import { isBlockedBetween } from '../utils/blockGuard';
 import { createNotification } from './notification.service';
+import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
+import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
+import { CRAZY_ROOM, getPublicState as getCrazyWheelState } from './crazyWheel.service';
+import { CRASH_ROOM, getCrashStatePublic, getCrashChat } from './crash.service';
+import {
+  BOXING_RING_ROOM,
+  getCurrentRoundPublic as getCurrentBoxingRoundPublic,
+} from './boxing.service';
 // Gift sending is handled via the REST endpoint POST /api/v1/gifts/send
 // which emits 'gift_sent' / 'gift_legendary_incoming' / 'gift_broadcast'
 // socket events directly. The legacy 'send_gift' socket handler was
@@ -17,6 +28,34 @@ const roomMuted = new Map<number, Map<number, boolean>>();
 const roomMicQueue = new Map<number, number[]>();
 const roomAdmins = new Map<number, Set<number>>();
 const MEGA_GIFT_THRESHOLD = Number(process.env.MEGA_GIFT_THRESHOLD ?? 5000);
+// Group 12: debounce entrance announcements per room+user (reconnects shouldn't spam).
+// Only a dropped connection is debounced — an explicit leave_room clears the key
+// below, so leaving and walking back in always replays the entrance.
+const recentRoomEntries = new Map<string, number>();
+const ENTRANCE_DEBOUNCE_MS = 15_000;
+
+/**
+ * Pending mic invitations, keyed by inviteId. An admin inviting a user no longer
+ * seats them outright — the invitee gets a قبول / رفض prompt and is only seated
+ * if they accept before the invite expires.
+ */
+interface PendingSeatInvite {
+  roomId: number;
+  seatNumber: number;
+  targetUserId: number;
+  fromUserId: number;
+  fromUsername: string;
+  expiresAt: number;
+}
+const pendingSeatInvites = new Map<string, PendingSeatInvite>();
+const SEAT_INVITE_TTL_MS = 60_000;
+
+function purgeExpiredSeatInvites() {
+  const now = Date.now();
+  for (const [id, inv] of pendingSeatInvites.entries()) {
+    if (inv.expiresAt <= now) pendingSeatInvites.delete(id);
+  }
+}
 
 function toInt(v: any): number | null {
   const n = Number(v);
@@ -31,12 +70,156 @@ function getLockedSeats(roomId: number): Set<number> {
   return roomLockedSeats.get(roomId)!;
 }
 
+const roomAdminMutedSeats = new Map<number, Set<number>>();
+
+function getAdminMutedSeats(roomId: number): Set<number> {
+  if (!roomAdminMutedSeats.has(roomId)) roomAdminMutedSeats.set(roomId, new Set<number>());
+  return roomAdminMutedSeats.get(roomId)!;
+}
+
+// ============================================================
+// ROOM MUSIC (owner / room admin only)
+// ============================================================
+// The server is the single source of truth for what the room is listening to.
+// It does NOT stream audio: it relays "track N of this queue, playing, at
+// position P as of time T" and every client plays the same file from /uploads,
+// so a late joiner drops into the song where it already is.
+
+interface RoomMusicTrack {
+  id: number;
+  title: string;
+  url: string;
+}
+
+interface RoomMusicState {
+  hostId: number;
+  hostName: string;
+  tracks: RoomMusicTrack[];
+  index: number;
+  isPlaying: boolean;
+  /** Playback position at `updatedAt`; add the elapsed time while playing. */
+  positionMs: number;
+  updatedAt: number;
+}
+
+const roomMusic = new Map<number, RoomMusicState>();
+
+function sanitizeTracks(raw: any): RoomMusicTrack[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RoomMusicTrack[] = [];
+  for (const t of raw.slice(0, 100)) {
+    const url = (t?.url ?? '').toString().trim();
+    if (!url) continue;
+    out.push({
+      id: Number(t?.id) || 0,
+      title: (t?.title ?? 'أغنية').toString().slice(0, 120),
+      url,
+    });
+  }
+  return out;
+}
+
+function buildMusicPayload(rid: number) {
+  const st = roomMusic.get(rid);
+  if (!st || st.tracks.length === 0) {
+    return { roomId: rid, active: false, serverTime: Date.now() };
+  }
+  const elapsed = st.isPlaying ? Date.now() - st.updatedAt : 0;
+  return {
+    roomId: rid,
+    active: true,
+    hostId: st.hostId,
+    hostName: st.hostName,
+    tracks: st.tracks,
+    index: st.index,
+    track: st.tracks[st.index] ?? null,
+    isPlaying: st.isPlaying,
+    positionMs: Math.max(0, st.positionMs + elapsed),
+    serverTime: Date.now(),
+  };
+}
+
+function broadcastMusic(io: Server, rid: number) {
+  io.to(`room:${rid}`).emit('room_music_state', buildMusicPayload(rid));
+}
+
+/** Owner / room admin / supervisor / platform super admin — same gate as the
+ *  other room settings. Everyone else can listen but not control. */
+async function canControlMusic(rid: number, uid: number): Promise<boolean> {
+  await populateAdmins(rid);
+  return getAdmins(rid).has(uid);
+}
+
+/** Freeze the current position so a pause/skip starts from the right place. */
+function settleMusicPosition(st: RoomMusicState) {
+  if (st.isPlaying) {
+    st.positionMs = Math.max(0, st.positionMs + (Date.now() - st.updatedAt));
+  }
+  st.updatedAt = Date.now();
+}
+
+/** Nobody left in the room → drop the queue instead of leaking it forever. */
+async function clearMusicIfRoomEmpty(io: Server, rid: number) {
+  if (!roomMusic.has(rid)) return;
+  try {
+    const sockets = await io.in(`room:${rid}`).fetchSockets();
+    if (sockets.length === 0) roomMusic.delete(rid);
+  } catch (e) {
+    console.warn('[music] room-empty check failed:', e);
+  }
+}
+
 // ✅ Track voice participants per room (GLOBAL ONLY)
 const voiceUsers = new Map<number, Set<number>>();
 const getVoiceSet = (roomId: number) => {
   if (!voiceUsers.has(roomId)) voiceUsers.set(roomId, new Set<number>());
   return voiceUsers.get(roomId)!;
 };
+
+// #25/#31: which room a user is ACTUALLY connected to right now (as host or
+// guest) — distinct from Room.ownerId, which only tells you rooms they own.
+// The "live" badge on follow lists / other-user profiles must jump here, not
+// to a room they own but aren't currently in.
+const userCurrentRoom = new Map<number, number>();
+export function getUserCurrentRoomId(userId: number): number | null {
+  return userCurrentRoom.get(userId) ?? null;
+}
+export function getUserCurrentRoomIds(userIds: number[]): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const id of userIds) {
+    const rid = userCurrentRoom.get(id);
+    if (rid) out.set(id, rid);
+  }
+  return out;
+}
+
+/**
+ * Tell a just-banned user and drop their live connections.
+ *
+ * The ban controllers used to `io.emit('user_banned', …)` — a broadcast to
+ * every connected client, which told the whole app who had been banned and
+ * why, and which no client listened to anyway. This targets the banned user's
+ * own room and then disconnects them so they can't keep using the socket they
+ * already hold.
+ */
+export async function kickBannedUser(
+  userId: number,
+  reason: string | null,
+  banExpiresAt: Date | null,
+): Promise<void> {
+  if (!_io || !userId) return;
+  try {
+    _io.to(`user:${userId}`).emit('user_banned', { userId, reason, banExpiresAt });
+    const sockets = await _io.in(`user:${userId}`).fetchSockets();
+    for (const s of sockets) s.disconnect(true);
+    // A ban is not a dropped connection: skip the disconnect grace window and
+    // free their seat / room slot right now.
+    cancelPendingRelease(userId);
+    releaseUserFromRooms(_io, userId);
+  } catch (e) {
+    console.warn('[kickBannedUser] failed:', e);
+  }
+}
 
 // ── Online presence: userId -> set of live socket ids. A user is "online"
 // while they have >=1 connected socket. Returns true when the online state
@@ -97,12 +280,13 @@ function cleanupRoomStateIfEmpty(roomId: number) {
   roomMicQueue.delete(roomId);
   roomAdmins.delete(roomId);
   roomLockedSeats.delete(roomId);
+  roomAdminMutedSeats.delete(roomId);
   voiceUsers.delete(roomId);
   adminCacheTTL.delete(roomId);
 }
 
 const adminCacheTTL = new Map<number, number>(); // rid -> timestamp
-const ADMIN_CACHE_DURATION_MS = 30_000; // 30 seconds
+const ADMIN_CACHE_DURATION_MS = 0; // always fresh
 
 async function populateAdmins(roomId: number) {
   const now = Date.now();
@@ -129,6 +313,18 @@ async function populateAdmins(roomId: number) {
     if (m.role === 'owner' || m.role === 'admin' || m.role === 'supervisor') {
       admins.add(m.userId);
     }
+  }
+
+  // Group 11: platform super admins have admin powers in EVERY room
+  // (HTTP moderation endpoints still rank them above the owner).
+  try {
+    const supers = await (prisma as any).user.findMany({
+      where: { isSuperAdmin: true },
+      select: { id: true },
+    });
+    for (const s of supers) admins.add(s.id);
+  } catch (e) {
+    console.warn('populateAdmins super-admin lookup failed:', e);
   }
 
   roomAdmins.set(roomId, admins);
@@ -168,7 +364,14 @@ const locked = getLockedSeats(rid);
   relationId: true,
   avatarFrameUrl: true,
   activeFrameId: true,
-  activeFrame: { select: { assetUrl: true } },
+  // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
+  // Staff immunity: the room never offers moderation against these.
+  isAdmin: true,
+  isSuperAdmin: true,
   level: true,
 }
       })
@@ -188,11 +391,16 @@ const locked = getLockedSeats(rid);
   const relationsById = new Map(relations.map((rel) => [rel.id, rel]));
 
   const frameMap = new Map<number, string | null>();
+  // Inner-hole guides for the equipped frame, keyed the same way. Only an
+  // `activeFrame` (a real store product) carries them; the legacy free-text
+  // `avatarFrameUrl` has none, and the client then uses its own default.
+  const frameMetaMap = new Map<number, any>();
 
 await Promise.all(
   seatedUsers.map(async (u) => {
     const frame = u.activeFrame?.assetUrl ?? u.avatarFrameUrl ?? null;
     frameMap.set(u.id, frame);
+    frameMetaMap.set(u.id, (u.activeFrame as any)?.meta ?? null);
   })
 );
 
@@ -214,6 +422,8 @@ await Promise.all(
       avatarUrl: u?.avatarUrl ?? null,
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
       frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,
+      frameMeta: occupant ? frameMetaMap.get(occupant) ?? null : null,
+      isPlatformStaff: Boolean((u as any)?.isAdmin || (u as any)?.isSuperAdmin),
       activeFrameId: u?.activeFrameId ?? null,
       relationPartner,
       level: u?.level ?? 1,
@@ -231,6 +441,7 @@ await Promise.all(
     adminIds: adminList,
     maxSeats,
     lockedSeats: Array.from(locked.values()),
+    mutedSeats: Array.from(getAdminMutedSeats(rid).values()),
     seats: seatDetails,
   });
 
@@ -241,26 +452,205 @@ async function emitVoiceUsers(io: Server, rid: number) {
   io.to(`room:${rid}`).emit('voice_users', { roomId: rid, users });
 }
 
-export const initializeSocketHandlers = (io: Server) => {
-  io.use((socket: AuthenticatedSocket, next) => {
+/**
+ * Everyone currently connected to a room, derived from socket.io's own room
+ * membership. Clients had no way to learn who was already present — they only
+ * saw `user_joined` for people arriving after them — so lists like the
+ * "دعوة إلى المقعد" picker showed nothing but the viewer themselves.
+ */
+async function buildRoomUsers(io: Server, rid: number) {
+  const sockets = await io.in(`room:${rid}`).fetchSockets();
+  const ids = Array.from(
+    new Set(
+      sockets
+        .map((s) => Number((s.data as any)?.userId))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  );
+  if (ids.length === 0) return [];
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
+  });
+  return users.map((u) => ({
+    userId: u.id,
+    username: u.name ?? (u.displayId ? `#${u.displayId}` : 'مستخدم'),
+    avatarUrl: u.avatarUrl ?? null,
+    displayId: u.displayId ?? null,
+    level: u.level ?? 1,
+    vipLevel: u.vipLevel ?? 0,
+  }));
+}
+
+/**
+ * The شارات a user carries into the chat and the entrance line: the icons of
+ * their most recently unlocked achievements, newest first.
+ *
+ * Capped at three — a chat bubble is not a trophy cabinet, and the row has to
+ * stay on one line next to the VIP and LV chips.
+ */
+async function userBadgeIcons(userId: number, take = 3): Promise<string[]> {
   try {
-    let token = socket.handshake.auth?.token 
+    const rows = await (prisma as any).userAchievement.findMany({
+      where: { userId },
+      include: { achievement: { select: { iconUrl: true } } },
+      orderBy: { unlockedAt: 'desc' },
+      take,
+    });
+    return rows
+      .map((r: any) => r?.achievement?.iconUrl)
+      .filter((u: unknown): u is string => typeof u === 'string' && u.length > 0);
+  } catch (e) {
+    // Badges are decoration: never let them break a message or an entrance.
+    console.warn('[userBadgeIcons] failed:', (e as Error).message);
+    return [];
+  }
+}
+
+// ── Disconnect grace window ────────────────────────────────────────────────
+// A dropped socket is NOT the same thing as leaving the room. Phones suspend
+// the app on screen lock / app switch and the OS kills the websocket within
+// seconds, so tearing the seat down on `disconnect` is what made users fall
+// out of rooms they never left. Instead we hold their seat / room membership
+// for a grace window and only release it if they don't come back.
+// An explicit `leave_room` still releases everything immediately.
+//
+// The window is deliberately long. At two minutes the hold "worked but not for
+// long" — a user who put the phone down, took a call or answered a message came
+// back to find himself out of the room and off his seat. The client rule is
+// that membership ends when the user LEAVES, not when the OS decides to drop a
+// socket, so the hold now spans a whole session (12h, overridable via
+// ROOM_DISCONNECT_GRACE_MS). `leave_room`, a kick and a ban all still release
+// everything immediately, and the timer is a safety net for a process that is
+// killed and never comes back.
+const DISCONNECT_GRACE_MS = Number(process.env.ROOM_DISCONNECT_GRACE_MS ?? 12 * 60 * 60 * 1000);
+const pendingRoomRelease = new Map<number, NodeJS.Timeout>();
+
+function cancelPendingRelease(uid: number) {
+  const t = pendingRoomRelease.get(uid);
+  if (!t) return;
+  clearTimeout(t);
+  pendingRoomRelease.delete(uid);
+  console.log('[disconnect grace cancelled]', { uid });
+}
+
+/** Is the user back inside the room we're still holding for them? */
+async function hasLiveRoomSocket(io: Server, uid: number): Promise<boolean> {
+  const rid = userCurrentRoom.get(uid);
+  if (!rid) return false;
+  const sockets = await io.in(`room:${rid}`).fetchSockets();
+  return sockets.some((s) => Number((s.data as any)?.userId) === uid);
+}
+
+/**
+ * Release a user from every room they still hold state in: voice, mic queue
+ * and seats. Runs when the grace window expires without them reconnecting.
+ */
+function releaseUserFromRooms(io: Server, uid: number) {
+  const lastRoom = userCurrentRoom.get(uid) ?? null;
+  userCurrentRoom.delete(uid); // #25/#31: no longer in any room
+  const notifiedRooms = new Set<number>();
+
+  // voice cleanup
+  for (const [rid, set] of voiceUsers.entries()) {
+    if (set.delete(uid)) {
+      io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
+      emitVoiceUsers(io, rid).catch(console.error);
+    }
+  }
+
+  // remove from all queues
+  roomMicQueue.forEach((q, rid) => {
+    if (q.includes(uid)) {
+      const nq = q.filter((id) => id !== uid);
+      roomMicQueue.set(rid, nq);
+      io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: nq });
+    }
+  });
+
+  // remove from all seats
+  roomSeats.forEach((seats, rid) => {
+    let changed = false;
+    for (const [num, occupant] of seats.entries()) {
+      if (occupant === uid) {
+        seats.delete(num);
+        roomMuted.get(rid)?.delete(uid);
+        io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
+        io.to(`room:${rid}`).emit('user_left', { userId: uid, roomId: rid });
+        notifiedRooms.add(rid);
+        changed = true;
+      }
+    }
+    if (changed) {
+      // Dropping off the mic — by leaving or by losing the connection — closes
+      // the airtime stint. Safe to call when none is open.
+      endBroadcast(uid).catch(() => {});
+      emitRoomState(io, rid).catch(console.error);
+      cleanupRoomStateIfEmpty(rid);
+    }
+  });
+
+  // A listener (no seat) still has to disappear from the room's member list.
+  if (lastRoom && !notifiedRooms.has(lastRoom)) {
+    io.to(`room:${lastRoom}`).emit('user_left', { userId: uid, roomId: lastRoom });
+    cleanupRoomStateIfEmpty(lastRoom);
+  }
+
+  // They really are gone now — a rejoin is a fresh entrance again.
+  for (const key of recentRoomEntries.keys()) {
+    if (key.endsWith(`:${uid}`)) recentRoomEntries.delete(key);
+  }
+
+  // Dropped connection emptying the room stops the music too.
+  if (lastRoom) clearMusicIfRoomEmpty(io, lastRoom).catch(() => {});
+
+  console.log('[room release]', { uid, lastRoom });
+}
+
+let _io: Server | null = null;
+
+export function invalidateAdminCacheAndRefresh(roomId: number) {
+  adminCacheTTL.delete(roomId);
+  if (_io) emitRoomState(_io, roomId).catch(console.error);
+}
+
+export function broadcastRoomClosed(roomId: number) {
+  if (!_io) return;
+  _io.to(`room:${roomId}`).emit('room_closed', { roomId });
+}
+
+export const initializeSocketHandlers = (io: Server) => {
+  _io = io;
+  io.use(async (socket: AuthenticatedSocket, next) => {
+  let payload: { userId: number };
+  try {
+    let token = socket.handshake.auth?.token
       || socket.handshake.headers?.authorization?.replace('Bearer ', '');
-    
+
     if (!token) return next(new Error('no token'));
-    
+
     // ✅ Strip surrounding quotes if stored badly
     token = token.trim().replace(/^["']|["']$/g, '');
-    
+
     if (!token) return next(new Error('no token'));
-    
-    const payload = verifyAccessToken(token);
-    socket.userId = payload.userId;
-    return next();
+
+    payload = verifyAccessToken(token);
   } catch (err) {
     console.error('[socket auth error]', err);
     return next(new Error('invalid token'));
   }
+
+  // A banned account must not hold a socket either — otherwise they stay in
+  // rooms, chat and send gifts for as long as the connection lives.
+  const ban = await getBanState(payload.userId);
+  if (ban.banned) return next(new Error('banned'));
+
+  socket.userId = payload.userId;
+  // Mirrored onto `data` because fetchSockets() hands back RemoteSockets,
+  // which carry `data` but not custom properties — buildRoomUsers needs it.
+  socket.data.userId = payload.userId;
+  return next();
 });
 
   io.on('connection', (socket: AuthenticatedSocket) => {
@@ -285,6 +675,77 @@ socket.on('get_online_users', () => {
   socket.emit('presence:snapshot', { online: getOnlineUserIds() });
 });
 
+// Same idea, scoped to one room: who is in here right now. Lets a client
+// refresh its member list on demand (opening the invite sheet, reconnecting)
+// without waiting for the next join.
+socket.on('get_room_users', async ({ roomId }: any) => {
+  const rid = toInt(roomId);
+  if (!rid) return;
+  try {
+    socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid) });
+  } catch (e) {
+    console.warn('[get_room_users] failed:', e);
+  }
+});
+
+// ── Skill dice table: joining only subscribes you to the live round state.
+// Entering a round (and paying the entry price) goes through the REST
+// endpoints so the coin movement stays atomic. ──
+socket.on('dice_join_table', () => {
+  socket.join(DICE_TABLE_ROOM);
+  socket.emit('dice_round_state', getCurrentRoundPublic());
+});
+
+socket.on('dice_leave_table', () => {
+  socket.leave(DICE_TABLE_ROOM);
+});
+
+// ── Skill wheel table: joining only subscribes you to the live round state;
+// entering a round (and paying the entry price) goes through REST. ──
+socket.on('wheel_join_table', () => {
+  socket.join(WHEEL_TABLE_ROOM);
+  socket.emit('wheel_round_state', getCurrentWheelRoundPublic());
+});
+
+socket.on('wheel_leave_table', () => {
+  socket.leave(WHEEL_TABLE_ROOM);
+});
+
+// ── Crazy wheel (عجلة الحظ): subscribing is free — betting, clearing and bonus
+// picks all go through REST so they stay authenticated and rate-limited.
+socket.on('crazy_join_table', () => {
+  socket.join(CRAZY_ROOM);
+  socket.emit('crazy_state', getCrazyWheelState());
+});
+
+socket.on('crazy_leave_table', () => {
+  socket.leave(CRAZY_ROOM);
+});
+
+// ── Crash (طيّار): subscribing to the table is free — betting, cashing out and
+// chatting all go through the REST endpoints so they stay authenticated and
+// rate-limited. The socket only pushes state.
+socket.on('crash_join_table', () => {
+  socket.join(CRASH_ROOM);
+  socket.emit('crash_state', getCrashStatePublic());
+  socket.emit('crash_chat_history', getCrashChat(50));
+});
+
+socket.on('crash_leave_table', () => {
+  socket.leave(CRASH_ROOM);
+});
+
+// ── Lion & tiger arena: same deal — subscribing to the ring is free, entering
+// a round (and paying the ticket price) goes through the REST endpoints. ──
+socket.on('boxing_join_table', () => {
+  socket.join(BOXING_RING_ROOM);
+  socket.emit('boxing_round_state', getCurrentBoxingRoundPublic());
+});
+
+socket.on('boxing_leave_table', () => {
+  socket.leave(BOXING_RING_ROOM);
+});
+
 // Step 5: voice quality check. A speaker reports their mic self-test result
 // (live audio track + echo/noise/gain processing on). Broadcast so every
 // client can show a "perfect mic" badge on that seat.
@@ -301,6 +762,15 @@ socket.on('send_dm', async ({ toUserId, text }: any) => {
   const receiverId = Number(toUserId);
   const clean = (text ?? '').toString().trim();
   if (!senderId || !receiverId || !clean) return;
+
+  // القائمة السوداء — a block in either direction stops the DM.
+  if (await isBlockedBetween(senderId, receiverId)) {
+    socket.emit('dm_blocked', {
+      toUserId: receiverId,
+      message: 'لا يمكن إرسال رسالة — يوجد حظر بينكما',
+    });
+    return;
+  }
 
   const userAId = Math.min(senderId, receiverId);
   const userBId = Math.max(senderId, receiverId);
@@ -389,6 +859,171 @@ socket.on('set_seat_count', async ({ roomId, seatCount }: any) => {
   }
 });
 
+// ============================================================
+// ROOM MUSIC CONTROLS — owner / room admin only
+// ============================================================
+// Every handler ends in a `room_music_state` broadcast, so the control bar and
+// the audio of every listener are driven by exactly one payload shape.
+
+/** Start (or restart) the queue. `tracks` is the controller's playlist. */
+socket.on('music_play', async ({ roomId, tracks, index, positionMs }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    if (!(await canControlMusic(rid, uid))) {
+      socket.emit('music_denied', { roomId: rid, message: 'تشغيل الموسيقى متاح لصاحب الغرفة والمشرفين فقط' });
+      return;
+    }
+
+    const incoming = sanitizeTracks(tracks);
+    const existing = roomMusic.get(rid);
+    const queue = incoming.length > 0 ? incoming : existing?.tracks ?? [];
+    if (queue.length === 0) return;
+
+    const rawIndex = Number(index);
+    const requested = Number.isFinite(rawIndex) ? Math.trunc(rawIndex) : existing?.index ?? 0;
+    const safeIndex = Math.min(Math.max(0, requested), queue.length - 1);
+    const startAt = Math.max(0, Number(positionMs) || 0);
+
+    const user = await prisma.user.findUnique({ where: { id: uid }, select: { name: true } });
+
+    roomMusic.set(rid, {
+      hostId: uid,
+      hostName: user?.name ?? 'مستخدم',
+      tracks: queue,
+      index: safeIndex,
+      isPlaying: true,
+      positionMs: startAt,
+      updatedAt: Date.now(),
+    });
+
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_play] handler error:', err);
+  }
+});
+
+socket.on('music_pause', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    const st = roomMusic.get(rid);
+    if (!st) return;
+    if (!(await canControlMusic(rid, uid))) return;
+
+    settleMusicPosition(st);
+    st.isPlaying = false;
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_pause] handler error:', err);
+  }
+});
+
+socket.on('music_resume', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    const st = roomMusic.get(rid);
+    if (!st) return;
+    if (!(await canControlMusic(rid, uid))) return;
+
+    st.isPlaying = true;
+    st.updatedAt = Date.now();
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_resume] handler error:', err);
+  }
+});
+
+/** ⏭ / ⏪ — the queue wraps in both directions, so it never dead-ends. */
+async function stepMusic(rid: number, uid: number, delta: number) {
+  const st = roomMusic.get(rid);
+  if (!st || st.tracks.length === 0) return;
+  if (!(await canControlMusic(rid, uid))) return;
+
+  const n = st.tracks.length;
+  st.index = ((st.index + delta) % n + n) % n;
+  st.positionMs = 0;
+  st.isPlaying = true;
+  st.updatedAt = Date.now();
+  broadcastMusic(io, rid);
+}
+
+socket.on('music_next', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    await stepMusic(rid, uid, 1);
+  } catch (err) {
+    console.error('[socket.music_next] handler error:', err);
+  }
+});
+
+socket.on('music_prev', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    await stepMusic(rid, uid, -1);
+  } catch (err) {
+    console.error('[socket.music_prev] handler error:', err);
+  }
+});
+
+// ❌ — stop everything and make the bar disappear for the whole room.
+socket.on('music_stop', async ({ roomId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    if (!roomMusic.has(rid)) return;
+    if (!(await canControlMusic(rid, uid))) return;
+
+    roomMusic.delete(rid);
+    io.to(`room:${rid}`).emit('room_music_state', { roomId: rid, active: false, serverTime: Date.now() });
+  } catch (err) {
+    console.error('[socket.music_stop] handler error:', err);
+  }
+});
+
+/**
+ * A track finished on a listener's device. Every client reports it at roughly
+ * the same moment, so the first report wins and the rest are ignored — the
+ * `index` guard plus the 1.5s window stops the queue from skipping several
+ * songs at once.
+ */
+socket.on('music_ended', async ({ roomId, index }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    if (!rid || !uid) return;
+    const st = roomMusic.get(rid);
+    if (!st) return;
+    if (Number(index) !== st.index) return;
+    if (Date.now() - st.updatedAt < 1500) return;
+
+    const n = st.tracks.length;
+    st.index = (st.index + 1) % n; // last song → back to the first
+    st.positionMs = 0;
+    st.isPlaying = true;
+    st.updatedAt = Date.now();
+    broadcastMusic(io, rid);
+  } catch (err) {
+    console.error('[socket.music_ended] handler error:', err);
+  }
+});
+
+/** Client-side resync (app resumed, socket reconnected). */
+socket.on('music_sync', ({ roomId }: any) => {
+  const rid = toInt(roomId);
+  if (!rid) return;
+  socket.emit('room_music_state', buildMusicPayload(rid));
+});
+
 socket.on('moveSeat', async ({ roomId, fromSeat, toSeat }: any) => {
   const rid = toInt(roomId);
   const from = toInt(fromSeat);
@@ -465,10 +1100,13 @@ socket.on('seat_mute_lock', async ({ roomId, seatNumber, muted }: any) => {
   if (!rid || !sn || !uid) return;
   await populateAdmins(rid);
   if (!getAdmins(rid).has(uid)) return; // only admin/owner
+  const willMute = muted === true || muted?.toString() === 'true';
+  const mutedSet = getAdminMutedSeats(rid);
+  if (willMute) mutedSet.add(sn); else mutedSet.delete(sn);
   io.to(`room:${rid}`).emit('seat_mute_lock', {
     roomId: rid,
     seatNumber: sn,
-    muted: muted === true || muted?.toString() === 'true',
+    muted: willMute,
   });
 });
 
@@ -560,6 +1198,10 @@ try {
 
   getMuted(rid).set(uid, true); // start muted
 
+  // Airtime starts the moment the seat is held (owner request: أيام وساعات
+  // البث). Fire-and-forget — never let bookkeeping fail a seat claim.
+  startBroadcast(uid, rid).catch(() => {});
+
   const u = await prisma.user.findUnique({
     where: { id: uid },
     select: {
@@ -567,7 +1209,11 @@ try {
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
-  activeFrame: { select: { assetUrl: true } },
+  // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
   level: true,
   displayId: true,
   vipLevel: true,
@@ -590,6 +1236,7 @@ try {
     avatarUrl: u?.avatarUrl ?? null,
     avatarFrameUrl, // ✅ ADD THIS
     frameImageUrl: avatarFrameUrl,
+    frameMeta: (u?.activeFrame as any)?.meta ?? null,
     level: u?.level ?? 1,
     displayId: u?.displayId ?? null,
     vipLevel: u?.vipLevel ?? 0,
@@ -638,14 +1285,17 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       // treat them as open so nobody is permanently locked out.) ──
       const roomRow = await prisma.room.findUnique({
         where: { id: rid },
-        select: { isLocked: true, accessCode: true, ownerId: true },
+        select: { isLocked: true, accessCode: true, ownerId: true, isActive: true },
       });
+      if (!roomRow?.isActive) {
+        socket.emit('join_denied', { roomId: rid, reason: 'closed' });
+        return;
+      }
       if (roomRow?.isLocked && roomRow.accessCode) {
         await populateAdmins(rid);
         const privileged = roomRow.ownerId === uid || getAdmins(rid).has(uid);
         const provided = code != null ? String(code).trim() : '';
         if (!privileged && provided !== roomRow.accessCode) {
-          console.log('[join_denied]', { uid, rid, reason: 'locked', hadCode: provided.length > 0 });
           socket.emit('join_denied', { roomId: rid, reason: 'locked' });
           socket.leave(`room:${rid}`);
           return;
@@ -673,7 +1323,13 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
 
       const locked = getLockedSeats(rid);
 
+      // Already counted as being in this room → this join is a re-sync after a
+      // reconnect/foreground, not a new entrance.
+      const isResync = userCurrentRoom.get(uid) === rid;
+
+      cancelPendingRelease(uid); // back in time — keep whatever they still hold
       socket.join(`room:${rid}`);
+      userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
       await populateAdmins(rid);
 
       const admins = getAdmins(rid);
@@ -688,6 +1344,78 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         seats: Array.from(seatsMap.entries()),
         queue,
       });
+
+      // ── Group 12: entrance announcement for EVERY user (user_joined below
+      // only fires for auto-seated admins). Carries the user's active entrance
+      // banner design (bought in store or granted via VIP) + level/VIP for the
+      // animated banner and the "[Name] دخل الغرفة" chat line. Debounced so
+      // reconnects don't spam the room. ──
+      const entryKey = `${rid}:${uid}`;
+      const lastEntry = recentRoomEntries.get(entryKey) ?? 0;
+      // `isResync`: they never left (grace window / still-open session), so the
+      // room must not see them "enter" again, however long they were away.
+      if (!isResync && Date.now() - lastEntry > ENTRANCE_DEBOUNCE_MS) {
+        recentRoomEntries.set(entryKey, Date.now());
+        try {
+          const [entrant, activeBanner, activeEffect, entrantBadges] = await Promise.all([
+            prisma.user.findUnique({
+              where: { id: uid },
+              select: { name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
+            }),
+            (prisma as any).userItem.findFirst({
+              where: { userId: uid, isActive: true, item: { type: 'ENTRANCE_BANNER' } },
+              // `meta` carries the dashboard-set inner box + 9-slice guides so
+              // the client can lay the text inside the bar's EMPTY area
+              // whatever the artwork's decoration looks like.
+              include: { item: { select: { assetUrl: true, meta: true } } },
+            }),
+            (prisma as any).userItem.findFirst({
+              where: { userId: uid, isActive: true, item: { type: 'ENTRANCE_EFFECT' } },
+              include: { item: { select: { assetUrl: true } } },
+            }),
+            userBadgeIcons(uid),
+          ]);
+          io.to(`room:${rid}`).emit('user_entered', {
+            roomId: rid,
+            userId: uid,
+            username: entrant?.name ?? (entrant?.displayId ? `#${entrant.displayId}` : 'مستخدم'),
+            avatarUrl: entrant?.avatarUrl ?? null,
+            displayId: entrant?.displayId ?? null,
+            level: entrant?.level ?? 1,
+            vipLevel: entrant?.vipLevel ?? 0,
+            bannerUrl: activeBanner?.item?.assetUrl ?? null,
+            bannerMeta: activeBanner?.item?.meta ?? null,
+            // The entrance line reads "فهد VIP 6 · LV 8 دخل الغرفة" and shows
+            // his badges, so it carries them.
+            badges: entrantBadges,
+          });
+
+          // The entrance video/sound used to be played locally by the entrant
+          // only, so nobody else in the room ever saw or heard it. Broadcast it
+          // to the whole room (entrant included) from this single event so every
+          // client starts it at the same moment.
+          const effectUrl = activeEffect?.item?.assetUrl ?? null;
+          console.log('[entrance]', {
+            uid,
+            rid,
+            effect: effectUrl ? 'yes' : 'none',
+            // How many sockets actually receive it — if this is 1 while two
+            // devices are in the room, the problem is room membership, not the
+            // effect itself.
+            recipients: io.sockets.adapter.rooms.get(`room:${rid}`)?.size ?? 0,
+          });
+          if (effectUrl) {
+            io.to(`room:${rid}`).emit('seat_effect', {
+              roomId: rid,
+              userId: uid,
+              video: effectUrl,
+              kind: 'entrance',
+            });
+          }
+        } catch (e) {
+          console.warn('[join_room] user_entered emit failed:', e);
+        }
+      }
 
       // ✅ Auto-seat admins
       if (admins.has(uid)) {
@@ -728,7 +1456,11 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
-  activeFrame: { select: { assetUrl: true } },
+  // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
   level: true,
   displayId: true,
   vipLevel: true,
@@ -744,19 +1476,14 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   avatarUrl: user?.avatarUrl ?? null,
   avatarFrameUrl, // ✅ ADD
   frameImageUrl: avatarFrameUrl,
+  frameMeta: (user?.activeFrame as any)?.meta ?? null,
   level: user?.level ?? 1,
   displayId: user?.displayId ?? null,
   vipLevel: user?.vipLevel ?? 0,
   isMuted: false,
 });
 
-io.to(`room:${rid}`).emit('user_joined', {
-  userId: uid,
-  roomId: rid,
-  username: user?.name ?? null,
-  avatarUrl: user?.avatarUrl ?? null,
-  displayId: user?.displayId ?? null,
-});
+// (user_joined is emitted once for every entrant below, not just here.)
 
 getVoiceSet(rid).add(uid);
 await emitVoiceUsers(io, rid);
@@ -771,7 +1498,38 @@ await emitVoiceUsers(io, rid);
       // Unified snapshot (full seats 1..maxSeats) to avoid payload mismatches.
       await emitRoomState(io, rid);
 
+      // Roster, both directions:
+      //  • `user_joined` for EVERY entrant — it used to fire only inside the
+      //    auto-seat-admin branch, so an ordinary user entering never appeared
+      //    in anyone else's member list.
+      //  • `room_users` back to the joiner, who otherwise has no way to learn
+      //    about the people already in the room.
+      // Together these are what makes "دعوة إلى المقعد" list the whole room
+      // instead of just the viewer.
+      try {
+        const joiner = await prisma.user.findUnique({
+          where: { id: uid },
+          select: { id: true, name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
+        });
+        io.to(`room:${rid}`).emit('user_joined', {
+          userId: uid,
+          roomId: rid,
+          username: joiner?.name ?? (joiner?.displayId ? `#${joiner.displayId}` : 'مستخدم'),
+          avatarUrl: joiner?.avatarUrl ?? null,
+          displayId: joiner?.displayId ?? null,
+          level: joiner?.level ?? 1,
+          vipLevel: joiner?.vipLevel ?? 0,
+        });
+        socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid) });
+      } catch (e) {
+        console.warn('[join_room] roster emit failed:', e);
+      }
+
       io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue });
+
+      // Music already playing? Hand the newcomer the current track AND its
+      // position so they join mid-song instead of starting it over.
+      socket.emit('room_music_state', buildMusicPayload(rid));
       } catch (err) {
         console.error('[socket.join_room] handler error:', err);
         socket.emit('error', { event: 'join_room', message: 'Internal error' });
@@ -787,6 +1545,11 @@ socket.on('leave_room', async ({ roomId }: any) => {
   if (!uid || !rid) return;
 
   socket.leave(`room:${rid}`);
+  if (userCurrentRoom.get(uid) === rid) userCurrentRoom.delete(uid); // #25/#31
+  // A deliberate exit ends the debounce window: coming back in is a real
+  // entrance and must play for the whole room, however fast they return.
+  // Reconnects never send leave_room, so they stay debounced.
+  recentRoomEntries.delete(`${rid}:${uid}`);
   console.log('[leave_room]', { uid, rid });
 
   // cleanup: remove from queue
@@ -799,6 +1562,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
     if (occupant === uid) {
       seats.delete(num);
       getMuted(rid).delete(uid);
+      endBroadcast(uid).catch(() => {}); // left the room while on the mic
 
       io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
 
@@ -818,6 +1582,9 @@ socket.on('leave_room', async ({ roomId }: any) => {
   roomId: rid
 });
 
+  // Last one out turns the music off.
+  await clearMusicIfRoomEmpty(io, rid);
+
 });
 
 
@@ -836,9 +1603,28 @@ socket.on('leave_room', async ({ roomId }: any) => {
       // ✅ FIX: fetch username from DB — never trust client-provided username (was spoofable)
       const user = await prisma.user.findUnique({
         where: { id: uid },
-        select: { name: true, avatarUrl: true },
+        select: { name: true, avatarUrl: true, level: true, vipLevel: true },
       });
       const username = user?.name ?? 'Unknown';
+
+      // Group 12: the sender's active chat-bubble design (store/dashboard-managed).
+      let bubbleUrl: string | null = null;
+      // Dashboard-set inner box + 9-slice guides for that bubble design, so the
+      // text lands inside the empty middle instead of over the decoration.
+      let bubbleMeta: any = null;
+      try {
+        const activeBubble = await (prisma as any).userItem.findFirst({
+          where: { userId: uid, isActive: true, item: { type: 'CHAT_BUBBLE' } },
+          include: { item: { select: { assetUrl: true, meta: true } } },
+        });
+        bubbleUrl = activeBubble?.item?.assetUrl ?? null;
+        bubbleMeta = activeBubble?.item?.meta ?? null;
+      } catch (e) {
+        console.warn('[send_message] bubble lookup failed:', e);
+      }
+
+      // The شارات shown under the writer's name in the bubble.
+      const badges = await userBadgeIcons(uid);
 
       const msg = await prisma.roomMessage.create({
         data: {
@@ -858,11 +1644,37 @@ socket.on('leave_room', async ({ roomId }: any) => {
         message: clean,
         timestamp: Date.now(),
         avatar: user?.avatarUrl ?? null,
+        // Group 12: level-tiered + custom chat bubbles.
+        level: user?.level ?? 1,
+        vipLevel: user?.vipLevel ?? 0,
+        bubbleUrl,
+        bubbleMeta,
+        // Identity line above the text: "فهد  VIP 6 · LV 8" + his badges.
+        badges,
       });
       } catch (err) {
         console.error('[socket.send_message] handler error:', err);
         socket.emit('error', { event: 'send_message', message: 'Internal error' });
       }
+    });
+
+    // ----------------------------
+    // من المتحدث الآن؟
+    // Each client measures its OWN microphone level and reports transitions;
+    // the server just fans them out so every seat can draw the pulsing ring.
+    // Deliberately not persisted and not validated against the seat map —
+    // it is transient presentation state, and a client that lies about it can
+    // only make its own ring flicker.
+    // ----------------------------
+    socket.on('speaking', ({ roomId, isSpeaking }: any) => {
+      const rid = toInt(roomId);
+      const uid = socket.userId;
+      if (!rid || !uid) return;
+      socket.to(`room:${rid}`).emit('user_speaking', {
+        roomId: rid,
+        userId: uid,
+        isSpeaking: isSpeaking === true,
+      });
     });
 
     socket.on('typing', ({ roomId, username, isTyping }: any) => {
@@ -973,7 +1785,11 @@ socket.on('leave_room', async ({ roomId }: any) => {
       name: true,
       avatarUrl: true,
       avatarFrameUrl: true,
-      activeFrame: { select: { assetUrl: true } },
+      // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
       level: true,
     },
   });
@@ -1005,6 +1821,133 @@ socket.on('leave_room', async ({ roomId }: any) => {
   } catch (err) {
     console.error('[socket.approve_mic] handler error:', err);
     socket.emit('error', { event: 'approve_mic', message: 'Internal error' });
+  }
+});
+
+// #12: admin/supervisor invites a specific audience user onto a SPECIFIC seat
+// (unlike approve_mic which auto-picks). Works even if the seat is closed/muted.
+socket.on('invite_to_seat', async ({ roomId, targetUserId, seatNumber }: any) => {
+  try {
+    const adminId = socket.userId;
+    const rid = toInt(roomId);
+    const targetId = toInt(targetUserId);
+    const seatNum = toInt(seatNumber);
+    if (!adminId || !rid || !targetId || !seatNum) return;
+
+    let adminsSet = getAdmins(rid);
+    if (adminsSet.size === 0) { await populateAdmins(rid); adminsSet = getAdmins(rid); }
+    if (!adminsSet.has(adminId)) return; // owner + supervisor/admins only
+
+    const room = await prisma.room.findUnique({ where: { id: rid }, select: { maxSeats: true } });
+    const maxSeats = (room?.maxSeats ?? 8) > 0 ? (room?.maxSeats ?? 8) : 8;
+    if (seatNum < 1 || seatNum > maxSeats) return;
+
+    const seats = getSeats(rid);
+    if (seats.has(seatNum) && seats.get(seatNum) !== targetId) {
+      socket.emit('seat_error', { message: 'Seat occupied' });
+      return;
+    }
+
+    // Do NOT seat the user here. Send an invitation they can accept or refuse;
+    // `seat_invite_response` below does the actual seating on acceptance.
+    purgeExpiredSeatInvites();
+    const inviter = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { name: true, displayId: true },
+    });
+    const fromUsername = inviter?.name ?? (inviter?.displayId ? `#${inviter.displayId}` : 'مشرف');
+
+    const inviteId = `${rid}:${seatNum}:${targetId}:${Date.now()}`;
+    pendingSeatInvites.set(inviteId, {
+      roomId: rid,
+      seatNumber: seatNum,
+      targetUserId: targetId,
+      fromUserId: adminId,
+      fromUsername,
+      expiresAt: Date.now() + SEAT_INVITE_TTL_MS,
+    });
+
+    io.to(targetId.toString()).emit('seat_invite', {
+      inviteId,
+      roomId: rid,
+      seatNumber: seatNum,
+      fromUserId: adminId,
+      fromUsername,
+      expiresInMs: SEAT_INVITE_TTL_MS,
+    });
+    socket.emit('seat_invite_sent', { inviteId, targetUserId: targetId, seatNumber: seatNum });
+  } catch (err) {
+    console.error('[socket.invite_to_seat] handler error:', err);
+    socket.emit('error', { event: 'invite_to_seat', message: 'Internal error' });
+  }
+});
+
+/** The invitee answers a mic invitation. Seats them only on `accept: true`. */
+socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
+  try {
+    const uid = socket.userId;
+    if (!uid || !inviteId) return;
+
+    purgeExpiredSeatInvites();
+    const invite = pendingSeatInvites.get(String(inviteId));
+    if (!invite) {
+      socket.emit('seat_error', { message: 'انتهت صلاحية الدعوة' });
+      return;
+    }
+    // Only the person who was invited may answer it.
+    if (invite.targetUserId !== uid) return;
+    pendingSeatInvites.delete(String(inviteId));
+
+    const rid = invite.roomId;
+    const seatNum = invite.seatNumber;
+
+    if (!accept) {
+      io.to(invite.fromUserId.toString()).emit('seat_invite_result', {
+        roomId: rid, seatNumber: seatNum, userId: uid, accepted: false,
+      });
+      return;
+    }
+
+    const seats = getSeats(rid);
+    if (seats.has(seatNum) && seats.get(seatNum) !== uid) {
+      socket.emit('seat_error', { message: 'المقعد مشغول الآن' });
+      io.to(invite.fromUserId.toString()).emit('seat_invite_result', {
+        roomId: rid, seatNumber: seatNum, userId: uid, accepted: false, reason: 'occupied',
+      });
+      return;
+    }
+
+    // remove the invitee from any current seat + the mic queue
+    for (const [num, occ] of seats.entries()) if (occ === uid) seats.delete(num);
+    roomMicQueue.set(rid, getQueue(rid).filter((id) => id !== uid));
+
+    seats.set(seatNum, uid);
+    getMuted(rid).set(uid, false);
+
+    const u = await prisma.user.findUnique({
+      where: { id: uid },
+      select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } }, level: true },
+    });
+    const avatarFrameUrl = u?.activeFrame?.assetUrl ?? u?.avatarFrameUrl ?? null;
+
+    io.to(`room:${rid}`).emit('seat_occupied', {
+      seatNumber: seatNum, userId: uid, username: u?.name ?? null,
+      avatarUrl: u?.avatarUrl ?? null, avatarFrameUrl, level: u?.level ?? 1, isMuted: false,
+    });
+    getVoiceSet(rid).add(uid);
+    await emitVoiceUsers(io, rid);
+    io.to(uid.toString()).emit('approve_mic', { roomId: rid, userId: uid });
+    io.to(invite.fromUserId.toString()).emit('seat_invite_result', {
+      roomId: rid, seatNumber: seatNum, userId: uid, accepted: true, username: u?.name ?? null,
+    });
+    await emitRoomState(io, rid);
+  } catch (err) {
+    console.error('[socket.seat_invite_response] handler error:', err);
+    socket.emit('error', { event: 'seat_invite_response', message: 'Internal error' });
   }
 });
 
@@ -1063,11 +2006,30 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
   const admins = getAdmins(rid);
   if (!admins.has(socket.userId)) return;
 
+  // Platform staff are immune on the seat path too, not just over REST:
+  // a super admin may only be pulled down by another super admin, and an
+  // admin only by an admin or above. Ranked so the room owner can never
+  // touch either of them.
+  try {
+    const roles = await (prisma as any).user.findMany({
+      where: { id: { in: [target, socket.userId] } },
+      select: { id: true, isSuperAdmin: true, isAdmin: true },
+    });
+    const tier = (id: number) => {
+      const r = roles.find((x: any) => x.id === id);
+      return r?.isSuperAdmin ? 2 : r?.isAdmin ? 1 : 0;
+    };
+    if (tier(target) > 0 && tier(socket.userId) < tier(target)) return;
+  } catch (e) {
+    console.warn('remove_from_seat staff check failed:', e);
+  }
+
   const seats = getSeats(rid);
   if (seats.get(sn) !== target) return;
 
   seats.delete(sn);
   getMuted(rid).delete(target); // ✅ FIX
+  endBroadcast(target).catch(() => {}); // pulled off the mic → airtime stops
 
   io.to(`room:${rid}`).emit('seat_released', {
     roomId: rid,
@@ -1186,7 +2148,7 @@ await emitRoomState(io, rid);
     // ----------------------------
     // Voice presence (ONE SET ONLY)
     // ----------------------------
-    socket.on('user_joined_voice', async ({ roomId }: any) => {
+    socket.on('user_joined_voice', async ({ roomId, resume }: any) => {
       const rid = Number(roomId);
       // ✅ FIX: always use socket.userId — never trust client-provided userId (was IDOR)
       const uid = socket.userId;
@@ -1197,7 +2159,17 @@ await emitRoomState(io, rid);
 
       console.log('🎤 user_joined_voice', { rid, uid });
 
-      getVoiceSet(rid).add(uid);
+      // `resume: true` = re-announce after a reconnect. The room kept them in
+      // the voice set (we no longer drop people on a dead socket), so every
+      // peer still holds a dead RTCPeerConnection for them and would skip
+      // re-creating it. Tell the room to tear that peer down first, then
+      // re-add — otherwise the returning user comes back mute.
+      const voice = getVoiceSet(rid);
+      if (resume === true && voice.has(uid)) {
+        socket.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
+      }
+
+      voice.add(uid);
       await emitVoiceUsers(io, rid);
     });
 
@@ -1256,51 +2228,38 @@ socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
       const uid = socket.userId;
       if (!uid) return;
 
+      // Another device/tab of the same user is still connected → nothing to
+      // tear down, they're demonstrably still here.
+      if (!markOffline(uid, socket.id)) {
+        console.log('[disconnect] (other sockets still live)', { uid });
+        return;
+      }
+
       // Presence: announce only when the user's last socket goes away.
-      if (markOffline(uid, socket.id)) {
-        io.emit('presence:update', { userId: uid, online: false });
-      }
+      io.emit('presence:update', { userId: uid, online: false });
 
-      // voice cleanup
-      for (const [rid, set] of voiceUsers.entries()) {
-        if (set.delete(uid)) {
-          socket.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
-          emitVoiceUsers(io, rid); // ✅ ADD
-        }
-      }
-
-
-      console.log('[disconnect]', { uid });
-
-      // remove from all queues
-      roomMicQueue.forEach((q, rid) => {
-        if (q.includes(uid)) {
-          const nq = q.filter((id) => id !== uid);
-          roomMicQueue.set(rid, nq);
-          io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: nq });
-        }
-      });
-
-      // remove from all seats
-      // Inside the disconnect handler, after the roomSeats.forEach loop:
-roomSeats.forEach((seats, rid) => {
-  let changed = false;
-  for (const [num, occupant] of seats.entries()) {
-    if (occupant === uid) {
-      seats.delete(num);
-      roomMuted.get(rid)?.delete(uid);
-      io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
-      // ✅ ADD THIS:
-      io.to(`room:${rid}`).emit('user_left', { userId: uid, roomId: rid });
-      changed = true;
-    }
-  }
-  if (changed) {
-    emitRoomState(io, rid).catch(console.error);
-    cleanupRoomStateIfEmpty(rid);
-  }
-});
-
+      // Seat / room membership are NOT released here — a screen lock or an
+      // app switch kills the socket, and the user must stay in the room as if
+      // they never moved. Hold everything for the grace window; if they come
+      // back (reconnect), the timer is cancelled and nobody in the room ever
+      // saw them leave.
+      console.log('[disconnect]', { uid, graceMs: DISCONNECT_GRACE_MS });
+      cancelPendingRelease(uid);
+      const timer = setTimeout(() => {
+        pendingRoomRelease.delete(uid);
+        // Safety net for the case where they reconnected but never re-joined
+        // the room (app relaunched onto the home screen): only a socket that
+        // is actually back inside the room keeps the seat. A real re-join
+        // already cancelled this timer.
+        hasLiveRoomSocket(io, uid)
+          .then((back) => {
+            if (back) return;
+            releaseUserFromRooms(io, uid);
+          })
+          .catch(() => releaseUserFromRooms(io, uid));
+      }, DISCONNECT_GRACE_MS);
+      timer.unref?.();
+      pendingRoomRelease.set(uid, timer);
     });
   });
 

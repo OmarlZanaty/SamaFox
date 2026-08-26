@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import prisma from "../utils/prisma";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { createNotification } from "../services/notification.service";
+import { expiryFromDuration } from "../services/expiry.service";
 
 const router = Router();
 
@@ -24,6 +25,7 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
     const purchaseResult = await prisma.$transaction(async (tx) => {
       const item = await tx.item.findUnique({ where: { id: itemId } });
       if (!item) return { ok: false as const, status: 404, message: "المنتج غير موجود" };
+      if (!item.isPurchasable) return { ok: false as const, status: 403, message: "هذا المنتج غير متاح للشراء" };
 
       const user = await tx.user.findUnique({
         where: { id: userId },
@@ -43,14 +45,36 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
         data: { coinsBalance: { decrement: Number(itemPrice) } },
       });
 
+      // Time-limited products: stamp the term at purchase. Re-buying an
+      // expired item is allowed, and buying one you already own EXTENDS it
+      // rather than failing, which is what a rental is supposed to do.
+      const expiresAt = expiryFromDuration((item as any).durationDays);
       try {
         const userItem = await tx.userItem.create({
-          data: { userId, itemId },
+          data: { userId, itemId, expiresAt } as any,
         });
-        return { ok: true as const, userItemId: userItem.id };
+        return { ok: true as const, userItemId: userItem.id, expiresAt };
       } catch (err: any) {
         if (err?.code === "P2002") {
-          return { ok: false as const, status: 409, message: "تم الشراء مسبقاً" };
+          const existing = await tx.userItem.findUnique({
+            where: { userId_itemId: { userId, itemId } },
+            select: { id: true, expiresAt: true },
+          });
+          // A permanent copy is already owned — nothing to sell them.
+          if (!expiresAt || !existing || (existing as any).expiresAt === null) {
+            return { ok: false as const, status: 409, message: "تم الشراء مسبقاً" };
+          }
+          const base = new Date(
+            Math.max(Date.now(), new Date((existing as any).expiresAt).getTime()),
+          );
+          const extended = new Date(
+            base.getTime() + Number((item as any).durationDays) * 24 * 60 * 60 * 1000,
+          );
+          await tx.userItem.update({
+            where: { id: existing.id },
+            data: { expiresAt: extended } as any,
+          });
+          return { ok: true as const, userItemId: existing.id, expiresAt: extended };
         }
         throw err;
       }
@@ -67,6 +91,7 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
       success: true,
       message: "تم الشراء بنجاح",
       userItemId: purchaseResult.userItemId,
+      expiresAt: purchaseResult.expiresAt ?? null,
     });
   } catch (e) {
     console.error("BUY ERROR:", e);
@@ -105,6 +130,7 @@ router.post("/send", buyLimiter, async (req: any, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const item = await tx.item.findUnique({ where: { id: itemId } });
       if (!item) return { ok: false as const, status: 404, message: "المنتج غير موجود" };
+      if (!item.isPurchasable) return { ok: false as const, status: 403, message: "هذا المنتج غير متاح للشراء" };
 
       const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { id: true, name: true } });
       if (!recipient) return { ok: false as const, status: 404, message: "المستلم غير موجود" };
@@ -173,8 +199,13 @@ router.get("/inventory", async (req: any, res) => {
   try {
     const userId = req.userId!;
 
+    // Expired rentals stop counting as owned the moment they lapse, without
+    // waiting for the 15-minute sweep to delete the row.
     const items = await prisma.userItem.findMany({
-      where: { userId },
+      where: {
+        userId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      } as any,
       include: { item: true },
     });
 
@@ -185,8 +216,13 @@ router.get("/inventory", async (req: any, res) => {
         name: i.item.name,
         type: i.item.type,
         file_url: i.item.assetUrl,
-        preview_url: i.item.assetUrl,
+        // The still poster for a clip; falls back to the asset itself for
+        // image products (and for clips uploaded before posters existed).
+        preview_url: (i.item as any).previewUrl ?? i.item.assetUrl,
         is_active: i.isActive,
+        // null = أبدي. The app shows the remaining term from this.
+        expires_at: (i as any).expiresAt ?? null,
+        duration_days: (i.item as any).durationDays ?? null,
       })),
     });
   } catch (e) {
@@ -195,6 +231,49 @@ router.get("/inventory", async (req: any, res) => {
   }
 });
 
+/**
+ * Product types whose "equipped" state also lives on the user row, because the
+ * profile page is rendered from the user payload alone (a visitor never loads
+ * the owner's inventory).
+ *
+ * B2/B3 — before this, equipping خلفية الصفحة الشخصية or إطار تزيين الصفحة
+ * الشخصية only flipped `UserItem.isActive`, which nothing rendered: a bought
+ * background did nothing and a decoration frame did not exist in the app at
+ * all. The mapping is the single place that knows which columns a type owns.
+ */
+const PROFILE_ITEM_COLUMNS: Record<string, { url: string; kind: string }> = {
+  PROFILE_BACKGROUND: { url: 'profileBgUrl', kind: 'profileBgType' },
+  PROFILE_DECOR: { url: 'profileDecorUrl', kind: 'profileDecorType' },
+};
+
+/** Video assets need a player on the app side, stills do not. */
+const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.m4v', '.mkv'];
+const isVideoAsset = (url?: string | null): boolean => {
+  const clean = (url ?? '').toLowerCase().split('?')[0] ?? '';
+  return VIDEO_EXTENSIONS.some((ext) => clean.endsWith(ext));
+};
+
+/**
+ * Mirror an equipped/unequipped profile item onto the user row.
+ * `assetUrl` null unequips. A type with no mapping is a no-op.
+ */
+async function syncProfileItemColumns(
+  tx: any,
+  userId: number,
+  itemType: string,
+  assetUrl: string | null,
+): Promise<void> {
+  const columns = PROFILE_ITEM_COLUMNS[itemType];
+  if (!columns) return;
+  await tx.user.update({
+    where: { id: userId },
+    data: {
+      [columns.url]: assetUrl,
+      [columns.kind]: assetUrl ? (isVideoAsset(assetUrl) ? 'video' : 'image') : 'image',
+    },
+  });
+}
+
 router.post('/activate', async (req: any, res) => {
   try {
     const userId = req.userId!;
@@ -202,15 +281,27 @@ router.post('/activate', async (req: any, res) => {
     if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
 
     // ✅ FIX: wrap both writes in a single transaction to prevent race condition
-    // where two concurrent requests deactivate each other's item
+    // where two concurrent requests deactivate each other's item.
+    // Group 12: deactivate only items of the SAME type, so a vehicle, an
+    // entrance banner and a chat bubble can all be active at once.
     try {
       await prisma.$transaction(async (tx) => {
-        await tx.userItem.updateMany({ where: { userId }, data: { isActive: false } });
-        const updated = await tx.userItem.updateMany({
+        const target = await tx.userItem.findFirst({
           where: { id: String(inventoryId), userId },
+          include: { item: { select: { type: true, assetUrl: true } } },
+        });
+        if (!target) throw new Error('NOT_FOUND');
+        await tx.userItem.updateMany({
+          where: { userId, item: { type: target.item.type } },
+          data: { isActive: false },
+        });
+        await tx.userItem.update({
+          where: { id: target.id },
           data: { isActive: true },
         });
-        if (updated.count === 0) throw new Error('NOT_FOUND');
+        // Profile background / decoration also live on the user row, so a
+        // visitor's copy of the profile shows them.
+        await syncProfileItemColumns(tx, userId, target.item.type, target.item.assetUrl);
       });
     } catch (e: any) {
       if (e?.message === 'NOT_FOUND') {
@@ -249,12 +340,76 @@ router.post('/activate-frame', async (req: any, res) => {
   }
 });
 
+// Unequip a single item. deactivate-all clears EVERY category at once, which
+// unequipped the user's vehicle whenever they took off an entrance banner or a
+// chat bubble — now that more than one type can be active at a time, the client
+// deactivates by inventory id instead.
+router.post('/deactivate', async (req: any, res) => {
+  try {
+    const userId = req.userId!;
+    const { inventoryId } = req.body;
+    if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
+
+    const target = await prisma.userItem.findFirst({
+      where: { id: String(inventoryId), userId },
+      include: { item: { select: { type: true } } },
+    });
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Inventory item not found for user' });
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.userItem.update({ where: { id: target.id }, data: { isActive: false } });
+      // Clear the mirrored column too, or the page keeps the artwork after the
+      // item has been taken off.
+      await syncProfileItemColumns(tx, userId, target.item.type, null);
+    });
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("DEACTIVATE ERROR:", e);
+    return res.status(500).json({ success: false, message: "Failed to deactivate item" });
+  }
+});
+
+router.post('/deactivate-all', async (req: any, res) => {
+  try {
+    const userId = req.userId!;
+    // Only the profile columns that an EQUIPPED item is actually driving get
+    // cleared. `profileBgUrl` doubles as the background a user uploaded from
+    // تعديل الملف الشخصي, and "إلغاء الكل" must not delete that.
+    const activeProfileItems = await prisma.userItem.findMany({
+      where: {
+        userId,
+        isActive: true,
+        item: { type: { in: Object.keys(PROFILE_ITEM_COLUMNS) } },
+      },
+      include: { item: { select: { type: true } } },
+    });
+    await prisma.$transaction(async (tx) => {
+      await tx.userItem.updateMany({ where: { userId }, data: { isActive: false } });
+      for (const row of activeProfileItems) {
+        await syncProfileItemColumns(tx, userId, row.item.type, null);
+      }
+    });
+    return res.json({ success: true });
+  } catch (e) {
+    console.error("DEACTIVATE ALL ERROR:", e);
+    return res.status(500).json({ success: false, message: "Failed to deactivate items" });
+  }
+});
+
 router.post('/deactivate-frame', async (req: any, res) => {
   try {
     const userId = req.userId!;
     await prisma.user.update({
       where: { id: userId },
       data: { activeFrameId: null, avatarFrameUrl: null },
+    });
+    // Also clear the inventory "in use" flag on frame items — the profile reads
+    // UserItem.isActive, so without this the frame kept showing as equipped
+    // ("إلغاء الاستخدام not working").
+    await prisma.userItem.updateMany({
+      where: { userId, item: { type: { in: ['FRAME', 'avatar_frame'] } } },
+      data: { isActive: false },
     });
     return res.json({ success: true });
   } catch (e) {
@@ -297,7 +452,9 @@ router.get("/my-frames", async (req: any, res) => {
 
 router.get("/products", async (_req, res) => {
   try {
-    const items = await prisma.item.findMany();
+    // Private-store items (isPurchasable=false) are hidden from the app —
+    // they can only be granted manually from the dashboard (group 9).
+    const items = await prisma.item.findMany({ where: { isPurchasable: true } });
 
     res.json({
       data: items.map((i) => ({
@@ -306,7 +463,14 @@ router.get("/products", async (_req, res) => {
         type: i.type,
         price_coins: i.priceCoins,
         file_url: i.assetUrl,
-        preview_url: i.assetUrl,
+        // A25/B5 — the grid draws THIS, not a video decoder per tile. Without a
+        // real poster every مركبة rendered as a blank placeholder.
+        preview_url: (i as any).previewUrl ?? i.assetUrl,
+        // The term the admin set on the product. It was missing here, so the
+        // store could not show how long an item lasts and people were buying
+        // blind — the same field the inventory endpoint already returns.
+        // null = أبدي (permanent).
+        duration_days: (i as any).durationDays ?? null,
       })),
     });
   } catch (e) {

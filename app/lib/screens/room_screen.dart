@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,9 @@ import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
 import '../services/webrtc_audio_service.dart';
+import '../services/room_audio_keepalive.dart';
+import '../widgets/marquee_text.dart';
+import 'supporters_board_screen.dart';
 import '../services/api_service.dart';
 import '../services/audio_controller.dart';
 import '../services/follow_service.dart';
@@ -26,11 +30,17 @@ import '../widgets/mic_perfect_badge.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
+import '../gifts/widgets/gift_announcement_bar.dart';
+import '../widgets/room/entrance_banner_layer.dart';
 import '../widgets/room/mic_queue_panel.dart';
+import '../widgets/room/music_library_sheet.dart';
+import '../widgets/room/music_player_bar.dart';
+import '../providers/music_provider.dart';
 import '../widgets/room/room_chat_panel.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../gifts/services/gift_repository.dart';
 import '../gifts/services/gift_socket_service.dart';
+import '../gifts/models/gift.dart' show GiftSendEvent;
 import '../gifts/widgets/gift_picker_sheet.dart';
 import '../gifts/widgets/gift_animation_overlay.dart';
 import 'dart:ui';
@@ -43,17 +53,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../repositories/message_repository.dart';
 import '../repositories/room_repository.dart';
+import '../repositories/user_repository.dart';
+import '../utils/country_flag.dart';
+import '../utils/result.dart';
 import '../widgets/room/seats_grid.dart';
 import 'package:video_player/video_player.dart';
 import '../models/room_event.dart';
 import '../screens/messages_screen.dart';
 import '../screens/challenges_screen.dart';
-import '../screens/leaderboard_screen.dart';
+import '../screens/supporters_board_screen.dart';
 import '../screens/wallet_screen.dart';
 import 'chat_screen.dart';
 import 'games_hub_screen.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/FramedAvatar.dart';
+import '../widgets/user_trail.dart';
 import '../screens/profile_screen.dart'; // adjust path to your project
 
 final isAndroid = !kIsWeb && Platform.isAndroid;
@@ -111,6 +125,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   bool _currentSeatMuted = true;
   final Completer<void> _roomReady = Completer<void>();
   static const double _bottomBarH = 64.0; // 👈 bottom bar height
+
+  /// Artwork for the seat-tap profile card. Bundled as app assets rather than
+  /// served from the API: it's one shared design for every card, so there's no
+  /// reason to pay a network round-trip (and a loading flicker) per open.
+  static const String _profileCardBackground = 'assets/images/profile_card_bg.png';
+  static const String _profileCardCrown = 'assets/images/profile_card_crown.png';
   // ===== Admin bottom panel controllers (PERSISTENT) =====
   final TextEditingController _roomImageCtrl = TextEditingController();
   final TextEditingController _bgImageCtrl = TextEditingController();
@@ -139,14 +159,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   static const Duration _seatEffectDedupWindow = Duration(seconds: 2);
 
   final AudioPlayer _audioPlayer = AudioPlayer();
-  bool _playedEntrance = false;
-
   bool _showGlow = false;
   Color _glowColor = Colors.purpleAccent;
 
   bool _noiseReduction = false;
   double _volumeLevel = 1.0;
-  bool _musicOn = false;
+
+  /// Is the room currently playing music? Lives in the room music provider so
+  /// it is the same answer for everybody, not a per-device flag.
+  bool get _musicOn => ref.read(roomMusicProvider(widget.roomId)).active;
 
   int? _activeConversationId;
   int? _activeUserId;
@@ -154,10 +175,30 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   String? _activeAvatar;
 
   bool _isMinimized = false;
+
+  /// A23 — "الاحتفاظ بالغرفة": this screen was popped in favour of the floating
+  /// PiP bubble, and the room's audio must survive it.
+  ///
+  /// The client's report was that reserving the seat and leaving *looked* right
+  /// — the seat stays taken — but *"الصوت بيقطع"*, and the requirement is
+  /// *"كأني لم أخرج أبداً"*. The cause was here: PiP pops this route, `dispose`
+  /// runs, and it unconditionally tore down the WebRTC session, the mic
+  /// foreground service and the audio controller. The bubble itself owns no
+  /// audio, so the room went silent every time.
+  ///
+  /// When this is set, `dispose` leaves every audio resource running; PipOverlay
+  /// owns the teardown from then on (on مغادرة), and re-entering the room finds
+  /// the session already initialised.
+  bool _handedOffToPip = false;
   Offset _pipOffset = const Offset(20, 100);
 
   final FocusNode _topChatFocus = FocusNode();
   StreamSubscription? _seatEffectSub;
+  StreamSubscription? _seatInviteSub;
+  StreamSubscription? _seatInviteResultSub;
+
+  /// Guards against stacking invite dialogs if two invites land together.
+  bool _seatInviteDialogOpen = false;
 
   void _closeChat() {
     if (!_showChatPanel) return;
@@ -754,7 +795,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// Block/unblock a user from taking a mic seat (Step 10).
   /// Admin options for an EMPTY seat: lock/unlock and mute/unmute the seat.
-  void _showEmptySeatAdminSheet(BuildContext context, int seatNumber) {
+  void _showEmptySeatAdminSheet(BuildContext context, int seatNumber, {int? myCurrentSeat}) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -810,12 +851,152 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           .takeSeat(seatNumber: seatNumber);
                     },
                   ),
+                  // If the admin is already seated, let them MOVE to this seat.
+                  if (myCurrentSeat != null && myCurrentSeat != seatNumber)
+                    _adminSeatOption(
+                      label: 'الانتقال إلى هذا المقعد',
+                      icon: Icons.swap_horiz,
+                      color: Colors.tealAccent,
+                      onTap: () {
+                        Navigator.pop(context);
+                        ref.read(roomControllerProvider(widget.roomId).notifier)
+                            .moveSeat(fromSeat: myCurrentSeat, toSeat: seatNumber);
+                      },
+                    ),
+                  // #12: invite an audience member onto this seat.
+                  _adminSeatOption(
+                    label: 'دعوة إلى المقعد',
+                    icon: Icons.person_add_alt_1,
+                    color: Colors.pinkAccent,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showInviteToSeatSheet(seatNumber);
+                    },
+                  ),
                 ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+
+  /// An admin invited me onto a mic. Show "فلان دعاك إلى مايك (رقم N)" with
+  /// قبول / رفض — the server only seats me if I accept.
+  Future<void> _onSeatInvite(Map<String, dynamic> data) async {
+    if (!mounted || _seatInviteDialogOpen) return;
+
+    final rid = data['roomId'];
+    if (rid != null && rid != widget.roomId) return;
+
+    final inviteId = data['inviteId']?.toString();
+    final seatNumber = data['seatNumber'];
+    if (inviteId == null || seatNumber == null) return;
+
+    final fromUsername = (data['fromUsername'] ?? 'مشرف').toString();
+
+    _seatInviteDialogOpen = true;
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1A0E3E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('دعوة إلى المايك',
+              style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+          content: Text(
+            '$fromUsername دعاك إلى مايك (رقم $seatNumber)',
+            style: const TextStyle(color: Colors.white70, fontSize: 15),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dctx, false),
+              child: const Text('رفض', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent),
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('قبول', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+    _seatInviteDialogOpen = false;
+
+    SocketService().respondToSeatInvite(inviteId: inviteId, accept: accepted == true);
+    if (mounted && accepted == true) {
+      _showRoomSnack('تم صعودك إلى المايك $seatNumber');
+    }
+  }
+
+  /// #12: pick an audience user (in the room, not on a mic) to invite to [seatNumber].
+  void _showInviteToSeatSheet(int seatNumber) {
+    // Ask for a fresh roster as the sheet opens. The body watches the provider
+    // so a `room_users` answer arriving a moment later still fills the list
+    // while the sheet is on screen.
+    SocketService().requestRoomUsers(widget.roomId);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0E3E),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Consumer(
+            builder: (ctx, sheetRef, _) {
+              final st = sheetRef.watch(roomControllerProvider(widget.roomId));
+              final seatedIds = st.seats.values.map((s) => s.userId).whereType<int>().toSet();
+              final audience =
+                  st.onlineUsers.values.where((u) => !seatedIds.contains(u.id)).toList();
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Text('دعوة إلى المقعد $seatNumber',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                  if (audience.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text('لا يوجد أشخاص في الغرفة لدعوتهم',
+                          style: TextStyle(color: Colors.white54)),
+                    )
+                  else
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: audience.map((u) => ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(0xFF3D2B7A),
+                            child: Text(u.name.isNotEmpty ? u.name[0].toUpperCase() : '?',
+                                style: const TextStyle(color: Colors.white)),
+                          ),
+                          title: Text(u.name.isNotEmpty ? u.name : 'User #${u.id}',
+                              style: const TextStyle(color: Colors.white)),
+                          trailing: const Icon(Icons.person_add, color: Colors.pinkAccent),
+                          onTap: () {
+                            Navigator.pop(sctx);
+                            ref.read(roomControllerProvider(widget.roomId).notifier)
+                                .inviteToSeat(seatNumber: seatNumber, targetUserId: u.id);
+                            _showRoomSnack(
+                                'تم إرسال دعوة المايك إلى ${u.name} — في انتظار الرد');
+                          },
+                        )).toList(),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 
@@ -1033,6 +1214,207 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           : 'تم طرد المستخدم لمدة محددة');
     } catch (e) {
       _showRoomSnack('تعذر الطرد: $e', error: true);
+    }
+  }
+
+  /// Am I platform staff (admin or super admin)? Distinct from being a room
+  /// owner/supervisor — the two grant different powers.
+  bool get _iAmPlatformAdmin {
+    final me = ref.read(authStateProvider).user;
+    return (me?.userIsAdmin ?? false) || (me?.userIsSuperAdmin ?? false);
+  }
+
+  /// True when this seat belongs to platform staff, who are immune to every
+  /// moderation action offered in the room ("ولا احد ياخد اجراء ضده").
+  ///
+  /// The flag rides on the seat itself, straight from the same user row the
+  /// server already reads to build the seat. The server refuses staff bans
+  /// independently, so a stale seat can only cost a refused call, never an
+  /// executed one.
+  bool _isPlatformStaff(SeatData seat) {
+    if (seat.userId == null) return false;
+    final me = ref.read(authStateProvider).user;
+    if (me?.id == seat.userId) return false; // my own card isn't a target
+    return seat.isPlatformStaff;
+  }
+
+  /// Platform ban straight from the seat card — "الأدمن يضغط على مايك المستخدم
+  /// ويأخذ إجراء حظر". The durations are tiered exactly as the owner asked:
+  ///   • admin       → يوم / يومين / 3 أيام
+  ///   • super admin → يوم / شهر / أبدي
+  /// The server enforces the same split, so a tampered client gains nothing,
+  /// and it refuses a ban aimed at another admin (staff immunity).
+  Future<void> _promptBanUser(int? userId, String name) async {
+    if (userId == null) return;
+    final me = ref.read(authStateProvider).user;
+    final isSuper = me?.userIsSuperAdmin ?? false;
+    if (!(me?.userIsAdmin ?? false)) return;
+
+    final options = isSuper
+        ? const [('يوم', '1d'), ('شهر', '1m'), ('حظر أبدي', 'permanent')]
+        : const [('يوم', '1d'), ('يومان', '2d'), ('3 أيام', '3d')];
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E2E),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text('حظر $name من التطبيق',
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              for (final o in options)
+                ListTile(
+                  leading: const Icon(Icons.gavel, color: Colors.redAccent),
+                  title: Text(o.$1, style: const TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.pop(ctx, o.$2),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null) return;
+
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1F1247),
+          title: const Text('سبب الحظر', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: reasonCtrl,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'مثال: إساءة في الغرفة',
+              hintStyle: TextStyle(color: Colors.white38),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('حظر'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await DioClient.dio.patch('/admin/users/$userId/ban', data: {
+        'isBanned': true,
+        'duration': choice,
+        'reason': reasonCtrl.text.trim().isEmpty ? 'مخالفة' : reasonCtrl.text.trim(),
+      });
+      _showRoomSnack('تم حظر $name');
+    } catch (e) {
+      final msg = e is DioException && e.response?.data is Map
+          ? (e.response!.data['message']?.toString() ?? 'تعذر الحظر')
+          : 'تعذر الحظر';
+      _showRoomSnack(msg, error: true);
+    }
+  }
+
+  /// Tapping the room (its picture or its name). A room admin gets the edit
+  /// dialog as before; a SUPER ADMIN gets a sheet that also offers إغلاق
+  /// الغرفة, which is the "يضغط على الغرفة يظهر له إغلاق الغرفة" rule.
+  Future<void> _onRoomHeaderTap() async {
+    final me = ref.read(authStateProvider).user;
+    final isSuper = me?.userIsSuperAdmin ?? false;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final myId = me?.id;
+    final canEdit = myId != null && (myId == state.ownerId || state.adminIds.contains(myId) || isSuper);
+
+    if (!isSuper) {
+      if (canEdit) _showEditRoomDialog();
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1F1247),
+      builder: (sctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (canEdit)
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Colors.white),
+                  title: const Text('تعديل الغرفة', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(sctx);
+                    _showEditRoomDialog();
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.lock, color: Colors.redAccent),
+                title: const Text('إغلاق الغرفة', style: TextStyle(color: Colors.redAccent)),
+                subtitle: const Text('يخرج الجميع ولا تُفتح إلا من لوحة التحكم',
+                    style: TextStyle(color: Colors.white54, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(sctx);
+                  _promptCloseRoom();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Super admin only: close the room from inside it. Everyone is thrown out
+  /// immediately and it can only be reopened from the dashboard.
+  Future<void> _promptCloseRoom() async {
+    final me = ref.read(authStateProvider).user;
+    if (!(me?.userIsSuperAdmin ?? false)) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1F1247),
+          title: const Text('إغلاق الغرفة', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            'سيخرج جميع الموجودين فوراً ولن تُفتح الغرفة إلا من لوحة التحكم. متابعة؟',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('إغلاق'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await DioClient.dio.post('/room-admin/close-room', data: {'roomId': widget.roomId});
+      _showRoomSnack('تم إغلاق الغرفة');
+    } catch (e) {
+      final msg = e is DioException && e.response?.data is Map
+          ? (e.response!.data['error']?.toString() ?? 'تعذر إغلاق الغرفة')
+          : 'تعذر إغلاق الغرفة';
+      _showRoomSnack(msg, error: true);
     }
   }
 
@@ -1646,11 +2028,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         MaterialPageRoute(builder: (_) => const GamesHubScreen()),
                       );
                     }),
-                    _menuItem(Icons.leaderboard, 'لوحة الصدارة', Colors.lightBlueAccent, () {
+                    // Room cup: the top 20 supporters OF THIS ROOM — not the
+                    // app-wide board, and not the old placeholder list.
+                    _menuItem(Icons.emoji_events, 'كأس الغرفة', Colors.lightBlueAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
-                        MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => SupportersBoardScreen(roomId: widget.roomId),
+                        ),
                       );
                     }),
                     _menuItem(Icons.account_balance_wallet, 'المحفظة', Colors.orangeAccent, () {
@@ -1670,29 +2056,32 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
-  Future<void> _toggleMusicSetting() async {
+  /// Owner + room admins may start/stop what the room hears. Everyone else can
+  /// still open the sheet to manage their own uploads.
+  bool _canControlMusic() {
+    final userId = ref.read(authStateProvider).user?.id;
+    if (userId == null) return false;
+    final state = ref.read(roomControllerProvider(widget.roomId));
     final room = ref.read(roomsProvider).findById(widget.roomId);
-    final url = room?.backgroundMusicUrl ?? '';
-    final nextValue = !_musicOn;
+    final restOwnerId = room?.ownerId ?? room?.owner?.id ?? 0;
+    return userId == state.ownerId ||
+        state.adminIds.contains(userId) ||
+        userId == restOwnerId;
+  }
 
-    setState(() => _musicOn = nextValue);
-
-    try {
-      await _api.setBackgroundMusic({
-        'roomId': widget.roomId,
-        'room_id': widget.roomId,
-        'enabled': nextValue,
-        'isEnabled': nextValue,
-        'musicOn': nextValue,
-        'url': url,
-        'backgroundMusicUrl': url,
-      });
-      _showRoomSnack(nextValue ? 'تم تفعيل موسيقى الغرفة' : 'تم إيقاف موسيقى الغرفة');
-    } catch (_) {
-      _showRoomSnack(
-        nextValue ? 'تم تفعيل الموسيقى محلياً' : 'تم إيقاف الموسيقى محلياً',
-      );
-    }
+  /// "موسيقى": upload from the phone, play in the room, manage your songs.
+  /// Replaces the old on/off switch, which only flipped a flag and never
+  /// played anything ("الموسيقى غير فعّالة").
+  void _openMusicSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MusicLibrarySheet(
+        roomId: widget.roomId,
+        canControl: _canControlMusic(),
+      ),
+    );
   }
 
   void _toggleNoiseReduction() {
@@ -1746,8 +2135,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 if (_seatVideoController != null) {
                   await _seatVideoController!.setVolume(tempVolume);
                 }
+                // A24 — the room VOICE is what the user is actually turning
+                // down. Without this the slider only ever touched effects and
+                // the seat clip, so dragging it to 0 left everyone still
+                // audible: "مؤشر الصوت لما أنزله للصفر مش بيقفل".
+                await WebRTCAudioService().setRemoteVolume(tempVolume);
                 if (mounted) Navigator.pop(context);
-                _showRoomSnack('تم تحديث مستوى الصوت');
+                _showRoomSnack(
+                  tempVolume == 0 ? 'تم كتم صوت الغرفة' : 'تم تحديث مستوى الصوت',
+                );
               },
               child: const Text('حفظ'),
             ),
@@ -1783,6 +2179,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     onChanged: (value) => setModalState(() => muteEntrance = !value),
                     title: const Text('أصوات الدخول', style: TextStyle(color: Colors.white)),
                   ),
+                  // #17-18: the coin-counter reset moved to its own item in the
+                  // main room menu (next to "حذف الدردشة") — it doesn't belong
+                  // under Sound Effects, which is why the owner couldn't find it.
                 ],
               );
             },
@@ -1881,13 +2280,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   color: Colors.white70,
                 ),
                 title: const Text('موسيقى الغرفة', style: TextStyle(color: Colors.white)),
-                trailing: Switch.adaptive(
-                  value: _musicOn,
-                  onChanged: (_) async {
-                    Navigator.pop(context);
-                    await _toggleMusicSetting();
-                  },
-                ),
+                trailing: const Icon(Icons.chevron_left, color: Colors.white38),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openMusicSheet();
+                },
               ),
               ListTile(
                 leading: Icon(
@@ -2031,22 +2428,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final roomId = widget.roomId;
 
-    _audioService.onVoiceActivityChanged = (isSpeaking) async {
+    // من المتحدث: the audio service reports my own mic transitions; the
+    // controller paints my ring and tells the rest of the room.
+    //
+    // This used to re-`initialize()` the whole audio service on every
+    // transition — a full WebRTC setup several times a second once the
+    // detector actually started firing.
+    _audioService.onVoiceActivityChanged = (isSpeaking) {
       final userId = ref.read(authStateProvider).user?.id;
       if (userId == null) return;
-
-      final controller = ref.read(roomControllerProvider(widget.roomId));
-
-      await _audioService.initialize(
-        roomId: widget.roomId,
-        userId: userId,
-        listenOnly: true,
-      );
-
-      if (controller.seats.isEmpty) return; // ✅ IMPORTANT
-
       ref.read(roomControllerProvider(widget.roomId).notifier)
-          .setUserSpeaking(userId, isSpeaking);
+          .broadcastMySpeaking(userId, isSpeaking);
     };
 
     final state = ref.read(roomControllerProvider(widget.roomId));
@@ -2069,6 +2461,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     // Bind the new gift socket; GiftAnimationOverlay handles its own subscriptions.
     _giftSocket.bind();
+
+    // A20 — credit the recipient's under-mic total the instant the gift lands,
+    // instead of waiting for the 25-second poll. Same event the animation is
+    // already driven by, so the number and the animation move together.
+    _giftEarningsSub = _giftSocket.sentStream.listen((event) {
+      if (!mounted) return;
+      if (event.roomId != null && event.roomId != widget.roomId) return;
+      ref.read(roomControllerProvider(widget.roomId).notifier).applyGiftEarning(
+            recipientId: event.recipientId,
+            coins: event.totalCoins,
+          );
+    });
+
+    // Pull video gift clips into the cache now, so the first person to receive
+    // one doesn't stall on a download while everyone else has already heard it.
+    unawaited(_giftRepository.warmVideoCache());
 
     Future.microtask(() {
       ref.read(roomControllerProvider(widget.roomId).notifier)
@@ -2093,11 +2501,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         if (rid != null && rid != widget.roomId) return;
         final reason = data['reason'];
         if (reason == 'banned') {
-          // Kicked/banned → cannot enter; show why and leave.
           _showRoomSnack(
             (data['message'] ?? 'تم طردك من هذه الغرفة').toString(),
             error: true,
           );
+          Navigator.of(context).maybePop();
+          return;
+        }
+        if (reason == 'closed') {
+          _showRoomSnack('الغرفة مغلقة', error: true);
           Navigator.of(context).maybePop();
           return;
         }
@@ -2126,6 +2538,33 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         Navigator.of(context).maybePop();
       });
 
+      SocketService().on('room_closed', (data) {
+        if (!mounted) return;
+        final rid = (data is Map) ? data['roomId'] : null;
+        if (rid != null && rid != widget.roomId) return;
+        _showRoomSnack('تم إغلاق الغرفة من قِبَل المالك', error: true);
+        Navigator.of(context).maybePop();
+      });
+
+      // Dashboard force-closed the room → everyone inside leaves immediately.
+      SocketService().on('room_force_closed', (data) {
+        if (!mounted) return;
+        final rid = (data is Map) ? data['roomId'] : null;
+        if (rid != null && rid != widget.roomId) return;
+        final msg = (data is Map ? data['reason'] : null)?.toString() ??
+            'تم إغلاق الغرفة من الإدارة';
+        _showRoomSnack(msg, error: true);
+        Navigator.of(context).maybePop();
+      });
+
+      // Dashboard renamed the room → refresh so the watched name updates live.
+      SocketService().on('room_updated', (data) {
+        if (!mounted || data is! Map) return;
+        final rid = data['roomId'];
+        if (rid != null && rid != widget.roomId) return;
+        ref.read(roomsProvider.notifier).loadRooms();
+      });
+
       // ✅ LOAD INVENTORY FIRST
       await _loadActiveItems();
       debugPrint("🎬 video url = $_activeSeatEffectUrl");
@@ -2134,6 +2573,29 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (maxSeats != null && maxSeats > 0) {
         controller.setSeatCountLocal(maxSeats);
       }
+
+      // Mic invitation aimed at ME → قبول / رفض prompt.
+      _seatInviteSub = SocketService().seatInviteStream.listen(_onSeatInvite);
+
+      // Outcome of an invitation I sent, so the inviter learns the answer.
+      _seatInviteResultSub = SocketService().seatInviteResultStream.listen((data) {
+        if (!mounted) return;
+        final accepted = data['accepted'] == true;
+        final seat = data['seatNumber'];
+        final name = (data['username'] ?? '').toString();
+        _showRoomSnack(accepted
+            ? '${name.isEmpty ? 'المستخدم' : name} قبل الصعود إلى المايك $seat'
+            : '${name.isEmpty ? 'المستخدم' : name} رفض دعوة المايك $seat');
+      });
+
+      // Subscribe BEFORE joining: the server broadcasts our own entrance effect
+      // as part of join_room, and a listener attached afterwards would miss it.
+      _seatEffectSub = SocketService().seatEffectStream.listen((event) {
+        final videoUrl = event['video'];
+        if (videoUrl == null || videoUrl.toString().isEmpty) return;
+        _seatEffectQueue.add(videoUrl);
+        _tryPlayNextEffect();
+      });
 
       // ✅ open room ONCE
       await controller.openRoom();
@@ -2149,13 +2611,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         );
       }
 
-      if (!_playedEntrance &&
-          _activeSeatEffectUrl != null &&
-          _activeSeatEffectUrl!.isNotEmpty) {
-
-        _playedEntrance = true;
-        _playSeatBackgroundVideo(_activeSeatEffectUrl!);
-      }
+      // NOTE: the entrance effect is no longer played locally here. The server
+      // broadcasts `seat_effect` to the whole room on join, so every client —
+      // including this one — starts it from the same event at the same moment.
 
 
       if (!_roomReady.isCompleted) _roomReady.complete();
@@ -2169,22 +2627,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           listenOnly: false,
         );
         _audioReady = true;
+        // Start measuring my own mic so the room can see who is talking.
+        // Nothing switched this on before, which is why the speaking ring
+        // never appeared for anyone.
+        _audioService.enableVAD();
         // Step 5: report the perfect-mic self-test result to the room.
         SocketService().reportMicStatus(
           roomId: widget.roomId,
           ok: _audioService.micHealthy,
         );
       }
-
-      _seatEffectSub = SocketService().seatEffectStream.listen((event) {
-
-        final videoUrl = event['video'];
-
-        _seatEffectQueue.add(videoUrl);
-
-        _tryPlayNextEffect();
-
-      });
 
       _socketErrSub = SocketService().errorStream.listen((msg) {
         if (!mounted) return;
@@ -2236,8 +2688,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   late final RoomLiveNotifier _live;
 
-  @override
-  bool _lifecycleLeft = false;
+  /// Are we currently suspended (screen locked / app in the background)?
+  bool _lifecycleBackgrounded = false;
+
+  /// Was the mic live when we got suspended? Used to restore it on resume.
+  bool _micLiveBeforeBackground = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
@@ -2247,33 +2702,87 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (appState == AppLifecycleState.paused ||
         appState == AppLifecycleState.detached) {
-      // Screen locked / app backgrounded → leave the room cleanly so other
-      // devices don't keep showing a stale online/in-seat entry (presence desync).
-      if (_lifecycleLeft) return;
-      _lifecycleLeft = true;
-      try { if (_audioReady) _audioService.muteAudio(); } catch (_) {}
-      try { AudioController.instance.setMicEnabled(false); } catch (_) {}
-      try {
-        SocketService().leaveRoom(roomId: widget.roomId, userId: user.id);
-      } catch (_) {}
-    } else if (appState == AppLifecycleState.resumed && _lifecycleLeft) {
-      _lifecycleLeft = false;
-      // Back in foreground → re-join cleanly and re-sync seats.
-      try {
-        SocketService().joinRoom(
-          roomId: widget.roomId,
-          userId: user.id,
-          username: user.name,
-        );
-      } catch (_) {}
+      // Screen locked / app backgrounded. NOTHING changes: the user stays in
+      // the room, on his seat, and — per the client rule "لو انا مشغل اغاني او
+      // بتكلم لم يتغير شي اذا كنت خارج الغرفه" — his MIC AND MUSIC KEEP
+      // RUNNING. This used to force-mute on background, so stepping out of the
+      // app for a second cut you off mid-sentence and stopped the room music.
+      // Only an explicit exit leaves the room or closes the mic.
+      //
+      // If the OS kills the websocket anyway, the server keeps the seat until
+      // the user actually leaves (ROOM_DISCONNECT_GRACE_MS).
+      if (_lifecycleBackgrounded) return;
+      _lifecycleBackgrounded = true;
+      // Remembered only so a resume can repair a mic the OS interrupted.
+      _micLiveBeforeBackground = _audioReady && !_audioService.isMicMuted;
+    } else if (appState == AppLifecycleState.resumed && _lifecycleBackgrounded) {
+      _lifecycleBackgrounded = false;
+      // Back in the foreground → re-sync state (and restore the mic if it was
+      // live). No re-entrance: we never left.
+      unawaited(_resumeInRoom());
+    }
+  }
+
+  /// Re-establish the live session after the app comes back to the foreground.
+  Future<void> _resumeInRoom() async {
+    try {
+      await ref
+          .read(roomControllerProvider(widget.roomId).notifier)
+          .resyncAfterForeground();
+    } catch (e) {
+      debugPrint('resume resync failed: $e');
+    }
+    if (!mounted) return;
+
+    if (!_micLiveBeforeBackground) return;
+    _micLiveBeforeBackground = false;
+
+    // The mic was NOT closed on the way out — this only repairs it if the OS
+    // (a phone call, another app grabbing the microphone) interrupted it while
+    // we were away. Re-enabling an already-live mic is a no-op.
+    //
+    // Only reopen the mic if the seat is still ours and still allowed to talk —
+    // an admin may have muted us (or taken the seat) while we were away.
+    final me = ref.read(authStateProvider).user?.id;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    SeatData? seat;
+    for (final s in state.seats.values) {
+      if (s.userId == me) { seat = s; break; }
+    }
+    if (seat == null ||
+        seat.isMuted ||
+        seat.forceMuted ||
+        state.mutedSeats.contains(seat.seatNumber)) {
+      return;
+    }
+
+    try {
+      await AudioController.instance.setMicEnabled(true);
+      if (_audioReady) await _audioService.unmuteAudio();
+    } catch (e) {
+      debugPrint('resume mic restore failed: $e');
     }
   }
 
   @override
   void dispose() {
     // Close the room and dispose resources
-    debugPrint('🟣 RoomScreen.dispose room=${widget.roomId}');
-    AudioController.instance.deactivate();
+    debugPrint('🟣 RoomScreen.dispose room=${widget.roomId} pip=$_handedOffToPip');
+
+    // A23 — everything that carries the room's VOICE is skipped when the screen
+    // is being handed to the PiP bubble. The visual resources below are torn
+    // down either way; they have nothing to do with the audio.
+    if (!_handedOffToPip) {
+      AudioController.instance.deactivate();
+      _audioService.dispose();
+      // The ongoing mic notification belongs to the session that just ended.
+      unawaited(RoomAudioKeepAlive.instance.stop());
+    } else {
+      // The bubble has no gift overlay and no seat cards, so nothing is left to
+      // paint a ring on — but the detector keeps running so the ring is correct
+      // the moment the room is re-opened.
+      debugPrint('🟣 audio kept alive for PiP room=${widget.roomId}');
+    }
 
     _audioPlayer.dispose();  // ✅ ADD
     _roomImageCtrl.dispose();
@@ -2281,13 +2790,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _socketErrSub?.cancel();
     _joinDeniedSub?.cancel();
     _giftSocket.dispose();
-    _audioService.dispose();
     _seatVideoController?.dispose();
     _externalTextController.dispose(); // Dispose the external controller
     _chatController.dispose();
     _chatFocus.dispose();
     _topChatFocus.dispose();
+    _giftEarningsSub?.cancel();
     _seatEffectSub?.cancel();
+    _seatInviteSub?.cancel();
+    _seatInviteResultSub?.cancel();
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
 
@@ -2301,6 +2812,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _externalTextController.clear(); // Clear the text field after sending
     }
   }
+  /// A20 — live seat-earnings updates driven by the gift socket.
+  StreamSubscription<GiftSendEvent>? _giftEarningsSub;
+
   bool _audioReady = false;
 
   final ImagePicker _picker = ImagePicker();
@@ -2313,9 +2827,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (picked == null) return;
 
-    final file = File(picked.path);
-
-    final url = await _uploadImageToServer(file);
+    final url = await _uploadImageToServerFromXFile(picked);
     if (url == null) return;
 
     // If you still want to apply locally:
@@ -2328,20 +2840,32 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   Future<String?> _uploadImageToServer(File file) async {
     try {
-      final dio = DioClient.dio;
+      final bytes = await file.readAsBytes();
+      final filename = file.path.split('/').last;
+      return await _uploadBytesToServer(bytes, filename);
+    } catch (e) {
+      debugPrint("❌ UPLOAD ERROR: $e");
+      return null;
+    }
+  }
 
+  Future<String?> _uploadImageToServerFromXFile(XFile xfile) async {
+    try {
+      final bytes = await xfile.readAsBytes();
+      final filename = xfile.name.isNotEmpty ? xfile.name : 'image.jpg';
+      return await _uploadBytesToServer(bytes, filename);
+    } catch (e) {
+      debugPrint("❌ UPLOAD ERROR: $e");
+      return null;
+    }
+  }
+
+  Future<String?> _uploadBytesToServer(Uint8List bytes, String filename) async {
+    try {
       final form = FormData.fromMap({
-        'image': await MultipartFile.fromFile(
-          file.path,
-          filename: file.path.split('/').last,
-        ),
+        'image': MultipartFile.fromBytes(bytes, filename: filename),
       });
-
-      final res = await dio.post(
-        '/upload/image', // ✅ no baseUrl here (already set inside DioClient)
-        data: form,
-      );
-
+      final res = await DioClient.dio.post('/upload/image', data: form);
       final url = res.data?['imageUrl']?.toString();
       debugPrint("✅ Uploaded URL: $url");
       return url;
@@ -2368,6 +2892,84 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       debugPrint("✅ Room image saved in database");
     } catch (e) {
       debugPrint("❌ Update room image failed: $e");
+    }
+  }
+
+  /// #6: admin taps the room name/photo → dialog to edit the room name & cover.
+  Future<void> _showEditRoomDialog() async {
+    final current = ref.read(roomsProvider).findById(widget.roomId)?.name ?? '';
+    final ctrl = TextEditingController(text: current);
+    await showDialog(
+      context: context,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1E1347),
+          title: const Text('تعديل الغرفة', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'اسم الغرفة',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextButton.icon(
+                onPressed: () async {
+                  Navigator.pop(dctx);
+                  await _pickAndUploadRoomCover();
+                },
+                icon: const Icon(Icons.photo_camera, color: Color(0xFF4ECDC4)),
+                label: const Text('تغيير صورة الغرفة', style: TextStyle(color: Color(0xFF4ECDC4))),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('إلغاء', style: TextStyle(color: Colors.white54))),
+            TextButton(
+              onPressed: () async {
+                final newName = ctrl.text.trim();
+                Navigator.pop(dctx);
+                if (newName.isNotEmpty && newName != current) {
+                  try {
+                    await DioClient.dio.patch('/rooms/${widget.roomId}', data: {'name': newName});
+                    await ref.read(roomControllerProvider(widget.roomId).notifier).loadRoomDetails();
+                    if (mounted) setState(() {});
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر حفظ الاسم: $e')));
+                    }
+                  }
+                }
+              },
+              child: const Text('حفظ', style: TextStyle(color: Color(0xFFFFD700))),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Pick an image and set it as the room cover (used by the edit dialog).
+  Future<void> _pickAndUploadRoomCover() async {
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+      if (picked == null) return;
+      final uploaded = await _uploadImageToServerFromXFile(picked);
+      if (uploaded != null && uploaded.isNotEmpty) {
+        await _updateRoomImageInBackend(uploaded, isCover: true);
+        await ref.read(roomControllerProvider(widget.roomId).notifier).loadRoomDetails();
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر رفع الصورة: $e')));
+      }
     }
   }
 
@@ -2540,15 +3142,33 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     required bool isBackground,
   }) async {
     try {
-      // Uploading a custom background from the device costs 20,000 coins.
+      // A device background is rented, not bought. Price and term come from
+      // the server so the dashboard can retune them without an app release —
+      // the old hardcoded "20,000" quoted a price that no longer applies.
       if (isBackground) {
+        int price = 1000;
+        int days = 20;
+        try {
+          final res = await DioClient.dio.get('/settings');
+          final data = res.data is Map ? (res.data['data'] ?? res.data) : null;
+          if (data is Map) {
+            price = int.tryParse('${data['roomBackgroundPriceCoins'] ?? ''}') ?? price;
+            days = int.tryParse('${data['roomBackgroundDays'] ?? ''}') ?? days;
+          }
+        } catch (_) {
+          // Fall back to the documented defaults; the server charges the real
+          // price either way, this text is only what we promise up front.
+        }
+        final priceText = price.toString().replaceAllMapped(
+            RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
         final ok = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: const Color(0xFF2A1A5E),
             title: const Text('خلفية مخصصة', style: TextStyle(color: Colors.white)),
-            content: const Text('سيتم خصم 20,000 كوينز لرفع خلفية من جهازك. متابعة؟',
-                style: TextStyle(color: Colors.white70)),
+            content: Text(
+                'سيتم خصم $priceText كوينز لرفع خلفية من جهازك، وتستمر $days يوماً. متابعة؟',
+                style: const TextStyle(color: Colors.white70)),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
               ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('متابعة')),
@@ -2565,10 +3185,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
       if (picked == null) return;
 
-      final file = File(picked.path);
-
-      // 1️⃣ Upload image
-      final uploadedUrl = await _uploadImageToServer(file);
+      // 1️⃣ Upload image (bytes-based, works on web + mobile)
+      final uploadedUrl = await _uploadImageToServerFromXFile(picked);
       if (uploadedUrl == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2752,13 +3370,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             final isOnSeat = seat != null;
 
             return ListTile(
-              leading: CircleAvatar(
-                backgroundImage: user.avatarUrl != null
-                    ? NetworkImage(user.avatarUrl!)
-                    : null,
-                child: user.avatarUrl == null
-                    ? const Icon(Icons.person)
-                    : null,
+              // Everyone here is already in this room, so no مسار badge —
+              // just the shared "tap the picture for the profile" gesture.
+              leading: TappableAvatar(
+                userId: user.id,
+                showTrail: false,
+                child: CircleAvatar(
+                  backgroundImage: user.avatarUrl != null
+                      ? NetworkImage(user.avatarUrl!)
+                      : null,
+                  child: user.avatarUrl == null
+                      ? const Icon(Icons.person)
+                      : null,
+                ),
               ),
               title: Text(user.name, style: const TextStyle(color: Colors.white)),
               subtitle: Text(
@@ -2975,9 +3599,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      Builder(builder: (_) {
-                        final locked = ref
-                                .read(roomsProvider)
+                      Consumer(builder: (ctx, wref, _) {
+                        final locked = wref
+                                .watch(roomsProvider)
                                 .findById(widget.roomId)
                                 ?.isRoomLocked ??
                             false;
@@ -3011,10 +3635,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       _menuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
                         Navigator.pop(context);
                         _openBackgroundChooser();
-                      }),
-                      _menuItem(Icons.mic, "نقاط الميكروفون", Colors.white70, () {
-                        Navigator.pop(context);
-                        _openBackpackSheet(this.context, typeFilter: 'seat_effect');
                       }),
                     ],
                   ),
@@ -3066,7 +3686,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     _menuItem(Icons.music_note, "موسيقى",
                         _musicOn ? Colors.greenAccent : Colors.white70, () {
                           Navigator.pop(context);
-                          _toggleMusicSetting();
+                          _openMusicSheet();
                         }),
 
                     _menuItem(Icons.hearing, "تقليل الضوضاء",
@@ -3106,6 +3726,29 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         _clearRoomChat();
                       } else {
                         _showRoomSnack('مسح الدردشة متاح للمسؤولين فقط', error: true);
+                      }
+                    }),
+
+                    // #17-18: manual reset of the per-user 24h coin counter shown
+                    // under each seat. Was buried inside the unrelated "Sound
+                    // Effects" dialog, which is why the owner couldn't find it
+                    // ("موضوع التصفير مش لاقيه") — it now lives as its own item
+                    // here, next to the other admin actions.
+                    _menuItem(Icons.restart_alt, "تصفير عدّاد الكوينزات", Colors.orangeAccent, () async {
+                      Navigator.pop(context);
+                      if (!isAdmin) {
+                        _showRoomSnack('التصفير متاح لصاحب الغرفة أو المشرفين فقط', error: true);
+                        return;
+                      }
+                      try {
+                        await DioClient.dio.post('/room-admin/reset-earnings', data: {
+                          'roomId': widget.roomId,
+                          'room_id': widget.roomId,
+                        });
+                        await ref.read(roomControllerProvider(widget.roomId).notifier).refreshSeatEarnings();
+                        _showRoomSnack('تم تصفير العدّادات');
+                      } catch (e) {
+                        _showRoomSnack('تعذر التصفير: $e', error: true);
                       }
                     }),
 
@@ -3170,6 +3813,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final isAdmin = userId != null &&
         (userId == state.ownerId || state.adminIds.contains(userId) || userId == restOwnerId);
+
+    // Watched here — above the minimized/PiP early-return — so the shared music
+    // player stays alive (and keeps playing) even while the room is collapsed
+    // into the floating bubble. Listeners need it too: this is what makes the
+    // song audible to people who cannot control it.
+    ref.watch(roomMusicProvider(widget.roomId));
 
     final size = MediaQuery.of(context).size;
     final kb = MediaQuery.of(context).viewInsets.bottom;
@@ -3392,34 +4041,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
 
 
-// ===== Seat video overlay =====
-            if (_showSeatVideo && _seatVideoController != null)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 400),
-                    opacity: _showSeatVideo ? 1 : 0,
-                    child: TweenAnimationBuilder<double>(
-                      duration: const Duration(milliseconds: 600),
-                      tween: Tween(begin: 1.2, end: 1.0), // 🔥 zoom out effect
-                      builder: (context, scale, child) {
-                        return Transform.scale(
-                          scale: scale,
-                          child: child,
-                        );
-                      },
-                      child: FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: _seatVideoController!.value.size.width,
-                          height: _seatVideoController!.value.size.height,
-                          child: VideoPlayer(_seatVideoController!),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            // مركبة الدخول is NOT drawn here any more — it used to sit under
+            // the dark overlay and under the seats, so the vehicle played
+            // behind the mics. It is now one of the last children of this
+            // Stack, next to the gift flight overlay
+            // ("خلي مركبة الدخول من فوق زي الهديه ... تغطي علي المايكات عادي").
 
             // dark overlay
             Positioned.fill(
@@ -3438,7 +4064,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     children: [
-                      CircleAvatar(
+                      GestureDetector(
+                        onTap: _onRoomHeaderTap,
+                        child: CircleAvatar(
                         radius: 22,
                         backgroundColor: Colors.deepPurple,
                         backgroundImage: (state.roomImageUrl ?? '').trim().isNotEmpty
@@ -3448,16 +4076,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ? null
                             : const Icon(Icons.mic, color: Colors.white),
                       ),
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Column(
+                        child: GestureDetector(
+                          onTap: _onRoomHeaderTap,
+                          child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
+                            // #43 — a long room name scrolls itself instead of
+                            // being cut off with an ellipsis, "لحد ما يظهر
+                            // الاسم كامل". A name that fits does not move.
+                            MarqueeText(
                               roomName.isNotEmpty ? roomName : 'Room #${widget.roomId}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 18,
@@ -3465,7 +4097,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               ),
                             ),
                             Builder(builder: (_) {
-                              final ownerDid = room?.owner?.publicDisplayId ?? state.ownerId;
+                              final ownerDid = room?.owner?.publicDisplayId;
                               if (ownerDid == null || ownerDid == 0) return const SizedBox.shrink();
                               return Text(
                                 'ID: $ownerDid',
@@ -3473,6 +4105,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               );
                             }),
                           ],
+                        ),
                         ),
                       ),
 
@@ -3494,6 +4127,31 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 Text('${state.voiceUserIds.length}'),
                               ],
                             ),
+                          ),
+                        ),
+                      ),
+                      // #43 — "أيقونة الكأس مش موجودة في الروم". The room cup
+                      // was reachable only from inside the ⋮ menu; it now has
+                      // its own place in the header, and the room-actions menu
+                      // it used to hide behind stays where it is.
+                      const SizedBox(width: 6),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SupportersBoardScreen(roomId: widget.roomId),
+                            ),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.22),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Icon(Icons.emoji_events, color: Color(0xFFFFD700), size: 16),
                           ),
                         ),
                       ),
@@ -3523,6 +4181,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white70, size: 20),
                           onPressed: () {
                             final state = ref.read(roomControllerProvider(widget.roomId));
+                            // Set BEFORE the pop: dispose runs synchronously
+                            // from it and reads this to keep the audio alive.
+                            _handedOffToPip = true;
                             ref.read(pipProvider.notifier).activate(
                               roomId: widget.roomId,
                               roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
@@ -3604,6 +4265,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         myUserId: userId ?? 0,
                         isAdmin: isAdmin,
                         lockedSeats: state.lockedSeats,
+                        mutedSeats: state.mutedSeats,
                         ownerId: state.ownerId,
                         adminIds: state.adminIds,
                         seatEarnings: state.seatEarnings24h,
@@ -3630,17 +4292,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             // ✅ Bottom panels: Activity LEFT next to Chat (horizontal)
             // Activity height = 30% of chat height, showing ~3 lines
             // ==========================================================
+            // The 55px overlap used to be a Transform.translate. That moves
+            // the PAINTING but not the layout box, and a RenderBox only hit
+            // tests inside its own box — so the whole panel was drawn 55px
+            // above the region that actually received touches, and taps on the
+            // messages landed on nothing. Putting the offset in `bottom` gives
+            // the identical look with a hit area that matches what is on
+            // screen.
             Positioned(
               left: 0,
               right: 0,
-              bottom: bottomBarH + 10,
+              bottom: bottomBarH + 10 + 55, // 🔥 deeper overlap
               child: Center(
-                child: Transform.translate(
-                  offset: const Offset(0, -55), // 🔥 deeper overlap
-                  child: SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.90,
-                    height: MediaQuery.of(context).size.height * 0.30,
-                    child: RoomChatPanel(roomId: widget.roomId),
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.90,
+                  height: MediaQuery.of(context).size.height * 0.30,
+                  child: RoomChatPanel(
+                    roomId: widget.roomId,
+                    // Tapping a writer's name opens the room's own profile
+                    // card, not a separate screen.
+                    onUserTap: (uid, name) =>
+                        showUserProfileCard(userId: uid, username: name),
                   ),
                 ),
               ),
@@ -3772,9 +4444,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             // Collect all room users (incl. seated + online), self always included.
                             final ids = <int>{};
                             final list = <GiftRecipient>[];
-                            void add(int id, String name, String? avatarUrl) {
+                            void add(int id, String name, String? avatarUrl, {int? seatNumber}) {
                               if (ids.add(id)) {
-                                list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
+                                list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl, seatNumber: seatNumber));
                               }
                             }
                             // Self first
@@ -3782,7 +4454,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             // Seated users
                             for (final s in state.seats.values) {
                               if (s.userId != null) {
-                                add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
+                                add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl, seatNumber: s.seatNumber);
                               }
                             }
                             // Other online users
@@ -3794,7 +4466,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               repository: _giftRepository,
                               recipients: list,
                               roomId: widget.roomId,
-                              balance: me.coins ?? 0,
+                              balance: me.coinsBalance ?? me.coins ?? 0,
                               onBalanceChanged: (_) {},
                             );
                           },
@@ -3901,6 +4573,36 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
             ),
 
+            // ===== مركبة الدخول — same layer as the gifts, above the mics =====
+// ===== Seat video overlay =====
+            if (_showSeatVideo && _seatVideoController != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 400),
+                    opacity: _showSeatVideo ? 1 : 0,
+                    child: TweenAnimationBuilder<double>(
+                      duration: const Duration(milliseconds: 600),
+                      tween: Tween(begin: 1.2, end: 1.0), // 🔥 zoom out effect
+                      builder: (context, scale, child) {
+                        return Transform.scale(
+                          scale: scale,
+                          child: child,
+                        );
+                      },
+                      child: FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: _seatVideoController!.value.size.width,
+                          height: _seatVideoController!.value.size.height,
+                          child: VideoPlayer(_seatVideoController!),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             // ===== Gift flight overlay (rendered LAST so it paints ABOVE seats) =====
             Positioned.fill(
               child: GiftAnimationOverlay(
@@ -3908,6 +4610,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 resolvePosition: _getSeatPositionByUser,
               ),
             ),
+
+            // ===== Group 12: user entrance banner (slides in → pause → out) =====
+            Positioned.fill(
+              child: EntranceBannerLayer(roomId: widget.roomId),
+            ),
+
+            // ===== A22: شريط إعلان الهدية — centred, one at a time, ~1.5s.
+            // Deliberately NOT at the top: the client's complaint was that the
+            // notifications kept covering the gift bar up there.
+            GiftAnnouncementBar(socket: _giftSocket, roomId: widget.roomId),
+
+            // ===== Music control bar — draggable, only for owner/admins, and
+            // only while the room is actually playing something. =====
+            MusicPlayerBar(roomId: widget.roomId, canControl: isAdmin),
           ],
         ),
       ),
@@ -3973,6 +4689,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           ok: _audioService.micHealthy,
         );
 
+        // A23 — from here on the user holds a mic. Android cuts microphone
+        // capture for a backgrounded process unless a foreground service of
+        // type `microphone` is running, which is why "الاحتفاظ بالغرفة" kept
+        // the seat but dropped the audio. Starting it here (and stopping it on
+        // leave, below) is what makes backgrounding behave "كأنه لم يخرج من
+        // الروم إطلاقاً".
+        unawaited(RoomAudioKeepAlive.instance.start(
+          roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+        ));
+
+        // A10 — "المتكلم على المايك يظهر حوله دائرة متحركة". The detector only
+        // runs while this user actually holds a mic; it was never switched on
+        // at all before, which is why the ring never appeared for anyone (the
+        // room learns who is talking from each speaker's own report).
+        _audioService.enableVAD();
+
         return;
       }
 
@@ -3982,6 +4714,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 // Leave seat
     if (prevSeat != null && newSeatNumber == null) {
       await _audioService.muteAudio();
+      // No mic, no ring, no detector.
+      _audioService.disableVAD();
+      // The ongoing notification must not outlive the mic that justified it.
+      unawaited(RoomAudioKeepAlive.instance.stop());
       return;
     }
 
@@ -4009,14 +4745,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final state = ref.read(roomControllerProvider(widget.roomId));
     final ids = <int>{};
     final list = <GiftRecipient>[];
-    void add(int id, String name, String? avatarUrl) {
-      if (ids.add(id)) list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
+    void add(int id, String name, String? avatarUrl, {int? seatNumber}) {
+      if (ids.add(id)) list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl, seatNumber: seatNumber));
     }
     // Pre-selected user first, self, then everyone else
     add(r.id, r.name, r.avatarUrl);
     add(me.id, me.name ?? 'أنا', me.avatarUrl);
     for (final s in state.seats.values) {
-      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
+      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl, seatNumber: s.seatNumber);
     }
     for (final u in state.onlineUsers.values) {
       add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
@@ -4028,7 +4764,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       recipients: list,
       initialRecipientIds: [r.id],
       roomId: widget.roomId,
-      balance: auth.user?.coins ?? 0,
+      balance: auth.user?.coinsBalance ?? auth.user?.coins ?? 0,
       onBalanceChanged: (_) {},
     );
   }
@@ -4176,6 +4912,49 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  /// Opens the SAME profile card the seats use, for someone who is only in the
+  /// chat. Tapping a name used to push a whole screen (or nothing at all); the
+  /// point is to look at a writer and moderate him without leaving the room —
+  /// "اظهار صفحته لطرده قبل صعود المايك".
+  ///
+  /// If the user happens to be seated, his real seat is used so the seat-only
+  /// controls still apply; otherwise a seatless stand-in carries just his
+  /// identity and `seatNumber: -1` hides those controls.
+  void showUserProfileCard({
+    required int userId,
+    String? username,
+    String? avatarUrl,
+  }) {
+    if (userId <= 0) {
+      _showRoomSnack('تعذّر فتح ملف هذا المستخدم');
+      return;
+    }
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final myId = ref.read(authStateProvider).user?.id ?? 0;
+    final isAdmin = myId == state.ownerId || state.adminIds.contains(myId);
+
+    SeatData? seated;
+    for (final s in state.seats.values) {
+      if (s.userId == userId) {
+        seated = s;
+        break;
+      }
+    }
+
+    final seat = seated ??
+        SeatData(
+          seatNumber: -1,
+          userId: userId,
+          username: username,
+          avatarUrl: avatarUrl,
+          level: 0,
+          isMuted: true,
+          isLocked: false,
+        );
+
+    _onSeatTap(context, seat.seatNumber, seat, myId, isAdmin);
+  }
+
   /// Show seat actions for admins/occupants
   void _onSeatTap(
       BuildContext context,
@@ -4202,12 +4981,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (seat.userId == null) {
 
-      // Admin tapping an empty seat → lock/mute controls for that seat.
-      if (isAdmin) {
-        _showEmptySeatAdminSheet(context, seatNumber);
-        return;
-      }
-
+      // NOTE: compute whether the tapper is already seated BEFORE the admin
+      // shortcut, so a seated admin/owner can still move to the empty seat.
+      // (Previously admins were routed straight to the lock/mute sheet and
+      // could never move — that was #10 "seat move option doesn't work".)
       int? myCurrentSeat;
       final state = ref.read(roomControllerProvider(widget.roomId));
 
@@ -4217,6 +4994,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           myCurrentSeat = s.seatNumber;
           break;
         }
+      }
+
+      // Admin/owner → full seat controls (lock / mute / invite / sit / move).
+      // This must come BEFORE the move-only sheet so admins don't lose access
+      // to the moderation options (that regression was #11/#12 not opening).
+      if (isAdmin) {
+        _showEmptySeatAdminSheet(context, seatNumber, myCurrentSeat: myCurrentSeat);
+        return;
       }
 
       // ==========================
@@ -4302,298 +5087,52 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
 
     final isMine = seat.userId == myUserId;
-    if (isMine) {
-      if (seat.relationPartner != null) {
-        _showLeaveSeatSheet(context, seatNumber, seat);
-      } else {
-        // simple leave seat sheet for users without a relation
-        showModalBottomSheet(
-          context: context,
-          backgroundColor: Colors.transparent,
-          builder: (ctx) => Container(
-            margin: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2A1655),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 40, height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'مغادرة المقعد',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'هل تريد مغادرة مقعدك الحالي؟',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    const SizedBox(height: 28),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Colors.white24),
-                            ),
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('إلغاء', style: TextStyle(color: Colors.white70)),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent,
-                            ),
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              _emitLeaveSeat(seatNumber);
-                            },
-                            child: const Text('مغادرة', style: TextStyle(color: Colors.white)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      }
+
+    // Relation-seat leave has its own special sheet
+    if (isMine && seat.relationPartner != null) {
+      _showLeaveSeatSheet(context, seatNumber, seat);
       return;
     }
 
-    // ── Admin tap on occupied seat ──
-    if (isAdmin) {
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (_) {
-          return Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF1A0E3E),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SafeArea(
-              child: SingleChildScrollView(
-                child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 12),
-                  // drag handle
-                  Container(
-                    width: 40, height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+    // ── Unified profile dialog (self / admin / regular user) ──
+    // Fetched once, outside the builder, so sheet-internal rebuilds (e.g.
+    // OnlineDot ticking) don't refire the request. Only real user data is
+    // ever shown here — age/gender/country/agency-role/family/medals stay
+    // hidden until this resolves rather than showing placeholders.
+    final profileFuture = UserRepository().getUserProfile(seat.userId!);
 
-                  // user info header
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundImage: seat.avatarUrl != null
-                              ? NetworkImage(seat.avatarUrl!)
-                              : null,
-                          child: seat.avatarUrl == null
-                              ? const Icon(Icons.person, color: Colors.white)
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              seat.username ?? 'Unknown',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            Text(
-                              'الميكروفون $seatNumber',
-                              style: const TextStyle(color: Colors.white54, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-                  Divider(color: Colors.white.withOpacity(0.1)),
-
-                  // ── عرض ملف التعريف ──
-                  _adminSeatOption(
-                    label: 'عرض ملف التعريف',
-                    icon: Icons.person_outline,
-                    color: Colors.white,
-                    onTap: () {
-                      Navigator.pop(context);
-                      final roomState = ref.read(roomControllerProvider(widget.roomId));
-                      ref.read(pipProvider.notifier).activate(
-                        roomId: widget.roomId,
-                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
-                        roomImageUrl: roomState.roomImageUrl,
-                      );
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ProfileScreen(userId: seat.userId!),
-                        ),
-                      );
-                    },
-                  ),
-
-                  // ── إزالة من الميكروفون ──
-                  _adminSeatOption(
-                    label: 'إزالة من الميكروفون',
-                    icon: Icons.mic_off,
-                    color: Colors.orangeAccent,
-                    onTap: () {
-                      Navigator.pop(context);
-                      ref.read(roomControllerProvider(widget.roomId).notifier)
-                          .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
-                      SocketService().emit('remove_from_seat', {
-                        'roomId': widget.roomId,
-                        'seatNumber': seatNumber,
-                        'targetUserId': seat.userId,
-                      });
-                      _showRoomSnack('تم إزالة المستخدم من الميكروفون');
-                    },
-                  ),
-
-                  // ── قفل / فك قفل مقعد الميكروفون ──
-                  Builder(builder: (ctx) {
-                    final isSeatLocked = ref
-                        .read(roomControllerProvider(widget.roomId))
-                        .lockedSeats
-                        .contains(seatNumber);
-                    return _adminSeatOption(
-                      label: isSeatLocked ? 'فك قفل مقعد الميكروفون' : 'قفل مقعد الميكروفون',
-                      icon: isSeatLocked ? Icons.lock_open : Icons.lock_outline,
-                      color: isSeatLocked ? Colors.lightGreenAccent : Colors.amberAccent,
-                      onTap: () {
-                        Navigator.pop(context);
-                        final newLocked = !isSeatLocked;
-                        // Optimistic local update + socket emit via controller
-                        ref
-                            .read(roomControllerProvider(widget.roomId).notifier)
-                            .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
-                        _showRoomSnack(
-                          newLocked
-                              ? 'تم قفل مقعد الميكروفون $seatNumber'
-                              : 'تم فك قفل مقعد الميكروفون $seatNumber',
-                        );
-                      },
-                    );
-                  }),
-
-                  // ── تعيين مشرف (مشرف له صلاحيات الأدمن عدا التصرف بالأدمن) ──
-                  _adminSeatOption(
-                    label: 'تعيين مشرف للغرفة',
-                    icon: Icons.shield_moon_outlined,
-                    color: Colors.cyanAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _appointSupervisor(seat.userId);
-                    },
-                  ),
-
-                  // ── منع / سماح الجلوس على المايك ──
-                  _adminSeatOption(
-                    label: seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك (كتم)',
-                    icon: seat.forceMuted ? Icons.mic : Icons.mic_off,
-                    color: Colors.orangeAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _forceMute(seat.userId, !seat.forceMuted);
-                    },
-                  ),
-
-                  // ── منع من المقعد (لا يستطيع الجلوس) ──
-                  _adminSeatOption(
-                    label: 'منع من المقعد',
-                    icon: Icons.event_seat,
-                    color: Colors.deepOrangeAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _setSeatBlock(seat.userId, true);
-                    },
-                  ),
-
-                  // ── إزالة من الغرفة (مع مدة) ──
-                  _adminSeatOption(
-                    label: 'طرد من الغرفة',
-                    icon: Icons.exit_to_app,
-                    color: Colors.redAccent,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _promptKickUser(seat.userId);
-                    },
-                  ),
-
-                  // ── تعيين مظهر قاعدة المايك ──
-                  _adminSeatOption(
-                    label: 'تعيين مظهر قاعدة المايك (مستوى الغرفة 20)',
-                    icon: Icons.mic_external_on,
-                    color: Colors.lightBlueAccent,
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openBackpackSheet(context, typeFilter: 'seat_effect');
-                    },
-                  ),
-
-                  // ── إلغاء ──
-                  _adminSeatOption(
-                    label: 'إلغاء',
-                    icon: Icons.close,
-                    color: Colors.white54,
-                    onTap: () => Navigator.pop(context),
-                  ),
-
-                  const SizedBox(height: 8),
-                ],
-              ),
-              ),
-            ),
-          );
-        },
-      );
-      return;
-    }
-// ── Non-admin: show profile card (existing code below) ──
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) {
-        return Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
+        // Capped at 50% of the screen — this card must never take over the
+        // whole view.
+        final maxHeight = MediaQuery.of(context).size.height * 0.5;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Container(
+          // The fox artwork is the background of the WHOLE sheet now, not just
+          // the header card. BoxFit.cover fills both axes at any sheet height;
+          // the gradient stays underneath so a missing asset degrades to the
+          // old solid look instead of a broken-image box, and the colorFilter
+          // darkens the art enough for the white text on top to stay readable.
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
               colors: [Color(0xFF1E1347), Color(0xFF2B1760), Color(0xFF1A1040)],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
             ),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            image: DecorationImage(
+              image: const AssetImage(_profileCardBackground),
+              fit: BoxFit.cover,
+              onError: (_, __) {},
+              colorFilter: ColorFilter.mode(
+                Colors.black.withOpacity(0.45),
+                BlendMode.darken,
+              ),
+            ),
           ),
           child: SafeArea(
             child: Padding(
@@ -4615,262 +5154,549 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
 
-                  // AVATAR + FRAME
-                  GestureDetector(
-                    onTap: () {
-                      // 1) Close the seat dialog
-                      Navigator.pop(context);
+                  // ── BANNER HEADER ──
+                  // Artwork background + right-aligned identity block, with
+                  // the avatar overlapping the top-right corner. Matches the
+                  // reference card layout. When no card artwork asset exists
+                  // yet the gradient below stands in for it, so the layout is
+                  // final and only the image drops in later.
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        height: 150,
+                        // The artwork moved to the sheet background above, so
+                        // this is now just a translucent panel — it keeps the
+                        // identity block legible over the fox instead of
+                        // repeating the image inside itself.
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          color: Colors.black.withOpacity(0.32),
+                          border: Border.all(color: Colors.white.withOpacity(0.12)),
+                        ),
+                        child: Padding(
+                          // Right padding leaves room for the overlapping avatar.
+                          padding: const EdgeInsets.fromLTRB(12, 14, 100, 12),
+                          child: Column(
+                            // The app runs RTL, so `start` is the RIGHT edge —
+                            // which is where the identity block belongs, away
+                            // from the fox artwork on the left.
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            // Centred so the block sits in the card's optical
+                            // middle instead of hugging the top and leaving a
+                            // dead band underneath.
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // NAME + flag
+                              FutureBuilder<Result<User>>(
+                                future: profileFuture,
+                                builder: (context, snapshot) {
+                                  final profile =
+                                      snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
+                                  final flag = countryFlagEmoji(profile?.countryCode);
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.start,
+                                    children: [
+                                      if (flag != null) ...[
+                                        Text(flag, style: const TextStyle(fontSize: 20)),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      Flexible(
+                                        child: Text(
+                                          seat.username ?? 'Unknown',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                            shadows: [
+                                              Shadow(color: Colors.black87, blurRadius: 6, offset: Offset(0, 2)),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      // العمر + علامة الجنس بجانب الاسم مباشرة.
+                                      if (profile?.age != null ||
+                                          profile?.gender == 'male' ||
+                                          profile?.gender == 'female') ...[
+                                        const SizedBox(width: 8),
+                                        _ageGenderChip(profile),
+                                      ],
+                                    ],
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 8),
 
-                      // 2) Minimize room to PiP (keeps audio/socket alive)
-                      final roomState = ref.read(roomControllerProvider(widget.roomId));
-                      ref.read(pipProvider.notifier).activate(
-                        roomId: widget.roomId,
-                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
-                        roomImageUrl: roomState.roomImageUrl,
-                      );
+                              // IDENTITY ROWS. Layout the client asked for:
+                              //   فهد ♂ 40           ← name row, above
+                              //   وكيل / مضيف        ← directly under the name
+                              //   VIP 14  LV 22   ID 100029   ← ID pushed to
+                              //                                 the LEFT end of
+                              //                                 the level row
+                              //   [شارات المستخدم]   ← the row the ID vacated
+                              //
+                              // Level/VIP/ID render instantly from live seat
+                              // data; agency/family/badges fill in when the
+                              // profile fetch resolves. Nothing is ever a
+                              // placeholder: each chip is omitted until real.
+                              FutureBuilder<Result<User>>(
+                                future: profileFuture,
+                                builder: (context, snapshot) {
+                                  final profile =
+                                      snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
+                                  final medals = profile?.achievements ?? const <AchievementBadge>[];
 
-                      // 3) Go to user profile
-                      // ⚠️ Replace ProfileScreen with your actual profile widget
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ProfileScreen(userId: seat.userId!),
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // ── وكيل / مضيف, right under the name ──
+                                      if (profile?.agencyRole != null) ...[
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            _badgePill(
+                                              profile!.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                                              profile.agencyRole == 'agent'
+                                                  ? const Color(0xFFF59E0B)
+                                                  : const Color(0xFF14B8A6),
+                                              Icons.workspace_premium,
+                                            ),
+                                            if (profile.agencyName != null &&
+                                                profile.agencyName!.isNotEmpty) ...[
+                                              const SizedBox(width: 6),
+                                              Flexible(
+                                                child: Text(
+                                                  profile.agencyName!,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    shadows: [
+                                                      Shadow(color: Colors.black87, blurRadius: 4),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                      ],
+
+                                      // ── VIP · LV ……… ID (ID on the left) ──
+                                      Row(
+                                        children: [
+                                          if (seat.vipLevel > 0) ...[
+                                            VipBadge(level: seat.vipLevel),
+                                            const SizedBox(width: 6),
+                                          ],
+                                          _badgePill(
+                                              'LV ${seat.level}', const Color(0xFF10B981), Icons.terrain),
+                                          const Spacer(),
+                                          _badgePill(
+                                            'ID ${seat.displayId ?? seat.userId ?? ''}',
+                                            const Color(0xFFF59E0B),
+                                            Icons.badge_outlined,
+                                          ),
+                                        ],
+                                      ),
+
+                                      // ── شارات المستخدم, in the row the ID
+                                      // used to occupy. Family and the perfect-
+                                      // mic mark ride along here.
+                                      if (medals.isNotEmpty ||
+                                          (profile?.familyName?.isNotEmpty ?? false)) ...[
+                                        const SizedBox(height: 6),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 4,
+                                          crossAxisAlignment: WrapCrossAlignment.center,
+                                          children: [
+                                            for (final m in medals)
+                                              Tooltip(
+                                                message: m.name,
+                                                child: Image.network(
+                                                  m.iconUrl,
+                                                  width: 24,
+                                                  height: 24,
+                                                  fit: BoxFit.contain,
+                                                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                                                ),
+                                              ),
+                                            if (profile?.familyName != null &&
+                                                profile!.familyName!.isNotEmpty)
+                                              _badgePill(profile.familyName!, const Color(0xFF8B5CF6),
+                                                  Icons.shield),
+                                            MicPerfectBadge(userId: seat.userId),
+                                          ],
+                                        ),
+                                      ] else ...[
+                                        const SizedBox(height: 6),
+                                        MicPerfectBadge(userId: seat.userId),
+                                      ],
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // CROWN — the gold ornament from the supplied nameplate
+                      // art, sitting across the banner's top edge.
+                      //
+                      // The asset is a full nameplate: gold crown on top of a
+                      // large opaque purple plaque. Showing only the crown is
+                      // purely an alignment problem — BoxFit.fitWidth scales
+                      // the image to the card width, which makes it far taller
+                      // than this 46px box, and the DEFAULT centre alignment
+                      // then crops to the middle band (the plaque). Anchoring
+                      // to topCenter keeps the crop on the gold instead.
+                      Positioned(
+                        top: -20,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                          child: ClipRect(
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              heightFactor: 1,
+                              child: SizedBox(
+                                height: 46,
+                                child: Image.asset(
+                                  _profileCardCrown,
+                                  fit: BoxFit.fitWidth,
+                                  alignment: Alignment.topCenter,
+                                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // AVATAR — overlaps the banner's top-right corner.
+                      Positioned(
+                        top: -14,
+                        right: 10,
+                        child: GestureDetector(
+                          onTap: isMine
+                              ? null
+                              : () {
+                                  Navigator.pop(context);
+                                  final roomState = ref.read(roomControllerProvider(widget.roomId));
+                                  // Same hand-off as the PiP button: whatever
+                                  // pops this route next must not kill the room
+                                  // audio the bubble is still representing.
+                                  _handedOffToPip = true;
+                                  ref.read(pipProvider.notifier).activate(
+                                        roomId: widget.roomId,
+                                        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+                                        roomImageUrl: roomState.roomImageUrl,
+                                      );
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ProfileScreen(userId: seat.userId!),
+                                    ),
+                                  );
+                                },
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 84,
+                                height: 84,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    if (seat.avatarFrameUrl != null && seat.avatarFrameUrl!.isNotEmpty)
+                                      FramedAvatar(
+                                        size: 84,
+                                        avatarSize: 52,
+                                        frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
+                                        imageUrl: seat.avatarUrl,
+                                        fallbackText: seat.username,
+                                        glow: false,
+                                      )
+                                    else
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: Colors.white, width: 2.5),
+                                        ),
+                                        child: CircleAvatar(
+                                          radius: 30,
+                                          backgroundImage:
+                                              seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                          child: seat.avatarUrl == null
+                                              ? const Icon(Icons.person, color: Colors.white, size: 30)
+                                              : null,
+                                        ),
+                                      ),
+                                    Positioned(
+                                      right: 6,
+                                      bottom: 6,
+                                      child: OnlineDot(userId: seat.userId, size: 16),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // (وكيل/مضيف lives in the badge row with the agency
+                              // name under it — not here.)
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // ── MEDALS BAR (الميداليات) ──
+                  // The badges now sit in the identity block, in the row the ID
+                  // moved out of, so this rail only appears when there are MORE
+                  // than fit up there — otherwise it repeats what is already on
+                  // screen. Hidden entirely when nothing is unlocked.
+                  FutureBuilder<Result<User>>(
+                    future: profileFuture,
+                    builder: (context, snapshot) {
+                      final profile = snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
+                      final medals = profile?.achievements ?? const <AchievementBadge>[];
+                      if (medals.length <= 3) return const SizedBox.shrink();
+
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.28),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.white.withOpacity(0.10)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.arrow_back_ios, size: 13, color: Colors.white38),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: SizedBox(
+                                height: 38,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  reverse: true,
+                                  itemCount: medals.length,
+                                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                                  itemBuilder: (_, i) {
+                                    final m = medals[i];
+                                    return Tooltip(
+                                      message: m.name,
+                                      child: Image.network(
+                                        m.iconUrl,
+                                        width: 34,
+                                        height: 34,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (_, __, ___) => const Icon(
+                                            Icons.emoji_events,
+                                            color: Colors.white24,
+                                            size: 26),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('الميداليات',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700)),
+                          ],
                         ),
                       );
                     },
-                    child: SizedBox(
-                      height: 160,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // pink glow behind
-                          Container(
-                            width: 150, height: 150,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: RadialGradient(colors: [
-                                Colors.purpleAccent.withOpacity(0.45),
-                                Colors.pink.withOpacity(0.2),
-                                Colors.transparent,
-                              ], stops: const [0.0, 0.5, 0.75]),
-                            ),
-                          ),
-                          // Show frame only when user has an activated one
-                          if (seat.avatarFrameUrl != null &&
-                              seat.avatarFrameUrl!.isNotEmpty)
-                            FramedAvatar(
-                              size: 160,
-                              avatarSize: 84,
-                              frame: AvatarFrame.fromUrl(seat.avatarFrameUrl!),
-                              imageUrl: seat.avatarUrl,
-                              fallbackText: seat.username,
-                              glow: false,
-                            )
-                          else
-                            CircleAvatar(
-                              radius: 42,
-                              backgroundImage: seat.avatarUrl != null
-                                  ? NetworkImage(seat.avatarUrl!)
-                                  : null,
-                              child: seat.avatarUrl == null
-                                  ? const Icon(Icons.person, color: Colors.white, size: 36)
-                                  : null,
-                            ),
-                          // Online presence dot (Step 7).
-                          Positioned(
-                            right: 8,
-                            bottom: 8,
-                            child: OnlineDot(userId: seat.userId, size: 20),
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
+                  const SizedBox(height: 12),
 
-                  // NAME
-                  Transform.rotate(
-                    angle: -0.021,
-                    child: Text(
-                      seat.username ?? 'Unknown',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'Georgia',
-                        fontSize: 28, fontWeight: FontWeight.w700,
-                        color: Colors.white, letterSpacing: 0.5,
-                        shadows: [
-                          Shadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 2)),
-                          Shadow(color: Color(0x66E040FB), blurRadius: 24),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-
-                  // BADGES ROW
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _badgePill('مملكة ريتنا', const Color(0xFF8B5CF6), Icons.auto_awesome),
-                        const SizedBox(width: 6),
-                        _badgePill('14', const Color(0xFFF59E0B), Icons.emoji_events),
-                        const SizedBox(width: 6),
-                        _badgePill('30', const Color(0xFF10B981), Icons.star),
-                        const SizedBox(width: 6),
-                        _badgePill('25', const Color(0xFFEC4899), Icons.favorite),
-                        const SizedBox(width: 6),
-                        _badgePill('2', const Color(0xFF6366F1), Icons.people),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // ID ROW
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.07),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white.withOpacity(0.14)),
+                  // ACTIONS — role-based
+                  if (isMine) ...[
+                    // Own seat: leave button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
-                        child: Row(children: [
-                          const Icon(Icons.badge_outlined, size: 14, color: Colors.white54),
-                          const SizedBox(width: 6),
-                          Text('ID: #${seat.displayId ?? seat.userId ?? ''}',
-                              style: const TextStyle(fontSize: 12, color: Colors.white60)),
-                          const SizedBox(width: 6),
-                          const Icon(Icons.copy, size: 12, color: Colors.white38),
-                          if (seat.vipLevel > 0) ...[
-                            const SizedBox(width: 8),
-                            VipBadge(level: seat.vipLevel),
-                          ],
-                          const SizedBox(width: 8),
-                          MicPerfectBadge(userId: seat.userId),
-                        ]),
+                        icon: const Icon(Icons.logout, color: Colors.white),
+                        label: const Text('مغادرة المقعد', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _emitLeaveSeat(seatNumber);
+                        },
                       ),
-                      const SizedBox(width: 10),
-                      const Text('SY', style: TextStyle(fontSize: 11, color: Colors.white38)),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  // GIFT GALLERY BAR
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF7C2D9E), Color(0xFF9C1F6E), Color(0xFF6B21A8)],
-                      ),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: Colors.white.withOpacity(0.18)),
                     ),
-                    child: Row(
-                      children: [
-                        // thumbnails
-                        ...List.generate(4, (i) => Container(
-                          width: 46, height: 46,
-                          margin: const EdgeInsets.only(left: 7),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.white.withOpacity(0.2)),
-                          ),
-                          child: const Icon(Icons.card_giftcard, color: Colors.white70, size: 22),
-                        )),
-                        const SizedBox(width: 10),
-                        const VerticalDivider(color: Colors.white24, width: 1, thickness: 1, indent: 4, endIndent: 4),
-                        const SizedBox(width: 10),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('معرض الهدايا',
-                                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
-                              Text('(39/355)',
-                                  style: TextStyle(color: Colors.white60, fontSize: 11)),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.arrow_back_ios, size: 14, color: Colors.white60),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // STATS
-                  Row(children: [
-                    Expanded(child: _statCard('14', 'مستوى الجاذبية',
-                        const Color(0xFF166534), const Color(0xFF15803D), const Color(0xFF4ADE80), Icons.favorite)),
-                    const SizedBox(width: 10),
-                    Expanded(child: _statCard('30', 'مستوى الثروة',
-                        const Color(0xFF0F766E), const Color(0xFF0D9488), const Color(0xFF2DD4BF), Icons.star)),
-                  ]),
-                  const SizedBox(height: 14),
-
-                  // ACTIONS
-                  Row(children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () {
+                  ] else ...[
+                    // Other user: 4 equal circular buttons. Listed gift-first
+                    // because the app is RTL — the first child lands on the
+                    // RIGHT, which puts إرسال هدية rightmost and @ leftmost,
+                    // matching the reference.
+                    Row(children: [
+                      Expanded(
+                        child: _circleActionBtn(Icons.card_giftcard, 'إرسال هدية', const Color(0xFFDB2777), () {
                           Navigator.pop(context);
                           _openGiftSheetToUser(context, _Recipient(
                               id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
-                        },
-                        child: Container(
-                          height: 50,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                                colors: [Color(0xFF9333EA), Color(0xFFDB2777)]),
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(color: Colors.white.withOpacity(0.15)),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.card_giftcard, color: Colors.white, size: 22),
-                              SizedBox(width: 8),
-                              Text('إرسال', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                            ],
-                          ),
-                        ),
+                        }),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    _actionBtn(Icons.chat_bubble_rounded, const Color(0xFFF472B6), () {
-                      Navigator.pop(context);
-                      _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
-                    }),
-                    const SizedBox(width: 8),
-                    _actionBtn(Icons.person_add_rounded, const Color(0xFF22D3EE), () {
-                      Navigator.pop(context);
-                      unawaited(_handleFollowFromRoom(seat.userId!));
-                    }),
-                    const SizedBox(width: 8),
-                    _actionBtn(Icons.alternate_email_rounded, const Color(0xFF4ADE80), () {
-                      Navigator.pop(context);
-                      setState(() => _showChatPanel = true);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _topChatFocus.requestFocus();
-                        final mention = '@${seat.username ?? 'user'} ';
-                        _externalTextController.text = mention;
-                        _externalTextController.selection = TextSelection.fromPosition(
-                            TextPosition(offset: _externalTextController.text.length));
-                      });
-                    }),
-                  ]),
+                      Expanded(
+                        child: _circleActionBtn(Icons.chat_bubble_rounded, 'الدردشة', const Color(0xFFF472B6), () {
+                          Navigator.pop(context);
+                          _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
+                        }),
+                      ),
+                      Expanded(
+                        child: _circleActionBtn(Icons.favorite, 'متابعة', const Color(0xFF22D3EE), () {
+                          Navigator.pop(context);
+                          unawaited(_handleFollowFromRoom(seat.userId!));
+                        }),
+                      ),
+                      Expanded(
+                        child: _circleActionBtn(Icons.alternate_email_rounded, '@', const Color(0xFF4ADE80), () {
+                          Navigator.pop(context);
+                          setState(() => _showChatPanel = true);
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _topChatFocus.requestFocus();
+                            final mention = '@${seat.username ?? 'user'} ';
+                            _externalTextController.text = mention;
+                            _externalTextController.selection = TextSelection.fromPosition(
+                                TextPosition(offset: _externalTextController.text.length));
+                          });
+                        }),
+                      ),
+                    ]),
+                    // ── Moderation ──
+                    // Two different powers live here and used to be gated as
+                    // one, which is why a PLATFORM admin who happened not to
+                    // own the room saw nothing at all
+                    // ("الادمن ليس له اي صلاحيات"):
+                    //   • room controls (mute/kick/lock/…) — room owner or
+                    //     room supervisor;
+                    //   • حظر من التطبيق — platform admin, in ANY room.
+                    // Neither is ever offered against platform staff:
+                    // "ولا احد ياخد اجراء ضده".
+                    if ((isAdmin || _iAmPlatformAdmin) && !_isPlatformStaff(seat)) ...[
+                      const SizedBox(height: 14),
+                      Divider(color: Colors.white.withOpacity(0.12)),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (isAdmin) ...
+                          [
+                          _adminChipBtn(seat.forceMuted ? Icons.mic : Icons.mic_off,
+                              seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك',
+                              Colors.orange, () async {
+                            Navigator.pop(context);
+                            await _forceMute(seat.userId, !seat.forceMuted);
+                          }),
+                          // Seat-bound actions only make sense for a real seat.
+                          // The card also opens for a chat writer who is not on
+                          // one (seatNumber -1), where these would act on a
+                          // seat that doesn't exist.
+                          if (seatNumber > 0)
+                            _adminChipBtn(Icons.remove_circle_outline, 'إزالة من المايك', Colors.red, () {
+                              Navigator.pop(context);
+                              ref.read(roomControllerProvider(widget.roomId).notifier)
+                                  .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
+                              SocketService().emit('remove_from_seat', {
+                                'roomId': widget.roomId,
+                                'seatNumber': seatNumber,
+                                'targetUserId': seat.userId,
+                              });
+                              _showRoomSnack('تم إزالة المستخدم من الميكروفون');
+                            }),
+                          _adminChipBtn(Icons.block, 'منع من المقعد', Colors.deepOrange, () async {
+                            Navigator.pop(context);
+                            await _setSeatBlock(seat.userId, true);
+                          }),
+                          _adminChipBtn(Icons.exit_to_app, 'طرد من الغرفة', Colors.redAccent, () async {
+                            Navigator.pop(context);
+                            await _promptKickUser(seat.userId);
+                          }),
+                          if (seatNumber > 0)
+                          Builder(builder: (ctx) {
+                            final isSeatLocked = ref.read(roomControllerProvider(widget.roomId))
+                                .lockedSeats.contains(seatNumber);
+                            return _adminChipBtn(
+                              isSeatLocked ? Icons.lock_open : Icons.lock_outline,
+                              isSeatLocked ? 'فك قفل المقعد' : 'قفل المقعد',
+                              isSeatLocked ? Colors.lightGreen : Colors.amber,
+                              () {
+                                Navigator.pop(context);
+                                final newLocked = !isSeatLocked;
+                                ref.read(roomControllerProvider(widget.roomId).notifier)
+                                    .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
+                                _showRoomSnack(newLocked ? 'تم قفل المقعد $seatNumber' : 'تم فك قفل المقعد $seatNumber');
+                              },
+                            );
+                          }),
+                          _adminChipBtn(Icons.shield_moon_outlined, 'تعيين مشرف', Colors.cyan, () async {
+                            Navigator.pop(context);
+                            await _appointSupervisor(seat.userId);
+                          }),
+                          ],
+                          // Platform ban, straight off the mic — independent of
+                          // any room role. A room owner moderates HIS room; a
+                          // platform admin bans from the app.
+                          if (_iAmPlatformAdmin)
+                            _adminChipBtn(Icons.gavel, 'حظر من التطبيق', Colors.red.shade700, () async {
+                              Navigator.pop(context);
+                              await _promptBanUser(seat.userId, seat.username ?? 'المستخدم');
+                            }),
+                        ],
+                      ),
+                    ],
+                  ],
                 ],
               ),
               ),
             ),
           ),
+          ),
         );
       },
+    );
+  }
+
+  Widget _adminChipBtn(IconData icon, String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.45)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 15),
+            const SizedBox(width: 5),
+            Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
     );
   }
 
@@ -5182,9 +6008,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                                 ],
                                               ),
                                             ),
-                                            const Text(
-                                              '67.00M',
-                                              style: TextStyle(color: Color(0xFFFF80AB), fontSize: 15, fontWeight: FontWeight.bold),
+                                            // Full coin count — abbreviations (K/M)
+                                            // are only allowed under the mic.
+                                            Text(
+                                              '${ref.read(roomControllerProvider(widget.roomId)).seatEarnings24h[seat.userId] ?? 0}',
+                                              style: const TextStyle(color: Color(0xFFFF80AB), fontSize: 15, fontWeight: FontWeight.bold),
                                             ),
                                           ],
                                         ),
@@ -5327,6 +6155,40 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  /// العمر وعلامة الجنس — تعرض بجانب الاسم في كرت البروفايل داخل الغرفة.
+  /// كانت علامة الجنس ملتصقة بالليفل، والصح أن تكون مع العمر.
+  Widget _ageGenderChip(User? profile) {
+    final isFemale = profile?.gender == 'female';
+    final hasGender = profile?.gender == 'male' || isFemale;
+    final color = hasGender
+        ? (isFemale ? const Color(0xFFEC4899) : const Color(0xFF3B82F6))
+        : const Color(0xFF3B82F6);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasGender)
+            Icon(isFemale ? Icons.female : Icons.male, color: Colors.white, size: 14),
+          if (hasGender && profile?.age != null) const SizedBox(width: 3),
+          if (profile?.age != null)
+            Text(
+              '${profile!.age}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _badgePill(String label, Color color, IconData icon) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -5376,6 +6238,31 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           border: Border.all(color: color.withOpacity(0.5)),
         ),
         child: Icon(icon, color: color, size: 20),
+      ),
+    );
+  }
+
+  /// Circular icon button with a label underneath — the profile card's
+  /// action row (@ / متابعة / الدردشة / إرسال هدية).
+  Widget _circleActionBtn(IconData icon, String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withOpacity(0.18),
+              border: Border.all(color: color.withOpacity(0.5)),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        ],
       ),
     );
   }
@@ -5573,7 +6460,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       repository: _giftRepository,
       recipients: recipients,
       roomId: widget.roomId,
-      balance: auth.user?.coins ?? 0,
+      balance: auth.user?.coinsBalance ?? auth.user?.coins ?? 0,
       onBalanceChanged: (_) {},
     );
   }

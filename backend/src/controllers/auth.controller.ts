@@ -7,6 +7,8 @@ import { OAuth2Client } from 'google-auth-library';
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { nextDisplayId } from '../utils/displayId';
+import { assertNotBanned, banMessage, invalidateBanCache } from '../utils/banGuard';
+import { grantAutoItemsToUser } from '../services/auto-grant.service';
 
 const googleClient = new OAuth2Client();
 
@@ -103,7 +105,15 @@ async function createUserWithDisplayId(
   userData: Omit<Prisma.UserCreateInput, 'displayId'>,
 ) {
   const displayId = await nextDisplayId(tx); // 6-digit, unique
-  return tx.user.create({ data: { ...userData, displayId } });
+  const user = await tx.user.create({ data: { ...userData, displayId } });
+  // منتجات مُنحت لجميع المستخدمين تصل الحساب الجديد فوراً. لا نُفشل التسجيل
+  // إن تعذّر ذلك — المنتج ثانوي بالنسبة لإنشاء الحساب.
+  try {
+    await grantAutoItemsToUser(user.id, tx);
+  } catch (e) {
+    console.warn('auto-grant on register failed:', e);
+  }
+  return user;
 }
 
 // ------------------------------------
@@ -208,6 +218,18 @@ export const facebookLogin = async (req: Request, res: Response) => {
       });
     }
 
+    // Social sign-in bypassed the ban entirely — a banned user just tapped
+    // "continue with Facebook" and was back in.
+    const fbBan = await assertNotBanned(user.id);
+    if (fbBan) {
+      return res.status(403).json({
+        success: false,
+        code: 'BANNED',
+        message: banMessage(fbBan),
+        banExpiresAt: fbBan.expiresAt,
+      });
+    }
+
     const { accessToken, refreshToken } = generateTokens(user.id);
 
     return res.status(200).json({
@@ -285,15 +307,17 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    // Ban check. The `user` from findUnique already carries isBanned/banReason,
-    // so no raw SQL is needed. (The previous raw query used unquoted camelCase
-    // identifiers, which PostgreSQL folds to lowercase -> "column isbanned does
-    // not exist" -> 500. The fallback raw-query path above may omit these
-    // fields, in which case they're undefined and the check is skipped.)
-    if (user.isBanned === true) {
-      return res
-        .status(403)
-        .json({ success: false, message: user.banReason || 'User is banned' });
+    // Ban check — shared with the refresh endpoint, the social logins, the
+    // auth middleware and the socket handshake, so all five agree and timed
+    // bans expire in exactly one place.
+    const ban = await assertNotBanned(user.id);
+    if (ban) {
+      return res.status(403).json({
+        success: false,
+        code: 'BANNED',
+        message: banMessage(ban),
+        banExpiresAt: ban.expiresAt,
+      });
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);
@@ -383,6 +407,16 @@ export const googleLogin = async (req: Request, res: Response) => {
       });
     }
 
+    const googleBan = await assertNotBanned(user.id);
+    if (googleBan) {
+      return res.status(403).json({
+        success: false,
+        code: 'BANNED',
+        message: banMessage(googleBan),
+        banExpiresAt: googleBan.expiresAt,
+      });
+    }
+
     const { accessToken, refreshToken } = generateTokens(user.id);
 
     return res.status(200).json({
@@ -432,6 +466,19 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (!user) return res.status(401).json({ success: false, message: 'User not found' });
+
+    // Without this the ban was effectively unenforceable: refresh tokens last
+    // 7 days and roll over on every use, so a banned client just kept minting
+    // fresh access tokens and never noticed.
+    const ban = await assertNotBanned(user.id);
+    if (ban) {
+      return res.status(403).json({
+        success: false,
+        code: 'BANNED',
+        message: banMessage(ban),
+        banExpiresAt: ban.expiresAt,
+      });
+    }
 
     const { accessToken, refreshToken: newRefresh } = generateTokens(user.id);
 

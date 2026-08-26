@@ -2,6 +2,20 @@ import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
+import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned } from '../agencies/agency.controller';
+import { bumpCatalogVersion } from '../gifts/catalogCache';
+import { invalidateBanCache } from '../utils/banGuard';
+import { kickBannedUser } from '../services/socket.service';
+import { grantVipRewardsForRange } from '../services/vip.service';
+import { grantLevelRewards as grantLvLevelRewards, notifyLevelUp } from '../services/xp.service';
+import { recordAgencySelfCharge } from '../services/agencyReward.service';
+import { createNotification } from '../services/notification.service';
+import {
+  setTargetSellBlocked,
+  listTargetSellBlocked,
+  isTargetSellGloballyBlocked,
+  setTargetSellGlobalBlock,
+} from '../utils/targetLock';
 
 const db = prisma as any;
 
@@ -20,6 +34,7 @@ const ok = (res: Response, data: any) => res.json({ success: true, ...data });
 
 const serialize = (obj: any): any => {
   if (typeof obj === 'bigint') return obj.toString();
+  if (obj instanceof Date) return obj.toISOString();
   if (Array.isArray(obj)) return obj.map(serialize);
   if (obj && typeof obj === 'object') {
     return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, serialize(v)]));
@@ -55,12 +70,14 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
 
     // Prisma query (Postgres-safe). The old raw SQL used `?` placeholders and
     // unquoted camelCase columns, which PostgreSQL rejects -> 500.
+    const numeric = /^\d+$/.test(search) ? Number(search) : null;
     const where: any = search
       ? {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
             { email: { contains: search, mode: 'insensitive' } },
             { phone: { contains: search } },
+            ...(numeric != null ? [{ displayId: numeric }, { id: numeric }] : []),
           ],
         }
       : {};
@@ -78,19 +95,47 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
           name: true,
           email: true,
           phone: true,
+          gender: true,
           avatarUrl: true,
           isAdmin: true,
           isBanned: true,
+          bannedAt: true,
+          banReason: true,
           coinsBalance: true,
           vipLevel: true,
+          level: true,
+          xp: true,
           createdAt: true,
           updatedAt: true,
         },
       }),
     ]);
 
+    // Target (#18) only applies to users who are a host or agent — pull each
+    // one's AgencyMember row in a single batched query rather than N+1.
+    const memberships = users.length
+      ? await (prisma as any).agencyMember.findMany({
+          where: { userId: { in: users.map((u) => u.id) } },
+          select: { userId: true, role: true, targetGoalCoins: true, agency: { select: { type: true } } },
+        })
+      : [];
+    const membershipByUser = new Map(memberships.map((m: any) => [m.userId, m]));
+
     return ok(res, {
-      data: users.map((u) => ({ ...u, coinsBalance: String(u.coinsBalance ?? 0) })),
+      data: users.map((u) => {
+        const membership = membershipByUser.get(u.id) as any;
+        return {
+          ...u,
+          coinsBalance: String(u.coinsBalance ?? 0),
+          target: membership
+            ? {
+                agencyType: membership.agency.type,
+                role: membership.role,
+                targetGoalCoins: String(membership.targetGoalCoins ?? 0n),
+              }
+            : null,
+        };
+      }),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (e) {
@@ -126,43 +171,187 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
   }
 };
 
+// Manual override of level/xp/vipLevel (#12, #18) — the automatic level/XP
+// system was previously dead (nothing awarded XP) and vipLevel only follows
+// totalRecharge, so an admin has no way to correct a user's standing. Each
+// field is independently settable (no forced recompute between them) so this
+// works as a true manual override, not a recalculation trigger.
+export const adminUpdateUserProgression = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid user id');
+
+    const data: any = {};
+    if (req.body?.level != null) {
+      const level = Number(req.body.level);
+      if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'level must be an integer >= 1');
+      data.level = level;
+    }
+    if (req.body?.xp != null) {
+      const xp = Number(req.body.xp);
+      if (!Number.isInteger(xp) || xp < 0) return fail(res, 400, 'xp must be an integer >= 0');
+      data.xp = xp;
+    }
+    if (req.body?.vipLevel != null) {
+      const vipLevel = Number(req.body.vipLevel);
+      if (!Number.isInteger(vipLevel) || vipLevel < 0) return fail(res, 400, 'vipLevel must be an integer >= 0');
+      data.vipLevel = vipLevel;
+    }
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    // Rewards used to hang off the recharge path only, so a VIP level set here
+    // granted nothing — the tier's frame/badge/entrance/bubble never arrived.
+    // Capture the standing first so we can grant exactly the tiers crossed.
+    const before = await (prisma as any).user.findUnique({
+      where: { id },
+      select: { level: true, vipLevel: true },
+    });
+    if (!before) return fail(res, 404, 'User not found');
+
+    const updated = await (prisma as any).user.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, level: true, xp: true, vipLevel: true },
+    });
+
+    // Promotions only: lowering a level never strips items the user already owns.
+    if (updated.vipLevel > before.vipLevel) {
+      await grantVipRewardsForRange(id, before.vipLevel, updated.vipLevel).catch((e) =>
+        console.warn('[adminUpdateUserProgression] VIP reward grant failed:', e),
+      );
+      await createNotification({
+        userId: id,
+        type: 'vip_level_up',
+        title: 'ترقية VIP 👑',
+        body: `تهانينا! وصلت إلى مستوى VIP ${updated.vipLevel}`,
+        data: { vipLevel: updated.vipLevel },
+      }).catch(() => {});
+    }
+    if (updated.level > before.level) {
+      for (let lvl = before.level + 1; lvl <= updated.level; lvl++) {
+        await grantLvLevelRewards(id, lvl).catch((e) =>
+          console.warn('[adminUpdateUserProgression] LV reward grant failed:', e),
+        );
+      }
+      await notifyLevelUp(id, updated.level).catch(() => {});
+    }
+
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'User not found');
+    console.error('adminUpdateUserProgression error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminUpdateUserProfile = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid user id');
+
+    const data: any = {};
+    if (req.body?.name != null) {
+      const name = String(req.body.name).trim();
+      if (!name) return fail(res, 400, 'name cannot be empty');
+      data.name = name;
+    }
+    if (req.body?.gender != null) {
+      const gender = String(req.body.gender).trim().toLowerCase();
+      if (!['male', 'female', 'other'].includes(gender)) return fail(res, 400, 'gender must be male/female/other');
+      data.gender = gender;
+    }
+    if (req.body?.nameLocked != null) {
+      data.nameLocked = Boolean(req.body.nameLocked);
+    }
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    const updated = await (prisma as any).user.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, gender: true, nameLocked: true },
+    });
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'User not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// Duration codes -> milliseconds. 'permanent' => no expiry.
+const BAN_DURATIONS: Record<string, number | null> = {
+  '1d': 24 * 60 * 60 * 1000,
+  '3d': 3 * 24 * 60 * 60 * 1000,
+  '1m': 30 * 24 * 60 * 60 * 1000,
+  '1y': 365 * 24 * 60 * 60 * 1000,
+  permanent: null,
+};
+
 export const adminDashboardBanUser = async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     if (!id) return fail(res, 400, 'Invalid user id');
 
     const isBanned = Boolean(req.body?.isBanned);
-    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : null;
 
-    if (isBanned && !reason) return fail(res, 400, 'reason is required when banning user');
-
-    const bannedAt = isBanned ? new Date().toISOString() : null;
-
-    // NOTE: Prisma client in production may lag behind schema generation; use SQL to avoid TS type breakage.
-    try {
-      await prisma.$executeRawUnsafe(
-        'UPDATE users SET isBanned = ?, bannedAt = ?, banReason = ? WHERE id = ?',
-        isBanned ? 1 : 0,
-        bannedAt,
-        isBanned ? reason : null,
-        id,
-      );
-    } catch (banError: any) {
-      const message = String(banError?.message || '');
-      const missingBanColumns =
-        message.includes('no such column') ||
-        message.includes('Unknown column') ||
-        message.includes('isBanned') ||
-        message.includes('bannedAt') ||
-        message.includes('banReason');
-      if (missingBanColumns) {
-        return fail(res, 409, 'User ban fields are missing in DB. Run latest migrations.');
-      }
-      throw banError;
+    if (!isBanned) {
+      // Unban from the dashboard: always allowed (this is the only place a
+      // dashboard-sourced ban can be lifted).
+      const updated = await (prisma as any).user.update({
+        where: { id },
+        data: { isBanned: false, bannedAt: null, banReason: null, banExpiresAt: null, banSource: null },
+        select: { id: true, isBanned: true },
+      });
+      // Drop the cached ban state so they can sign back in straight away.
+      invalidateBanCache(id);
+      return ok(res, { data: updated });
     }
 
-    return ok(res, { data: { id, isBanned, bannedAt, banReason: isBanned ? reason : null } });
-  } catch {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (!reason) return fail(res, 400, 'reason is required when banning user');
+
+    const duration = String(req.body?.duration || 'permanent');
+    if (!(duration in BAN_DURATIONS)) return fail(res, 400, 'Invalid duration');
+
+    // Regular admins may only ban up to 3 days; longer/permanent bans are
+    // super-admin only (#22).
+    const caller = await (prisma as any).user.findUnique({
+      where: { id: req.userId },
+      select: { isSuperAdmin: true },
+    });
+    if (!caller?.isSuperAdmin && duration !== '1d' && duration !== '3d') {
+      return fail(res, 403, 'Only a super-admin can use this ban duration');
+    }
+
+    const ms = BAN_DURATIONS[duration];
+    const now = new Date();
+    const banExpiresAt = ms == null ? null : new Date(now.getTime() + ms);
+
+    const updated = await (prisma as any).user.update({
+      where: { id },
+      data: {
+        isBanned: true,
+        bannedAt: now,
+        banReason: reason,
+        banExpiresAt,
+        banSource: 'dashboard',
+      },
+      select: { id: true, isBanned: true, bannedAt: true, banReason: true, banExpiresAt: true, banSource: true },
+    });
+
+    // Take effect now rather than up to a cache TTL later.
+    invalidateBanCache(id);
+
+    // Kick the user off any live sockets immediately.
+    try {
+      await kickBannedUser(id, reason, banExpiresAt);
+    } catch (e) {
+      console.warn('user_banned emit failed:', e);
+    }
+
+    return ok(res, { data: serialize(updated) });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'User not found');
+    console.error('adminDashboardBanUser error:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -237,19 +426,34 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
     if (!id || !['approved', 'rejected'].includes(status)) return fail(res, 400, 'Invalid payload');
     const adminId = req.userId!;
 
+    // Set inside the transaction, acted on after it commits.
+    let chargedAgencyId = 0;
+    let chargedAmount = 0;
+
     const result = await db.$transaction(async (tx: any) => {
       const topup = await tx.agencyTopupRequest.findUnique({ where: { id } });
       if (!topup) return { ok: false as const, status: 404, message: 'Topup request not found' };
       if (topup.status !== 'pending') return { ok: false as const, status: 409, message: 'Already reviewed' };
 
       if (status === 'approved') {
-        await tx.chargingAgency.update({
-          where: { id: topup.agencyId },
-          data: {
-            balanceCoins: { increment: topup.amount },
-            totalTopupCoins: { increment: topup.amount },
-          },
+        // Credited to the AGENT'S WALLET, not the agency pot — same rule as
+        // adminTopupAgency below: the agent charges, plays and gifts from one
+        // balance ("كوينزات وكيل الشحن تكون في محفظته الشخصيه").
+        const ownerRow = await tx.agencyMember.findFirst({
+          where: { agencyId: topup.agencyId, role: 'OWNER' },
+          select: { userId: true },
         });
+        const agency = await tx.chargingAgency.findUniqueOrThrow({
+          where: { id: topup.agencyId },
+          select: { userId: true },
+        });
+        const ownerId = ownerRow?.userId ?? agency.userId;
+        await tx.user.update({
+          where: { id: ownerId },
+          data: { coinsBalance: { increment: topup.amount } },
+        });
+        chargedAgencyId = topup.agencyId;
+        chargedAmount = topup.amount;
       }
 
       const updated = await tx.agencyTopupRequest.update({
@@ -261,6 +465,11 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
     });
 
     if (!result.ok) return fail(res, result.status, result.message);
+
+    // Outside the transaction: the reward ladder must not be able to roll back
+    // an approved top-up.
+    if (chargedAgencyId) await recordAgencySelfCharge(chargedAgencyId, chargedAmount);
+
     return ok(res, { data: serialize(result.data) });
   } catch {
     return fail(res, 500, 'Server error');
@@ -354,16 +563,251 @@ export const adminDashboardUpdateReport = async (req: Request, res: Response) =>
   }
 };
 
-export const adminDashboardListRooms = async (_req: Request, res: Response) => {
+export const adminDashboardListRooms = async (req: Request, res: Response) => {
   try {
-    const data = await prisma.room.findMany({
+    const search = String(req.query.search || '').trim();
+    const numeric = /^\d+$/.test(search) ? Number(search) : null;
+    const where: any = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { owner: { name: { contains: search, mode: 'insensitive' } } },
+            ...(numeric != null
+              ? [{ id: numeric }, { ownerId: numeric }, { owner: { displayId: numeric } }]
+              : []),
+          ],
+        }
+      : {};
+
+    const data = await (prisma as any).room.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
-      include: {
-        owner: { select: { id: true, name: true, avatarUrl: true, email: true } },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        maxSeats: true,
+        coverImageUrl: true,
+        isActive: true,
+        isLocked: true,
+        accessCode: true,
+        nameLocked: true,
+        createdAt: true,
+        owner: { select: { id: true, displayId: true, name: true, avatarUrl: true, email: true, nameLocked: true } },
       },
     });
-    return ok(res, { data });
+
+    // Never ship the PIN in the list payload — it is fetched per-room via /rooms/:id/details.
+    return ok(res, {
+      data: data.map((r: any) => {
+        const { accessCode, ...rest } = r;
+        return { ...rest, hasAccessCode: Boolean(accessCode) };
+      }),
+    });
   } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// PATCH /admin-dashboard/rooms/:id — edit name, lock renaming, close/reopen (group 6)
+export const adminDashboardUpdateRoom = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid room id');
+
+    const data: any = {};
+    if (req.body?.name != null) {
+      const name = String(req.body.name).trim();
+      if (!name) return fail(res, 400, 'name cannot be empty');
+      data.name = name;
+    }
+    if (req.body?.nameLocked != null) data.nameLocked = Boolean(req.body.nameLocked);
+    if (req.body?.isActive != null) data.isActive = Boolean(req.body.isActive);
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    const updated = await (prisma as any).room.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, nameLocked: true, isActive: true },
+    });
+
+    try {
+      const { io } = await import('../index');
+      if (data.isActive === false) {
+        const reason = String(req.body?.reason || 'تم إغلاق الغرفة من الإدارة').trim();
+        io.to(`room:${id}`).emit('room_force_closed', { roomId: id, reason });
+      }
+      if (data.name) {
+        io.to(`room:${id}`).emit('room_updated', { roomId: id, name: data.name });
+      }
+    } catch (e) {
+      console.warn('adminDashboardUpdateRoom emit failed:', e);
+    }
+
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Room not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// GET /admin-dashboard/rooms/:id/details — who is inside right now + the PIN
+// for locked rooms (group 6). "Inside" = sockets currently joined to room:<id>.
+export const adminDashboardRoomDetails = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid room id');
+
+    const room = await (prisma as any).room.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        isActive: true,
+        isLocked: true,
+        accessCode: true,
+        nameLocked: true,
+        createdAt: true,
+        owner: { select: { id: true, displayId: true, name: true, nameLocked: true } },
+      },
+    });
+    if (!room) return fail(res, 404, 'Room not found');
+
+    const userIds = new Set<number>();
+    try {
+      const { io } = await import('../index');
+      const socketIds = io.sockets.adapter.rooms.get(`room:${id}`) ?? new Set<string>();
+      for (const sid of socketIds) {
+        const s: any = io.sockets.sockets.get(sid);
+        if (s?.userId) userIds.add(Number(s.userId));
+      }
+    } catch (e) {
+      console.warn('adminDashboardRoomDetails presence lookup failed:', e);
+    }
+
+    const members = userIds.size
+      ? await prisma.user.findMany({
+          where: { id: { in: [...userIds] } },
+          select: { id: true, displayId: true, name: true, avatarUrl: true },
+        })
+      : [];
+
+    return ok(res, {
+      data: {
+        ...room,
+        accessCode: room.isLocked ? room.accessCode : null,
+        membersInside: members,
+        membersCount: members.length,
+      },
+    });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * Stop / allow a user selling and converting their target (owner request).
+ * PATCH body: { blocked: boolean }. Blocking is per-account and takes effect
+ * on the next attempt — both the user's own استبدال and their agent's بيع.
+ */
+export const adminDashboardSetTargetLock = async (req: Request, res: Response) => {
+  try {
+    const raw = Number(req.params.id);
+    if (!Number.isFinite(raw) || raw <= 0) return fail(res, 400, 'Invalid user id');
+    const blocked = Boolean(req.body?.blocked);
+
+    // WHICH id was typed. The admin reads the ID off the profile card — that is
+    // `displayId` — but this only ever looked up the internal row id, so the
+    // per-account block answered "User not found" and did nothing (the global
+    // freeze worked, which is why "المنع شغال لكل المستخدمين، أما مستخدم
+    // بالايدي ليس فعال"). displayId wins; the internal id still resolves so the
+    // list's فك المنع button (which holds the real row id) keeps working, and
+    // `?by=id` forces that reading when the caller knows it.
+    const byInternalId = String((req.query as any)?.by ?? '') === 'id';
+    const user = byInternalId
+      ? await (prisma as any).user.findUnique({ where: { id: raw }, select: { id: true, name: true, displayId: true } })
+      : (await (prisma as any).user.findFirst({
+          where: { displayId: raw },
+          select: { id: true, name: true, displayId: true },
+        })) ??
+        (await (prisma as any).user.findUnique({
+          where: { id: raw },
+          select: { id: true, name: true, displayId: true },
+        }));
+    if (!user) return fail(res, 404, 'لا يوجد مستخدم بهذا الرقم');
+
+    const ids = await setTargetSellBlocked(user.id, blocked);
+    return ok(res, {
+      data: {
+        userId: user.id,
+        displayId: user.displayId ?? null,
+        name: user.name ?? null,
+        blocked,
+        blockedUserIds: ids,
+      },
+    });
+  } catch (e) {
+    console.error('adminDashboardSetTargetLock error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/** Every account currently barred from selling/converting target. */
+export const adminDashboardListTargetLocks = async (_req: Request, res: Response) => {
+  try {
+    const ids = await listTargetSellBlocked();
+    const users = ids.length
+      ? await (prisma as any).user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true, displayId: true },
+        })
+      : [];
+    return ok(res, { data: users });
+  } catch (e) {
+    console.error('adminDashboardListTargetLocks error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * The whole بيع/تبديل التارجيت policy in one call: the platform-wide freeze
+ * plus the per-account block list, so the dashboard card renders in one round
+ * trip.
+ */
+export const adminDashboardGetTargetSellPolicy = async (_req: Request, res: Response) => {
+  try {
+    const [globallyBlocked, ids] = await Promise.all([
+      isTargetSellGloballyBlocked(),
+      listTargetSellBlocked(),
+    ]);
+    const users = ids.length
+      ? await (prisma as any).user.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, name: true, displayId: true },
+        })
+      : [];
+    return ok(res, { data: { globallyBlocked, blockedUsers: users } });
+  } catch (e) {
+    console.error('adminDashboardGetTargetSellPolicy error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * Flip the platform-wide freeze. PATCH body: { blocked: boolean }.
+ * Blocked is the default state, so this is how the owner lifts it — and how
+ * they put it back.
+ */
+export const adminDashboardSetTargetSellPolicy = async (req: Request, res: Response) => {
+  try {
+    if (typeof req.body?.blocked !== 'boolean') {
+      return fail(res, 400, 'blocked (boolean) is required');
+    }
+    const blocked = await setTargetSellGlobalBlock(req.body.blocked);
+    return ok(res, { data: { globallyBlocked: blocked } });
+  } catch (e) {
+    console.error('adminDashboardSetTargetSellPolicy error:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -481,12 +925,129 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
 export const adminDashboardListChargingAgencies = async (req: Request, res: Response) => {
   try {
     const status = req.query.status ? String(req.query.status) : undefined;
+    const type = req.query.type ? String(req.query.type) : undefined; // CHARGING | HOSTING
+    const search = String(req.query.search || '').trim();
+    const numeric = /^\d+$/.test(search) ? Number(search) : null;
+
+    const where: any = {
+      ...(status ? { status } : {}),
+      ...(type ? { type } : {}),
+      ...(search
+        ? {
+            OR: [
+              { agencyName: { contains: search, mode: 'insensitive' } },
+              { phoneNumber: { contains: search } },
+              { user: { name: { contains: search, mode: 'insensitive' } } },
+              ...(numeric != null
+                ? [{ id: numeric }, { userId: numeric }, { user: { displayId: numeric } }]
+                : []),
+            ],
+          }
+        : {}),
+    };
+
     const agencies = await prisma.chargingAgency.findMany({
-      where: status ? { status } : undefined,
+      where,
       include: { user: true },
       orderBy: { createdAt: 'desc' },
     });
-    return ok(res, { data: serialize(agencies) });
+    // `a.earnedCoins` is a dead column that nothing ever writes, so it always
+    // reads 0. The agency's real production is the sum of its hosts' gift
+    // earnings — that is what the target is measured against, and what the
+    // dollar figure here should reflect.
+    const withDollars = await Promise.all(
+      agencies.map(async (a: any) => {
+        const earned = await computeAgencyEarnedCoins(a.id);
+        return {
+          ...serialize(a),
+          earnedCoins: String(earned),
+          dollars: await computeDollarsFromCoins(BigInt(earned)),
+          // The dashboard's "رصيد المحفظة" column. ChargingAgency.balanceCoins
+          // is a retired pot (charging is paid from the agent's own wallet), so
+          // report the wallet the admin actually tops up.
+          balanceCoins: String(a.user?.coinsBalance ?? 0),
+          // B10 — "كل وكاله شحنت كام مره لنفسها": how often this agency topped
+          // ITSELF up, and the coins behind those charges, so the owner can
+          // rank agencies and reward the biggest charger.
+          selfChargeCount: Number(a.selfChargeCount ?? 0),
+          selfChargeCoins: String(a.totalTopupCoins ?? 0),
+        };
+      }),
+    );
+    return ok(res, { data: withDollars });
+  } catch {
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// PATCH /admin-dashboard/agencies/:id — edit agency name + lock renaming (group 7)
+export const adminDashboardUpdateAgency = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid agency id');
+
+    const data: any = {};
+    if (req.body?.agencyName != null) {
+      const agencyName = String(req.body.agencyName).trim();
+      if (!agencyName) return fail(res, 400, 'agencyName cannot be empty');
+      data.agencyName = agencyName;
+    }
+    if (req.body?.nameLocked != null) data.nameLocked = Boolean(req.body.nameLocked);
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+
+    const updated = await (prisma as any).chargingAgency.update({
+      where: { id },
+      data,
+      select: { id: true, agencyName: true, nameLocked: true },
+    });
+    return ok(res, { data: updated });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Agency not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// GET /admin-dashboard/agencies/:id/charges — every top-up this agency sent:
+// who was charged, how many coins, by which member, when (group 7 complaints).
+export const adminDashboardAgencyCharges = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid agency id');
+    const page = parsePage(req.query.page, 1);
+    const limit = parseLimit(req.query.limit, 50);
+
+    const where = { type: 'AGENCY_TOPUP', agencyId: id } as any;
+    const [total, rows] = await Promise.all([
+      (prisma as any).transaction.count({ where }),
+      (prisma as any).transaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { user: { select: { id: true, displayId: true, name: true } } },
+      }),
+    ]);
+
+    // Resolve sender names in one query (senderId is a plain column, no relation).
+    const senderIds = [...new Set(rows.map((r: any) => r.senderId).filter(Boolean))] as number[];
+    const senders = senderIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: senderIds } },
+          select: { id: true, displayId: true, name: true },
+        })
+      : [];
+    const senderById = new Map(senders.map((s) => [s.id, s]));
+
+    return ok(res, {
+      data: rows.map((r: any) => ({
+        id: r.id,
+        amountCoins: r.amountCoins,
+        createdAt: r.createdAt,
+        recipient: r.user,
+        sender: r.senderId ? (senderById.get(r.senderId) ?? { id: r.senderId }) : null,
+      })),
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
   } catch {
     return fail(res, 500, 'Server error');
   }
@@ -498,7 +1059,22 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
     const status = req.body?.status;
     if (!['approved', 'rejected', 'pending'].includes(status)) return fail(res, 400, 'Invalid status');
 
-    const updated = await prisma.chargingAgency.update({ where: { id }, data: { status } });
+    const updated = await prisma.$transaction(async (tx: any) => {
+      const agency = await tx.chargingAgency.update({ where: { id }, data: { status } });
+      // Approving here used to flip the column and nothing else, so an agency
+      // created through POST /charging-agencies never got its OWNER
+      // AgencyMember row. Every owner-gated feature reads that row, so the
+      // owner ended up with no الفروع button, `GET/POST /agencies/branches`
+      // answering 403 and even شحن مستخدم refused — "فروع وكالة الشحن توقفت".
+      if (status === 'approved') {
+        await tx.agencyMember.upsert({
+          where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
+          update: { role: 'OWNER' },
+          create: { agencyId: agency.id, userId: agency.userId, role: 'OWNER' },
+        });
+      }
+      return agency;
+    });
     return ok(res, { data: serialize(updated) });
   } catch {
     return fail(res, 500, 'Server error');
@@ -575,6 +1151,108 @@ export const adminReviewAgencyRequest = async (req: AdminReq, res: Response) => 
   }
 };
 
+// #21: admin/super-admin directly assigns a user as owner of a NEW hosting or
+// charging agency by ID — bypasses the self-request+approval flow entirely
+// (no KYC photos to review; the admin is vouching for this user directly).
+// Any dashboard admin may do this (not super-admin only) per the client spec.
+export const adminAssignAgency = async (req: AdminReq, res: Response) => {
+  try {
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+
+    const type = String(req.body?.type || '').toUpperCase();
+    if (!['HOSTING', 'CHARGING'].includes(type)) return fail(res, 400, "type must be 'HOSTING' or 'CHARGING'");
+
+    const rawUserId = req.body?.userId;
+    const rawDisplayId = req.body?.displayId;
+    const user = rawUserId != null
+      ? await db.user.findUnique({ where: { id: Number(rawUserId) }, select: { id: true, name: true, displayId: true } })
+      : rawDisplayId != null
+        ? await db.user.findUnique({ where: { displayId: Number(rawDisplayId) }, select: { id: true, name: true, displayId: true } })
+        : null;
+    if (!user) return fail(res, 404, 'User not found');
+
+    const existing = await db.chargingAgency.findFirst({
+      where: { userId: user.id, type, status: { not: 'rejected' } },
+    });
+    if (existing) return fail(res, 400, 'This user already has an agency of this type');
+
+    const agencyName = String(req.body?.agencyName || `وكالة ${user.name ?? user.id}`).trim();
+
+    const result = await db.$transaction(async (tx: any) => {
+      const agency = await tx.chargingAgency.create({
+        data: {
+          userId: user.id,
+          agencyName,
+          phoneNumber: '-',
+          agencyImageUrl: '',
+          idFrontUrl: '',
+          idBackUrl: '',
+          type,
+          status: 'approved',
+          assignedByAdminId: req.userId,
+        },
+      });
+      await tx.agencyMember.create({
+        data: { agencyId: agency.id, userId: user.id, role: 'OWNER' },
+      });
+      return agency;
+    });
+
+    try {
+      const { createNotification } = await import('../services/notification.service');
+      await createNotification({
+        userId: user.id,
+        type: 'AGENCY_ASSIGNED',
+        title: '🏢 تم تعيينك وكيلاً',
+        body: `تم تعيينك كوكيل ${type === 'HOSTING' ? 'استضافة' : 'شحن'} لوكالة "${agencyName}" بواسطة الإدارة`,
+        data: { agencyId: result.id, type },
+      });
+    } catch (e) {
+      console.warn('adminAssignAgency notification failed:', e);
+    }
+
+    return ok(res, { data: serialize(result) });
+  } catch (e) {
+    console.error('adminAssignAgency error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// #23: a dashboard admin's own view of agencies THEY specifically assigned via
+// adminAssignAgency, as opposed to every agency on the platform.
+export const adminListAssignedAgencies = async (req: AdminReq, res: Response) => {
+  try {
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+    const agencies = await db.chargingAgency.findMany({
+      where: { assignedByAdminId: req.userId },
+      include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return ok(res, { data: serialize(agencies) });
+  } catch (e) {
+    console.error('adminListAssignedAgencies error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * The agent who owns an agency. The OWNER member row is the source of truth
+ * (ownership can be transferred), with `ChargingAgency.userId` as the fallback
+ * for an agency that has no member rows yet.
+ */
+const resolveAgencyOwnerId = async (agencyId: number): Promise<number | null> => {
+  const ownerRow = await db.agencyMember.findFirst({
+    where: { agencyId, role: 'OWNER' },
+    select: { userId: true },
+  });
+  if (ownerRow) return ownerRow.userId;
+  const agency = await db.chargingAgency.findUnique({
+    where: { id: agencyId },
+    select: { userId: true },
+  });
+  return agency?.userId ?? null;
+};
+
 export const adminTopupAgency = async (req: AdminReq, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -585,16 +1263,190 @@ export const adminTopupAgency = async (req: AdminReq, res: Response) => {
       return fail(res, 400, 'Positive amount required');
     }
 
-    const agency = await db.chargingAgency.update({
-      where: { id },
-      data: {
-        balanceCoins: { increment: numericAmount },
-        totalTopupCoins: { increment: numericAmount },
-      },
+    // 2026-08 (client complaint "كوينزات وكيل الشحن منفصله عن كوينزات المحفظه"):
+    // the top-up used to land in ChargingAgency.balanceCoins, a pot the agent
+    // could only ever spend on charging. Charging now comes out of his own
+    // wallet, so the top-up goes there too — the same coins he plays and gifts
+    // with. totalTopupCoins stays as the lifetime "how much was he given" stat.
+    const ownerId = await resolveAgencyOwnerId(id);
+    if (!ownerId) return fail(res, 404, 'Agency not found');
+
+    const owner = await db.user.update({
+      where: { id: ownerId },
+      data: { coinsBalance: { increment: numericAmount } },
+      select: { coinsBalance: true },
     });
 
-    return ok(res, { data: { balanceCoins: String(agency.balanceCoins) } });
-  } catch {
+    // Counts as one self-charge for the dashboard ranking, and pays out any
+    // reward rung it crosses. It also owns the `totalTopupCoins` increment
+    // that used to sit in the transaction above — keeping both in one place is
+    // what makes the reward high-water mark trustworthy.
+    await recordAgencySelfCharge(id, numericAmount);
+
+    // Key kept as `balanceCoins` — the dashboard reads it to print the new
+    // balance, and it is now the agent's wallet.
+    return ok(res, { data: { balanceCoins: String(owner.coinsBalance) } });
+  } catch (e) {
+    console.error('adminTopupAgency error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ── B11: automatic reward when a charging agency tops itself up past a
+// threshold ("لو تخليني احدد من لوحة التحكم الوكاله لما تشحن عدد كوينزات معين
+// احدد مكافأة تروح تلقائي"). One row per rung; see agencyReward.service for
+// how they are paid out.
+export const adminListAgencyChargeRewards = async (_req: AdminReq, res: Response) => {
+  try {
+    const rows = await (prisma as any).agencyChargeReward.findMany({
+      orderBy: { thresholdCoins: 'asc' },
+    });
+    return ok(res, { data: serialize(rows) });
+  } catch (e) {
+    console.error('adminListAgencyChargeRewards error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSaveAgencyChargeReward = async (req: AdminReq, res: Response) => {
+  try {
+    const threshold = Number(req.body?.thresholdCoins);
+    if (!Number.isFinite(threshold) || threshold <= 0) {
+      return fail(res, 400, 'thresholdCoins must be a positive number');
+    }
+
+    const rewardCoins = Math.max(0, Math.floor(Number(req.body?.rewardCoins ?? 0)));
+    let rewardItemIds: string[] = [];
+    if (Array.isArray(req.body?.rewardItemIds)) {
+      const requested = [...new Set(req.body.rewardItemIds.map(String))] as string[];
+      // Drop ids that no longer exist, so a deleted product can't wedge payouts.
+      const existing = await prisma.item.findMany({
+        where: { id: { in: requested } },
+        select: { id: true },
+      });
+      rewardItemIds = existing.map((i) => i.id);
+    }
+
+    if (rewardCoins <= 0 && rewardItemIds.length === 0) {
+      return fail(res, 400, 'حدد كوينزات أو منتجات للمكافأة');
+    }
+
+    const agencyIdRaw = req.body?.agencyId;
+    const agencyId =
+      agencyIdRaw === undefined || agencyIdRaw === null || String(agencyIdRaw).trim() === ''
+        ? null
+        : Number(agencyIdRaw);
+    if (agencyId !== null && !Number.isInteger(agencyId)) {
+      return fail(res, 400, 'agencyId must be an integer or empty for all agencies');
+    }
+
+    const data = {
+      thresholdCoins: BigInt(Math.floor(threshold)),
+      rewardCoins,
+      rewardItemIds,
+      agencyId,
+      isActive: req.body?.isActive === undefined ? true : Boolean(req.body.isActive),
+    };
+
+    const id = Number(req.body?.id);
+    const row = Number.isInteger(id) && id > 0
+      ? await (prisma as any).agencyChargeReward.update({ where: { id }, data })
+      : await (prisma as any).agencyChargeReward.create({ data });
+
+    return ok(res, { data: serialize(row) });
+  } catch (e) {
+    console.error('adminSaveAgencyChargeReward error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDeleteAgencyChargeReward = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    await (prisma as any).agencyChargeReward.delete({ where: { id } });
+    return ok(res, { data: { id } });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Reward not found');
+    console.error('adminDeleteAgencyChargeReward error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ── Target tiers (coins earned -> dollar payout). Admin-managed. ──
+// Dollars for a given earned-coins amount = coins * (dollars/coins) of the
+// highest tier whose coins threshold <= earned. If no tier qualifies, $0.
+export const computeDollarsFromCoins = async (earnedCoins: bigint | number): Promise<number> => {
+  const earned = typeof earnedCoins === 'bigint' ? earnedCoins : BigInt(Math.floor(Number(earnedCoins) || 0));
+  const tiers = await (prisma as any).targetTier.findMany({ orderBy: { coins: 'asc' } });
+  let ratio = 0; // dollars per coin
+  for (const t of tiers) {
+    const tc = BigInt(t.coins);
+    if (tc > 0n && earned >= tc) {
+      ratio = Number(t.dollars) / Number(tc);
+    }
+  }
+  return Math.round(Number(earned) * ratio * 100) / 100;
+};
+
+export const adminListTargetTiers = async (_req: AdminReq, res: Response) => {
+  try {
+    const tiers = await (prisma as any).targetTier.findMany({ orderBy: { coins: 'asc' } });
+    return ok(res, { data: serialize(tiers) });
+  } catch (e) {
+    console.error('adminListTargetTiers error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminCreateTargetTier = async (req: AdminReq, res: Response) => {
+  try {
+    const coins = Number(req.body?.coins);
+    const dollars = Number(req.body?.dollars);
+    if (!Number.isFinite(coins) || coins <= 0) return fail(res, 400, 'coins must be > 0');
+    if (!Number.isFinite(dollars) || dollars < 0) return fail(res, 400, 'dollars must be >= 0');
+    const tier = await (prisma as any).targetTier.create({
+      data: { coins: BigInt(Math.floor(coins)), dollars },
+    });
+    return ok(res, { data: serialize(tier) });
+  } catch (e) {
+    console.error('adminCreateTargetTier error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminUpdateTargetTier = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    const data: any = {};
+    if (req.body?.coins != null) {
+      const coins = Number(req.body.coins);
+      if (!Number.isFinite(coins) || coins <= 0) return fail(res, 400, 'coins must be > 0');
+      data.coins = BigInt(Math.floor(coins));
+    }
+    if (req.body?.dollars != null) {
+      const dollars = Number(req.body.dollars);
+      if (!Number.isFinite(dollars) || dollars < 0) return fail(res, 400, 'dollars must be >= 0');
+      data.dollars = dollars;
+    }
+    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+    const tier = await (prisma as any).targetTier.update({ where: { id }, data });
+    return ok(res, { data: serialize(tier) });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Tier not found');
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDeleteTargetTier = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    await (prisma as any).targetTier.delete({ where: { id } });
+    return ok(res, { message: 'Tier deleted' });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Tier not found');
     return fail(res, 500, 'Server error');
   }
 };
@@ -618,16 +1470,45 @@ export const adminSetAgencyTarget = async (req: AdminReq, res: Response) => {
 // existing admin dashboard UI; new clients should target the dedicated
 // admin gift routes which support format/tier/animation metadata.
 
+const GIFT_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.m4v', '.ogv'];
+
+/**
+ * A gift can carry both a still icon and a video. If a video file was uploaded,
+ * the video is what must play — the client's GiftPlayer routes on `format`
+ * alone, so leaving it on SVG_CSS renders the still image forever.
+ */
+const giftFormatFor = (animationUrl: unknown, requested: unknown): string => {
+  if (typeof animationUrl === 'string' && animationUrl) {
+    const path = (animationUrl.split('?')[0] ?? '').split('#')[0]?.toLowerCase() ?? '';
+    if (GIFT_VIDEO_EXTENSIONS.some((ext) => path.endsWith(ext))) return 'VIDEO';
+  }
+  return String(requested ?? 'SVG_CSS');
+};
+
 export const adminListGifts = async (_req: AdminReq, res: Response) => {
   const gifts = await prisma.gift.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }] });
   return res.json({ success: true, data: gifts });
 };
 
+/**
+ * A video gift must play for as long as its clip actually runs. The 3000ms
+ * schema default silently truncated longer clips, so the dashboard now posts the
+ * probed duration and we clamp it to what the client's flight animation supports.
+ */
+const giftAnimationMsFor = (animationMs: unknown): number | undefined => {
+  const ms = Number(animationMs);
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  return Math.min(15000, Math.max(1000, Math.round(ms)));
+};
+
 export const adminCreateGift = async (req: AdminReq, res: Response) => {
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible, animationMs, videoHasAlpha } = req.body;
   if (!nameAr || !iconUrl || coinCost == null) {
     return res.status(400).json({ success: false, message: 'nameAr, iconUrl, coinCost required' });
   }
+
+  const resolvedFormat = giftFormatFor(animationUrl, format);
+  const resolvedMs = giftAnimationMsFor(animationMs);
 
   const gift = await prisma.gift.create({
     data: {
@@ -637,18 +1518,26 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
       animationUrl: animationUrl ?? null,
       coinCost: Number(coinCost),
       sortOrder: Number(sortOrder ?? 0),
-      format: (format ?? 'SVG_CSS') as any,
+      format: resolvedFormat as any,
       tier: (tier ?? 'SMALL') as any,
       category: 'admin',
+      ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
+      ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
+      ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+      ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
     },
   });
 
+  // Without this the /gifts catalog keeps serving the cached payload and the new
+  // gift does not reach the app until the cache expires.
+  await bumpCatalogVersion();
   return res.status(201).json({ success: true, data: gift });
 };
 
 export const adminUpdateGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible, animationMs, videoHasAlpha } = req.body;
+  const resolvedMs = giftAnimationMsFor(animationMs);
 
   const gift = await prisma.gift.update({
     where: { id },
@@ -660,11 +1549,20 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
       ...(coinCost !== undefined && { coinCost: Number(coinCost) }),
       ...(sortOrder !== undefined && { sortOrder: Number(sortOrder) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+      ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
       ...(tier !== undefined && { tier: tier as any }),
-      ...(format !== undefined && { format: format as any }),
+      ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
+      ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
+      // A newly-attached video always wins over whatever format was posted.
+      ...(animationUrl !== undefined && giftFormatFor(animationUrl, format) === 'VIDEO'
+        ? { format: 'VIDEO' as any }
+        : format !== undefined
+          ? { format: format as any }
+          : {}),
     },
   });
 
+  await bumpCatalogVersion();
   return res.json({ success: true, data: gift });
 };
 
@@ -672,12 +1570,14 @@ export const adminDeleteGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
   try {
     await prisma.gift.delete({ where: { id } });
+    await bumpCatalogVersion();
     return res.json({ success: true, message: 'Gift deleted' });
   } catch {
     await prisma.gift.update({
       where: { id },
       data: { isActive: false },
     });
+    await bumpCatalogVersion();
     return res.json({ success: true, message: 'Gift deactivated (used in history)' });
   }
 };
@@ -695,12 +1595,59 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
 
     const members = await db.agencyMember.findMany({
       where: { agencyId },
-      include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      include: {
+        user: { select: { id: true, name: true, avatarUrl: true, displayId: true, level: true, xp: true, vipLevel: true } },
+      },
       orderBy: { joinedAt: 'asc' },
     });
 
-    return ok(res, { data: members });
-  } catch {
+    // #24: surface each member's target (earned since joining, excl self-gifts)
+    // + goal + remaining so the admin can hold people accountable from the panel.
+    // Group 8: also the dollar value of what they earned (real money).
+    const withTargets = await Promise.all(
+      members.map(async (m: any) => {
+        // Owner rows also carry their agency commission (#4), which is target
+        // and not wallet coins — same total the agent sees in his own panel.
+        // memberTargetEarned folds in بيع التارجيت movements.
+        const earnedCoins =
+          (await memberTargetEarned(m)) + Number(m.commissionTargetCoins ?? 0n);
+        const goal = Number(m.targetGoalCoins ?? 0n);
+        // How much of that commission is still held back because the member
+        // who generated it hasn't completed their target (2026-08 rule). Only
+        // the owner row can carry any, so nobody else pays for the extra work.
+        const commission =
+          m.role === 'OWNER'
+            ? await computeCommissionSplit({
+                agencyId,
+                userId: m.userId,
+                commissionTargetCoins: m.commissionTargetCoins,
+              })
+            : { accrued: 0, locked: 0, released: 0 };
+        return {
+          ...m,
+          targetGoalCoins: goal,
+          earnedCoins,
+          remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
+          dollars: await computeDollarsFromCoins(earnedCoins),
+          commissionCoins: commission.accrued,
+          commissionLockedCoins: commission.locked,
+          commissionReleasedCoins: commission.released,
+        };
+      }),
+    );
+
+    // Owner/branch first, then by target (earnedCoins) descending — matches
+    // the agent-facing roster ordering (#3).
+    const rolePriority = (role: string) => (role === 'OWNER' ? 0 : role === 'BRANCH' ? 1 : 2);
+    withTargets.sort((a: any, b: any) => {
+      const roleDiff = rolePriority(a.role) - rolePriority(b.role);
+      if (roleDiff !== 0) return roleDiff;
+      return b.earnedCoins - a.earnedCoins;
+    });
+
+    return ok(res, { data: serialize(withTargets) });
+  } catch (e) {
+    console.error('adminListAgencyMembers error:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -741,8 +1688,27 @@ export const adminRemoveAgencyMember = async (req: AdminReq, res: Response) => {
 // ── VIP level configuration (badge image + seat frame per level) ──
 export const adminListVipLevels = async (_req: AdminReq, res: Response) => {
   try {
-    const levels = await prisma.vipLevelConfig.findMany({ orderBy: { level: 'asc' } });
-    return res.json({ success: true, data: levels });
+    const levels: any[] = await prisma.vipLevelConfig.findMany({ orderBy: { level: 'asc' } });
+
+    // Attach reward item details so the dashboard can show what each tier grants.
+    const allIds = [...new Set(levels.flatMap((l) => l.rewardItemIds ?? []))] as string[];
+    const items = allIds.length
+      ? await prisma.item.findMany({
+          where: { id: { in: allIds } },
+          select: { id: true, name: true, type: true, assetUrl: true, isPurchasable: true },
+        })
+      : [];
+    const itemById = new Map(items.map((i) => [i.id, i]));
+
+    return res.json({
+      success: true,
+      data: levels.map((l) => ({
+        ...l,
+        rewardItems: (l.rewardItemIds ?? [])
+          .map((id: string) => itemById.get(id))
+          .filter(Boolean),
+      })),
+    });
   } catch (e) {
     console.error('adminListVipLevels error:', e);
     return res.status(500).json({ success: false, message: 'Failed to list VIP levels' });
@@ -755,13 +1721,42 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
     if (!level || level < 1 || level > 100) {
       return res.status(400).json({ success: false, message: 'level must be 1-100' });
     }
-    const data = {
+
+    // Group 10: multiple reward items per tier, from app or private store.
+    // Keep only ids that exist so a stale dashboard can't save dangling grants.
+    let rewardItemIds: string[] | undefined;
+    if (Array.isArray(req.body?.rewardItemIds)) {
+      const requested = [...new Set(req.body.rewardItemIds.map(String))] as string[];
+      const existing = requested.length
+        ? await prisma.item.findMany({ where: { id: { in: requested } }, select: { id: true } })
+        : [];
+      rewardItemIds = existing.map((i) => i.id);
+    }
+
+    // Selling a tier (owner request): priceCoins 0/empty takes it off sale,
+    // durationDays 0/empty makes a bought tier permanent.
+    const priceRaw = req.body?.priceCoins;
+    const durRaw = req.body?.durationDays;
+
+    const data: any = {
       name: req.body?.name != null ? String(req.body.name) : undefined,
       threshold: req.body?.threshold != null ? Number(req.body.threshold) : undefined,
       badgeUrl: req.body?.badgeUrl != null ? String(req.body.badgeUrl) : undefined,
       frameItemId: req.body?.frameItemId != null ? String(req.body.frameItemId) : undefined,
+      ...(priceRaw !== undefined
+        ? { priceCoins: Number(priceRaw) > 0 ? Math.floor(Number(priceRaw)) : null }
+        : {}),
+      ...(durRaw !== undefined
+        ? { durationDays: Number(durRaw) > 0 ? Math.floor(Number(durRaw)) : null }
+        : {}),
+      ...(rewardItemIds !== undefined ? { rewardItemIds } : {}),
+      // A16 — "الصوره المتحركه تكون خاصية لفئة معينة من الـ VIP، مثلاً VIP10
+      // وما فوق". Off by default, so no tier silently gains the permission.
+      ...(req.body?.allowAnimatedAvatar !== undefined
+        ? { allowAnimatedAvatar: !!req.body.allowAnimatedAvatar }
+        : {}),
     };
-    const saved = await prisma.vipLevelConfig.upsert({
+    const saved = await (prisma as any).vipLevelConfig.upsert({
       where: { level },
       update: data,
       create: { level, ...data },
@@ -770,5 +1765,439 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
   } catch (e) {
     console.error('adminUpsertVipLevel error:', e);
     return res.status(500).json({ success: false, message: 'Failed to save VIP level' });
+  }
+};
+
+// ── LV level configuration (المستوى) ──
+// The XP counterpart of the VIP tiers above. `threshold` is cumulative XP; a
+// tier with no threshold leaves that level on the built-in curve, and an empty
+// table means the whole system behaves exactly as before.
+export const adminListLevels = async (_req: AdminReq, res: Response) => {
+  try {
+    const levels: any[] = await (prisma as any).levelConfig.findMany({ orderBy: { level: 'asc' } });
+
+    const allIds = [...new Set(levels.flatMap((l) => l.rewardItemIds ?? []))] as string[];
+    const items = allIds.length
+      ? await prisma.item.findMany({
+          where: { id: { in: allIds } },
+          select: { id: true, name: true, type: true, assetUrl: true, isPurchasable: true },
+        })
+      : [];
+    const itemById = new Map(items.map((i) => [i.id, i]));
+
+    return res.json({
+      success: true,
+      data: levels.map((l) => ({
+        ...l,
+        rewardItems: (l.rewardItemIds ?? [])
+          .map((id: string) => itemById.get(id))
+          .filter(Boolean),
+      })),
+    });
+  } catch (e) {
+    console.error('adminListLevels error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to list levels' });
+  }
+};
+
+export const adminUpsertLevel = async (req: AdminReq, res: Response) => {
+  try {
+    const level = Number(req.body?.level);
+    if (!level || level < 1 || level > 100) {
+      return res.status(400).json({ success: false, message: 'level must be 1-100' });
+    }
+
+    const threshold = req.body?.threshold != null ? Number(req.body.threshold) : undefined;
+    if (threshold !== undefined && (!Number.isFinite(threshold) || threshold < 0)) {
+      return res.status(400).json({ success: false, message: 'threshold must be >= 0' });
+    }
+
+    // Drop ids that no longer exist so a stale dashboard can't save dangling grants.
+    let rewardItemIds: string[] | undefined;
+    if (Array.isArray(req.body?.rewardItemIds)) {
+      const requested = [...new Set(req.body.rewardItemIds.map(String))] as string[];
+      const existing = requested.length
+        ? await prisma.item.findMany({ where: { id: { in: requested } }, select: { id: true } })
+        : [];
+      rewardItemIds = existing.map((i) => i.id);
+    }
+
+    const data: any = {
+      name: req.body?.name != null ? String(req.body.name) : undefined,
+      threshold,
+      badgeUrl: req.body?.badgeUrl != null ? String(req.body.badgeUrl) : undefined,
+      ...(rewardItemIds !== undefined ? { rewardItemIds } : {}),
+    };
+    const saved = await (prisma as any).levelConfig.upsert({
+      where: { level },
+      update: data,
+      create: { level, ...data },
+    });
+    return res.json({ success: true, data: saved });
+  } catch (e) {
+    console.error('adminUpsertLevel error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to save level' });
+  }
+};
+
+/**
+ * Retroactively grant LV reward items to users who are ALREADY at or above a
+ * tier. Normal grants only fire when a level is crossed, so configuring a
+ * reward for LV 10 today leaves existing LV 40 users with nothing.
+ *
+ * Idempotent: `skipDuplicates` means re-running grants nothing new, and the
+ * response reports only rows actually created. Pass `{ level }` to backfill a
+ * single tier, or omit it for every configured tier.
+ */
+export const adminBackfillLevelRewards = async (req: AdminReq, res: Response) => {
+  try {
+    const onlyLevel = req.body?.level != null ? Number(req.body.level) : undefined;
+    if (onlyLevel !== undefined && (!Number.isFinite(onlyLevel) || onlyLevel < 1)) {
+      return res.status(400).json({ success: false, message: 'level must be >= 1' });
+    }
+
+    const configs: any[] = await (prisma as any).levelConfig.findMany({
+      where: onlyLevel !== undefined ? { level: onlyLevel } : {},
+      orderBy: { level: 'asc' },
+    });
+
+    let grantedRows = 0;
+    const usersAffected = new Set<number>();
+    const details: any[] = [];
+
+    for (const cfg of configs) {
+      const itemIds = [...new Set<string>((cfg.rewardItemIds ?? []).filter(Boolean))];
+      if (!itemIds.length) continue;
+
+      // Skip ids whose item was deleted since the tier was configured.
+      const items = await prisma.item.findMany({
+        where: { id: { in: itemIds } },
+        select: { id: true },
+      });
+      if (!items.length) continue;
+
+      const users = await prisma.user.findMany({
+        where: { level: { gte: cfg.level } },
+        select: { id: true },
+      });
+      if (!users.length) continue;
+
+      const rows = users.flatMap((u) =>
+        items.map((it) => ({ userId: u.id, itemId: it.id, isActive: false })),
+      );
+
+      // Chunked so a large user base can't build one oversized statement.
+      const CHUNK = 1000;
+      let createdForLevel = 0;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const r = await prisma.userItem.createMany({
+          data: rows.slice(i, i + CHUNK),
+          skipDuplicates: true,
+        });
+        createdForLevel += r.count;
+      }
+
+      grantedRows += createdForLevel;
+      users.forEach((u) => usersAffected.add(u.id));
+      details.push({
+        level: cfg.level,
+        users: users.length,
+        items: items.length,
+        granted: createdForLevel,
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: { grantedRows, usersAffected: usersAffected.size, details },
+    });
+  } catch (e) {
+    console.error('adminBackfillLevelRewards error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to backfill level rewards' });
+  }
+};
+
+export const adminDeleteLevel = async (req: AdminReq, res: Response) => {
+  try {
+    const level = Number(req.params.level);
+    if (!level) return res.status(400).json({ success: false, message: 'Invalid level' });
+    // Removing a tier returns that level to the built-in curve.
+    await (prisma as any).levelConfig.delete({ where: { level } }).catch(() => null);
+    return res.json({ success: true });
+  } catch (e) {
+    console.error('adminDeleteLevel error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to delete level' });
+  }
+};
+
+// ============================================================
+// ADMIN ROLE MANAGEMENT (#22, #23)
+// Only super-admins may appoint/revoke admins & super-admins.
+// ============================================================
+
+// GET /admin-dashboard/me — the current dashboard user's own role, so the UI
+// can show/hide the super-admin-only controls.
+export const adminDashboardMe = async (req: AdminReq, res: Response) => {
+  try {
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+    const me = await db.user.findUnique({
+      where: { id: req.userId },
+      select: { id: true, name: true, displayId: true, isAdmin: true, isSuperAdmin: true },
+    });
+    if (!me) return fail(res, 401, 'Unauthorized');
+    return ok(res, { data: me });
+  } catch (e) {
+    console.error('adminDashboardMe error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// GET /admin-dashboard/admins — list every admin / super-admin.
+export const adminListAdmins = async (_req: AdminReq, res: Response) => {
+  try {
+    const admins = await db.user.findMany({
+      where: { OR: [{ isAdmin: true }, { isSuperAdmin: true }] },
+      select: { id: true, name: true, displayId: true, avatarUrl: true, isAdmin: true, isSuperAdmin: true, createdAt: true },
+      orderBy: [{ isSuperAdmin: 'desc' }, { id: 'asc' }],
+    });
+    return ok(res, { data: admins });
+  } catch (e) {
+    console.error('adminListAdmins error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// Resolve a target user from a param that may be an internal id or a public displayId.
+const resolveTargetUser = async (raw: string) => {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // Prefer displayId (what the owner types), fall back to internal id.
+  return (
+    (await db.user.findFirst({ where: { displayId: n }, select: { id: true, name: true, isAdmin: true, isSuperAdmin: true } })) ||
+    (await db.user.findUnique({ where: { id: n }, select: { id: true, name: true, isAdmin: true, isSuperAdmin: true } }))
+  );
+};
+
+// POST /admin-dashboard/admins/:userId/grant — make a user an admin (super-admin only).
+export const adminGrantAdmin = async (req: AdminReq, res: Response) => {
+  try {
+    const target = await resolveTargetUser(String(req.params.userId));
+    if (!target) return fail(res, 404, 'User not found');
+    await db.user.update({ where: { id: target.id }, data: { isAdmin: true } });
+    return ok(res, { data: { id: target.id, isAdmin: true } });
+  } catch (e) {
+    console.error('adminGrantAdmin error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// POST /admin-dashboard/admins/:userId/revoke — remove admin (and super) rights.
+export const adminRevokeAdmin = async (req: AdminReq, res: Response) => {
+  try {
+    const target = await resolveTargetUser(String(req.params.userId));
+    if (!target) return fail(res, 404, 'User not found');
+    if (target.id === req.userId) return fail(res, 400, 'You cannot revoke your own admin access');
+    // Never allow removing the last super-admin (lockout guard).
+    if (target.isSuperAdmin) {
+      const superCount = await db.user.count({ where: { isSuperAdmin: true } });
+      if (superCount <= 1) return fail(res, 400, 'Cannot revoke the last super-admin');
+    }
+    await db.user.update({ where: { id: target.id }, data: { isAdmin: false, isSuperAdmin: false } });
+    return ok(res, { data: { id: target.id, isAdmin: false, isSuperAdmin: false } });
+  } catch (e) {
+    console.error('adminRevokeAdmin error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// PATCH /admin-dashboard/admins/:userId/super  { value: boolean } — promote/demote super-admin.
+export const adminSetSuperAdmin = async (req: AdminReq, res: Response) => {
+  try {
+    const value = Boolean((req.body as any)?.value);
+    const target = await resolveTargetUser(String(req.params.userId));
+    if (!target) return fail(res, 404, 'User not found');
+    if (!value) {
+      // Demoting a super-admin: block self-demotion and last-super-admin lockout.
+      if (target.id === req.userId) return fail(res, 400, 'You cannot demote yourself');
+      const superCount = await db.user.count({ where: { isSuperAdmin: true } });
+      if (target.isSuperAdmin && superCount <= 1) return fail(res, 400, 'Cannot demote the last super-admin');
+    }
+    // A super-admin is always also an admin.
+    await db.user.update({
+      where: { id: target.id },
+      data: value ? { isSuperAdmin: true, isAdmin: true } : { isSuperAdmin: false },
+    });
+    return ok(res, { data: { id: target.id, isSuperAdmin: value } });
+  } catch (e) {
+    console.error('adminSetSuperAdmin error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// B8 — إضافة / خصم التارجيت لعضو
+//
+// The dashboard could set an agency's overall `targetCoins` but had no way to
+// move one member's target, which is what the client actually asked for:
+// "اضافة تارجيت (يضيف العدد وقيمته بالدولار)، والخصم يعكس الاثنين".
+//
+// The dollar value is deliberately NOT stored. A member's dollars are derived
+// from their target through the TargetTier table (`computeDollarsFromCoins`),
+// so moving the coins moves the dollars by construction — which is exactly the
+// proportional behaviour the client described for التبديل in item #10 and the
+// only way the two figures can never drift apart.
+// ============================================================
+export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
+  try {
+    const memberId = Number(req.params.memberId);
+    if (!memberId) return fail(res, 400, 'Invalid member id');
+
+    const raw = (req.body as { amountCoins?: number | string })?.amountCoins;
+    const amount = Math.floor(Number(raw));
+    if (!Number.isFinite(amount) || amount === 0) {
+      return fail(res, 400, 'amountCoins must be a non-zero number (negative deducts)');
+    }
+
+    const member = await db.agencyMember.findUnique({
+      where: { id: memberId },
+      include: { user: { select: { id: true, name: true } } },
+    });
+    if (!member) return fail(res, 404, 'Member not found');
+
+    // A deduction may not push the member's target below zero — the panel is
+    // an accounting tool, not a way to invent negative earnings.
+    const currentEarned =
+      (await memberTargetEarned(member)) + Number(member.commissionTargetCoins ?? 0n);
+    if (amount < 0 && currentEarned + amount < 0) {
+      return fail(res, 400, `لا يمكن الخصم: التارجيت الحالي ${currentEarned} فقط`);
+    }
+
+    const updated = await db.agencyMember.update({
+      where: { id: memberId },
+      data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
+    });
+
+    const newEarned =
+      (await memberTargetEarned(updated)) + Number(updated.commissionTargetCoins ?? 0n);
+
+    try {
+      const { createNotification } = await import('../services/notification.service');
+      await createNotification({
+        userId: member.userId,
+        type: 'TARGET_ADJUSTED',
+        title: amount > 0 ? 'تمت إضافة تارجيت' : 'تم خصم تارجيت',
+        body:
+          amount > 0
+            ? `أضافت الإدارة ${amount} إلى التارجيت الخاص بك`
+            : `خصمت الإدارة ${Math.abs(amount)} من التارجيت الخاص بك`,
+        data: { amountCoins: amount, agencyId: member.agencyId },
+      });
+    } catch (e) {
+      console.warn('target adjustment notification failed:', e);
+    }
+
+    return ok(res, {
+      data: {
+        memberId,
+        amountCoins: amount,
+        earnedCoins: newEarned,
+        dollars: await computeDollarsFromCoins(newEarned),
+      },
+    });
+  } catch (e) {
+    console.error('adminAdjustMemberTarget error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// B9 — أعلى المستويات: "تصفير العداد" for one account
+//
+// Not a deletion and not a permanent ban from the board. Stamping
+// `supportersResetAt` makes the board count only what the account gifts from
+// that moment on, which is precisely what the client asked for: he tests by
+// gifting heavily, wants to stop occupying #1, and wants to reappear "بالمستوى
+// اللي هو وصل له" the moment he supports again.
+// ============================================================
+export const adminListTopSupporters = async (req: AdminReq, res: Response) => {
+  try {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+
+    const resetUsers = await db.user.findMany({
+      where: { supportersResetAt: { not: null } },
+      select: { id: true, supportersResetAt: true },
+    });
+    const resetIds = resetUsers.map((u: { id: number }) => u.id);
+
+    const rows = await db.giftTransaction.groupBy({
+      by: ['senderId'],
+      where: {
+        AND: [
+          { NOT: { senderId: { equals: db.giftTransaction.fields.recipientId } } },
+          ...(resetIds.length
+            ? [
+                {
+                  OR: [
+                    { senderId: { notIn: resetIds } },
+                    ...resetUsers.map((u: { id: number; supportersResetAt: Date }) => ({
+                      senderId: u.id,
+                      createdAt: { gte: u.supportersResetAt },
+                    })),
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      _sum: { totalCoins: true },
+      orderBy: { _sum: { totalCoins: 'desc' } },
+      take: limit,
+    });
+
+    const users = rows.length
+      ? await db.user.findMany({
+          where: { id: { in: rows.map((r: { senderId: number }) => r.senderId) } },
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            displayId: true,
+            level: true,
+            vipLevel: true,
+            supportersResetAt: true,
+          },
+        })
+      : [];
+    const byId = new Map(users.map((u: { id: number }) => [u.id, u]));
+
+    return ok(res, {
+      data: rows.map((r: { senderId: number; _sum: { totalCoins: number | null } }, i: number) => ({
+        rank: i + 1,
+        user: byId.get(r.senderId) ?? null,
+        coins: Number(r._sum.totalCoins ?? 0),
+      })),
+    });
+  } catch (e) {
+    console.error('adminListTopSupporters error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminResetSupporterCounter = async (req: AdminReq, res: Response) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!userId) return fail(res, 400, 'Invalid user id');
+    // `undo: true` puts the whole history back on the board.
+    const undo = (req.body as { undo?: boolean })?.undo === true;
+
+    const user = await db.user.update({
+      where: { id: userId },
+      data: { supportersResetAt: undo ? null : new Date() },
+      select: { id: true, name: true, supportersResetAt: true },
+    });
+    return ok(res, { data: user });
+  } catch (e) {
+    console.error('adminResetSupporterCounter error:', e);
+    return fail(res, 500, 'Server error');
   }
 };

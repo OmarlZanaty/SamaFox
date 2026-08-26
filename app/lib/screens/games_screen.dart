@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'games/roulette_screen.dart';
+import 'games/skill_wheel_screen.dart';
 
 
 /// Games Screen - Displays available games in decorative cards
@@ -89,11 +89,11 @@ class _GameCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        if (game.id == 'roulette') {
+        if (game.id == 'skill_wheel') {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => const RouletteScreen(),
+              builder: (context) => const SkillWheelScreen(),
             ),
           );
         } else {
@@ -217,9 +217,9 @@ class GameItem {
 // Games list matching the image
 final List<GameItem> games = [
   GameItem(
-    id: 'roulette',
-    name: 'روليت',
-    icon: Icons.casino_outlined,
+    id: 'skill_wheel',
+    name: 'عجلة المهارة',
+    icon: Icons.track_changes,
     gradientColors: [Color(0xFF6B21A8), Color(0xFF1a0533)],
     borderColor: Color(0xFFFFD700),
   ),

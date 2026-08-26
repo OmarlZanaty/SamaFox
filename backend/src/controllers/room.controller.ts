@@ -2,6 +2,7 @@ import prisma from '../utils/prisma';
 import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
+import { broadcastRoomClosed } from '../services/socket.service';
 
 
 export const getRooms = async (req: Request, res: Response) => {
@@ -32,6 +33,7 @@ export const getRooms = async (req: Request, res: Response) => {
             id: true,
             name: true,
             avatarUrl: true,
+            displayId: true,
             level: true,
             vipLevel: true
           }
@@ -74,6 +76,7 @@ export const getRooms = async (req: Request, res: Response) => {
         type: room.type,
         maxSeats: room.maxSeats,
         ownerId: room.ownerId,
+        isLocked: room.isLocked,
         owner: room.owner,
         membersCount: room._count.members,
 members: room.members.map(m => ({
@@ -196,6 +199,7 @@ export const getRoomById = async (req: Request, res: Response) => {
       backgroundImageUrl: room.backgroundImageUrl,
       type: room.type,
       maxSeats: room.maxSeats,
+      isLocked: room.isLocked,
       owner: room.owner,
       ownerFrameImageUrl: room.owner.activeFrame?.assetUrl ?? null,
       membersCount: room._count.members,
@@ -311,6 +315,9 @@ export const updateRoom = async (req: Request, res: Response) => {
     const room = await prisma.room.findUnique({ where: { id: roomIdNum } });
     if (!room) return res.status(404).json({ error: 'Room not found' });
     if (room.ownerId !== userId) return res.status(403).json({ error: 'Only room owner can update the room' });
+    if ((room as any).nameLocked && name && String(name) !== room.name) {
+      return res.status(403).json({ error: 'تم تثبيت اسم الغرفة من الإدارة ولا يمكن تغييره' });
+    }
 
     const safeMaxSeats =
       maxSeats != null ? Math.max(2, Math.min(30, Number(maxSeats))) : undefined;
@@ -351,6 +358,8 @@ export const deleteRoom = async (req: Request, res: Response) => {
       where: { id: roomIdNum },
       data: { isActive: false },
     });
+
+    broadcastRoomClosed(roomIdNum);
 
     return res.json({ message: 'Room deleted successfully' });
   } catch (error) {

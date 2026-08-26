@@ -1,7 +1,7 @@
 name: samafox
 description: A modern social voice chat application built with Flutter
 publish_to: 'none'
-version: 1.0.5+11
+version: 1.0.17+23
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -75,6 +75,13 @@ dependencies:
 
   # Image Picker
   image_picker: ^1.0.7
+  image_cropper: ^8.0.2
+
+  # Picks songs off the phone for room music (image_picker cannot do audio).
+  # Must stay >=8: 6.x still ships the v1-embedding FilePickerPlugin.java, and
+  # its PluginRegistry.Registrar was removed from Flutter — the release build
+  # dies with "cannot find symbol: class Registrar".
+  file_picker: ^10.0.0
 
   share_plus: ^7.0.0
 
@@ -106,6 +113,17 @@ flutter:
 
   assets:
     - assets/images/
+    # Directory entries are NOT recursive, so the crash artwork needs its own
+    # line even though it lives under assets/images/.
+    - assets/images/crash/
+    # عجلة الحظ artwork — same non-recursive rule as the crash folder.
+    - assets/images/crazy/
+    # بلينكو artwork — likewise.
+    - assets/images/plinko/
+    # أثيرفول artwork — likewise.
+    - assets/images/aetherfall/
+    # Game-card banners for the hub.
+    - assets/images/cards/
     - assets/fonts/
     - assets/frames/gold_wings.png
     - assets/icons/
@@ -113,6 +131,10 @@ flutter:
     - assets/seat_effect.mp4
     - assets/sounds/
     - android/app/src/main/assets/adi-registration.properties
+  # Bloom post-process for the crash game. Loaded at runtime with a fallback to
+  # the plain blur stack if the device cannot compile it.
+  shaders:
+    - shaders/bloom.frag
   fonts:
         - family: ElMessiri
           fonts:

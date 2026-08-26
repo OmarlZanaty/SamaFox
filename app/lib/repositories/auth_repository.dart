@@ -161,6 +161,7 @@ class AuthRepository {
   // ============================================
 
   Future<String> getDeviceId() async {
+    if (kIsWeb) return 'web';
     try {
       final deviceInfo = DeviceInfoPlugin();
       if (Platform.isAndroid) {

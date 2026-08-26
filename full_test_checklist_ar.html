@@ -1,0 +1,177 @@
+<title>قائمة اختبار SamaFox الكاملة — كل الميزات</title>
+<style>
+:root{
+  --bg:#0d0620; --panel:#1a0e3e; --panel2:#241a52; --border:#372a6e;
+  --text:#f1eefc; --muted:#a99fd1; --accent:#ffd700; --accent2:#00a3ff;
+  --ok:#2ecc71; --warn:#f5a623; --bad:#ff5c5c;
+}
+:root[data-theme="light"]{
+  --bg:#f6f5fb; --panel:#ffffff; --panel2:#f0edfa; --border:#e2ddf5;
+  --text:#221a3d; --muted:#655e85; --accent:#a3760a; --accent2:#0077b8;
+  --ok:#1e8e4f; --warn:#b5720a; --bad:#c8372f;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f6f5fb; --panel:#ffffff; --panel2:#f0edfa; --border:#e2ddf5;
+    --text:#221a3d; --muted:#655e85; --accent:#a3760a; --accent2:#0077b8;
+    --ok:#1e8e4f; --warn:#b5720a; --bad:#c8372f;
+  }
+}
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--text); font-family:"Segoe UI",Tahoma,Arial,sans-serif; direction:rtl; padding:24px; max-width:1150px; margin:0 auto}
+h1{font-size:22px; margin:0 0 4px; color:var(--accent)}
+h2{font-size:16px; color:var(--accent); margin:26px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px}
+.sub{color:var(--muted); font-size:13.5px; margin-bottom:16px}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:18px; font-size:13px}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.dot{width:10px; height:10px; border-radius:50%; display:inline-block}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:12px; margin-bottom:8px}
+table{border-collapse:collapse; width:100%; min-width:900px; font-size:13.5px}
+th{background:var(--panel2); color:var(--accent); text-align:right; padding:9px 11px; border-bottom:2px solid var(--border); position:sticky; top:0}
+td{padding:9px 11px; border-bottom:1px solid var(--border); vertical-align:top; background:var(--panel)}
+tr:last-child td{border-bottom:none}
+td.num{color:var(--muted); font-weight:700; width:34px}
+td.status{width:140px; font-weight:600; white-space:nowrap}
+.status.ok{color:var(--ok)} .status.warn{color:var(--warn)} .status.bad{color:var(--bad)}
+.note{color:var(--muted); font-size:12.5px; margin-top:4px}
+.callout{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px}
+.callout b{color:var(--accent)}
+code{background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px; font-size:12.5px}
+@media (max-width:700px){ body{padding:12px} }
+</style>
+
+<h1>قائمة اختبار SamaFox الكاملة — كل الميزات حتى الآن</h1>
+<div class="sub">إصدار الاختبار: 1.0.9+15 — يعمل حاليًا: 📱 موبايل (لاسلكي) + 💻 كروم</div>
+
+<div class="legend">
+  <span><span class="dot ok"></span> جاهز للاختبار الآن</span>
+  <span><span class="dot warn"></span> يحتاج نشر الباك إند الجديد أولًا (لسه مش منشور)</span>
+  <span><span class="dot bad"></span> يحتاج إجراء منك (مش اختبار)</span>
+</div>
+
+<div class="callout">
+<b>✅ تم النشر:</b> كل التحديثات (Live badge دقيق، الشارات، التارجت بالدولار، تبديل الكوينزات، هدية لنفسك 50%) شغالة الآن فعليًا على السيرفر — تأكدت منها مباشرة. كل البنود جاهزة للاختبار.
+</div>
+
+<h2>القائمة الأصلية (35 بند)</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th class="num">#</th><th>الميزة</th><th>طريقة الاختبار</th><th>النتيجة المتوقعة</th><th class="status">الحالة</th></tr></thead>
+<tbody>
+
+<tr><td class="num">1</td><td>تسجيل الدخول بالفيسبوك</td><td>شاشة الدخول ← زر Facebook</td><td>يسجّل الدخول وينتقل للتطبيق</td><td class="status warn">يحتاج Meta Live-mode (خارج الكود)</td></tr>
+
+<tr><td class="num">2</td><td>قائمة الإعدادات</td><td>الملف الشخصي ← إعدادات ← جرّب: تسجيل الخروج، حذف الحساب، تبديل الحساب، القائمة السوداء (احظر مستخدم من ملفه ← شوفه في القائمة ← إلغاء الحظر)</td><td>كل زر يعمل فعليًا</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">3</td><td>تعديل السن</td><td>الملف الشخصي ← تعديل ← العمر ← حفظ</td><td>يُحفظ ويظهر "X سنة"</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">4</td><td>تصفير عدّاد الكوينزات</td><td>إعدادات الغرفة (أدمن) ← تصفير عدّاد الكوينزات</td><td>تُصفّر الأرقام تحت كل مستخدم</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">5</td><td>الأكتفتي "دخل الغرفة"</td><td>ادخل بمستخدم ثانٍ للغرفة</td><td>"فلان انضم إلى الغرفة" في لوحة النشاط</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">6</td><td>تعديل اسم/صورة الغرفة</td><td>كأدمن، اضغط اسم/صورة الغرفة (بالأعلى)</td><td>Dialog لتغيير الاسم/الصورة ويُحفظ</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">7</td><td>الدخولية مرة واحدة</td><td>افتح الغرفة ← صغّرها ← ارجع (لا تتكرر)؛ اقفلها وادخل (تتكرر)</td><td>تعمل مرة واحدة لكل دخول حقيقي</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">8</td><td>الإطار على المايك</td><td>مستخدم لديه إطار مُفعّل يجلس على مايك</td><td>يظهر الإطار حول الصورة</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">9</td><td>الإطار + الدخولية معًا</td><td>ادخل بدخولية أثناء تشغيل إطار</td><td>يعملان معًا</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">10</td><td>نقل المقعد</td><td>كأدمن، اجلس ← اضغط مايك فارغ ← الانتقال</td><td>تنتقل للمقعد الجديد</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">11</td><td>علامة الكتم على مقعد فارغ</td><td>الأدمن يكتم مقعدًا فارغًا</td><td>أيقونة كتم برتقالية</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">12</td><td>دعوة إلى المايك</td><td>مايك فارغ (أدمن) ← دعوة إلى المقعد ← اختر شخصًا</td><td>يُرفع الشخص على ذلك المايك</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">13</td><td>طرد من الشات</td><td>اضغط اسم الكاتب بالشات ← طرد من الغرفة</td><td>يُطرد المستخدم</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">14</td><td>خصم الهدية لأكثر من شخص</td><td>اختر 3 مقاعد ← أرسل هدية بـ100</td><td>يُخصم 300</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">15</td><td>سرعة خصم الكوينز</td><td>أرسل أي هدية</td><td>ينخفض الرصيد فورًا</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">16</td><td>صفحة الهدايا</td><td>افتح لوحة الهدايا</td><td>تبويبات الهدايا</td><td class="status bad">لا يوجد تبويب "بطاقات الهدايا" — بانتظار تصميمك</td></tr>
+
+<tr><td class="num">17</td><td>مضاعفات الإرسال</td><td>افتح لوحة الهدايا</td><td>أزرار 7/10/20/50</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">18</td><td>رفع هدايا CP</td><td>لوحة التحكم ← الهدايا ← مربع "⚡ CP"</td><td>يُحفظ مع الهدية</td><td class="status ok">جاهز (على الداشبورد، لا الموبايل)</td></tr>
+
+<tr><td class="num">19</td><td>هدايا CP تقوّي الحساب</td><td>أرسل هدية مُعلّمة بـCP</td><td>ترتفع نقاط CP للمُرسِل</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">20</td><td>صورة/رأس الملف الشخصي</td><td>افتح أي ملف شخصي</td><td>غلاف + صورة + إطار</td><td class="status bad">الغلاف غير موجود — بانتظار الصورة المرجعية منك</td></tr>
+
+<tr><td class="num">21</td><td>الهدايا المستلمة + العدد</td><td>افتح ملفًا شخصيًا</td><td>شبكة الهدايا المستلمة مع العدد</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">22</td><td>تارجت المضيف/الوكيل</td><td>ملف الوكيل</td><td>تخطيط التارجت + علامة الدولار</td><td class="status ok">جاهز — منشور</td></tr>
+
+<tr><td class="num">23</td><td>الضغط على الليفل ← التقدّم</td><td>الملف ← اضغط شارة Level</td><td>"تحتاج X نقطة للمستوى التالي"</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">24</td><td>الضغط على VIP ← التقدّم</td><td>الملف ← اضغط بطاقة VIP</td><td>"تحتاج X كوينز لـ VIP التالي"</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">25</td><td>المتابَعون + علامة Live</td><td>الملف ← اضغط Following ← ادخل على شخص Live وهو <b>ضيف</b> عند حد تاني</td><td>يدخلك <b>مكانه الفعلي</b>، مش غرفته المملوكة</td><td class="status ok">جاهز — منشور</td></tr>
+
+<tr><td class="num">26</td><td>صف وكالة/متجر/إعدادات</td><td>ملفك الشخصي</td><td>صف 3 أزرار قبل الهدايا</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">27</td><td>نقل المتجر لزر المتجر</td><td>الشريط السفلي ← المتجر / وكلاء الشحن</td><td>يفتح الشاشة الصحيحة مباشرة</td><td class="status ok">جاهز (تأكد من النسخة الجديدة)</td></tr>
+
+<tr><td class="num">28</td><td>الشارات</td><td>افتح ملفًا شخصيًا لمستخدم يملك إطار/دخولية</td><td>صف شارات صغيرة تحت الاسم</td><td class="status ok">جاهز — منشور</td></tr>
+
+<tr><td class="num">29</td><td>صف غرفة/رسالة/متابعة + الضغط على أي صورة</td><td>افتح ملف مستخدم من: الغرفة، البحث، الرسائل، شاشة البحث المنفصلة</td><td>نفس صفحة الملف الكاملة من كل مكان</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">30</td><td>الضغط على الصورة في أي مكان</td><td>اضغط صورة مستخدم (شات/قائمة/غرفة)</td><td>يفتح ملفه الشخصي</td><td class="status ok">جاهز</td></tr>
+
+<tr><td class="num">31</td><td>مسار + علامة Live</td><td>مستخدم آخر ضيف في غرفة شخص ثالث ← افتح ملفه</td><td>شارة مسار•LIVE ← الضغط يدخل <b>مكانه الفعلي</b></td><td class="status ok">جاهز — منشور</td></tr>
+
+<tr><td class="num">32</td><td>شحن مستخدم + رسالة</td><td>مالك وكالة شحن ← أرسل كوينز لمستخدم</td><td>يستلم الكوينز + إشعار</td><td class="status bad">يحتاج إعادة تسجيل وكالتك أولًا (بيانات GCP مفقودة)</td></tr>
+
+<tr><td class="num">33</td><td>الفرع (وكالة الشحن)</td><td>لوحة الوكالة ← أضف فرعًا بالـ ID</td><td>الفرع يقدر يبيع/يشحن</td><td class="status bad">يحتاج إعادة تسجيل الوكالة أولًا</td></tr>
+
+<tr><td class="num">34</td><td>الوكيل يشحن نفسه + تارجت</td><td>كفرع/وكيل، اشحن نفسك</td><td>تُضاف الكوينز ويُحسب التارجت</td><td class="status bad">يحتاج إعادة تسجيل الوكالة أولًا</td></tr>
+
+<tr><td class="num">35</td><td>دعوة لوكالة المضيفين</td><td>مالك الوكالة ← ادعُ مستخدمًا</td><td>تُرسل الدعوة</td><td class="status bad">يحتاج إعادة تسجيل الوكالة أولًا</td></tr>
+
+</tbody>
+</table>
+</div>
+
+<h2>إصلاحات إضافية (من الدفعة السابقة)</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th class="num">#</th><th>البند</th><th>طريقة الاختبار</th><th class="status">الحالة</th></tr></thead>
+<tbody>
+<tr><td class="num">36</td><td>إلغاء استخدام الإطار</td><td>الملف ← الإطار ← إلغاء الاستخدام ← يختفي من المقعد والملف</td><td class="status ok">جاهز</td></tr>
+<tr><td class="num">37</td><td>ملف مستخدم آخر لا يعلّق</td><td>افتح ملف مستخدم آخر من البحث/الرسائل ← يفتح ويثبت (لا يعيد التحميل)</td><td class="status ok">جاهز — كان هذا البند هو نفسه سبب مشكلة #29</td></tr>
+<tr><td class="num">38</td><td>رصيد الكوينز في لوحة الهدايا</td><td>افتح الهدايا ← يظهر رصيدك الحقيقي</td><td class="status ok">جاهز</td></tr>
+<tr><td class="num">39</td><td>زر الخروج من أعلى الملف</td><td>الملف الشخصي ← لا يوجد زر خروج بالأعلى</td><td class="status ok">جاهز</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>الدفعة الجديدة (طلبات اليوم)</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th>الميزة</th><th>طريقة الاختبار</th><th>النتيجة المتوقعة</th><th class="status">الحالة</th></tr></thead>
+<tbody>
+
+<tr><td>Target + علامة الدولار الحقيقية</td><td>كمضيف/وكيل، افتح ملفك ← كارت التارجت</td><td>رقم الدولار يظهر تحت شريط التقدّم ويتحرك مع كل هدية جديدة</td><td class="status ok">جاهز — منشور</td></tr>
+
+<tr><td>تبديل الكوينزات</td><td>الإعدادات ← تبديل الكوينزات ← أدخل مبلغًا ≤ المتاح ← تبديل</td><td>نصف المبلغ يُضاف لرصيدك فورًا، والتارجت نفسه يفضل زي ما هو</td><td class="status ok">جاهز — منشور</td></tr>
+
+<tr><td>هدية لنفسك ترجع 50%</td><td>أرسل هدية بـ1000 لنفسك</td><td>يُخصم 1000، ثم يُضاف 500 تلقائيًا (خسارة صافية 500)</td><td class="status ok">جاهز — منشور</td></tr>
+
+<tr><td>أداة قص صورة الملف الشخصي</td><td>الإعدادات/الملف ← تعديل ← اختر صورة من المعرض</td><td>مربع قص يظهر، تكبير/تصغير بإصبعك، تأكيد، ثم رفع</td><td class="status ok">جاهز على الموبايل (لا كروم)</td></tr>
+
+<tr><td>فتح صورة أي مستخدم بحجم كامل</td><td>اضغط صورة أي مستخدم في ملفه الشخصي (لك أو لغيرك)</td><td>تفتح بشاشة كاملة سوداء مع إمكانية تكبير/تصغير باللمس</td><td class="status ok">جاهز</td></tr>
+
+<tr><td>معاينة الإطار قبل الشراء</td><td>المتجر ← تبويب الإطارات ← اضغط على أي إطار (وليس زر الشراء)</td><td>يظهر Dialog بصورتك الحالية وهي لابسة هذا الإطار</td><td class="status ok">جاهز</td></tr>
+
+<tr><td>معاينة الدخولية بشاشة كاملة قبل الشراء</td><td>المتجر ← تبويب الدخوليات/تأثيرات المقعد ← اضغط على أي عنصر</td><td>يشغّل الفيديو/التأثير بشاشة كاملة سوداء</td><td class="status ok">جاهز</td></tr>
+
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+<b>معلّق بانتظار قرارك:</b> حظر تلقائي للصور غير اللائقة (يحتاج اختيار خدمة AWS Rekognition أو Google Vision).<br>
+<b>معلّق بانتظار الصورة المرجعية:</b> تصميم صفحة الهدايا (#16)، غلاف الملف الشخصي (#20).
+</div>

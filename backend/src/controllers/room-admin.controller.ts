@@ -3,13 +3,43 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { io } from '../index';
+import { invalidateAdminCacheAndRefresh } from '../services/socket.service';
 
 const toInt = (v: any): number | null => {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
+/** Platform-wide super admin (group 11): outranks room owners in every room. */
+async function isPlatformSuperAdmin(userId: number): Promise<boolean> {
+  const u = await (prisma as any).user.findUnique({
+    where: { id: userId },
+    select: { isSuperAdmin: true },
+  });
+  return Boolean(u?.isSuperAdmin);
+}
+
+/**
+ * Platform staff tier for a user, independent of any room membership:
+ *   'super'    — super admin: moderates anyone and controls room settings
+ *   'platform' — admin: moderates anyone and is immune to moderation, but
+ *                deliberately gets NO room-settings powers
+ *   null       — ordinary user, ranked by their room role alone
+ */
+async function getPlatformTier(userId: number): Promise<'super' | 'platform' | null> {
+  const u = await (prisma as any).user.findUnique({
+    where: { id: userId },
+    select: { isSuperAdmin: true, isAdmin: true },
+  });
+  if (u?.isSuperAdmin) return 'super';
+  if (u?.isAdmin) return 'platform';
+  return null;
+}
+
 async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isAdmin: boolean; role: string | null }> {
+  // Group 11: platform super admins hold admin powers in every room.
+  if (await isPlatformSuperAdmin(userId)) return { isAdmin: true, role: 'super' };
+
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     include: { members: { where: { userId } } },
@@ -27,10 +57,27 @@ async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isA
   return { isAdmin: false, role: member?.role || null };
 }
 
-const ROLE_RANK: Record<string, number> = { owner: 3, admin: 2, supervisor: 1, member: 0 };
+// Platform staff sit above every room role, so a room owner can never kick,
+// mute or pull an admin off the mic — the immunity the owner asked for. Note
+// this ranking governs MODERATION only; room settings stay gated by
+// isRoomAdminOrOwner, which platform admins deliberately do not satisfy.
+const ROLE_RANK: Record<string, number> = {
+  super: 5,
+  platform: 4,
+  owner: 3,
+  admin: 2,
+  supervisor: 1,
+  member: 0,
+};
 
-/** Effective role of a user in a room: owner | admin | supervisor | member. */
+/** Effective role: super | platform | owner | admin | supervisor | member. */
 async function getRoomRole(userId: number, roomId: number): Promise<string> {
+  // Group 11: super admins outrank the owner (owner can't mute/kick them,
+  // they can moderate anyone including the owner). Platform admins rank just
+  // below them: same immunity and moderation reach, no settings control.
+  const tier = await getPlatformTier(userId);
+  if (tier) return tier;
+
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     select: { ownerId: true, members: { where: { userId }, select: { role: true } } },
@@ -96,6 +143,7 @@ export async function addRoomAdmin(req: Request, res: Response) {
       create: { userId, roomId, role },
     });
 
+    invalidateAdminCacheAndRefresh(roomId);
     return res.json({ success: true, message: `${role} added`, member, role });
   } catch (e) {
     console.error('addRoomAdmin error:', e);
@@ -121,6 +169,7 @@ export async function removeRoomAdmin(req: Request, res: Response) {
       data: { role: 'member' },
     });
 
+    invalidateAdminCacheAndRefresh(roomId);
     return res.json({ success: true, message: 'Admin removed', member });
   } catch (e) {
     console.error('removeRoomAdmin error:', e);
@@ -341,6 +390,25 @@ export async function toggleRoomLock(req: Request, res: Response) {
   }
 }
 
+// #4: admin resets the per-user coin counters shown under each seat in this room.
+export async function resetSeatEarnings(req: Request, res: Response) {
+  try {
+    const roomId = toInt(req.body.roomId);
+    const requesterId = (req as any).userId as number | undefined;
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roomId) return res.status(400).json({ error: 'Invalid roomId' });
+
+    const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can reset counters' });
+
+    await prisma.room.update({ where: { id: roomId }, data: { contributionResetAt: new Date() } });
+    return res.json({ success: true, message: 'Counters reset' });
+  } catch (e) {
+    console.error('resetSeatEarnings error:', e);
+    return res.status(500).json({ error: 'Failed' });
+  }
+}
+
 export async function updateMaxSeats(req: Request, res: Response) {
   try {
     const roomId = toInt(req.body.roomId);
@@ -396,21 +464,38 @@ export async function updateRoomBackground(req: Request, res: Response) {
     const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can change room background' });
 
-    // Custom backgrounds uploaded from the device cost 20,000 coins.
+    // A background uploaded from the device is rented, not bought: the owner
+    // set 1,000 coins for 20 days. Both are AppSettings so the price and the
+    // term can be retuned from the dashboard without a deploy.
     const chargeUpload = req.body.chargeUpload === true || req.body.chargeUpload === 'true';
-    const UPLOAD_BG_COST = 20000;
+    let backgroundExpiresAt: Date | null = null;
     if (chargeUpload) {
+      const [priceRow, daysRow] = await Promise.all([
+        (prisma as any).appSetting.findUnique({ where: { key: 'room_background_price_coins' } }),
+        (prisma as any).appSetting.findUnique({ where: { key: 'room_background_days' } }),
+      ]);
+      const cost = Math.max(0, Math.floor(Number(priceRow?.value ?? 1000)) || 1000);
+      const days = Math.max(1, Math.floor(Number(daysRow?.value ?? 20)) || 20);
+
       const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { coinsBalance: true } });
-      if (!u || u.coinsBalance < UPLOAD_BG_COST) {
-        return res.status(400).json({ error: 'INSUFFICIENT_COINS', message: 'رصيد الكوينز غير كافٍ (تكلفة الخلفية 20,000)' });
+      if (!u || u.coinsBalance < cost) {
+        return res.status(400).json({
+          error: 'INSUFFICIENT_COINS',
+          message: `رصيد الكوينز غير كافٍ (تكلفة الخلفية ${cost.toLocaleString('en-US')})`,
+        });
       }
-      await prisma.user.update({ where: { id: requesterId }, data: { coinsBalance: { decrement: UPLOAD_BG_COST } } });
+      await prisma.user.update({ where: { id: requesterId }, data: { coinsBalance: { decrement: cost } } });
       await prisma.transaction.create({
-        data: { userId: requesterId, type: 'ROOM_BACKGROUND', amountCoins: -UPLOAD_BG_COST, status: 'completed' },
+        data: { userId: requesterId, type: 'ROOM_BACKGROUND', amountCoins: -cost, status: 'completed' },
       });
+      backgroundExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     }
 
-    const room = await prisma.room.update({ where: { id: roomId }, data: { backgroundImageUrl } });
+    const room = await prisma.room.update({
+      where: { id: roomId },
+      // Clearing or setting a free background also clears any running term.
+      data: { backgroundImageUrl, backgroundExpiresAt } as any,
+    });
 
     // Live update for everyone currently in the room.
     io.to(`room:${roomId}`).emit('room_background_changed', { roomId, backgroundImageUrl });
@@ -518,6 +603,41 @@ export async function setSeatBlock(req: Request, res: Response) {
   } catch (e) {
     console.error('setSeatBlock error:', e);
     return res.status(500).json({ error: 'Failed' });
+  }
+}
+
+/**
+ * Close a room from inside the app. Super admins only — platform admins get
+ * moderation powers but deliberately no control over the room itself.
+ *
+ * Closing is the same operation the dashboard performs: isActive:false, which
+ * `join_room` rejects with `join_denied` ('closed'), plus a broadcast that
+ * empties the room immediately. So everyone inside leaves and nobody can get
+ * back in, which is what the owner asked for.
+ */
+export async function closeRoomAsSuperAdmin(req: Request, res: Response) {
+  try {
+    const roomId = toInt(req.body.roomId);
+    const requesterId = (req as any).userId as number | undefined;
+    const reason = req.body.reason?.toString()?.trim() || 'تم إغلاق الغرفة من الإدارة';
+
+    if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!roomId) return res.status(400).json({ error: 'roomId required' });
+
+    if (!(await isPlatformSuperAdmin(requesterId))) {
+      return res.status(403).json({ error: 'سوبر أدمن فقط يمكنه إغلاق الغرفة' });
+    }
+
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    await prisma.room.update({ where: { id: roomId }, data: { isActive: false } });
+    io.to(`room:${roomId}`).emit('room_force_closed', { roomId, reason });
+
+    return res.json({ success: true, message: 'Room closed' });
+  } catch (e) {
+    console.error('closeRoomAsSuperAdmin error:', e);
+    return res.status(500).json({ error: 'Failed to close room' });
   }
 }
 

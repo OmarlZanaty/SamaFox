@@ -14,6 +14,16 @@ class RoomEvent {
   final String? countryCode;
   final String? gender;
 
+  /// Identity shown next to the name on an entrance line —
+  /// "فهد VIP 6 · LV 8 دخل الغرفة" — plus the icon urls of his شارات.
+  final int? vipLevel;
+  final int? level;
+  final List<String> badges;
+
+  /// Who the line is about — the entrant, or the gift's SENDER. Lets the feed
+  /// open his card on tap, exactly like a chat bubble does.
+  final int? userId;
+
   const RoomEvent({
     required this.type,
     required this.text,
@@ -23,6 +33,10 @@ class RoomEvent {
     this.coins,
     this.countryCode,
     this.gender,
+    this.vipLevel,
+    this.level,
+    this.badges = const [],
+    this.userId,
   });
 
   IconData get icon {

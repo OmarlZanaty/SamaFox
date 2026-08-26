@@ -13,7 +13,6 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
   StreamSubscription<GlobalNotificationEvent>? _sub;
   GlobalNotificationEvent? _current;
   Timer? _hideTimer;
-  static const Duration _visibleDuration = Duration(seconds: 12);
 
   @override
   void initState() {
@@ -21,7 +20,11 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
     _sub = GlobalNotificationService.instance.stream.listen((event) {
       setState(() => _current = event);
       _hideTimer?.cancel();
-      _hideTimer = Timer(_visibleDuration, () {
+      // A21 — the dwell time now comes from the event. It used to be a flat
+      // 12 seconds for everything, which is what left the gift-received and
+      // agent-percentage banners sitting on top of the gift bar long after
+      // anyone needed to read them.
+      _hideTimer = Timer(event.duration, () {
         if (!mounted) return;
         setState(() => _current = null);
       });
@@ -65,7 +68,10 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
                         constraints: const BoxConstraints(maxWidth: 760),
                         child: Container(
                           width: double.infinity,
-                          margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                          // A21 — `topOffset` pushes the banner BELOW the room's
+                          // gift bar. The gift bar itself is untouched, exactly
+                          // as the client asked.
+                          margin: EdgeInsets.fromLTRB(12, 8 + event.topOffset, 12, 0),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(

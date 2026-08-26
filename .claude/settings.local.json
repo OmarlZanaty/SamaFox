@@ -18,7 +18,32 @@
       "Bash(npm install *)",
       "Bash(grep -E \"^\\(prisma|tsc\\)$\")",
       "Bash(rmdir animations *)",
-      "Bash(rmdir data *)"
+      "Bash(rmdir data *)",
+      "Bash(git -C \"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\" remote -v)",
+      "Bash(gh repo *)",
+      "Bash(gcloud config *)",
+      "Bash(gcloud projects *)",
+      "Bash(git -C \"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\" status -s)",
+      "PowerShell(gcloud config list 2>$null)",
+      "PowerShell(gcloud projects list --format=\"value\\(projectId\\)\" 2>$null)",
+      "PowerShell(\"---\")",
+      "PowerShell($g = \\(Get-Command gcloud -ErrorAction SilentlyContinue\\); if \\($g\\) { \"gcloud at: $\\($g.Source\\)\" } else { \"gcloud NOT on PATH\" })",
+      "Bash(break)",
+      "PowerShell($out = & \"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.ps1\" auth list --format=\"value\\(account\\)\" 2>&1 | Out-String; \"ACCT: $out\"; $p = & \"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.ps1\" config get-value project 2>&1 | Out-String; \"PROJ: $p\")",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(adb devices *)",
+      "PowerShell($adb = \\(Get-Command adb -ErrorAction SilentlyContinue\\).Source; if \\(-not $adb\\) { $adb = \"$env:LOCALAPPDATA\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe\" }; if \\(Test-Path $adb\\) { \"ADB: $adb\"; & $adb devices } else { \"adb not found\" })",
+      "Bash(flutter devices *)",
+      "Bash(flutter run *)",
+      "PowerShell(git -C \"C:\\\\Users\\\\user\\\\Desktop\\\\Projects\\\\SamaFox\" push origin main)",
+      "Bash(aws --version)",
+      "Bash(aws sts *)",
+      "Bash(\"C:/Users/user/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin/gcloud.ps1\" --version)",
+      "Bash(ssh -V)",
+      "Bash(ssh -i ~/.ssh/samafox-ec2.pem ubuntu@63.179.163.62 *)",
+      "Bash(ssh -i \"C:\\\\Users\\\\user\\\\.ssh\\\\samafox-ec2.pem\" -o StrictHostKeyChecking=no ubuntu@63.179.163.62 \"pm2 restart samafox-api && sleep 2 && curl -s http://localhost:3000/health\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

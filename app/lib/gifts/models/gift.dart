@@ -1,4 +1,25 @@
 import 'package:flutter/foundation.dart';
+import '../../config/app_config.dart';
+
+const List<String> _kVideoExtensions = ['.mp4', '.webm', '.mov', '.m4v', '.ogv'];
+
+/// True when the URL points at a clip the video player can handle.
+bool _looksLikeVideo(String? url) {
+  if (url == null || url.isEmpty) return false;
+  final path = url.split('?').first.split('#').first.toLowerCase();
+  return _kVideoExtensions.any(path.endsWith);
+}
+
+/// Uploads made through the gift admin module return a site-relative path
+/// (`/assets/videos/x.mp4`). The video player and cache manager need an absolute
+/// URL, so make one here rather than in every widget.
+String? _absoluteUrl(String? url) {
+  if (url == null || url.isEmpty) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  final raw = AppConfig.socketUrl;
+  final base = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+  return url.startsWith('/') ? '$base$url' : '$base/$url';
+}
 
 enum GiftFormat { svgCss, video }
 
@@ -65,6 +86,7 @@ class Gift {
   final bool broadcastGlobal;
   final String? category;
   final int sortOrder;
+  final DateTime? createdAt;
 
   const Gift({
     required this.id,
@@ -84,18 +106,28 @@ class Gift {
     this.broadcastGlobal = false,
     this.category,
     this.sortOrder = 0,
+    this.createdAt,
   });
 
   factory Gift.fromJson(Map<String, dynamic> json) {
     final colors = json['fireworksColors'];
+    final animationUrl = _absoluteUrl(json['animationUrl'] as String?);
+    // Safety net for rows saved before the server started deriving `format`:
+    // a gift that carries a video clip MUST route to the video player, otherwise
+    // GiftPlayer falls through to SvgCssGiftPlayer which — with no
+    // animationHtml — just paints the still icon. That is the "video gift shows
+    // up as an image" bug.
+    final format = _looksLikeVideo(animationUrl)
+        ? GiftFormat.video
+        : GiftFormatX.parse(json['format'] as String?);
     return Gift(
       id: json['id'] as String,
       name: json['name'] as String? ?? '',
       nameAr: json['nameAr'] as String?,
-      iconUrl: json['iconUrl'] as String? ?? '',
-      format: GiftFormatX.parse(json['format'] as String?),
+      iconUrl: _absoluteUrl(json['iconUrl'] as String?) ?? '',
+      format: format,
       animationHtml: json['animationHtml'] as String?,
-      animationUrl: json['animationUrl'] as String?,
+      animationUrl: animationUrl,
       videoHasAlpha: json['videoHasAlpha'] as bool? ?? false,
       fireworksEnabled: json['fireworksEnabled'] as bool? ?? false,
       fireworksColors: colors is List
@@ -108,6 +140,7 @@ class Gift {
       broadcastGlobal: json['broadcastGlobal'] as bool? ?? false,
       category: json['category'] as String?,
       sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'] as String) : null,
     );
   }
 }
@@ -191,11 +224,40 @@ class GiftSendEvent {
 }
 
 @immutable
+/// B4 — قائمة هدايا: one tab on the gift sheet, defined in لوحة التحكم.
+///
+/// The tabs used to be a `const` map in the picker, so adding a list meant an
+/// app release. They now travel with the catalog: `key` is what a gift stores
+/// in `Gift.category`, `nameAr` is the tab label.
+@immutable
+class GiftCategory {
+  final String key;
+  final String nameAr;
+  final int sortOrder;
+
+  const GiftCategory({required this.key, required this.nameAr, this.sortOrder = 0});
+
+  factory GiftCategory.fromJson(Map<String, dynamic> json) => GiftCategory(
+        key: json['key']?.toString() ?? '',
+        nameAr: json['nameAr']?.toString() ?? json['key']?.toString() ?? '',
+        sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+      );
+}
+
 class GiftCatalog {
   final int version;
   final Map<GiftTier, List<Gift>> byTier;
 
-  const GiftCatalog({required this.version, required this.byTier});
+  /// Tabs configured in the dashboard. Empty on an older server, in which case
+  /// the picker falls back to its built-in labels — so a stale backend never
+  /// leaves the sheet with no tabs at all.
+  final List<GiftCategory> categories;
+
+  const GiftCatalog({
+    required this.version,
+    required this.byTier,
+    this.categories = const [],
+  });
 
   List<Gift> get all => GiftTier.values.expand<Gift>((t) => byTier[t] ?? const <Gift>[]).toList();
 
@@ -210,6 +272,11 @@ class GiftCatalog {
               .map((e) => Gift.fromJson(e as Map<String, dynamic>))
               .toList(),
       },
+      categories: ((json['categories'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(GiftCategory.fromJson)
+          .where((c) => c.key.isNotEmpty)
+          .toList(),
     );
   }
 }

@@ -21,6 +21,10 @@ class VideoGiftPlayer extends StatefulWidget {
 
   @override
   State<VideoGiftPlayer> createState() => _VideoGiftPlayerState();
+
+  /// Longest a clip is ever allowed to hold the screen, whatever it says its
+  /// duration is — a corrupt header must not freeze the room forever.
+  static const Duration maxPlayback = Duration(seconds: 60);
 }
 
 class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingObserver {
@@ -34,10 +38,11 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initialize();
-    _hardTimer = Timer(
-      Duration(milliseconds: widget.gift.animationMs + 500),
-      _markComplete,
-    );
+    // Safety net only, until the real duration is known. `animationMs` is an
+    // admin-typed number that has nothing to do with the uploaded file, so
+    // using it as the cut-off chopped every clip that ran longer than it —
+    // "الهديه لا تنزل كما وضعتها". Rearmed from the decoded duration below.
+    _hardTimer = Timer(VideoGiftPlayer.maxPlayback, _markComplete);
   }
 
   Future<void> _initialize() async {
@@ -62,9 +67,25 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
       _controller = controller;
       await controller.initialize();
       controller.setLooping(false);
+      // The clip's own audio track. `mixWithOthers` keeps the room's voice
+      // audible underneath instead of the video taking the session over.
+      await controller.setVolume(1.0);
       controller.addListener(_onTick);
       if (!mounted) return;
       setState(() => _initialized = true);
+
+      // Play for exactly as long as the FILE lasts (plus a small tail), so the
+      // gift is seen the way it was uploaded.
+      final real = controller.value.duration;
+      if (real > Duration.zero) {
+        _hardTimer?.cancel();
+        final window = real + const Duration(milliseconds: 600);
+        _hardTimer = Timer(
+          window > VideoGiftPlayer.maxPlayback ? VideoGiftPlayer.maxPlayback : window,
+          _markComplete,
+        );
+      }
+
       await controller.play();
     } catch (_) {
       widget.onError?.call();
@@ -119,7 +140,9 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     }
     return SizedBox.expand(
       child: FittedBox(
-        fit: BoxFit.cover,
+        // `contain`, not `cover`: gift clips are usually portrait and `cover`
+        // cropped the sides of the artwork away.
+        fit: BoxFit.contain,
         child: SizedBox(
           width: c.value.size.width,
           height: c.value.size.height,

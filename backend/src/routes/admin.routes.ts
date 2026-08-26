@@ -42,11 +42,19 @@ router.get('/users', adminController.getAllUsers);
 router.post('/users/:userId/coins/add', adminController.addCoins);
 router.post('/users/:userId/coins/remove', adminController.removeCoins);
 router.put('/users/:userId/admin', adminController.toggleAdminStatus);
+// 2026-08-23: the app issues PATCH here. Only PUT was registered, so every
+// in-app ban 404'd — the client's "السوبر ادمن يظهر له حظر المستخدم لكن الحظر
+// غير فعال". Both verbs are accepted now so older builds keep working.
 router.put('/users/:userId/ban', adminController.toggleUserBan);
+router.patch('/users/:userId/ban', adminController.toggleUserBan);
 router.patch('/users/:id/display-id', adminChangeUserDisplayId);
 
-// Room management
+// CP / target settings (professional defaults, admin-editable)
+router.patch('/settings', require('../controllers/settings.controller').updateSettings);
+
+// Room management (super admin only — enforced in the controller, group 11)
 router.delete('/rooms/:roomId', adminController.deleteRoom);
+router.patch('/rooms/:roomId/active', adminController.setRoomActive);
 
 // ✅ ADD THIS BELOW
 router.delete('/products/:id', adminController.deleteProduct);

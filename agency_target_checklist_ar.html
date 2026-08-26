@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>قائمة اختبار — الوكالات والتارجت</title>
+<style>
+  :root { --bg:#0e0b1a; --card:#1a1330; --line:#2e2450; --gold:#f5c242; --teal:#4ecdc4; --red:#ff6b6b; --txt:#f2eefb; --dim:#a99fc4; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 60px; background:var(--bg); color:var(--txt);
+         font-family:"Segoe UI",Tahoma,sans-serif; line-height:1.7; }
+  .wrap { max-width:900px; margin:0 auto; }
+  h1 { font-size:24px; margin:0 0 6px; }
+  .sub { color:var(--dim); font-size:14px; margin-bottom:24px; }
+  .note { background:#2a1e14; border:1px solid #6b4f1f; border-radius:12px;
+          padding:12px 16px; margin-bottom:16px; font-size:14px; }
+  .danger { background:#2c1618; border-color:#7a2b30; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:16px;
+            padding:16px 18px; margin-bottom:16px; }
+  h2 { font-size:17px; margin:0 0 4px; color:var(--gold); }
+  .why { color:var(--dim); font-size:13px; margin:0 0 12px; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; gap:10px; align-items:flex-start; padding:7px 0;
+       border-top:1px solid rgba(255,255,255,.06); }
+  li:first-child { border-top:none; }
+  input[type=checkbox] { margin-top:7px; width:17px; height:17px; accent-color:var(--teal); flex:0 0 auto; }
+  .tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:20px;
+         background:rgba(245,194,66,.15); color:var(--gold); border:1px solid rgba(245,194,66,.4);
+         margin-inline-start:6px; white-space:nowrap; }
+  .tag.crit { background:rgba(255,107,107,.15); color:var(--red); border-color:rgba(255,107,107,.4); }
+  code { background:#0b0817; padding:2px 7px; border-radius:6px; font-size:13px; color:var(--teal); }
+  pre { background:#0b0817; padding:10px 14px; border-radius:8px; overflow-x:auto;
+        font-size:13px; color:var(--teal); margin:8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>قائمة اختبار — الوكالات والتارجت</h1>
+<p class="sub">٥ ملاحظات من العميل + الأخطاء اللي ظهرت أثناء المراجعة.</p>
+
+<div class="note">
+  <b>قبل الاختبار:</b> ارفع الباك اند من جديد (<code>npm run build</code>) واعمل rebuild للتطبيق. صفحة الأدمن اتعدلت كمان — اعمل refresh قوي (Ctrl+F5).
+</div>
+
+<div class="note danger">
+  <b>مهم — تعويض الكوينزات الضايعة:</b> كان في خطأ بيخلي عضو وكالة استضافة <b>غير مقبولة</b> يخسر كوينزات الهدايا بالكامل (لا وصلت له ولا للوكيل). شغّل التقرير الأول للمراجعة:
+  <pre>npm run audit:lost-host-coins</pre>
+  ده <b>بيعرض بس</b> ومش بيعدّل حاجة. لو الأرقام منطقية، شغّله تاني بالتعويض:
+  <pre>npm run audit:lost-host-coins -- --refund</pre>
+</div>
+
+<section>
+  <h2>١ — خسارة كوينزات المضيف <span class="tag crit">الأهم</span></h2>
+  <p class="why">الكود كان بيشوف عضوية الوكالة من غير التأكد إنها مقبولة، بينما التارجت بيتطلب وكالة مقبولة.</p>
+  <ul>
+    <li><input type="checkbox"> شغّل التقرير وشوف قائمة المتأثرين، وعوّضهم لو الأرقام صح.</li>
+    <li><input type="checkbox"> عضو في وكالة استضافة <b>مقبولة</b> يستلم هدية → رصيده ما يزيدش، والمبلغ يظهر في تارجته.</li>
+    <li><input type="checkbox"> الوكيل بتاعه استلم عمولة ٢٠٪ في رصيده + إشعار.</li>
+    <li><input type="checkbox"> عضو في وكالة <b>معلّقة/مرفوضة</b> يستلم هدية → دلوقتي بياخد ٥٠٪ في رصيده عادي (زي أي مستخدم عادي)، ومحصلش خصم من غير مقابل.</li>
+    <li><input type="checkbox"> مستخدم مش في أي وكالة يستلم هدية → ٥٠٪ في رصيده زي ما هي.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>٢ — نقل ملكية الوكالة</h2>
+  <p class="why">الوكيل القديم كان بيتحوّل مضيف بتاريخ انضمامه الأصلي — يعني تارجت ضخم فوراً وعمولة على كل تاريخه.</p>
+  <ul>
+    <li><input type="checkbox"> من الصفحة الشخصية → <b>وكالة</b> → زرار <b>نقل الملكية</b> ظاهر للوكيل.</li>
+    <li><input type="checkbox"> انقل الملكية لمستخدم تاني بالـ ID → رسالة نجاح.</li>
+    <li><input type="checkbox"> المالك الجديد فتح اللوحة ولقى نفسه <b>وكيل</b>.</li>
+    <li><input type="checkbox"> المالك القديم بقى <b>مضيف</b>، و<b>تارجته بدأ من صفر</b> (مش رقم كبير من تاريخه القديم).</li>
+    <li><input type="checkbox"> المالك الجديد وصله إشعار «أصبحت وكيلاً».</li>
+    <li><input type="checkbox"> لو عندك وكالة شحن <b>و</b> استضافة: النقل حصل للوكالة الصح بس.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>٣ — الفروع</h2>
+  <p class="why">كانت متاحة من شاشة الشحن بس؛ ولوحة الوكالة ما كانتش فيها. وإلغاء الفرع كان بيشيله من الوكالة بالكامل.</p>
+  <ul>
+    <li><input type="checkbox"> لوحة الوكيل فيها كارت <b>الفروع (حتى 3)</b> — للمالك بس.</li>
+    <li><input type="checkbox"> ضيف فرع بالـ ID → رسالة نجاح والفرع ظهر في القائمة + وصله إشعار.</li>
+    <li><input type="checkbox"> جرّب تضيف فرع رابع → رسالة «الحد الأقصى ٣ فروع».</li>
+    <li><input type="checkbox"> الفرع يفتح <b>وكالة</b> من صفحته → لقى <b>لوحة الفرع</b> فيها المضيفين والتارجت.</li>
+    <li><input type="checkbox"> الفرع <b>ما بيشوفش</b> نقل الملكية ولا إدارة الفروع ولا إعدادات الخروج.</li>
+    <li><input type="checkbox"> ألغِ الفرع → رجع <b>مضيف عادي</b> وفضل في الوكالة (متخرجش منها) وتارجته ما ضاعش.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>٤ — تارجت الوكيل <span class="tag">جديد</span></h2>
+  <p class="why">ما كانش موجود خالص: التارجت كان للمضيفين بس، وخانات تارجت الوكالة في قاعدة البيانات ما حدش بيكتب فيها.</p>
+  <ul>
+    <li><input type="checkbox"> من لوحة الأدمن → <b>الوكالات</b> → زرار <b>التارجت</b> ظاهر على كل وكالة.</li>
+    <li><input type="checkbox"> حدد تارجت (مثلاً 100000) → رسالة نجاح.</li>
+    <li><input type="checkbox"> الوكيل يفتح <b>لوحة الوكيل</b> → كارت <b>تارجت الوكيل</b> فيه شريط تقدّم و«متبقٍ X كوينز».</li>
+    <li><input type="checkbox"> الرقم = <b>مجموع إنتاج كل المضيفين</b> في الوكالة، مش هدايا الوكيل لوحده.</li>
+    <li><input type="checkbox"> ابعت هدية لأي مضيف في الوكالة → رقم تارجت الوكيل زاد.</li>
+    <li><input type="checkbox"> الوكيل يفتح <b>صفحته الشخصية</b> → تحت كارت التارجت فيه قسم <b>تارجت الوكيل</b> بنفس الأرقام.</li>
+    <li><input type="checkbox"> وكالة من غير تارجت محدد → مفيش شريط، ومكتوب «لم يحدد الأدمن تارجت بعد».</li>
+    <li><input type="checkbox"> في قائمة وكالات الاستضافة: <b>المحقق</b> بقى رقم حقيقي (كان دايماً صفر).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>٥ — التارجت في الصفحة الشخصية</h2>
+  <ul>
+    <li><input type="checkbox"> أي مستخدم يفتح صفحته → كارت <b>التارجت</b> ظاهر (كوينزات + دولار + عدد الهدايا).</li>
+    <li><input type="checkbox"> مضيف في وكالة وله جول → شريط تقدّم و«متبقٍ X كوينز».</li>
+    <li><input type="checkbox"> وكيل → كمان قسم <b>تارجت الوكيل</b> تحته.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>٦ — قائمة المضيفين (الوكالة الصح)</h2>
+  <p class="why">لو عندك وكالتين، السيرفر كان ممكن يرجّع أعضاء الوكالة الغلط.</p>
+  <ul>
+    <li><input type="checkbox"> بحساب عنده وكالة شحن <b>و</b> استضافة: افتح لوحة الوكالة → الأعضاء الظاهرين بتوع وكالة الاستضافة.</li>
+    <li><input type="checkbox"> البحث عن مستخدم للدعوة شغال وبيرجّع نتائج.</li>
+    <li><input type="checkbox"> حساب وكالته <b>معلّقة</b> وكمان عنده وكالة <b>مقبولة</b> → اللوحة بتفتح على المقبولة (قبل كده كانت بتقول «لست عضواً»).</li>
+  </ul>
+</section>
+
+</div>
+</body>
+</html>

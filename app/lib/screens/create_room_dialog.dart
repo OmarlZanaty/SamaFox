@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -23,6 +24,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
   final _descriptionController = TextEditingController();
 
   File? _selectedImage;
+  Uint8List? _selectedImageBytes;
   int _selectedMicCount = 8; // Default mic count
   bool _isLoading = false;
 
@@ -47,8 +49,10 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
     );
 
     if (image != null) {
+      final bytes = await image.readAsBytes();
       setState(() {
-        _selectedImage = File(image.path);
+        _selectedImageBytes = bytes;
+        if (!kIsWeb) _selectedImage = File(image.path);
       });
     }
   }
@@ -65,14 +69,14 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
     try {
       // Upload image first if selected
       String? imageUrl;
-      if (_selectedImage != null) {
+      if (_selectedImageBytes != null) {
         final token = await StorageService.getAccessToken();
 
         if (token != null && token.isNotEmpty) {
           final imageUploadService = ImageUploadService();
           try {
-            imageUrl = await imageUploadService.uploadRoomCoverImage(
-              _selectedImage!,
+            imageUrl = await imageUploadService.uploadRoomCoverImageBytes(
+              _selectedImageBytes!,
               token,
             );
           } catch (e) {
@@ -324,14 +328,14 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
             style: BorderStyle.solid,
           ),
         ),
-        child: _selectedImage != null
+        child: _selectedImageBytes != null
             ? ClipRRect(
           borderRadius: BorderRadius.circular(14),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.file(
-                _selectedImage!,
+              Image.memory(
+                _selectedImageBytes!,
                 fit: BoxFit.cover,
               ),
               Positioned(

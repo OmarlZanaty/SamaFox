@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 import '../repositories/auth_repository.dart';
+import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../utils/storage_service.dart';
 /// Auth Repository Provider
@@ -53,8 +56,35 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repository;
 
+  StreamSubscription<Map<String, dynamic>>? _banSub;
+
   AuthNotifier(this._repository) : super(AuthState()) {
     checkAuthStatus();
+
+    // An admin ban has to end the session now — the server disconnects the
+    // socket and refuses the refresh token, so staying "logged in" would only
+    // show a broken app.
+    _banSub = SocketService().bannedStream.listen((data) {
+      final reason = (data['reason'] ?? '').toString().trim();
+      forceLogoutBanned(reason.isEmpty ? 'تم حظر حسابك' : reason);
+    });
+
+    // Same treatment when the API (rather than the socket) reports the ban —
+    // covers a user who was banned while offline.
+    ErrorInterceptor.onBanned = forceLogoutBanned;
+  }
+
+  /// Ends the session because the account was banned. Public so the Dio
+  /// interceptor can call it when the API answers 403 BANNED.
+  Future<void> forceLogoutBanned(String message) async {
+    if (!state.isAuthenticated && state.user == null) return;
+    await _forceLogoutLocal(error: message);
+  }
+
+  @override
+  void dispose() {
+    _banSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _forceLogoutLocal({String? error}) async {

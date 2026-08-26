@@ -1,6 +1,9 @@
 import prisma from '../utils/prisma';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
+import { getCpConfig } from '../controllers/settings.controller';
+import { awardUserXP, notifyLevelUp } from '../services/xp.service';
+import { checkAchievements } from '../controllers/achievement.controller';
 
 export interface SendGiftInput {
   senderId: number;
@@ -62,6 +65,9 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   const gift = await prisma.gift.findUnique({ where: { id: input.giftId } });
   if (!gift || !gift.isActive) throw new GiftSendError('INVALID_GIFT', 'Gift not found or inactive', 404);
 
+  // CP accrual rate (admin-configurable; professional default = 1 CP per coin).
+  const { cpPerCoin } = await getCpConfig();
+
   const totalCoins = gift.coinCost * quantity;
   if (totalCoins <= 0 || !Number.isSafeInteger(totalCoins)) {
     throw new GiftSendError('INVALID_AMOUNT', 'Total cost out of range');
@@ -92,16 +98,169 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         throw new GiftSendError('INSUFFICIENT_COINS', 'Insufficient balance', 402);
       }
 
-      const recipientUpdate = await tx.user.update({
-        where: { id: input.recipientId },
-        data: { coinsBalance: { increment: totalCoins } },
-        select: { coinsBalance: true },
+      const isSelfGift = input.recipientId === input.senderId;
+
+      // Account power (CP): only gifts flagged cpEligible strengthen the sender's
+      // account. Rate is admin-configurable (cp_per_coin, default 1). No client
+      // spec yet — professional default. See settings.controller CP_DEFAULTS.
+      // Self-gifts are excluded: gifting yourself is not a display of support,
+      // and letting it build CP let agents buy standing at half price.
+      if (gift.cpEligible && !isSelfGift) {
+        const cpGained = totalCoins * cpPerCoin;
+        if (cpGained > 0) {
+          await tx.user.update({
+            where: { id: input.senderId },
+            data: { cpPoints: { increment: cpGained } },
+          });
+        }
+      }
+
+      // ---- Recipient crediting rules (client spec, 2026-07) --------------
+      //   • registered hosting-agency member -> 0 coins to balance; the full
+      //     value is "earnings"/target, tracked via GiftTransaction below.
+      //     This now holds for SELF-gifts too (2026-08): the old `!isSelfGift`
+      //     escape hatch let a وكيل gift himself and take 50% straight to
+      //     balance, bypassing التارجت entirely — the "بيرجع النص" complaint.
+      //   • everyone else (not in a hosting agency) -> half the coins land in
+      //     their spendable balance, the other half is burned. Self-gifts by
+      //     ordinary users keep this 50% rule, unchanged.
+      let recipientCredit = 0;
+      // MUST match the membership that `getMyTarget` / `convertTarget` accept,
+      // which both require an APPROVED agency. Without the status filter a
+      // pending or rejected membership still zeroed the recipient's credit
+      // while their target stayed invisible and unconvertible — the coins
+      // reached neither the host nor the owner and were simply lost.
+      // `orderBy` makes the choice deterministic for someone who somehow
+      // belongs to more than one hosting agency, so the commission always
+      // goes to the same (oldest) one instead of an arbitrary row.
+      const hostMembership = await tx.agencyMember.findFirst({
+        where: {
+          userId: input.recipientId,
+          agency: { type: 'HOSTING', status: 'approved' },
+        },
+        orderBy: { joinedAt: 'asc' },
+        select: { id: true, agencyId: true, role: true },
       });
+
+      // 2026-08-23 — a وكيل شحن (and his فروع) is in the same boat as a host:
+      // "ولو اترمي عليه هدايا لا ياخذ نصف قيمتها كوينزات لا لا لا — قيمة الهدايا
+      // هتروح في التارجيت عنده". Only the 50% wallet credit is suppressed; the
+      // 20% owner commission below stays HOSTING-only, because a charging agent
+      // already took his cut at charge time ("نسبته اخذها وقت الشحن").
+      const chargingMembership = hostMembership
+        ? null
+        : await tx.agencyMember.findFirst({
+            where: {
+              userId: input.recipientId,
+              role: { in: ['OWNER', 'BRANCH'] },
+              agency: { type: 'CHARGING', status: 'approved' },
+            },
+            orderBy: { joinedAt: 'asc' },
+            select: { id: true },
+          });
+
+      recipientCredit = hostMembership || chargingMembership ? 0 : Math.floor(totalCoins / 2);
+
+      // #4: agency owner's 20% commission on a host's gift earnings, cut from
+      // every gift a hosting-agency member receives.
+      //
+      // 2026-08 (client complaint "عمولة الوكيل بتروح كوينزات اضافيه"): the
+      // commission used to be credited straight to the owner's coinsBalance,
+      // which minted spendable coins out of thin air on every gift. It now
+      // only raises the owner's OWN TARGET (`commissionTargetCoins`), so he
+      // cashes it out through the normal 50% تبديل الكوينزات path like any
+      // other earned target — no wallet credit here.
+      //
+      // 2026-08 (client complaint "لو رمي هدايا علي نفسه او حد رمي عليه هدايا
+      // لا تحسب له عموله"): the commission is now COUNTED on every such gift —
+      // the old `!isSelfGift` and `role !== 'OWNER'` guards dropped it silently
+      // when a host gifted himself and when the recipient was the وكيل himself.
+      // What those cases must NOT do is pay out early, and that is handled by
+      // the release gate, not by skipping the accrual: the mirror copy on the
+      // SOURCE member's row (`commissionGeneratedCoins`) keeps the commission
+      // locked until that member completes their target — see
+      // `computeCommissionSplit` in agency.controller.
+      let commission: { ownerId: number; agencyId: number; amount: number } | null = null;
+      if (hostMembership) {
+        const COMMISSION_RATE = Number(process.env.AGENCY_COMMISSION_RATE ?? 0.2);
+        const owner = await tx.agencyMember.findFirst({
+          where: { agencyId: hostMembership.agencyId, role: 'OWNER' },
+          select: { id: true, userId: true },
+        });
+        if (owner) {
+          const amount = Math.floor(totalCoins * COMMISSION_RATE);
+          if (amount > 0) {
+            if (owner.id === hostMembership.id) {
+              // The recipient IS the وكيل: both sides of the ledger are the
+              // same row, so one update (two increments) instead of two.
+              await tx.agencyMember.update({
+                where: { id: owner.id },
+                data: {
+                  commissionTargetCoins: { increment: BigInt(amount) },
+                  commissionGeneratedCoins: { increment: BigInt(amount) },
+                },
+              });
+            } else {
+              await tx.agencyMember.update({
+                where: { id: owner.id },
+                data: { commissionTargetCoins: { increment: BigInt(amount) } },
+              });
+              await tx.agencyMember.update({
+                where: { id: hostMembership.id },
+                data: { commissionGeneratedCoins: { increment: BigInt(amount) } },
+              });
+            }
+            commission = { ownerId: owner.userId, agencyId: hostMembership.agencyId, amount };
+          }
+        }
+      }
+
+      let recipientBalance: number;
+      if (recipientCredit > 0) {
+        const recipientUpdate = await tx.user.update({
+          where: { id: input.recipientId },
+          data: { coinsBalance: { increment: recipientCredit } },
+          select: { coinsBalance: true },
+        });
+        recipientBalance = recipientUpdate.coinsBalance;
+      } else {
+        const r = await tx.user.findUnique({
+          where: { id: input.recipientId },
+          select: { coinsBalance: true },
+        });
+        recipientBalance = r?.coinsBalance ?? 0;
+      }
 
       const sender = await tx.user.findUnique({
         where: { id: input.senderId },
         select: { coinsBalance: true },
       });
+
+      // Level/XP (2026-08-23 client spec: "عندما ينفق المستخدم هدايا على
+      // المستخدمين كل عدد محدد بلوحة التحكم يرتفع الليفل الخاص به").
+      //
+      // The level belongs to the SENDER and tracks coins SPENT on gifts — it
+      // used to be credited to the recipient, which is why supporting nobody
+      // still moved a level and why the dashboard thresholds looked inert.
+      // XP is 1:1 with coins spent so the numbers an admin types into the LV
+      // table are literally "كوينزات مُهداة", not an invisible XP currency.
+      // Self-gifts excluded — otherwise a user levels himself up by cycling
+      // coins through his own account.
+      const XP_PER_COIN = Number(process.env.GIFT_XP_PER_COIN ?? 1);
+      const xpGained = Math.floor(totalCoins * XP_PER_COIN);
+      let levelUp: { level: number; grantedItemCount: number } | null = null;
+      if (xpGained > 0 && !isSelfGift) {
+        const xpResult: any = await awardUserXP(input.senderId, xpGained, tx);
+        // The LevelConfig items are granted inside awardUserXP (atomically with
+        // the level change); the notification waits until this transaction
+        // commits, so a rollback can't announce a level-up that never happened.
+        if (xpResult?.leveledUp) {
+          levelUp = {
+            level: xpResult.level,
+            grantedItemCount: (xpResult.grantedItemIds ?? []).length,
+          };
+        }
+      }
 
       const txRow = await tx.giftTransaction.create({
         data: {
@@ -132,12 +291,24 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       return {
         transactionId: txRow.id,
         senderBalance: sender?.coinsBalance ?? 0,
-        recipientBalance: recipientUpdate.coinsBalance,
+        recipientBalance,
+        recipientCredit,
         broadcast,
+        commission,
+        levelUp,
       };
     },
     { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
   );
+
+  // Level-up notice, once the XP/level/item grants are safely committed.
+  if (result.levelUp) {
+    await notifyLevelUp(
+      input.senderId,
+      result.levelUp.level,
+      result.levelUp.grantedItemCount,
+    );
+  }
 
   // Notify the recipient (best-effort; never blocks the gift). Skip self-gifts.
   if (input.recipientId !== input.senderId) {
@@ -159,11 +330,49 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     }
   }
 
+  // #4: notify the agency owner about their commission (best-effort, mirrors
+  // the recipient notification above — never blocks the gift itself).
+  if (result.commission) {
+    try {
+      const recipientUser = await prisma.user.findUnique({
+        where: { id: input.recipientId },
+        select: { name: true },
+      });
+      await createNotification({
+        userId: result.commission.ownerId,
+        type: 'AGENCY_COMMISSION',
+        title: '💰 عمولة وكيل',
+        body: `أضيفت ${result.commission.amount} كوينز إلى التارجت الخاص بك كعمولة من هدية استلمها ${recipientUser?.name ?? 'أحد أعضاء وكالتك'} — تصبح قابلة للتبديل بعد إكماله التارجت المحدد`,
+        data: { agencyId: result.commission.agencyId, amount: result.commission.amount, fromUserId: input.recipientId },
+      });
+    } catch (e) {
+      console.warn('agency commission notification failed:', e);
+    }
+  }
+
+  // Medals: unlock any gifts_sent / level achievements this send earned.
+  // Best-effort and non-blocking — checkAchievements existed but had no
+  // caller anywhere, so no medal could ever unlock before this.
+  try {
+    const [giftsSent, sender] = await Promise.all([
+      prisma.giftTransaction.count({ where: { senderId: input.senderId } }),
+      prisma.user.findUnique({ where: { id: input.recipientId }, select: { level: true } }),
+    ]);
+    await checkAchievements(input.senderId, 'gifts_sent', giftsSent);
+    if (sender?.level != null) {
+      await checkAchievements(input.recipientId, 'level', sender.level);
+    }
+  } catch (e) {
+    console.warn('achievement check failed:', e);
+  }
+
   return {
     transactionId: result.transactionId,
     totalCoins,
     senderBalance: result.senderBalance,
-    recipientCoinsDelta: totalCoins,
+    // Actual coins that landed in the recipient's spendable balance (0 for
+    // agency hosts / self-gifts, 50% for non-members). Not always == totalCoins.
+    recipientCoinsDelta: result.recipientCredit,
     comboCount,
     broadcast: result.broadcast,
     gift: {

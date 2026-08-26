@@ -21,6 +21,8 @@ router.post('/ban', roomAdminController.banUser);
 router.post('/unban', roomAdminController.unbanUser);
 router.post('/seat-block', roomAdminController.setSeatBlock);
 router.post('/kick', roomAdminController.kickUser);
+// Super admin only — closes the room and empties it (owner request).
+router.post('/close-room', roomAdminController.closeRoomAsSuperAdmin);
 router.get('/:roomId/bans', roomAdminController.getBanList);
 router.get('/:roomId/moderated', roomAdminController.getModeratedUsers);
 
@@ -33,5 +35,8 @@ router.post('/sound-settings', roomAdminController.toggleSoundSettings);
 
 // Chat management
 router.post('/clear-chat', roomAdminController.clearChat);
+
+// #4: reset per-user room coin counters
+router.post('/reset-earnings', roomAdminController.resetSeatEarnings);
 
 export default router;

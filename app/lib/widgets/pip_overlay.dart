@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/pip_state.dart';
 import '../providers/room_controller_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/audio_controller.dart';
 import '../services/socket_service.dart';
+import '../services/room_audio_keepalive.dart';
+import '../services/webrtc_audio_service.dart';
 import '../main.dart';
 
 class PipOverlay extends ConsumerStatefulWidget {
@@ -17,6 +20,18 @@ class PipOverlay extends ConsumerStatefulWidget {
 class _PipOverlayState extends ConsumerState<PipOverlay> {
   Offset _offset = const Offset(20, 120);
   bool _showCloseOptions = false; // ✅ toggle close popup
+
+  /// Tear down the audio session RoomScreen left running for the bubble.
+  ///
+  /// Only for actually LEAVING. Expanding back into the room deliberately does
+  /// not call this: the room re-uses the very same session, and killing it here
+  /// would put the "الصوت بيقطع" gap back in, just one screen later.
+  void _endRoomAudio() {
+    AudioController.instance.deactivate();
+    WebRTCAudioService().disableVAD();
+    WebRTCAudioService().dispose();
+    RoomAudioKeepAlive.instance.stop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +78,13 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
                     GestureDetector(
                       onTap: () {
                         setState(() => _showCloseOptions = false);
+                        // A23 — RoomScreen handed the live audio session over
+                        // when it popped, so this is the only place that can
+                        // end it. Order matters: stop the session first, then
+                        // drop the bubble (deactivating unmounts this widget
+                        // and, with it, the last watcher of the room
+                        // controller, which is what sends `leave_room`).
+                        _endRoomAudio();
                         ref.read(pipProvider.notifier).deactivate();
                       },
                       child: Column(

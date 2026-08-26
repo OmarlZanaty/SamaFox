@@ -26,20 +26,79 @@ export function computeVipLevel(totalRecharge: number): number {
   return level;
 }
 
-/**
- * Grant the badge + seat frame configured for [level] (VipLevelConfig).
- * Idempotent: never double-grants a UserItem.
- */
-async function grantLevelRewards(userId: number, level: number): Promise<void> {
-  const cfg = await prisma.vipLevelConfig.findUnique({ where: { level } });
-  if (!cfg?.frameItemId) return;
-  const item = await prisma.item.findUnique({ where: { id: cfg.frameItemId } });
-  if (!item) return;
-  await prisma.userItem.upsert({
-    where: { userId_itemId: { userId, itemId: cfg.frameItemId } },
-    update: {},
-    create: { userId, itemId: cfg.frameItemId, isActive: false },
+/** Admin threshold overrides from VipLevelConfig (level -> cumulative coins). */
+export async function getVipThresholdOverrides(): Promise<Map<number, number>> {
+  const configs = await prisma.vipLevelConfig.findMany({
+    where: { threshold: { not: null } },
+    select: { level: true, threshold: true },
   });
+  return new Map(configs.map((c) => [c.level, c.threshold!]));
+}
+
+/** Cumulative coins required for [level], honoring admin overrides (group 10). */
+export function vipThresholdWithOverrides(level: number, overrides: Map<number, number>): number {
+  return overrides.get(level) ?? vipThreshold(level);
+}
+
+/** computeVipLevel but with admin-configured thresholds taking precedence. */
+export function computeVipLevelWithOverrides(
+  totalRecharge: number,
+  overrides: Map<number, number>,
+): number {
+  let level = 0;
+  while (
+    level < HARD_CAP_LEVEL &&
+    vipThresholdWithOverrides(level + 1, overrides) <= totalRecharge
+  ) {
+    level++;
+  }
+  return level;
+}
+
+/**
+ * Grant everything configured for [level] (VipLevelConfig): the legacy seat
+ * frame plus every item in rewardItemIds — badges/frames/entrances from the
+ * app OR private store (group 10). Idempotent: never double-grants a UserItem.
+ */
+export async function grantLevelRewards(userId: number, level: number): Promise<void> {
+  const cfg: any = await prisma.vipLevelConfig.findUnique({ where: { level } });
+  if (!cfg) return;
+
+  const itemIds = new Set<string>(
+    [cfg.frameItemId, ...(cfg.rewardItemIds ?? [])].filter(Boolean) as string[],
+  );
+  if (!itemIds.size) return;
+
+  // Only grant items that still exist (an admin may have deleted one).
+  const items = await prisma.item.findMany({
+    where: { id: { in: [...itemIds] } },
+    select: { id: true },
+  });
+  for (const item of items) {
+    await prisma.userItem.upsert({
+      where: { userId_itemId: { userId, itemId: item.id } },
+      update: {},
+      create: { userId, itemId: item.id, isActive: false },
+    });
+  }
+}
+
+/**
+ * Grant every VIP tier's rewards for the levels in (fromLevel, toLevel].
+ *
+ * Shared by the recharge path and by any manual promotion (dashboard override,
+ * VIP purchase) so that reaching a tier ALWAYS hands over the frame, badge,
+ * entrance and chat bubble configured on it — the owner-reported gap where a
+ * dashboard-set VIP level granted nothing at all.
+ */
+export async function grantVipRewardsForRange(
+  userId: number,
+  fromLevel: number,
+  toLevel: number,
+): Promise<void> {
+  for (let lvl = Math.max(0, fromLevel) + 1; lvl <= toLevel; lvl++) {
+    await grantLevelRewards(userId, lvl);
+  }
 }
 
 /**
@@ -57,15 +116,14 @@ export async function evaluateVip(
   });
   if (!user) return { leveledUp: false, vipLevel: 0 };
 
-  const newLevel = computeVipLevel(user.totalRecharge);
+  const overrides = await getVipThresholdOverrides();
+  const newLevel = computeVipLevelWithOverrides(user.totalRecharge, overrides);
   if (newLevel <= user.vipLevel) {
     return { leveledUp: false, vipLevel: user.vipLevel };
   }
 
   await prisma.user.update({ where: { id: userId }, data: { vipLevel: newLevel } });
-  for (let lvl = user.vipLevel + 1; lvl <= newLevel; lvl++) {
-    await grantLevelRewards(userId, lvl);
-  }
+  await grantVipRewardsForRange(userId, user.vipLevel, newLevel);
 
   try {
     await createNotification({
@@ -77,6 +135,14 @@ export async function evaluateVip(
     });
   } catch (e) {
     console.warn('VIP level-up notification failed:', e);
+  }
+
+  // Medals: unlock any vip_level achievements this promotion earned.
+  try {
+    const { checkAchievements } = await import('../controllers/achievement.controller');
+    await checkAchievements(userId, 'vip_level', newLevel);
+  } catch (e) {
+    console.warn('VIP achievement check failed:', e);
   }
 
   return { leveledUp: true, vipLevel: newLevel };

@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../utils/logger.dart';
 import '../models/incoming_message.dart';
 import '../models/message_events.dart';
+import '../models/product_layout.dart';
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
@@ -35,6 +36,15 @@ class SocketService {
   final _seatLockController = StreamController<dynamic>.broadcast();
   Stream<dynamic> get seatLockStream => _seatLockController.stream;
 
+  /// An admin banned this account. Carries the reason and the expiry (null =
+  /// permanent) so the app can log out and say why.
+  final _bannedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get bannedStream => _bannedController.stream;
+
+  /// A DM was refused because of a block in either direction.
+  final _dmBlockedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get dmBlockedStream => _dmBlockedController.stream;
+
   final _incomingMessageController = StreamController<IncomingMessage>.broadcast();
   Stream<IncomingMessage> get incomingMessageStream => _incomingMessageController.stream;
 
@@ -46,6 +56,21 @@ class SocketService {
 
   final _seatEffectController = StreamController<Map>.broadcast();
   Stream<Map> get seatEffectStream => _seatEffectController.stream;
+
+  // Mic invitation: an admin invited this user onto a specific seat. The user
+  // answers قبول / رفض and is only seated if they accept.
+  final _seatInviteController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get seatInviteStream => _seatInviteController.stream;
+
+  // Outcome of an invitation this user SENT (accepted / refused / expired).
+  final _seatInviteResultController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get seatInviteResultStream => _seatInviteResultController.stream;
+
+  /// Answer a mic invitation received on [seatInviteStream].
+  void respondToSeatInvite({required String inviteId, required bool accept}) {
+    emit('seat_invite_response', {'inviteId': inviteId, 'accept': accept});
+    debugPrint('🎤 seat_invite_response invite=$inviteId accept=$accept');
+  }
   final _notificationController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get notificationStream => _notificationController.stream;
 
@@ -61,6 +86,10 @@ class SocketService {
   Set<int> get onlineUsers => Set.unmodifiable(_onlineUsers);
   bool isUserOnline(int userId) => _onlineUsers.contains(userId);
   void requestOnlineUsers() => emit('get_online_users', {});
+
+  /// Ask the server who is currently in [roomId]. The answer arrives as a
+  /// `room_users` event, handled by the room controller.
+  void requestRoomUsers(int roomId) => emit('get_room_users', {'roomId': roomId});
 
   // Step 5: users whose mic passed the perfect-mic self-test (per room session).
   final Set<int> _micVerified = <int>{};
@@ -425,6 +454,21 @@ class SocketService {
       }
     }
 
+    // The server only sends this to the banned account's own room, and then
+    // disconnects them. The app listens so the session ends right away instead
+    // of lingering until the token expires.
+    _socket?.on('user_banned', (data) {
+      try {
+        _bannedController.add(data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
+    });
+
+    _socket?.on('dm_blocked', (data) {
+      try {
+        if (data is Map) _dmBlockedController.add(Map<String, dynamic>.from(data));
+      } catch (e) { debugPrint('[SocketService] swallowed: $e'); }
+    });
+
     // ✅ DM typing
     _socket?.on('dm_typing', (data) {
       try {
@@ -438,6 +482,18 @@ class SocketService {
     _socket?.on('seat_effect', (data) {
       debugPrint('🎬 seat_effect received: $data');
       _seatEffectController.add(Map<String, dynamic>.from(data));
+    });
+
+    _socket?.on('seat_invite', (data) {
+      if (data is! Map) return;
+      debugPrint('🎤 seat_invite received: $data');
+      _seatInviteController.add(Map<String, dynamic>.from(data));
+    });
+
+    _socket?.on('seat_invite_result', (data) {
+      if (data is! Map) return;
+      debugPrint('🎤 seat_invite_result: $data');
+      _seatInviteResultController.add(Map<String, dynamic>.from(data));
     });
 
     _socket!.on('relation_ended', (data) {
@@ -695,6 +751,18 @@ class SocketService {
     _socket!.on('notification:new', (data) {
       if (data is Map) {
         _notificationController.add(Map<String, dynamic>.from(data));
+      }
+    });
+    // Admin global broadcast (control-panel mass message). Surfaces through the
+    // notification stream so every connected user sees it as an in-app banner.
+    _socket!.on('admin_broadcast', (data) {
+      if (data is Map) {
+        _notificationController.add({
+          'type': 'admin_broadcast',
+          'title': data['title']?.toString() ?? '',
+          'body': data['message']?.toString() ?? '',
+          'payload': Map<String, dynamic>.from(data),
+        });
       }
     });
     _socket!.on('follow_request', (data) {
@@ -987,6 +1055,8 @@ class SocketService {
     _reactionController.close();
     _notificationController.close();
     _seatEffectController.close();
+    _seatInviteController.close();
+    _seatInviteResultController.close();
     _seatLockController.close();
     _incomingMessageController.close();
     _dmConversationController.close();
@@ -1005,6 +1075,19 @@ class SocketMessage {
   final String message;
   final int timestamp;
   final String? avatar;
+  // Group 12: level-tiered + custom chat bubbles.
+  final int level;
+  final int vipLevel;
+  final String? bubbleUrl;
+
+  /// Where that bubble design's EMPTY inner box is, per لوحة التحكم. Drives
+  /// both the text padding and the 9-slice, so the writing stays inside the
+  /// bubble however the artwork is decorated.
+  final ProductLayout bubbleLayout;
+
+  /// Icon urls of the writer's شارات (achievements), newest first and capped
+  /// server-side — drawn under his name in the bubble.
+  final List<String> badges;
 
   SocketMessage({
     required this.messageId,
@@ -1014,6 +1097,11 @@ class SocketMessage {
     required this.message,
     required this.timestamp,
     this.avatar,
+    this.level = 1,
+    this.vipLevel = 0,
+    this.bubbleUrl,
+    this.bubbleLayout = ProductLayout.empty,
+    this.badges = const [],
   });
 
   factory SocketMessage.fromJson(Map<String, dynamic> json) {
@@ -1031,6 +1119,15 @@ class SocketMessage {
       message: (json['message'] ?? json['content'] ?? '') as String,
       timestamp: _i(json['timestamp'] ?? DateTime.now().millisecondsSinceEpoch),
       avatar: json['avatar'] as String? ?? json['avatarUrl'] as String?,
+      level: _i(json['level'] ?? 1),
+      vipLevel: _i(json['vipLevel'] ?? 0),
+      bubbleUrl: json['bubbleUrl'] as String?,
+      bubbleLayout: ProductLayout.parse(json['bubbleMeta']),
+      badges: (json['badges'] as List?)
+              ?.map((e) => e?.toString() ?? '')
+              .where((e) => e.isNotEmpty)
+              .toList() ??
+          const [],
     );
   }
 }
@@ -1122,6 +1219,7 @@ class RoomSeatsState {
   final int ownerId;
   final List<int> adminIds;
   final List<int> lockedSeats; // ✅ NEW
+  final List<int> mutedSeats;
 
   /// ✅ NEW: how many seats this room has
   final int seatCount;
@@ -1135,8 +1233,8 @@ class RoomSeatsState {
     required this.adminIds,
     required this.seatCount,
     required this.seats,
-    required this.lockedSeats, // ✅ ADD THIS
-
+    required this.lockedSeats,
+    this.mutedSeats = const [],
   });
 
   factory RoomSeatsState.fromJson(Map<String, dynamic> json) {
@@ -1147,6 +1245,13 @@ class RoomSeatsState {
 
     final rawLocked = (json['lockedSeats'] ?? json['locked_seats'] ?? const []) as List;
     final lockedSeats = rawLocked
+        .map((e) => int.tryParse('$e'))
+        .whereType<int>()
+        .where((x) => x > 0)
+        .toList();
+
+    final rawMuted = (json['mutedSeats'] ?? json['muted_seats'] ?? const []) as List;
+    final mutedSeats = rawMuted
         .map((e) => int.tryParse('$e'))
         .whereType<int>()
         .where((x) => x > 0)
@@ -1192,8 +1297,8 @@ class RoomSeatsState {
       adminIds: adminIds,
       seatCount: seatCount > 0 ? seatCount : fallbackCount,
       seats: seats,
-      lockedSeats: lockedSeats, // ✅ ADD THIS
-
+      lockedSeats: lockedSeats,
+      mutedSeats: mutedSeats,
     );
   }
 }
@@ -1207,11 +1312,20 @@ class SeatData {
   final String? username;
   final String? avatarUrl;
   final String? avatarFrameUrl; // ✅ NEW
+
+  /// Where THIS frame's inner hole is, per لوحة التحكم. Lets the avatar be
+  /// seated exactly on the ring whatever padding or decoration the artwork
+  /// carries, instead of guessing a fixed 60% circle.
+  final ProductLayout frameLayout;
   final RelationPartner? relationPartner;
   final int level;
   final bool isMuted;
   final bool isLocked;
   final bool forceMuted; // admin force-mute: user cannot unmute themselves
+
+  /// Platform admin / super admin. Room moderation is never offered against
+  /// them ("ولا احد ياخد اجراء ضده").
+  final bool isPlatformStaff;
   bool isSpeaking;
 
   SeatData({
@@ -1222,11 +1336,13 @@ class SeatData {
     required this.username,
     required this.avatarUrl,
     this.avatarFrameUrl, // ✅ NEW
+    this.frameLayout = ProductLayout.empty,
     this.relationPartner,
     required this.level,
     required this.isMuted,
     required this.isLocked,
     this.forceMuted = false,
+    this.isPlatformStaff = false,
     this.isSpeaking = false,
   });
 
@@ -1253,11 +1369,13 @@ class SeatData {
     String? username,
     String? avatarUrl,
     String? avatarFrameUrl,
+    ProductLayout? frameLayout,
     RelationPartner? relationPartner,
     int? level,
     bool? isMuted,
     bool? isLocked,
     bool? forceMuted,
+    bool? isPlatformStaff,
     bool? isSpeaking,
   }) {
     return SeatData(
@@ -1268,11 +1386,13 @@ class SeatData {
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
+      frameLayout: frameLayout ?? this.frameLayout,
       relationPartner: relationPartner ?? this.relationPartner,
       level: level ?? this.level,
       isMuted: isMuted ?? this.isMuted,
       isLocked: isLocked ?? this.isLocked,
       forceMuted: forceMuted ?? this.forceMuted,
+      isPlatformStaff: isPlatformStaff ?? this.isPlatformStaff,
       isSpeaking: isSpeaking ?? this.isSpeaking,
     );
   }
@@ -1295,6 +1415,7 @@ class SeatData {
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
       avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),
+      frameLayout: ProductLayout.parse(json['frameMeta'] ?? json['frame_meta']),
       relationPartner: json['relationPartner'] is Map<String, dynamic>
           ? RelationPartner.fromJson(json['relationPartner'] as Map<String, dynamic>)
           : null,
@@ -1302,6 +1423,7 @@ class SeatData {
       isMuted: rawMuted == true || rawMuted?.toString() == 'true',
       isLocked: rawLocked == true || rawLocked?.toString() == 'true',
       forceMuted: (json['forceMuted'] ?? json['force_muted']) == true,
+      isPlatformStaff: (json['isPlatformStaff'] ?? json['is_platform_staff']) == true,
     );
   }
 }

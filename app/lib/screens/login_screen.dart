@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -189,7 +190,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
 
   Future<void> printKeyHash() async {
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       try {
         final result = await const MethodChannel('app.channel.shared.data')
             .invokeMethod('getKeyHash');
