@@ -18,6 +18,9 @@ import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
 import '../services/webrtc_audio_service.dart';
+import '../services/room_audio_keepalive.dart';
+import '../widgets/marquee_text.dart';
+import 'supporters_board_screen.dart';
 import '../services/api_service.dart';
 import '../services/audio_controller.dart';
 import '../services/follow_service.dart';
@@ -27,12 +30,17 @@ import '../widgets/mic_perfect_badge.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
+import '../gifts/widgets/gift_announcement_bar.dart';
 import '../widgets/room/entrance_banner_layer.dart';
 import '../widgets/room/mic_queue_panel.dart';
+import '../widgets/room/music_library_sheet.dart';
+import '../widgets/room/music_player_bar.dart';
+import '../providers/music_provider.dart';
 import '../widgets/room/room_chat_panel.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../gifts/services/gift_repository.dart';
 import '../gifts/services/gift_socket_service.dart';
+import '../gifts/models/gift.dart' show GiftSendEvent;
 import '../gifts/widgets/gift_picker_sheet.dart';
 import '../gifts/widgets/gift_animation_overlay.dart';
 import 'dart:ui';
@@ -53,7 +61,7 @@ import 'package:video_player/video_player.dart';
 import '../models/room_event.dart';
 import '../screens/messages_screen.dart';
 import '../screens/challenges_screen.dart';
-import '../screens/leaderboard_screen.dart';
+import '../screens/supporters_board_screen.dart';
 import '../screens/wallet_screen.dart';
 import 'chat_screen.dart';
 import 'games_hub_screen.dart';
@@ -156,7 +164,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   bool _noiseReduction = false;
   double _volumeLevel = 1.0;
-  bool _musicOn = false;
+
+  /// Is the room currently playing music? Lives in the room music provider so
+  /// it is the same answer for everybody, not a per-device flag.
+  bool get _musicOn => ref.read(roomMusicProvider(widget.roomId)).active;
 
   int? _activeConversationId;
   int? _activeUserId;
@@ -164,6 +175,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   String? _activeAvatar;
 
   bool _isMinimized = false;
+
+  /// A23 — "الاحتفاظ بالغرفة": this screen was popped in favour of the floating
+  /// PiP bubble, and the room's audio must survive it.
+  ///
+  /// The client's report was that reserving the seat and leaving *looked* right
+  /// — the seat stays taken — but *"الصوت بيقطع"*, and the requirement is
+  /// *"كأني لم أخرج أبداً"*. The cause was here: PiP pops this route, `dispose`
+  /// runs, and it unconditionally tore down the WebRTC session, the mic
+  /// foreground service and the audio controller. The bubble itself owns no
+  /// audio, so the room went silent every time.
+  ///
+  /// When this is set, `dispose` leaves every audio resource running; PipOverlay
+  /// owns the teardown from then on (on مغادرة), and re-entering the room finds
+  /// the session already initialised.
+  bool _handedOffToPip = false;
   Offset _pipOffset = const Offset(20, 100);
 
   final FocusNode _topChatFocus = FocusNode();
@@ -1191,6 +1217,207 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
   }
 
+  /// Am I platform staff (admin or super admin)? Distinct from being a room
+  /// owner/supervisor — the two grant different powers.
+  bool get _iAmPlatformAdmin {
+    final me = ref.read(authStateProvider).user;
+    return (me?.userIsAdmin ?? false) || (me?.userIsSuperAdmin ?? false);
+  }
+
+  /// True when this seat belongs to platform staff, who are immune to every
+  /// moderation action offered in the room ("ولا احد ياخد اجراء ضده").
+  ///
+  /// The flag rides on the seat itself, straight from the same user row the
+  /// server already reads to build the seat. The server refuses staff bans
+  /// independently, so a stale seat can only cost a refused call, never an
+  /// executed one.
+  bool _isPlatformStaff(SeatData seat) {
+    if (seat.userId == null) return false;
+    final me = ref.read(authStateProvider).user;
+    if (me?.id == seat.userId) return false; // my own card isn't a target
+    return seat.isPlatformStaff;
+  }
+
+  /// Platform ban straight from the seat card — "الأدمن يضغط على مايك المستخدم
+  /// ويأخذ إجراء حظر". The durations are tiered exactly as the owner asked:
+  ///   • admin       → يوم / يومين / 3 أيام
+  ///   • super admin → يوم / شهر / أبدي
+  /// The server enforces the same split, so a tampered client gains nothing,
+  /// and it refuses a ban aimed at another admin (staff immunity).
+  Future<void> _promptBanUser(int? userId, String name) async {
+    if (userId == null) return;
+    final me = ref.read(authStateProvider).user;
+    final isSuper = me?.userIsSuperAdmin ?? false;
+    if (!(me?.userIsAdmin ?? false)) return;
+
+    final options = isSuper
+        ? const [('يوم', '1d'), ('شهر', '1m'), ('حظر أبدي', 'permanent')]
+        : const [('يوم', '1d'), ('يومان', '2d'), ('3 أيام', '3d')];
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E2E),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text('حظر $name من التطبيق',
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              for (final o in options)
+                ListTile(
+                  leading: const Icon(Icons.gavel, color: Colors.redAccent),
+                  title: Text(o.$1, style: const TextStyle(color: Colors.white)),
+                  onTap: () => Navigator.pop(ctx, o.$2),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null) return;
+
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1F1247),
+          title: const Text('سبب الحظر', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: reasonCtrl,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'مثال: إساءة في الغرفة',
+              hintStyle: TextStyle(color: Colors.white38),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('حظر'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await DioClient.dio.patch('/admin/users/$userId/ban', data: {
+        'isBanned': true,
+        'duration': choice,
+        'reason': reasonCtrl.text.trim().isEmpty ? 'مخالفة' : reasonCtrl.text.trim(),
+      });
+      _showRoomSnack('تم حظر $name');
+    } catch (e) {
+      final msg = e is DioException && e.response?.data is Map
+          ? (e.response!.data['message']?.toString() ?? 'تعذر الحظر')
+          : 'تعذر الحظر';
+      _showRoomSnack(msg, error: true);
+    }
+  }
+
+  /// Tapping the room (its picture or its name). A room admin gets the edit
+  /// dialog as before; a SUPER ADMIN gets a sheet that also offers إغلاق
+  /// الغرفة, which is the "يضغط على الغرفة يظهر له إغلاق الغرفة" rule.
+  Future<void> _onRoomHeaderTap() async {
+    final me = ref.read(authStateProvider).user;
+    final isSuper = me?.userIsSuperAdmin ?? false;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final myId = me?.id;
+    final canEdit = myId != null && (myId == state.ownerId || state.adminIds.contains(myId) || isSuper);
+
+    if (!isSuper) {
+      if (canEdit) _showEditRoomDialog();
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1F1247),
+      builder: (sctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (canEdit)
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Colors.white),
+                  title: const Text('تعديل الغرفة', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(sctx);
+                    _showEditRoomDialog();
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.lock, color: Colors.redAccent),
+                title: const Text('إغلاق الغرفة', style: TextStyle(color: Colors.redAccent)),
+                subtitle: const Text('يخرج الجميع ولا تُفتح إلا من لوحة التحكم',
+                    style: TextStyle(color: Colors.white54, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(sctx);
+                  _promptCloseRoom();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Super admin only: close the room from inside it. Everyone is thrown out
+  /// immediately and it can only be reopened from the dashboard.
+  Future<void> _promptCloseRoom() async {
+    final me = ref.read(authStateProvider).user;
+    if (!(me?.userIsSuperAdmin ?? false)) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1F1247),
+          title: const Text('إغلاق الغرفة', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            'سيخرج جميع الموجودين فوراً ولن تُفتح الغرفة إلا من لوحة التحكم. متابعة؟',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('إلغاء')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.pop(dctx, true),
+              child: const Text('إغلاق'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await DioClient.dio.post('/room-admin/close-room', data: {'roomId': widget.roomId});
+      _showRoomSnack('تم إغلاق الغرفة');
+    } catch (e) {
+      final msg = e is DioException && e.response?.data is Map
+          ? (e.response!.data['error']?.toString() ?? 'تعذر إغلاق الغرفة')
+          : 'تعذر إغلاق الغرفة';
+      _showRoomSnack(msg, error: true);
+    }
+  }
+
   Future<void> _clearRoomChat() async {
     try {
       await _api.clearChat({
@@ -1801,11 +2028,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         MaterialPageRoute(builder: (_) => const GamesHubScreen()),
                       );
                     }),
-                    _menuItem(Icons.leaderboard, 'لوحة الصدارة', Colors.lightBlueAccent, () {
+                    // Room cup: the top 20 supporters OF THIS ROOM — not the
+                    // app-wide board, and not the old placeholder list.
+                    _menuItem(Icons.emoji_events, 'كأس الغرفة', Colors.lightBlueAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
-                        MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => SupportersBoardScreen(roomId: widget.roomId),
+                        ),
                       );
                     }),
                     _menuItem(Icons.account_balance_wallet, 'المحفظة', Colors.orangeAccent, () {
@@ -1825,29 +2056,32 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
-  Future<void> _toggleMusicSetting() async {
+  /// Owner + room admins may start/stop what the room hears. Everyone else can
+  /// still open the sheet to manage their own uploads.
+  bool _canControlMusic() {
+    final userId = ref.read(authStateProvider).user?.id;
+    if (userId == null) return false;
+    final state = ref.read(roomControllerProvider(widget.roomId));
     final room = ref.read(roomsProvider).findById(widget.roomId);
-    final url = room?.backgroundMusicUrl ?? '';
-    final nextValue = !_musicOn;
+    final restOwnerId = room?.ownerId ?? room?.owner?.id ?? 0;
+    return userId == state.ownerId ||
+        state.adminIds.contains(userId) ||
+        userId == restOwnerId;
+  }
 
-    setState(() => _musicOn = nextValue);
-
-    try {
-      await _api.setBackgroundMusic({
-        'roomId': widget.roomId,
-        'room_id': widget.roomId,
-        'enabled': nextValue,
-        'isEnabled': nextValue,
-        'musicOn': nextValue,
-        'url': url,
-        'backgroundMusicUrl': url,
-      });
-      _showRoomSnack(nextValue ? 'تم تفعيل موسيقى الغرفة' : 'تم إيقاف موسيقى الغرفة');
-    } catch (_) {
-      _showRoomSnack(
-        nextValue ? 'تم تفعيل الموسيقى محلياً' : 'تم إيقاف الموسيقى محلياً',
-      );
-    }
+  /// "موسيقى": upload from the phone, play in the room, manage your songs.
+  /// Replaces the old on/off switch, which only flipped a flag and never
+  /// played anything ("الموسيقى غير فعّالة").
+  void _openMusicSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MusicLibrarySheet(
+        roomId: widget.roomId,
+        canControl: _canControlMusic(),
+      ),
+    );
   }
 
   void _toggleNoiseReduction() {
@@ -1901,8 +2135,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 if (_seatVideoController != null) {
                   await _seatVideoController!.setVolume(tempVolume);
                 }
+                // A24 — the room VOICE is what the user is actually turning
+                // down. Without this the slider only ever touched effects and
+                // the seat clip, so dragging it to 0 left everyone still
+                // audible: "مؤشر الصوت لما أنزله للصفر مش بيقفل".
+                await WebRTCAudioService().setRemoteVolume(tempVolume);
                 if (mounted) Navigator.pop(context);
-                _showRoomSnack('تم تحديث مستوى الصوت');
+                _showRoomSnack(
+                  tempVolume == 0 ? 'تم كتم صوت الغرفة' : 'تم تحديث مستوى الصوت',
+                );
               },
               child: const Text('حفظ'),
             ),
@@ -2039,13 +2280,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   color: Colors.white70,
                 ),
                 title: const Text('موسيقى الغرفة', style: TextStyle(color: Colors.white)),
-                trailing: Switch.adaptive(
-                  value: _musicOn,
-                  onChanged: (_) async {
-                    Navigator.pop(context);
-                    await _toggleMusicSetting();
-                  },
-                ),
+                trailing: const Icon(Icons.chevron_left, color: Colors.white38),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openMusicSheet();
+                },
               ),
               ListTile(
                 leading: Icon(
@@ -2189,22 +2428,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final roomId = widget.roomId;
 
-    _audioService.onVoiceActivityChanged = (isSpeaking) async {
+    // من المتحدث: the audio service reports my own mic transitions; the
+    // controller paints my ring and tells the rest of the room.
+    //
+    // This used to re-`initialize()` the whole audio service on every
+    // transition — a full WebRTC setup several times a second once the
+    // detector actually started firing.
+    _audioService.onVoiceActivityChanged = (isSpeaking) {
       final userId = ref.read(authStateProvider).user?.id;
       if (userId == null) return;
-
-      final controller = ref.read(roomControllerProvider(widget.roomId));
-
-      await _audioService.initialize(
-        roomId: widget.roomId,
-        userId: userId,
-        listenOnly: true,
-      );
-
-      if (controller.seats.isEmpty) return; // ✅ IMPORTANT
-
       ref.read(roomControllerProvider(widget.roomId).notifier)
-          .setUserSpeaking(userId, isSpeaking);
+          .broadcastMySpeaking(userId, isSpeaking);
     };
 
     final state = ref.read(roomControllerProvider(widget.roomId));
@@ -2227,6 +2461,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     // Bind the new gift socket; GiftAnimationOverlay handles its own subscriptions.
     _giftSocket.bind();
+
+    // A20 — credit the recipient's under-mic total the instant the gift lands,
+    // instead of waiting for the 25-second poll. Same event the animation is
+    // already driven by, so the number and the animation move together.
+    _giftEarningsSub = _giftSocket.sentStream.listen((event) {
+      if (!mounted) return;
+      if (event.roomId != null && event.roomId != widget.roomId) return;
+      ref.read(roomControllerProvider(widget.roomId).notifier).applyGiftEarning(
+            recipientId: event.recipientId,
+            coins: event.totalCoins,
+          );
+    });
 
     // Pull video gift clips into the cache now, so the first person to receive
     // one doesn't stall on a download while everyone else has already heard it.
@@ -2381,6 +2627,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           listenOnly: false,
         );
         _audioReady = true;
+        // Start measuring my own mic so the room can see who is talking.
+        // Nothing switched this on before, which is why the speaking ring
+        // never appeared for anyone.
+        _audioService.enableVAD();
         // Step 5: report the perfect-mic self-test result to the room.
         SocketService().reportMicStatus(
           roomId: widget.roomId,
@@ -2438,8 +2688,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   late final RoomLiveNotifier _live;
 
-  @override
-  bool _lifecycleLeft = false;
+  /// Are we currently suspended (screen locked / app in the background)?
+  bool _lifecycleBackgrounded = false;
+
+  /// Was the mic live when we got suspended? Used to restore it on resume.
+  bool _micLiveBeforeBackground = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
@@ -2449,33 +2702,87 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (appState == AppLifecycleState.paused ||
         appState == AppLifecycleState.detached) {
-      // Screen locked / app backgrounded → leave the room cleanly so other
-      // devices don't keep showing a stale online/in-seat entry (presence desync).
-      if (_lifecycleLeft) return;
-      _lifecycleLeft = true;
-      try { if (_audioReady) _audioService.muteAudio(); } catch (_) {}
-      try { AudioController.instance.setMicEnabled(false); } catch (_) {}
-      try {
-        SocketService().leaveRoom(roomId: widget.roomId, userId: user.id);
-      } catch (_) {}
-    } else if (appState == AppLifecycleState.resumed && _lifecycleLeft) {
-      _lifecycleLeft = false;
-      // Back in foreground → re-join cleanly and re-sync seats.
-      try {
-        SocketService().joinRoom(
-          roomId: widget.roomId,
-          userId: user.id,
-          username: user.name,
-        );
-      } catch (_) {}
+      // Screen locked / app backgrounded. NOTHING changes: the user stays in
+      // the room, on his seat, and — per the client rule "لو انا مشغل اغاني او
+      // بتكلم لم يتغير شي اذا كنت خارج الغرفه" — his MIC AND MUSIC KEEP
+      // RUNNING. This used to force-mute on background, so stepping out of the
+      // app for a second cut you off mid-sentence and stopped the room music.
+      // Only an explicit exit leaves the room or closes the mic.
+      //
+      // If the OS kills the websocket anyway, the server keeps the seat until
+      // the user actually leaves (ROOM_DISCONNECT_GRACE_MS).
+      if (_lifecycleBackgrounded) return;
+      _lifecycleBackgrounded = true;
+      // Remembered only so a resume can repair a mic the OS interrupted.
+      _micLiveBeforeBackground = _audioReady && !_audioService.isMicMuted;
+    } else if (appState == AppLifecycleState.resumed && _lifecycleBackgrounded) {
+      _lifecycleBackgrounded = false;
+      // Back in the foreground → re-sync state (and restore the mic if it was
+      // live). No re-entrance: we never left.
+      unawaited(_resumeInRoom());
+    }
+  }
+
+  /// Re-establish the live session after the app comes back to the foreground.
+  Future<void> _resumeInRoom() async {
+    try {
+      await ref
+          .read(roomControllerProvider(widget.roomId).notifier)
+          .resyncAfterForeground();
+    } catch (e) {
+      debugPrint('resume resync failed: $e');
+    }
+    if (!mounted) return;
+
+    if (!_micLiveBeforeBackground) return;
+    _micLiveBeforeBackground = false;
+
+    // The mic was NOT closed on the way out — this only repairs it if the OS
+    // (a phone call, another app grabbing the microphone) interrupted it while
+    // we were away. Re-enabling an already-live mic is a no-op.
+    //
+    // Only reopen the mic if the seat is still ours and still allowed to talk —
+    // an admin may have muted us (or taken the seat) while we were away.
+    final me = ref.read(authStateProvider).user?.id;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    SeatData? seat;
+    for (final s in state.seats.values) {
+      if (s.userId == me) { seat = s; break; }
+    }
+    if (seat == null ||
+        seat.isMuted ||
+        seat.forceMuted ||
+        state.mutedSeats.contains(seat.seatNumber)) {
+      return;
+    }
+
+    try {
+      await AudioController.instance.setMicEnabled(true);
+      if (_audioReady) await _audioService.unmuteAudio();
+    } catch (e) {
+      debugPrint('resume mic restore failed: $e');
     }
   }
 
   @override
   void dispose() {
     // Close the room and dispose resources
-    debugPrint('🟣 RoomScreen.dispose room=${widget.roomId}');
-    AudioController.instance.deactivate();
+    debugPrint('🟣 RoomScreen.dispose room=${widget.roomId} pip=$_handedOffToPip');
+
+    // A23 — everything that carries the room's VOICE is skipped when the screen
+    // is being handed to the PiP bubble. The visual resources below are torn
+    // down either way; they have nothing to do with the audio.
+    if (!_handedOffToPip) {
+      AudioController.instance.deactivate();
+      _audioService.dispose();
+      // The ongoing mic notification belongs to the session that just ended.
+      unawaited(RoomAudioKeepAlive.instance.stop());
+    } else {
+      // The bubble has no gift overlay and no seat cards, so nothing is left to
+      // paint a ring on — but the detector keeps running so the ring is correct
+      // the moment the room is re-opened.
+      debugPrint('🟣 audio kept alive for PiP room=${widget.roomId}');
+    }
 
     _audioPlayer.dispose();  // ✅ ADD
     _roomImageCtrl.dispose();
@@ -2483,12 +2790,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _socketErrSub?.cancel();
     _joinDeniedSub?.cancel();
     _giftSocket.dispose();
-    _audioService.dispose();
     _seatVideoController?.dispose();
     _externalTextController.dispose(); // Dispose the external controller
     _chatController.dispose();
     _chatFocus.dispose();
     _topChatFocus.dispose();
+    _giftEarningsSub?.cancel();
     _seatEffectSub?.cancel();
     _seatInviteSub?.cancel();
     _seatInviteResultSub?.cancel();
@@ -2505,6 +2812,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _externalTextController.clear(); // Clear the text field after sending
     }
   }
+  /// A20 — live seat-earnings updates driven by the gift socket.
+  StreamSubscription<GiftSendEvent>? _giftEarningsSub;
+
   bool _audioReady = false;
 
   final ImagePicker _picker = ImagePicker();
@@ -3376,7 +3686,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     _menuItem(Icons.music_note, "موسيقى",
                         _musicOn ? Colors.greenAccent : Colors.white70, () {
                           Navigator.pop(context);
-                          _toggleMusicSetting();
+                          _openMusicSheet();
                         }),
 
                     _menuItem(Icons.hearing, "تقليل الضوضاء",
@@ -3503,6 +3813,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final isAdmin = userId != null &&
         (userId == state.ownerId || state.adminIds.contains(userId) || userId == restOwnerId);
+
+    // Watched here — above the minimized/PiP early-return — so the shared music
+    // player stays alive (and keeps playing) even while the room is collapsed
+    // into the floating bubble. Listeners need it too: this is what makes the
+    // song audible to people who cannot control it.
+    ref.watch(roomMusicProvider(widget.roomId));
 
     final size = MediaQuery.of(context).size;
     final kb = MediaQuery.of(context).viewInsets.bottom;
@@ -3725,34 +4041,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
 
 
-// ===== Seat video overlay =====
-            if (_showSeatVideo && _seatVideoController != null)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 400),
-                    opacity: _showSeatVideo ? 1 : 0,
-                    child: TweenAnimationBuilder<double>(
-                      duration: const Duration(milliseconds: 600),
-                      tween: Tween(begin: 1.2, end: 1.0), // 🔥 zoom out effect
-                      builder: (context, scale, child) {
-                        return Transform.scale(
-                          scale: scale,
-                          child: child,
-                        );
-                      },
-                      child: FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: _seatVideoController!.value.size.width,
-                          height: _seatVideoController!.value.size.height,
-                          child: VideoPlayer(_seatVideoController!),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            // مركبة الدخول is NOT drawn here any more — it used to sit under
+            // the dark overlay and under the seats, so the vehicle played
+            // behind the mics. It is now one of the last children of this
+            // Stack, next to the gift flight overlay
+            // ("خلي مركبة الدخول من فوق زي الهديه ... تغطي علي المايكات عادي").
 
             // dark overlay
             Positioned.fill(
@@ -3772,7 +4065,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   child: Row(
                     children: [
                       GestureDetector(
-                        onTap: isAdmin ? _showEditRoomDialog : null,
+                        onTap: _onRoomHeaderTap,
                         child: CircleAvatar(
                         radius: 22,
                         backgroundColor: Colors.deepPurple,
@@ -3787,15 +4080,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       const SizedBox(width: 8),
                       Expanded(
                         child: GestureDetector(
-                          onTap: isAdmin ? _showEditRoomDialog : null,
+                          onTap: _onRoomHeaderTap,
                           child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
+                            // #43 — a long room name scrolls itself instead of
+                            // being cut off with an ellipsis, "لحد ما يظهر
+                            // الاسم كامل". A name that fits does not move.
+                            MarqueeText(
                               roomName.isNotEmpty ? roomName : 'Room #${widget.roomId}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 18,
@@ -3836,6 +4130,31 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           ),
                         ),
                       ),
+                      // #43 — "أيقونة الكأس مش موجودة في الروم". The room cup
+                      // was reachable only from inside the ⋮ menu; it now has
+                      // its own place in the header, and the room-actions menu
+                      // it used to hide behind stays where it is.
+                      const SizedBox(width: 6),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SupportersBoardScreen(roomId: widget.roomId),
+                            ),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.22),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Icon(Icons.emoji_events, color: Color(0xFFFFD700), size: 16),
+                          ),
+                        ),
+                      ),
                       if (isAdmin) ...[
                         const SizedBox(width: 6),
                         Material(
@@ -3862,6 +4181,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white70, size: 20),
                           onPressed: () {
                             final state = ref.read(roomControllerProvider(widget.roomId));
+                            // Set BEFORE the pop: dispose runs synchronously
+                            // from it and reads this to keep the audio alive.
+                            _handedOffToPip = true;
                             ref.read(pipProvider.notifier).activate(
                               roomId: widget.roomId,
                               roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
@@ -3970,17 +4292,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             // ✅ Bottom panels: Activity LEFT next to Chat (horizontal)
             // Activity height = 30% of chat height, showing ~3 lines
             // ==========================================================
+            // The 55px overlap used to be a Transform.translate. That moves
+            // the PAINTING but not the layout box, and a RenderBox only hit
+            // tests inside its own box — so the whole panel was drawn 55px
+            // above the region that actually received touches, and taps on the
+            // messages landed on nothing. Putting the offset in `bottom` gives
+            // the identical look with a hit area that matches what is on
+            // screen.
             Positioned(
               left: 0,
               right: 0,
-              bottom: bottomBarH + 10,
+              bottom: bottomBarH + 10 + 55, // 🔥 deeper overlap
               child: Center(
-                child: Transform.translate(
-                  offset: const Offset(0, -55), // 🔥 deeper overlap
-                  child: SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.90,
-                    height: MediaQuery.of(context).size.height * 0.30,
-                    child: RoomChatPanel(roomId: widget.roomId),
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.90,
+                  height: MediaQuery.of(context).size.height * 0.30,
+                  child: RoomChatPanel(
+                    roomId: widget.roomId,
+                    // Tapping a writer's name opens the room's own profile
+                    // card, not a separate screen.
+                    onUserTap: (uid, name) =>
+                        showUserProfileCard(userId: uid, username: name),
                   ),
                 ),
               ),
@@ -4241,6 +4573,36 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
             ),
 
+            // ===== مركبة الدخول — same layer as the gifts, above the mics =====
+// ===== Seat video overlay =====
+            if (_showSeatVideo && _seatVideoController != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 400),
+                    opacity: _showSeatVideo ? 1 : 0,
+                    child: TweenAnimationBuilder<double>(
+                      duration: const Duration(milliseconds: 600),
+                      tween: Tween(begin: 1.2, end: 1.0), // 🔥 zoom out effect
+                      builder: (context, scale, child) {
+                        return Transform.scale(
+                          scale: scale,
+                          child: child,
+                        );
+                      },
+                      child: FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: _seatVideoController!.value.size.width,
+                          height: _seatVideoController!.value.size.height,
+                          child: VideoPlayer(_seatVideoController!),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             // ===== Gift flight overlay (rendered LAST so it paints ABOVE seats) =====
             Positioned.fill(
               child: GiftAnimationOverlay(
@@ -4253,6 +4615,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             Positioned.fill(
               child: EntranceBannerLayer(roomId: widget.roomId),
             ),
+
+            // ===== A22: شريط إعلان الهدية — centred, one at a time, ~1.5s.
+            // Deliberately NOT at the top: the client's complaint was that the
+            // notifications kept covering the gift bar up there.
+            GiftAnnouncementBar(socket: _giftSocket, roomId: widget.roomId),
+
+            // ===== Music control bar — draggable, only for owner/admins, and
+            // only while the room is actually playing something. =====
+            MusicPlayerBar(roomId: widget.roomId, canControl: isAdmin),
           ],
         ),
       ),
@@ -4318,6 +4689,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           ok: _audioService.micHealthy,
         );
 
+        // A23 — from here on the user holds a mic. Android cuts microphone
+        // capture for a backgrounded process unless a foreground service of
+        // type `microphone` is running, which is why "الاحتفاظ بالغرفة" kept
+        // the seat but dropped the audio. Starting it here (and stopping it on
+        // leave, below) is what makes backgrounding behave "كأنه لم يخرج من
+        // الروم إطلاقاً".
+        unawaited(RoomAudioKeepAlive.instance.start(
+          roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+        ));
+
+        // A10 — "المتكلم على المايك يظهر حوله دائرة متحركة". The detector only
+        // runs while this user actually holds a mic; it was never switched on
+        // at all before, which is why the ring never appeared for anyone (the
+        // room learns who is talking from each speaker's own report).
+        _audioService.enableVAD();
+
         return;
       }
 
@@ -4327,6 +4714,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 // Leave seat
     if (prevSeat != null && newSeatNumber == null) {
       await _audioService.muteAudio();
+      // No mic, no ring, no detector.
+      _audioService.disableVAD();
+      // The ongoing notification must not outlive the mic that justified it.
+      unawaited(RoomAudioKeepAlive.instance.stop());
       return;
     }
 
@@ -4519,6 +4910,49 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         );
       },
     );
+  }
+
+  /// Opens the SAME profile card the seats use, for someone who is only in the
+  /// chat. Tapping a name used to push a whole screen (or nothing at all); the
+  /// point is to look at a writer and moderate him without leaving the room —
+  /// "اظهار صفحته لطرده قبل صعود المايك".
+  ///
+  /// If the user happens to be seated, his real seat is used so the seat-only
+  /// controls still apply; otherwise a seatless stand-in carries just his
+  /// identity and `seatNumber: -1` hides those controls.
+  void showUserProfileCard({
+    required int userId,
+    String? username,
+    String? avatarUrl,
+  }) {
+    if (userId <= 0) {
+      _showRoomSnack('تعذّر فتح ملف هذا المستخدم');
+      return;
+    }
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final myId = ref.read(authStateProvider).user?.id ?? 0;
+    final isAdmin = myId == state.ownerId || state.adminIds.contains(myId);
+
+    SeatData? seated;
+    for (final s in state.seats.values) {
+      if (s.userId == userId) {
+        seated = s;
+        break;
+      }
+    }
+
+    final seat = seated ??
+        SeatData(
+          seatNumber: -1,
+          userId: userId,
+          username: username,
+          avatarUrl: avatarUrl,
+          level: 0,
+          isMuted: true,
+          isLocked: false,
+        );
+
+    _onSeatTap(context, seat.seatNumber, seat, myId, isAdmin);
   }
 
   /// Show seat actions for admins/occupants
@@ -4785,56 +5219,46 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                           ),
                                         ),
                                       ),
+                                      // العمر + علامة الجنس بجانب الاسم مباشرة.
+                                      if (profile?.age != null ||
+                                          profile?.gender == 'male' ||
+                                          profile?.gender == 'female') ...[
+                                        const SizedBox(width: 8),
+                                        _ageGenderChip(profile),
+                                      ],
                                     ],
                                   );
                                 },
                               ),
                               const SizedBox(height: 8),
 
-                              // BADGE ROWS — level/ID/VIP render instantly from
-                              // live seat data; age/gender/agency/family fill in
-                              // when the profile fetch resolves. Nothing is ever
-                              // a placeholder: each chip is omitted until real.
+                              // IDENTITY ROWS. Layout the client asked for:
+                              //   فهد ♂ 40           ← name row, above
+                              //   وكيل / مضيف        ← directly under the name
+                              //   VIP 14  LV 22   ID 100029   ← ID pushed to
+                              //                                 the LEFT end of
+                              //                                 the level row
+                              //   [شارات المستخدم]   ← the row the ID vacated
+                              //
+                              // Level/VIP/ID render instantly from live seat
+                              // data; agency/family/badges fill in when the
+                              // profile fetch resolves. Nothing is ever a
+                              // placeholder: each chip is omitted until real.
                               FutureBuilder<Result<User>>(
                                 future: profileFuture,
                                 builder: (context, snapshot) {
                                   final profile =
                                       snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
-                                  final genderSymbol = profile?.gender == 'female'
-                                      ? '♀'
-                                      : profile?.gender == 'male'
-                                          ? '♂'
-                                          : null;
+                                  final medals = profile?.achievements ?? const <AchievementBadge>[];
 
-                                  return Wrap(
-                                    alignment: WrapAlignment.start,
-                                    spacing: 6,
-                                    runSpacing: 6,
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      if (profile?.age != null || genderSymbol != null)
-                                        _badgePill(
-                                          [
-                                            if (profile?.age != null) '${profile!.age}',
-                                            if (genderSymbol != null) genderSymbol,
-                                          ].join(' '),
-                                          const Color(0xFF3B82F6),
-                                          profile?.gender == 'female' ? Icons.female : Icons.male,
-                                        ),
-                                      _badgePill('LV ${seat.level}', const Color(0xFF10B981), Icons.terrain),
-                                      if (seat.vipLevel > 0) VipBadge(level: seat.vipLevel),
-                                      _badgePill(
-                                        'ID ${seat.displayId ?? seat.userId ?? ''}',
-                                        const Color(0xFFF59E0B),
-                                        Icons.badge_outlined,
-                                      ),
-                                      // وكيل / مضيف with the agency name stacked
-                                      // underneath it, as its own column so the
-                                      // name tracks this chip rather than the
-                                      // whole row.
-                                      if (profile?.agencyRole != null)
-                                        Column(
+                                      // ── وكيل / مضيف, right under the name ──
+                                      if (profile?.agencyRole != null) ...[
+                                        Row(
                                           mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment: CrossAxisAlignment.center,
                                           children: [
                                             _badgePill(
                                               profile!.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
@@ -4844,9 +5268,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                               Icons.workspace_premium,
                                             ),
                                             if (profile.agencyName != null &&
-                                                profile.agencyName!.isNotEmpty)
-                                              Padding(
-                                                padding: const EdgeInsets.only(top: 2),
+                                                profile.agencyName!.isNotEmpty) ...[
+                                              const SizedBox(width: 6),
+                                              Flexible(
                                                 child: Text(
                                                   profile.agencyName!,
                                                   maxLines: 1,
@@ -4861,12 +5285,63 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                                   ),
                                                 ),
                                               ),
+                                            ],
                                           ],
                                         ),
-                                      if (profile?.familyName != null && profile!.familyName!.isNotEmpty)
-                                        _badgePill(
-                                            profile.familyName!, const Color(0xFF8B5CF6), Icons.shield),
-                                      MicPerfectBadge(userId: seat.userId),
+                                        const SizedBox(height: 6),
+                                      ],
+
+                                      // ── VIP · LV ……… ID (ID on the left) ──
+                                      Row(
+                                        children: [
+                                          if (seat.vipLevel > 0) ...[
+                                            VipBadge(level: seat.vipLevel),
+                                            const SizedBox(width: 6),
+                                          ],
+                                          _badgePill(
+                                              'LV ${seat.level}', const Color(0xFF10B981), Icons.terrain),
+                                          const Spacer(),
+                                          _badgePill(
+                                            'ID ${seat.displayId ?? seat.userId ?? ''}',
+                                            const Color(0xFFF59E0B),
+                                            Icons.badge_outlined,
+                                          ),
+                                        ],
+                                      ),
+
+                                      // ── شارات المستخدم, in the row the ID
+                                      // used to occupy. Family and the perfect-
+                                      // mic mark ride along here.
+                                      if (medals.isNotEmpty ||
+                                          (profile?.familyName?.isNotEmpty ?? false)) ...[
+                                        const SizedBox(height: 6),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 4,
+                                          crossAxisAlignment: WrapCrossAlignment.center,
+                                          children: [
+                                            for (final m in medals)
+                                              Tooltip(
+                                                message: m.name,
+                                                child: Image.network(
+                                                  m.iconUrl,
+                                                  width: 24,
+                                                  height: 24,
+                                                  fit: BoxFit.contain,
+                                                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                                                ),
+                                              ),
+                                            if (profile?.familyName != null &&
+                                                profile!.familyName!.isNotEmpty)
+                                              _badgePill(profile.familyName!, const Color(0xFF8B5CF6),
+                                                  Icons.shield),
+                                            MicPerfectBadge(userId: seat.userId),
+                                          ],
+                                        ),
+                                      ] else ...[
+                                        const SizedBox(height: 6),
+                                        MicPerfectBadge(userId: seat.userId),
+                                      ],
                                     ],
                                   );
                                 },
@@ -4919,6 +5394,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               : () {
                                   Navigator.pop(context);
                                   final roomState = ref.read(roomControllerProvider(widget.roomId));
+                                  // Same hand-off as the PiP button: whatever
+                                  // pops this route next must not kill the room
+                                  // audio the bubble is still representing.
+                                  _handedOffToPip = true;
                                   ref.read(pipProvider.notifier).activate(
                                         roomId: widget.roomId,
                                         roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
@@ -4983,15 +5462,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   const SizedBox(height: 10),
 
                   // ── MEDALS BAR (الميداليات) ──
-                  // Hidden entirely when the user has unlocked nothing — an
-                  // empty medal rail would just be decoration pretending to be
-                  // data.
+                  // The badges now sit in the identity block, in the row the ID
+                  // moved out of, so this rail only appears when there are MORE
+                  // than fit up there — otherwise it repeats what is already on
+                  // screen. Hidden entirely when nothing is unlocked.
                   FutureBuilder<Result<User>>(
                     future: profileFuture,
                     builder: (context, snapshot) {
                       final profile = snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
                       final medals = profile?.achievements ?? const <AchievementBadge>[];
-                      if (medals.isEmpty) return const SizedBox.shrink();
+                      if (medals.length <= 3) return const SizedBox.shrink();
 
                       return Container(
                         width: double.infinity,
@@ -5103,8 +5583,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         }),
                       ),
                     ]),
-                    // Admin-only controls below
-                    if (isAdmin) ...[
+                    // ── Moderation ──
+                    // Two different powers live here and used to be gated as
+                    // one, which is why a PLATFORM admin who happened not to
+                    // own the room saw nothing at all
+                    // ("الادمن ليس له اي صلاحيات"):
+                    //   • room controls (mute/kick/lock/…) — room owner or
+                    //     room supervisor;
+                    //   • حظر من التطبيق — platform admin, in ANY room.
+                    // Neither is ever offered against platform staff:
+                    // "ولا احد ياخد اجراء ضده".
+                    if ((isAdmin || _iAmPlatformAdmin) && !_isPlatformStaff(seat)) ...[
                       const SizedBox(height: 14),
                       Divider(color: Colors.white.withOpacity(0.12)),
                       const SizedBox(height: 10),
@@ -5112,23 +5601,30 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         spacing: 8,
                         runSpacing: 8,
                         children: [
+                          if (isAdmin) ...
+                          [
                           _adminChipBtn(seat.forceMuted ? Icons.mic : Icons.mic_off,
                               seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك',
                               Colors.orange, () async {
                             Navigator.pop(context);
                             await _forceMute(seat.userId, !seat.forceMuted);
                           }),
-                          _adminChipBtn(Icons.remove_circle_outline, 'إزالة من المايك', Colors.red, () {
-                            Navigator.pop(context);
-                            ref.read(roomControllerProvider(widget.roomId).notifier)
-                                .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
-                            SocketService().emit('remove_from_seat', {
-                              'roomId': widget.roomId,
-                              'seatNumber': seatNumber,
-                              'targetUserId': seat.userId,
-                            });
-                            _showRoomSnack('تم إزالة المستخدم من الميكروفون');
-                          }),
+                          // Seat-bound actions only make sense for a real seat.
+                          // The card also opens for a chat writer who is not on
+                          // one (seatNumber -1), where these would act on a
+                          // seat that doesn't exist.
+                          if (seatNumber > 0)
+                            _adminChipBtn(Icons.remove_circle_outline, 'إزالة من المايك', Colors.red, () {
+                              Navigator.pop(context);
+                              ref.read(roomControllerProvider(widget.roomId).notifier)
+                                  .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
+                              SocketService().emit('remove_from_seat', {
+                                'roomId': widget.roomId,
+                                'seatNumber': seatNumber,
+                                'targetUserId': seat.userId,
+                              });
+                              _showRoomSnack('تم إزالة المستخدم من الميكروفون');
+                            }),
                           _adminChipBtn(Icons.block, 'منع من المقعد', Colors.deepOrange, () async {
                             Navigator.pop(context);
                             await _setSeatBlock(seat.userId, true);
@@ -5137,6 +5633,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             Navigator.pop(context);
                             await _promptKickUser(seat.userId);
                           }),
+                          if (seatNumber > 0)
                           Builder(builder: (ctx) {
                             final isSeatLocked = ref.read(roomControllerProvider(widget.roomId))
                                 .lockedSeats.contains(seatNumber);
@@ -5157,6 +5654,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             Navigator.pop(context);
                             await _appointSupervisor(seat.userId);
                           }),
+                          ],
+                          // Platform ban, straight off the mic — independent of
+                          // any room role. A room owner moderates HIS room; a
+                          // platform admin bans from the app.
+                          if (_iAmPlatformAdmin)
+                            _adminChipBtn(Icons.gavel, 'حظر من التطبيق', Colors.red.shade700, () async {
+                              Navigator.pop(context);
+                              await _promptBanUser(seat.userId, seat.username ?? 'المستخدم');
+                            }),
                         ],
                       ),
                     ],
@@ -5644,6 +6150,40 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(value, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  /// العمر وعلامة الجنس — تعرض بجانب الاسم في كرت البروفايل داخل الغرفة.
+  /// كانت علامة الجنس ملتصقة بالليفل، والصح أن تكون مع العمر.
+  Widget _ageGenderChip(User? profile) {
+    final isFemale = profile?.gender == 'female';
+    final hasGender = profile?.gender == 'male' || isFemale;
+    final color = hasGender
+        ? (isFemale ? const Color(0xFFEC4899) : const Color(0xFF3B82F6))
+        : const Color(0xFF3B82F6);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasGender)
+            Icon(isFemale ? Icons.female : Icons.male, color: Colors.white, size: 14),
+          if (hasGender && profile?.age != null) const SizedBox(width: 3),
+          if (profile?.age != null)
+            Text(
+              '${profile!.age}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
         ],
       ),
     );

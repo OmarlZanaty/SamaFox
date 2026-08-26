@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../utils/logger.dart';
 import '../models/incoming_message.dart';
 import '../models/message_events.dart';
+import '../models/product_layout.dart';
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
@@ -1079,6 +1080,15 @@ class SocketMessage {
   final int vipLevel;
   final String? bubbleUrl;
 
+  /// Where that bubble design's EMPTY inner box is, per لوحة التحكم. Drives
+  /// both the text padding and the 9-slice, so the writing stays inside the
+  /// bubble however the artwork is decorated.
+  final ProductLayout bubbleLayout;
+
+  /// Icon urls of the writer's شارات (achievements), newest first and capped
+  /// server-side — drawn under his name in the bubble.
+  final List<String> badges;
+
   SocketMessage({
     required this.messageId,
     required this.roomId,
@@ -1090,6 +1100,8 @@ class SocketMessage {
     this.level = 1,
     this.vipLevel = 0,
     this.bubbleUrl,
+    this.bubbleLayout = ProductLayout.empty,
+    this.badges = const [],
   });
 
   factory SocketMessage.fromJson(Map<String, dynamic> json) {
@@ -1110,6 +1122,12 @@ class SocketMessage {
       level: _i(json['level'] ?? 1),
       vipLevel: _i(json['vipLevel'] ?? 0),
       bubbleUrl: json['bubbleUrl'] as String?,
+      bubbleLayout: ProductLayout.parse(json['bubbleMeta']),
+      badges: (json['badges'] as List?)
+              ?.map((e) => e?.toString() ?? '')
+              .where((e) => e.isNotEmpty)
+              .toList() ??
+          const [],
     );
   }
 }
@@ -1294,11 +1312,20 @@ class SeatData {
   final String? username;
   final String? avatarUrl;
   final String? avatarFrameUrl; // ✅ NEW
+
+  /// Where THIS frame's inner hole is, per لوحة التحكم. Lets the avatar be
+  /// seated exactly on the ring whatever padding or decoration the artwork
+  /// carries, instead of guessing a fixed 60% circle.
+  final ProductLayout frameLayout;
   final RelationPartner? relationPartner;
   final int level;
   final bool isMuted;
   final bool isLocked;
   final bool forceMuted; // admin force-mute: user cannot unmute themselves
+
+  /// Platform admin / super admin. Room moderation is never offered against
+  /// them ("ولا احد ياخد اجراء ضده").
+  final bool isPlatformStaff;
   bool isSpeaking;
 
   SeatData({
@@ -1309,11 +1336,13 @@ class SeatData {
     required this.username,
     required this.avatarUrl,
     this.avatarFrameUrl, // ✅ NEW
+    this.frameLayout = ProductLayout.empty,
     this.relationPartner,
     required this.level,
     required this.isMuted,
     required this.isLocked,
     this.forceMuted = false,
+    this.isPlatformStaff = false,
     this.isSpeaking = false,
   });
 
@@ -1340,11 +1369,13 @@ class SeatData {
     String? username,
     String? avatarUrl,
     String? avatarFrameUrl,
+    ProductLayout? frameLayout,
     RelationPartner? relationPartner,
     int? level,
     bool? isMuted,
     bool? isLocked,
     bool? forceMuted,
+    bool? isPlatformStaff,
     bool? isSpeaking,
   }) {
     return SeatData(
@@ -1355,11 +1386,13 @@ class SeatData {
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
+      frameLayout: frameLayout ?? this.frameLayout,
       relationPartner: relationPartner ?? this.relationPartner,
       level: level ?? this.level,
       isMuted: isMuted ?? this.isMuted,
       isLocked: isLocked ?? this.isLocked,
       forceMuted: forceMuted ?? this.forceMuted,
+      isPlatformStaff: isPlatformStaff ?? this.isPlatformStaff,
       isSpeaking: isSpeaking ?? this.isSpeaking,
     );
   }
@@ -1382,6 +1415,7 @@ class SeatData {
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
       avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),
+      frameLayout: ProductLayout.parse(json['frameMeta'] ?? json['frame_meta']),
       relationPartner: json['relationPartner'] is Map<String, dynamic>
           ? RelationPartner.fromJson(json['relationPartner'] as Map<String, dynamic>)
           : null,
@@ -1389,6 +1423,7 @@ class SeatData {
       isMuted: rawMuted == true || rawMuted?.toString() == 'true',
       isLocked: rawLocked == true || rawLocked?.toString() == 'true',
       forceMuted: (json['forceMuted'] ?? json['force_muted']) == true,
+      isPlatformStaff: (json['isPlatformStaff'] ?? json['is_platform_staff']) == true,
     );
   }
 }

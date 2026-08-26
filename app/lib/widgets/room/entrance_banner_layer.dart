@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/room_controller_provider.dart';
+import '../../utils/image_intrinsic_size.dart';
 
 /// Group 12: animated user-entrance banner.
 ///
@@ -105,8 +106,16 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
   DecorationImage _plate(EntranceEvent e) {
     final url = (e.bannerUrl ?? '').trim();
     if (url.isNotEmpty) {
+      // `centerSlice` is in the SOURCE image's pixels. Passing the BUNDLED
+      // bar's 226x46 for every uploaded design sliced it in the wrong place;
+      // the artwork's real size is resolved once per URL and cached.
+      final intrinsic = _intrinsicBarSize(url);
       return DecorationImage(
         image: NetworkImage(url),
+        // Only when the dashboard configured a slice AND the artwork has been
+        // measured; otherwise the design stretches whole, exactly as before.
+        centerSlice:
+            intrinsic == null ? null : e.bannerLayout.centerSlice(intrinsic),
         fit: BoxFit.fill,
         onError: (_, __) {},
       );
@@ -117,6 +126,55 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
       fit: BoxFit.fill,
     );
   }
+
+  /// Source-pixel size of a custom entry bar, or null while it resolves.
+  Size? _intrinsicBarSize(String url) {
+    final known = ImageIntrinsicSize.peek(url);
+    if (known != null) return known;
+    ImageIntrinsicSize.resolve(url).then((size) {
+      if (size != null && mounted) setState(() {});
+    });
+    return null;
+  }
+
+  /// True when this entry uses a design bought/granted from the dashboard.
+  /// A custom bar carries its own artwork end-to-end, so the bundled crest is
+  /// NOT drawn over it and the plate is not tucked behind one — the client's
+  /// "انا محكوم بالفارغ اللي بداخله ... مليش علاقه بالزخرفة".
+  static bool _isCustom(EntranceEvent e) => (e.bannerUrl ?? '').trim().isNotEmpty;
+
+  /// Padding that keeps "VIP 1  فهد  دخل الغرفة" inside the bar's empty middle.
+  ///
+  /// The bundled bar keeps its hand-tuned values (the text has to clear the
+  /// crest on the left and the rounded cap on the right). A custom design uses
+  /// whatever inner box the dashboard configured for it, resolved against the
+  /// bar's own box.
+  EdgeInsets _barPadding(EntranceEvent e, Size bar) {
+    const bundled = EdgeInsets.only(left: 74, right: 30);
+    if (!_isCustom(e)) return bundled;
+    const fallback = EdgeInsets.symmetric(horizontal: 18, vertical: 8);
+    return e.bannerLayout.padding(bar, fallback);
+  }
+
+  /// One decorated standing pill (VIP / LV) on the entry line.
+  static Widget _standingPill(String label, Color from, Color to) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [from, to]),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withOpacity(0.55), width: 0.8),
+          boxShadow: [BoxShadow(color: from.withOpacity(0.45), blurRadius: 5)],
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            shadows: [Shadow(color: Colors.black54, blurRadius: 2)],
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +190,17 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
     final e = _current;
     if (e == null) return const SizedBox.shrink();
 
-    final maxBarWidth = MediaQuery.of(context).size.width * 0.86 - _barInset;
+    final custom = _isCustom(e);
+    // A custom bar owns the whole width — there is no crest to tuck it behind.
+    final barInset = custom ? 0.0 : _barInset;
+    final maxBarWidth = MediaQuery.of(context).size.width * 0.86 - barInset;
+    // 2026-08-23 — the bar used to be pinned to 42px while the line inside it
+    // was free to be taller, which is exactly the reported
+    // "شريط الدخوليه بيظهر رفيع والكلام اكبر منه". A custom design now takes its
+    // height from its own content (floored at _barHeight) so the artwork always
+    // encloses the text; the bundled bar keeps its fixed height because its
+    // 9-slice guides are hand-tuned to it.
+    final barBox = Size(maxBarWidth, custom ? _bannerHeight : _barHeight);
 
     return IgnorePointer(
       child: Align(
@@ -147,36 +215,38 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
                 alignment: Alignment.centerLeft,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(left: _barInset),
+                    padding: EdgeInsets.only(left: barInset),
                     child: Container(
-                      height: _barHeight,
+                      height: custom ? null : _barHeight,
                       constraints: BoxConstraints(
                         minWidth: 150,
                         maxWidth: maxBarWidth,
+                        minHeight: custom ? _barHeight : 0,
+                        maxHeight: custom ? _bannerHeight : double.infinity,
                       ),
-                      // Text clears the crest on the left and the rounded cap
-                      // on the right.
-                      padding: const EdgeInsets.only(left: 74, right: 30),
+                      // Confined to the bar's empty inner box.
+                      padding: _barPadding(e, barBox),
                       decoration: BoxDecoration(image: _plate(e)),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // "VIP 1  LV 5  فهد  دخل الغرفة" — each standing in
+                          // its own decorated pill, side by side, ahead of the
+                          // name (client: "دا عاوز جنب بعضه اللي هو الليفل
+                          // والفي اي بي ... كل واحدة في مربع مزخرف").
                           if (e.vipLevel > 0) ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFD700).withOpacity(0.9),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                'VIP ${e.vipLevel}',
-                                style: const TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                            _standingPill(
+                              'VIP ${e.vipLevel}',
+                              const Color(0xFFFFD700),
+                              const Color(0xFFFF8F00),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          if (e.level > 0) ...[
+                            _standingPill(
+                              'LV ${e.level}',
+                              const Color(0xFF7C4DFF),
+                              const Color(0xFF4A21C7),
                             ),
                             const SizedBox(width: 8),
                           ],
@@ -198,12 +268,15 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
                       ),
                     ),
                   ),
-                  Image.asset(
-                    _emblemAsset,
-                    height: _bannerHeight,
-                    width: _emblemWidth,
-                    fit: BoxFit.contain,
-                  ),
+                  // The bundled crest is part of the DEFAULT design only — it
+                  // must never be painted on top of a purchased bar.
+                  if (!custom)
+                    Image.asset(
+                      _emblemAsset,
+                      height: _bannerHeight,
+                      width: _emblemWidth,
+                      fit: BoxFit.contain,
+                    ),
                 ],
               ),
             ),

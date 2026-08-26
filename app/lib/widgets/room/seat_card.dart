@@ -14,6 +14,10 @@ class SeatCard extends StatelessWidget {
   final bool isSeatMuted; // #11: admin-muted seat (show mute icon even when empty)
   final int coins24h; // gift coins received in this room (last 24h)
 
+  /// Avatar diameter, solved by [SeatsGrid] so every mic fits in the top half
+  /// of the screen without scrolling. It used to be hardcoded at 62.
+  final double seatSize;
+
   const SeatCard({
     super.key,
     required this.seatNumber,
@@ -21,6 +25,7 @@ class SeatCard extends StatelessWidget {
     required this.isMine,
     required this.onTap,
     required this.isAdmin,
+    this.seatSize = 62,
     this.isOwnerSeat = false,
     this.isAdminSeat = false,
     this.isSeatLocked = false,
@@ -43,8 +48,13 @@ class SeatCard extends StatelessWidget {
     final isMuted = seat.isMuted;
     final locked = isSeatLocked;
 
-    const outerSize = 62.0;
-    const innerAvatar = 50.0;
+    final outerSize = seatSize;
+    // The bare (frameless) avatar keeps the same proportion it always had.
+    final innerAvatar = seatSize * (50.0 / 62.0);
+    // Labels shrink with the seat so a 30-mic room doesn't turn into text.
+    final nameSize = (seatSize * (10.0 / 62.0)).clamp(7.0, 11.0);
+    final coinSize = (seatSize * (9.0 / 62.0)).clamp(6.5, 10.0);
+    final badgeSize = (seatSize * (18.0 / 62.0)).clamp(12.0, 20.0);
 
     return GestureDetector(
       onTap: onTap,
@@ -70,11 +80,21 @@ class SeatCard extends StatelessWidget {
                       fallbackText: username,
                       frame: (seat.avatarFrameUrl != null &&
                           seat.avatarFrameUrl!.isNotEmpty)
-                          ? AvatarFrame.fromUrl(seat.avatarFrameUrl!)
+                          ? AvatarFrame.fromUrl(seat.avatarFrameUrl!,
+                              layout: seat.frameLayout)
                           : null,
                       glow: seat.isSpeaking,
-                    )
-                  else
+                    ),
+
+                  // ── من المتحدث؟ ──
+                  // A pulsing ring around whoever is actually speaking, so the
+                  // room can tell at a glance. It stops the moment they go
+                  // quiet ("واذا سكت تختفي الدائره"). Drawn UNDER the mute
+                  // badge and outside the avatar so it never hides the face.
+                  if (_isOccupied && seat.isSpeaking)
+                    IgnorePointer(child: _SpeakingRing(size: outerSize)),
+
+                  if (!_isOccupied)
                   // Empty seat: mic icon with gradient ring
                     Container(
                       width: outerSize,
@@ -90,13 +110,13 @@ class SeatCard extends StatelessWidget {
                         ),
                       ),
                       child: locked
-                          ? const Icon(Icons.lock, size: 22, color: Colors.redAccent)
+                          ? Icon(Icons.lock, size: outerSize * 0.36, color: Colors.redAccent)
                           : isSeatMuted
                               // #11: show mute icon on an empty admin-muted seat too.
-                              ? const Icon(Icons.mic_off_rounded, size: 24, color: Colors.orangeAccent)
+                              ? Icon(Icons.mic_off_rounded, size: outerSize * 0.39, color: Colors.orangeAccent)
                               : Icon(
                                   Icons.mic_none_rounded,
-                                  size: 24,
+                                  size: outerSize * 0.39,
                                   color: Colors.white.withOpacity(0.5),
                                 ),
                     ),
@@ -107,14 +127,14 @@ class SeatCard extends StatelessWidget {
                       bottom: 0,
                       right: 0,
                       child: Container(
-                        width: 18,
-                        height: 18,
+                        width: badgeSize,
+                        height: badgeSize,
                         decoration: BoxDecoration(
                           color: Colors.red.shade700,
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.black, width: 1),
                         ),
-                        child: const Icon(Icons.mic_off, size: 11, color: Colors.white),
+                        child: Icon(Icons.mic_off, size: badgeSize * 0.61, color: Colors.white),
                       ),
                     ),
 
@@ -137,9 +157,9 @@ class SeatCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 10,
+                      fontSize: nameSize,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -148,11 +168,11 @@ class SeatCard extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.monetization_on, color: Color(0xFFFFD700), size: 10),
+                        Icon(Icons.monetization_on, color: const Color(0xFFFFD700), size: coinSize + 1),
                         const SizedBox(width: 2),
                         Text(
                           _fmtCoins(coins24h),
-                          style: const TextStyle(color: Color(0xFFFFD700), fontSize: 9, fontWeight: FontWeight.w600),
+                          style: TextStyle(color: const Color(0xFFFFD700), fontSize: coinSize, fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),
@@ -168,7 +188,7 @@ class SeatCard extends StatelessWidget {
                   color: locked
                       ? Colors.red.withOpacity(0.7)
                       : Colors.white.withOpacity(0.4),
-                  fontSize: 10,
+                  fontSize: nameSize,
                   fontWeight: FontWeight.w400,
                 ),
               ),
@@ -180,79 +200,75 @@ class SeatCard extends StatelessWidget {
   }
 }
 
-class SeatsGrid extends StatelessWidget {
-  final Map<int, SeatData> seats;
-  final int seatCount;
-  final int ownerId;
-  final List<int> adminIds;
-  final Set<int> lockedSeats;
+/// Two concentric rings that expand and fade out of the avatar, restarting for
+/// as long as the user holds the mic. Deliberately cheap: one repeating
+/// controller driving two CustomPaint circles, no images and no layout work, so
+/// twenty of them on screen cost nothing measurable.
+class _SpeakingRing extends StatefulWidget {
+  const _SpeakingRing({required this.size});
 
-  final bool scrollable;
-  final int? myUserId;
-  final bool isAdmin;
-  final void Function(int seatNumber, SeatData seat) onSeatTap;
+  final double size;
 
-  final Map<int, GlobalKey> seatKeys;
+  @override
+  State<_SpeakingRing> createState() => _SpeakingRingState();
+}
 
-  const SeatsGrid({
-    super.key,
-    required this.seats,
-    required this.seatCount,
-    required this.myUserId,
-    required this.isAdmin,
-    required this.onSeatTap,
-    required this.ownerId,
-    required this.adminIds,
-    required this.lockedSeats,
-    required this.seatKeys,
-    this.scrollable = false,
-  });
+class _SpeakingRingState extends State<_SpeakingRing>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final safeCount = seatCount.clamp(1, 24);
-    final seatNumbers = List<int>.generate(safeCount, (i) => i + 1);
-
-    return GridView.builder(
-      physics: const BouncingScrollPhysics(),
-      shrinkWrap: false,
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      itemCount: seatNumbers.length,
-      cacheExtent: 400,
-      addRepaintBoundaries: true,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 12,
-        // ✅ Increased to give more vertical room and prevent overflow
-        childAspectRatio: 0.72,
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, __) => CustomPaint(painter: _SpeakingRingPainter(_c.value)),
       ),
-      itemBuilder: (_, i) {
-        final seatNumber = seatNumbers[i];
-        final isLocked = lockedSeats.contains(seatNumber);
-        final seat = seats[seatNumber] ?? SeatData.empty(seatNumber);
-        final uid = seat.userId;
-        final isMine = uid != null && uid == myUserId;
-        final isOwnerSeat = uid != null && uid == ownerId;
-        final isAdminSeat =
-            uid != null && adminIds.contains(uid) && !isOwnerSeat;
-        final seatKey =
-        seatKeys.putIfAbsent(seatNumber, () => GlobalKey());
-
-        return KeyedSubtree(
-          key: seatKey,
-          child: SeatCard(
-            seatNumber: seatNumber,
-            seat: seat,
-            isMine: isMine,
-            isAdmin: isAdmin,
-            isSeatLocked: isLocked,
-            isOwnerSeat: isOwnerSeat,
-            isAdminSeat: isAdminSeat,
-            onTap: () => onSeatTap(seatNumber, seat),
-          ),
-        );
-      },
     );
   }
+}
+
+class _SpeakingRingPainter extends CustomPainter {
+  _SpeakingRingPainter(this.t);
+
+  /// 0..1, repeating.
+  final double t;
+
+  static const Color _color = Color(0xFF22C55E);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final base = size.shortestSide / 2;
+
+    // Two waves half a cycle apart, so there is always a ring on screen.
+    for (final phase in const [0.0, 0.5]) {
+      final p = (t + phase) % 1.0;
+      final radius = base * (0.92 + p * 0.34);
+      final opacity = (1 - p) * 0.55;
+      if (opacity <= 0) continue;
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2
+          ..color = _color.withOpacity(opacity),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpeakingRingPainter old) => old.t != t;
 }

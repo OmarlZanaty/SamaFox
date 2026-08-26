@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../config/app_config.dart';
+import '../models/product_layout.dart';
 
 enum AvatarFrameType { samafoxDefault, vip, crown, neon, none }
 
@@ -10,19 +11,27 @@ class AvatarFrame {
   final String? url;
   final double innerScale;
 
+  /// Where this frame's inner hole is, as configured in لوحة التحكم. When set,
+  /// it replaces [innerScale] entirely — the avatar is placed on the exact
+  /// rectangle the admin marked out, so a frame with off-centre or asymmetric
+  /// decoration still rings the picture properly.
+  final ProductLayout layout;
+
   const AvatarFrame({
     required this.type,
     this.frameAsset,
     this.url,
     required this.innerScale,
+    this.layout = ProductLayout.empty,
   });
 
-  factory AvatarFrame.fromUrl(String url) {
+  factory AvatarFrame.fromUrl(String url, {ProductLayout layout = ProductLayout.empty}) {
     return AvatarFrame(
       type: AvatarFrameType.none,
       url: url,
       frameAsset: null,
       innerScale: 0.60,
+      layout: layout,
     );
   }
 
@@ -67,6 +76,22 @@ class FramedAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final f = frame;
+
+    // 2026-08-23 — the frame used to be blown up to 1.2× the seat and then
+    // BoxFit.contain-ed, while the avatar sat on a fixed 60% circle. A frame
+    // whose artwork carries transparent padding therefore rendered its ring
+    // SMALLER than the picture and sitting low — the client's
+    // "في الصورتين الايطار اصغر من المايك والصوره وكمان نازل تحت".
+    //
+    // Now the frame fills the seat box exactly, and the avatar is positioned on
+    // the hole the dashboard marked out for that specific product. With no
+    // configuration the old centred circle is used, so nothing regresses for
+    // frames that were never measured.
+    final hole = (f == null || !f.layout.hasInsets)
+        ? null
+        : f.layout.padding(Size(size, size), EdgeInsets.zero);
+
     return SizedBox(
       width: size,
       height: size,
@@ -89,17 +114,28 @@ class FramedAvatar extends StatelessWidget {
                 ],
               ),
             ),
-          SizedBox(
-            width: frame != null ? size * frame!.innerScale : avatarSize,
-            height: frame != null ? size * frame!.innerScale : avatarSize,
-            child: ClipOval(child: _avatarChild()),
-          ),
-          Positioned(
-            top: -(size * 0.1),
-            left: -(size * 0.1),
-            right: -(size * 0.1),
-            bottom: -(size * 0.1),
-            child: IgnorePointer(child: _frameChild()),
+          if (hole != null)
+            Positioned(
+              left: hole.left,
+              top: hole.top,
+              right: hole.right,
+              bottom: hole.bottom,
+              child: ClipOval(child: _avatarChild()),
+            )
+          else
+            SizedBox(
+              width: f != null ? size * f.innerScale : avatarSize,
+              height: f != null ? size * f.innerScale : avatarSize,
+              child: ClipOval(child: _avatarChild()),
+            ),
+          // The frame occupies the seat box itself. An unmeasured frame keeps
+          // the old 10% bleed so existing artwork still looks the same.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: hole != null
+                  ? _frameChild()
+                  : Transform.scale(scale: 1.2, child: _frameChild()),
+            ),
           ),
         ],
       ),

@@ -47,12 +47,28 @@ class WebRTCAudioService {
 // ICE restart helpers
   final Map<int, Timer> _iceFailTimers = {};
 
-  // Voice Activity Detection (VAD)
+  // Voice Activity Detection (VAD) — A10 "المتكلم على المايك يظهر حوله دائرة
+  // متحركة ... واذا سكت تختفي الدائرة".
+  //
+  // The level is read from the peer connection's `media-source` stats, which is
+  // the ONLY local audio level flutter_webrtc exposes. It used to be read from
+  // `_audioLevel`, a field nothing ever wrote, so the detector saw permanent
+  // silence: the ring never appeared and the old auto-mute branch below kept
+  // closing the user's mic. Both are fixed here.
   Timer? _vadTimer;
   double _audioLevel = 0.0;
-  int _silenceCounter = 0;
   bool _vadEnabled = false;
-  final int _silenceThreshold = 5; // 500ms of silence
+  /// Last state handed to [onVoiceActivityChanged]; transitions only.
+  bool _vadSpeaking = false;
+  /// Consecutive quiet ticks before the ring is taken down. At 200ms a tick
+  /// that is ~600ms, short enough to track speech, long enough not to strobe
+  /// between syllables.
+  int _vadQuietTicks = 0;
+  static const int _vadQuietTicksToStop = 3;
+  /// `audioLevel` is 0..1 RMS. Normal speech on a phone sits well above 0.02;
+  /// room noise and breathing sit below it.
+  static const double _vadSpeakingLevel = 0.02;
+  static const Duration _vadInterval = Duration(milliseconds: 200);
   MediaStreamTrack? _localAudioTrack;
 
   bool _localMuted = true;
@@ -631,8 +647,13 @@ class WebRTCAudioService {
           _remoteStreams[otherUserId] = remoteStream;
 
           for (final t in remoteStream.getAudioTracks()) {
-            t.enabled = true;
+            // A24 — a peer that joins while the listener has the slider at 0
+            // must arrive muted. Enabling every incoming track unconditionally
+            // is what made a new speaker audible again seconds after the user
+            // had silenced the room.
+            t.enabled = _remoteVolume > 0;
           }
+          _applyVolumeToStream(remoteStream);
 
           _log('🔊 Remote stream added from user $otherUserId '
               'tracks=${remoteStream.getAudioTracks().length}');
@@ -771,6 +792,50 @@ class WebRTCAudioService {
     }
   }
 
+  // ============================================================
+  // A24 — "مؤشر الصوت لما أنزله للصفر المفروض يقفل الصوت خالص"
+  //
+  // The room's volume slider only ever reached the sound-effects player and
+  // the seat-video controller. The one thing it never reached was the WebRTC
+  // voice, which is the only thing the user is trying to silence when they drag
+  // it to zero — hence the report that it "مش بيقفل".
+  //
+  // Two mechanisms, deliberately both:
+  //   • Helper.setVolume gives real attenuation at intermediate values;
+  //   • track.enabled = false at exactly zero, because a platform that quietly
+  //     ignores setVolume would otherwise leave 0% audible, and "خالص" has to
+  //     mean silent on every device.
+  // ============================================================
+
+  double _remoteVolume = 1.0;
+
+  double get remoteVolume => _remoteVolume;
+
+  /// [volume] is 0..1. Zero is a hard mute, not merely a quiet setting.
+  Future<void> setRemoteVolume(double volume) async {
+    _remoteVolume = volume.clamp(0.0, 1.0);
+    for (final stream in _remoteStreams.values) {
+      await _applyVolumeToStream(stream);
+    }
+    _log('setRemoteVolume(${_remoteVolume.toStringAsFixed(2)}) '
+        'across ${_remoteStreams.length} peer(s)');
+  }
+
+  Future<void> _applyVolumeToStream(MediaStream stream) async {
+    for (final track in stream.getAudioTracks()) {
+      track.enabled = _remoteVolume > 0;
+      if (_remoteVolume > 0) {
+        try {
+          await Helper.setVolume(_remoteVolume, track);
+        } catch (e) {
+          // Not every platform implements per-track gain; `enabled` above still
+          // guarantees the mute case, which is the reported behaviour.
+          _log('setVolume unsupported on this platform: $e');
+        }
+      }
+    }
+  }
+
   /// Set speaker on/off
   Future<void> setSpeakerphoneOn(bool on) async {
     _isSpeakerOn = on;
@@ -892,8 +957,12 @@ class WebRTCAudioService {
       _statsTimer = null;
 
       // Stop VAD timer
+      _vadEnabled = false;
       _vadTimer?.cancel();
       _vadTimer = null;
+      _vadSpeaking = false;
+      _vadQuietTicks = 0;
+      _audioLevel = 0.0;
 
       // Close all peer connections
       for (var entry in _peerConnections.entries) {
@@ -935,53 +1004,68 @@ class WebRTCAudioService {
     }
   }
 
-  /// Enable Voice Activity Detection (VAD)
+  /// Enable Voice Activity Detection (VAD). Safe to call repeatedly.
   void enableVAD() {
     if (_vadEnabled) return;
     _vadEnabled = true;
+    _audioLevel = 0.0;
+    _vadQuietTicks = 0;
+    _vadSpeaking = false;
     _startVoiceActivityDetection();
     debugPrint('✅ VAD enabled');
   }
 
-  /// Disable Voice Activity Detection
+  /// Disable Voice Activity Detection.
+  ///
+  /// Takes the ring down on the way out: leaving a seat while the last reading
+  /// was "speaking" would otherwise leave the pulse lit on an empty mic.
   void disableVAD() {
     _vadEnabled = false;
     _vadTimer?.cancel();
     _vadTimer = null;
+    _vadQuietTicks = 0;
+    _emitSpeaking(false);
     debugPrint('❌ VAD disabled');
   }
 
-  /// Start monitoring voice activity
+  /// Start monitoring voice activity.
+  ///
+  /// Deliberately does NOT touch the mic. The previous implementation auto-muted
+  /// after half a second of "silence" and auto-unmuted on "speech" — driven by a
+  /// level that was never measured, so in practice it only ever muted people.
+  /// VAD's job here is to report, not to moderate.
   void _startVoiceActivityDetection() {
     _vadTimer?.cancel();
-    _vadTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
-      if (!_vadEnabled || _localStream == null) {
+    _vadTimer = Timer.periodic(_vadInterval, (timer) async {
+      if (!_vadEnabled) {
         timer.cancel();
+        return;
+      }
+      if (_localStream == null) {
+        // Not on a mic (yet): make sure a ring left over from the last seat
+        // does not stay lit.
+        _emitSpeaking(false);
         return;
       }
 
       try {
-        // Simple silence detection based on track state
-        // In production, use proper audio level analysis
-        bool isSpeaking = !_isMicMuted;
+        final level = await _readLocalAudioLevel();
+        if (level != null) _audioLevel = level;
 
-        // Simulate audio level detection (simplified)
-        if (_audioLevel < 0.01) {
-          _silenceCounter++;
-          if (_silenceCounter >= _silenceThreshold && !_isMicMuted) {
-            // Auto-mute after silence threshold
-            await muteAudio();
-            onVoiceActivityChanged?.call(false);
-            debugPrint('🔇 Auto-muted due to silence');
-          }
+        // A muted mic is never "speaking", whatever the source reports — the
+        // track keeps producing samples while `enabled` is false on some
+        // platforms. The track's own flag is the truth here: `_isMicMuted` only
+        // tracks the mute/unmute pair, and `_localMuted` is written by
+        // setLocalMuted, which this app never calls.
+        final trackLive = _localAudioTrack?.enabled ?? !_isMicMuted;
+        final loud = trackLive && !_isMicMuted && _audioLevel >= _vadSpeakingLevel;
+
+        if (loud) {
+          _vadQuietTicks = 0;
+          _emitSpeaking(true);
         } else {
-          _silenceCounter = 0;
-          if (_isMicMuted) {
-            // Auto-unmute when speaking
-            await unmuteAudio();
-            onVoiceActivityChanged?.call(true);
-            debugPrint('🔊 Auto-unmuted due to voice activity');
-          }
+          _vadQuietTicks++;
+          if (_vadQuietTicks >= _vadQuietTicksToStop) _emitSpeaking(false);
         }
       } catch (e) {
         debugPrint('⚠️ VAD error: $e');
@@ -989,9 +1073,56 @@ class WebRTCAudioService {
     });
   }
 
-  /// Update audio level (call this from audio analysis)
+  /// Fire [onVoiceActivityChanged] on TRANSITIONS only — the callback ends up
+  /// emitting a socket event, so calling it five times a second while somebody
+  /// talks would be a flood.
+  void _emitSpeaking(bool speaking) {
+    if (_vadSpeaking == speaking) return;
+    _vadSpeaking = speaking;
+    onVoiceActivityChanged?.call(speaking);
+  }
+
+  /// Current microphone level, 0..1, or null when it cannot be read.
+  ///
+  /// `media-source` carries the level of the LOCAL capture and is identical on
+  /// every peer connection, so one connection is enough. With nobody else on a
+  /// mic there is no connection and therefore no reading — an empty room has no
+  /// audience for the ring either.
+  Future<double?> _readLocalAudioLevel() async {
+    if (_peerConnections.isEmpty) return null;
+    final pc = _peerConnections.values.first;
+    try {
+      final stats = await pc.getStats();
+      double? fallback;
+      for (final r in stats) {
+        final kind = r.values['kind'] ?? r.values['mediaType'];
+        if (kind != 'audio') continue;
+        final raw = r.values['audioLevel'];
+        final level = raw is num ? raw.toDouble() : double.tryParse('$raw');
+        if (level == null || level.isNaN) continue;
+
+        // `media-source` is the local capture and the reading we want.
+        if (r.type == 'media-source') return level.clamp(0.0, 1.0).toDouble();
+
+        // Not every platform reports media-source. `outbound-rtp` describes
+        // what WE are sending, so it is the same voice; inbound is the OTHER
+        // side's and would light our ring while somebody else talks.
+        if (r.type == 'outbound-rtp' || r.type == 'sender') {
+          fallback ??= level.clamp(0.0, 1.0).toDouble();
+        }
+      }
+      return fallback;
+    } catch (_) {
+      // A connection closing mid-poll throws; the next tick will pick up
+      // another one.
+    }
+    return null;
+  }
+
+  /// Feed an externally measured level (0..1). Kept for callers that have a
+  /// better source than WebRTC stats; the poll above is the default.
   void updateAudioLevel(double level) {
-    _audioLevel = level;
+    _audioLevel = level.clamp(0.0, 1.0).toDouble();
   }
 
   /// Enable Push-to-Talk mode

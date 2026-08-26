@@ -8,6 +8,7 @@ import '../services/socket_service.dart';
 import '../services/dio_client.dart';
 import 'auth_provider.dart';
 import '../models/room_event.dart';
+import '../models/product_layout.dart';
 enum MyMicStatus { none, requested, approved, onMic }
 
 final roomControllerProvider =
@@ -108,6 +109,11 @@ class EntranceEvent {
   final int userId;
   final String username;
   final String? bannerUrl;
+
+  /// Inner box + 9-slice guides for that banner design, from لوحة التحكم, so
+  /// the line is laid out inside the bar's empty middle instead of over its
+  /// decoration ("المطلوب تكون داخل شريط الدخوليه").
+  final ProductLayout bannerLayout;
   final int vipLevel;
   final int level;
 
@@ -116,6 +122,7 @@ class EntranceEvent {
     required this.userId,
     required this.username,
     this.bannerUrl,
+    this.bannerLayout = ProductLayout.empty,
     this.vipLevel = 0,
     this.level = 1,
   });
@@ -163,6 +170,24 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     state = state.copyWith(seatCount: safe);
   }
   int? _pendingSeatNumber;
+
+  /// A20 — "الكأس مش بيتزامن مع الدعم … وسرعة ظهور قيمة الدعم تحت المايك".
+  ///
+  /// The number under a mic used to move only when the 25-second poll below
+  /// happened to run, so a gift could sit invisible for most of half a minute
+  /// while everyone in the room had already watched the animation play. The
+  /// gift socket now credits the recipient locally the moment the event
+  /// arrives; the poll stays as reconciliation, not as the source of truth.
+  ///
+  /// Additive on purpose: the server's total is what wins on the next refresh,
+  /// so a duplicated or dropped socket event self-corrects within one poll
+  /// instead of leaving a permanently wrong figure on screen.
+  void applyGiftEarning({required int recipientId, required int coins}) {
+    if (coins <= 0) return;
+    final updated = Map<int, int>.from(state.seatEarnings24h);
+    updated[recipientId] = (updated[recipientId] ?? 0) + coins;
+    state = state.copyWith(seatEarnings24h: updated);
+  }
 
   /// Fetch per-user coins received in this room over the last 24h.
   Future<void> refreshSeatEarnings() async {
@@ -247,6 +272,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         int? coins,
         String? countryCode,
         String? gender,
+        int? vipLevel,
+        int? level,
+        List<String> badges = const [],
+        int? userId,
       }) {
     final newEvent = RoomEvent(
       type: type,
@@ -257,6 +286,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       coins: coins,        // ✅ ADD
       countryCode: countryCode,
       gender: gender,
+      vipLevel: vipLevel,
+      level: level,
+      badges: badges,
+      userId: userId,
     );
 
     final updated = [...state.events, newEvent];
@@ -425,6 +458,34 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   }
 
 
+  /// Coming back to the foreground after a screen lock / app switch.
+  ///
+  /// The user never left the room — nothing here sends `leave_room`. All this
+  /// does is make sure the transport is alive again and pull a fresh snapshot,
+  /// because the OS usually kills the websocket while the app is suspended.
+  Future<void> resyncAfterForeground() async {
+    final user = ref.read(authStateProvider).user;
+    if (user == null) return;
+
+    final wasDisconnected = !_socket.isConnected;
+    if (wasDisconnected) {
+      // socket.io reconnects on its own; wait for it before re-announcing.
+      await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
+      if (!_socket.isConnected) return;
+    }
+
+    debugPrint('▶️ foreground -> resync room=$roomId (reconnected=$wasDisconnected)');
+    _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
+    _socket.emit('get_room_seats_state', {'roomId': roomId});
+    _socket.emit('request_room_seats_state', {'roomId': roomId});
+    _socket.getVoiceUsers(roomId: roomId);
+
+    // Raw socket listeners are cleared when the socket itself reconnects.
+    // Re-binding on a live socket would only duplicate them.
+    if (wasDisconnected) _bindStreams();
+  }
+
+
   void closeRoom() {
     final user = ref.read(authStateProvider).user;
     if (user == null) return;
@@ -499,6 +560,16 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         username: username,
         countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
         gender: data['gender']?.toString(),
+        // "فهد VIP 6 · LV 8 دخل الغرفة" + his badges.
+        vipLevel: _safeInt(data['vipLevel']),
+        level: _safeInt(data['level']),
+        badges: (data['badges'] as List?)
+                ?.map((e) => e?.toString() ?? '')
+                .where((e) => e.isNotEmpty)
+                .toList() ??
+            const [],
+        // Makes the entrance line tappable like a chat bubble.
+        userId: _safeInt(data['userId']),
       );
 
       final uid = _safeInt(data['userId']);
@@ -512,11 +583,21 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
             userId: uid,
             username: username,
             bannerUrl: data['bannerUrl']?.toString(),
+            bannerLayout: ProductLayout.parse(data['bannerMeta']),
             vipLevel: _safeInt(data['vipLevel']) ?? 0,
             level: _safeInt(data['level']) ?? 1,
           ),
         );
       }
+    });
+
+    // Who is talking right now, broadcast by each speaker's own client. Purely
+    // presentational — it drives the pulsing ring on the seat.
+    _socket.on('user_speaking', (data) {
+      if (data is! Map) return;
+      final uid = _safeInt(data['userId']);
+      if (uid == null) return;
+      setUserSpeaking(uid, data['isSpeaking'] == true);
     });
 
     // The server's roster of everyone currently in the room — sent on join and
@@ -557,6 +638,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         username: username?.toString(),
         countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
         gender: data['gender']?.toString(),
+        userId: _safeInt(data['userId']),
       );
     });
 
@@ -579,6 +661,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         RoomEventType.gift,
         username: senderName,
         coins: _safeInt(map['totalCoins']),
+        // The line is about the SENDER, so his card is what a tap opens.
+        userId: _safeInt(map['senderId']) ??
+            _safeInt((map['sender'] is Map) ? (map['sender'] as Map)['id'] : null),
       );
     });
 
@@ -1083,6 +1168,14 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       'seatNumber': seatNumber,
     });
     debugPrint("📨 invite_to_seat seat=$seatNumber user=$targetUserId");
+  }
+
+  /// Tell the room I started/stopped talking, and paint my own ring at once so
+  /// it doesn't wait for a round trip. The server fans this out to everyone
+  /// else as `user_speaking`.
+  void broadcastMySpeaking(int userId, bool isSpeaking) {
+    setUserSpeaking(userId, isSpeaking);
+    _socket.emit('speaking', {'roomId': roomId, 'isSpeaking': isSpeaking});
   }
 
   void setUserSpeaking(int userId, bool isSpeaking) {
