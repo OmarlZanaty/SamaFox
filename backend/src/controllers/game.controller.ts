@@ -37,21 +37,16 @@ export const playDice = async (req: Request, res: Response) => {
 
     // Roll dice (1-6)
     const diceResult = Math.floor(Math.random() * 6) + 1;
-    const xpReward = 50 * diceResult;
 
-    // Update user XP
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        xp: { increment: xpReward }
-      }
-    });
-
+    // 2026-08-23: NO XP is granted here any more. LV is now strictly a measure
+    // of coins spent on gifts (see giftService), so a brand-new account can no
+    // longer climb levels just by rolling dice — the client's
+    // "يزيد حساب جديد بدون دعم" complaint.
     res.json({
       success: true,
       diceResult,
-      xpEarned: xpReward,
-      userXp: updatedUser.xp
+      xpEarned: 0,
+      userXp: user.xp
     });
   } catch (error) {
     console.error('Dice game error:', error);

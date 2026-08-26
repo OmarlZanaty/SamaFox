@@ -47,7 +47,10 @@ import relationRoutes from './relations/relation.routes';
 import notificationRoutes from './routes/notification.routes';
 import vipRoutes from './routes/vip.routes';
 import levelRoutes from './routes/level.routes';
+import betaRoutes from './routes/beta.routes';
+import cpRoutes from './routes/cp.routes';
 import { startExpirySweep } from './services/expiry.service';
+import { startBetaSyncWatchdog } from './services/betaWatchdog.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import { setGiftIo } from './gifts/controller';
@@ -195,6 +198,12 @@ app.use('/api/v1/upload', uploadRoutes);
 app.use('/upload', uploadRoutes); // backward-compatible path
 app.use('/api/v1/room-admin', roomAdminRoutes);
 app.use('/api/v1/music', musicRoutes);
+// A15 — نظام الـ CP: gift invitations, accept/reject, and the pair list the
+// home-page CP box and the profile CP card both read.
+app.use('/api/v1/cp', cpRoutes);
+// Closed-testing signup for the Al Mobarmg store page + the operator's
+// beta-sync daemon that whitelists those addresses in Play Console.
+app.use('/api/v1/beta', betaRoutes);
 app.use('/api/messages', messageRoutes); // ✅ same router
 
 const giftAssetsDir =
@@ -253,6 +262,9 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // Retire time-limited products, lapsed VIP terms and rented room
   // backgrounds. Runs on boot and every 15 minutes.
   startExpirySweep();
+  // Notice when the operator's beta-sync PC goes dark and fall back to the
+  // email invite, so a signup never just spins. Every minute.
+  startBetaSyncWatchdog();
 });
 
 export { io };

@@ -364,7 +364,14 @@ const locked = getLockedSeats(rid);
   relationId: true,
   avatarFrameUrl: true,
   activeFrameId: true,
-  activeFrame: { select: { assetUrl: true } },
+  // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
+  // Staff immunity: the room never offers moderation against these.
+  isAdmin: true,
+  isSuperAdmin: true,
   level: true,
 }
       })
@@ -384,11 +391,16 @@ const locked = getLockedSeats(rid);
   const relationsById = new Map(relations.map((rel) => [rel.id, rel]));
 
   const frameMap = new Map<number, string | null>();
+  // Inner-hole guides for the equipped frame, keyed the same way. Only an
+  // `activeFrame` (a real store product) carries them; the legacy free-text
+  // `avatarFrameUrl` has none, and the client then uses its own default.
+  const frameMetaMap = new Map<number, any>();
 
 await Promise.all(
   seatedUsers.map(async (u) => {
     const frame = u.activeFrame?.assetUrl ?? u.avatarFrameUrl ?? null;
     frameMap.set(u.id, frame);
+    frameMetaMap.set(u.id, (u.activeFrame as any)?.meta ?? null);
   })
 );
 
@@ -410,6 +422,8 @@ await Promise.all(
       avatarUrl: u?.avatarUrl ?? null,
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
       frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,
+      frameMeta: occupant ? frameMetaMap.get(occupant) ?? null : null,
+      isPlatformStaff: Boolean((u as any)?.isAdmin || (u as any)?.isSuperAdmin),
       activeFrameId: u?.activeFrameId ?? null,
       relationPartner,
       level: u?.level ?? 1,
@@ -469,6 +483,31 @@ async function buildRoomUsers(io: Server, rid: number) {
   }));
 }
 
+/**
+ * The شارات a user carries into the chat and the entrance line: the icons of
+ * their most recently unlocked achievements, newest first.
+ *
+ * Capped at three — a chat bubble is not a trophy cabinet, and the row has to
+ * stay on one line next to the VIP and LV chips.
+ */
+async function userBadgeIcons(userId: number, take = 3): Promise<string[]> {
+  try {
+    const rows = await (prisma as any).userAchievement.findMany({
+      where: { userId },
+      include: { achievement: { select: { iconUrl: true } } },
+      orderBy: { unlockedAt: 'desc' },
+      take,
+    });
+    return rows
+      .map((r: any) => r?.achievement?.iconUrl)
+      .filter((u: unknown): u is string => typeof u === 'string' && u.length > 0);
+  } catch (e) {
+    // Badges are decoration: never let them break a message or an entrance.
+    console.warn('[userBadgeIcons] failed:', (e as Error).message);
+    return [];
+  }
+}
+
 // ── Disconnect grace window ────────────────────────────────────────────────
 // A dropped socket is NOT the same thing as leaving the room. Phones suspend
 // the app on screen lock / app switch and the OS kills the websocket within
@@ -476,7 +515,16 @@ async function buildRoomUsers(io: Server, rid: number) {
 // out of rooms they never left. Instead we hold their seat / room membership
 // for a grace window and only release it if they don't come back.
 // An explicit `leave_room` still releases everything immediately.
-const DISCONNECT_GRACE_MS = Number(process.env.ROOM_DISCONNECT_GRACE_MS ?? 120_000);
+//
+// The window is deliberately long. At two minutes the hold "worked but not for
+// long" — a user who put the phone down, took a call or answered a message came
+// back to find himself out of the room and off his seat. The client rule is
+// that membership ends when the user LEAVES, not when the OS decides to drop a
+// socket, so the hold now spans a whole session (12h, overridable via
+// ROOM_DISCONNECT_GRACE_MS). `leave_room`, a kick and a ban all still release
+// everything immediately, and the timer is a safety net for a process that is
+// killed and never comes back.
+const DISCONNECT_GRACE_MS = Number(process.env.ROOM_DISCONNECT_GRACE_MS ?? 12 * 60 * 60 * 1000);
 const pendingRoomRelease = new Map<number, NodeJS.Timeout>();
 
 function cancelPendingRelease(uid: number) {
@@ -1161,7 +1209,11 @@ try {
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
-  activeFrame: { select: { assetUrl: true } },
+  // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
   level: true,
   displayId: true,
   vipLevel: true,
@@ -1184,6 +1236,7 @@ try {
     avatarUrl: u?.avatarUrl ?? null,
     avatarFrameUrl, // ✅ ADD THIS
     frameImageUrl: avatarFrameUrl,
+    frameMeta: (u?.activeFrame as any)?.meta ?? null,
     level: u?.level ?? 1,
     displayId: u?.displayId ?? null,
     vipLevel: u?.vipLevel ?? 0,
@@ -1304,19 +1357,23 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       if (!isResync && Date.now() - lastEntry > ENTRANCE_DEBOUNCE_MS) {
         recentRoomEntries.set(entryKey, Date.now());
         try {
-          const [entrant, activeBanner, activeEffect] = await Promise.all([
+          const [entrant, activeBanner, activeEffect, entrantBadges] = await Promise.all([
             prisma.user.findUnique({
               where: { id: uid },
               select: { name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
             }),
             (prisma as any).userItem.findFirst({
               where: { userId: uid, isActive: true, item: { type: 'ENTRANCE_BANNER' } },
-              include: { item: { select: { assetUrl: true } } },
+              // `meta` carries the dashboard-set inner box + 9-slice guides so
+              // the client can lay the text inside the bar's EMPTY area
+              // whatever the artwork's decoration looks like.
+              include: { item: { select: { assetUrl: true, meta: true } } },
             }),
             (prisma as any).userItem.findFirst({
               where: { userId: uid, isActive: true, item: { type: 'ENTRANCE_EFFECT' } },
               include: { item: { select: { assetUrl: true } } },
             }),
+            userBadgeIcons(uid),
           ]);
           io.to(`room:${rid}`).emit('user_entered', {
             roomId: rid,
@@ -1327,6 +1384,10 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
             level: entrant?.level ?? 1,
             vipLevel: entrant?.vipLevel ?? 0,
             bannerUrl: activeBanner?.item?.assetUrl ?? null,
+            bannerMeta: activeBanner?.item?.meta ?? null,
+            // The entrance line reads "فهد VIP 6 · LV 8 دخل الغرفة" and shows
+            // his badges, so it carries them.
+            badges: entrantBadges,
           });
 
           // The entrance video/sound used to be played locally by the entrant
@@ -1395,7 +1456,11 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   name: true,
   avatarUrl: true,        // 🔥 ADD THIS
   avatarFrameUrl: true,
-  activeFrame: { select: { assetUrl: true } },
+  // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
   level: true,
   displayId: true,
   vipLevel: true,
@@ -1411,6 +1476,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   avatarUrl: user?.avatarUrl ?? null,
   avatarFrameUrl, // ✅ ADD
   frameImageUrl: avatarFrameUrl,
+  frameMeta: (user?.activeFrame as any)?.meta ?? null,
   level: user?.level ?? 1,
   displayId: user?.displayId ?? null,
   vipLevel: user?.vipLevel ?? 0,
@@ -1543,15 +1609,22 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
       // Group 12: the sender's active chat-bubble design (store/dashboard-managed).
       let bubbleUrl: string | null = null;
+      // Dashboard-set inner box + 9-slice guides for that bubble design, so the
+      // text lands inside the empty middle instead of over the decoration.
+      let bubbleMeta: any = null;
       try {
         const activeBubble = await (prisma as any).userItem.findFirst({
           where: { userId: uid, isActive: true, item: { type: 'CHAT_BUBBLE' } },
-          include: { item: { select: { assetUrl: true } } },
+          include: { item: { select: { assetUrl: true, meta: true } } },
         });
         bubbleUrl = activeBubble?.item?.assetUrl ?? null;
+        bubbleMeta = activeBubble?.item?.meta ?? null;
       } catch (e) {
         console.warn('[send_message] bubble lookup failed:', e);
       }
+
+      // The شارات shown under the writer's name in the bubble.
+      const badges = await userBadgeIcons(uid);
 
       const msg = await prisma.roomMessage.create({
         data: {
@@ -1575,11 +1648,33 @@ socket.on('leave_room', async ({ roomId }: any) => {
         level: user?.level ?? 1,
         vipLevel: user?.vipLevel ?? 0,
         bubbleUrl,
+        bubbleMeta,
+        // Identity line above the text: "فهد  VIP 6 · LV 8" + his badges.
+        badges,
       });
       } catch (err) {
         console.error('[socket.send_message] handler error:', err);
         socket.emit('error', { event: 'send_message', message: 'Internal error' });
       }
+    });
+
+    // ----------------------------
+    // من المتحدث الآن؟
+    // Each client measures its OWN microphone level and reports transitions;
+    // the server just fans them out so every seat can draw the pulsing ring.
+    // Deliberately not persisted and not validated against the seat map —
+    // it is transient presentation state, and a client that lies about it can
+    // only make its own ring flicker.
+    // ----------------------------
+    socket.on('speaking', ({ roomId, isSpeaking }: any) => {
+      const rid = toInt(roomId);
+      const uid = socket.userId;
+      if (!rid || !uid) return;
+      socket.to(`room:${rid}`).emit('user_speaking', {
+        roomId: rid,
+        userId: uid,
+        isSpeaking: isSpeaking === true,
+      });
     });
 
     socket.on('typing', ({ roomId, username, isTyping }: any) => {
@@ -1690,7 +1785,11 @@ socket.on('leave_room', async ({ roomId }: any) => {
       name: true,
       avatarUrl: true,
       avatarFrameUrl: true,
-      activeFrame: { select: { assetUrl: true } },
+      // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } },
       level: true,
     },
   });
@@ -1827,7 +1926,11 @@ socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
 
     const u = await prisma.user.findUnique({
       where: { id: uid },
-      select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, activeFrame: { select: { assetUrl: true } }, level: true },
+      select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
+  // client can seat the avatar exactly inside the ring whatever the
+  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
+  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
+  activeFrame: { select: { assetUrl: true, meta: true } }, level: true },
     });
     const avatarFrameUrl = u?.activeFrame?.assetUrl ?? u?.avatarFrameUrl ?? null;
 

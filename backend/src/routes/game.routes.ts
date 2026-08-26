@@ -47,6 +47,15 @@ import {
   rotatePlinkoSeed,
   verifyPlinkoDrop,
 } from '../controllers/plinko.controller';
+import {
+  getAetherfallState,
+  spinAetherfall,
+  getAetherfallHistory,
+  getAetherfallFairness,
+  setAetherfallClientSeed,
+  rotateAetherfallSeed,
+  verifyAetherfallSpin,
+} from '../controllers/aetherfall.controller';
 
 const router = Router();
 
@@ -196,6 +205,26 @@ router.get('/plinko/fair', authenticate, getPlinkoFairness);
 router.post('/plinko/seed', authenticate, plinkoLimiter, setPlinkoClientSeed);
 router.post('/plinko/seed/rotate', authenticate, plinkoLimiter, rotatePlinkoSeed);
 router.post('/plinko/verify', authenticate, verifyPlinkoDrop);
+
+// أثيرفول (Aetherfall): each spin can chain a long cascade sequence plus a
+// Skyfire Vault bonus server-side, but it is still one request per spin like
+// بلينكو's one-request-per-drop, so it gets the same generous allowance.
+const aetherfallLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `aetherfall:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/aetherfall/state', authenticate, getAetherfallState);
+router.post('/aetherfall/spin', authenticate, aetherfallLimiter, spinAetherfall);
+router.get('/aetherfall/history', authenticate, getAetherfallHistory);
+router.get('/aetherfall/fair', authenticate, getAetherfallFairness);
+router.post('/aetherfall/seed', authenticate, aetherfallLimiter, setAetherfallClientSeed);
+router.post('/aetherfall/seed/rotate', authenticate, aetherfallLimiter, rotateAetherfallSeed);
+router.post('/aetherfall/verify', authenticate, verifyAetherfallSpin);
 
 router.get('/boxing/round', authenticate, getBoxingRound);
 router.post('/boxing/round/join', authenticate, boxingLimiter, joinBoxingRound);
