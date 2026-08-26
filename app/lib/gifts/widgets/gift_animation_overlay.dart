@@ -39,6 +39,8 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   StreamSubscription<GiftSendEvent>? _sentSub;
   final List<_Flight> _flights = [];
   final List<_VipBurst> _vipBursts = [];
+  /// Fullscreen video gifts. At most one at a time (see [_spawnVideoShow]).
+  final List<_VideoShow> _videoShows = [];
   int _flightSeq = 0;
 
   /// One reusable audio player for VIP fanfare. Keeps a single decoder alive.
@@ -97,12 +99,13 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     _playGiftSound(event);
 
     // Video gifts carry sound and a real clip — repeating that N times for a
-    // ×N send would replay the same video N times over each other. They
-    // spawn exactly ONE flight, badged with the send count, and play once.
+    // ×N send would replay the same video N times over each other. They play
+    // ONCE, FULLSCREEN, badged with the send count: as a flight they were
+    // squeezed into a 70%-of-screen square that flew off to a seat mid-clip.
     // Image/SVG gifts have no audio and are cheap to repeat, so those keep
     // spawning one flight per unit as before.
     if (event.gift.format == GiftFormat.video) {
-      _spawnFlight(event, 0, 1, displayQuantity: event.quantity.clamp(1, 30));
+      _spawnVideoShow(event);
     } else {
       final qty = event.quantity.clamp(1, 30);
       for (int i = 0; i < qty; i++) {
@@ -117,6 +120,27 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     if (event.gift.tier == GiftTier.legendary) {
       _triggerVip(event);
     }
+  }
+
+  /// Mounts a video gift as a fullscreen show. Only one plays at a time: a
+  /// second clip arriving while one runs replaces it, so two soundtracks never
+  /// overlap.
+  void _spawnVideoShow(GiftSendEvent event) {
+    final show = _VideoShow(
+      id: ++_flightSeq,
+      event: event,
+      quantity: event.quantity.clamp(1, 30),
+    );
+    setState(() {
+      _videoShows.clear();
+      _videoShows.add(show);
+    });
+  }
+
+  void _endVideoShow(_VideoShow show) {
+    if (!mounted) return;
+    if (!_videoShows.contains(show)) return;
+    setState(() => _videoShows.remove(show));
   }
 
   void _spawnFlight(GiftSendEvent event, int index, int total, {int? displayQuantity}) {
@@ -209,6 +233,16 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
           // In-flight gifts.
           for (final f in _flights) _FlightWidget(flight: f),
 
+          // Video gifts — the whole screen, edge to edge, over the room UI.
+          for (final v in _videoShows)
+            Positioned.fill(
+              key: ValueKey('video-gift-${v.id}'),
+              child: _FullscreenVideoGift(
+                show: v,
+                onDone: () => _endVideoShow(v),
+              ),
+            ),
+
           // VIP fireworks (one layer per active burst, capped above).
           for (final v in _vipBursts)
             Positioned.fill(
@@ -260,6 +294,65 @@ class _Flight {
   /// Set only for the single-flight video case — the ×N badge to show since
   /// this one flight represents the whole send, not one unit of it.
   final int? displayQuantity;
+}
+
+class _VideoShow {
+  _VideoShow({required this.id, required this.event, required this.quantity});
+  final int id;
+  final GiftSendEvent event;
+  final int quantity;
+}
+
+/// A video gift filling the screen: the clip exactly as uploaded (letterboxed,
+/// never cropped), its own sound, and the sender → recipient line over it.
+class _FullscreenVideoGift extends StatelessWidget {
+  const _FullscreenVideoGift({required this.show, required this.onDone});
+
+  final _VideoShow show;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    final gift = show.event.gift;
+    final senderName = show.event.sender?.name ?? '';
+    final recipientName = show.event.recipient?.name ?? '';
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Backdrop, so a portrait clip doesn't show the room through its bars.
+        Container(color: Colors.black.withOpacity(0.72)),
+        GiftPlayer(gift: gift, onComplete: onDone, onError: onDone),
+        if (senderName.isNotEmpty || recipientName.isNotEmpty)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).padding.bottom + 28,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.45),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '$senderName أرسل '
+                '${show.quantity > 1 ? '×${show.quantity} ' : ''}'
+                '${gift.nameAr ?? gift.name}'
+                '${recipientName.isEmpty ? '' : ' إلى $recipientName'}',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _VipBurst {

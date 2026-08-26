@@ -66,6 +66,22 @@ class User {
   /// at 4) — feeds the room profile card's medals row.
   final List<AchievementBadge>? achievements;
 
+  /// The user's own profile-page background: a still image, an animated GIF, or
+  /// a video clip. `profileBgType` is 'image' or 'video'; null means the page
+  /// keeps its default gradient.
+  final String? profileBgUrl;
+  final String? profileBgType;
+
+  /// إطار تزيين الصفحة الشخصية — a hollow decorated frame drawn ON the profile
+  /// page's border, never over its content. Set by equipping a PROFILE_DECOR
+  /// item in the store; `profileDecorType` is 'image' or 'video'.
+  final String? profileDecorUrl;
+  final String? profileDecorType;
+
+  /// Platform staff flag. `isAdmin` alone cannot tell the two tiers apart, and
+  /// the room UI has to (close-room and long bans are super-only).
+  final bool? isSuperAdmin;
+
   User({
     required this.id,
     this.displayId,
@@ -98,6 +114,11 @@ class User {
     this.agencyName,
     this.familyName,
     this.achievements,
+    this.profileBgUrl,
+    this.profileBgType,
+    this.profileDecorUrl,
+    this.profileDecorType,
+    this.isSuperAdmin,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -142,6 +163,11 @@ class User {
       agencyRole: source['agencyRole']?.toString(),
       agencyName: source['agencyName']?.toString(),
       familyName: source['familyName']?.toString(),
+      profileBgUrl: source['profileBgUrl']?.toString(),
+      profileBgType: source['profileBgType']?.toString(),
+      profileDecorUrl: source['profileDecorUrl']?.toString(),
+      profileDecorType: source['profileDecorType']?.toString(),
+      isSuperAdmin: asBool(source['isSuperAdmin']),
       achievements: (source['achievements'] as List?)
           ?.whereType<Map>()
           .map((e) => AchievementBadge.fromJson(Map<String, dynamic>.from(e)))
@@ -157,6 +183,9 @@ class User {
   int get userCoinsBalance => coinsBalance ?? 0;
   int get userVipLevel => vipLevel ?? 0;
   bool get userIsAdmin => isAdmin ?? false;
+  /// Super admin: everything an admin can do, plus closing a room and the long
+  /// ban durations. Gated separately everywhere the two differ.
+  bool get userIsSuperAdmin => isSuperAdmin ?? false;
   bool get userIsOnline => isOnline ?? false;
   int get userFollowersCount => followersCount ?? 0;
   int get userFollowingCount => followingCount ?? 0;
@@ -194,6 +223,11 @@ class User {
     String? agencyName,
     String? familyName,
     List<AchievementBadge>? achievements,
+    String? profileBgUrl,
+    String? profileBgType,
+    String? profileDecorUrl,
+    String? profileDecorType,
+    bool? isSuperAdmin,
   }) {
     return User(
       id: id ?? this.id,
@@ -227,6 +261,11 @@ class User {
       agencyName: agencyName ?? this.agencyName,
       familyName: familyName ?? this.familyName,
       achievements: achievements ?? this.achievements,
+      profileBgUrl: profileBgUrl ?? this.profileBgUrl,
+      profileBgType: profileBgType ?? this.profileBgType,
+      profileDecorUrl: profileDecorUrl ?? this.profileDecorUrl,
+      profileDecorType: profileDecorType ?? this.profileDecorType,
+      isSuperAdmin: isSuperAdmin ?? this.isSuperAdmin,
     );
   }
 }

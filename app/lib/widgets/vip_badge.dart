@@ -36,12 +36,21 @@ class _VipBadgeState extends State<VipBadge> {
     final tier = LevelCatalogService.vipLevel(widget.level);
     final badgeUrl = LevelCatalogService.absoluteBadgeUrl(tier?.badgeUrl);
     if (badgeUrl != null) {
-      return Image.network(
+      // The dashboard may hold a very large PNG. Clamping BOTH axes and using
+      // BoxFit.contain makes every uploaded badge render at the app's own badge
+      // size instead of blowing the row apart (client: "تظهر في التطبيق صغيرة").
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: widget.fontSize * 1.8,
+          maxWidth: widget.fontSize * 3.4,
+        ),
+        child: Image.network(
         badgeUrl,
         height: widget.fontSize * 1.8,
         fit: BoxFit.contain,
         // A deleted or broken upload must never blank the badge out.
         errorBuilder: (_, __, ___) => _chip(tier?.name),
+      ),
       );
     }
     return _chip(tier?.name);

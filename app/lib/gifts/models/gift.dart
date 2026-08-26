@@ -224,11 +224,40 @@ class GiftSendEvent {
 }
 
 @immutable
+/// B4 — قائمة هدايا: one tab on the gift sheet, defined in لوحة التحكم.
+///
+/// The tabs used to be a `const` map in the picker, so adding a list meant an
+/// app release. They now travel with the catalog: `key` is what a gift stores
+/// in `Gift.category`, `nameAr` is the tab label.
+@immutable
+class GiftCategory {
+  final String key;
+  final String nameAr;
+  final int sortOrder;
+
+  const GiftCategory({required this.key, required this.nameAr, this.sortOrder = 0});
+
+  factory GiftCategory.fromJson(Map<String, dynamic> json) => GiftCategory(
+        key: json['key']?.toString() ?? '',
+        nameAr: json['nameAr']?.toString() ?? json['key']?.toString() ?? '',
+        sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+      );
+}
+
 class GiftCatalog {
   final int version;
   final Map<GiftTier, List<Gift>> byTier;
 
-  const GiftCatalog({required this.version, required this.byTier});
+  /// Tabs configured in the dashboard. Empty on an older server, in which case
+  /// the picker falls back to its built-in labels — so a stale backend never
+  /// leaves the sheet with no tabs at all.
+  final List<GiftCategory> categories;
+
+  const GiftCatalog({
+    required this.version,
+    required this.byTier,
+    this.categories = const [],
+  });
 
   List<Gift> get all => GiftTier.values.expand<Gift>((t) => byTier[t] ?? const <Gift>[]).toList();
 
@@ -243,6 +272,11 @@ class GiftCatalog {
               .map((e) => Gift.fromJson(e as Map<String, dynamic>))
               .toList(),
       },
+      categories: ((json['categories'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(GiftCategory.fromJson)
+          .where((c) => c.key.isNotEmpty)
+          .toList(),
     );
   }
 }

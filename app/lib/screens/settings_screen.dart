@@ -23,7 +23,8 @@ class _TargetActions {
         canConvert = false,
         blocked = false;
 
-  /// Owner/branch of a HOSTING agency → may sell a member's target.
+  /// Has target left to sell to another account. Host or وكيل — selling stopped
+  /// being an owner-only action in 2026-08.
   final bool canSell;
 
   /// Has a hosting membership with target left to convert.
@@ -41,7 +42,10 @@ final _targetActionsProvider = FutureProvider.autoDispose<_TargetActions>((ref) 
     final data = (res.data as Map)['data'] as Map;
     final items = (data['items'] as List?) ?? const [];
     return _TargetActions(
-      canSell: data['canSellMemberTarget'] == true,
+      // Selling is open to hosts and agents alike since 2026-08; the server
+      // says whether this account has anything sellable. `canSellMemberTarget`
+      // is the old key, still sent with the same value.
+      canSell: data['canSellTarget'] == true || data['canSellMemberTarget'] == true,
       canConvert: items.any(
         (e) => e is Map && ((e['convertibleCoins'] as num?)?.toInt() ?? 0) > 0,
       ),
@@ -132,14 +136,14 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
-          // Target Actions Section (#5) — "بيع المستهدف" is an agency-owner
-          // action (sell a MEMBER's target for them, by their ID); "تبديل
-          // الكوينزات" is the existing self-service conversion, kept here.
+          // Target Actions Section — "بيع التارجت" moves target to another
+          // account by ID (any amount, up to all of it); "تبديل الكوينزات"
+          // cashes half of it into your own wallet. Both are open to hosts and
+          // agents alike since 2026-08.
           //
-          // Both are gated on what the account can actually do: selling needs a
-          // HOSTING agency the user owns or branches, converting needs a
-          // membership with target left to convert. Showing them to everyone
-          // meant most users tapped a tile that could only answer 403/empty.
+          // Still gated on having something to act on: a membership with target
+          // left. Showing them to everyone meant most users tapped a tile that
+          // could only answer 403/empty.
           if (targetActions.canSell || targetActions.canConvert) ...[
             _buildSectionTitle('إجراءات المستهدف', theme, isDark),
             const SizedBox(height: 12),
@@ -169,7 +173,7 @@ class SettingsScreen extends ConsumerWidget {
                 if (targetActions.canSell)
                   _buildSettingsTile(
                     icon: Icons.sell_outlined,
-                    title: 'بيع المستهدف',
+                    title: 'بيع التارجت',
                     // Blocked accounts see the tile greyed out rather than
                     // tapping through to a 403.
                     onTap: targetActions.blocked
@@ -673,10 +677,10 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  /// بيع المستهدف (#5) — the agency owner enters a member's ID + a coin
-  /// amount within that member's own convertible target, confirms, and the
-  /// coins are cashed out to the MEMBER (this only works if the caller
-  /// manages a hosting agency; the backend returns a clear error otherwise).
+  /// بيع التارجت — the seller enters the buyer's ID and any amount up to their
+  /// whole available target. The amount (and its dollar value) leaves the
+  /// seller and lands on the buyer's target; the buyer's dollars only rise once
+  /// the resulting total completes the tier set in the dashboard.
   void _showSellTargetDialog(BuildContext context, ThemeData theme, bool isDark) {
     showDialog(
       context: context,
@@ -778,6 +782,11 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
     final theme = widget.theme;
     final isDark = widget.isDark;
     final convertible = (_selected?['convertibleCoins'] as num?)?.toInt() ?? 0;
+    // Commission counted for the agent but not payable yet: the member who
+    // generated it hasn't completed their target. Shown so a shrunken
+    // "المتاح للتبديل" doesn't look like missing money.
+    final lockedCommission =
+        (_selected?['commissionLockedCoins'] as num?)?.toInt() ?? 0;
 
     return AlertDialog(
       backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
@@ -797,6 +806,13 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
                       'المتاح للتبديل: $convertible كوينز (سيتحول نصفه، ${convertible ~/ 2} كحد أقصى، لرصيدك)',
                       style: TextStyle(color: theme.textTheme.bodyMedium?.color, fontSize: 13),
                     ),
+                    if (lockedCommission > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'عمولة محسوبة ومحجوزة: $lockedCommission كوينز — تُفتح عندما يكمل أصحابها التارجت المحدد',
+                        style: const TextStyle(color: Color(0xFFFFB020), fontSize: 12),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     TextField(
                       controller: _amountCtrl,
@@ -853,9 +869,9 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
   }
 
   Future<void> _submit() async {
-    final memberUserId = int.tryParse(_idCtrl.text.trim());
+    final toUserId = int.tryParse(_idCtrl.text.trim());
     final amount = int.tryParse(_amountCtrl.text.trim());
-    if (memberUserId == null || memberUserId <= 0) {
+    if (toUserId == null || toUserId <= 0) {
       setState(() => _error = 'أدخل معرّف (ID) صحيح');
       return;
     }
@@ -870,7 +886,8 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
         backgroundColor: widget.isDark ? const Color(0xFF1A0E3E) : Colors.white,
         title: Text('تأكيد البيع', style: TextStyle(color: widget.theme.textTheme.bodyLarge?.color)),
         content: Text(
-          'سيتم بيع $amount كوينز من رصيد المستهدف الخاص بالعضو #$memberUserId. متابعة؟',
+          'سيتم نقل $amount كوينز من التارجت الخاص بك إلى المستخدم #$toUserId، '
+          'وتُخصم قيمتها بالدولار من حسابك. متابعة؟',
           style: TextStyle(color: widget.theme.textTheme.bodyMedium?.color),
         ),
         actions: [
@@ -887,14 +904,19 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
     });
     try {
       final res = await DioClient.dio.post('/agencies/target/sell', data: {
-        'memberUserId': memberUserId,
+        'toUserId': toUserId,
         'amount': amount,
       });
       final data = (res.data as Map)['data'] as Map;
       if (mounted) {
         Navigator.pop(context);
+        final buyerName = (data['buyer'] as Map?)?['name']?.toString() ?? 'المستفيد';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم بيع $amount كوينز — أُضيف ${data['creditedCoins']} كوينز لرصيد العضو')),
+          SnackBar(
+            content: Text(
+              'تم بيع $amount كوينز إلى $buyerName — تارجته الآن ${data['buyerTargetCoins']} كوينز',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -915,13 +937,15 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
 
     return AlertDialog(
       backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
-      title: Text('بيع المستهدف', style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
+      title: Text('بيع التارجت', style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'لأصحاب وكالات الاستضافة: بيع جزء من رصيد المستهدف الخاص بأحد أعضاء وكالتك، بإدخال معرّفه (ID).',
+            'بيع أي مقدار من تارجتك — حتى كامله — لمستخدم آخر بإدخال معرّفه (ID). '
+            'يُخصم المبلغ وقيمته بالدولار من حسابك ويُضاف إلى تارجت المستفيد، '
+            'وترتفع قيمته بالدولار عند إكماله التارجت المحدد.',
             style: TextStyle(color: theme.textTheme.bodyMedium?.color, fontSize: 13),
           ),
           const SizedBox(height: 12),
@@ -930,7 +954,7 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
             keyboardType: TextInputType.number,
             style: TextStyle(color: theme.textTheme.bodyLarge?.color),
             decoration: const InputDecoration(
-              labelText: 'معرّف العضو (ID)',
+              labelText: 'معرّف المستفيد (ID)',
               border: OutlineInputBorder(),
             ),
           ),

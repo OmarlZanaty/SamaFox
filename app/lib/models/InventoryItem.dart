@@ -81,6 +81,16 @@ class InventoryItem {
       case "chat_top_banner":
         normalizedType = "chat_top_banner";
         break;
+      // B2/B3 — الحقيبة has to name these two like every other category,
+      // otherwise the raw server type shows up as the label.
+      case "PROFILE_BACKGROUND":
+      case "profile_background":
+        normalizedType = "profile_background";
+        break;
+      case "PROFILE_DECOR":
+      case "profile_decor":
+        normalizedType = "profile_decor";
+        break;
       default:
         normalizedType = rawType;
     }

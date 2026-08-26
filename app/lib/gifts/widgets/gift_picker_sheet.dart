@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../config/app_config.dart';
+import '../../repositories/cp_repository.dart';
 import '../../screens/store_screen.dart';
 import '../models/gift.dart';
 import '../services/gift_repository.dart';
@@ -21,6 +22,43 @@ const _kBorderColor = Color(0xFF2A2A35);
 
 // Recipient scope: which pool of room users the avatar row/target draws from.
 enum _RecipientScope { allRoom, micOnly }
+
+/// أسماء قوائم الهدايا الاحتياطية.
+///
+/// B4 — the tabs now come from لوحة التحكم with the gift catalog, so a list the
+/// owner creates appears without an app release. This map is only the fallback
+/// for a server that predates gift lists, and for a gift whose category was
+/// deleted; without it such a gift would sit under a tab labelled with its raw
+/// key.
+const Map<String, String> _kCategoryLabels = {
+  'all': 'عادي',
+  'love': 'العلاقة',
+  'luxury': 'خاص',
+  'lucky': 'محظوظ',
+  'magic': 'ماجيك',
+  'flag': 'علم',
+  'bag': 'كيس',
+  'fun': 'مرح',
+  'festive': 'مناسبات',
+  'cp': 'CP',
+  'vip': 'VIP',
+  'RELATION_RING': 'خاتم العلاقة',
+};
+
+/// The gift list that carries CP gifts. Matches the `cp` key seeded into
+/// gift_categories, which is also what the dashboard's CP list uses.
+const String _kCpCategoryKey = 'cp';
+
+/// ترتيب التبويبات الثابت.
+const List<String> _kKnownCategories = [
+  'love', 'luxury', 'lucky', 'magic', 'flag', 'bag', 'fun', 'festive',
+  'cp', 'vip', 'RELATION_RING',
+];
+
+/// قوائم تظهر دائماً حتى لو لم تُضف لها هدايا بعد.
+const Set<String> _kAlwaysShownCategories = {'cp', 'vip'};
+
+String _categoryLabel(String key) => _kCategoryLabels[key] ?? key;
 
 /// Bottom-sheet gift picker: recipient-scope selector, category tabs, gift
 /// grid, quantity dropdown and coin balance/recharge footer.
@@ -86,6 +124,11 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   Future<GiftCatalog>? _catalog;
   int _balance = 0;
   String? _selectedGiftId;
+
+  /// A15 — true when the picked gift belongs to the CP list. A CP gift does not
+  /// go through the normal send path at all: it raises an invitation the
+  /// recipient must answer, and only then is anyone charged.
+  bool _selectedGiftIsCp = false;
   static const List<int> _kQuantities = [1, 7, 10, 20, 50];
   int _quantity = _kQuantities.first;
   int _selectedGiftCost = 0; // coin cost of the currently selected gift (for optimistic deduction)
@@ -93,7 +136,16 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   late Set<int> _selectedRecipientIds;
   _RecipientScope _scope = _RecipientScope.allRoom;
 
+  /// Tab labels straight from لوحة التحكم, keyed by category key. Empty when
+  /// the server has no gift lists, in which case [_kCategoryLabels] is used.
+  Map<String, String> _serverLabels = const {};
+
+  String _tabLabel(String key) =>
+      key == 'all' ? 'عادي' : (_serverLabels[key] ?? _categoryLabel(key));
+
   // Anchors so the popups open next to their button, not at a fixed screen spot.
+  final CpRepository _cpRepository = CpRepository();
+
   final GlobalKey _scopeKey = GlobalKey();
   final GlobalKey _quantityKey = GlobalKey();
 
@@ -147,8 +199,34 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   }
 
   void _ensureTabController(GiftCatalog catalog) {
-    final categories = catalog.all.map((g) => g.category ?? '').where((c) => c.isNotEmpty).toSet().toList();
-    final keys = ['all', ...categories];
+    final fromData =
+        catalog.all.map((g) => g.category ?? '').where((c) => c.isNotEmpty).toSet();
+
+    late final List<String> ordered;
+    if (catalog.categories.isNotEmpty) {
+      // B4 — the dashboard owns the tabs and their order. Every configured list
+      // is shown even while empty: a list is created BEFORE its gifts are moved
+      // into it, and a tab that vanishes until someone fills it looks broken.
+      // A category still stuck on a gift but no longer configured is appended,
+      // so deleting a list can never hide the gifts that were in it.
+      final configured = catalog.categories.map((c) => c.key).toList();
+      _serverLabels = {for (final c in catalog.categories) c.key: c.nameAr};
+      ordered = <String>[
+        ...configured,
+        ...fromData.where((c) => !configured.contains(c)),
+      ];
+    } else {
+      // Fallback for a server without gift lists — the previous behaviour,
+      // unchanged.
+      _serverLabels = const {};
+      ordered = <String>[
+        for (final k in _kKnownCategories)
+          if (_kAlwaysShownCategories.contains(k) || fromData.contains(k)) k,
+        ...fromData.where((c) => !_kKnownCategories.contains(c)),
+      ];
+    }
+
+    final keys = ['all', ...ordered];
     if (_tab != null && _tabKeys.length == keys.length && _tabKeys.every(keys.contains)) return;
     _tabKeys = keys;
     _tab?.dispose();
@@ -178,7 +256,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 unselectedLabelColor: Colors.white60,
                 tabAlignment: TabAlignment.start,
                 labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                tabs: _tabKeys.map((k) => Tab(text: k == 'all' ? 'عادي' : k)).toList(),
+                tabs: _tabKeys.map((k) => Tab(text: _tabLabel(k))).toList(),
               );
             },
           ),
@@ -265,24 +343,23 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       position: _menuPositionFor(_scopeKey),
       color: _kCardColor,
       items: const [
-        PopupMenuItem(value: _RecipientScope.allRoom, child: Text('جميع الغرف', style: TextStyle(color: Colors.white))),
+        PopupMenuItem(value: _RecipientScope.allRoom, child: Text('جميع الغرفة', style: TextStyle(color: Colors.white))),
         PopupMenuItem(value: _RecipientScope.micOnly, child: Text('الميك الكامل', style: TextStyle(color: Colors.white))),
       ],
     );
-    if (selected != null && selected != _scope) {
+    if (selected != null) {
       setState(() {
         _scope = selected;
-        final scoped = _scopedRecipients;
-        if (selected == _RecipientScope.micOnly) {
-          // "الميك الكامل" means EVERY seated user, not just the first one.
-          _selectedRecipientIds = scoped.map((r) => r.id).toSet();
-        } else {
-          final valid = scoped.map((r) => r.id).toSet();
-          _selectedRecipientIds.removeWhere((id) => !valid.contains(id));
-          if (_selectedRecipientIds.isEmpty && scoped.isNotEmpty) {
-            _selectedRecipientIds.add(scoped.first.id);
-          }
-        }
+        // A27 — BOTH options are bulk selections, not filters. The client's
+        // rule: "الميك الكامل" picks everyone on a mic and "جميع الغرفة" picks
+        // everyone in the room, "سواء على المايك أو تحت في الشات". Previously
+        // only the mic option selected anyone, which is why "جميع الغرفة"
+        // looked non-functional: it narrowed the avatar row and left the single
+        // previously-selected person as the only recipient.
+        //
+        // Re-picking the same option is allowed (no `selected != _scope` guard)
+        // so tapping it again re-selects anyone who joined since.
+        _selectedRecipientIds = _scopedRecipients.map((r) => r.id).toSet();
       });
     }
   }
@@ -308,7 +385,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    _scope == _RecipientScope.allRoom ? 'جميع الغرف' : 'الميك الكامل',
+                    _scope == _RecipientScope.allRoom ? 'جميع الغرفة' : 'الميك الكامل',
                     style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(width: 2),
@@ -421,6 +498,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       onTap: () => setState(() {
         _selectedGiftId = gift.id;
         _selectedGiftCost = gift.coinCost;
+        _selectedGiftIsCp = (gift.category ?? '').toLowerCase() == _kCpCategoryKey;
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -611,9 +689,13 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     final giftId = _selectedGiftId;
     final recipients = _selectedRecipientIds.toList();
     if (giftId == null || recipients.isEmpty) return;
+
     // Optimistic deduction: reflect the spend instantly so the balance doesn't
     // lag behind the tap (pro-app pattern). The server's authoritative balance
     // reconciles it below; on total failure we restore the pre-send value.
+    //
+    // A27 — the cost of a fan-out is price × quantity × RECIPIENTS: every
+    // person on the list receives the whole gift, they do not share one.
     final int prevBalance = _balance;
     final int optimisticCost = _selectedGiftCost * _quantity * recipients.length;
     setState(() {
@@ -621,56 +703,123 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       _balance = (_balance - optimisticCost).clamp(0, 1 << 62);
     });
     widget.onBalanceChanged(_balance);
-    int successCount = 0;
-    GiftSendResult? lastResult;
-    String? firstErrorMessage;
+
     try {
-      for (final rid in recipients) {
-        try {
-          final result = await widget.repository.send(
-            giftId: giftId,
-            recipientId: rid,
-            roomId: widget.roomId,
-            quantity: _quantity,
-          );
-          lastResult = result;
-          successCount++;
-        } on GiftRepositoryException catch (e) {
-          firstErrorMessage ??= e.message;
-          if (e.code == 'INSUFFICIENT_BALANCE' || e.code == 'RATE_LIMIT' || e.code == 'UNAUTHORIZED') {
-            break;
-          }
-        }
-      }
-      if (lastResult != null) {
-        // Server authoritative balance wins over the optimistic guess.
-        setState(() => _balance = lastResult!.senderBalance);
-        widget.onBalanceChanged(lastResult.senderBalance);
+      if (_selectedGiftIsCp) {
+        await _sendCp(giftId, recipients, prevBalance);
+      } else if (recipients.length == 1) {
+        await _sendSingle(giftId, recipients.first, prevBalance);
       } else {
-        // Nothing sent — undo the optimistic deduction.
-        setState(() => _balance = prevBalance);
-        widget.onBalanceChanged(prevBalance);
-      }
-      if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      if (successCount > 0 && firstErrorMessage == null) {
-        messenger.showSnackBar(SnackBar(
-          content: Text(successCount > 1 ? 'تم إرسال الهدية إلى $successCount مستلمين' : 'تم إرسال الهدية!'),
-          duration: const Duration(seconds: 1),
-        ));
-      } else if (successCount > 0 && firstErrorMessage != null) {
-        messenger.showSnackBar(SnackBar(
-          content: Text('تم إرسال $successCount من ${recipients.length}: $firstErrorMessage'),
-          backgroundColor: Colors.orange[800],
-        ));
-      } else {
-        messenger.showSnackBar(SnackBar(
-          content: Text(firstErrorMessage ?? 'فشل إرسال الهدية'),
-          backgroundColor: Colors.red[700],
-        ));
+        await _sendMany(giftId, recipients, prevBalance);
       }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  /// A15 — a CP gift is an invitation, not a transfer.
+  ///
+  /// Nothing is charged here: the recipient decides, and the server takes the
+  /// full price on accept or 30% of it on reject. So the optimistic deduction
+  /// applied in [_send] is undone immediately — showing the coins gone while
+  /// the other person has not answered would be wrong twice over (they may
+  /// reject, in which case only 30% goes).
+  ///
+  /// A CP pairing is between two people, so this deliberately does not fan out:
+  /// if a bulk scope was selected, only the first recipient is invited.
+  Future<void> _sendCp(String giftId, List<int> recipients, int prevBalance) async {
+    setState(() => _balance = prevBalance);
+    widget.onBalanceChanged(prevBalance);
+
+    final recipientId = recipients.first;
+    try {
+      await _cpRepository.sendRequest(
+        recipientId: recipientId,
+        giftId: giftId,
+        quantity: _quantity,
+        roomId: widget.roomId,
+      );
+      if (!mounted) return;
+      _toast(
+        recipients.length > 1
+            ? 'تم إرسال طلب الـ CP لأول شخص محدد — في انتظار الرد'
+            : 'تم إرسال هدية الـ CP — في انتظار الرد',
+      );
+    } on CpException catch (e) {
+      if (!mounted) return;
+      _toast(e.message, error: true);
+    }
+  }
+
+  Future<void> _sendSingle(String giftId, int recipientId, int prevBalance) async {
+    try {
+      final result = await widget.repository.send(
+        giftId: giftId,
+        recipientId: recipientId,
+        roomId: widget.roomId,
+        quantity: _quantity,
+      );
+      if (!mounted) return;
+      setState(() => _balance = result.senderBalance);
+      widget.onBalanceChanged(result.senderBalance);
+      _toast('تم إرسال الهدية!');
+    } on GiftRepositoryException catch (e) {
+      if (!mounted) return;
+      setState(() => _balance = prevBalance);
+      widget.onBalanceChanged(prevBalance);
+      _toast(e.message, error: true);
+    }
+  }
+
+  /// A27 — "الميك الكامل" / "جميع الغرفة" go through ONE request.
+  ///
+  /// The old client-side loop issued a request per recipient, so a full room
+  /// meant up to 30 round trips; the gift-send rate limiter would cut the run
+  /// off part-way and the sender was left having paid for an arbitrary prefix
+  /// of the list. The server now charges the whole fan-out atomically enough to
+  /// report exactly how many landed.
+  Future<void> _sendMany(String giftId, List<int> recipients, int prevBalance) async {
+    try {
+      final result = await widget.repository.sendBatch(
+        giftId: giftId,
+        recipientIds: recipients,
+        roomId: widget.roomId,
+        quantity: _quantity,
+      );
+      if (!mounted) return;
+      setState(() => _balance = result.senderBalance);
+      widget.onBalanceChanged(result.senderBalance);
+
+      if (result.sent == result.requested) {
+        _toast('تم إرسال الهدية إلى ${result.sent} مستلمين');
+      } else {
+        _toast(
+          'تم إرسال ${result.sent} من ${result.requested}'
+          '${result.failureMessages.isNotEmpty ? ': ${result.failureMessages.first}' : ''}',
+          warning: true,
+        );
+      }
+    } on GiftRepositoryException catch (e) {
+      if (!mounted) return;
+      // Nothing was charged when the batch is refused up front (the server
+      // checks the whole cost before moving a single coin), so the optimistic
+      // deduction is simply undone.
+      setState(() => _balance = prevBalance);
+      widget.onBalanceChanged(prevBalance);
+      _toast(e.message, error: true);
+    }
+  }
+
+  void _toast(String text, {bool error = false, bool warning = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(text),
+      duration: const Duration(seconds: 1),
+      backgroundColor: error
+          ? Colors.red[700]
+          : warning
+              ? Colors.orange[800]
+              : null,
+    ));
   }
 }

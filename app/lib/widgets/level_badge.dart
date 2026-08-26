@@ -31,11 +31,20 @@ class _LevelBadgeState extends State<LevelBadge> {
     final tier = LevelCatalogService.level(widget.level);
     final badgeUrl = LevelCatalogService.absoluteBadgeUrl(tier?.badgeUrl);
     if (badgeUrl != null) {
-      return Image.network(
+      // The dashboard may hold a very large PNG. Clamping BOTH axes and using
+      // BoxFit.contain makes every uploaded badge render at the app's own badge
+      // size instead of blowing the row apart (client: "تظهر في التطبيق صغيرة").
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: widget.fontSize * 1.8,
+          maxWidth: widget.fontSize * 3.4,
+        ),
+        child: Image.network(
         badgeUrl,
         height: widget.fontSize * 1.8,
         fit: BoxFit.contain,
         errorBuilder: (_, __, ___) => _chip(tier?.name),
+      ),
       );
     }
     return _chip(tier?.name);
@@ -58,9 +67,9 @@ class _LevelBadgeState extends State<LevelBadge> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Icons.male is what the profile chip has always shown here; kept
-          // as-is so the fallback stays pixel-identical to today.
-          Icon(Icons.male, color: Colors.white, size: widget.fontSize),
+          // A level chip, so it carries a level icon — the gender symbol that
+          // used to sit here now lives next to the age instead.
+          Icon(Icons.military_tech, color: Colors.white, size: widget.fontSize),
           const SizedBox(width: 4),
           Text(
             name ?? '${widget.level}',

@@ -30,6 +30,8 @@ import 'package:samafox/screens/games_hub_screen.dart';
 import 'widgets/pip_overlay.dart';
 import 'services/socket_service.dart';
 import 'services/global_notification_service.dart';
+import 'repositories/cp_repository.dart';
+import 'widgets/cp_request_dialog.dart';
 import 'widgets/global_notification_bar.dart';
 
 void main() async {
@@ -81,6 +83,36 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
       final type = (data['type'] as String? ?? '').toLowerCase();
       final title = (data['title'] as String? ?? '').trim();
       final body = (data['body'] as String? ?? '').trim();
+
+      // A15 — an incoming CP gift needs an answer, not a banner: the sender's
+      // coins are held on the outcome (full price on accept, 30% on reject), so
+      // the prompt is raised straight away. Dismissing it costs nobody
+      // anything and the invitation stays in the notifications list.
+      if (type == 'cp_request') {
+        final ctx = navigatorKey.currentContext;
+        final payload = (data['data'] as Map?) ?? const {};
+        final requestId = (payload['cpRequestId'] as num?)?.toInt();
+        if (ctx != null && requestId != null) {
+          CpRequestDialog.show(
+            ctx,
+            CpRequest(
+              id: requestId,
+              senderId: (payload['senderId'] as num?)?.toInt() ?? 0,
+              senderName: payload['senderName']?.toString() ?? 'مستخدم',
+              senderAvatarUrl: (data['actor'] as Map?)?['avatarUrl']?.toString(),
+              giftName: payload['giftName']?.toString() ?? 'هدية',
+              giftIconUrl: payload['giftIconUrl']?.toString() ?? '',
+              quantity: (payload['quantity'] as num?)?.toInt() ?? 1,
+              totalCoins: (payload['totalCoins'] as num?)?.toInt() ?? 0,
+              // Mirrors the server's CP_REJECT_FEE_RATE. Shown, not enforced —
+              // the server is what actually charges it.
+              rejectFeeCoins:
+                  (((payload['totalCoins'] as num?)?.toInt() ?? 0) * 0.3).floor(),
+            ),
+          );
+        }
+        return;
+      }
 
       // Admin control-panel broadcast: show verbatim in a prominent dialog.
       if (type == 'admin_broadcast') {
@@ -139,11 +171,25 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
         return body.isNotEmpty ? body : 'لديك إشعار جديد في حسابك.';
       }
 
+      // A21 — the two banners the client called out get a short life and, for
+      // the agent-percentage one, a drop below the gift bar. Everything else
+      // keeps a readable dwell time; the notifications list stays the place to
+      // review anything that flashed past ("مع عمل قائمة للإشعارات").
+      final bool isGiftReceived = type.contains('gift');
+      final bool isAgentPercentage =
+          type.contains('commission') || type.contains('agency') || type.contains('target');
+
       GlobalNotificationService.instance.show(
         GlobalNotificationEvent(
           title: localizedTitle(),
           message: localizedBody(),
           routeName: '/notifications',
+          duration: (isGiftReceived || isAgentPercentage)
+              ? kNotificationBriefDuration
+              : kNotificationDefaultDuration,
+          // Only the agent-percentage banner moves. The gift-received one was
+          // never a position complaint — only a duration one.
+          topOffset: isAgentPercentage ? kBelowGiftBarOffset : 0,
         ),
       );
     });

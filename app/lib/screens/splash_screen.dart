@@ -18,12 +18,22 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     _initialize();
   }
 
-  Future<void> _initialize() async {
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
+  /// How long the logo is guaranteed to stay up. Long enough to read, short
+  /// enough not to be felt.
+  static const Duration _minSplash = Duration(milliseconds: 900);
 
-    // Force the auth check to finish before reading state
-    await ref.read(authStateProvider.notifier).checkAuthStatus();
+  Future<void> _initialize() async {
+    // A12 — "التطبيق ثقيل … بيفتح لكن بطيء جداً".
+    //
+    // Boot used to sleep a flat 2 seconds and only THEN start the auth request,
+    // so every cold start cost 2s plus a full network round trip in series —
+    // and on a slow connection that is exactly the "hangs on open" the client
+    // described. The two now overlap: the splash lasts however long the slower
+    // of the timer and the auth check takes, not the sum of both.
+    await Future.wait([
+      Future<void>.delayed(_minSplash),
+      ref.read(authStateProvider.notifier).checkAuthStatus(),
+    ]);
 
     if (!mounted) return;
 

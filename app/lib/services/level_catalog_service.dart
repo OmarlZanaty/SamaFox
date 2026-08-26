@@ -5,11 +5,20 @@ import 'dio_client.dart';
 /// One configured tier from the admin dashboard — LV (`/levels`) or VIP
 /// (`/vip/levels`). Both endpoints return the same shape.
 class LevelTier {
-  const LevelTier({required this.level, this.name, this.badgeUrl});
+  const LevelTier({
+    required this.level,
+    this.name,
+    this.badgeUrl,
+    this.allowAnimatedAvatar = false,
+  });
 
   final int level;
   final String? name;
   final String? badgeUrl;
+
+  /// A16 — VIP tiers only: does this tier unlock an animated (GIF) profile
+  /// photo? Always false for LV tiers, which have no such perk.
+  final bool allowAnimatedAvatar;
 
   static LevelTier? fromJson(Map<String, dynamic> json) {
     final level = json['level'] is int
@@ -22,6 +31,7 @@ class LevelTier {
       level: level,
       name: (name == null || name.isEmpty) ? null : name,
       badgeUrl: (badgeUrl == null || badgeUrl.isEmpty) ? null : badgeUrl,
+      allowAnimatedAvatar: json['allowAnimatedAvatar'] == true,
     );
   }
 }
@@ -81,6 +91,31 @@ class LevelCatalogService {
 
   /// Admin config for a VIP tier, or null when unconfigured / not yet loaded.
   static LevelTier? vipLevel(int level) => _vipLevels?[level];
+
+  /// A16 — the LOWEST VIP tier with the animated-avatar perk switched on, or
+  /// null when no tier has it.
+  ///
+  /// Reading it as a floor rather than an exact match is what makes the
+  /// client's "VIP10 وما فوق" work without an admin having to tick every tier
+  /// above it. Mirrors `animatedAvatarMinVipLevel` on the server, which is what
+  /// actually enforces the rule — this copy exists only so the app can hide an
+  /// option the upload would reject.
+  static int? animatedAvatarMinVipLevel() {
+    final tiers = _vipLevels;
+    if (tiers == null || tiers.isEmpty) return null;
+    int? lowest;
+    for (final tier in tiers.values) {
+      if (!tier.allowAnimatedAvatar) continue;
+      if (lowest == null || tier.level < lowest) lowest = tier.level;
+    }
+    return lowest;
+  }
+
+  /// True when [vipLevel] is entitled to an animated profile photo.
+  static bool canUseAnimatedAvatar(int vipLevel) {
+    final min = animatedAvatarMinVipLevel();
+    return min != null && vipLevel >= min;
+  }
 
   /// Dashboard uploads are stored site-relative (`/uploads/badge.png`), and
   /// badge images are served from the server ROOT, not the /api/v1 base.

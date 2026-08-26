@@ -47,8 +47,23 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
     final hasHosting = isSystemAdmin ||
         hostingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
     final needsChoice = hasCharging && hasHosting;
-    final showCharging = !needsChoice || _activeInterface == 'CHARGING';
-    final showHosting = !needsChoice || _activeInterface == 'HOSTING';
+
+    // A user who belongs to an agency must see HIS agency's system only —
+    // opening وكالتي / العمل كوكيل شحن / العمل كوكيل مضيفين used to dump the
+    // full directory of approved agencies on him. Users with no agency (and
+    // system admins) still browse the whole list, which is how they join one.
+    final hasMembership = myRoles.isNotEmpty;
+    final scopedToMine = hasMembership && !isSystemAdmin;
+    List<ChargingAgency> scope(List<ChargingAgency> items) => scopedToMine
+        ? items.where((a) => myRoles.containsKey(a.id)).toList()
+        : items;
+
+    // Once scoped, a section the user has no agency in is just an empty box —
+    // hide it instead.
+    final showCharging =
+        (!needsChoice || _activeInterface == 'CHARGING') && (!scopedToMine || hasCharging);
+    final showHosting =
+        (!needsChoice || _activeInterface == 'HOSTING') && (!scopedToMine || hasHosting);
 
     return Scaffold(
       backgroundColor: const Color(0xFF1A0E3E),
@@ -85,7 +100,11 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
             ref.invalidate(chargingAgenciesProvider);
             ref.invalidate(hostingAgenciesProvider);
           },
-          child: needsChoice && _activeInterface == null
+          child: !membershipsAsync.hasValue && membershipsAsync.isLoading
+              // Wait for the memberships before drawing anything: rendering
+              // early would flash the full agency directory at an agent.
+              ? const Center(child: CircularProgressIndicator())
+              : needsChoice && _activeInterface == null
               ? _buildInterfaceChooser()
               : ListView(
                   padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 30),
@@ -125,18 +144,27 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                         title: 'وكالات الشحن',
                         children: [
                           chargingAsync.when(
-                            data: (items) => items.isEmpty
-                                ? _emptyText('لا توجد وكالات شحن معتمدة حالياً')
-                                : _buildAgencyGrid(
-                                    items,
-                                    onTap: (agency) => _onAgencyTap(
-                                      context,
-                                      ref,
-                                      agency,
-                                      isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
-                                      isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
-                                    ),
-                                  ),
+                            data: (all) {
+                              final items = scope(all);
+                              return items.isEmpty
+                                  ? _emptyText('لا توجد وكالات شحن معتمدة حالياً')
+                                  : _buildAgencyGrid(
+                                      items,
+                                      onTap: (agency) => _onAgencyTap(
+                                        context,
+                                        ref,
+                                        agency,
+                                        // Only the وكيل and his فروع can charge —
+                                        // matching the backend. A plain member
+                                        // used to be offered the charge sheet and
+                                        // got a 403 the moment he used it.
+                                        isAgencyAdmin: isSystemAdmin ||
+                                            myRoles[agency.id] == 'OWNER' ||
+                                            myRoles[agency.id] == 'BRANCH',
+                                        isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
+                                      ),
+                                    );
+                            },
                             loading: () => const Padding(
                               padding: EdgeInsets.symmetric(vertical: 12),
                               child: Center(child: CircularProgressIndicator()),
@@ -152,18 +180,21 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                         title: 'وكالات الاستضافة',
                         children: [
                           hostingAsync.when(
-                            data: (items) => items.isEmpty
-                                ? _emptyText('لا توجد وكالات استضافة معتمدة حالياً')
-                                : _buildAgencyGrid(
-                                    items,
-                                    onTap: (agency) => _onAgencyTap(
-                                      context,
-                                      ref,
-                                      agency,
-                                      isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
-                                      isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
-                                    ),
-                                  ),
+                            data: (all) {
+                              final items = scope(all);
+                              return items.isEmpty
+                                  ? _emptyText('لا توجد وكالات استضافة معتمدة حالياً')
+                                  : _buildAgencyGrid(
+                                      items,
+                                      onTap: (agency) => _onAgencyTap(
+                                        context,
+                                        ref,
+                                        agency,
+                                        isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
+                                        isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
+                                      ),
+                                    );
+                            },
                             loading: () => const Padding(
                               padding: EdgeInsets.symmetric(vertical: 12),
                               child: Center(child: CircularProgressIndicator()),
@@ -232,7 +263,7 @@ Future<void> _onAgencyTap(
   required bool isOwner,
 }) async {
   if (agency.type == 'CHARGING') {
-    await _showChargingActions(context, agency, isAgencyAdmin: isAgencyAdmin, isOwner: isOwner);
+    await _showChargingActions(context, ref, agency, isAgencyAdmin: isAgencyAdmin, isOwner: isOwner);
     return;
   }
   await _showHostingActions(context, agency, isAgencyAdmin: isAgencyAdmin, isOwner: isOwner);
@@ -272,10 +303,20 @@ Future<void> _handleCreateAgencyRequest(
 
 Future<void> _showChargingActions(
   BuildContext context,
+  WidgetRef ref,
   ChargingAgency agency, {
   required bool isAgencyAdmin,
   required bool isOwner,
 }) async {
+  // Read once, before the sheet builds — ref.watch is only legal inside a
+  // widget build. This is the seller's own wallet, فرع included.
+  int agencyBalance = 0;
+  if (isAgencyAdmin) {
+    try {
+      agencyBalance = await ref.read(agencyBalanceProvider.future);
+    } catch (_) {}
+  }
+  if (!context.mounted) return;
   await showModalBottomSheet(
     context: context,
     backgroundColor: const Color(0xFF1F1247),
@@ -303,9 +344,15 @@ Future<void> _showChargingActions(
                 iconColor: Colors.white,
                 leading: const Icon(Icons.send),
                 title: const Text('إضافة كوينز لمستخدم'),
+                // Owner and فرع each sell from their own wallet — quote it via
+                // agencyBalanceProvider, which a branch could not read before.
+                subtitle: Text(
+                  'يُخصم من رصيد محفظتك: $agencyBalance كوينز',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
                 onTap: () async {
                   Navigator.pop(context);
-                  await _sendAgencyCoinsToUser(context);
+                  await _sendAgencyCoinsToUser(context, ref);
                 },
               ),
               // Branches (فرع) — same system access, no ownership (#2-4). Only
@@ -461,12 +508,21 @@ Future<void> _requestCoinsFromAdmin(BuildContext context) async {
 // #5-7: "إضافة كوينز" flow — enter the person's ID, THEY APPEAR (name/avatar)
 // so the agent confirms it's the right person, then a box for the coin count,
 // then إرسال. Replaces the old raw userId+amount dialog with no confirmation.
-Future<void> _sendAgencyCoinsToUser(BuildContext context) async {
+// The coins come out of the agent's OWN wallet (the agency has no separate
+// pot any more), so the dialog shows that balance and refreshes it after.
+Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
   final idCtrl = TextEditingController();
   final amountCtrl = TextEditingController();
   Map<String, dynamic>? foundUser;
   bool searching = false;
   String? error;
+
+  // The wallet the charge is paid from — the caller's own, وكيل or فرع.
+  int agencyBalance = 0;
+  try {
+    agencyBalance = await ref.read(agencyBalanceProvider.future);
+  } catch (_) {}
+  if (!context.mounted) return;
 
   final ok = await showDialog<bool>(
     context: context,
@@ -495,6 +551,14 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context) async {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'رصيد محفظتك: $agencyBalance كوينز',
+                  style: const TextStyle(color: Color(0xFFFFD700), fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(child: _MiniField(controller: idCtrl, label: 'رقم المستخدم (ID)')),
@@ -549,6 +613,10 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context) async {
       'userId': foundUser!['id'],
       'amount': int.tryParse(amountCtrl.text.trim()) ?? 0,
     });
+    // The charge just moved coins — pull the fresh balances so the next charge
+    // (and the profile) don't show the pre-charge number.
+    try { await ref.read(authStateProvider.notifier).refreshMe(); } catch (_) {}
+    ref.invalidate(agencyBalanceProvider);
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الشحن بنجاح')));
   } catch (e) {
     // A blind 'فشل الشحن' made a 403 (wrong/unapproved agency) and an empty
@@ -698,9 +766,29 @@ Future<void> _manageBranches(
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: () async {
-                        final id = int.tryParse(idCtrl.text.trim());
-                        if (id == null) return;
+                        final q = idCtrl.text.trim();
+                        if (q.isEmpty) return;
                         try {
+                          // The number the owner types is the ID he SEES on the
+                          // profile (displayId), not the internal row id the
+                          // endpoint wants. Posting it raw made every addition
+                          // fail with "User not found" — or, worse, hand the
+                          // فرع to whoever happened to hold that internal id.
+                          // Resolve it first, exactly like the hosting panel.
+                          final search = await DioClient.dio
+                              .get('/agencies/search-user', queryParameters: {'q': q, 'agencyType': agencyType});
+                          final found = (search.data is Map)
+                              ? (search.data['data'] as List? ?? const [])
+                              : const [];
+                          if (found.isEmpty) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('لم يتم العثور على مستخدم بهذا الرقم')),
+                              );
+                            }
+                            return;
+                          }
+                          final id = ((found.first as Map)['id'] as num).toInt();
                           await DioClient.dio.post('/agencies/branches', data: {'userId': id, 'agencyType': agencyType});
                           idCtrl.clear();
                           setState(() {});
@@ -1479,24 +1567,18 @@ class _AgencyGridCard extends StatelessWidget {
 // ========================== Providers / Controllers ==========================
 
 /// ✅ Agency wallet balance (ChargingAgency.balanceCoins)
+/// The wallet a charge is actually paid from — the caller's own, وكيل or فرع.
+/// The old `/agencies/my-agency` source was owner-only, so a branch always saw
+/// 0 here even though he was charging from a funded wallet.
 final agencyBalanceProvider = FutureProvider<int>((ref) async {
   final dio = DioClient.dio;
-  final resp = await dio.get('/agencies/my-agency');
-  final raw = resp.data is Map ? resp.data['data'] : null;
-  // #8: /my-agency returns an array now. Coins live on the CHARGING (shipping)
-  // agency, so report that one's balance; tolerate the old single-object shape.
-  Map<String, dynamic>? charging;
-  if (raw is List) {
-    final maps = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
-    charging = maps.firstWhere(
-      (m) => (m['type'] ?? '').toString().toUpperCase() == 'CHARGING',
-      orElse: () => maps.isNotEmpty ? maps.first : <String, dynamic>{},
-    );
-  } else if (raw is Map) {
-    charging = Map<String, dynamic>.from(raw);
+  try {
+    final resp = await dio.get('/charging-agencies/my/balance');
+    final bal = (resp.data is Map) ? (resp.data['balanceCoins'] ?? 0) : 0;
+    return int.tryParse('$bal') ?? 0;
+  } on DioException {
+    return 0;
   }
-  final bal = charging?['balanceCoins'] ?? 0;
-  return int.tryParse('$bal') ?? 0;
 });
 
 final chargingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {

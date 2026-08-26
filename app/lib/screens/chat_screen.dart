@@ -12,6 +12,7 @@ import '../providers/message_providers.dart';
 import '../theme/app_theme.dart';
 import '../models/direct_message.dart';
 import '../providers/auth_provider.dart';
+import 'profile_screen.dart';
 import 'package:characters/characters.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -296,6 +297,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) { debugPrint("[chat_screen] swallowed: $e"); }
   }
 
+  /// Tapping the partner's picture (header or any incoming message) opens their
+  /// profile — needed to identify/report an abusive sender from the DM itself.
+  void _openPartnerProfile(int partnerId) {
+    if (partnerId <= 0) return;
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(builder: (_) => ProfileScreen(userId: partnerId)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
 
@@ -359,15 +369,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
         title: Row(
           children: [
-            _AvatarCircle(
-              name: partnerName,
-              avatarUrl: partnerAvatarUrl,
-              online: partnerOnline,
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _openPartnerProfile(partnerId),
+              child: _AvatarCircle(
+                name: partnerName,
+                avatarUrl: partnerAvatarUrl,
+                online: partnerOnline,
+              ),
             ),
             const SizedBox(width: 10),
 
             Expanded(
-              child: Column(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _openPartnerProfile(partnerId),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -385,6 +402,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     ),
                 ],
+                ),
               ),
             ),
           ],
@@ -440,10 +458,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   children: [
                                     /// 👤 OTHER USER AVATAR (LEFT)
                                     if (!isMe) ...[
-                                      _AvatarCircle(
-                                        name: partnerName,
-                                        avatarUrl: partnerAvatarUrl,
-                                        online: null,
+                                      GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () => _openPartnerProfile(partnerId),
+                                        child: _AvatarCircle(
+                                          name: partnerName,
+                                          avatarUrl: partnerAvatarUrl,
+                                          online: null,
+                                        ),
                                       ),
                                       const SizedBox(width: 8),
                                     ],

@@ -13,12 +13,19 @@ import 'package:samafox/screens/feature_screens.dart';
 import 'package:samafox/screens/store_screen.dart';
 import '../models/InventoryItem.dart';
 import '../providers/auth_provider.dart';
+import '../providers/room_controller_provider.dart';
 import '../models/user.dart';
 import '../services/dio_client.dart';
 import '../services/store_service.dart';
 import '../utils/storage_service.dart';
 import '../widgets/FramedAvatar.dart';
+import '../services/level_catalog_service.dart';
 import '../widgets/level_badge.dart';
+import '../widgets/profile_background.dart';
+import '../widgets/profile_decor_frame.dart';
+import '../config/app_config.dart';
+import '../repositories/cp_repository.dart';
+import 'cp_list_screen.dart';
 import '../widgets/vip_buy_sheet.dart';
 import '../widgets/glass_bottom_bar.dart';
 import '../widgets/video_preview_widget.dart';
@@ -57,7 +64,13 @@ class ReceivedGift {
 class ProfileScreen extends ConsumerStatefulWidget {
   final int? userId; // null = show my own profile
 
-  const ProfileScreen({super.key, this.userId});
+  /// Set when the profile was opened FROM a room (a chat name, a seat). It
+  /// carries the room's moderation actions onto the page, so an owner/admin can
+  /// look at whoever is writing and kick or mute them right there — before they
+  /// ever reach a mic.
+  final int? roomId;
+
+  const ProfileScreen({super.key, this.userId, this.roomId});
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -95,6 +108,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     }
   }
 
+  /// Fixed on-screen size for every badge in the row, whatever the uploaded
+  /// artwork's pixel dimensions are.
+  static const double _kBadgeSize = 26;
+
   IconData _badgeIconFor(String type) {
     switch (type) {
       case 'FRAME':
@@ -127,18 +144,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             runSpacing: 6,
             alignment: WrapAlignment.center,
             children: badges.map((b) {
+              final iconUrl = LevelCatalogService.absoluteBadgeUrl(
+                (b['iconUrl'] ?? '').toString(),
+              );
+              // The dashboard artwork is authoritative, but it is uploaded at
+              // whatever size the admin had (often huge). Every badge is drawn
+              // inside the SAME square box with BoxFit.contain, so a 1024px PNG
+              // and a 64px PNG end up identical on screen — the client's
+              // "تظهر في التطبيق صغيرة" requirement.
+              final Widget child = iconUrl == null
+                  ? Icon(_badgeIconFor((b['type'] ?? '').toString()),
+                      size: 16, color: const Color(0xFFDCC8FF))
+                  : Image.network(
+                      iconUrl,
+                      width: _kBadgeSize,
+                      height: _kBadgeSize,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.medium,
+                      errorBuilder: (_, __, ___) => Icon(
+                          _badgeIconFor((b['type'] ?? '').toString()),
+                          size: 16,
+                          color: const Color(0xFFDCC8FF)),
+                    );
               return Tooltip(
                 message: (b['name'] ?? '').toString(),
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF9C6BFF).withOpacity(0.18),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF9C6BFF).withOpacity(0.5)),
-                  ),
-                  child: Icon(_badgeIconFor((b['type'] ?? '').toString()),
-                      size: 16, color: const Color(0xFFDCC8FF)),
-                ),
+                child: iconUrl != null
+                    ? SizedBox(
+                        width: _kBadgeSize, height: _kBadgeSize, child: child)
+                    : Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF9C6BFF).withOpacity(0.18),
+                          shape: BoxShape.circle,
+                          border:
+                              Border.all(color: const Color(0xFF9C6BFF).withOpacity(0.5)),
+                        ),
+                        child: child,
+                      ),
               );
             }).toList(),
           ),
@@ -249,6 +291,87 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     }
   }
 
+  /// Room moderation, shown only when this profile was opened from a room
+  /// ([ProfileScreen.roomId]) and the viewer runs that room. It is the whole
+  /// point of opening a writer's card from the chat: look at who is talking and
+  /// remove him BEFORE he takes a mic.
+  Widget? _buildRoomModerationBar(User user) {
+    final roomId = widget.roomId;
+    if (roomId == null) return null;
+    final myId = ref.read(authStateProvider).user?.id;
+    if (myId == null || myId == user.id) return null;
+    final st = ref.watch(roomControllerProvider(roomId));
+    final isAdmin = myId == st.ownerId || st.adminIds.contains(myId);
+    if (!isAdmin) return null;
+
+    Future<void> act(String path, String okText, {Map<String, dynamic> extra = const {}}) async {
+      try {
+        // Both spellings — the older room-admin endpoints accept either.
+        await DioClient.dio.post(path, data: {
+          'roomId': roomId,
+          'room_id': roomId,
+          'userId': user.id,
+          'user_id': user.id,
+          ...extra,
+        });
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okText)));
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشلت العملية: $e')));
+      }
+    }
+
+    Widget btn(IconData icon, String label, Color color, VoidCallback onTap) => Expanded(
+          child: GestureDetector(
+            onTap: onTap,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: color.withOpacity(0.6)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 20),
+                  const SizedBox(height: 3),
+                  Text(label,
+                      style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ),
+        );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('إدارة الغرفة',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              btn(Icons.mic_off, 'منع المايك', const Color(0xFFFFA726),
+                  () => act('room-admin/seat-block', 'تم منع ${user.name} من صعود المايك',
+                      extra: {'blocked': true})),
+              btn(Icons.logout, 'طرد', const Color(0xFFFF7043),
+                  () => act('room-admin/kick', 'تم طرد ${user.name} من الغرفة',
+                      extra: {'minutes': 0})),
+              btn(Icons.block, 'حظر', const Color(0xFFEF5350),
+                  () => act('room-admin/ban', 'تم حظر ${user.name} من الغرفة')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   /// #29: bottom action bar shown on another user's profile — room / message /
   /// follow / block.
   Widget _buildOtherUserActionBar(User user) {
@@ -348,6 +471,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   // #13: the user's own target (earned vs goal) as a host. null until loaded /
   // when the user has no target (not a host in any hosting agency).
   Map<String, dynamic>? _myTarget;
+
+  /// True only for a hosting-agency member (مضيف) or an agency owner (وكيل);
+  /// the server decides, so the rule lives in one place.
+  bool get _hasTarget => _myTarget != null && _myTarget!['hasTarget'] == true;
 
   Future<void> _loadMyTarget() async {
     try {
@@ -502,6 +629,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           activeFrame = activatedItem;
         });
       }
+      else if (_isProfilePageItem(activatedItem.type)) {
+        // The page paints its background and decoration from the USER row, not
+        // from the inventory, so it has to be re-read before the change shows.
+        await ref.read(authStateProvider.notifier).refreshMe();
+      }
 
       await loadInventory(force: true);
 
@@ -511,6 +643,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
     setState(() => activating = false);
   }
+
+  /// Items whose equipped state is mirrored onto the user row (خلفية الصفحة
+  /// الشخصية / إطار تزيين الصفحة الشخصية) and therefore need a user refresh
+  /// before the profile page reflects them.
+  static bool _isProfilePageItem(String type) =>
+      type == 'profile_background' || type == 'profile_decor';
 
   /// Un-use (deactivate) an in-use product so it's no longer equipped.
   Future<void> deactivateItem(InventoryItem item) async {
@@ -529,6 +667,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         // Only this item — deactivateAll used to strip the vehicle and frame
         // too, so taking off an entrance banner unequipped everything.
         await _service.deactivateItem(token!, item.id);
+        if (_isProfilePageItem(item.type)) {
+          await ref.read(authStateProvider.notifier).refreshMe();
+        }
       }
       await loadInventory(force: true);
     } catch (e) {
@@ -729,6 +870,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 _buildTab("فقاعات", "chat_bubble"),
                 _buildTab("إطارات", "avatar_frame"),
                 _buildTab("شارات", "badge"),
+                // B2/B3 — without these two the user could buy a profile
+                // background or a page-decoration frame and never equip it.
+                _buildTab("خلفية الصفحة", "profile_background"),
+                _buildTab("تزيين الصفحة", "profile_decor"),
               ],
             ),
           ),
@@ -891,7 +1036,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           selectedType = type;
         });
       },
-      child: Column(
+      // التبويبات كانت ملتصقة ببعضها — مسافة بسيطة تفصلها.
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Column(
         children: [
           Text(
             title,
@@ -907,6 +1055,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             color: isSelected ? Colors.white : Colors.transparent,
           )
         ],
+        ),
       ),
     );
   }
@@ -926,7 +1075,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             ],
           ),
         ),
-        child: SafeArea(
+        child: Stack(
+          children: [
+            // The user's own page background — still image, animated GIF or a
+            // video clip — painted UNDER everything, replacing the gradient.
+            if ((user.profileBgUrl ?? '').trim().isNotEmpty)
+              Positioned.fill(
+                child: ProfileBackground(
+                  url: user.profileBgUrl!.trim(),
+                  isVideo: (user.profileBgType ?? '').toLowerCase() == 'video',
+                ),
+              ),
+            SafeArea(
           child: Stack(
             children: [
               SingleChildScrollView(
@@ -982,13 +1142,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       const SizedBox(height: 6),
                     ],
 
-                    if (user.age != null) ...[
-                      Text(
-                        '${user.age} سنة',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.75),
-                          fontSize: 14,
-                        ),
+                    // العمر ومعه علامة الجنس — العلامة كانت بجانب الليفل.
+                    if (user.age != null || user.gender != null) ...[
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (user.age != null)
+                            Text(
+                              '${user.age} سنة',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.75),
+                                fontSize: 14,
+                              ),
+                            ),
+                          if (user.gender == 'male' || user.gender == 'female') ...[
+                            const SizedBox(width: 6),
+                            Icon(
+                              user.gender == 'female' ? Icons.female : Icons.male,
+                              size: 16,
+                              color: user.gender == 'female'
+                                  ? const Color(0xFFFF7AB6)
+                                  : const Color(0xFF62B6FF),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 4),
                     ],
@@ -999,6 +1176,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     // #28: badges row — owned special items (frames/effects/themes).
                     _buildBadgesRow(user.id),
                     const SizedBox(height: 4),
+
+                    // A15 / #44 — "بعد الموافقة يظهر الـ CP في الصفحة الشخصية".
+                    // Shown on anyone's profile, but only the owner's own page
+                    // can end a pairing (the list screen enforces that).
+                    _CpProfileCard(userId: user.id, isOwnProfile: isOwnProfile),
 
                     if (user.agencyRole != null) ...[
                       GestureDetector(
@@ -1037,10 +1219,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     _buildStatsRow(user),
                     const SizedBox(height: 10),
 
+                    // Room moderation (only when opened from a room, by its
+                    // owner/admin) — high up, since it is why the card was
+                    // opened at all.
+                    if (!isOwnProfile) ...[
+                      Builder(builder: (_) {
+                        final bar = _buildRoomModerationBar(user);
+                        return bar == null ? const SizedBox.shrink() : bar;
+                      }),
+                      const SizedBox(height: 10),
+                    ],
+
                     if (isOwnProfile) _buildCoinsCard(_displayCoins(user), context),
                     const SizedBox(height: 10),
 
-                    if (isOwnProfile && _myTarget != null) ...[
+                    // Only a وكيل or a مضيف has a target; anyone else already
+                    // took their 5% at support time and must not see the card.
+                    if (isOwnProfile && _hasTarget) ...[
                       _buildTargetCard(context),
                       const SizedBox(height: 10),
                     ],
@@ -1105,6 +1300,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               // which is why blocking looked like it didn't exist.
             ],
           ),
+        ),
+
+            // إطار تزيين الصفحة الشخصية — LAST in the stack so it sits on the
+            // page's border above everything, and IgnorePointer inside so it
+            // covers nothing you can press ("لا يغطي علي شئ من الصفحه").
+            if ((user.profileDecorUrl ?? '').trim().isNotEmpty)
+              Positioned.fill(
+                child: ProfileDecorFrame(
+                  url: user.profileDecorUrl!.trim(),
+                  isVideo: (user.profileDecorType ?? '').toLowerCase() == 'video',
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -1556,8 +1764,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     for (final e in items) {
       if (e is Map) goal += (e['targetGoalCoins'] as num?)?.toInt() ?? 0;
     }
+    // The وكيل's goal lives on the agency, not on a membership row, so summing
+    // `items` alone left every agent at 0.
+    for (final e in ((t['agentTargets'] as List?) ?? const [])) {
+      if (e is Map) goal += (e['goalCoins'] as num?)?.toInt() ?? 0;
+    }
     final double progress =
         goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+    // Under the word Target goes the TARGET ITSELF — the coins earned — with
+    // the goal after it when one is set. It used to print `goal` alone, so a
+    // وكيل or مضيف with no admin-set goal saw a bare 0 next to his dollars.
+    final String targetLabel = goal > 0 ? '$earned / $goal' : '$earned';
     final String dollars = earnedDollars == earnedDollars.roundToDouble()
         ? earnedDollars.toStringAsFixed(0)
         : earnedDollars.toStringAsFixed(2);
@@ -1593,7 +1810,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     ),
                   ),
                   Text(
-                    '$goal',
+                    targetLabel,
                     style: const TextStyle(
                       color: Color(0xFFFFB74D),
                       fontSize: 14,
@@ -1775,125 +1992,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               ),
             ],
           ),
-          // Agents carry their own target on top of the personal one: the goal
-          // is set on the agency by the platform admin and progresses with the
-          // whole agency's production, not just the agent's own gifts. An agent
-          // who owns both a HOSTING and a CHARGING agency has one target each,
-          // so every owned agency gets its own block — showing just one would
-          // contradict what وكالة/agency panel reports for the other.
-          for (final a in _agentTargets()) ...[
-            const SizedBox(height: 14),
-            Divider(color: Colors.white.withOpacity(0.15), height: 1),
-            const SizedBox(height: 12),
-            _buildAgentTargetSection(a),
-          ],
+          // 2026-08-23: the separate "تارجت الوكيل" block that used to sit under
+          // this one is gone — the client wants ONE target panel
+          // ("المطلوب الصفحه اللي فوق فقط ... اللي تحت غير مطلوبه"). The agency
+          // goal it carried is folded into the single figure above.
         ],
       ),
-    );
-  }
-
-  /// Every agency the user owns, each with its own agent target. Falls back to
-  /// the single `agentTarget` field so an older server still renders the block.
-  List<Map<String, dynamic>> _agentTargets() {
-    final list = _myTarget?['agentTargets'];
-    if (list is List) {
-      return list
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-    }
-    final single = _myTarget?['agentTarget'];
-    if (single is Map) return [Map<String, dynamic>.from(single)];
-    return const [];
-  }
-
-  /// The وكيل's agency-wide target block inside the التارجت card.
-  Widget _buildAgentTargetSection(Map<String, dynamic> a) {
-    final int goal = (a['goalCoins'] as num?)?.toInt() ?? 0;
-    final int earned = (a['earnedCoins'] as num?)?.toInt() ?? 0;
-    final int remaining = (a['remainingCoins'] as num?)?.toInt() ?? 0;
-    final String agencyName = (a['agencyName'] ?? '').toString();
-    // With two blocks on screen (hosting + charging) the name alone isn't
-    // enough to tell them apart, so the type rides along in the subtitle.
-    final String agencyType = (a['agencyType'] ?? '').toString().toUpperCase();
-    final String typeLabel = agencyType == 'HOSTING'
-        ? 'وكالة استضافة'
-        : agencyType == 'CHARGING'
-            ? 'وكالة شحن'
-            : '';
-    final String subtitle =
-        [agencyName, typeLabel].where((s) => s.isNotEmpty).join(' • ');
-    final double progress =
-        goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Icon(Icons.workspace_premium, color: Color(0xFFFFD700), size: 22),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'تارجت الوكيل',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (subtitle.isNotEmpty)
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.6),
-                        fontSize: 12,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Text(
-              goal > 0 ? '$earned / $goal' : '$earned',
-              style: const TextStyle(
-                color: Color(0xFFFFD700),
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        if (goal > 0) ...[
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 10,
-              backgroundColor: Colors.white.withOpacity(0.12),
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD700)),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            remaining > 0
-                ? 'متبقٍ $remaining كوينز لإغلاق تارجت الوكالة'
-                : 'اكتمل تارجت الوكالة 🎉',
-            textAlign: TextAlign.right,
-            style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
-          ),
-        ] else
-          Text(
-            'إجمالي إنتاج الوكالة — لم يحدد الأدمن تارجت بعد',
-            textAlign: TextAlign.right,
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
-          ),
-      ],
     );
   }
 
@@ -2204,6 +2308,135 @@ class _FullImageViewer extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// A15 / #44 — the CP strip on a profile page.
+///
+/// Renders nothing at all when the user has no pairings: an empty "CP" heading
+/// on every profile in the app would be noise, and the feature announces itself
+/// on the home page instead.
+class _CpProfileCard extends StatefulWidget {
+  const _CpProfileCard({required this.userId, required this.isOwnProfile});
+
+  final int userId;
+  final bool isOwnProfile;
+
+  @override
+  State<_CpProfileCard> createState() => _CpProfileCardState();
+}
+
+class _CpProfileCardState extends State<_CpProfileCard> {
+  late Future<List<CpPartner>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = CpRepository().partners(userId: widget.userId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CpProfileCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Navigating from one profile to another reuses this State object.
+    if (oldWidget.userId != widget.userId) {
+      _future = CpRepository().partners(userId: widget.userId);
+    }
+  }
+
+  String? _resolve(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    final base = AppConfig.socketUrl.endsWith('/')
+        ? AppConfig.socketUrl.substring(0, AppConfig.socketUrl.length - 1)
+        : AppConfig.socketUrl;
+    return raw.startsWith('/') ? '$base$raw' : '$base/$raw';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<CpPartner>>(
+      future: _future,
+      builder: (context, snap) {
+        final partners = snap.data ?? const <CpPartner>[];
+        if (partners.isEmpty) return const SizedBox.shrink();
+        // Four faces is what fits without crowding the header; the rest are
+        // behind the "+N" chip, which opens the full list.
+        final shown = partners.take(4).toList();
+        final extra = partners.length - shown.length;
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: GestureDetector(
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CpListScreen(
+                    userId: widget.isOwnProfile ? null : widget.userId,
+                  ),
+                ),
+              );
+              if (mounted) {
+                setState(() {
+                  _future = CpRepository().partners(userId: widget.userId);
+                });
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF4081).withOpacity(0.14),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFFF4081).withOpacity(0.5)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('💞', style: TextStyle(fontSize: 15)),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'CP',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  for (final p in shown) ...[
+                    _face(p),
+                    const SizedBox(width: 4),
+                  ],
+                  if (extra > 0)
+                    Text(
+                      '+$extra',
+                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _face(CpPartner p) {
+    final url = _resolve(p.avatarUrl);
+    return CircleAvatar(
+      radius: 11,
+      backgroundColor: const Color(0xFF2A1A5E),
+      backgroundImage: url != null ? NetworkImage(url) : null,
+      child: url == null
+          ? Text(
+              p.name.isNotEmpty ? p.name.characters.first.toUpperCase() : '?',
+              style: const TextStyle(color: Colors.white, fontSize: 10),
+            )
+          : null,
     );
   }
 }
