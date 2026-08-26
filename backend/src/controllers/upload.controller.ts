@@ -6,6 +6,7 @@ import prisma from '../utils/prisma';
 import { probeGiftVideo, needsTranscode, transcodeToH264 } from '../gifts/videoValidate';
 import { getPublicBaseUrl } from '../utils/public-url';
 import { firstStr } from '../utils/http';
+import { canUseAnimatedAvatar, isAnimatedImage } from '../services/animatedAvatar.service';
 /**
  * Upload a general image (for rooms, gifts, etc.)
  * Returns the image URL that can be used in the application
@@ -122,6 +123,58 @@ export const uploadVideoAsset = async (req: Request, res: Response) => {
 };
 
 /**
+ * A video the user picked as his PROFILE-PAGE BACKGROUND.
+ *
+ * Deliberately not the gift path: a wallpaper clip has no 15-second or
+ * resolution rules to obey. All that matters is that the phone can decode it,
+ * so an iPhone's HEVC recording is converted to H.264 and everything else is
+ * stored as uploaded. Size is capped by multer on the route.
+ */
+export const uploadBackgroundVideo = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No video file provided' });
+    }
+    const file = req.file;
+
+    let codec = 'unknown';
+    let transcoded = false;
+    try {
+      const probe = await probeGiftVideo(file.path).catch(() => null);
+      codec = probe?.codec ?? 'unknown';
+      if (codec !== 'unknown' && needsTranscode(codec)) {
+        await transcodeToH264(file.path);
+        transcoded = true;
+      }
+    } catch (err) {
+      // A probe/convert failure must not lose the upload — the clip may still
+      // play fine. Only a genuinely undecodable file will look broken, and the
+      // page falls back to its gradient when it does.
+      console.warn('[uploadBackgroundVideo] probe/transcode skipped:', (err as Error).message);
+    }
+
+    const baseUrl = getPublicBaseUrl(req);
+    const url = `${baseUrl}/uploads/${file.filename}`;
+    return res.status(200).json({
+      success: true,
+      message: 'Video uploaded successfully',
+      url,
+      filename: file.filename,
+      mimetype: file.mimetype,
+      codec: transcoded ? 'h264' : codec,
+      transcoded,
+    });
+  } catch (error) {
+    console.error('Upload background video error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to upload video',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
+/**
  * Upload a user avatar and update the user's profile
  * This endpoint updates the user's avatarUrl in the database
  * The avatar will appear in room screens where the user is displayed
@@ -145,6 +198,29 @@ if (!userId) {
 
 
     const file = req.file;
+
+    // A16 - an animated avatar is a VIP perk configured per tier in the
+    // dashboard. Checked here, at the only place an avatar file enters the
+    // system, so a client that skips the UI gate still cannot use one.
+    if (isAnimatedImage({ filename: file.filename, mimetype: file.mimetype })) {
+      const { allowed, minLevel } = await canUseAnimatedAvatar(userId);
+      if (!allowed) {
+        try {
+          await fsp.unlink(file.path);
+        } catch {
+          /* the temp file is disposable; a failed cleanup must not fail the request */
+        }
+        return res.status(403).json({
+          success: false,
+          code: 'ANIMATED_AVATAR_NOT_ALLOWED',
+          message:
+            minLevel == null
+              ? 'الصورة المتحركة غير متاحة حالياً'
+              : `الصورة المتحركة متاحة لأعضاء VIP ${minLevel} فما فوق`,
+        });
+      }
+    }
+
     const baseUrl = getPublicBaseUrl(req);
     const avatarUrl = `${baseUrl}/uploads/${file.filename}`;
 

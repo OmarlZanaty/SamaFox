@@ -2,7 +2,13 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { uploadImage, uploadAvatar, uploadVideoAsset, deleteImage } from '../controllers/upload.controller';
+import {
+  uploadImage,
+  uploadAvatar,
+  uploadVideoAsset,
+  uploadBackgroundVideo,
+  deleteImage,
+} from '../controllers/upload.controller';
 import { authenticate } from '../middlewares/auth.middleware';
 import { MAX_DASHBOARD_VIDEO_BYTES } from '../gifts/videoValidate';
 
@@ -84,6 +90,8 @@ router.post('/image', authenticate, upload.single('image'), uploadImage);
 // Gift clips go through uploadVideoAsset (not uploadImage) so the file is probed
 // and the caller gets back the real duration + alpha flag.
 router.post('/video', authenticate, uploadVideoMulter.single('video'), uploadVideoAsset);
+// Profile-page background clip: same multer, none of the gift rules.
+router.post('/background-video', authenticate, uploadVideoMulter.single('video'), uploadBackgroundVideo);
 router.delete('/image/:filename', authenticate, deleteImage);
 
 // A rejected file (wrong type, too large) used to bubble up as a bare 500, so the

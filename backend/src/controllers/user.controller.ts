@@ -20,6 +20,10 @@ const PUBLIC_USER_FIELDS = [
   'id', 'name', 'displayId', 'avatarUrl', 'avatarFrameUrl', 'activeFrameId',
   'level', 'xp', 'bio', 'country', 'countryCode', 'gender', 'vipLevel',
   'age', 'isVerified', 'createdAt',
+  // A9/B3 — the profile page's own background and decoration frame. They were
+  // missing here, so a VISITOR always saw the plain gradient: the artwork only
+  // ever rendered on /users/me, which is the owner's own view.
+  'profileBgUrl', 'profileBgType', 'profileDecorUrl', 'profileDecorType',
 ] as const;
 
 const pickPublicUserFields = (user: any) => {
@@ -154,6 +158,11 @@ export const updateProfile = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
     const { name, bio, gender, countryCode, country, avatarUrl, phone, age } = req.body as UpdateProfileRequest & { age?: number };
+    // Profile-page background (image / animated gif / video). Sent as the URL
+    // returned by the upload endpoint; an empty string clears it back to the
+    // default gradient.
+    const profileBgUrl = (req.body as any)?.profileBgUrl as string | undefined;
+    const profileBgType = (req.body as any)?.profileBgType as string | undefined;
     // avatarFrameUrl / activeFrameId are intentionally NOT accepted here.
     // Frames must be equipped via the coin-priced store endpoint (/store/activate-frame).
 
@@ -179,6 +188,20 @@ export const updateProfile = async (req: Request, res: Response) => {
     if (age !== undefined && age !== null) {
       const a = Number(age);
       if (Number.isFinite(a) && a >= 1 && a <= 120) data.age = Math.floor(a);
+    }
+    if (profileBgUrl !== undefined) {
+      const url = String(profileBgUrl).trim();
+      data.profileBgUrl = url.length ? url : null;
+      // Trust an explicit type; otherwise read it off the extension so an older
+      // client that only sends the url still gets a clip played as a clip.
+      const explicit = String(profileBgType ?? '').toLowerCase();
+      data.profileBgType = url.length
+        ? explicit === 'video' || explicit === 'image'
+          ? explicit
+          : /\.(mp4|mov|webm|m4v)(\?|$)/i.test(url)
+            ? 'video'
+            : 'image'
+        : null;
     }
     const user = await prisma.user.update({ where: { id: userId }, data });
 
@@ -494,18 +517,35 @@ export const getUserBadges = async (req: Request, res: Response) => {
     if (!userId || userId <= 0) return res.status(400).json({ success: false, message: 'Invalid userId' });
 
     const owned = await (prisma as any).userItem.findMany({
-      where: { userId },
+      where: {
+        userId,
+        // An expired product is no longer owned as far as the badge row cares.
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       include: { item: { select: { id: true, name: true, type: true, assetUrl: true } } },
       orderBy: { acquiredAt: 'asc' },
     });
 
+    // 2026-08-23: BADGE products are shown INDIVIDUALLY — the client wants the
+    // actual badge artwork configured on each VIP/LV tier to line up under the
+    // name (screenshot "وده شكل الشارات في الصفحة الرئيسية"), not one generic
+    // icon standing in for the whole type. Everything else keeps the old
+    // one-representative-per-type behaviour so the row stays compact.
+    const badges: any[] = [];
     const byType = new Map<string, any>();
+    const seenIds = new Set<string>();
     for (const o of owned) {
       if (!o.item) continue;
+      if (o.item.type === 'BADGE') {
+        if (seenIds.has(o.item.id)) continue;
+        seenIds.add(o.item.id);
+        badges.push(o.item);
+        continue;
+      }
       if (!byType.has(o.item.type)) byType.set(o.item.type, o.item);
     }
 
-    const data = Array.from(byType.values()).map((item: any) => ({
+    const data = [...badges, ...byType.values()].map((item: any) => ({
       type: item.type,
       name: item.name,
       iconUrl: item.assetUrl,

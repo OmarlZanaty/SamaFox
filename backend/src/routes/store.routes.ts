@@ -216,7 +216,9 @@ router.get("/inventory", async (req: any, res) => {
         name: i.item.name,
         type: i.item.type,
         file_url: i.item.assetUrl,
-        preview_url: i.item.assetUrl,
+        // The still poster for a clip; falls back to the asset itself for
+        // image products (and for clips uploaded before posters existed).
+        preview_url: (i.item as any).previewUrl ?? i.item.assetUrl,
         is_active: i.isActive,
         // null = أبدي. The app shows the remaining term from this.
         expires_at: (i as any).expiresAt ?? null,
@@ -228,6 +230,49 @@ router.get("/inventory", async (req: any, res) => {
     res.status(500).json({ message: "خطأ في الحقيبة" });
   }
 });
+
+/**
+ * Product types whose "equipped" state also lives on the user row, because the
+ * profile page is rendered from the user payload alone (a visitor never loads
+ * the owner's inventory).
+ *
+ * B2/B3 — before this, equipping خلفية الصفحة الشخصية or إطار تزيين الصفحة
+ * الشخصية only flipped `UserItem.isActive`, which nothing rendered: a bought
+ * background did nothing and a decoration frame did not exist in the app at
+ * all. The mapping is the single place that knows which columns a type owns.
+ */
+const PROFILE_ITEM_COLUMNS: Record<string, { url: string; kind: string }> = {
+  PROFILE_BACKGROUND: { url: 'profileBgUrl', kind: 'profileBgType' },
+  PROFILE_DECOR: { url: 'profileDecorUrl', kind: 'profileDecorType' },
+};
+
+/** Video assets need a player on the app side, stills do not. */
+const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.m4v', '.mkv'];
+const isVideoAsset = (url?: string | null): boolean => {
+  const clean = (url ?? '').toLowerCase().split('?')[0] ?? '';
+  return VIDEO_EXTENSIONS.some((ext) => clean.endsWith(ext));
+};
+
+/**
+ * Mirror an equipped/unequipped profile item onto the user row.
+ * `assetUrl` null unequips. A type with no mapping is a no-op.
+ */
+async function syncProfileItemColumns(
+  tx: any,
+  userId: number,
+  itemType: string,
+  assetUrl: string | null,
+): Promise<void> {
+  const columns = PROFILE_ITEM_COLUMNS[itemType];
+  if (!columns) return;
+  await tx.user.update({
+    where: { id: userId },
+    data: {
+      [columns.url]: assetUrl,
+      [columns.kind]: assetUrl ? (isVideoAsset(assetUrl) ? 'video' : 'image') : 'image',
+    },
+  });
+}
 
 router.post('/activate', async (req: any, res) => {
   try {
@@ -243,7 +288,7 @@ router.post('/activate', async (req: any, res) => {
       await prisma.$transaction(async (tx) => {
         const target = await tx.userItem.findFirst({
           where: { id: String(inventoryId), userId },
-          include: { item: { select: { type: true } } },
+          include: { item: { select: { type: true, assetUrl: true } } },
         });
         if (!target) throw new Error('NOT_FOUND');
         await tx.userItem.updateMany({
@@ -254,6 +299,9 @@ router.post('/activate', async (req: any, res) => {
           where: { id: target.id },
           data: { isActive: true },
         });
+        // Profile background / decoration also live on the user row, so a
+        // visitor's copy of the profile shows them.
+        await syncProfileItemColumns(tx, userId, target.item.type, target.item.assetUrl);
       });
     } catch (e: any) {
       if (e?.message === 'NOT_FOUND') {
@@ -302,13 +350,19 @@ router.post('/deactivate', async (req: any, res) => {
     const { inventoryId } = req.body;
     if (!inventoryId) return res.status(400).json({ message: 'inventoryId required' });
 
-    const updated = await prisma.userItem.updateMany({
+    const target = await prisma.userItem.findFirst({
       where: { id: String(inventoryId), userId },
-      data: { isActive: false },
+      include: { item: { select: { type: true } } },
     });
-    if (updated.count === 0) {
+    if (!target) {
       return res.status(404).json({ success: false, message: 'Inventory item not found for user' });
     }
+    await prisma.$transaction(async (tx) => {
+      await tx.userItem.update({ where: { id: target.id }, data: { isActive: false } });
+      // Clear the mirrored column too, or the page keeps the artwork after the
+      // item has been taken off.
+      await syncProfileItemColumns(tx, userId, target.item.type, null);
+    });
     return res.json({ success: true });
   } catch (e) {
     console.error("DEACTIVATE ERROR:", e);
@@ -319,7 +373,23 @@ router.post('/deactivate', async (req: any, res) => {
 router.post('/deactivate-all', async (req: any, res) => {
   try {
     const userId = req.userId!;
-    await prisma.userItem.updateMany({ where: { userId }, data: { isActive: false } });
+    // Only the profile columns that an EQUIPPED item is actually driving get
+    // cleared. `profileBgUrl` doubles as the background a user uploaded from
+    // تعديل الملف الشخصي, and "إلغاء الكل" must not delete that.
+    const activeProfileItems = await prisma.userItem.findMany({
+      where: {
+        userId,
+        isActive: true,
+        item: { type: { in: Object.keys(PROFILE_ITEM_COLUMNS) } },
+      },
+      include: { item: { select: { type: true } } },
+    });
+    await prisma.$transaction(async (tx) => {
+      await tx.userItem.updateMany({ where: { userId }, data: { isActive: false } });
+      for (const row of activeProfileItems) {
+        await syncProfileItemColumns(tx, userId, row.item.type, null);
+      }
+    });
     return res.json({ success: true });
   } catch (e) {
     console.error("DEACTIVATE ALL ERROR:", e);
@@ -393,7 +463,14 @@ router.get("/products", async (_req, res) => {
         type: i.type,
         price_coins: i.priceCoins,
         file_url: i.assetUrl,
-        preview_url: i.assetUrl,
+        // A25/B5 — the grid draws THIS, not a video decoder per tile. Without a
+        // real poster every مركبة rendered as a blank placeholder.
+        preview_url: (i as any).previewUrl ?? i.assetUrl,
+        // The term the admin set on the product. It was missing here, so the
+        // store could not show how long an item lasts and people were buying
+        // blind — the same field the inventory endpoint already returns.
+        // null = أبدي (permanent).
+        duration_days: (i as any).durationDays ?? null,
       })),
     });
   } catch (e) {

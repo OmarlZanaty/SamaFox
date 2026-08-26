@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { nextDisplayId } from '../utils/displayId';
 import { assertNotBanned, banMessage, invalidateBanCache } from '../utils/banGuard';
+import { grantAutoItemsToUser } from '../services/auto-grant.service';
 
 const googleClient = new OAuth2Client();
 
@@ -104,7 +105,15 @@ async function createUserWithDisplayId(
   userData: Omit<Prisma.UserCreateInput, 'displayId'>,
 ) {
   const displayId = await nextDisplayId(tx); // 6-digit, unique
-  return tx.user.create({ data: { ...userData, displayId } });
+  const user = await tx.user.create({ data: { ...userData, displayId } });
+  // منتجات مُنحت لجميع المستخدمين تصل الحساب الجديد فوراً. لا نُفشل التسجيل
+  // إن تعذّر ذلك — المنتج ثانوي بالنسبة لإنشاء الحساب.
+  try {
+    await grantAutoItemsToUser(user.id, tx);
+  } catch (e) {
+    console.warn('auto-grant on register failed:', e);
+  }
+  return user;
 }
 
 // ------------------------------------

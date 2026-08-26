@@ -142,6 +142,9 @@ router.get('/levels', async (_req, res) => {
       // null price = not for sale; null duration on a sellable tier = permanent.
       priceCoins: (c as any).priceCoins ?? null,
       durationDays: (c as any).durationDays ?? null,
+      // A16 - lets the app hide the "animated photo" option for tiers that do
+      // not have the perk, instead of offering it and failing on upload.
+      allowAnimatedAvatar: (c as any).allowAnimatedAvatar ?? false,
     }));
     return res.json({ success: true, data });
   } catch (e) {
