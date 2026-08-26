@@ -59,7 +59,7 @@ function navigate(sec) {
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "levels") loadLvLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
-  if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} }
+  if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} }
 }
 
 // ============================================================
@@ -648,8 +648,114 @@ window.reviewAgencyRequest = async function (id, status) {
 };
 
 // --- AGENCIES ---
+// ============================================================
+// B11 — مكافآت الشحن التلقائية: ladder of "charge N coins -> get this".
+// ============================================================
+let acrItemSelection = new Set();
+let acrAllProducts = [];
+
+async function loadAgencyChargeRewards() {
+  const tbody = document.querySelector("#agencyChargeRewardsTable tbody");
+  if (!tbody) return;
+
+  const [d, productsRes] = await Promise.all([
+    apiFetch("/admin-dashboard/agency-charge-rewards"),
+    apiFetchAny(["/admin-products/products", "/store/products"]).catch(() => ({ data: [] })),
+  ]);
+  acrAllProducts = productsRes.data || productsRes.products || [];
+  const byId = new Map(acrAllProducts.map((p) => [p.id, p]));
+
+  tbody.innerHTML = "";
+  for (const r of d.data || []) {
+    const items = (r.rewardItemIds || [])
+      .map((id) => byId.get(id)?.name)
+      .filter(Boolean)
+      .map(escapeHtml)
+      .join("، ");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${Number(r.thresholdCoins ?? 0).toLocaleString("en-US")}</strong></td>
+      <td>${Number(r.rewardCoins ?? 0).toLocaleString("en-US")}</td>
+      <td><span class="cell-muted">${items || "—"}</span></td>
+      <td><span class="cell-muted">${r.agencyId ? "#" + r.agencyId : "كل الوكالات"}</span></td>
+      <td><button class="btn-bad" onclick="deleteAgencyChargeReward(${r.id})">حذف</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+window.openAcrItemsModal = function () {
+  const listEl = document.getElementById("acrItemsList");
+  listEl.innerHTML = acrAllProducts.length
+    ? acrAllProducts.map((p) => `
+        <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer">
+          <input type="checkbox" class="acr-item-check" value="${p.id}" ${acrItemSelection.has(p.id) ? "checked" : ""} />
+          <span>${escapeHtml(p.name)}</span>
+          <span class="cell-muted">${VIP_REWARD_TYPE_LABELS[p.type] || p.type}</span>
+        </label>`).join("")
+    : '<p class="cell-muted">لا توجد منتجات — أضف منتجات أولاً</p>';
+  document.getElementById("acrItemsModal").classList.remove("hidden");
+};
+
+window.closeAcrItemsModal = function () {
+  document.getElementById("acrItemsModal").classList.add("hidden");
+};
+
+window.confirmAcrItems = function () {
+  acrItemSelection = new Set(
+    [...document.querySelectorAll(".acr-item-check:checked")].map((el) => el.value),
+  );
+  const btn = document.getElementById("acr_items_btn");
+  if (btn) btn.textContent = `🎁 منتجات (${acrItemSelection.size})`;
+  closeAcrItemsModal();
+};
+
+window.saveAgencyChargeReward = async function () {
+  try {
+    const thresholdCoins = Number(document.getElementById("acr_threshold").value);
+    const rewardCoins = Number(document.getElementById("acr_coins").value || 0);
+    const agencyRaw = document.getElementById("acr_agency").value.trim();
+    if (!thresholdCoins || thresholdCoins <= 0) return showToast("❗ أدخل عتبة شحن صحيحة");
+    if (rewardCoins <= 0 && acrItemSelection.size === 0) {
+      return showToast("❗ حدد كوينزات أو منتجات للمكافأة");
+    }
+    await apiFetch("/admin-dashboard/agency-charge-rewards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        thresholdCoins,
+        rewardCoins,
+        rewardItemIds: [...acrItemSelection],
+        agencyId: agencyRaw === "" ? null : Number(agencyRaw),
+      }),
+    });
+    document.getElementById("acr_threshold").value = "";
+    document.getElementById("acr_coins").value = "";
+    document.getElementById("acr_agency").value = "";
+    acrItemSelection = new Set();
+    const btn = document.getElementById("acr_items_btn");
+    if (btn) btn.textContent = "🎁 منتجات (0)";
+    showToast("✓ تم حفظ درجة المكافأة");
+    await loadAgencyChargeRewards();
+  } catch (e) {
+    showToast("❌ " + e.message);
+  }
+};
+
+window.deleteAgencyChargeReward = async function (id) {
+  if (!confirm("حذف درجة المكافأة؟")) return;
+  try {
+    await apiFetch(`/admin-dashboard/agency-charge-rewards/${id}`, { method: "DELETE" });
+    showToast("✓ تم الحذف");
+    await loadAgencyChargeRewards();
+  } catch (e) {
+    showToast("❌ " + e.message);
+  }
+};
+
 async function loadAgencies() {
   try { await loadAgencyRequests(); } catch (_) {}
+  try { await loadAgencyChargeRewards(); } catch (_) {}
 
   // #23: "assigned by me" is a separate, unfiltered view — the agencies this
   // specific admin directly created via تعيين وكالة مباشرة.
@@ -692,6 +798,12 @@ async function loadAgencies() {
       <td><span class="cell-muted">${a.type === "HOSTING" ? "استضافة" : "شحن"}</span></td>
       <td><span class="cell-muted">${escapeHtml(a.phoneNumber ?? "")}</span></td>
       <td>${statusBadge(a.status ?? "pending")}</td>
+      <td>${
+        a.type === "HOSTING"
+          ? '<span class="cell-muted">—</span>'
+          : `<strong>${Number(a.selfChargeCount ?? 0).toLocaleString("en-US")}</strong> مرة`
+            + `<div class="cell-muted">${Number(a.selfChargeCoins ?? 0).toLocaleString("en-US")} كوينز</div>`
+      }</td>
       <td>${imgs || "—"}</td>
       <td><span class="cell-muted">${fmtDate(a.createdAt)}</span></td>
       <td>
@@ -894,6 +1006,8 @@ window.showAgencyMembers = async function (agencyId, agencyName) {
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
             <button class="btn-outline" onclick="openProgressionModal(${Number(m.userId)}, ${level}, ${xp}, ${vip})">المستوى/VIP</button>
+            <button class="btn-outline" onclick="adminAdjustMemberTarget(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}', 1)">+ تارجيت</button>
+            <button class="btn-outline" onclick="adminAdjustMemberTarget(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}', -1)">- تارجيت</button>
             ${m.role === "OWNER" ? "" : `<button class="btn-bad" onclick="adminRemoveAgencyMember(${m.id}, ${agencyId}, '${escapeHtml(agencyName)}')">إزالة (بدون رسوم)</button>`}
           </div>
         </div>`;
@@ -902,6 +1016,37 @@ window.showAgencyMembers = async function (agencyId, agencyName) {
     document.getElementById("agencyMembersModal").classList.remove("hidden");
   } catch (e) {
     showToast("❌ خطأ: " + e.message);
+  }
+};
+
+// ------------------------------------------------------------
+// B8 - "إضافة / خصم التارجيت" for one member.
+//
+// The dollar figure is NOT entered separately: a member's dollars are derived
+// from their target through the تيرز التارجيت table, so moving the coins
+// moves the dollars by construction and the two can never drift apart. That is
+// the same proportional rule the client asked for on التبديل.
+// ------------------------------------------------------------
+window.adminAdjustMemberTarget = async function (memberId, agencyId, agencyName, sign) {
+  const label = sign > 0 ? 'إضافة تارجيت' : 'خصم تارجيت';
+  const raw = prompt(label + ' — الكمية بالكوينز:');
+  if (raw == null) return;
+  const amount = Math.floor(Number(raw));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    showToast('❌ أدخل رقماً موجباً');
+    return;
+  }
+  try {
+    const d = await apiFetch(`/admin-dashboard/agency-members/${memberId}/target-adjust`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amountCoins: sign * amount }),
+    });
+    const after = (d && d.data) || {};
+    showToast(`✓ ${label}: ${amount} — التارجيت الآن ${after.earnedCoins ?? '?'} ($${Number(after.dollars ?? 0).toFixed(2)})`);
+    await showAgencyMembers(agencyId, agencyName);
+  } catch (e) {
+    showToast('❌ ' + e.message);
   }
 };
 
@@ -1069,6 +1214,54 @@ async function loadLeaderboard() {
   (d.data || []).forEach((x, i)=>{ const value = x.coinsBalance ?? x.coinsSpent ?? x.xp ?? x.total ?? ''; const name = x.name || x.user?.name || x.owner?.name || `#${x.id || x.senderId || ''}`; const tr=document.createElement('tr'); tr.innerHTML=`<td>${i+1}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(value)}</td>`; tb.appendChild(tr); });
 }
 
+
+// ------------------------------------------------------------
+// B9 - "أعلى المستويات": per-account counter reset.
+//
+// The client tests by gifting heavily and would otherwise sit at #1 forever,
+// which discourages the real supporters. Resetting stamps a timestamp on the
+// account; the board then counts only what it gifts AFTER that moment, so the
+// account drops off and climbs back at whatever it genuinely earns. Nothing is
+// deleted and the reset can be undone from the same button.
+// ------------------------------------------------------------
+async function loadTopSupporters() {
+  const d = await apiFetch('/admin-dashboard/top-supporters?limit=50');
+  const tb = document.querySelector('#topSupportersTable tbody');
+  if (!tb) return;
+  tb.innerHTML = '';
+  (d.data || []).forEach((row) => {
+    const u = row.user || {};
+    const isReset = !!u.supportersResetAt;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + row.rank + '</td>' +
+      '<td>' + escapeHtml(u.name || ('#' + (u.id || ''))) + '</td>' +
+      '<td>' + escapeHtml(String(u.displayId ?? u.id ?? '')) + '</td>' +
+      '<td>' + escapeHtml(String(row.coins ?? 0)) + '</td>' +
+      '<td>' + (isReset ? 'مُصفّر منذ ' + fmtDate(u.supportersResetAt) : 'طبيعي') + '</td>' +
+      '<td><button class="btn btn-outline" onclick="resetSupporterCounter(' + (u.id || 0) + ', ' + (isReset ? 'true' : 'false') + ')">' +
+        (isReset ? 'إلغاء التصفير' : 'تصفير العداد') +
+      '</button></td>';
+    tb.appendChild(tr);
+  });
+}
+
+async function resetSupporterCounter(userId, undo) {
+  if (!userId) return;
+  const msg = undo
+    ? 'إرجاع كل سجل الدعم إلى القائمة؟'
+    : 'تصفير عداد هذا الحساب؟ لن يُحذف أي سجل — سيُحتسب فقط ما يدعمه من الآن.';
+  if (!confirm(msg)) return;
+  await apiFetch('/admin-dashboard/users/' + userId + '/reset-supporter-counter', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ undo: !!undo }),
+  });
+  showToast(undo ? '✓ تم إلغاء التصفير' : '✓ تم تصفير العداد');
+  await loadTopSupporters();
+}
+window.resetSupporterCounter = resetSupporterCounter;
+
 async function loadAdvanced() { await Promise.all([loadTransactions(), loadTopups(), loadReports(), loadAnalytics(), loadQuests(), loadLeaderboard()]); }
 
 // --- PRODUCTS (group 9: App Store + Private Store) ---
@@ -1097,7 +1290,7 @@ function renderProductRow(p, isPrivate) {
   const tr = document.createElement("tr");
   tr.innerHTML = `
     <td><span class="cell-id">${p.id}</span></td>
-    <td>${escapeHtml(p.name)}</td>
+    <td>${escapeHtml(p.name)}${p.grant_to_all ? ' <span class="cell-muted">• لجميع المستخدمين</span>' : ''}</td>
     <td><span class="cell-muted">${PRODUCT_TYPE_LABELS[p.type] || p.type}</span></td>
     <td><strong>${p.price_coins}</strong></td>
     <td>${p.duration_days ? `${p.duration_days} يوم` : '<span class="cell-muted">أبدي</span>'}</td>
@@ -1105,6 +1298,7 @@ function renderProductRow(p, isPrivate) {
     <td>
       <div class="td-actions">
         <button class="btn-ok" onclick="openGrantItemModal('${p.id}', '${safeName}')">منح</button>
+        <button class="btn-ghost-sm" onclick="openEditProductModal('${p.id}')">تعديل</button>
         ${moveBtn}
         <button class="btn-bad" onclick="deleteProduct('${p.id}')">حذف</button>
       </div>
@@ -1124,6 +1318,9 @@ window.loadProducts = async function () {
     if (privBody) privBody.innerHTML = "";
 
     const rows = d.data || d.products || [];
+    // Kept so the edit modal opens pre-filled without a second round-trip.
+    lastProductsById = {};
+    for (const p of rows) lastProductsById[p.id] = p;
     for (const p of rows) {
       if (p.is_private && privBody) {
         privBody.appendChild(renderProductRow(p, true));
@@ -1153,12 +1350,39 @@ window.setProductPrivacy = async function (id, isPrivate) {
   }
 };
 
-// Grant an item to a user by 6-digit display ID
+// Grant an item — either to one user by 6-digit display ID, or to everyone.
+// The term always comes from the product itself (المدة المحددة في اللوحة).
 let grantItemId = null;
+let grantScope = "user";
+let lastProductsById = {};
+
+function durationLabel(p) {
+  return p && p.duration_days ? `${p.duration_days} يوم` : "أبدي";
+}
+
+window.setGrantScope = function (scope) {
+  grantScope = scope === "all" ? "all" : "user";
+  const allBtn = document.getElementById("grantScopeAllBtn");
+  const userBtn = document.getElementById("grantScopeUserBtn");
+  const isAll = grantScope === "all";
+  if (allBtn) allBtn.className = isAll ? "btn btn-primary" : "btn btn-outline";
+  if (userBtn) userBtn.className = isAll ? "btn btn-outline" : "btn btn-primary";
+  const box = document.getElementById("grantUserBox");
+  if (box) box.style.display = isAll ? "none" : "";
+  const hint = document.getElementById("grantScopeHint");
+  const p = lastProductsById[grantItemId];
+  if (hint) {
+    hint.textContent = isAll
+      ? `سيُمنح لكل مستخدمي البرنامج بمدة ${durationLabel(p)}، وكل من يسجّل لاحقاً يستلمه تلقائياً.`
+      : `سيُمنح للمستخدم المحدد بمدة ${durationLabel(p)}.`;
+  }
+};
+
 window.openGrantItemModal = function (itemId, itemName) {
   grantItemId = itemId;
   document.getElementById("grantItemSub").textContent = itemName || "";
   document.getElementById("grantDisplayId").value = "";
+  setGrantScope("user");
   document.getElementById("grantItemModal").classList.remove("hidden");
 };
 window.closeGrantItemModal = function () {
@@ -1168,17 +1392,73 @@ window.closeGrantItemModal = function () {
 window.confirmGrantItem = async function () {
   try {
     if (!grantItemId) return;
-    const displayId = Number(document.getElementById("grantDisplayId").value);
-    if (!displayId) return showToast("❗ أدخل Display ID صحيحاً");
+    const body = { itemId: grantItemId, scope: grantScope };
+    if (grantScope === "all") {
+      if (!confirm("منح هذا المنتج لجميع مستخدمي البرنامج؟")) return;
+    } else {
+      const displayId = Number(document.getElementById("grantDisplayId").value);
+      if (!displayId) return showToast("❗ أدخل Display ID صحيحاً");
+      body.displayId = displayId;
+    }
     const d = await apiFetch("/admin-products/grant", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ itemId: grantItemId, displayId }),
+      body: JSON.stringify(body),
     });
-    showToast(`✓ ${d.message || "تم منح المنتج"} — ${d.user?.name ?? ""}`);
+    showToast(`✓ ${d.message || "تم منح المنتج"} ${d.user?.name ? "— " + d.user.name : ""}`);
     closeGrantItemModal();
+    await loadProducts();
   } catch (e) {
     showToast("❌ خطأ: " + (e?.message || "Failed to grant item"));
+  }
+};
+
+// Edit a product — mainly the term in days, since items uploaded before
+// durations existed have none.
+let editProductId = null;
+window.openEditProductModal = function (itemId) {
+  const p = lastProductsById[itemId];
+  // Without the cached row the form would open blank and a save would wipe the
+  // name and zero the price. Reload instead of showing an empty form.
+  if (!p) {
+    showToast("❗ أعد تحميل قائمة المنتجات ثم حاول مرة أخرى");
+    return;
+  }
+  editProductId = itemId;
+  document.getElementById("editProductSub").textContent = p ? p.name : "";
+  document.getElementById("editProductName").value = p?.name ?? "";
+  document.getElementById("editProductPrice").value = p?.price_coins ?? 0;
+  document.getElementById("editProductDuration").value = p?.duration_days ?? "";
+  document.getElementById("editProductModal").classList.remove("hidden");
+};
+window.closeEditProductModal = function () {
+  editProductId = null;
+  document.getElementById("editProductModal").classList.add("hidden");
+};
+window.setEditProductDuration = function (days) {
+  document.getElementById("editProductDuration").value = days ? String(days) : "";
+};
+window.confirmEditProduct = async function () {
+  try {
+    if (!editProductId) return;
+    const name = document.getElementById("editProductName").value.trim();
+    const price = document.getElementById("editProductPrice").value;
+    const duration = document.getElementById("editProductDuration").value;
+    await apiFetch("/admin-products/products/" + editProductId, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        price_coins: price,
+        // فارغ أو 0 = أبدي
+        duration_days: String(duration).trim() === "" ? 0 : Number(duration),
+      }),
+    });
+    showToast("✓ تم تحديث المنتج");
+    closeEditProductModal();
+    await loadProducts();
+  } catch (e) {
+    showToast("❌ خطأ: " + (e?.message || "Failed to update product"));
   }
 };
 
@@ -1213,6 +1493,69 @@ window.togglePermanent = function () {
   if (perm.checked) box.value = "";
 };
 
+// ============================================================
+// المربع الفارغ بالداخل (inner box) — where a decorated product lets the app
+// draw. Sent to the API as fractions (0..0.49 per side); the dashboard takes
+// them as percentages because that is what a human can eyeball off the artwork.
+// ============================================================
+
+/** Types whose artwork encloses app-drawn content and therefore needs a box. */
+const INNER_BOX_TYPES = new Set([
+  "chat_bubble", "entrance", "avatar_frame", "frame", "chat_top_banner", "profile_decor",
+]);
+
+function innerBoxSide(id) {
+  const raw = document.getElementById(id)?.value;
+  if (raw === undefined || String(raw).trim() === "") return 0;
+  const pct = Number(raw);
+  if (!Number.isFinite(pct) || pct <= 0) return 0;
+  return Math.min(0.49, pct / 100);
+}
+
+/** null when nothing was entered, so the app keeps its built-in defaults. */
+function readInnerBoxMeta() {
+  const insets = {
+    l: innerBoxSide("p_inset_l"),
+    t: innerBoxSide("p_inset_t"),
+    r: innerBoxSide("p_inset_r"),
+    b: innerBoxSide("p_inset_b"),
+  };
+  if (!insets.l && !insets.t && !insets.r && !insets.b) return null;
+  // The same box doubles as the 9-slice centre: everything outside it is
+  // decoration and must never be stretched.
+  return { insets, slice: insets };
+}
+
+/** Show the editor only for types that actually enclose content. */
+window.syncInnerBoxEditor = function () {
+  const type = document.getElementById("p_type")?.value;
+  const box = document.getElementById("innerBoxEditor");
+  if (box) box.style.display = INNER_BOX_TYPES.has(type) ? "flex" : "none";
+};
+
+/** Draws the configured box over the chosen file so it can be eyeballed. */
+window.previewInnerBox = function () {
+  const file = document.getElementById("p_file")?.files?.[0];
+  const wrap = document.getElementById("innerBoxPreview");
+  const img = document.getElementById("innerBoxImg");
+  const rect = document.getElementById("innerBoxRect");
+  if (!file || !file.type.startsWith("image/")) {
+    return showToast("❗ اختر صورة أولاً لمعاينة المربع");
+  }
+  img.src = URL.createObjectURL(file);
+  wrap.style.display = "block";
+  const meta = readInnerBoxMeta() || { insets: { l: 0, t: 0, r: 0, b: 0 } };
+  rect.style.left   = (meta.insets.l * 100) + "%";
+  rect.style.top    = (meta.insets.t * 100) + "%";
+  rect.style.right  = (meta.insets.r * 100) + "%";
+  rect.style.bottom = (meta.insets.b * 100) + "%";
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("p_type")?.addEventListener("change", window.syncInnerBoxEditor);
+  window.syncInnerBoxEditor();
+});
+
 window.addProduct = async function () {
   try {
     const fileInput = document.getElementById("p_file");
@@ -1232,6 +1575,8 @@ window.addProduct = async function () {
     formData.append("is_private",  document.getElementById("p_private")?.checked ? "true" : "false");
     formData.append("is_permanent", permanent ? "true" : "false");
     formData.append("duration_days", permanent ? "" : String(durationDays || ""));
+    const layoutMeta = readInnerBoxMeta();
+    if (layoutMeta) formData.append("meta", JSON.stringify(layoutMeta));
     formData.append("file", file);
 
     await apiFetch("/admin-products/products", {
@@ -1586,6 +1931,93 @@ window.deleteTargetTier = async function (id) {
   await loadTargetTiers();
 };
 
+// --- بيع/تبديل التارجيت: platform-wide freeze + per-account blocks ---
+window.loadTargetSellPolicy = async function () {
+  const statusEl = document.getElementById('targetSellStatus');
+  try {
+    const d = await apiFetch('/admin-dashboard/target-sell-policy');
+    const blocked = !!(d.data && d.data.globallyBlocked);
+
+    if (statusEl) {
+      statusEl.textContent = blocked ? 'ممنوع — البيع والتبديل متوقفان' : 'مسموح — البيع والتبديل مفتوحان';
+      statusEl.className = blocked ? 'badge badge-rejected' : 'badge badge-approved';
+    }
+    // Grey out the button for the state you are already in.
+    const bBlock = document.getElementById('btnBlockTargetSell');
+    const bUnblock = document.getElementById('btnUnblockTargetSell');
+    if (bBlock) bBlock.disabled = blocked;
+    if (bUnblock) bUnblock.disabled = !blocked;
+
+    const tb = document.querySelector('#targetLocksTable tbody');
+    if (tb) {
+      tb.innerHTML = '';
+      ((d.data && d.data.blockedUsers) || []).forEach((u) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${u.id}</td>
+          <td>${escapeHtml(u.name || '')}</td>
+          <td>${escapeHtml(String(u.displayId ?? '—'))}</td>
+          <td><div class="td-actions">
+            <button class="btn-outline" onclick="unlockUserTarget(${u.id})">فك المنع</button>
+          </div></td>`;
+        tb.appendChild(tr);
+      });
+    }
+  } catch (e) {
+    if (statusEl) {
+      statusEl.textContent = 'تعذر التحميل';
+      statusEl.className = 'badge badge-pending';
+    }
+    showToast('❌ ' + (e?.message || 'فشل تحميل حالة التارجيت'));
+  }
+};
+
+window.setTargetSellPolicy = async function (blocked) {
+  const title = blocked ? 'منع بيع وتبديل التارجيت' : 'فك المنع';
+  const text = blocked
+    ? 'سيتوقف بيع واستبدال التارجيت لكل المستخدمين حتى تقوم بفك المنع. متابعة؟'
+    : 'سيُسمح لكل المستخدمين ببيع واستبدال التارجيت مرة أخرى. متابعة؟';
+
+  await new Promise((resolve) => openConfirmModal(title, text, async () => {
+    await apiFetch('/admin-dashboard/target-sell-policy', 'PATCH', { blocked });
+    resolve();
+  }));
+
+  showToast(blocked ? '✓ تم منع بيع وتبديل التارجيت' : '✓ تم فك المنع');
+  await loadTargetSellPolicy();
+};
+
+window.setUserTargetLock = async function (blocked) {
+  try {
+    const input = document.getElementById('targetLockUserId');
+    const id = Number(input && input.value);
+    if (!Number.isFinite(id) || id <= 0) return showToast('❗ أدخل رقم مستخدم صحيح');
+
+    // The typed number is the ID shown on the profile (displayId); the server
+    // resolves it. Name the account back so a typo is obvious instead of
+    // silently blocking nobody.
+    const r = await apiFetch(`/admin-dashboard/users/${id}/target-lock`, 'PATCH', { blocked });
+    if (input) input.value = '';
+    const who = r && r.data ? `${r.data.name || ''} #${r.data.displayId ?? r.data.userId}`.trim() : '';
+    showToast((blocked ? '✓ تم منع الحساب ' : '✓ تم فك منع الحساب ') + who);
+    await loadTargetSellPolicy();
+  } catch (e) {
+    showToast('❌ ' + (e?.message || 'فشل'));
+  }
+};
+
+window.unlockUserTarget = async function (id) {
+  try {
+    // `by=id`: this comes from the blocked list, which carries the real row id —
+    // no displayId guessing.
+    await apiFetch(`/admin-dashboard/users/${id}/target-lock?by=id`, 'PATCH', { blocked: false });
+    showToast('✓ تم فك منع الحساب');
+    await loadTargetSellPolicy();
+  } catch (e) {
+    showToast('❌ ' + (e?.message || 'فشل'));
+  }
+};
+
 // --- Edit profile (name + gender) ---
 window.openEditProfileModal = function (userId, name, gender, nameLocked) {
   selectedUserId = userId;
@@ -1761,6 +2193,7 @@ document.getElementById("btnTopups")?.addEventListener("click", () => loadTopups
 document.getElementById("btnReports")?.addEventListener("click", () => loadReports().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnAnalytics")?.addEventListener("click", () => loadAnalytics().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnLeaderboard")?.addEventListener("click", () => loadLeaderboard().catch(e => showToast("خطأ: " + e.message)));
+document.getElementById("btnTopSupporters")?.addEventListener("click", () => loadTopSupporters().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnBroadcast")?.addEventListener("click", () => sendBroadcast().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnQuests")?.addEventListener("click", () => loadQuests().catch(e => showToast("خطأ: " + e.message)));
 document.getElementById("btnQuestCreate")?.addEventListener("click", () => createQuest().catch(e => showToast("خطأ: " + e.message)));
@@ -1948,6 +2381,10 @@ window.loadVipLevels = async function () {
         </div>
       </td>
       <td><select id="vip_frame_${level}" class="form-select" style="max-width:180px">${options}</select></td>
+      <td style="text-align:center">
+        <input id="vip_anim_avatar_${level}" type="checkbox" ${c.allowAnimatedAvatar ? "checked" : ""}
+               title="الصورة الشخصية المتحركة (GIF). أقل مستوى مُفعّل يمنح الخاصية له ولكل ما فوقه." />
+      </td>
       <td><button class="btn btn-outline" id="vip_rewards_btn_${level}" onclick="openVipRewardsModal(${level})">🎁 منتجات (${vipRewardSelections[level].size})</button></td>
       <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button></td>
     `;
@@ -2057,6 +2494,10 @@ window.saveVipLevel = async function (level) {
       durationDays: Number(document.getElementById(`vip_duration_${level}`)?.value || 0),
       // Group 10: the multi-item grant list picked in the rewards modal.
       rewardItemIds: [...(vipRewardSelections[level] || new Set())],
+      // A16: animated (GIF) profile photo. The server treats the LOWEST ticked
+      // tier as the floor, so ticking VIP10 alone grants VIP10 and everything
+      // above it - "VIP10 وما فوق".
+      allowAnimatedAvatar: !!document.getElementById(`vip_anim_avatar_${level}`)?.checked,
     };
     await apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"], {
       method: "POST",
@@ -2139,7 +2580,7 @@ window.addLvTier = async function () {
     const threshold = Number(thresholdRaw);
     if (!level || level < 1 || level > 100) return showToast("❗ رقم المستوى يجب أن يكون 1-100");
     if (thresholdRaw === "" || !Number.isFinite(threshold) || threshold < 0) {
-      return showToast("❗ أدخل عدد الـ XP المطلوبة");
+      return showToast("❗ أدخل عدد الكوينزات المُهداة المطلوبة");
     }
     await apiFetchAny(["/admin-dashboard/levels", "/admin/levels"], {
       method: "POST",

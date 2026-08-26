@@ -349,6 +349,7 @@
               <th>النوع</th>
               <th>الهاتف</th>
               <th>الحالة</th>
+              <th>شحنت لنفسها</th>
               <th>الصور</th>
               <th>تاريخ الإنشاء</th>
               <th>إجراءات</th>
@@ -357,7 +358,46 @@
           <tbody></tbody>
         </table>
       </div>
+
+      <!-- B11: مكافأة تلقائية عند بلوغ الوكالة عدد كوينزات شحن معيّن -->
+      <div class="form-card" style="margin-top:16px">
+        <div class="form-card-title">🎁 مكافآت الشحن التلقائية</div>
+        <p class="settings-hint" style="margin:0 0 10px">
+          عندما تشحن الوكالة لنفسها إجمالي الكوينزات المحدد، تُمنح المكافأة تلقائياً — مرة واحدة لكل درجة.
+          اترك «الوكالة» فارغة لتطبيق الدرجة على كل وكالات الشحن.
+        </p>
+        <div class="form-row">
+          <input id="acr_threshold" type="number" min="1" class="form-input" placeholder="عتبة الشحن (كوينز)" />
+          <input id="acr_coins" type="number" min="0" class="form-input" placeholder="مكافأة كوينز" />
+          <input id="acr_agency" type="number" min="1" class="form-input" placeholder="رقم الوكالة (اختياري)" />
+          <button class="btn btn-outline" onclick="openAcrItemsModal()" id="acr_items_btn">🎁 منتجات (0)</button>
+          <button class="btn btn-primary" onclick="saveAgencyChargeReward()">حفظ الدرجة</button>
+        </div>
+        <div class="table-wrap" style="margin-top:12px">
+          <table id="agencyChargeRewardsTable">
+            <thead>
+              <tr><th>العتبة</th><th>كوينز</th><th>منتجات</th><th>الوكالة</th><th>إجراءات</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
+
+    <!-- منتجات مكافأة الشحن -->
+    <div class="modal hidden" id="acrItemsModal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 class="modal-title">منتجات المكافأة</h3>
+          <button class="modal-x" onclick="closeAcrItemsModal()">×</button>
+        </div>
+        <div id="acrItemsList" style="max-height:50vh;overflow:auto"></div>
+        <div class="modal-actions">
+          <button class="btn btn-outline" onclick="closeAcrItemsModal()">إلغاء</button>
+          <button class="btn btn-primary" onclick="confirmAcrItems()">تأكيد</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ======================== ADVANCED SECTION ======================== -->
     <section class="section" id="section-advanced">
@@ -423,6 +463,16 @@
         </div>
         <div class="table-wrap" style="margin-top:10px"><table id="questsTable"><thead><tr><th>ID</th><th>الاسم</th><th>metric</th><th>target</th><th>reward</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
       </div>
+
+      <!-- B9: أعلى المستويات — per-account counter reset -->
+      <div class="form-card">
+        <div class="form-card-title">أعلى المستويات — تصفير العداد</div>
+        <p class="section-sub" style="margin:0 0 10px">التصفير غير دائم: الحساب يخرج من القائمة ويعود بما يدعمه بعد التصفير فقط — لا يُحذف أي سجل.</p>
+        <div class="form-row">
+          <button class="btn btn-outline" id="btnTopSupporters">تحميل القائمة</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px"><table id="topSupportersTable"><thead><tr><th>#</th><th>الاسم</th><th>ID</th><th>الكوينز</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody></tbody></table></div>
+      </div>
     </section>
 
     <!-- ======================== STORE SECTION ======================== -->
@@ -456,6 +506,8 @@
             <option value="chat_bubble">فقاعة دردشة</option>
             <option value="chat_top_banner">أعلى قاعة الدردشة</option>
             <option value="background">خلفية الغرفة</option>
+            <option value="profile_background">خلفية الصفحة الشخصية</option>
+            <option value="profile_decor">إطار تزيين الصفحة الشخصية</option>
           </select>
           <input id="p_price" type="number" class="form-input" placeholder="السعر (coins)" />
         </div>
@@ -485,6 +537,29 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             إضافة المنتج
           </button>
+        </div>
+
+        <!-- المربع الفارغ بالداخل: للفقاعات/شرائط الدخول/الإطارات. يحدد أين
+             يُسمح للتطبيق بالكتابة أو وضع الصورة داخل الزخرفة. -->
+        <div id="innerBoxEditor" class="form-row" style="display:none;flex-direction:column;align-items:stretch;gap:10px">
+          <div class="form-card-title" style="margin:0">
+            📐 المربع الفارغ بالداخل — النسبة من كل جهة (%)
+          </div>
+          <p class="settings-hint" style="margin:0">
+            حدد المساحة الفارغة داخل الزخرفة. التطبيق لن يكتب أو يرسم خارجها إطلاقاً،
+            مهما كانت الزخرفة. اتركها فارغة لاستخدام إعدادات التطبيق الافتراضية.
+          </p>
+          <div class="chip-row" style="gap:10px;flex-wrap:wrap">
+            <label class="modal-sub">يسار <input id="p_inset_l" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <label class="modal-sub">أعلى <input id="p_inset_t" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <label class="modal-sub">يمين <input id="p_inset_r" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <label class="modal-sub">أسفل <input id="p_inset_b" type="number" min="0" max="49" class="form-input form-input--sm" style="max-width:80px" placeholder="0" /></label>
+            <button type="button" class="btn btn-outline btn-chip" onclick="previewInnerBox()">معاينة</button>
+          </div>
+          <div id="innerBoxPreview" style="display:none;position:relative;max-width:360px;border-radius:10px;overflow:hidden">
+            <img id="innerBoxImg" style="width:100%;display:block" />
+            <div id="innerBoxRect" style="position:absolute;border:2px dashed #4ECDC4;background:rgba(78,205,196,.18);pointer-events:none"></div>
+          </div>
         </div>
       </div>
 
@@ -571,7 +646,7 @@
         <table id="vipTable">
           <thead>
             <tr>
-              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>سعر البيع</th><th>المدة</th><th>الشارة</th><th>إطار المقعد</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>سعر البيع</th><th>المدة</th><th>الشارة</th><th>إطار المقعد</th><th title="أقل مستوى مُفعّل يمنح الخاصية له ولما فوقه">صورة متحركة</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -584,7 +659,7 @@
       <div class="section-header">
         <div>
           <h2 class="section-title">مستويات LV</h2>
-          <p class="section-sub">عتبة الـ XP لكل مستوى وصورة الشارة والمنتجات الممنوحة. المستويات بدون عتبة تتبع المعادلة الافتراضية، ولا يتغير مستوى أي مستخدم حالي</p>
+          <p class="section-sub">عتبة الكوينزات <strong>المُهداة</strong> لكل مستوى (المستوى يرتفع بما ينفقه المستخدم على الهدايا فقط) وصورة الشارة والمنتجات الممنوحة. المستويات بدون عتبة تتبع المعادلة الافتراضية، ولا يتغير مستوى أي مستخدم حالي</p>
         </div>
         <div class="section-actions">
           <input id="newLvLevel" type="number" min="1" max="100" class="form-input form-input--sm" placeholder="رقم المستوى الجديد" />
@@ -602,7 +677,7 @@
         <table id="lvTable">
           <thead>
             <tr>
-              <th>المستوى</th><th>الاسم</th><th>عتبة الـ XP</th><th>الشارة</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الكوينزات المُهداة</th><th>الشارة</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -710,6 +785,40 @@
           </table>
         </div>
         <p class="settings-hint">يُحسب دولار الوكالة من أعلى تارجت وصلت إليه نقاطها. مثال: 200000 كوينز = 1 دولار.</p>
+      </div>
+
+      <!-- TARGET SELL / CONVERT LOCK -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          التحكم في بيع وتبديل التارجيت
+        </div>
+
+        <div class="form-row" style="align-items:center">
+          <span class="settings-hint" style="min-width:220px">الحالة الحالية</span>
+          <span id="targetSellStatus" class="badge badge-pending">جاري التحميل…</span>
+        </div>
+
+        <div class="form-row">
+          <button class="btn btn-bad" id="btnBlockTargetSell" onclick="setTargetSellPolicy(true)">منع البيع والتبديل</button>
+          <button class="btn btn-primary" id="btnUnblockTargetSell" onclick="setTargetSellPolicy(false)">فك المنع</button>
+          <button class="btn btn-outline" onclick="loadTargetSellPolicy()">تحديث</button>
+        </div>
+        <p class="settings-hint">المنع مُفعّل افتراضياً. عند التفعيل يتوقف بيع واستبدال التارجيت لكل المستخدمين — من العضو نفسه ومن وكيله — حتى يتم فك المنع من هنا.</p>
+
+        <div class="form-card-title" style="margin-top:18px">منع حسابات محددة</div>
+        <div class="form-row">
+          <input id="targetLockUserId" type="number" class="form-input" placeholder="ID المستخدم الظاهر في ملفه" min="1" />
+          <button class="btn btn-bad" onclick="setUserTargetLock(true)">منع الحساب</button>
+          <button class="btn btn-outline" onclick="setUserTargetLock(false)">فك منع الحساب</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="targetLocksTable">
+            <thead><tr><th>ID</th><th>الاسم</th><th>المعرّف</th><th>إجراءات</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="settings-hint">تُستخدم عند رغبتك في منع أشخاص بعينهم بينما البيع مفتوح للباقين.</p>
       </div>
     </section>
 
@@ -846,13 +955,53 @@
         <p class="modal-sub" id="grantItemSub"></p>
       </div>
     </div>
-    <div style="margin-top:12px">
+    <!-- اختيار نطاق المنح: كل المستخدمين أو مستخدم واحد بالـ ID -->
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-outline" id="grantScopeAllBtn" onclick="setGrantScope('all')">جميع المستخدمين</button>
+      <button class="btn btn-outline" id="grantScopeUserBtn" onclick="setGrantScope('user')">مستخدم ID</button>
+    </div>
+    <div style="margin-top:12px" id="grantUserBox">
       <label class="modal-sub">Display ID للمستخدم (6 أرقام)</label>
       <input id="grantDisplayId" class="form-input" type="number" placeholder="مثال: 123456" />
     </div>
+    <p class="modal-sub" id="grantScopeHint" style="margin-top:10px"></p>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="confirmGrantItem()">منح</button>
       <button class="btn btn-outline" onclick="closeGrantItemModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- تعديل المنتج: الاسم/السعر/المدة بالأيام (المنتجات القديمة بلا مدة) -->
+<div class="modal-overlay hidden" id="editProductModal" onclick="closeEditProductModal()">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">تعديل المنتج</h3>
+        <p class="modal-sub" id="editProductSub"></p>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">اسم المنتج</label>
+      <input id="editProductName" class="form-input" type="text" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">السعر (كوينز)</label>
+      <input id="editProductPrice" class="form-input" type="number" min="0" />
+    </div>
+    <div style="margin-top:12px">
+      <label class="modal-sub">المدة بالأيام (اتركها فارغة أو 0 = أبدي)</label>
+      <input id="editProductDuration" class="form-input" type="number" min="0" placeholder="مثال: 30" />
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(7)">7 أيام</button>
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(15)">15 يوم</button>
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(30)">30 يوم</button>
+        <button class="btn-ghost-sm" onclick="setEditProductDuration(0)">أبدي</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="confirmEditProduct()">حفظ</button>
+      <button class="btn btn-outline" onclick="closeEditProductModal()">إلغاء</button>
     </div>
   </div>
 </div>
