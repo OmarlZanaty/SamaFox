@@ -16,7 +16,8 @@
     "fix:gift-video-format": "ts-node prisma/fix-gift-video-format.ts",
     "fix:gift-videos": "ts-node prisma/fix-existing-gift-videos.ts",
     "audit:lost-host-coins": "ts-node prisma/audit-lost-host-coins.ts",
-    "drain:agency-balances": "ts-node prisma/drain-agency-balances.ts"
+    "drain:agency-balances": "ts-node prisma/drain-agency-balances.ts",
+    "backfill:posters": "ts-node prisma/backfill-posters.ts"
   },
   "keywords": [
     "voice-chat",

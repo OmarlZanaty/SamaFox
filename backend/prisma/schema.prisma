@@ -91,10 +91,33 @@ model User {
   directMessagesSent       DirectMessage[]
   musicTracks              MusicTrack[]
   avatarFrameUrl           String?
+  // Profile-page background chosen by the user: a still image, an animated GIF
+  // or a video clip. `profileBgType` says which, so the page mounts a player
+  // instead of an Image widget for a clip.
+  profileBgUrl             String?
+  profileBgType            String?                   @default("image") // image | video
+  // إطار تزيين الصفحة الشخصية — a hollow decorated frame drawn ON the profile
+  // page's border, image or video. Set from the store when the user equips a
+  // PROFILE_DECOR item; null means the page has no decoration.
+  profileDecorUrl          String?
+  profileDecorType         String?                   @default("image") // image | video
   displayId                Int?                      @unique
   activeFrameId            String?
   activeFrame              Item?                     @relation("UserActiveFrame", fields: [activeFrameId], references: [id])
   relationId               Int?
+
+  // B9 — "تصفير العداد" on أعلى المستويات. The owner tests by gifting heavily
+  // and would otherwise sit at #1 forever. Setting this timestamp makes the
+  // supporters board count only gifts sent AFTER it, so the account drops off
+  // the board without losing a single coin of history — and climbs back at
+  // whatever it genuinely earns from that moment on. Null = never reset.
+  supportersResetAt        DateTime?
+
+  // A15 — CP (couple pairing). Both sides of a pair and the pending requests.
+  cpPairsA                 CpPair[]                  @relation("CpPairUserA")
+  cpPairsB                 CpPair[]                  @relation("CpPairUserB")
+  cpRequestsSent           CpRequest[]               @relation("CpRequestSender")
+  cpRequestsReceived       CpRequest[]               @relation("CpRequestRecipient")
 
   @@map("users")
 }
@@ -592,6 +615,10 @@ model VipLevelConfig {
   badgeUrl      String?
   frameItemId   String? // Item.id of the seat frame granted at this level
   rewardItemIds String[] @default([]) // Item.ids (badges/frames/entrances, app or private store) auto-granted at this level (group 10)
+  // A16 — "صورة شخصية متحركة": an animated (GIF/WEBP) avatar is a VIP perk the
+  // dashboard switches on per tier ("مثلاً VIP10 وما فوق"). Off everywhere by
+  // default, so no existing tier silently gains the permission.
+  allowAnimatedAvatar Boolean @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -665,6 +692,25 @@ model Item {
   // How long this product stays equipped once acquired. null = permanent
   // (أبدي), matching every item that existed before durations were added.
   durationDays  Int?
+  // Owner request: an item granted to "جميع المستخدمين" stays flagged so every
+  // account registered afterwards receives it automatically, with the same
+  // duration configured in the dashboard.
+  grantToAll    Boolean  @default(false)
+  // Per-product layout guides set in لوحة التحكم, as fractions of the artwork:
+  //   { "insets": {"l":0.18,"t":0.22,"r":0.18,"b":0.22},
+  //     "slice":  {"l":0.30,"t":0.35,"r":0.30,"b":0.35} }
+  // `insets` is the EMPTY inner box the app is allowed to draw content in — the
+  // client's rule for chat bubbles, entry banners and mic frames alike:
+  // "انا محدود داخل مربع الفقاعه الفارغ ... مليش علاقه بأي زخرفة".
+  // `slice` is the 9-slice centre, so decorated end-caps never stretch when the
+  // content grows. Both optional; missing = the app's built-in defaults.
+  meta          Json?
+  // Still poster for a VIDEO product, extracted once at upload time.
+  // The store grid stopped building a player per tile (that is what made فتح
+  // المتجر so slow) and needs a picture to show instead; without this every
+  // مركبة rendered as a blank placeholder. null for stills — they are their own
+  // poster — and for clips uploaded before posters existed.
+  previewUrl    String?
   createdAt     DateTime @default(now())
 
   userItems  UserItem[]
@@ -820,6 +866,16 @@ model ChargingAgency {
   totalSentCoins  Int @default(0)
   totalTopupCoins Int @default(0)
 
+  // How many times this agency has charged ITSELF (an approved top-up request
+  // or a direct admin top-up), and how much of the reward ladder it has
+  // already been paid. The dashboard ranks agencies on `selfChargeCount` /
+  // `totalTopupCoins` so the biggest charger can be rewarded
+  // ("عاوز كل وكاله شحنت كام مره لنفسها ... هتاخد مكافأه").
+  selfChargeCount     Int    @default(0)
+  // Highest reward TIER (in coins charged) already granted, so a ladder never
+  // pays the same rung twice.
+  rewardedUpToCoins   BigInt @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -888,6 +944,31 @@ model TargetTier {
   @@map("target_tiers")
 }
 
+// B11 — automatic reward for a charging agency that tops itself up past a
+// threshold: "لو تخليني احدد من لوحة التحكم الوكاله لما تشحن عدد كوينزات معين
+// احدد مكافأة تروح تلقائي". Each row is one rung of a ladder; every rung a
+// top-up crosses pays out once (guarded by ChargingAgency.rewardedUpToCoins).
+model AgencyChargeReward {
+  id Int @id @default(autoincrement())
+
+  // Cumulative coins the agency must have charged itself to earn this rung.
+  thresholdCoins BigInt
+
+  // What it pays. Either or both may be set.
+  rewardCoins Int      @default(0)
+  rewardItemIds String[] @default([])
+
+  // null = applies to every charging agency; set = this agency only.
+  agencyId Int?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agencyId])
+  @@map("agency_charge_rewards")
+}
+
 model AgencyRequest {
   id          Int       @id @default(autoincrement())
   userId      Int
@@ -941,7 +1022,35 @@ model AgencyMember {
   // HE received, released by the agency target set on the dashboard.
   commissionGeneratedCoins BigInt @default(0)
 
+  // Target moved by بيع التارجيت (2026-08). SIGNED: a sale subtracts from the
+  // seller's row and adds the same amount to the buyer's, so a member's target
+  // is (gifts received since joinedAt) + commission + this. Negative is normal
+  // for someone who has sold. It is deliberately NOT a coin balance — the
+  // dollar value follows from the resulting target through the TargetTier
+  // table, which is why selling also moves the dollars.
+  targetAdjustmentCoins BigInt @default(0)
+
   @@unique([agencyId, userId])
+}
+
+// One بيع التارجيت: the seller's target went down by `amountCoins` and the
+// buyer's went up by the same. Kept for the dashboard and for complaint
+// investigations — the AgencyMember rows only carry the running total.
+model TargetSale {
+  id             Int      @id @default(autoincrement())
+  sellerId       Int
+  buyerId        Int
+  amountCoins    BigInt
+  sellerAgencyId Int
+  buyerAgencyId  Int
+  // Dollar value of the sold amount at the tier rate in force at sale time,
+  // so a later tier change doesn't rewrite history.
+  dollarsValue   Float    @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([sellerId])
+  @@index([buyerId])
+  @@map("target_sales")
 }
 
 model AgencyInvite {
@@ -1075,6 +1184,28 @@ model Gift {
   @@map("gifts")
 }
 
+/// B4/B5/B6 — "أضف قائمة هدايا". Gift lists used to be a hard-coded dropdown in
+/// the dashboard, so the app's gift-sheet tabs could never change without a
+/// release. A list is now a row here: the dashboard creates one, a gift is
+/// assigned to it on creation and can be moved between lists afterwards, and
+/// the app builds its tabs from the list table instead of from a const map.
+///
+/// `key` is what lands in `Gift.category`, which keeps every existing gift
+/// working: the seeded rows below reuse the keys the app already ships
+/// ('love', 'luxury', …), so nothing is re-categorised by the migration.
+model GiftCategory {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  nameAr    String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("gift_categories")
+}
+
 model GiftTransaction {
   id          String   @id @default(cuid())
   senderId    Int
@@ -1134,4 +1265,101 @@ model UserBlock {
   @@unique([blockerId, blockedId])
   @@index([blockerId])
   @@map("user_blocks")
+}
+
+// ============================================
+// CLOSED-TESTING BETA ENROLMENT
+// ============================================
+
+// One visitor who asked for SamaFox from the Al Mobarmg store page.
+//
+// Play whitelists testers through an account-level **email list**, and an
+// address on that list installs straight from the normal Play listing with no
+// "become a tester" tap. There is no Google API for those lists, so the write
+// is done by the operator's beta-sync daemon driving a logged-in Play Console:
+// this table is the queue it reads (`playSynced = false`) and acks.
+//
+// `playError` doubles as a terminal marker — 'not_a_google_account' means Play
+// refused the address and it must leave the queue instead of being retried
+// forever (one such row used to block every signup behind it).
+enum BetaTesterStatus {
+  invited
+  opted_in
+  installed
+  dropped
+}
+
+model BetaTester {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  googleSub     String? @unique // Google "sub"; null for plain-email signups
+  status        BetaTesterStatus @default(invited)
+  source        String? // where the signup came from (e.g. "almobarmg-store")
+  playSynced    Boolean          @default(false) // is the address on the Play list?
+  playError     String? // last failure, or a terminal marker (see above)
+  enrolledAt    DateTime         @default(now())
+  lastCheckedAt DateTime?
+  remindedAt    DateTime? // last nudge sent to a tester who never installed
+
+  @@index([status])
+  @@map("beta_testers")
+}
+
+// ============================================
+// A15 — CP (نظام الـ CP): couple pairing by gift
+// ============================================
+//
+// NOTE ON THE NAME: `User.cpPoints` and `Gift.cpEligible` are an unrelated,
+// older "account power" counter. This section is the client's CP — a pairing
+// between two people, created by sending a CP gift the other side accepts.
+//
+// Flow (client spec, 17/08 23:01):
+//   A sends a CP gift to B  -> CpRequest(status = pending); nothing is charged
+//   B accepts               -> the gift is sent for real (full price off A,
+//                              value into B's target) and a CpPair is created
+//   B rejects               -> no gift, but 30% of the price is still taken
+//                              off A ("يتخصم منه 30% من قيمة الهدية")
+//
+// Charging on resolution rather than on send is what makes the 30%/100% split
+// possible at all; the sender's balance is verified up front so a request can
+// never be created that the sender could not afford.
+
+model CpPair {
+  id        Int      @id @default(autoincrement())
+  // Stored with userAId < userBId so a pair exists at most once regardless of
+  // who gifted whom, and the unique index below actually prevents duplicates.
+  userAId   Int
+  userBId   Int
+  userA     User     @relation("CpPairUserA", fields: [userAId], references: [id])
+  userB     User     @relation("CpPairUserB", fields: [userBId], references: [id])
+  // The gift that created the pairing — shown on the profile CP card.
+  giftId    String?
+  createdAt DateTime @default(now())
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@map("cp_pairs")
+}
+
+model CpRequest {
+  id          Int       @id @default(autoincrement())
+  senderId    Int
+  recipientId Int
+  sender      User      @relation("CpRequestSender", fields: [senderId], references: [id])
+  recipient   User      @relation("CpRequestRecipient", fields: [recipientId], references: [id])
+  giftId      String
+  quantity    Int       @default(1)
+  // Full price of the gift at request time. The 30% rejection fee and the
+  // accepted charge are both derived from THIS, not from the live gift price,
+  // so an admin editing the price mid-flight cannot change what was agreed.
+  totalCoins  Int
+  roomId      Int?
+  status      String    @default("pending") // pending | accepted | rejected | cancelled | expired
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([recipientId, status])
+  @@index([senderId, status])
+  @@map("cp_requests")
 }

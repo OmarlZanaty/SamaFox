@@ -56,17 +56,52 @@ print_success "Build completed"
 echo ""
 
 # Step 4: Database setup
+#
+# `prisma migrate deploy`, NOT `db push`. `db push` reshapes the schema and
+# silently skips every migration's DATA work, and this history has three such
+# steps that must run exactly once:
+#   * 20260823000000 — reconciles historical تبديل التارجيت (without it, past
+#     conversions are handed back a second time)
+#   * 20260823020000 — backfills each agency's self-charge counter
+#   * 20260825000000 — seeds gift_categories with the tabs the app ships
+#
+# The migration folder was re-baselined onto `0_init`, so a database created
+# before that has the OLD migration names in `_prisma_migrations` and would try
+# to replay `0_init` over live tables. Marking it as already applied is a no-op
+# on a fresh database and the required fix on an existing one.
 print_info "Step 4: Setting up database..."
-if [ ! -f "prisma/dev.db" ]; then
-    print_info "Database not found. Creating and seeding..."
-    npx prisma db push
-    npm run seed
-    print_success "Database created and seeded"
+# Which database is this?
+#
+# `migrate status` CANNOT answer that: it prints the name `0_init` both when the
+# migration is pending and when it is missing locally, so grepping for it
+# skipped the resolve in exactly the case that needs it (a live database) and
+# `migrate deploy` then replayed 54 bare `CREATE TABLE`s over live tables.
+#
+# The honest test is whether the schema already exists. A `SELECT` against
+# `users` fails on a fresh database and succeeds on a live one, and inside an
+# `if` its exit code is not fatal under `set -e`.
+#
+# Marking 0_init applied is NOT safe on a fresh database — it would record the
+# baseline without creating a single table, and every later ALTER would fail.
+# So it runs only for a database that already has the schema.
+if npx prisma db execute --schema=prisma/schema.prisma --stdin >/dev/null 2>&1 <<'SQL'
+SELECT 1 FROM "users" LIMIT 1;
+SQL
+then
+    print_info "Existing database detected — marking baseline 0_init as applied..."
+    npx prisma migrate resolve --applied 0_init || true
 else
-    print_info "Database exists. Applying migrations..."
-    npx prisma db push
-    print_success "Database updated"
+    print_info "Fresh database — 0_init will be applied by migrate deploy"
 fi
+
+print_info "Applying migrations..."
+npx prisma migrate deploy
+print_success "Database migrated"
+
+# Still posters for video products uploaded before posters existed. Idempotent:
+# anything that already has one is skipped.
+print_info "Backfilling store posters..."
+npm run backfill:posters || print_info "Poster backfill skipped (ffmpeg unavailable?)"
 echo ""
 
 # Step 5: Create logs directory
