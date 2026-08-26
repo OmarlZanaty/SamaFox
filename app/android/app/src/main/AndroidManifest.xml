@@ -5,8 +5,30 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- Android 13+: needed to pick songs off the phone for room music -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
+    <!--
+      A23 - "الاحتفاظ بالغرفة": audio must keep running while the app is in the
+      background, "كأنه لم يخرج من الروم إطلاقاً". Android 9+ cuts microphone
+      capture for a backgrounded process unless a foreground service of type
+      `microphone` is running, so these are what make the reserved mic keep
+      transmitting instead of going silent.
+
+      PLAY POLICY: FOREGROUND_SERVICE_MICROPHONE needs a matching declaration
+      and justification in Play Console. The same developer account already had
+      an app (AiZone) rejected for "Play Console declaration and/or app
+      description does not sufficiently demonstrate the use of the
+      FOREGROUND_SERVICE permission", so fill in the declaration - "keeps the
+      user's live voice chat running while they use other apps" - BEFORE
+      submitting this build.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Android 13+: the ongoing "mic is open" notification needs consent. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="samafox"
@@ -61,6 +83,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!--
+          A23 - holds the process in a state where Android keeps letting it
+          capture the microphone while backgrounded. It owns no audio itself;
+          WebRTC still does. `exported=false` because nothing outside the app
+          has any business starting it.
+        -->
+        <service
+            android:name=".RoomAudioService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <!-- image_cropper's native crop UI (profile photo crop tool) -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
