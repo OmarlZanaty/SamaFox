@@ -69,28 +69,56 @@ Read the spread across seeds, not a single number: the bonus fires ~1 in 115 and
 pays ~21× bet, so a fifth of the return arrives from a thin tail and one short
 run can land a point off on bonus draw alone.
 
-### 0.2 The "free play / no monetary value" notice is not true in this build — open
+### 0.2 The "free play / no monetary value" notice was not true — fixed
 
-The help panel (`aetherfall_help.dart`) shows:
+The help panel used to show:
 
 > DEMO / FREE PLAY — Aetherfall uses virtual credits only. It has no monetary
 > value, implies no real odds or RTP, and is entertainment only.
 
-`resolveSpin` decrements the player's real `coinsBalance` — the same purchasable
-currency used by بلينكو and طيّار — between `MIN_BET` 20 and `MAX_BET` 20,000,
-and credits winnings back to it. The header badge also reads `DEMO / FREE PLAY`
-and the autoplay control is labelled `AUTO DEMO`.
+while `resolveSpin` decremented the player's real `coinsBalance` — the same
+purchasable currency used by بلينكو and طيّار — between `MIN_BET` 20 and
+`MAX_BET` 20,000. The header badge read `DEMO / FREE PLAY` and autoplay was
+labelled `AUTO DEMO`.
 
-The production brief specified a free-play prototype on virtual credits. The
-build follows the house pattern of the other coin games instead. Both are
-defensible products; **shipping the disclaimer on top of the coin economy is
-not**, because the on-screen text contradicts the transaction. Pick one:
+The production brief specified a free-play prototype on virtual credits; the
+build followed the house pattern of the other coin games instead. **Resolved in
+favour of the coin economy** — Aetherfall is a real coin game like its siblings,
+and the interface now says so:
 
-- **Keep the coin economy** → remove the DEMO / FREE PLAY badge and the "no
-  monetary value" paragraph, rename `AUTO DEMO` to `AUTO`, and fix the RTP per
-  §0.1 first.
-- **Honour the brief** → give the game a separate non-purchasable demo balance
-  and stop touching `coinsBalance`.
+| Was | Now |
+|---|---|
+| `DEMO / FREE PLAY` header badge | removed |
+| `AUTO DEMO` button and help section | `AUTO` |
+| "تم إيقاف AUTO DEMO — الرصيد غير كافٍ" | "تم إيقاف اللعب التلقائي — الرصيد غير كافٍ" |
+| "Set your **virtual** bet and tap IGNITE" | "Set your bet and tap IGNITE" |
+| `TOTAL VIRTUAL CREDITS` on the bonus summary | `TOTAL COINS WON` |
+| "virtual credits only… no monetary value" | states the coin cost, the bet range and the provably-fair guarantee |
+
+The replacement disclaimer only claims what the code actually does:
+
+> Aetherfall is played with coins from your balance. Each IGNITE deducts your
+> bet (20–20,000 coins) before the spin resolves, and any win is credited
+> straight back. Every spin — including the whole Skyfire Vault — is decided by
+> the server from a seed pair you can check, so no result is influenced by the
+> app on your device.
+
+The bet range is interpolated from the served layout, so it tracks `MIN_BET` /
+`MAX_BET` without a client release. The internal `_autoDemo` and `totalCredits`
+identifiers were renamed to `_auto` and `totalCoins` to match.
+
+**Deliberately not claimed:** anything about cash-out or monetary value in
+either direction. Nothing in the backend establishes whether coins can be
+withdrawn, so the text stays silent on it rather than guessing. If coins do have
+an exit path, that is a legal and compliance question well beyond a wording fix
+— see the escalation clause in §7.
+
+**Still worth doing:** the client already fetches `serverSeedHash` / `clientSeed`
+/ `nonce` through `AetherfallFairness` and the repository exposes
+`setClientSeed`, but no screen surfaces any of it. The new text tells players
+they can check a spin, and today there is no in-app way to do so. Either add a
+fairness sheet (the sibling games have `_fairnessNote()` widgets to model it on)
+or soften that clause.
 
 ---
 
@@ -239,13 +267,13 @@ sequence-win readout.
 
 ## 3. Interaction specification
 
-**Composition (portrait, mobile-first).** Top bar: `AETHERFALL` title,
-`DEMO / FREE PLAY` badge, balance, mute, settings, help. Above the board: the
+**Composition (portrait, mobile-first).** Top bar: `AETHERFALL` title, coin
+balance, mute, settings, help. Above the board: the
 observatory-window hero portrait, which changes mood (`idle` / `win` / `bonus`).
 Centre: the 6×5 chamber grid inside a compass ring. Left rail: Skyfire Charge
 meter and tumble count. Right rail: sequence win and Star Shards. Bottom: the
-bet − / + selector, the large `IGNITE` button, and `AUTO DEMO`, which swaps to a
-red `STOP` while running.
+bet − / + selector, the large `IGNITE` button, and `AUTO`, which swaps to a red
+`STOP` while running.
 
 **Spin loop.** IGNITE → button depresses with the ignite cue → grid populates →
 each cascade frame highlights winners, shows a floating count/reward label,
@@ -351,8 +379,9 @@ Everything else needs a short wiring pass.
 | # | Risk | Severity | State | Action |
 |---|---|---|---|---|
 | 1 | RTP >100% — the game drains coins at scale | **Critical** | **Closed** | Retuned to 97%; harness committed and fails the run at 100% (§0.1) |
-| 2 | Free-play disclaimer over a real coin economy | **High** | Open | Resolve §0.2 before any public build |
+| 2 | Free-play disclaimer over a real coin economy | **High** | **Closed** | Coin economy kept; every free-play label removed (§0.2) |
 | 3 | Help panel overstates Constellation Lock | Medium | Open | Reword, or implement real cell retention |
+| 3b | Help text says a spin can be checked, but no fairness UI exists | Medium | Open | Add a fairness sheet, or soften the clause (§0.2) |
 | 4 | Seeds and history in process memory | Medium | Open | Move to DB/Redis before scaling, or players lose verifiability on restart |
 | 5 | All artwork undelivered | Medium | Open | Generate per the art brief; symbols first |
 | 6 | Accessibility below the brief's bar | Medium | Open | See §8 |
@@ -379,7 +408,8 @@ certification and responsible-gambling review.
 | Reduced motion removes shake and flashing | **Pass** — 0.4× timing, particle layer dropped |
 | Skip on celebration (500 ms) and bonus transition (800 ms) | **Pass** |
 | Art original, no copied protected assets | **Pass** — see §1 |
-| Help panel accurately describes current rules | **Fail** — Constellation Lock (§2.6) and the free-play claim (§0.2) |
+| Help panel accurately describes current rules | **Fail** — Constellation Lock only (§2.6); the free-play claim is fixed (§0.2) |
+| On-screen text matches what the code charges | **Pass** — states the coin cost and bet range (§0.2) |
 | RTP measurable and regression-guarded | **Pass** — `npm run sim:aetherfall` |
 | Bounded, non-exploitable economics | **Pass** — 97% RTP, measured and enforced (§0.1) |
 | Runs smoothly on a mid-range device | **Untested** — no device pass recorded |
@@ -400,7 +430,8 @@ certification and responsible-gambling review.
 
 1. ~~Retune the paytable and commit the simulation harness.~~ **Done** — 97% RTP,
    `npm run sim:aetherfall` (§0.1).
-2. Decide free-play vs coin economy, and make the on-screen text match (§0.2).
+2. ~~Decide free-play vs coin economy, and make the on-screen text match.~~
+   **Done** — coin economy kept, labels corrected (§0.2).
 3. Reword the Constellation Lock help text, or build the real lock (§2.6).
 4. Generate and drop in the symbol PNGs and the hub tile — no code needed (§6).
 5. Accessibility pass: `Semantics` labels, high contrast, colour-blind outlines,

@@ -214,18 +214,18 @@ class StarburstBanner extends StatelessWidget {
   }
 }
 
-/// End-of-bonus summary sheet: total credits, highest charge event, cascade
+/// End-of-bonus summary sheet: total coins won, highest charge event, cascade
 /// count, and a replay button.
 class BonusSummarySheet extends StatelessWidget {
   const BonusSummarySheet({
     super.key,
-    required this.totalCredits,
+    required this.totalCoins,
     required this.highestCharge,
     required this.cascadeCount,
     required this.onClose,
   });
 
-  final int totalCredits;
+  final int totalCoins;
   final int highestCharge;
   final int cascadeCount;
   final VoidCallback onClose;
@@ -248,11 +248,11 @@ class BonusSummarySheet extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Text(
-            '$totalCredits',
+            '$totalCoins',
             style: const TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold),
           ),
           const Text(
-            'TOTAL VIRTUAL CREDITS',
+            'TOTAL COINS WON',
             style: TextStyle(color: Colors.white54, fontSize: 11, letterSpacing: 1),
           ),
           const SizedBox(height: 18),

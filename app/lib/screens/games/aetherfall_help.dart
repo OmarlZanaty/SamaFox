@@ -48,7 +48,7 @@ class AetherfallHelpSheet extends StatelessWidget {
             const SizedBox(height: 12),
             _section(
               'Igniting a tumble',
-              'Set your virtual bet and tap IGNITE. The chambers populate with '
+              'Set your bet and tap IGNITE. The chambers populate with '
                   'symbols and any qualifying win dissolves and refills automatically '
                   '— a spin can chain several tumbles in a row.',
             ),
@@ -104,8 +104,10 @@ class AetherfallHelpSheet extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _section(
-              'AUTO DEMO',
-              'Repeats IGNITE at your current bet automatically. Tap STOP at any time to end it immediately.',
+              'AUTO',
+              'Repeats IGNITE at your current bet automatically, spending coins each time. '
+                  'Tap STOP at any time to end it immediately; it also stops on its own once '
+                  'your balance can no longer cover the bet.',
             ),
             _section(
               'Sound & motion',
@@ -119,10 +121,13 @@ class AetherfallHelpSheet extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: _ember.withValues(alpha: 0.4)),
               ),
-              child: const Text(
-                'DEMO / FREE PLAY — Aetherfall uses virtual credits only. It has no monetary '
-                'value, implies no real odds or RTP, and is entertainment only.',
-                style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.5),
+              child: Text(
+                'Aetherfall is played with coins from your balance. Each IGNITE deducts your '
+                'bet (${layout.minBet}–${layout.maxBet} coins) before the spin resolves, and any '
+                'win is credited straight back. Every spin — including the whole Skyfire Vault — '
+                'is decided by the server from a seed pair you can check, so no result is '
+                'influenced by the app on your device.',
+                style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.5),
               ),
             ),
           ],
