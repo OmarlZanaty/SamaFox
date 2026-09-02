@@ -11,6 +11,8 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "sim:aetherfall": "ts-node --transpile-only scripts/aetherfall-sim.ts",
+    "sim:neon-fortune": "ts-node --transpile-only scripts/neon-fortune-sim.ts",
+    "check:neon-fortune": "ts-node --transpile-only scripts/neon-fortune-check.ts",
     "seed": "ts-node prisma/seed.ts",
     "seed:gifts": "ts-node prisma/seed-gifts.ts",
     "seed:achievements": "ts-node prisma/seed-achievements.ts",
