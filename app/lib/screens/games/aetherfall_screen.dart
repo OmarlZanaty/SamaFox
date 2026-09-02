@@ -52,7 +52,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
   bool _muted = false;
   bool _reducedMotion = false;
 
-  bool _autoDemo = false;
+  bool _auto = false;
   bool _stopRequested = false;
 
   // ── Board state ──────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       setState(() {
         _busy = false;
         _notice = e is AetherfallException ? e.message : 'تعذر تنفيذ الجولة';
-        _autoDemo = false;
+        _auto = false;
       });
       return;
     }
@@ -180,16 +180,16 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       _busy = false;
     });
 
-    if (_autoDemo && !_stopRequested && mounted) {
+    if (_auto && !_stopRequested && mounted) {
       if (_bet > _balance) {
         setState(() {
-          _autoDemo = false;
-          _notice = 'تم إيقاف AUTO DEMO — الرصيد غير كافٍ';
+          _auto = false;
+          _notice = 'تم إيقاف اللعب التلقائي — الرصيد غير كافٍ';
         });
         return;
       }
       await Future.delayed(const Duration(milliseconds: 450));
-      if (mounted && _autoDemo && !_stopRequested) unawaited(_ignite());
+      if (mounted && _auto && !_stopRequested) unawaited(_ignite());
     } else {
       _stopRequested = false;
     }
@@ -197,7 +197,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
 
   void _stopAuto() {
     setState(() {
-      _autoDemo = false;
+      _auto = false;
       _stopRequested = true;
     });
   }
@@ -299,7 +299,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       setState(() => _heroMood = 'bonus');
       _sfx.bonusSummary();
       await _showBonusSummary(
-        totalCredits: spin.bonusTotal,
+        totalCoins: spin.bonusTotal,
         highestCharge: bonusHighestCharge,
         cascadeCount: bonusCascades == 0 ? spin.bonusTumblesUsed : bonusCascades,
       );
@@ -361,7 +361,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
   }
 
   Future<void> _showBonusSummary({
-    required int totalCredits,
+    required int totalCoins,
     required int highestCharge,
     required int cascadeCount,
   }) {
@@ -372,7 +372,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (_) => BonusSummarySheet(
-        totalCredits: totalCredits,
+        totalCoins: totalCoins,
         highestCharge: highestCharge,
         cascadeCount: cascadeCount,
         onClose: () => Navigator.of(context).pop(),
@@ -517,19 +517,6 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 2.5,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: _ember.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _ember.withValues(alpha: 0.5)),
-              ),
-              child: const Text(
-                'DEMO / FREE PLAY',
-                style: TextStyle(color: _ember, fontSize: 9, fontWeight: FontWeight.bold),
               ),
             ),
             const Spacer(),
@@ -726,16 +713,16 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (_autoDemo)
+              if (_auto)
                 _pillButton('STOP', Colors.redAccent, _stopAuto)
               else
                 _pillButton(
-                  'AUTO DEMO',
+                  'AUTO',
                   _copper,
                   canPlay
                       ? () {
                           setState(() {
-                            _autoDemo = true;
+                            _auto = true;
                             _stopRequested = false;
                           });
                           unawaited(_ignite());
