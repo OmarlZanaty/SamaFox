@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -500,6 +501,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                         child: SkyfireVaultTransition(
                           tumbles: _bonusTransitionTumbles,
                           reducedMotion: _reducedMotion,
+                          art: _art,
                           onDone: _onBonusTransitionDone,
                         ),
                       ),
@@ -509,6 +511,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                           tier: _celebrationTier!,
                           amount: _celebrationAmount,
                           reducedMotion: _reducedMotion,
+                          art: _art,
                           onDone: _onCelebrationDone,
                         ),
                       ),
@@ -603,7 +606,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _sideStat('SKYFIRE\nCHARGE', '+$_skyfireCharge%', _ember, alignEnd: false),
+              _SkyfireChargeMeter(charge: _skyfireCharge),
               const Spacer(),
               _sideStat('SEQUENCE\nWIN', _sequenceWin.round().toString(), _cyan, alignEnd: true),
             ],
@@ -643,6 +646,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                 chargeBank: _bonusChargeBank,
                 locks: _bonusLocks,
                 lockTarget: _layout?.constellationLockTarget ?? 3,
+                art: _art,
               ),
             ),
         ],
@@ -832,6 +836,85 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
           ),
         ),
       );
+}
+
+/// The Skyfire Charge readout, drawn inside the delivered meter frame.
+///
+/// The fill is deliberately not a percentage of anything real — charge is
+/// uncapped and a sequence can bank far more than a barful — so it eases toward
+/// full on a curve that keeps moving without ever pretending to be a limit. The
+/// exact figure is printed on top, which is the number that actually matters.
+class _SkyfireChargeMeter extends StatelessWidget {
+  const _SkyfireChargeMeter({required this.charge});
+
+  final int charge;
+
+  /// 0 at no charge, approaching 1 as charge climbs. 60% is the halfway point.
+  double get _fill => 1 - math.exp(-charge / 60.0);
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 118,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SKYFIRE\nCHARGE',
+            style: TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 1, height: 1.2),
+          ),
+          const SizedBox(height: 3),
+          SizedBox(
+            height: 26,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                // Fill sits under the frame so the frame's trim caps its ends.
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+                  child: LayoutBuilder(
+                    builder: (context, c) => AnimatedContainer(
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeOut,
+                      width: c.maxWidth * _fill,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [_ember, Color(0xFFFFD08A)]),
+                        borderRadius: BorderRadius.circular(4),
+                        boxShadow: [
+                          BoxShadow(color: _ember.withValues(alpha: 0.55), blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: Image.asset(
+                    'assets/images/aetherfall/meter_frame.png',
+                    fit: BoxFit.fill,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+                Positioned.fill(
+                  child: Center(
+                    child: Text(
+                      '+$charge%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        shadows: [Shadow(color: _bgBottom, blurRadius: 4)],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// A control skinned with one of the delivered pill PNGs.

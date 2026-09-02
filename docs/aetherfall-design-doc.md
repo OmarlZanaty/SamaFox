@@ -365,9 +365,9 @@ Every path, size and generation prompt lives in `AETHERFALL_ARTWORK_BRIEF.md`.
 | Hub tile | `cards/card_aetherfall.png` | **Delivered** | Wired |
 | Hero portraits | 3 × `hero_portrait_*` | **Delivered** | Wired |
 | Backgrounds | `bg_observatory`, `bg_bonus_vault` | **Delivered** | Wired |
-| FX textures | 5 particle / ribbon PNGs | **Delivered** | **Not wired** — particles still drawn procedurally |
+| FX textures | 5 particle / ribbon PNGs | **Delivered** | Wired |
 | UI chrome | `btn_ignite`, `btn_auto` | **Delivered** | Wired |
-| UI chrome | `meter_frame` | **Delivered** | **Not wired** — the charge readout is a text stat, not a bar |
+| UI chrome | `meter_frame` | **Delivered** | Wired — the charge readout is now a real meter |
 
 ### What arrived, and what had to be repaired
 

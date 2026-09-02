@@ -125,12 +125,26 @@ const Map<String, String> kSymbolNames = {
   'CHARGE': 'Ember Charge',
 };
 
-/// Loaded artwork for every symbol, keyed by symbol id. Any missing file
-/// leaves its slot null and callers fall back to the painted glyph.
+/// Particle and ribbon textures, keyed by the stem used in [AetherfallArt.fx].
+/// These are additive light on black, so they are drawn with [ui.BlendMode.plus]
+/// and need no alpha of their own to look right over the board.
+const List<String> kFxAssets = [
+  'fx_particle_spark',
+  'fx_particle_ember',
+  'fx_ribbon_compass',
+  'fx_constellation_thread',
+  'fx_key_unlock',
+];
+
+/// Loaded artwork for every symbol plus the effect textures. Any missing file
+/// leaves its slot null and callers fall back to the painted version.
 class AetherfallArt {
-  const AetherfallArt(this.images);
+  const AetherfallArt(this.images, this.fx);
 
   final Map<String, ui.Image?> images;
+
+  /// Effect textures keyed by file stem, e.g. 'fx_particle_spark'.
+  final Map<String, ui.Image?> fx;
 
   static Future<ui.Image?> _load(String path) async {
     try {
@@ -152,10 +166,18 @@ class AetherfallArt {
     for (var i = 0; i < entries.length; i++) {
       map[entries[i].id] = results[i];
     }
-    return AetherfallArt(map);
+
+    final fxResults = await Future.wait(kFxAssets.map((n) => _load('$dir/$n.png')));
+    final fxMap = <String, ui.Image?>{};
+    for (var i = 0; i < kFxAssets.length; i++) {
+      fxMap[kFxAssets[i]] = fxResults[i];
+    }
+
+    return AetherfallArt(map, fxMap);
   }
 
   ui.Image? forSymbol(String id) => images[id];
+  ui.Image? forFx(String name) => fx[name];
 }
 
 /// One symbol tile: real art if loaded, otherwise a painted glass glyph.

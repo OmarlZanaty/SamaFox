@@ -1,4 +1,8 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+
+import 'aetherfall_symbols.dart';
 
 const _midnight = Color(0xFF0B1030);
 const _ember = Color(0xFFFF8A3D);
@@ -14,11 +18,15 @@ class SkyfireVaultTransition extends StatefulWidget {
     required this.tumbles,
     required this.onDone,
     this.reducedMotion = false,
+    this.art,
   });
 
   final int tumbles;
   final VoidCallback onDone;
   final bool reducedMotion;
+
+  /// Effect textures; null falls back to the plain keys-and-text transition.
+  final AetherfallArt? art;
 
   @override
   State<SkyfireVaultTransition> createState() => _SkyfireVaultTransitionState();
@@ -62,9 +70,17 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
             final t = _ctrl.value;
             final keyGlow = Curves.easeOut.transform((t * 2).clamp(0, 1).toDouble());
             final textIn = Curves.easeOutBack.transform(((t - 0.4) * 2.5).clamp(0, 1).toDouble());
+            final burst = widget.art?.forFx('fx_key_unlock');
             return Stack(
               alignment: Alignment.center,
               children: [
+                // The unlock burst blooms behind the keys as they align, then
+                // fades as the vault name comes forward.
+                if (burst != null)
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: _BurstPainter(image: burst, progress: t),
+                  ),
                 Opacity(
                   opacity: keyGlow,
                   child: Row(
@@ -127,6 +143,79 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
   }
 }
 
+/// The Vault Key unlock burst: scales up and fades out as the transition runs.
+/// Additive, because the texture is light drawn on black.
+class _BurstPainter extends CustomPainter {
+  _BurstPainter({required this.image, required this.progress});
+
+  final ui.Image image;
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grow = Curves.easeOutCubic.transform(progress.clamp(0.0, 1.0));
+    final fade = (1 - Curves.easeInCubic.transform(progress.clamp(0.0, 1.0))).clamp(0.0, 1.0);
+    if (fade <= 0.01) return;
+
+    final extent = size.shortestSide * (0.5 + grow * 1.1);
+    final dst = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: extent,
+      height: extent,
+    );
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      dst,
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..filterQuality = FilterQuality.medium
+        ..color = Colors.white.withValues(alpha: 0.9 * fade),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BurstPainter old) => old.progress != progress;
+}
+
+/// One constellation thread, lit once its lock has been earned.
+class _LockThread extends StatelessWidget {
+  const _LockThread({required this.image, required this.lit});
+
+  final ui.Image image;
+  final bool lit;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 22,
+        height: 10,
+        child: CustomPaint(painter: _ThreadPainter(image: image, lit: lit)),
+      );
+}
+
+class _ThreadPainter extends CustomPainter {
+  _ThreadPainter({required this.image, required this.lit});
+
+  final ui.Image image;
+  final bool lit;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      Offset.zero & size,
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..filterQuality = FilterQuality.medium
+        ..color = Colors.white.withValues(alpha: lit ? 1.0 : 0.18),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ThreadPainter old) => old.lit != lit;
+}
+
 /// Persistent HUD strip shown during bonus play: tumbles left, charge bank,
 /// constellation locks.
 class BonusHud extends StatelessWidget {
@@ -136,12 +225,16 @@ class BonusHud extends StatelessWidget {
     required this.chargeBank,
     required this.locks,
     required this.lockTarget,
+    this.art,
   });
 
   final int tumblesLeft;
   final int chargeBank;
   final int locks;
   final int lockTarget;
+
+  /// Effect textures; null keeps the plain "2/3" counter.
+  final AetherfallArt? art;
 
   @override
   Widget build(BuildContext context) {
@@ -159,9 +252,41 @@ class BonusHud extends StatelessWidget {
           _divider(),
           _stat('CHARGE BANK', '+$chargeBank%', _ember),
           _divider(),
-          _stat('LOCKS', '${locks.clamp(0, lockTarget)}/$lockTarget', _mint),
+          _locks(),
         ],
       ),
+    );
+  }
+
+  /// Locks read as a row of constellation threads that light up as they are
+  /// earned, with the count kept underneath so the progress is still literal.
+  Widget _locks() {
+    final thread = art?.forFx('fx_constellation_thread');
+    final earned = locks.clamp(0, lockTarget);
+    if (thread == null) {
+      return _stat('LOCKS', '$earned/$lockTarget', _mint);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 16,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < lockTarget; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 1),
+                  child: _LockThread(image: thread, lit: i < earned),
+                ),
+            ],
+          ),
+        ),
+        Text(
+          'LOCKS $earned/$lockTarget',
+          style: const TextStyle(color: Colors.white54, fontSize: 9, letterSpacing: 1),
+        ),
+      ],
     );
   }
 
