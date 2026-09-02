@@ -143,6 +143,12 @@ class AetherfallHelpSheet extends StatelessWidget {
         ),
       );
 
+  /// Payouts come off the server's table, so they can carry two decimals (0.95)
+  /// or none at all (135). Show what the table actually says — rounding to one
+  /// decimal here would print x0.9 for a symbol that really pays 0.95.
+  static String _payout(num v) =>
+      v.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+
   Widget _paytable() {
     final rows = layout.standardSymbols;
     return Column(
@@ -169,7 +175,7 @@ class AetherfallHelpSheet extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      'x${v.toStringAsFixed(1)}',
+                      'x${_payout(v)}',
                       style: const TextStyle(color: _cyan, fontSize: 11),
                     ),
                   ),

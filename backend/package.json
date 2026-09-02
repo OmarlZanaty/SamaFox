@@ -10,6 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
+    "sim:aetherfall": "ts-node --transpile-only scripts/aetherfall-sim.ts",
     "seed": "ts-node prisma/seed.ts",
     "seed:gifts": "ts-node prisma/seed-gifts.ts",
     "seed:achievements": "ts-node prisma/seed-achievements.ts",
