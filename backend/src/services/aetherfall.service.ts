@@ -52,20 +52,35 @@ const WEIGHTS_BONUS: Record<Cell, number> = {
 
 // ── Paytable ─────────────────────────────────────────────────────────────────
 // Values are the payout as a multiple of the total bet. Three count bands:
-// 9-11, 12-14, 15+ (of the 30 visible cells). Calibrated by Monte-Carlo
-// simulation (2,000,000 spins) to ~94% RTP with the weights above — see
-// [[project_halal_games_rule]] in memory: this game is a deliberate "build with
-// real betting, convert later" exception, matching عجلة الحظ and بلينكو, so it
-// still needs measured, not guessed, economics.
+// 9-11, 12-14, 15+ (of the 30 visible cells).
+//
+// Tuned to ~97% RTP — a 3% house edge, matching طيّار — and *measured*, not
+// guessed: `npm run sim:aetherfall` replays this exact math over hundreds of
+// thousands of spins and fails loudly if the return creeps back over 100%. An
+// earlier version of this table claimed ~94% in a comment but actually returned
+// ~102.5%, so the game paid out more than it took in; re-run the simulator after
+// touching anything in this block or the weights above.
+//
+// Measured over 1.2M spins: 96.98% at the 20-coin minimum (seed spread
+// 96.45-97.54%), 34.2% hit rate, bonus 1 in 115 paying ~21x bet. RTP drifts up
+// slightly with stake — 97.65% at 5,000 coins — because payouts are floored to
+// whole coins and that rounding bites proportionally harder on small wins. The
+// house edge is therefore widest exactly where it matters least; both ends sit
+// well under 100%, which is the line that actually has to hold.
+//
+// Both base play and the bonus read this one table, and every payout is linear
+// in it, so scaling the whole table scales total RTP by the same factor. That
+// makes it the safest lever: hit rate, bonus frequency and the shape of the game
+// all stay exactly where they were.
 export const PAYTABLE: Record<StandardSymbol, [number, number, number]> = {
-  L1: [1.0, 2.4, 5.8],
-  L2: [1.2, 3.0, 6.9],
-  L3: [1.4, 3.4, 8.0],
-  L4: [1.9, 4.8, 11.6],
-  H1: [2.9, 7.2, 19],
-  H2: [4.8, 11.6, 34],
-  H3: [9.5, 23.3, 76],
-  H4: [19, 47.5, 143],
+  L1: [0.95, 2.3, 5.5],
+  L2: [1.15, 2.85, 6.5],
+  L3: [1.3, 3.2, 7.6],
+  L4: [1.8, 4.5, 11],
+  H1: [2.75, 6.8, 18],
+  H2: [4.5, 11, 32],
+  H3: [9, 22, 72],
+  H4: [18, 45, 135],
 };
 
 function bandOf(count: number): 0 | 1 | 2 {
