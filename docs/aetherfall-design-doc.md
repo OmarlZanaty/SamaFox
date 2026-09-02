@@ -357,20 +357,54 @@ and no music bed — only these one-shots.
 
 Every path, size and generation prompt lives in `AETHERFALL_ARTWORK_BRIEF.md`.
 
-| Group | Files | Status |
-|---|---|---|
-| Sound | 18 wavs | **Delivered** and wired |
-| Standard symbols | `symbol_l1…l4`, `symbol_h1…h4` | **Not delivered** — painted-glyph fallback, wired for drop-in |
-| Special symbols | `symbol_wild`, `symbol_key`, `symbol_charge` | **Not delivered** — same fallback |
-| Hub tile | `cards/card_aetherfall.png` | **Not delivered** — wired for drop-in |
-| Hero | `hero_sheet`, 3 × `hero_portrait_*` | **Not delivered**, not wired — needs a follow-up pass |
-| Backgrounds | `bg_observatory`, `bg_bonus_vault` | **Not delivered**, not wired — flat indigo gradient in place |
-| FX textures | 5 particle / ribbon PNGs | **Not delivered**, not wired — particles drawn procedurally |
-| UI chrome | `btn_ignite`, `btn_auto`, `meter_frame` | **Not delivered**, not wired — solid rounded buttons |
+| Group | Files | Status | Wiring |
+|---|---|---|---|
+| Sound | 18 wavs | **Delivered** | Wired |
+| Standard symbols | `symbol_l1…h4` | **Delivered** | Wired |
+| Special symbols | `symbol_wild`, `symbol_key`, `symbol_charge` | **Delivered, 3 need a redo** | Wired |
+| Hub tile | `cards/card_aetherfall.png` | **Delivered** | Wired |
+| Hero portraits | 3 × `hero_portrait_*` | **Delivered** | Wired |
+| Backgrounds | `bg_observatory`, `bg_bonus_vault` | **Delivered** | Wired |
+| FX textures | 5 particle / ribbon PNGs | **Delivered** | **Not wired** — particles still drawn procedurally |
+| UI chrome | `btn_ignite`, `btn_auto` | **Delivered** | Wired |
+| UI chrome | `meter_frame` | **Delivered** | **Not wired** — the charge readout is a text stat, not a bar |
 
-`app/assets/images/aetherfall/` currently holds only `PLACEHOLDER.md`. Symbols
-and the hub tile need **no code change** — dropping the PNGs in is enough.
-Everything else needs a short wiring pass.
+### What arrived, and what had to be repaired
+
+The renders came back at ~1,250 px and 1–2.8 MB each, **42 MB in total**, every
+filename doubled (`symbol_l1.png.png`), and 19 of the 22 assets that needed a
+transparent background were flat RGB with the background baked in.
+
+Repaired in one pass (`app/assets/images/aetherfall/`, now **7.2 MB**):
+
+- Filenames de-doubled.
+- Alpha lifted out of the baked background. Two strategies, because one does not
+  fit both kinds of art: **glow assets** (the five FX textures, drawn on black)
+  take alpha from luminance, which is the physically correct matte for additive
+  light and keeps the soft falloff; **solid objects** get a flood fill inward
+  from the corners so only the *connected* background is cut, leaving dark
+  detail inside the object intact, then a 2 px erode to eat the resample fringe.
+- `symbol_l1`–`l3` came on **white**, which left a bright rim that read badly on
+  the dark board. Keying alone could not fix it, so those three are matted by
+  distance-from-white and then un-premultiplied — `obj = (observed − (1−a)·white) / a`
+  — which recovers the true edge colour and removes the halo.
+- Everything resized to the sizes the app draws at and recompressed.
+- `hero_sheet.png` moved to `docs/aetherfall-hero-sheet.png`. It is reference art
+  for future consistency, and `pubspec.yaml` bundles that directory wholesale, so
+  leaving it there would have shipped 2.3 MB of concept art in the APK.
+
+The pristine 42 MB originals are kept outside the repo in the session scratchpad,
+so any of this can be redone without re-generating.
+
+### Three symbols still need regenerating
+
+`symbol_wild`, `symbol_key` and `symbol_charge` came back as **scenes** rather
+than isolated objects — a studio backdrop with a floor and a cast shadow, soil,
+and sand respectively. No keying can separate an object from a floor it is
+sitting on, so these three ship with visible ground under them until they are
+redone. Add to the prompt: *plain solid black background, object floating,
+nothing beneath it, no ground, no floor, no surface, no cast shadow, no
+backdrop, no scene.*
 
 ---
 

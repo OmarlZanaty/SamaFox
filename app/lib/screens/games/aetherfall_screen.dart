@@ -462,11 +462,24 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       backgroundColor: _bgBottom,
       body: SafeArea(
         child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [_bgTop, _bgBottom],
+            ),
+            // The skybox swaps when the Skyfire Vault opens. The gradient stays
+            // underneath so the screen still reads correctly if the art is
+            // missing from the bundle.
+            image: DecorationImage(
+              image: AssetImage(
+                _inBonus
+                    ? 'assets/images/aetherfall/bg_bonus_vault.png'
+                    : 'assets/images/aetherfall/bg_observatory.png',
+              ),
+              fit: BoxFit.cover,
+              opacity: 0.55,
+              onError: (_, __) {},
             ),
           ),
           child: _loading
@@ -716,18 +729,30 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
               if (_auto)
                 _pillButton('STOP', Colors.redAccent, _stopAuto)
               else
-                _pillButton(
-                  'AUTO',
-                  _copper,
-                  canPlay
-                      ? () {
-                          setState(() {
-                            _auto = true;
-                            _stopRequested = false;
-                          });
-                          unawaited(_ignite());
-                        }
-                      : null,
+                SizedBox(
+                  width: 160,
+                  child: _SkinnedButton(
+                    asset: 'btn_auto',
+                    tint: _copper,
+                    height: 38,
+                    enabled: canPlay,
+                    onTap: () {
+                      setState(() {
+                        _auto = true;
+                        _stopRequested = false;
+                      });
+                      unawaited(_ignite());
+                    },
+                    child: const Text(
+                      'AUTO',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -764,28 +789,27 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         ),
       );
 
-  Widget _igniteButton(bool enabled) => SizedBox(
+  Widget _igniteButton(bool enabled) => _SkinnedButton(
+        asset: 'btn_ignite',
+        tint: _cyan,
         height: 52,
-        child: ElevatedButton(
-          onPressed: enabled ? _ignite : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _cyan,
-            disabledBackgroundColor: _cyan.withValues(alpha: 0.35),
-            foregroundColor: _bgBottom,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            elevation: 6,
-          ),
-          child: _busy
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.4),
-                )
-              : const Text(
-                  'IGNITE',
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, letterSpacing: 1.5),
+        enabled: enabled,
+        onTap: _ignite,
+        child: _busy
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.4, color: _bgBottom),
+              )
+            : const Text(
+                'IGNITE',
+                style: TextStyle(
+                  color: _bgBottom,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 17,
+                  letterSpacing: 1.5,
                 ),
-        ),
+              ),
       );
 
   Widget _pillButton(String label, Color color, VoidCallback? onTap) => SizedBox(
@@ -810,9 +834,69 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       );
 }
 
-/// The small animated observatory-window portrait above the playfield. No
-/// artwork exists yet, so this is a mood-tinted painted glyph — the same
-/// graceful-fallback pattern as [SymbolTile].
+/// A control skinned with one of the delivered pill PNGs.
+///
+/// The label is drawn by the app rather than baked into the art, so it stays
+/// crisp and translatable. If the PNG is missing the button falls back to a
+/// tinted rounded rectangle, so the screen is never left without a control.
+class _SkinnedButton extends StatelessWidget {
+  const _SkinnedButton({
+    required this.asset,
+    required this.tint,
+    required this.height,
+    required this.enabled,
+    required this.onTap,
+    required this.child,
+  });
+
+  final String asset;
+  final Color tint;
+  final double height;
+  final bool enabled;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1 : 0.4,
+      child: SizedBox(
+        height: height,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            borderRadius: BorderRadius.circular(height / 2),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned.fill(
+                  child: Image.asset(
+                    'assets/images/aetherfall/$asset.png',
+                    fit: BoxFit.fill,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, __, ___) => DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: tint,
+                        borderRadius: BorderRadius.circular(height / 3),
+                      ),
+                    ),
+                  ),
+                ),
+                child,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The small animated observatory-window portrait above the playfield: Ilyra,
+/// Warden of the Skyfire, whose expression follows the round. Falls back to a
+/// mood-tinted painted glyph if the artwork is missing from the bundle — the
+/// same graceful-fallback pattern as [SymbolTile].
 class _HeroPortrait extends StatelessWidget {
   const _HeroPortrait({required this.mood});
   final String mood;
@@ -829,6 +913,11 @@ class _HeroPortrait extends StatelessWidget {
       'bonus' => Icons.local_fire_department_rounded,
       _ => Icons.person_outline_rounded,
     };
+    final asset = switch (mood) {
+      'win' => 'hero_portrait_win',
+      'bonus' => 'hero_portrait_bonus',
+      _ => 'hero_portrait_idle',
+    };
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       width: 56,
@@ -839,7 +928,14 @@ class _HeroPortrait extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.7), width: 1.6),
         boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 14)],
       ),
-      child: Icon(icon, color: color, size: 26),
+      child: ClipOval(
+        child: Image.asset(
+          'assets/images/aetherfall/$asset.png',
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (_, __, ___) => Icon(icon, color: color, size: 26),
+        ),
+      ),
     );
   }
 }
