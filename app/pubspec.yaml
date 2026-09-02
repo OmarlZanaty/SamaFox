@@ -122,6 +122,7 @@ flutter:
     - assets/images/plinko/
     # أثيرفول artwork — likewise.
     - assets/images/aetherfall/
+    - assets/images/neon/
     # Game-card banners for the hub.
     - assets/images/cards/
     - assets/fonts/

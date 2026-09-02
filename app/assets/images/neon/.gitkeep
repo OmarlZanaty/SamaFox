@@ -1,0 +1,2 @@
+# Neon Fortune artwork lands here — see NEON_FORTUNE_ARTWORK_BRIEF.md.
+# Kept so the pubspec asset entry resolves before any PNG exists.
