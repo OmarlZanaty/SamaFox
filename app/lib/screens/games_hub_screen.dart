@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'games/aetherfall_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
+import 'games/neon_fortune_screen.dart';
 import 'games/plinko_screen.dart';
 // Older games are hidden from the hub for now — see _hiddenGames below.
 // import 'games/skill_wheel_screen.dart';
@@ -45,6 +46,14 @@ const List<_GameEntry> _games = [
     accent: Color(0xFF4DD8E6),
     gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
     art: 'assets/images/cards/card_aetherfall.png',
+  ),
+  _GameEntry(
+    title: 'نيون فورتشن',
+    tagline: 'أدر واجمع الجاكبوت',
+    emoji: '🐯',
+    accent: Color(0xFFEA35D7),
+    gradient: [Color(0xFF250A46), Color(0xFF17062E)],
+    art: 'assets/images/cards/card_neon.png',
   ),
 ];
 
@@ -170,12 +179,15 @@ class GamesHubScreen extends ConsumerWidget {
       case 3:
         screen = const AetherfallScreen();
         break;
+      case 4:
+        screen = const NeonFortuneScreen();
+        break;
       // Hidden games — indices follow whatever position they are restored to
       // in _games:
-      // case 4: screen = const SkillWheelScreen(); break;
-      // case 5: screen = const FishShooterScreen(); break;
-      // case 6: screen = const LionTigerScreen(); break;
-      // case 7: screen = const SkillDiceScreen(); break;
+      // case 5: screen = const SkillWheelScreen(); break;
+      // case 6: screen = const FishShooterScreen(); break;
+      // case 7: screen = const LionTigerScreen(); break;
+      // case 8: screen = const SkillDiceScreen(); break;
       default:
         return;
     }
