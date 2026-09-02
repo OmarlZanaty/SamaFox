@@ -1,6 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+
+import 'aetherfall_symbols.dart';
 
 /// The four original celebration tiers for أثيرفول — deliberately not named
 /// "BIG WIN" / "MEGA WIN" / etc. per the game's creative-distinction brief.
@@ -28,12 +31,16 @@ class CelebrationOverlay extends StatefulWidget {
     required this.amount,
     required this.onDone,
     this.reducedMotion = false,
+    this.art,
   });
 
   final String tier;
   final int amount;
   final VoidCallback onDone;
   final bool reducedMotion;
+
+  /// Effect textures. Null leaves the painter on its painted-dot fallback.
+  final AetherfallArt? art;
 
   @override
   State<CelebrationOverlay> createState() => _CelebrationOverlayState();
@@ -85,7 +92,13 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                 animation: _particles,
                 builder: (context, _) => CustomPaint(
                   size: Size.infinite,
-                  painter: _ParticlePainter(t: _particles.value, color: color),
+                  painter: _ParticlePainter(
+                    t: _particles.value,
+                    color: color,
+                    spark: widget.art?.forFx('fx_particle_spark'),
+                    ember: widget.art?.forFx('fx_particle_ember'),
+                    ribbon: widget.art?.forFx('fx_ribbon_compass'),
+                  ),
                 ),
               ),
             Column(
@@ -139,15 +152,62 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
   }
 }
 
+/// Celebration particles.
+///
+/// With textures loaded these are real sparks and meteor embers blown outward
+/// from the counter, plus a couple of slow compass-line ribbons sweeping behind
+/// them. The textures are additive light rendered on black, so they composite
+/// with [BlendMode.plus] — which also means the black they carry contributes
+/// nothing and no matte is needed. Without them it falls back to the original
+/// painted dots, so the celebration still reads if the art is missing.
 class _ParticlePainter extends CustomPainter {
-  _ParticlePainter({required this.t, required this.color});
+  _ParticlePainter({
+    required this.t,
+    required this.color,
+    this.spark,
+    this.ember,
+    this.ribbon,
+  });
+
   final double t;
   final Color color;
+  final ui.Image? spark;
+  final ui.Image? ember;
+  final ui.Image? ribbon;
+
+  void _blit(Canvas canvas, ui.Image img, Offset pos, double size, double opacity) {
+    final src = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
+    final dst = Rect.fromCenter(center: pos, width: size, height: size * img.height / img.width);
+    canvas.drawImageRect(
+      img,
+      src,
+      dst,
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..filterQuality = FilterQuality.medium
+        ..color = Colors.white.withValues(alpha: opacity.clamp(0.0, 1.0)),
+    );
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final rnd = math.Random(7);
     final center = Offset(size.width / 2, size.height * 0.42);
+
+    // Ribbons sit behind the sparks and drift on a slower cycle.
+    if (ribbon != null) {
+      for (var i = 0; i < 2; i++) {
+        final phase = (t + i * 0.5) % 1.0;
+        final drift = (phase - 0.5) * size.width * 0.9;
+        final fade = math.sin(phase * math.pi);
+        canvas.save();
+        canvas.translate(center.dx + drift, center.dy + (i == 0 ? -60 : 70));
+        canvas.rotate(i == 0 ? -0.18 : 0.14);
+        _blit(canvas, ribbon!, Offset.zero, size.width * 0.75, 0.5 * fade);
+        canvas.restore();
+      }
+    }
+
     for (var i = 0; i < 26; i++) {
       final angle = rnd.nextDouble() * 2 * math.pi;
       final speed = 60 + rnd.nextDouble() * 140;
@@ -155,11 +215,24 @@ class _ParticlePainter extends CustomPainter {
       final r = phase * speed * 2;
       final pos = center + Offset(math.cos(angle) * r, math.sin(angle) * r * 0.6 - phase * 40);
       final opacity = (1 - phase).clamp(0.0, 1.0);
-      final paint = Paint()..color = color.withValues(alpha: 0.55 * opacity);
-      canvas.drawCircle(pos, 2.2 + rnd.nextDouble() * 2, paint);
+
+      // Roughly a third are embers, the rest sparks — enough variety to read as
+      // debris rather than a uniform particle system.
+      final useEmber = ember != null && i % 3 == 0;
+      final img = useEmber ? ember : spark;
+      if (img != null) {
+        _blit(canvas, img, pos, 16 + rnd.nextDouble() * 20, 0.85 * opacity);
+      } else {
+        canvas.drawCircle(
+          pos,
+          2.2 + rnd.nextDouble() * 2,
+          Paint()..color = color.withValues(alpha: 0.55 * opacity),
+        );
+      }
     }
   }
 
   @override
-  bool shouldRepaint(covariant _ParticlePainter oldDelegate) => oldDelegate.t != t;
+  bool shouldRepaint(covariant _ParticlePainter oldDelegate) =>
+      oldDelegate.t != t || oldDelegate.spark != spark;
 }
