@@ -4,6 +4,7 @@ import 'games/aetherfall_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
+import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
 // Older games are hidden from the hub for now — see _hiddenGames below.
 // import 'games/skill_wheel_screen.dart';
@@ -46,6 +47,14 @@ const List<_GameEntry> _games = [
     accent: Color(0xFF4DD8E6),
     gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
     art: 'assets/images/cards/card_aetherfall.png',
+  ),
+  _GameEntry(
+    title: 'القط الجشع',
+    tagline: 'اختر طعامك واربح',
+    emoji: '🐱',
+    accent: Color(0xFFFFD83D),
+    gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
+    art: 'assets/images/cards/card_greedy.png',
   ),
   _GameEntry(
     title: 'نيون فورتشن',
@@ -164,30 +173,41 @@ class GamesHubScreen extends ConsumerWidget {
     );
   }
 
+  /// Dispatch on the entry's title, not its position.
+  ///
+  /// This used to switch on the list index, which meant inserting a game
+  /// silently repointed every card after it — and two games in flight at once
+  /// had already collided on `case 4`. The title is stable, so a new entry can
+  /// go anywhere in [_games] without touching anything below.
   void _open(BuildContext context, int index) {
-    Widget screen;
-    switch (index) {
-      case 0:
+    final Widget screen;
+    switch (_games[index].title) {
+      case 'بلينكو':
         screen = const PlinkoScreen();
         break;
-      case 1:
+      case 'عجلة الحظ':
         screen = const CrazyWheelScreen();
         break;
-      case 2:
+      case 'طيّار':
         screen = const CrashGameScreen();
         break;
-      case 3:
+      case 'أثيرفول':
         screen = const AetherfallScreen();
         break;
-      case 4:
+      case 'القط الجشع':
+        screen = const GreedyCatScreen();
+        break;
+      // نيون فورتشن is built but has no hub card yet — this branch goes live the
+      // moment its _GameEntry is added to [_games].
+      case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
         break;
-      // Hidden games — indices follow whatever position they are restored to
-      // in _games:
-      // case 5: screen = const SkillWheelScreen(); break;
-      // case 6: screen = const FishShooterScreen(); break;
-      // case 7: screen = const LionTigerScreen(); break;
-      // case 8: screen = const SkillDiceScreen(); break;
+      // Hidden games — restore the _GameEntry to [_games] and these match by
+      // title wherever it lands:
+      // case 'عجلة المهارة': screen = const SkillWheelScreen(); break;
+      // case 'صياد السمك': screen = const FishShooterScreen(); break;
+      // case 'حلبة الأسد والنمر': screen = const LionTigerScreen(); break;
+      // case 'نرد المهارة': screen = const SkillDiceScreen(); break;
       default:
         return;
     }
