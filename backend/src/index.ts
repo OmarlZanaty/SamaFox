@@ -37,6 +37,7 @@ import { startSkillDiceEngine } from './services/skillDice.service';
 import { startSkillWheelEngine } from './services/skillWheel.service';
 import { startCrashEngine } from './services/crash.service';
 import { startCrazyWheelEngine } from './services/crazyWheel.service';
+import { startGreedyCatEngine } from './services/greedyCat.service';
 import { startBoxingEngine } from './services/boxing.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
@@ -241,6 +242,7 @@ startSkillDiceEngine(io);
 startSkillWheelEngine(io);
 startCrashEngine(io);
 startCrazyWheelEngine(io);
+startGreedyCatEngine(io);
 startBoxingEngine(io);
 
 // error handler
