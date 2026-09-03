@@ -117,7 +117,7 @@ export const getGreedyRanking = async (req: Request, res: Response) => {
       });
       country = user?.countryCode ?? null;
     }
-    res.json({ success: true, scope, country, ranking: getRanking(country) });
+    res.json({ success: true, scope, country, ranking: await getRanking(country) });
   } catch (error) {
     console.error('[greedyCat] ranking error', error);
     res.status(500).json({ success: false, message: 'تعذر تحميل الترتيب' });

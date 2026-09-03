@@ -194,10 +194,24 @@ const history: HistoryEntry[] = [];
 const lastBets = new Map<number, Record<string, number>>();
 
 // ── Daily leaderboard ───────────────────────────────────────
+/**
+ * «أرباح اليوم» / «سجلي» / «ترتيب اليوم», backed by `game_daily_stats`.
+ *
+ * The Map here is a read cache, not the store. `getPublicState` is synchronous
+ * (it is called from `broadcast()` and straight out of a socket handler), so it
+ * cannot await a query — but the board also has to survive a deploy, which the
+ * old in-memory-only version did not. So: the cache answers the per-round
+ * reads, Postgres holds the truth, and the two are reconciled at settlement.
+ *
+ * The cache is authoritative *while the process runs*, which is sound because
+ * the round engine is a singleton — one process owns the table, so there is no
+ * second writer to race with. It is hydrated from the DB on boot, so a restart
+ * mid-day resumes each player's running total instead of zeroing it.
+ */
+const GAME_KEY = 'greedy';
+
 interface DailyRow {
   userId: number;
-  name: string;
-  avatarUrl: string | null;
   countryCode: string | null;
   /** Net = everything won today minus everything staked today. */
   net: number;
@@ -217,17 +231,17 @@ function rollDailyIfNeeded() {
   const key = todayKey();
   if (key === dailyKey) return;
   dailyKey = key;
+  // Only the cache is cleared — yesterday's rows stay in the table.
   daily.clear();
 }
 
-function dailyRow(p: PlayerBets): DailyRow {
+/** The cached row for a player, created zeroed on first touch. */
+function cacheRow(p: PlayerBets): DailyRow {
   rollDailyIfNeeded();
   let row = daily.get(p.userId);
   if (!row) {
     row = {
       userId: p.userId,
-      name: p.name,
-      avatarUrl: p.avatarUrl,
       countryCode: p.countryCode,
       net: 0,
       wagered: 0,
@@ -238,22 +252,83 @@ function dailyRow(p: PlayerBets): DailyRow {
   return row;
 }
 
-/** Top rows for the ranking card. A non-null `country` filters to that region. */
-export function getRanking(country?: string | null, limit = 20) {
+/**
+ * Writes a cached row through to the table. The whole row is written rather
+ * than an increment because the cache is the authoritative running total —
+ * incrementing would double-count a value the cache has already accumulated.
+ */
+async function persistDaily(row: DailyRow) {
+  await prisma.gameDailyStat.upsert({
+    where: {
+      game_day_userId: { game: GAME_KEY, day: dailyKey, userId: row.userId },
+    },
+    create: {
+      game: GAME_KEY,
+      day: dailyKey,
+      userId: row.userId,
+      net: row.net,
+      wagered: row.wagered,
+      best: row.best,
+      countryCode: row.countryCode,
+    },
+    update: {
+      net: row.net,
+      wagered: row.wagered,
+      best: row.best,
+      countryCode: row.countryCode,
+    },
+  });
+}
+
+/**
+ * Refills the cache from the table. Called once at engine start so a deploy
+ * mid-day does not reset everyone's «أرباح اليوم» to zero.
+ */
+async function hydrateDaily() {
   rollDailyIfNeeded();
-  return [...daily.values()]
-    .filter((r) => (country ? r.countryCode === country : true))
-    .filter((r) => r.net > 0)
-    .sort((a, b) => b.net - a.net)
-    .slice(0, limit)
-    .map((r, i) => ({
-      rank: i + 1,
+  const rows = await prisma.gameDailyStat.findMany({
+    where: { game: GAME_KEY, day: dailyKey },
+  });
+  for (const r of rows) {
+    daily.set(r.userId, {
       userId: r.userId,
-      name: r.name,
-      avatarUrl: r.avatarUrl,
       countryCode: r.countryCode,
-      score: r.net,
-    }));
+      net: r.net,
+      wagered: r.wagered,
+      best: r.best,
+    });
+  }
+  console.log(`[greedyCat] daily board hydrated — ${rows.length} player(s) for ${dailyKey}`);
+}
+
+/**
+ * Top rows for the ranking card. A non-null `country` filters to that region.
+ *
+ * Read straight from the table rather than the cache: this is an async REST
+ * path, so it can afford the query, and going to the source means the board is
+ * still right for players who have not placed a bet since the last restart.
+ */
+export async function getRanking(country?: string | null, limit = 20) {
+  rollDailyIfNeeded();
+  const rows = await prisma.gameDailyStat.findMany({
+    where: {
+      game: GAME_KEY,
+      day: dailyKey,
+      net: { gt: 0 },
+      ...(country ? { countryCode: country } : {}),
+    },
+    orderBy: { net: 'desc' },
+    take: limit,
+    include: { user: { select: { name: true, avatarUrl: true } } },
+  });
+  return rows.map((r, i) => ({
+    rank: i + 1,
+    userId: r.userId,
+    name: r.user?.name ?? 'لاعب',
+    avatarUrl: r.user?.avatarUrl ?? null,
+    countryCode: r.countryCode,
+    score: r.net,
+  }));
 }
 
 // ── Public state ────────────────────────────────────────────
@@ -438,7 +513,8 @@ export async function placeBet(userId: number, target: string, amount: number) {
 
   jackpotPot += amount;
   checkMilestone();
-  dailyRow(player).wagered += amount;
+  // Cache only — the round writes through once, at settlement.
+  cacheRow(player).wagered += amount;
 
   const balance = await balanceOf(userId);
   broadcast();
@@ -472,7 +548,7 @@ export async function clearBets(userId: number) {
     // The refund leaves the activity meter and the daily wagered figure too, or
     // a player could pump the jackpot bar by betting and clearing on a loop.
     jackpotPot = Math.max(0, jackpotPot - total);
-    dailyRow(player).wagered -= total;
+    cacheRow(player).wagered -= total;
   }
   broadcast();
   return { ok: true as const, bets: {}, categories: {}, balance: await balanceOf(userId) };
@@ -550,32 +626,43 @@ async function settle(r: Round) {
     player.payout = payout;
     player.multiplier = onWinner > 0 ? def.multiplier : 0;
 
-    const row = dailyRow(player);
+    const row = cacheRow(player);
     // `wagered` was already added at bet time, so the daily net only needs the
     // return side here.
     row.net += payout - staked;
     if (payout > row.best) row.best = payout;
 
-    if (payout <= 0) continue;
+    if (payout > 0) {
+      try {
+        await prisma.user.update({
+          where: { id: player.userId },
+          data: { coinsBalance: { increment: payout } },
+        });
+        winners.push({
+          userId: player.userId,
+          name: player.name,
+          avatarUrl: player.avatarUrl,
+          payout,
+          profit: payout - staked,
+        });
+      } catch (err) {
+        console.error('[greedyCat] payout failed', { userId: player.userId, payout, err });
+        // The coins never landed, so do not let the leaderboard claim they did.
+        row.net -= payout;
+        player.payout = 0;
+        player.multiplier = 0;
+      }
+    }
 
+    // One write-through per player per round — after the payout outcome is
+    // known, so a failed payout is never persisted as profit. Losers are
+    // written too: their net moved, and the board has to show it.
     try {
-      await prisma.user.update({
-        where: { id: player.userId },
-        data: { coinsBalance: { increment: payout } },
-      });
-      winners.push({
-        userId: player.userId,
-        name: player.name,
-        avatarUrl: player.avatarUrl,
-        payout,
-        profit: payout - staked,
-      });
+      await persistDaily(row);
     } catch (err) {
-      console.error('[greedyCat] payout failed', { userId: player.userId, payout, err });
-      // The coins never landed, so do not let the leaderboard claim they did.
-      row.net -= payout;
-      player.payout = 0;
-      player.multiplier = 0;
+      // The cache still has the right numbers, so the round is unaffected and
+      // the next settlement writes the corrected running total anyway.
+      console.error('[greedyCat] daily stat write failed', { userId: player.userId, err });
     }
   }
 
@@ -655,6 +742,9 @@ export function startGreedyCatEngine(server: Server) {
   if (io) return;
   assertBalancedTable();
   io = server;
+  // Fire-and-forget: a cold cache only means the first few «أرباح اليوم» reads
+  // show zero until the next settlement, never a wrong payout.
+  hydrateDaily().catch((err) => console.error('[greedyCat] daily hydrate failed', err));
   // Round numbers in the reference screen are six digits, so start high enough
   // that the header reads like a live table rather than a fresh install.
   nextRoundId = 900_000 + (Math.floor(Date.now() / 86_400_000) % 50_000);
