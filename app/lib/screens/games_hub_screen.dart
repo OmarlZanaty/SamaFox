@@ -307,10 +307,11 @@ class _GameCard extends StatelessWidget {
 
   /// Name and tagline over the artwork, for banners delivered without lettering.
   ///
-  /// A scrim runs from the trailing edge inward so the words hold their contrast
+  /// A scrim runs from the leading edge inward so the words hold their contrast
   /// whatever the art does behind them, and both it and the text follow the
-  /// reading direction — the Arabic layout puts them on the right, an English
-  /// one on the left, and the art is composed with that side left quiet.
+  /// reading direction — the Arabic layout puts them on the right, an English one
+  /// on the left. That is where reading starts, and where this banner leaves the
+  /// art quiet.
   List<Widget> _titleOverlay() {
     return [
       Positioned.fill(
@@ -318,8 +319,8 @@ class _GameCard extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: AlignmentDirectional.centerEnd,
-                end: AlignmentDirectional.centerStart,
+                begin: AlignmentDirectional.centerStart,
+                end: AlignmentDirectional.centerEnd,
                 colors: [
                   const Color(0xFF17062E).withValues(alpha: 0.82),
                   const Color(0xFF17062E).withValues(alpha: 0.45),
@@ -332,16 +333,16 @@ class _GameCard extends StatelessWidget {
         ),
       ),
       PositionedDirectional(
-        end: 20,
+        start: 20,
         top: 0,
         bottom: 0,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               entry.title,
-              textAlign: TextAlign.end,
+              textAlign: TextAlign.start,
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 26,
@@ -355,7 +356,7 @@ class _GameCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               entry.tagline,
-              textAlign: TextAlign.end,
+              textAlign: TextAlign.start,
               style: TextStyle(
                 color: entry.accent,
                 fontSize: 14,
