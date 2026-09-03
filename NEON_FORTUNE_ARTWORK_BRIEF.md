@@ -1,11 +1,19 @@
 # نيون فورتشن — Neon Fortune: Tiger City — Artwork Brief
 
-The game is built and playable right now with painted placeholder glyphs
-(neon plates with icons, letters and numerals) standing in for every symbol, so
-nothing is blocked on art. Drop the files below into the listed paths with the
-listed names and they are picked up automatically — the app already falls back
-to the painted glyph for anything missing, so partial deliveries are completely
-fine.
+**Status: the fourteen reel symbols are delivered and in the app** (§1). What is
+still open is the hub card art (§5, `cards/card_neon.png`) and the optional
+backgrounds, cabinet frame, tier tokens and mascot — none of which are wired to
+code yet, so they change nothing until someone hooks them up.
+
+Delivered art arrives from an image model at ~1250px on a black field. Before it
+ships it is cropped to content, squared, resized to 300×300 and cut out — the
+black field is found by flooding inward from the border, so black *inside* a
+subject (the tiger's stripes) survives, and a second pass clears large enclosed
+black areas (the gap behind the crane's neck). That took the set from 24.4 MB to
+1.7 MB. The originals live outside the repo; ask before re-cutting.
+
+Anything not yet delivered still falls back to a painted placeholder glyph, so
+partial deliveries are completely fine.
 
 **Legal/creative guardrail — read before generating.** This is an original
 fictional game and must stay that way. Do not reference, name, or ask an image

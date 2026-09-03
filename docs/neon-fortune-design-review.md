@@ -394,10 +394,16 @@ the API to cluster mode.
 
 ### 9.6 Still open
 
-- **Artwork.** Everything still renders as painted placeholder glyphs. Generating
-  the assets needs an image model or an artist working from
-  `NEON_FORTUNE_ARTWORK_BRIEF.md`; nothing in the build is blocked on them, and
-  the hub card falls back to its gradient until `cards/card_neon.png` lands.
+- **Artwork — symbols delivered.** All fourteen reel symbols are real art now,
+  generated from the prompts in `NEON_FORTUNE_ARTWORK_BRIEF.md` and processed for
+  the app: cropped, squared, resized to 300×300 and cut off their black field
+  (24.4 MB → 1.7 MB). Still outstanding: the hub card `cards/card_neon.png`,
+  which falls back to a gradient and the 🐯 emoji until it lands, plus the
+  optional backgrounds, cabinet frame, tier tokens and mascot — none of which are
+  wired to code, so they change nothing until someone hooks them up.
+  Worth a look at reel size: the star coin and the jackpot token share a
+  four-point-star-in-a-gold-ring silhouette and are told apart mainly by colour
+  (gold against cyan).
 - **No run against a real database.** This machine has no Postgres — and `.env`
   points `DATABASE_URL` at a SQLite file while the schema is Postgres — so every
   endpoint has been exercised against an in-memory stand-in for the two Prisma
