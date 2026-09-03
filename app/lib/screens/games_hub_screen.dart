@@ -47,6 +47,9 @@ const List<_GameEntry> _games = [
     gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
     art: 'assets/images/cards/card_aetherfall.png',
   ),
+    gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
+    art: 'assets/images/cards/card_greedy.png',
+  ),
   _GameEntry(
     title: 'نيون فورتشن',
     tagline: 'أدر واجمع الجاكبوت',
@@ -54,6 +57,8 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFEA35D7),
     gradient: [Color(0xFF250A46), Color(0xFF17062E)],
     art: 'assets/images/cards/card_neon.png',
+    // Delivered without lettering, so the hub draws the name.
+    drawTitle: true,
   ),
 ];
 
@@ -164,30 +169,36 @@ class GamesHubScreen extends ConsumerWidget {
     );
   }
 
+  /// Dispatch on the entry's title, not its position.
+  ///
+  /// This used to switch on the list index, which meant inserting a game
+  /// silently repointed every card after it — and two games in flight at once
+  /// had already collided on `case 4`. The title is stable, so a new entry can
+  /// go anywhere in [_games] without touching anything below.
   void _open(BuildContext context, int index) {
-    Widget screen;
-    switch (index) {
-      case 0:
+    final Widget screen;
+    switch (_games[index].title) {
+      case 'بلينكو':
         screen = const PlinkoScreen();
         break;
-      case 1:
+      case 'عجلة الحظ':
         screen = const CrazyWheelScreen();
         break;
-      case 2:
+      case 'طيّار':
         screen = const CrashGameScreen();
         break;
-      case 3:
+      case 'أثيرفول':
         screen = const AetherfallScreen();
         break;
-      case 4:
+      case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
         break;
-      // Hidden games — indices follow whatever position they are restored to
-      // in _games:
-      // case 5: screen = const SkillWheelScreen(); break;
-      // case 6: screen = const FishShooterScreen(); break;
-      // case 7: screen = const LionTigerScreen(); break;
-      // case 8: screen = const SkillDiceScreen(); break;
+      // Hidden games — restore the _GameEntry to [_games] and these match by
+      // title wherever it lands:
+      // case 'عجلة المهارة': screen = const SkillWheelScreen(); break;
+      // case 'صياد السمك': screen = const FishShooterScreen(); break;
+      // case 'حلبة الأسد والنمر': screen = const LionTigerScreen(); break;
+      // case 'نرد المهارة': screen = const SkillDiceScreen(); break;
       default:
         return;
     }
@@ -205,6 +216,13 @@ class _GameEntry {
   /// Optional key art; the gradient and emoji stand in when absent.
   final String? art;
 
+  /// Draw [title] and [tagline] over the artwork.
+  ///
+  /// Most banners have their name lettered into the image, so text on top would
+  /// double up. A banner delivered without lettering sets this instead, and gets
+  /// its name from code — which also keeps that name translatable.
+  final bool drawTitle;
+
   const _GameEntry({
     required this.title,
     required this.tagline,
@@ -212,6 +230,7 @@ class _GameEntry {
     required this.accent,
     required this.gradient,
     this.art,
+    this.drawTitle = false,
   });
 }
 
@@ -226,8 +245,9 @@ class _GameCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AspectRatio(
-        // The banners are 2:1 and carry their own frame, glow and title, so the
-        // card is the artwork — anything drawn on top would double up.
+        // The banners are 2:1 and most carry their own frame, glow and title, so
+        // the card is the artwork — text on top of those would double up. A
+        // banner without lettering opts into `drawTitle` and gets its name here.
         aspectRatio: 2.0,
         child: Container(
           decoration: BoxDecoration(
@@ -268,10 +288,75 @@ class _GameCard extends StatelessWidget {
                   child:
                       Text(entry.emoji, style: const TextStyle(fontSize: 84)),
                 ),
+              if (entry.drawTitle) ..._titleOverlay(),
             ]),
           ),
         ),
       ),
     );
+  }
+
+  /// Name and tagline over the artwork, for banners delivered without lettering.
+  ///
+  /// A scrim runs from the trailing edge inward so the words hold their contrast
+  /// whatever the art does behind them, and both it and the text follow the
+  /// reading direction — the Arabic layout puts them on the right, an English
+  /// one on the left, and the art is composed with that side left quiet.
+  List<Widget> _titleOverlay() {
+    return [
+      Positioned.fill(
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: AlignmentDirectional.centerEnd,
+                end: AlignmentDirectional.centerStart,
+                colors: [
+                  const Color(0xFF17062E).withValues(alpha: 0.82),
+                  const Color(0xFF17062E).withValues(alpha: 0.45),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.32, 0.62],
+              ),
+            ),
+          ),
+        ),
+      ),
+      PositionedDirectional(
+        end: 20,
+        top: 0,
+        bottom: 0,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              entry.title,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                shadows: [
+                  Shadow(color: entry.accent, blurRadius: 18),
+                  const Shadow(color: Colors.black87, blurRadius: 6),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              entry.tagline,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                color: entry.accent,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                shadows: const [Shadow(color: Colors.black87, blurRadius: 5)],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 }
