@@ -50,6 +50,11 @@ class AetherfallRepository {
           Map<String, dynamic>.from(body['spin'] as Map),
         ),
         balance: (body['balance'] as num?)?.toInt() ?? 0,
+        fairness: AetherfallFairness(
+          serverSeedHash: body['serverSeedHash']?.toString() ?? '',
+          clientSeed: body['clientSeed']?.toString() ?? '',
+          nonce: ((body['nonce'] as num?)?.toInt() ?? 0) + 1,
+        ),
       );
     } on DioException catch (e) {
       throw AetherfallException(_message(e, 'تعذر تنفيذ الجولة'));
@@ -255,6 +260,7 @@ class AetherfallFrame {
     this.isStarburst = false,
     this.chargeBankAfter,
     this.locksAfter,
+    this.lockedCells = const [],
   });
 
   final String phase; // 'base' | 'bonus'
@@ -269,6 +275,9 @@ class AetherfallFrame {
   final bool isStarburst;
   final int? chargeBankAfter;
   final int? locksAfter;
+
+  /// Bonus only: board indices currently pinned by a Constellation Lock.
+  final List<int> lockedCells;
 
   bool get hadWin => wins.isNotEmpty;
 
@@ -293,6 +302,9 @@ class AetherfallFrame {
         isStarburst: json['isStarburst'] == true,
         chargeBankAfter: (json['chargeBankAfter'] as num?)?.toInt(),
         locksAfter: (json['locksAfter'] as num?)?.toInt(),
+        lockedCells: ((json['lockedCells'] as List?) ?? const [])
+            .map((e) => (e as num).toInt())
+            .toList(),
       );
 }
 
@@ -352,7 +364,16 @@ class AetherfallSpin {
 }
 
 class AetherfallSpinResponse {
-  const AetherfallSpinResponse({required this.spin, required this.balance});
+  const AetherfallSpinResponse({
+    required this.spin,
+    required this.balance,
+    required this.fairness,
+  });
+
   final AetherfallSpin spin;
   final int balance;
+
+  /// The seed pair this spin was drawn from, so the fairness sheet can keep its
+  /// nonce current without a second round trip.
+  final AetherfallFairness fairness;
 }

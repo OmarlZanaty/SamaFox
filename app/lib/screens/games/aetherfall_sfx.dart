@@ -3,9 +3,16 @@ import 'package:audioplayers/audioplayers.dart';
 /// Sound for أثيرفول. Every cue is decoration — a missing file or a playback
 /// failure must never interrupt a spin, same contract as PlinkoSfx.
 class AetherfallSfx {
-  AetherfallSfx({this.enabled = true});
+  AetherfallSfx({this.enabled = true, double volume = 1.0}) : _volume = volume;
 
   bool enabled;
+
+  double _volume;
+
+  /// Master level, 0..1. Each cue keeps its own mix balance and is scaled by
+  /// this, so a quieter setting does not flatten the sound design.
+  double get volume => _volume;
+  set volume(double v) => _volume = v.clamp(0.0, 1.0);
 
   final AudioPlayer _ui = AudioPlayer()..setPlayerMode(PlayerMode.lowLatency);
   final AudioPlayer _land = AudioPlayer()..setPlayerMode(PlayerMode.lowLatency);
@@ -18,7 +25,7 @@ class AetherfallSfx {
     if (!enabled) return;
     try {
       await player.stop();
-      await player.play(AssetSource(asset), volume: volume);
+      await player.play(AssetSource(asset), volume: volume * _volume);
     } catch (_) {
       // Audio is decoration only.
     }

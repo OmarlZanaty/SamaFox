@@ -93,9 +93,12 @@ class AetherfallHelpSheet extends StatelessWidget {
             ),
             _section(
               'Constellation Lock',
-              'Skyfire Vault only. Each winning tumble locks one random symbol cell. Once '
-                  '${layout.constellationLockTarget} cells lock, you receive a free Starburst Tumble '
-                  'with a guaranteed Prism Wild, and the lock count resets.',
+              'Skyfire Vault only. Each winning tumble pins one random symbol cell with a '
+                  'constellation thread: that symbol holds its place while everything else '
+                  'falls around it, and it carries into the next free tumble. A pinned cell '
+                  'can still win, and clearing it releases the pin. Once '
+                  '${layout.constellationLockTarget} cells are pinned the threads connect, '
+                  'they are spent on a free Starburst Tumble with a guaranteed Prism Wild.',
             ),
             const SizedBox(height: 18),
             const Text(
@@ -110,8 +113,15 @@ class AetherfallHelpSheet extends StatelessWidget {
                   'your balance can no longer cover the bet.',
             ),
             _section(
-              'Sound & motion',
-              'Mute music/SFX independently, or enable reduced motion to remove camera shake and flashing effects from the settings panel.',
+              'Sound, motion & accessibility',
+              'Settings holds a master volume, Reduced Motion (shorter animations, no screen '
+                  'shake or flashing), High Contrast, Symbol Markers that give each symbol its '
+                  'own glyph so colour is not the only difference, and left-handed controls.',
+            ),
+            _section(
+              'Provably fair',
+              'Settings also opens the fairness sheet: the committed server-seed hash, your '
+                  'client seed and the current nonce. Set your own client seed there at any time.',
             ),
             const SizedBox(height: 18),
             Container(

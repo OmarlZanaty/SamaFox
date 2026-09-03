@@ -99,7 +99,11 @@ const CHARGE_WEIGHTS = [30, 25, 20, 12, 7, 3.5, 1.8, 0.7];
 
 // ── Skyfire Vault bonus tunables ─────────────────────────────────────────────
 export const VAULT_KEY_TRIGGER = 4;
-export const VAULT_BONUS_START_TUMBLES = 12;
+// 13, not 12: making Constellation Lock actually pin cells cost the bonus about
+// 1.3 points of RTP, because a pinned symbol resists the refill and so reduces
+// the churn that generates fresh wins. The tumble that buys it back is spent
+// where the value was lost. Re-measure with `npm run sim:aetherfall`.
+export const VAULT_BONUS_START_TUMBLES = 13;
 export const VAULT_RETRIGGER_KEYS = 3;
 export const VAULT_RETRIGGER_TUMBLES = 3;
 export const CONSTELLATION_LOCK_TARGET = 3;
@@ -212,18 +216,37 @@ function dealGrid(rng: RngStream, sampler: (rng: RngStream) => Cell): Cell[] {
 }
 
 /** Gravity refill: existing symbols in each column fall to the bottom, new symbols enter from the top. */
-function refill(grid: (Cell | null)[], rng: RngStream, sampler: (rng: RngStream) => Cell) {
+/**
+ * Gravity refill: surviving symbols in each column fall to the bottom and new
+ * symbols enter from the top.
+ *
+ * Constellation-locked cells are pinned — they keep both their symbol and their
+ * row while everything else falls around them. A lock only resists gravity; it
+ * does not protect the cell from winning, and `evalAndAdvance` releases the lock
+ * of any cell it clears, which is what keeps a locked winning symbol from
+ * re-winning forever.
+ */
+function refill(
+  grid: (Cell | null)[],
+  rng: RngStream,
+  sampler: (rng: RngStream) => Cell,
+  locked: ReadonlySet<number> = new Set(),
+) {
   for (let c = 0; c < COLS; c++) {
+    // Rows this column may write to, bottom-up, skipping pinned cells.
+    const openRows: number[] = [];
     const survivors: Cell[] = [];
-    for (let r = 0; r < ROWS; r++) {
-      const v = grid[r * COLS + c];
+    for (let r = ROWS - 1; r >= 0; r--) {
+      const idx = r * COLS + c;
+      if (locked.has(idx)) continue;
+      openRows.push(r);
+      const v = grid[idx];
       if (v) survivors.push(v);
     }
-    const missing = ROWS - survivors.length;
-    const fresh: Cell[] = [];
-    for (let i = 0; i < missing; i++) fresh.push(sampler(rng));
-    const full = fresh.concat(survivors);
-    for (let r = 0; r < ROWS; r++) grid[r * COLS + c] = full[r]!;
+    for (let i = 0; i < openRows.length; i++) {
+      const idx = openRows[i]! * COLS + c;
+      grid[idx] = i < survivors.length ? survivors[i]! : sampler(rng);
+    }
   }
 }
 
@@ -252,6 +275,8 @@ export interface TumbleFrame {
   isStarburst?: boolean;
   chargeBankAfter?: number;
   locksAfter?: number;
+  /** Bonus-only: board indices currently pinned by a Constellation Lock. */
+  lockedCells?: number[];
 }
 
 /**
@@ -267,6 +292,7 @@ function evalAndAdvance(
   sampler: (rng: RngStream) => Cell,
   phase: 'base' | 'bonus',
   forceWild = false,
+  locked?: Set<number>,
 ): { frame: TumbleFrame; hadWin: boolean } {
   if (forceWild && !grid.includes('WILD')) {
     const idx = Math.floor(rng.nextFloat() * CELLS);
@@ -308,10 +334,28 @@ function evalAndAdvance(
 
   if (hadWin) {
     const toClear = new Set<number>([...winningCells, ...chargeCells.map((c) => c.index)]);
-    for (const i of toClear) (grid as (Cell | null)[])[i] = null;
-    refill(grid as (Cell | null)[], rng, sampler);
+    for (const i of toClear) {
+      (grid as (Cell | null)[])[i] = null;
+      // A cleared cell gives up its lock; otherwise a pinned winning symbol
+      // would be re-counted on every following tumble.
+      locked?.delete(i);
+    }
+    refill(grid as (Cell | null)[], rng, sampler, locked);
+
+    // The new lock is placed after the refill so it pins a symbol that is
+    // actually on the board, and never a special one.
+    if (locked && phase === 'bonus') {
+      const candidates: number[] = [];
+      grid.forEach((v, i) => {
+        if (!locked.has(i) && (STANDARD_SYMBOLS as readonly Cell[]).includes(v)) candidates.push(i);
+      });
+      if (candidates.length > 0) {
+        locked.add(candidates[Math.floor(rng.nextFloat() * candidates.length)]!);
+      }
+    }
   }
 
+  frame.lockedCells = locked ? [...locked] : undefined;
   return { frame, hadWin };
 }
 
@@ -336,10 +380,15 @@ function runBonus(bet: number, rng: RngStream) {
   const frames: TumbleFrame[] = [];
   let tumblesLeft = VAULT_BONUS_START_TUMBLES;
   let chargeBank = 0;
-  let lockCount = 0;
   let bonusWin = 0;
   let tumbleNumber = 0;
   let guard = 0;
+
+  // Cells pinned by a Constellation Lock. Lives across the whole bonus, not one
+  // tumble, so a thread survives into the next free tumble the way the feature
+  // is described in the help panel.
+  const locked = new Set<number>();
+  let lastGrid: Cell[] | null = null;
 
   while (tumblesLeft > 0 && guard < 400) {
     guard++;
@@ -347,6 +396,15 @@ function runBonus(bet: number, rng: RngStream) {
     tumblesLeft--;
 
     const grid = dealGrid(rng, sampleBonus);
+    // A fresh deal would wipe the pinned symbols, so they are carried over from
+    // where the previous tumble left them.
+    if (lastGrid) {
+      for (const i of locked) {
+        const held = lastGrid[i];
+        if (held) grid[i] = held;
+      }
+    }
+
     const keys = grid.filter((s) => s === 'KEY').length;
     let retriggerAdded = 0;
     if (keys >= VAULT_RETRIGGER_KEYS) {
@@ -356,7 +414,9 @@ function runBonus(bet: number, rng: RngStream) {
 
     let isFirstFrameOfTumble = true;
     while (true) {
-      const { frame, hadWin } = evalAndAdvance(grid, bet, rng, sampleBonus, 'bonus');
+      const { frame, hadWin } = evalAndAdvance(
+        grid, bet, rng, sampleBonus, 'bonus', false, locked,
+      );
       if (isFirstFrameOfTumble) {
         frame.tumbleNumber = tumbleNumber;
         frame.tumblesLeftAfter = tumblesLeft;
@@ -368,14 +428,16 @@ function runBonus(bet: number, rng: RngStream) {
 
       bonusWin += frame.wins.reduce((a, w) => a + w.amount, 0);
       chargeBank += frame.chargeCells.reduce((a, c) => a + c.value, 0);
-      lockCount++;
       frame.chargeBankAfter = chargeBank;
-      frame.locksAfter = lockCount;
+      frame.locksAfter = locked.size;
 
-      if (lockCount >= CONSTELLATION_LOCK_TARGET) {
-        lockCount = 0;
-        const sb = evalAndAdvance(grid, bet, rng, sampleBonus, 'bonus', true);
+      if (locked.size >= CONSTELLATION_LOCK_TARGET) {
+        // The threads connect: the pins are spent on a free tumble that is
+        // guaranteed a Prism Wild.
+        locked.clear();
+        const sb = evalAndAdvance(grid, bet, rng, sampleBonus, 'bonus', true, locked);
         sb.frame.isStarburst = true;
+        sb.frame.locksAfter = locked.size;
         frames.push(sb.frame);
         if (sb.hadWin) {
           bonusWin += sb.frame.wins.reduce((a, w) => a + w.amount, 0);
@@ -384,6 +446,8 @@ function runBonus(bet: number, rng: RngStream) {
         }
       }
     }
+
+    lastGrid = grid;
   }
 
   return { frames, bonusWin, chargeBank, tumblesUsed: tumbleNumber };

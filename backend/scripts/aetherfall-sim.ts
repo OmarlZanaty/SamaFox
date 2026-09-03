@@ -86,8 +86,78 @@ function simulate(seed: string, spins: number, bet: number): Run {
   };
 }
 
+// ── Deterministic QA scenarios ───────────────────────────────────────────────
+// Nothing here rigs normal play. Because a spin is a pure function of
+// (serverSeed, clientSeed, nonce), searching for the first nonce that produces
+// each interesting outcome gives QA a reproducible script: set the client seed
+// on the account, then spin to the listed nonce and the same thing happens every
+// time, on any environment, through the ordinary endpoint.
+
+const SCENARIOS: { name: string; hit: (s: ReturnType<typeof verifySpin>) => boolean }[] = [
+  { name: 'a plain loss', hit: (s) => s.grandTotal === 0 },
+  { name: 'one tumble, then nothing', hit: (s) => s.frames.filter((f) => f.wins.length > 0).length === 1 && !s.bonusTriggered },
+  { name: 'a 3+ tumble cascade', hit: (s) => s.frames.filter((f) => f.wins.length > 0).length >= 3 && !s.bonusTriggered },
+  { name: 'an Ember Charge resolution', hit: (s) => s.baseCharge > 0 && s.baseWin > 0 && !s.bonusTriggered },
+  { name: 'a Skyfire Vault trigger', hit: (s) => s.bonusTriggered },
+  { name: 'a Constellation Lock pinning cells', hit: (s) => s.frames.some((f) => (f.lockedCells?.length ?? 0) > 0) },
+  { name: 'a Starburst Tumble', hit: (s) => s.frames.some((f) => f.isStarburst === true) },
+  { name: 'BRIGHT_HIT', hit: (s) => s.tier === 'BRIGHT_HIT' },
+  { name: 'SKYFIRE_SURGE', hit: (s) => s.tier === 'SKYFIRE_SURGE' },
+  { name: 'CELESTIAL_BREAK', hit: (s) => s.tier === 'CELESTIAL_BREAK' },
+  { name: 'AETHERFALL', hit: (s) => s.tier === 'AETHERFALL' },
+];
+
+function scenarios(bet: number, limit: number) {
+  const serverSeed = 'aetherfall-qa-server-seed'.padEnd(64, '0');
+  const clientSeed = 'qa';
+  const pending = new Map(SCENARIOS.map((sc) => [sc.name, sc]));
+  const found = new Map<string, { nonce: number; total: number }>();
+
+  for (let nonce = 0; nonce < limit && pending.size > 0; nonce++) {
+    const spin = verifySpin(serverSeed, clientSeed, nonce, bet);
+    for (const [name, sc] of pending) {
+      if (sc.hit(spin)) {
+        found.set(name, { nonce, total: spin.grandTotal });
+        pending.delete(name);
+      }
+    }
+  }
+
+  console.log(`\nDeterministic QA scenarios — bet ${bet}`);
+  console.log(`  server seed : ${serverSeed}`);
+  console.log(`  client seed : ${clientSeed}   (set this on the test account)\n`);
+  for (const sc of SCENARIOS) {
+    const f = found.get(sc.name);
+    console.log(
+      f
+        ? `  nonce ${String(f.nonce).padStart(6)}  ${sc.name.padEnd(34)} pays ${f.total}`
+        : `  ${'not found'.padStart(12)}  ${sc.name.padEnd(34)} within ${limit} spins`,
+    );
+  }
+  console.log(
+    '\n  Reproduce with:\n' +
+      '    POST /api/v1/games/aetherfall/verify\n' +
+      `    { "serverSeed": "${serverSeed}",\n` +
+      `      "clientSeed": "${clientSeed}", "nonce": <above>, "bet": ${bet} }\n\n` +
+      '  That returns the identical fully-resolved spin — same grid, same cascade,\n' +
+      '  same payout — every time and on every environment, because a spin is a\n' +
+      '  pure function of the seed pair and the nonce.\n\n' +
+      '  Note this replays through the verification endpoint, not live play: the\n' +
+      '  server seed on a real account is generated server-side and cannot be set,\n' +
+      '  which is exactly the property that makes the commitment worth anything.\n' +
+      '  Nothing here is a debug path into normal play, and normal play is never\n' +
+      '  rigged.\n',
+  );
+}
+
 function main() {
-  const { spins, bet, seeds } = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--scenarios')) {
+    const { bet, spins } = parseArgs(argv);
+    return scenarios(bet, Math.max(spins, 200_000));
+  }
+
+  const { spins, bet, seeds } = parseArgs(argv);
 
   console.log(
     `\nAetherfall RTP — ${seeds} seed(s) x ${spins.toLocaleString()} spins at ${bet} coins\n`,

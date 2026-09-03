@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/games/aetherfall_bonus.dart';
 import '../screens/games/aetherfall_celebration.dart';
+import '../screens/games/aetherfall_grid.dart';
 import '../screens/games/aetherfall_symbols.dart';
 
 const _bgTop = Color(0xFF0F1638);
@@ -24,10 +25,18 @@ const _copper = Color(0xFFC98A4B);
 void main() => runApp(const AetherfallPreviewApp());
 
 class AetherfallPreviewApp extends StatelessWidget {
-  const AetherfallPreviewApp({super.key, this.bonus = false, this.celebrate = false});
+  const AetherfallPreviewApp({
+    super.key,
+    this.bonus = false,
+    this.celebrate = false,
+    this.a11y = false,
+  });
 
   final bool bonus;
   final bool celebrate;
+
+  /// Renders with High Contrast and Symbol Markers on.
+  final bool a11y;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -35,15 +44,21 @@ class AetherfallPreviewApp extends StatelessWidget {
         theme: ThemeData.dark().copyWith(
           textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'ElMessiri'),
         ),
-        home: AetherfallPreview(bonus: bonus, celebrate: celebrate),
+        home: AetherfallPreview(bonus: bonus, celebrate: celebrate, a11y: a11y),
       );
 }
 
 class AetherfallPreview extends StatefulWidget {
-  const AetherfallPreview({super.key, this.bonus = false, this.celebrate = false});
+  const AetherfallPreview({
+    super.key,
+    this.bonus = false,
+    this.celebrate = false,
+    this.a11y = false,
+  });
 
   final bool bonus;
   final bool celebrate;
+  final bool a11y;
 
   @override
   State<AetherfallPreview> createState() => _PreviewState();
@@ -54,6 +69,8 @@ class _PreviewState extends State<AetherfallPreview> {
   late bool _bonus = widget.bonus;
   late bool _celebrate = widget.celebrate;
   bool _transition = false;
+  late bool _highContrast = widget.a11y;
+  late bool _shapeCoded = widget.a11y;
 
   static const _grid = [
     'L1', 'H4', 'L3', 'WILD', 'L2', 'H1',
@@ -270,26 +287,18 @@ class _PreviewState extends State<AetherfallPreview> {
         ],
       );
 
-  Widget _board() => AspectRatio(
-        aspectRatio: 6 / 5,
-        child: GridView.builder(
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 6,
-            mainAxisSpacing: 3,
-            crossAxisSpacing: 3,
-          ),
-          itemCount: 30,
-          itemBuilder: (context, i) {
-            final sym = _grid[i];
-            return SymbolTile(
-              symbol: sym,
-              art: _art?.forSymbol(sym),
-              chargeValue: sym == 'CHARGE' ? 12 : null,
-              highlighted: _highlighted.contains(i),
-            );
-          },
-        ),
+  // The real grid widget, so the preview exercises locks, high contrast and
+  // symbol markers exactly as the game draws them.
+  Widget _board() => AetherfallGrid(
+        cols: 6,
+        rows: 5,
+        grid: _grid,
+        highlighted: _highlighted,
+        chargeValues: const {12: 12},
+        locked: _bonus ? const {7, 19, 26} : const {},
+        highContrast: _highContrast,
+        shapeCoded: _shapeCoded,
+        art: _art,
       );
 
   Widget _controls() => Row(
@@ -336,6 +345,14 @@ class _PreviewState extends State<AetherfallPreview> {
           OutlinedButton(
             onPressed: () => setState(() => _transition = true),
             child: const Text('vault transition'),
+          ),
+          OutlinedButton(
+            onPressed: () => setState(() => _highContrast = !_highContrast),
+            child: Text(_highContrast ? 'contrast: high' : 'contrast: normal'),
+          ),
+          OutlinedButton(
+            onPressed: () => setState(() => _shapeCoded = !_shapeCoded),
+            child: Text(_shapeCoded ? 'markers: on' : 'markers: off'),
           ),
         ],
       );
