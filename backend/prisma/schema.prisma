@@ -31,7 +31,7 @@ model User {
   totalRecharge            Int                       @default(0) // cumulative coins ever charged (drives VIP level)
   vipExpiresAt             DateTime? // set when VIP was BOUGHT for a term; null = earned by recharge and permanent
   cpPoints                 Int                       @default(0) // account power (CP) accumulated from CP-eligible gifts sent
-  age                      Int?                      // user-editable age (#3), shown on profile
+  age                      Int? // user-editable age (#3), shown on profile
   isAdmin                  Boolean                   @default(false)
   // Super-admin: elevated dashboard role that can appoint/revoke other admins
   // and super-admins (#23). A plain isAdmin can use the dashboard but cannot
@@ -72,6 +72,7 @@ model User {
   giftBattlesUser1         GiftBattle[]              @relation("GiftBattleUser1")
   giftBattlesUser2         GiftBattle[]              @relation("GiftBattleUser2")
   leaderboardEntries       LeaderboardEntry[]
+  gameDailyStats           GameDailyStat[]
   subscription             UserSubscription?
   items                    UserItem[]
   familyMembership         FamilyMember?
@@ -111,13 +112,15 @@ model User {
   // supporters board count only gifts sent AFTER it, so the account drops off
   // the board without losing a single coin of history — and climbs back at
   // whatever it genuinely earns from that moment on. Null = never reset.
-  supportersResetAt        DateTime?
+  supportersResetAt DateTime?
 
   // A15 — CP (couple pairing). Both sides of a pair and the pending requests.
-  cpPairsA                 CpPair[]                  @relation("CpPairUserA")
-  cpPairsB                 CpPair[]                  @relation("CpPairUserB")
-  cpRequestsSent           CpRequest[]               @relation("CpRequestSender")
-  cpRequestsReceived       CpRequest[]               @relation("CpRequestRecipient")
+  cpPairsA           CpPair[]    @relation("CpPairUserA")
+  cpPairsB           CpPair[]    @relation("CpPairUserB")
+  cpRequestsSent     CpRequest[] @relation("CpRequestSender")
+  cpRequestsReceived CpRequest[] @relation("CpRequestRecipient")
+
+  gameFairSeeds GameFairSeed[]
 
   @@map("users")
 }
@@ -154,44 +157,44 @@ model MusicTrack {
 // ============================================
 
 model Room {
-  id                 Int      @id @default(autoincrement())
-  name               String
-  description        String?
-  coverImageUrl      String?
-  backgroundImageUrl String?
+  id                  Int       @id @default(autoincrement())
+  name                String
+  description         String?
+  coverImageUrl       String?
+  backgroundImageUrl  String?
   // A background uploaded from the owner's device is paid for and rented, not
   // owned: this is when it reverts. null = the free/default background.
   backgroundExpiresAt DateTime?
-  ownerId            Int
-  type               String   @default("public")
-  passwordHash       String?
-  maxSeats           Int      @default(8)
-  isActive           Boolean  @default(true)
-  xp                 Int      @default(0)
-  level              Int      @default(1)
-  activeThemeId      String?
-  isLocked           Boolean  @default(false)
-  accessCode         String?  // 5-digit PIN required to enter when isLocked (owner/admins bypass)
-  nameLocked         Boolean  @default(false) // when true, owner cannot rename the room (dashboard-controlled)
-  backgroundMusicUrl String?
-  muteGiftSounds     Boolean  @default(false)
-  muteEntranceSounds Boolean  @default(false)
+  ownerId             Int
+  type                String    @default("public")
+  passwordHash        String?
+  maxSeats            Int       @default(8)
+  isActive            Boolean   @default(true)
+  xp                  Int       @default(0)
+  level               Int       @default(1)
+  activeThemeId       String?
+  isLocked            Boolean   @default(false)
+  accessCode          String? // 5-digit PIN required to enter when isLocked (owner/admins bypass)
+  nameLocked          Boolean   @default(false) // when true, owner cannot rename the room (dashboard-controlled)
+  backgroundMusicUrl  String?
+  muteGiftSounds      Boolean   @default(false)
+  muteEntranceSounds  Boolean   @default(false)
   contributionResetAt DateTime? // #4: admin reset point for per-user room coin counters
-  createdAt          DateTime @default(now())
+  createdAt           DateTime  @default(now())
 
-  owner           User             @relation("RoomOwner", fields: [ownerId], references: [id])
+  owner           User              @relation("RoomOwner", fields: [ownerId], references: [id])
   members         RoomMember[]
   messages        RoomMessage[]
-  gifts           GiftTransaction[]   @relation("GiftRoom")
+  gifts           GiftTransaction[] @relation("GiftRoom")
   reports         Report[]
-  activeTheme     Item?            @relation(fields: [activeThemeId], references: [id])
+  activeTheme     Item?             @relation(fields: [activeThemeId], references: [id])
   gameSessions    GameSession[]
   giftBattles     GiftBattle[]
   timedEvents     TimedEvent[]
   roomVisits      RoomVisit[]
   scheduledEvents ScheduledEvent[]
-  pkBattlesRoom1  PkBattle[]       @relation("PkBattleRoom1")
-  pkBattlesRoom2  PkBattle[]       @relation("PkBattleRoom2")
+  pkBattlesRoom1  PkBattle[]        @relation("PkBattleRoom1")
+  pkBattlesRoom2  PkBattle[]        @relation("PkBattleRoom2")
   bannedUsers     RoomBan[]
 
   @@map("rooms")
@@ -202,13 +205,13 @@ model Room {
 // ============================================
 
 model RoomMember {
-  userId     Int
-  roomId     Int
-  role       String   @default("member")
-  isMuted    Boolean  @default(false)
-  forceMuted Boolean  @default(false) // admin-muted; user cannot self-unmute
-  seatBlocked Boolean @default(false) // cannot take a seat until an admin clears it
-  joinedAt   DateTime @default(now())
+  userId      Int
+  roomId      Int
+  role        String   @default("member")
+  isMuted     Boolean  @default(false)
+  forceMuted  Boolean  @default(false) // admin-muted; user cannot self-unmute
+  seatBlocked Boolean  @default(false) // cannot take a seat until an admin clears it
+  joinedAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
   room Room @relation(fields: [roomId], references: [id])
@@ -309,18 +312,18 @@ model Follow {
 }
 
 model Notification {
-  id          Int       @id @default(autoincrement())
-  userId      Int
-  user        User      @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
-  actorId     Int?
-  actor       User?     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
-  type        String
-  title       String
-  body        String
-  isRead      Boolean   @default(false)
-  data        Json?
-  createdAt   DateTime  @default(now())
-  readAt      DateTime?
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  actorId   Int?
+  actor     User?     @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type      String
+  title     String
+  body      String
+  isRead    Boolean   @default(false)
+  data      Json?
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
 
   @@index([userId, isRead, createdAt])
   @@index([userId, createdAt])
@@ -572,6 +575,42 @@ model LeaderboardEntry {
 }
 
 // ============================================
+// GAME DAILY STAT MODEL
+// ============================================
+
+/// One player's running total for one game on one UTC day.
+///
+/// The wager games each need a "today" board (أرباح اليوم / سجلي / ترتيب اليوم)
+/// and were keeping it in memory, which meant it silently reset on every
+/// deploy. `game` is a discriminator so the sibling games can move onto this
+/// table without another migration.
+///
+/// `day` is a UTC "YYYY-MM-DD" string rather than a timestamp: the reset is
+/// defined as UTC midnight, and a plain string makes that unambiguous, indexes
+/// well, and matches the key the services already compute.
+model GameDailyStat {
+  id          String   @id @default(cuid())
+  game        String // 'greedy', and whichever games adopt it next
+  day         String // UTC date, "YYYY-MM-DD"
+  userId      Int
+  net         Int      @default(0) // won minus staked, today
+  wagered     Int      @default(0)
+  best        Int      @default(0) // biggest single-round payout today
+  countryCode String? // denormalised so the regional board is one query
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([game, day, userId])
+  // Serves the global board.
+  @@index([game, day, net])
+  // Serves the regional board.
+  @@index([game, day, countryCode, net])
+  @@map("game_daily_stats")
+}
+
+// ============================================
 // VIP TIER MODEL
 // ============================================
 
@@ -605,22 +644,22 @@ model AppSetting {
 // (500k per level up to 5, then +30% each level). badgeUrl + frameItemId are
 // uploaded/assigned from the admin dashboard and auto-granted on level-up.
 model VipLevelConfig {
-  level         Int      @id
-  name          String?
-  threshold     Int? // cumulative coins required; null => computed
+  level               Int      @id
+  name                String?
+  threshold           Int? // cumulative coins required; null => computed
   // Direct purchase (owner request): coin price for this tier, null = not for
   // sale. durationDays null = the bought tier never expires.
-  priceCoins    Int?
-  durationDays  Int?
-  badgeUrl      String?
-  frameItemId   String? // Item.id of the seat frame granted at this level
-  rewardItemIds String[] @default([]) // Item.ids (badges/frames/entrances, app or private store) auto-granted at this level (group 10)
+  priceCoins          Int?
+  durationDays        Int?
+  badgeUrl            String?
+  frameItemId         String? // Item.id of the seat frame granted at this level
+  rewardItemIds       String[] @default([]) // Item.ids (badges/frames/entrances, app or private store) auto-granted at this level (group 10)
   // A16 — "صورة شخصية متحركة": an animated (GIF/WEBP) avatar is a VIP perk the
   // dashboard switches on per tier ("مثلاً VIP10 وما فوق"). Off everywhere by
   // default, so no existing tier silently gains the permission.
-  allowAnimatedAvatar Boolean @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  allowAnimatedAvatar Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@map("vip_level_configs")
 }
@@ -725,16 +764,16 @@ model Item {
 // ============================================
 
 model UserItem {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     Int
   itemId     String
-  acquiredAt DateTime @default(now())
+  acquiredAt DateTime  @default(now())
   // Stamped from Item.durationDays at acquisition. null = never expires, so
   // every pre-existing row keeps working untouched.
   expiresAt  DateTime?
-  isActive   Boolean  @default(false)
-  xp         Int      @default(0)
-  level      Int      @default(1)
+  isActive   Boolean   @default(false)
+  xp         Int       @default(0)
+  level      Int       @default(1)
 
   user User @relation(fields: [userId], references: [id])
   item Item @relation(fields: [itemId], references: [id])
@@ -871,10 +910,10 @@ model ChargingAgency {
   // already been paid. The dashboard ranks agencies on `selfChargeCount` /
   // `totalTopupCoins` so the biggest charger can be rewarded
   // ("عاوز كل وكاله شحنت كام مره لنفسها ... هتاخد مكافأه").
-  selfChargeCount     Int    @default(0)
+  selfChargeCount   Int    @default(0)
   // Highest reward TIER (in coins charged) already granted, so a ladder never
   // pays the same rung twice.
-  rewardedUpToCoins   BigInt @default(0)
+  rewardedUpToCoins BigInt @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -955,7 +994,7 @@ model AgencyChargeReward {
   thresholdCoins BigInt
 
   // What it pays. Either or both may be set.
-  rewardCoins Int      @default(0)
+  rewardCoins   Int      @default(0)
   rewardItemIds String[] @default([])
 
   // null = applies to every charging agency; set = this agency only.
@@ -1292,7 +1331,7 @@ enum BetaTesterStatus {
 model BetaTester {
   id            String           @id @default(cuid())
   email         String           @unique
-  googleSub     String? @unique // Google "sub"; null for plain-email signups
+  googleSub     String?          @unique // Google "sub"; null for plain-email signups
   status        BetaTesterStatus @default(invited)
   source        String? // where the signup came from (e.g. "almobarmg-store")
   playSynced    Boolean          @default(false) // is the address on the Play list?
@@ -1362,4 +1401,34 @@ model CpRequest {
   @@index([recipientId, status])
   @@index([senderId, status])
   @@map("cp_requests")
+}
+
+/// Provably-fair seed state for بلينكو, نيون فورتشن and أثيرفول.
+///
+/// These used to live in a module-level Map per service, which meant every
+/// deploy or restart silently reset the commitment: a player who had been given
+/// a server-seed hash could no longer verify the spins made against it, and the
+/// nonce restarted at zero. Persisting it makes the commitment mean what it
+/// claims, and lets the games run on more than one process.
+///
+/// `serverSeed` is the secret half and must never leave the server except
+/// through a deliberate rotation, which reveals the old seed and commits to a
+/// new one.
+model GameFairSeed {
+  id             String   @id @default(cuid())
+  userId         Int
+  /// Which game the seed pair belongs to: plinko | neon_fortune | aetherfall.
+  game           String
+  serverSeed     String
+  serverSeedHash String
+  clientSeed     String
+  /// Spins drawn against this pair. Incremented atomically as each is reserved.
+  nonce          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, game])
+  @@map("game_fair_seeds")
 }

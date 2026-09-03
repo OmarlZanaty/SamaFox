@@ -96,25 +96,25 @@ export const getNeonFortuneHistory = async (req: Request, res: Response) => {
 export const getNeonFortuneFairness = async (req: Request, res: Response) => {
   const userId = userIdOf(req);
   if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  res.json({ success: true, fairness: getFairness(userId), layout: getLayout() });
+  res.json({ success: true, fairness: await getFairness(userId), layout: getLayout() });
 };
 
 export const setNeonFortuneClientSeed = async (req: Request, res: Response) => {
   const userId = userIdOf(req);
   if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-  const result = setClientSeed(userId, req.body?.clientSeed);
+  const result = await setClientSeed(userId, req.body?.clientSeed);
   if (!result.ok) {
     return res.status(400).json({ success: false, code: result.code, message: result.message });
   }
-  res.json({ success: true, fairness: getFairness(userId) });
+  res.json({ success: true, fairness: await getFairness(userId) });
 };
 
 /** Reveals the current server seed and starts a new one. */
 export const rotateNeonFortuneSeed = async (req: Request, res: Response) => {
   const userId = userIdOf(req);
   if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  res.json({ success: true, ...rotateServerSeed(userId) });
+  res.json({ success: true, ...(await rotateServerSeed(userId)) });
 };
 
 /**
