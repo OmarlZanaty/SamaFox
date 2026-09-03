@@ -435,7 +435,7 @@ than the chunkier symbols have and it reads slightly smaller in its chamber.
 | 2 | Free-play disclaimer over a real coin economy | **High** | **Closed** | Coin economy kept; every free-play label removed (§0.2) |
 | 3 | Help panel overstates Constellation Lock | Medium | **Closed** | Implemented for real; RTP re-measured (§2.6) |
 | 3b | Help text says a spin can be checked, but no fairness UI exists | Medium | **Closed** | Fairness sheet in Settings (§10) |
-| 4 | Seeds and history in process memory | Medium | **Open, deliberately** | Shared with بلينكو and نيون فورتشن; needs one cross-game change plus a migration (§10) |
+| 4 | Seeds in process memory | Medium | **Closed** | `services/fairSeeds.ts` persists all three games; history stays in memory by choice (§10) |
 | 5 | All artwork undelivered | Medium | Open | Generate per the art brief; symbols first |
 | 6 | Accessibility below the brief's bar | Medium | **Closed** | Volume, high contrast, symbol markers, left-handed, semantics (§10) |
 | 7 | No deterministic QA mode | Medium | **Closed** | `npm run sim:aetherfall -- --scenarios` (§10) |
@@ -547,12 +547,27 @@ were added, and it caught the lock indicator being too faint to see.
 
 ### Two things still open
 
-**Seeds and history in process memory — open on purpose.** بلينكو, نيون فورتشن
-and أثيرفول all keep their seed state in a module-level `Map`. That is a
-platform-wide choice, not an Aetherfall bug, and the fix is one shared store
-plus a Prisma migration against Postgres. Doing it for this game alone would
-leave the three inconsistent, and a migration cannot be verified from here.
-It deserves its own change across all three.
+**Seeds now persist — done.** بلينكو, نيون فورتشن and أثيرفول each kept their
+seed state in a module-level `Map`, three copies of the same code, so a restart
+threw away the server seed whose hash a player had already been shown and reset
+the nonce to zero. `services/fairSeeds.ts` moves all three onto a
+`game_fair_seeds` row keyed on `(userId, game)`, and the nonce is reserved with
+an atomic increment so two plays racing cannot draw the same one, even across
+processes. Handing the same nonce out twice on one pair replays a result, which
+is exactly what the in-memory counter invited on every restart.
+
+`getFairness`, `setClientSeed` and `rotateServerSeed` became async. Two callers
+were putting the value straight into a JSON response, where an unawaited promise
+serialises as `{}` — the fairness panel would have silently gone blank rather
+than failed. `tsc` did not catch it, because those response objects are
+inferred.
+
+History stays in memory deliberately: it is a convenience list, not a
+commitment, and nothing depends on it surviving a restart.
+
+**The migration has not been applied.** Run `npx prisma migrate deploy`.
+`prisma validate` cannot run locally either — `DATABASE_URL` in `.env` is not a
+postgres URL — though `prisma format`, `prisma generate` and `tsc` all pass.
 
 **No real-device pass — blocked.** There is no Android device or emulator
 attached and no system images installed, and the screen needs a backend, a login
