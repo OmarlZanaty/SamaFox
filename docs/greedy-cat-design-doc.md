@@ -8,6 +8,8 @@ build.
 - Client: `app/lib/screens/games/greedy_cat_screen.dart`
 - Artwork: `app/lib/screens/games/greedy_cat_art.dart`, brief in `GREEDY_CAT_ARTWORK_BRIEF.md`
 - Simulator: `backend/scripts/greedy-cat-sim.ts` (`npm run sim:greedy`)
+- Behavioural checks: `backend/scripts/greedy-cat-check.ts` (`npm run check:greedy`)
+- Daily board: `game_daily_stats`, migration `20260903000000_game_daily_stats`
 - Design harness: `tools/greedy-cat-mock/server.js` + `app/lib/dev/greedy_cat_preview.dart`
 
 ---
@@ -138,7 +140,8 @@ the client in the `layout` block, so the client never hard-codes a payout.
 | `JACKPOT_MILESTONES` | 500K / 1M / 2M / 5M / 10M | Activity-bar markers |
 | `MILESTONE_AWARD` | **0** | See below |
 | history length | 100 kept, 15 sent | |
-| leaderboard rows | 20 | Reset at UTC midnight |
+| leaderboard rows | 20 | Table-backed; see below |
+| `GAME_KEY` | `'greedy'` | Discriminator in `game_daily_stats` |
 
 Client-side, persisted per device in `SharedPreferences`: music, sound effects,
 reduced motion, selected denomination, ranking scope.
@@ -161,6 +164,27 @@ is a social indicator only — the roll is weight-based and never looks at where
 the money went. The rules modal states this explicitly, because the reference
 material this game was based on contains a lot of folklore about result
 "patterns".
+
+---
+
+### The daily board
+
+«أرباح اليوم», «سجلي» and «ترتيب اليوم» live in `game_daily_stats`, one row per
+player per game per UTC day.
+
+It started in memory, which meant every deploy silently wiped the board
+mid-day. It could not simply become a query, because `getPublicState` is
+synchronous — it runs inside `broadcast()` and straight out of a socket handler.
+So the shape is: an in-process cache answers the per-round reads, Postgres holds
+the truth, the cache is hydrated from the table at engine start, and each round
+writes through **once per player at settlement** rather than on every bet.
+
+Losing players are written too. Their net moved, so the board has to show it —
+an early `continue` for them was the bug the check script guards against.
+
+`game` is a discriminator, so the sibling wager games can adopt the same table
+without another migration. `day` is a UTC `YYYY-MM-DD` string rather than a
+timestamp, because the reset is *defined* as UTC midnight.
 
 ---
 
@@ -204,6 +228,24 @@ widest drift across all ten bets: 0.32 points — PASS
 
 Measured hit rates match the weights, and all ten placeable bets converge on the
 same 97.19%.
+
+### Daily board — `npm run check:greedy`
+28 checks, all passing, against an in-memory Prisma stand-in installed before
+the service loads. Covers the ranking query (ordering, 1-based ranks, the user
+join, exclusion of losing players, of other days and of other games), hydration
+restoring a player's running total across a simulated restart, bets deliberately
+*not* touching the stats table, and the category split.
+
+`npm run check:greedy -- --settle` additionally waits out a full 47-second round
+and verifies settlement: exactly one write per player, the persisted net
+matching what the screen shows, the country landing on the row for the regional
+board, `wagered` surviving from bet time, and a losing round being persisted
+rather than skipped.
+
+The migration SQL was diffed against `prisma migrate diff --from-empty` output;
+that comparison caught the foreign key defaulting to `ON DELETE RESTRICT` while
+the hand-written SQL said `CASCADE`, and an `updatedAt` default Prisma does not
+generate. Both are now aligned.
 
 ### Compilation
 - `npx tsc --noEmit` on the backend — clean.
@@ -263,8 +305,11 @@ negatives, was fixed at the same time.
   were generated and the wiring compiles, but nobody has heard them on a
   handset. The loop's seam in particular wants an ear on it.
 - **Against the real backend.** The engine is wired into `index.ts` and
-  typechecks, but this machine has no Postgres, so the live path was exercised
-  through the mock. The first run against a real database should confirm the
+  typechecks, but this machine has no Postgres and no Docker, so the live path
+  was exercised through the mock and the database paths through a stub. The
+  migration has never been applied to a real database — run
+  `npm run prisma:push` or apply `20260903000000_game_daily_stats` and confirm
+  the board before trusting it. The first run against a real database should confirm the
   charge/refund path in `placeBet` and the payout loop in `settle`.
 - **Concurrency.** Multi-player behaviour — several users betting into one round
   — has not been load-tested.
@@ -274,8 +319,10 @@ negatives, was fixed at the same time.
 ### Open assumptions
 1. `MILESTONE_AWARD = 0`. The jackpot bar celebrates but pays nothing until a
    rake is wired and the RTP is dropped to fund it. This is a product decision.
-2. The daily leaderboard is **in-memory** and resets on process restart as well
-   as at UTC midnight. If it needs to survive a deploy it wants a Prisma table.
+2. The daily board is authoritative **in the cache while the process runs**,
+   with Postgres as the durable store. That is sound only because the round
+   engine is a singleton — one process owns the table. Running two instances
+   against one database would need the writes moved to atomic increments.
 3. Regional ranking filters on `User.countryCode`; users with none fall back to
    the global board rather than seeing an empty region.
 4. Round IDs start at `900000 + (days since epoch mod 50000)` purely so the
