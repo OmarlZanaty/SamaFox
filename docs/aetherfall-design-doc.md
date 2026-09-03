@@ -113,12 +113,10 @@ withdrawn, so the text stays silent on it rather than guessing. If coins do have
 an exit path, that is a legal and compliance question well beyond a wording fix
 — see the escalation clause in §7.
 
-**Still worth doing:** the client already fetches `serverSeedHash` / `clientSeed`
-/ `nonce` through `AetherfallFairness` and the repository exposes
-`setClientSeed`, but no screen surfaces any of it. The new text tells players
-they can check a spin, and today there is no in-app way to do so. Either add a
-fairness sheet (the sibling games have `_fairnessNote()` widgets to model it on)
-or soften that clause.
+**Made true since:** the new text tells players they can check a spin, and at
+first there was no in-app way to do so — the client fetched the seed data and no
+screen showed it. Settings now opens a fairness sheet with the committed
+server-seed hash, the client seed and the nonce (§10).
 
 ---
 
@@ -225,19 +223,27 @@ so per-spin exposure stays bounded.
 Measured: triggers roughly **1 in 115 spins**, averages **~21× bet**, and
 supplies ~18 of the ~97 points of total RTP.
 
-### 2.6 Constellation Lock — implemented as a counter, not a lock
+### 2.6 Constellation Lock
 
-Specified behaviour: each winning tumble locks a random non-special cell in
-place, and three connected locks grant a Starburst Tumble.
+Skyfire Vault only. Each winning tumble pins one random standard-symbol cell.
+A pinned cell keeps both its symbol and its row while everything else falls
+around it, and the pin carries into the next free tumble — `refill` writes only
+to unpinned rows. A pin resists gravity, not scoring: a pinned cell can still
+form part of a win, and clearing it releases the pin, which is what stops a
+pinned winning symbol from being re-counted forever. Once
+`CONSTELLATION_LOCK_TARGET` (3) cells are pinned the threads connect, the pins
+are spent, and a **Starburst Tumble with a guaranteed Prism Wild** is inserted.
 
-Shipped behaviour: `lockCount` increments once per winning bonus tumble; at 3 it
-resets and a **Starburst Tumble with a guaranteed Prism Wild** is inserted. **No
-cell is actually held** — `refill` runs normally, and the client renders a
-counter (`locks: _bonusLocks`) with no per-cell constellation thread.
+The board draws each pinned cell with a mint border, a glow, a pin badge and a
+constellation thread across its foot, and the HUD shows the count.
 
-The reward half is real and works. The lock half is cosmetic, and the help panel
-overstates it ("locks one random symbol cell"). Either implement real cell
-retention or reword the help text — the second is a one-line fix.
+**This was previously a lie.** The original build incremented a counter per
+winning tumble and awarded the Starburst, but pinned nothing — `refill` ran
+normally and no cell was ever held — while the help panel claimed cells were
+locked. Implementing it for real **cost about 1.3 points of RTP**, because a
+pinned symbol reduces the refill churn that generates fresh wins. That is why
+`VAULT_BONUS_START_TUMBLES` is 13 rather than 12: the tumble buys the value back
+where it was lost, rather than inflating the paytable for everyone.
 
 ### 2.7 Celebration tiers
 
@@ -427,12 +433,12 @@ than the chunkier symbols have and it reads slightly smaller in its chamber.
 |---|---|---|---|---|
 | 1 | RTP >100% — the game drains coins at scale | **Critical** | **Closed** | Retuned to 97%; harness committed and fails the run at 100% (§0.1) |
 | 2 | Free-play disclaimer over a real coin economy | **High** | **Closed** | Coin economy kept; every free-play label removed (§0.2) |
-| 3 | Help panel overstates Constellation Lock | Medium | Open | Reword, or implement real cell retention |
-| 3b | Help text says a spin can be checked, but no fairness UI exists | Medium | Open | Add a fairness sheet, or soften the clause (§0.2) |
-| 4 | Seeds and history in process memory | Medium | Open | Move to DB/Redis before scaling, or players lose verifiability on restart |
+| 3 | Help panel overstates Constellation Lock | Medium | **Closed** | Implemented for real; RTP re-measured (§2.6) |
+| 3b | Help text says a spin can be checked, but no fairness UI exists | Medium | **Closed** | Fairness sheet in Settings (§10) |
+| 4 | Seeds and history in process memory | Medium | **Open, deliberately** | Shared with بلينكو and نيون فورتشن; needs one cross-game change plus a migration (§10) |
 | 5 | All artwork undelivered | Medium | Open | Generate per the art brief; symbols first |
-| 6 | Accessibility below the brief's bar | Medium | Open | See §8 |
-| 7 | No deterministic QA mode | Medium | Open | The provably-fair seeding can back it — pin a seed per scenario |
+| 6 | Accessibility below the brief's bar | Medium | **Closed** | Volume, high contrast, symbol markers, left-handed, semantics (§10) |
+| 7 | No deterministic QA mode | Medium | **Closed** | `npm run sim:aetherfall -- --scenarios` (§10) |
 | 8 | No landscape / desktop layout | Low | Open | Portrait only; fine if mobile-only is accepted |
 | 9 | Creative / IP distinctness | Low | **Controlled** | §1 audit; guardrail repeated in the art brief |
 | 10 | Coin over- or under-draw on parallel spins | Low | **Controlled** | Atomic conditional decrement, refund on failure |
@@ -455,20 +461,20 @@ certification and responsible-gambling review.
 | Reduced motion removes shake and flashing | **Pass** — 0.4× timing, particle layer dropped |
 | Skip on celebration (500 ms) and bonus transition (800 ms) | **Pass** |
 | Art original, no copied protected assets | **Pass** — see §1 |
-| Help panel accurately describes current rules | **Fail** — Constellation Lock only (§2.6); the free-play claim is fixed (§0.2) |
+| Help panel accurately describes current rules | **Pass** — Constellation Lock now does what the text says (§2.6) |
 | On-screen text matches what the code charges | **Pass** — states the coin cost and bet range (§0.2) |
 | RTP measurable and regression-guarded | **Pass** — `npm run sim:aetherfall` |
 | Bounded, non-exploitable economics | **Pass** — 97% RTP, measured and enforced (§0.1) |
-| Runs smoothly on a mid-range device | **Untested** — no device pass recorded |
-| No important text overlaps symbols at 360 px | **Untested** |
-| Deterministic demo mode for QA | **Not built** |
-| Screen-reader labels on controls | **Not built** — no `Semantics` widgets |
-| High-contrast mode | **Not built** |
-| Colour-blind-friendly symbol outlines | **Not built** |
-| Left-handed control option | **Not built** |
+| Runs smoothly on a mid-range device | **Untested** — still no device (§10) |
+| No important text overlaps symbols at 360 px | **Pass** — 360px renders assert against layout overflow |
+| Deterministic demo mode for QA | **Pass** — reproducible scenario table (§10) |
+| Screen-reader labels on controls | **Pass** — symbols, controls, settings and the fairness sheet are labelled |
+| High-contrast mode | **Pass** |
+| Colour-blind symbol markers | **Pass** — per-family glyph, so colour is not the only difference |
+| Left-handed control option | **Pass** — mirrors the bet/spin row |
 | Language placeholder support | **Not built** — English labels with Arabic error strings |
-| Master volume slider, separate music / SFX toggles | **Not built** — one combined Sound switch |
-| Session-play reminder | **Not built** |
+| Master volume slider | **Pass** — one Sound switch plus a volume slider; there is no music bed, so a music/SFX split would control nothing |
+| Session-play reminder | **Pass** — every 50 spins, a notice; never blocks play |
 | Reset demo progress | **Partial** — resets Star Shards only, not the balance |
 
 ---
@@ -485,3 +491,71 @@ certification and responsible-gambling review.
    split audio toggles (§8).
 6. Move seeds and history out of process memory (§7, risk 4).
 7. Device pass at 360 px and on mid-range hardware; record the results.
+
+---
+
+## 10. Closing out the punch list
+
+### Fairness, surfaced
+
+`aetherfall_fairness.dart` is reachable from Settings and shows the committed
+server-seed hash, the player's client seed and the current nonce, with copy
+buttons and a field to set a new client seed. The help text already told players
+a spin could be checked; now it can be. The nonce rides back on every spin
+response, so the sheet stays current without another round trip.
+
+### Accessibility
+
+- **Volume slider** scaling every cue, alongside the Sound switch. There is
+  deliberately no music/SFX split: the game has no music bed, only one-shot
+  cues, so the second toggle would control nothing.
+- **High Contrast** — near-black chambers with strong symbol outlines.
+- **Symbol Markers** — a per-family glyph in the corner of each tile, so the
+  symbols can be told apart without relying on colour.
+- **Left-handed Controls** — mirrors the bet/spin row so IGNITE falls under the
+  other thumb.
+- **Session reminder** — a notice every 50 spins. A nudge, not a limit; it never
+  blocks play.
+- **Semantics** on symbols (name, charge value, selected state), the spin
+  button, every settings control and the fairness sheet.
+
+### Deterministic QA
+
+```bash
+npm run sim:aetherfall -- --scenarios
+```
+
+Prints the first nonce that produces each interesting outcome — a plain loss, a
+single tumble, a 3+ cascade, a charge resolution, a vault trigger, a
+Constellation Lock, a Starburst Tumble, and each of the four celebration tiers —
+then the exact `/aetherfall/verify` call that replays it.
+
+Nothing is rigged: a spin is a pure function of the seed pair and the nonce, so
+this is a search, not a debug path. It replays through the verification
+endpoint rather than live play, because the server seed on a real account is
+generated server-side and cannot be set — which is the property that makes the
+commitment worth anything in the first place.
+
+### The 360px sweep
+
+`flutter test test/aetherfall_render_test.dart` renders base play, the vault, a
+celebration and an accessibility pass at both 400px and **360px**, the narrowest
+supported width, writing PNGs to `build/aetherfall-preview/`. A `RenderFlex`
+overflow throws during layout, so these are assertions, not just screenshots.
+This is what caught the bonus HUD overflowing when the constellation threads
+were added, and it caught the lock indicator being too faint to see.
+
+### Two things still open
+
+**Seeds and history in process memory — open on purpose.** بلينكو, نيون فورتشن
+and أثيرفول all keep their seed state in a module-level `Map`. That is a
+platform-wide choice, not an Aetherfall bug, and the fix is one shared store
+plus a Prisma migration against Postgres. Doing it for this game alone would
+leave the three inconsistent, and a migration cannot be verified from here.
+It deserves its own change across all three.
+
+**No real-device pass — blocked.** There is no Android device or emulator
+attached and no system images installed, and the screen needs a backend, a login
+and a coin balance before it draws. The 360px render sweep covers the layout
+risk; it does not cover frame rate, touch targets under a real thumb, or memory
+on a mid-range phone. Someone has to run it on hardware.

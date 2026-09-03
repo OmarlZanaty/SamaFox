@@ -189,6 +189,8 @@ class SymbolTile extends StatelessWidget {
     this.chargeValue,
     this.highlighted = false,
     this.dimmed = false,
+    this.highContrast = false,
+    this.shapeCoded = false,
   });
 
   final String symbol;
@@ -197,33 +199,61 @@ class SymbolTile extends StatelessWidget {
   final bool highlighted;
   final bool dimmed;
 
+  /// Stronger borders and a darker chamber, for players who cannot separate the
+  /// tile from the board at the default contrast.
+  final bool highContrast;
+
+  /// Marks each family with a distinct corner glyph so the symbols can be told
+  /// apart without relying on their colour.
+  final bool shapeCoded;
+
   @override
   Widget build(BuildContext context) {
     final visual = kSymbolVisuals[symbol];
     if (visual == null) return const SizedBox.shrink();
 
-    return Opacity(
-      opacity: dimmed ? 0.35 : 1.0,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          gradient: RadialGradient(
-            colors: [visual.color.withValues(alpha: 0.28), visual.color.withValues(alpha: 0.08)],
+    final label = kSymbolNames[symbol] ?? symbol;
+    return Semantics(
+      label: chargeValue != null ? '$label, +$chargeValue%' : label,
+      selected: highlighted,
+      image: art != null,
+      child: Opacity(
+        opacity: dimmed ? 0.35 : 1.0,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            gradient: RadialGradient(
+              colors: highContrast
+                  ? [const Color(0xFF05060F), const Color(0xFF05060F)]
+                  : [visual.color.withValues(alpha: 0.28), visual.color.withValues(alpha: 0.08)],
+            ),
+            border: Border.all(
+              color: highlighted
+                  ? (highContrast ? Colors.white : visual.glow)
+                  : visual.color.withValues(alpha: highContrast ? 0.95 : 0.55),
+              width: highlighted ? (highContrast ? 3.0 : 2.4) : (highContrast ? 2.0 : 1.2),
+            ),
+            boxShadow: highlighted
+                ? [BoxShadow(color: visual.glow.withValues(alpha: 0.75), blurRadius: 16, spreadRadius: 1)]
+                : [BoxShadow(color: visual.color.withValues(alpha: 0.25), blurRadius: 6)],
           ),
-          border: Border.all(
-            color: highlighted ? visual.glow : visual.color.withValues(alpha: 0.55),
-            width: highlighted ? 2.4 : 1.2,
+          child: Stack(
+            children: [
+              Center(
+                child: art != null
+                    ? RawImage(image: art, fit: BoxFit.contain, width: 34, height: 34)
+                    : symbol == 'CHARGE' && chargeValue != null
+                        ? _chargeBadge(visual, chargeValue!)
+                        : Icon(visual.icon, color: visual.color, size: 22),
+              ),
+              if (shapeCoded)
+                Positioned(
+                  top: 2,
+                  left: 3,
+                  child: Icon(visual.icon, size: 9, color: Colors.white.withValues(alpha: 0.85)),
+                ),
+            ],
           ),
-          boxShadow: highlighted
-              ? [BoxShadow(color: visual.glow.withValues(alpha: 0.75), blurRadius: 16, spreadRadius: 1)]
-              : [BoxShadow(color: visual.color.withValues(alpha: 0.25), blurRadius: 6)],
-        ),
-        child: Center(
-          child: art != null
-              ? RawImage(image: art, fit: BoxFit.contain, width: 34, height: 34)
-              : symbol == 'CHARGE' && chargeValue != null
-                  ? _chargeBadge(visual, chargeValue!)
-                  : Icon(visual.icon, color: visual.color, size: 22),
         ),
       ),
     );

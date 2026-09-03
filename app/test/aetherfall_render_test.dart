@@ -17,11 +17,16 @@ import 'package:samafox/dev/aetherfall_preview.dart';
 
 const _size = Size(400, 940);
 
-Future<void> _shoot(WidgetTester tester, Widget app, String name) async {
+/// The narrowest screen the game claims to support. Rendering here is how
+/// layout overflow gets caught without a device — it is what found the bonus
+/// HUD overflowing when the constellation threads were added.
+const _narrow = Size(360, 780);
+
+Future<void> _shoot(WidgetTester tester, Widget app, String name, {Size size = _size}) async {
   final key = GlobalKey();
 
-  await tester.binding.setSurfaceSize(_size);
-  tester.view.physicalSize = _size;
+  await tester.binding.setSurfaceSize(size);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
 
   await tester.pumpWidget(
@@ -76,5 +81,25 @@ void main() {
 
   testWidgets('celebration', (tester) async {
     await _shoot(tester, const AetherfallPreviewApp(celebrate: true), 'celebration');
+  });
+
+  testWidgets('accessibility mode', (tester) async {
+    await _shoot(tester, const AetherfallPreviewApp(bonus: true, a11y: true), 'accessibility');
+  });
+
+  // A 360px sweep. Any RenderFlex overflow throws during layout and fails the
+  // test, so this is a real assertion, not just a screenshot.
+  testWidgets('360px base play', (tester) async {
+    await _shoot(tester, const AetherfallPreviewApp(), 'narrow-base-play', size: _narrow);
+  });
+
+  testWidgets('360px skyfire vault', (tester) async {
+    await _shoot(tester, const AetherfallPreviewApp(bonus: true), 'narrow-skyfire-vault',
+        size: _narrow);
+  });
+
+  testWidgets('360px celebration', (tester) async {
+    await _shoot(tester, const AetherfallPreviewApp(celebrate: true), 'narrow-celebration',
+        size: _narrow);
   });
 }

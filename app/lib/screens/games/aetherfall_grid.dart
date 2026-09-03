@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import 'aetherfall_symbols.dart';
@@ -17,6 +19,9 @@ class AetherfallGrid extends StatelessWidget {
     this.highlighted = const {},
     this.clearing = const {},
     this.chargeValues = const {},
+    this.locked = const {},
+    this.highContrast = false,
+    this.shapeCoded = false,
     this.art,
   });
 
@@ -27,6 +32,11 @@ class AetherfallGrid extends StatelessWidget {
   final Set<int> highlighted;
   final Set<int> clearing;
   final Map<int, int> chargeValues;
+
+  /// Cells pinned by a Constellation Lock, marked with a thread.
+  final Set<int> locked;
+  final bool highContrast;
+  final bool shapeCoded;
   final AetherfallArt? art;
 
   @override
@@ -70,11 +80,16 @@ class AetherfallGrid extends StatelessWidget {
                       opacity: isClearing ? 0.0 : (symbol == null ? 0.0 : 1.0),
                       child: symbol == null
                           ? const SizedBox.shrink()
-                          : SymbolTile(
-                              symbol: symbol,
-                              art: art?.forSymbol(symbol),
-                              chargeValue: chargeValues[i],
-                              highlighted: highlighted.contains(i),
+                          : _maybeLocked(
+                              locked.contains(i),
+                              SymbolTile(
+                                symbol: symbol,
+                                art: art?.forSymbol(symbol),
+                                chargeValue: chargeValues[i],
+                                highlighted: highlighted.contains(i),
+                                highContrast: highContrast,
+                                shapeCoded: shapeCoded,
+                              ),
                             ),
                     ),
                   );
@@ -86,6 +101,71 @@ class AetherfallGrid extends StatelessWidget {
       ),
     );
   }
+
+  /// A pinned cell wears a mint constellation thread across its foot, so the
+  /// player can see which symbol is being held in place for the next tumble.
+  Widget _maybeLocked(bool isLocked, Widget tile) {
+    if (!isLocked) return tile;
+    final thread = art?.forFx('fx_constellation_thread');
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        tile,
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF7CE8B0), width: 2.4),
+              boxShadow: const [
+                BoxShadow(color: Color(0x807CE8B0), blurRadius: 10, spreadRadius: -1),
+              ],
+            ),
+          ),
+        ),
+        if (thread != null)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: FractionallySizedBox(
+              widthFactor: 0.9,
+              child: AspectRatio(
+                aspectRatio: 2,
+                child: CustomPaint(painter: _LockThreadPainter(thread)),
+              ),
+            ),
+          ),
+        // A pin badge, so a locked cell is unmistakable even against a tile
+        // whose own colour is close to mint.
+        const Align(
+          alignment: Alignment.topRight,
+          child: Padding(
+            padding: EdgeInsets.all(2),
+            child: Icon(Icons.push_pin_rounded, size: 11, color: Color(0xFF7CE8B0)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LockThreadPainter extends CustomPainter {
+  const _LockThreadPainter(this.image);
+
+  final ui.Image image;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      Offset.zero & size,
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..filterQuality = FilterQuality.medium,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _LockThreadPainter old) => old.image != image;
 }
 
 class _CompassRing extends StatefulWidget {

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../repositories/aetherfall_repository.dart';
 import 'aetherfall_bonus.dart';
 import 'aetherfall_celebration.dart';
+import 'aetherfall_fairness.dart';
 import 'aetherfall_grid.dart';
 import 'aetherfall_help.dart';
 import 'aetherfall_sfx.dart';
@@ -52,6 +53,18 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
 
   bool _muted = false;
   bool _reducedMotion = false;
+  double _volume = 0.8;
+  bool _highContrast = false;
+  bool _shapeCoded = false;
+  bool _leftHanded = false;
+
+  /// Spins played this visit. Drives the session reminder, which is a nudge to
+  /// take a break, not a limit — it never blocks play.
+  int _spinsThisSession = 0;
+  int _lastReminderAt = 0;
+  static const _reminderEvery = 50;
+
+  AetherfallFairness? _fairness;
 
   bool _auto = false;
   bool _stopRequested = false;
@@ -61,6 +74,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
   Set<int> _highlighted = {};
   Set<int> _clearing = {};
   Map<int, int> _chargeValues = {};
+  Set<int> _lockedCells = {};
 
   // ── HUD state ────────────────────────────────────────────────────────────
   double _sequenceWin = 0;
@@ -105,6 +119,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       setState(() {
         _layout = state.layout;
         _balance = state.balance;
+        _fairness = state.fairness;
         _art = art;
         _bet = _betSteps.firstWhere(
           (b) => b >= state.layout.minBet,
@@ -154,6 +169,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       _highlighted = {};
       _clearing = {};
       _chargeValues = {};
+      _lockedCells = {};
       _heroMood = 'idle';
     });
     _sfx.ignite();
@@ -179,7 +195,16 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       _balance = response.balance;
       _starShards += (response.spin.grandTotal / 50).floor();
       _busy = false;
+      _spinsThisSession++;
+      _fairness = response.fairness;
     });
+
+    if (_spinsThisSession - _lastReminderAt >= _reminderEvery) {
+      _lastReminderAt = _spinsThisSession;
+      if (mounted) {
+        setState(() => _notice = 'لعبت $_spinsThisSession جولة في هذه الجلسة');
+      }
+    }
 
     if (_auto && !_stopRequested && mounted) {
       if (_bet > _balance) {
@@ -240,6 +265,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         _highlighted = {};
         _clearing = {};
         _chargeValues = {for (final c in frame.chargeCells) c.index: c.value};
+        _lockedCells = frame.lockedCells.toSet();
       });
       await _wait(180);
 
@@ -385,6 +411,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: _bgTop,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -392,56 +419,168 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         builder: (sheetContext, setSheetState) => SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'SETTINGS',
-                  style: TextStyle(color: _cyan, fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1.5),
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  activeThumbColor: _cyan,
-                  title: const Text('Sound', style: TextStyle(color: Colors.white)),
-                  subtitle: const Text('Music and effects', style: TextStyle(color: Colors.white38, fontSize: 11)),
-                  value: !_muted,
-                  onChanged: (on) {
-                    setState(() {
-                      _muted = !on;
-                      _sfx.enabled = on;
-                    });
-                    setSheetState(() {});
-                  },
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  activeThumbColor: _cyan,
-                  title: const Text('Reduced Motion', style: TextStyle(color: Colors.white)),
-                  subtitle: const Text(
-                    'Shortens animations and removes screen shake',
-                    style: TextStyle(color: Colors.white38, fontSize: 11),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Semantics(
+                    header: true,
+                    child: const Text(
+                      'SETTINGS',
+                      style: TextStyle(
+                        color: _cyan,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
                   ),
-                  value: _reducedMotion,
-                  onChanged: (on) {
-                    setState(() => _reducedMotion = on);
-                    setSheetState(() {});
-                  },
-                ),
-                const SizedBox(height: 6),
-                TextButton(
-                  onPressed: () {
-                    setState(() => _starShards = 0);
-                    Navigator.of(sheetContext).pop();
-                  },
-                  child: const Text('Reset session stats', style: TextStyle(color: Colors.white54)),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  _toggle(
+                    'Sound',
+                    'Every cue in the game',
+                    !_muted,
+                    (on) {
+                      setState(() {
+                        _muted = !on;
+                        _sfx.enabled = on;
+                      });
+                      setSheetState(() {});
+                    },
+                  ),
+                  // One switch, not a music/SFX pair: Aetherfall has no music
+                  // bed, only one-shot cues, so a second toggle would control
+                  // nothing.
+                  Padding(
+                    padding: const EdgeInsets.only(left: 2, right: 2),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.volume_down_rounded, color: Colors.white38, size: 18),
+                        Expanded(
+                          child: Semantics(
+                            label: 'Volume',
+                            value: '${(_volume * 100).round()} percent',
+                            slider: true,
+                            child: Slider(
+                              value: _volume,
+                              activeColor: _cyan,
+                              onChanged: _muted
+                                  ? null
+                                  : (v) {
+                                      setState(() {
+                                        _volume = v;
+                                        _sfx.volume = v;
+                                      });
+                                      setSheetState(() {});
+                                    },
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.volume_up_rounded, color: Colors.white38, size: 18),
+                      ],
+                    ),
+                  ),
+                  _toggle(
+                    'Reduced Motion',
+                    'Shortens animations and removes screen shake',
+                    _reducedMotion,
+                    (on) {
+                      setState(() => _reducedMotion = on);
+                      setSheetState(() {});
+                    },
+                  ),
+                  _toggle(
+                    'High Contrast',
+                    'Darker chambers and stronger symbol outlines',
+                    _highContrast,
+                    (on) {
+                      setState(() => _highContrast = on);
+                      setSheetState(() {});
+                    },
+                  ),
+                  _toggle(
+                    'Symbol Markers',
+                    'Marks each symbol with its own glyph, so colour is not the only difference',
+                    _shapeCoded,
+                    (on) {
+                      setState(() => _shapeCoded = on);
+                      setSheetState(() {});
+                    },
+                  ),
+                  _toggle(
+                    'Left-handed Controls',
+                    'Mirrors the bet and spin row',
+                    _leftHanded,
+                    (on) {
+                      setState(() => _leftHanded = on);
+                      setSheetState(() {});
+                    },
+                  ),
+                  const Divider(color: Colors.white12, height: 26),
+                  Semantics(
+                    button: true,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.verified_outlined, color: _mint, size: 20),
+                      title: const Text('Provably Fair', style: TextStyle(color: Colors.white)),
+                      subtitle: const Text(
+                        'Check the seeds behind your spins',
+                        style: TextStyle(color: Colors.white38, fontSize: 11),
+                      ),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _openFairness();
+                      },
+                    ),
+                  ),
+                  Semantics(
+                    button: true,
+                    child: TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _starShards = 0;
+                          _spinsThisSession = 0;
+                          _lastReminderAt = 0;
+                        });
+                        Navigator.of(sheetContext).pop();
+                      },
+                      child: const Text(
+                        'Reset session stats',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _toggle(String title, String subtitle, bool value, ValueChanged<bool> onChanged) =>
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        activeThumbColor: _cyan,
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: Colors.white38, fontSize: 11),
+        ),
+        value: value,
+        onChanged: onChanged,
+      );
+
+  void _openFairness() {
+    final fair = _fairness;
+    if (fair == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AetherfallFairnessSheet(repo: _repo, fairness: fair),
     );
   }
 
@@ -634,6 +773,9 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                 highlighted: _highlighted,
                 clearing: _clearing,
                 chargeValues: _chargeValues,
+                locked: _lockedCells,
+                highContrast: _highContrast,
+                shapeCoded: _shapeCoded,
                 art: _art,
               ),
             ),
@@ -720,6 +862,9 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
       child: Column(
         children: [
           Row(
+            // Left-handed play mirrors the row so IGNITE falls under the thumb
+            // on the other side.
+            textDirection: _leftHanded ? TextDirection.rtl : TextDirection.ltr,
             children: [
               _betControl(canPlay),
               const SizedBox(width: 10),
@@ -793,7 +938,11 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         ),
       );
 
-  Widget _igniteButton(bool enabled) => _SkinnedButton(
+  Widget _igniteButton(bool enabled) => Semantics(
+        button: true,
+        enabled: enabled,
+        label: 'IGNITE, spin for $_bet coins',
+        child: _SkinnedButton(
         asset: 'btn_ignite',
         tint: _cyan,
         height: 52,
@@ -813,7 +962,8 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                   fontSize: 17,
                   letterSpacing: 1.5,
                 ),
-              ),
+                ),
+        ),
       );
 
   Widget _pillButton(String label, Color color, VoidCallback? onTap) => SizedBox(
