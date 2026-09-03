@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import {
+  claimLuckyDrop,
   getFairness,
   getFeed,
   getHistory,
   getLayout,
+  getLuckyDrop,
   getState,
   poolValues,
   resolveSpin,
@@ -48,6 +50,35 @@ export const spinNeonFortune = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[neon-fortune] spin error', error);
     res.status(500).json({ success: false, message: 'تعذر تنفيذ الجولة' });
+  }
+};
+
+/** Lucky Drop status: the free coin chest and its cooldown. */
+export const getNeonFortuneLucky = async (req: Request, res: Response) => {
+  const userId = userIdOf(req);
+  if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+  try {
+    res.json({ success: true, lucky: await getLuckyDrop(userId) });
+  } catch (error) {
+    console.error('[neon-fortune] lucky status error', error);
+    res.status(500).json({ success: false, message: 'تعذر قراءة الصندوق' });
+  }
+};
+
+export const claimNeonFortuneLucky = async (req: Request, res: Response) => {
+  const userId = userIdOf(req);
+  if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+  try {
+    const result = await claimLuckyDrop(userId);
+    if (!result.ok) {
+      return res
+        .status(400)
+        .json({ success: false, code: result.code, message: result.message, lucky: result.lucky });
+    }
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[neon-fortune] lucky claim error', error);
+    res.status(500).json({ success: false, message: 'تعذر فتح الصندوق' });
   }
 };
 

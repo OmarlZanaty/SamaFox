@@ -823,6 +823,125 @@ function pushFeed(entry: FeedEntry) {
   if (feed.length > FEED_LIMIT) feed.length = FEED_LIMIT;
 }
 
+// ── Lucky Drop ───────────────────────────────────────────────────────────────
+// A free, claimable coin drop on a fixed cooldown. It *mints* coins into the
+// same purchasable balance the rest of the app uses, so the two numbers below
+// are a business decision, not a game-design one — they are deliberately small
+// and sit here alone so they are easy to find and change.
+
+export const LUCKY_DROP_REWARD = 250;
+export const LUCKY_DROP_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
+const LUCKY_SETTING_KEY = 'neon_fortune_lucky_drop';
+
+/** userId → epoch ms of last claim. Only entries inside the cooldown matter. */
+let luckyClaims = new Map<number, number>();
+let luckyLoaded = false;
+
+async function loadLucky(): Promise<void> {
+  if (luckyLoaded) return;
+  luckyLoaded = true;
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: LUCKY_SETTING_KEY } });
+    if (row?.value) {
+      const parsed = JSON.parse(row.value) as Record<string, number>;
+      for (const [id, at] of Object.entries(parsed)) {
+        if (Number.isFinite(at)) luckyClaims.set(Number(id), at);
+      }
+    }
+  } catch (err) {
+    console.error('[neon-fortune] could not load lucky drop claims', err);
+  }
+}
+
+/**
+ * Persists the claim table, dropping anything already off cooldown — an expired
+ * entry carries no information, so the stored map stays proportional to the
+ * players active in the last six hours rather than to the user table.
+ */
+async function persistLucky(): Promise<void> {
+  const cutoff = Date.now() - LUCKY_DROP_COOLDOWN_MS;
+  const kept = new Map<number, number>();
+  for (const [id, at] of luckyClaims) {
+    if (at > cutoff) kept.set(id, at);
+  }
+  luckyClaims = kept;
+  try {
+    const value = JSON.stringify(Object.fromEntries(kept));
+    await prisma.appSetting.upsert({
+      where: { key: LUCKY_SETTING_KEY },
+      update: { value },
+      create: { key: LUCKY_SETTING_KEY, value },
+    });
+  } catch (err) {
+    console.error('[neon-fortune] could not persist lucky drop claims', err);
+  }
+}
+
+export interface LuckyDropStatus {
+  reward: number;
+  cooldownMs: number;
+  canClaim: boolean;
+  /** Epoch ms when the next claim opens; null when it is available now. */
+  nextClaimAt: number | null;
+}
+
+export async function getLuckyDrop(userId: number): Promise<LuckyDropStatus> {
+  await loadLucky();
+  const last = luckyClaims.get(userId);
+  const nextAt = last === undefined ? null : last + LUCKY_DROP_COOLDOWN_MS;
+  const canClaim = nextAt === null || nextAt <= Date.now();
+  return {
+    reward: LUCKY_DROP_REWARD,
+    cooldownMs: LUCKY_DROP_COOLDOWN_MS,
+    canClaim,
+    nextClaimAt: canClaim ? null : nextAt,
+  };
+}
+
+export async function claimLuckyDrop(userId: number) {
+  await loadLucky();
+  const status = await getLuckyDrop(userId);
+  if (!status.canClaim) {
+    return {
+      ok: false as const,
+      code: 'COOLDOWN',
+      message: 'الصندوق لم يجهز بعد',
+      lucky: status,
+    };
+  }
+
+  // Record the claim before crediting: a double-tap that races here finds the
+  // cooldown already set and is refused, so the drop can only pay once.
+  luckyClaims.set(userId, Date.now());
+  let balance = 0;
+  try {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { coinsBalance: { increment: LUCKY_DROP_REWARD } },
+      select: { coinsBalance: true },
+    });
+    balance = user.coinsBalance;
+  } catch (err) {
+    luckyClaims.delete(userId);
+    console.error('[neon-fortune] lucky drop credit failed', { userId, err });
+    return {
+      ok: false as const,
+      code: 'CLAIM_FAILED',
+      message: 'تعذر فتح الصندوق',
+      lucky: await getLuckyDrop(userId),
+    };
+  }
+
+  await persistLucky();
+  return {
+    ok: true as const,
+    reward: LUCKY_DROP_REWARD,
+    balance,
+    lucky: await getLuckyDrop(userId),
+  };
+}
+
 // ── Spinning ─────────────────────────────────────────────────────────────────
 
 export async function getState(userId: number) {
@@ -838,6 +957,7 @@ export async function getState(userId: number) {
     history: getHistory(userId),
     feed: getFeed(),
     fairness: getFairness(userId),
+    lucky: await getLuckyDrop(userId),
   };
 }
 
