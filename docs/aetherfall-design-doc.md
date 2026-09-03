@@ -361,7 +361,7 @@ Every path, size and generation prompt lives in `AETHERFALL_ARTWORK_BRIEF.md`.
 |---|---|---|---|
 | Sound | 18 wavs | **Delivered** | Wired |
 | Standard symbols | `symbol_l1…h4` | **Delivered** | Wired |
-| Special symbols | `symbol_wild`, `symbol_key`, `symbol_charge` | **Delivered, 3 need a redo** | Wired |
+| Special symbols | `symbol_wild`, `symbol_key`, `symbol_charge` | **Delivered** (regenerated) | Wired |
 | Hub tile | `cards/card_aetherfall.png` | **Delivered** | Wired |
 | Hero portraits | 3 × `hero_portrait_*` | **Delivered** | Wired |
 | Backgrounds | `bg_observatory`, `bg_bonus_vault` | **Delivered** | Wired |
@@ -396,15 +396,28 @@ Repaired in one pass (`app/assets/images/aetherfall/`, now **7.2 MB**):
 The pristine 42 MB originals are kept outside the repo in the session scratchpad,
 so any of this can be redone without re-generating.
 
-### Three symbols still need regenerating
+### The three scene renders, redone
 
-`symbol_wild`, `symbol_key` and `symbol_charge` came back as **scenes** rather
-than isolated objects — a studio backdrop with a floor and a cast shadow, soil,
-and sand respectively. No keying can separate an object from a floor it is
-sitting on, so these three ship with visible ground under them until they are
-redone. Add to the prompt: *plain solid black background, object floating,
-nothing beneath it, no ground, no floor, no surface, no cast shadow, no
-backdrop, no scene.*
+`symbol_wild`, `symbol_key` and `symbol_charge` first came back as **scenes**
+rather than isolated objects — a studio backdrop with a floor and a cast shadow,
+soil, and sand respectively. No keying separates an object from a floor it is
+standing on, so they were regenerated with the scene explicitly forbidden:
+*plain solid pure-black background, object floating, nothing beneath it, no
+ground, no floor, no surface, no cast shadow, no backdrop, no scene.*
+
+They came back correct, and a black plate allows a better matte than the first
+batch got: the flood fill establishes what is background, then luminance is
+folded back in, so the glow each object throws survives as partial alpha instead
+of being cut to a hard silhouette.
+
+They also arrived 1536×1024 landscape with the object floating in the middle, so
+each is cropped to its own bounding box and re-centred on a square canvas —
+otherwise they would sit on the board at roughly two-thirds the size of every
+other symbol.
+
+**Every symbol on the board is now cleanly isolated.** One cosmetic leftover:
+the Vault Key is a tall, slim shape, so squaring it leaves more empty margin
+than the chunkier symbols have and it reads slightly smaller in its chamber.
 
 ---
 
