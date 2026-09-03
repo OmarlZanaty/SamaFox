@@ -187,8 +187,8 @@ class _LockThread extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 22,
-        height: 10,
+        width: 26,
+        height: 13,
         child: CustomPaint(painter: _ThreadPainter(image: image, lit: lit)),
       );
 }
@@ -245,15 +245,20 @@ class BonusHud extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: _ember.withValues(alpha: 0.4)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _stat('TUMBLES LEFT', '$tumblesLeft', _cyan),
-          _divider(),
-          _stat('CHARGE BANK', '+$chargeBank%', _ember),
-          _divider(),
-          _locks(),
-        ],
+      // Scaled down rather than clipped: lockTarget comes from the server, so
+      // the thread row can grow beyond what a 360px screen fits.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _stat('TUMBLES LEFT', '$tumblesLeft', _cyan),
+            _divider(),
+            _stat('CHARGE BANK', '+$chargeBank%', _ember),
+            _divider(),
+            _locks(),
+          ],
+        ),
       ),
     );
   }
@@ -270,7 +275,7 @@ class BonusHud extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
-          height: 16,
+          height: 15,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

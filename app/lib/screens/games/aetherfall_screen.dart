@@ -855,7 +855,7 @@ class _SkyfireChargeMeter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 118,
+      width: 132,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -865,7 +865,7 @@ class _SkyfireChargeMeter extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           SizedBox(
-            height: 26,
+            height: 34,
             child: Stack(
               alignment: Alignment.centerLeft,
               children: [
