@@ -1,5 +1,13 @@
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
+import {
+  getFairness as fairGetFairness,
+  reserveNonce,
+  rotateServerSeed as fairRotateServerSeed,
+  setClientSeed as fairSetClientSeed,
+} from './fairSeeds';
+
+const GAME = 'aetherfall' as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AETHERFALL: VAULTS OF THE SKYFIRE
@@ -535,54 +543,13 @@ export function getLayout() {
 }
 
 // ── Provably fair seeds ───────────────────────────────────────────────────────
+// The seed pair lives in the database, shared with بلينكو and نيون فورتشن —
+// see services/fairSeeds.ts for why it is not a Map any more.
 
-const sha256 = (input: string) => crypto.createHash('sha256').update(input).digest('hex');
-
-interface SeedState {
-  serverSeed: string;
-  serverSeedHash: string;
-  clientSeed: string;
-  nonce: number;
-}
-
-const seeds = new Map<number, SeedState>();
-
-function freshServerSeed(): { serverSeed: string; serverSeedHash: string } {
-  const serverSeed = crypto.randomBytes(32).toString('hex');
-  return { serverSeed, serverSeedHash: sha256(serverSeed) };
-}
-
-function seedsFor(userId: number): SeedState {
-  let s = seeds.get(userId);
-  if (!s) {
-    s = { ...freshServerSeed(), clientSeed: `u${userId}`, nonce: 0 };
-    seeds.set(userId, s);
-  }
-  return s;
-}
-
-export function getFairness(userId: number) {
-  const s = seedsFor(userId);
-  return { serverSeedHash: s.serverSeedHash, clientSeed: s.clientSeed, nonce: s.nonce };
-}
-
-export function setClientSeed(userId: number, seed: string) {
-  const clean = String(seed ?? '').trim().slice(0, 64);
-  if (!clean) return { ok: false as const, code: 'BAD_SEED', message: 'البذرة غير صالحة' };
-  const s = seedsFor(userId);
-  s.clientSeed = clean;
-  return { ok: true as const, clientSeed: clean };
-}
-
-export function rotateServerSeed(userId: number) {
-  const s = seedsFor(userId);
-  const revealed = { serverSeed: s.serverSeed, serverSeedHash: s.serverSeedHash, nonce: s.nonce };
-  const next = freshServerSeed();
-  s.serverSeed = next.serverSeed;
-  s.serverSeedHash = next.serverSeedHash;
-  s.nonce = 0;
-  return { revealed, serverSeedHash: next.serverSeedHash };
-}
+export const getFairness = (userId: number) => fairGetFairness(userId, GAME);
+export const setClientSeed = (userId: number, seed: string) =>
+  fairSetClientSeed(userId, GAME, seed);
+export const rotateServerSeed = (userId: number) => fairRotateServerSeed(userId, GAME);
 
 /** Recomputes a past spin from revealed seeds so the player can check it. */
 export function verifySpin(serverSeed: string, clientSeed: string, nonce: number, bet: number): SpinResult {
@@ -636,8 +603,10 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
     return { ok: false as const, code: 'INSUFFICIENT', message: 'رصيدك لا يكفي' };
   }
 
-  const s = seedsFor(userId);
-  const nonce = s.nonce++;
+  // Reserved from the database, so two spins racing cannot draw the same nonce
+  // and a restart cannot hand one out twice.
+  const s = await reserveNonce(userId, GAME);
+  const nonce = s.nonce;
 
   let spin: SpinResult;
   try {
