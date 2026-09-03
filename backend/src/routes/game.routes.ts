@@ -68,6 +68,8 @@ import {
   getNeonFortuneState,
   spinNeonFortune,
   getNeonFortuneJackpots,
+  getNeonFortuneLucky,
+  claimNeonFortuneLucky,
   getNeonFortuneHistory,
   getNeonFortuneFairness,
   setNeonFortuneClientSeed,
@@ -276,6 +278,8 @@ const neonFortuneLimiter = rateLimit({
 router.get('/neon/state', authenticate, getNeonFortuneState);
 router.post('/neon/spin', authenticate, neonFortuneLimiter, spinNeonFortune);
 router.get('/neon/jackpots', authenticate, getNeonFortuneJackpots);
+router.get('/neon/lucky', authenticate, getNeonFortuneLucky);
+router.post('/neon/lucky/claim', authenticate, neonFortuneLimiter, claimNeonFortuneLucky);
 router.get('/neon/history', authenticate, getNeonFortuneHistory);
 router.get('/neon/fair', authenticate, getNeonFortuneFairness);
 router.post('/neon/seed', authenticate, neonFortuneLimiter, setNeonFortuneClientSeed);

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../repositories/neon_fortune_repository.dart';
 import 'neon_fortune_help.dart';
 import 'neon_fortune_sfx.dart';
+import 'neon_fortune_strings.dart';
 import 'neon_fortune_symbols.dart';
 import 'neon_fortune_vault.dart';
 
@@ -40,6 +41,8 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   int _bet = 100;
   Map<String, int> _jackpots = const {};
   List<NeonFeedEntry> _feed = const [];
+  NeonLuckyDrop _lucky = NeonLuckyDrop.empty;
+  bool _claimingLucky = false;
 
   bool _loading = true;
   bool _busy = false;
@@ -79,6 +82,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   int _celebrationAmount = 0;
 
   Timer? _jackpotPoll;
+  Timer? _luckyTicker;
 
   @override
   void initState() {
@@ -90,6 +94,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   void dispose() {
     _blurTimer?.cancel();
     _jackpotPoll?.cancel();
+    _luckyTicker?.cancel();
     _sfx.dispose();
     super.dispose();
   }
@@ -106,11 +111,22 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
         _balance = state.balance;
         _jackpots = state.jackpots;
         _feed = state.feed;
+        _lucky = state.lucky;
         _bet = state.layout.betSteps.contains(_bet) ? _bet : state.layout.minBet;
         _grid = _restingGrid();
         _loading = false;
       });
       _jackpotPoll = Timer.periodic(const Duration(seconds: 12), (_) => _pollJackpots());
+      // Ticks only while the chest is counting down, so the label stays honest
+      // without repainting the screen once a second forever.
+      _luckyTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || _lucky.canClaim) return;
+        if (_lucky.remaining == Duration.zero) {
+          _refreshLucky();
+        } else {
+          setState(() {});
+        }
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -131,6 +147,49 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
       });
     } catch (_) {
       // The meters keep their last value; a failed poll is not worth a notice.
+    }
+  }
+
+  Future<void> _refreshLucky() async {
+    try {
+      final lucky = await _repo.fetchLuckyDrop();
+      if (!mounted) return;
+      setState(() => _lucky = lucky);
+    } catch (_) {
+      // The chest keeps its last known state; a failed poll is not a notice.
+    }
+  }
+
+  /// Opens the free coin chest. The server owns the cooldown — this only asks.
+  Future<void> _claimLucky() async {
+    if (_claimingLucky || !_lucky.canClaim) return;
+    setState(() => _claimingLucky = true);
+    final strings = NeonStrings.of(context);
+    try {
+      final claim = await _repo.claimLuckyDrop();
+      if (!mounted) return;
+      setState(() {
+        _balance = claim.balance;
+        _lucky = claim.lucky;
+        _notice = null;
+      });
+      _sfx.lineWin();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: kNeonPlum,
+          content: Text(
+            strings.luckyClaimed(neonCoins(claim.reward)),
+            style: const TextStyle(color: kNeonGold, fontWeight: FontWeight.bold),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _sfx.error();
+      setState(() => _notice = e.toString());
+      await _refreshLucky();
+    } finally {
+      if (mounted) setState(() => _claimingLucky = false);
     }
   }
 
@@ -237,7 +296,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
       if (_balance < _bet) {
         setState(() {
           _auto = false;
-          _notice = 'توقف التشغيل التلقائي — الرصيد غير كافٍ';
+          _notice = NeonStrings.of(context).autoStoppedLowBalance;
         });
         return;
       }
@@ -301,20 +360,24 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
 
     _sfx.lineWin();
     if (!_reducedMotion && !_skipFeature && wins.length > 1) {
+      final strings = NeonStrings.of(context);
       for (final win in wins.take(6)) {
         if (!mounted) return;
         setState(() {
           _highlighted = win.cells.toSet();
-          _lineLabel = 'خط ${win.line + 1} · ${neonCoins(win.amount)}';
+          _lineLabel = strings.lineWin(win.line + 1, neonCoins(win.amount));
         });
         await Future<void>.delayed(const Duration(milliseconds: 420));
       }
     }
 
     if (!mounted) return;
+    final strings = NeonStrings.of(context);
     setState(() {
       _highlighted = wins.expand((w) => w.cells).toSet();
-      _lineLabel = wins.length == 1 ? 'خط ${wins.first.line + 1}' : '${wins.length} خطوط رابحة';
+      _lineLabel = wins.length == 1
+          ? strings.line(wins.first.line + 1)
+          : strings.winningLines(wins.length);
     });
     await _countUp(total);
   }
@@ -378,7 +441,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
       }
       if (frame.retriggered > 0) {
         _sfx.scatterLand();
-        setState(() => _lineLabel = '+${frame.retriggered} لفات إضافية');
+        setState(() => _lineLabel = NeonStrings.of(context).extraSpins(frame.retriggered));
         if (!_skipFeature) {
           await Future<void>.delayed(const Duration(milliseconds: 500));
         }
@@ -394,14 +457,15 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
       _wildMultipliers = const {};
     });
 
+    final strings = NeonStrings.of(context);
     await _showSettlement(
       _Settlement(
-        title: 'اندفاع الأفق',
+        title: strings.rushName,
         total: round.total,
         rows: [
-          ('عدد اللفات', '${round.spinsPlayed}'),
-          ('أكبر لفة', neonCoins(round.bestSingle)),
-          ('إجمالي الجولة', neonCoins(round.total)),
+          (strings.spinsPlayed, '${round.spinsPlayed}'),
+          (strings.bestSpin, neonCoins(round.bestSingle)),
+          (strings.roundTotal, neonCoins(round.total)),
         ],
       ),
     );
@@ -462,17 +526,18 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   }
 
   Future<void> _showLowBalance() async {
+    final strings = NeonStrings.of(context);
     await showDialog<void>(
       context: context,
       builder: (context) => Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: strings.direction,
         child: AlertDialog(
           backgroundColor: kNeonPlum,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: const Text('الرصيد لا يكفي', style: TextStyle(color: kNeonText)),
-          content: const Text(
-            'اختر رهانًا أقل، أو اجمع عملاتك اليومية من الصفحة الرئيسية.',
-            style: TextStyle(color: kNeonTextDim, height: 1.6),
+          title: Text(strings.lowBalanceTitle, style: const TextStyle(color: kNeonText)),
+          content: Text(
+            strings.lowBalanceBody,
+            style: const TextStyle(color: kNeonTextDim, height: 1.6),
           ),
           actions: [
             TextButton(
@@ -480,11 +545,11 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
                 Navigator.of(context).pop();
                 _lowerBet();
               },
-              child: const Text('خفض الرهان', style: TextStyle(color: kNeonLime)),
+              child: Text(strings.lowerBet, style: const TextStyle(color: kNeonLime)),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('حسنًا', style: TextStyle(color: kNeonCyan)),
+              child: Text(strings.ok, style: const TextStyle(color: kNeonCyan)),
             ),
           ],
         ),
@@ -517,7 +582,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   @override
   Widget build(BuildContext context) {
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: NeonStrings.of(context).direction,
       child: Scaffold(
         backgroundColor: kNeonInk,
         body: Stack(
@@ -548,26 +613,29 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
     );
   }
 
-  Widget _loadFailed() => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _notice ?? 'تعذر تحميل اللعبة',
-              style: const TextStyle(color: kNeonText, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 14),
-            TextButton(
-              onPressed: () {
-                setState(() => _loading = true);
-                _boot();
-              },
-              child: const Text('إعادة المحاولة', style: TextStyle(color: kNeonCyan)),
-            ),
-          ],
-        ),
-      );
+  Widget _loadFailed() {
+    final strings = NeonStrings.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _notice ?? strings.loadFailed,
+            style: const TextStyle(color: kNeonText, fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          TextButton(
+            onPressed: () {
+              setState(() => _loading = true);
+              _boot();
+            },
+            child: Text(strings.retry, style: const TextStyle(color: kNeonCyan)),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _cabinet() {
     return LayoutBuilder(
@@ -593,14 +661,18 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   }
 
   Widget _header() {
+    final strings = NeonStrings.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
       child: Row(
         children: [
           IconButton(
             onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_forward_rounded, color: kNeonText),
-            tooltip: 'رجوع',
+            icon: Icon(
+              strings.ar ? Icons.arrow_forward_rounded : Icons.arrow_back_rounded,
+              color: kNeonText,
+            ),
+            tooltip: strings.back,
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -634,7 +706,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
               _reducedMotion ? Icons.motion_photos_off_rounded : Icons.motion_photos_on_rounded,
               color: _reducedMotion ? kNeonTextDim : kNeonCyan,
             ),
-            tooltip: 'تقليل الحركة',
+            tooltip: strings.reducedMotion,
           ),
           IconButton(
             onPressed: () => setState(() {
@@ -645,16 +717,17 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
               _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
               color: _muted ? kNeonTextDim : kNeonCyan,
             ),
-            tooltip: 'الصوت',
+            tooltip: strings.sound,
           ),
           IconButton(
             onPressed: () => NeonFortuneHelp.show(
               context,
               layout: _layout!,
               jackpots: _jackpots,
+              lucky: _lucky,
             ),
             icon: const Icon(Icons.info_outline_rounded, color: kNeonCyan),
-            tooltip: 'القواعد وجدول الأرباح',
+            tooltip: strings.rules,
           ),
         ],
       ),
@@ -664,18 +737,99 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   /// Real wins by real players. Empty until somebody actually wins — nothing
   /// here is invented (design review D3).
   Widget _eventStrip() {
+    final strings = NeonStrings.of(context);
     return SizedBox(
-      height: 42,
-      child: _feed.isEmpty
-          ? Center(
-              child: Text(
-                'أكبر الأرباح تظهر هنا فور حدوثها',
-                style: TextStyle(color: kNeonTextDim.withValues(alpha: 0.7), fontSize: 12),
-              ),
-            )
-          : ListView.separated(
+      height: 46,
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8, left: 8),
+            child: _luckyChest(strings),
+          ),
+          Expanded(child: _feedList(strings)),
+        ],
+      ),
+    );
+  }
+
+  /// The free coin chest: claimable on a server-owned cooldown, no purchase and
+  /// no ad in the path.
+  Widget _luckyChest(NeonStrings strings) {
+    final ready = _lucky.canClaim && _lucky.reward > 0;
+    return GestureDetector(
+      onTap: ready && !_claimingLucky ? _claimLucky : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: ready
+                ? [kNeonGold.withValues(alpha: 0.32), kNeonPlum]
+                : [kNeonPlum.withValues(alpha: 0.8), kNeonInk],
+          ),
+          border: Border.all(
+            color: (ready ? kNeonGold : kNeonTextDim).withValues(alpha: ready ? 0.9 : 0.35),
+          ),
+          boxShadow: ready
+              ? [BoxShadow(color: kNeonGold.withValues(alpha: 0.35), blurRadius: 12)]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              ready ? Icons.card_giftcard_rounded : Icons.lock_clock_rounded,
+              color: ready ? kNeonGold : kNeonTextDim,
+              size: 18,
+            ),
+            const SizedBox(width: 6),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  strings.luckyDrop,
+                  style: TextStyle(
+                    color: ready ? kNeonGold : kNeonTextDim,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  _claimingLucky
+                      ? '…'
+                      : ready
+                          ? neonCoins(_lucky.reward)
+                          : strings.luckyIn(strings.duration(_lucky.remaining)),
+                  style: TextStyle(
+                    color: ready ? kNeonText : kNeonTextDim.withValues(alpha: 0.8),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _feedList(NeonStrings strings) {
+    return _feed.isEmpty
+        ? Center(
+            child: Text(
+              strings.feedEmpty,
+              style: TextStyle(color: kNeonTextDim.withValues(alpha: 0.7), fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          )
+        : ListView.separated(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               itemCount: _feed.length,
               separatorBuilder: (_, __) => const SizedBox(width: 8),
               itemBuilder: (context, i) {
@@ -715,18 +869,18 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
                   ),
                 );
               },
-            ),
-    );
+            );
   }
 
   Widget _jackpotCrown() {
+    final strings = NeonStrings.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
       child: Column(
         children: [
-          const Text(
-            'نيون فورتشن',
-            style: TextStyle(
+          Text(
+            strings.title,
+            style: const TextStyle(
               color: kNeonText,
               fontSize: 20,
               fontWeight: FontWeight.w900,
@@ -747,6 +901,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
                     context,
                     layout: _layout!,
                     jackpots: _jackpots,
+                    lucky: _lucky,
                   ),
                   child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -763,7 +918,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
                     child: Column(
                       children: [
                         Text(
-                          kJackpotNames[tier] ?? tier,
+                          strings.tier(tier),
                           style: TextStyle(
                             color: color,
                             fontSize: 11,
@@ -849,6 +1004,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   }
 
   Widget _ribbon() {
+    final strings = NeonStrings.of(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -863,9 +1019,27 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
             const Icon(Icons.auto_awesome_rounded, color: kNeonMagenta, size: 16),
             const SizedBox(width: 6),
             Text(
-              'اندفاع الأفق $_freeSpinsLeft/$_freeSpinsTotal',
+              strings.rushCounter(_freeSpinsLeft, _freeSpinsTotal),
               style: const TextStyle(color: kNeonMagenta, fontSize: 13, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(width: 8),
+            // Skips the remaining animation, never the result: every frame is
+            // still shown, just without the pauses between them.
+            if (!_skipFeature)
+              GestureDetector(
+                onTap: () => setState(() => _skipFeature = true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(color: kNeonCyan.withValues(alpha: 0.7)),
+                  ),
+                  child: Text(
+                    strings.skip,
+                    style: const TextStyle(color: kNeonCyan, fontSize: 11.5),
+                  ),
+                ),
+              ),
             const Spacer(),
             Text(
               neonCoins(_freeSpinsWinSoFar),
@@ -873,7 +1047,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
             ),
           ] else ...[
             Text(
-              _lineLabel ?? 'آخر فوز',
+              _lineLabel ?? strings.lastWin,
               style: const TextStyle(color: kNeonTextDim, fontSize: 12.5),
             ),
             const Spacer(),
@@ -892,6 +1066,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   }
 
   Widget _controls() {
+    final strings = NeonStrings.of(context);
     final canSpin = !_busy && !_loading;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
@@ -923,7 +1098,10 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
                   ),
                   child: Column(
                     children: [
-                      const Text('الرهان', style: TextStyle(color: kNeonTextDim, fontSize: 10.5)),
+                      Text(
+                        strings.bet,
+                        style: const TextStyle(color: kNeonTextDim, fontSize: 10.5),
+                      ),
                       Text(
                         neonCoins(_bet),
                         style: const TextStyle(
@@ -967,9 +1145,9 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
                             height: 26,
                             child: CircularProgressIndicator(color: kNeonInk, strokeWidth: 3),
                           )
-                        : const Text(
-                            'أدر',
-                            style: TextStyle(
+                        : Text(
+                            strings.spin,
+                            style: const TextStyle(
                               color: kNeonInk,
                               fontSize: 22,
                               fontWeight: FontWeight.w900,
@@ -1026,7 +1204,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6, left: 14, right: 14),
       child: Text(
-        'يعمل بعملات سمافوكس — لا تُحوَّل إلى نقود ولا تُسحب.',
+        NeonStrings.of(context).footer,
         textAlign: TextAlign.center,
         style: TextStyle(color: kNeonTextDim.withValues(alpha: 0.65), fontSize: 10.5),
       ),
@@ -1036,6 +1214,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   // ── Overlays ─────────────────────────────────────────────────────────────
 
   Widget _rushIntro() {
+    final strings = NeonStrings.of(context);
     return Container(
       color: kNeonInk.withValues(alpha: 0.9),
       child: Center(
@@ -1045,7 +1224,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
             const Icon(Icons.auto_awesome_rounded, color: kNeonMagenta, size: 54),
             const SizedBox(height: 12),
             Text(
-              '$_freeSpinsTotal لفات مجانية',
+              strings.rushFreeSpins(_freeSpinsTotal),
               style: const TextStyle(
                 color: kNeonText,
                 fontSize: 30,
@@ -1054,9 +1233,9 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'اندفاع الأفق — نفس الرهان، بلا خصم',
-              style: TextStyle(color: kNeonTextDim, fontSize: 14),
+            Text(
+              strings.rushSubtitle,
+              style: const TextStyle(color: kNeonTextDim, fontSize: 14),
             ),
           ],
         ),
@@ -1118,9 +1297,9 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                   onPressed: () => _settlementCompleter?.complete(),
-                  child: const Text(
-                    'متابعة',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  child: Text(
+                    NeonStrings.of(context).carryOn,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
                   ),
                 ),
               ),
@@ -1132,12 +1311,7 @@ class _NeonFortuneScreenState extends State<NeonFortuneScreen> {
   }
 
   Widget _celebration(String tier) {
-    final label = switch (tier) {
-      'CITY_LIGHTS' => 'أضواء المدينة',
-      'MEGA_WIN' => 'فوز ضخم',
-      'BIG_WIN' => 'فوز كبير',
-      _ => 'فوز',
-    };
+    final label = NeonStrings.of(context).celebration(tier);
     final color = switch (tier) {
       'CITY_LIGHTS' => kNeonGold,
       'MEGA_WIN' => kNeonMagenta,

@@ -305,6 +305,7 @@ separate products' worth of work, and neither is needed to prove the loop.
 | API client | `app/lib/repositories/neon_fortune_repository.dart` |
 | Cabinet, features, HUD | `app/lib/screens/games/neon_fortune_screen.dart` |
 | Symbols and palette | `app/lib/screens/games/neon_fortune_symbols.dart` |
+| Arabic + English strings | `app/lib/screens/games/neon_fortune_strings.dart` |
 | Vault of Lights | `app/lib/screens/games/neon_fortune_vault.dart` |
 | Paytable, rules, money copy | `app/lib/screens/games/neon_fortune_help.dart` |
 | Sound, with graceful fallback | `app/lib/screens/games/neon_fortune_sfx.dart` |
@@ -368,13 +369,43 @@ the API to cluster mode.
 - **Collection/cosmetics and the three alternate cabinets remain deferred**, as
   the review recommended.
 
-### 9.5 Still open
+### 9.5 Added after the first pass
 
-- **Artwork.** Everything renders as painted placeholder glyphs until the assets
-  in `NEON_FORTUNE_ARTWORK_BRIEF.md` land. Nothing is blocked on them.
-- **Sound.** No files recorded yet; every cue no-ops silently.
-- **English strings** (D4) are not extracted — this screen is Arabic-only, like
-  its siblings.
-- **No live end-to-end run** against a running server yet: the math, the rules
-  and the client analysis all pass locally, but nobody has spun it against the
-  real API and database.
+- **Lucky Drop.** A free coin chest on a six-hour server-owned cooldown, 250
+  coins a claim. It sits at the head of the event strip, and the two numbers live
+  alone at the top of the service because they *mint* coins into a purchasable
+  balance — that is a business decision, not a game-design one. The claim is
+  recorded before the credit, so ten simultaneous taps pay exactly once
+  (verified). Cooldowns persist in `AppSetting`, pruned to the last six hours so
+  the stored map stays proportional to active players rather than to the user
+  table.
+- **Skip control.** `_skipFeature` was read in seven places but nothing ever set
+  it — the brief's skip button was missing. Skyline Rush now carries one, and it
+  drops the pauses between frames without hiding a single result.
+- **Arabic and English.** Every string in the cabinet, the vault, the settlement
+  panels and the rules sheet now comes from `neon_fortune_strings.dart`, and the
+  screen takes its `textDirection` from the locale instead of pinning itself to
+  RTL. This makes it the first bilingual game screen in the app; the others stay
+  hardcoded Arabic (D4 revisited).
+- **Sound.** Fourteen cues now exist in `app/assets/sounds/neon_*.wav`, generated
+  as tones and filtered noise on one pentatonic scale (622 KB total). They are
+  **placeholders**, not composed audio, and are meant to be replaced per
+  `NEON_FORTUNE_ARTWORK_BRIEF.md` §6.
+
+### 9.6 Still open
+
+- **Artwork.** Everything still renders as painted placeholder glyphs. Generating
+  the assets needs an image model or an artist working from
+  `NEON_FORTUNE_ARTWORK_BRIEF.md`; nothing in the build is blocked on them, and
+  the hub card falls back to its gradient until `cards/card_neon.png` lands.
+- **No run against a real database.** This machine has no Postgres — and `.env`
+  points `DATABASE_URL` at a SQLite file while the schema is Postgres — so every
+  endpoint has been exercised against an in-memory stand-in for the two Prisma
+  models the game touches, not against the real one. The jackpot and Lucky Drop
+  rows in `AppSetting` have never been written by Prisma itself.
+- **Not deployed.** The routes are not on the server and no app build has
+  shipped.
+- **Deferred scope from the brief** — the collection/cosmetics system, the daily
+  missions tie-in, and the three alternate cabinets (Moonlit Garden, Rocket
+  Relay, Ocean Prism) — remains deferred. Each alternate cabinet is a game in its
+  own right.

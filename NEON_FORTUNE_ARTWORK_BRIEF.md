@@ -114,10 +114,13 @@ Order: `token_t1` = Spark (lime), `token_t2` = Glow (cyan), `token_t3` = Beacon
 | `vfx_sheet.png` | 1536×1024, transparent | "A transparent VFX asset sheet for a neon slot game: gold coin-like geometric tokens carrying a four-point star emblem, cyan prism shards, magenta sparkles, soft violet light rays, and small controlled confetti bursts. Separate elements with generous padding between them. No real currency markings, no text." |
 | `cards/card_neon.png` | 1080×540, opaque | "A wide 2:1 key-art banner for a neon-city slot game: the tiger guardian's head to one side, a violet cabinet silhouette behind, magenta and cyan light streaks, gold particles, deep violet ground. Leave the opposite third visually calm — the app draws the game's name over it. No text baked in, no logo." |
 
-## 6. Sound (optional, wired with graceful fallback)
+## 6. Sound — placeholders are in, replace them
 
-Files go in `app/assets/sounds/`. Every cue is decoration: a missing file never
-interrupts a spin, and no result is ever communicated by sound alone.
+`app/assets/sounds/neon_*.wav` already contains all fourteen cues, synthesized as
+tones and filtered noise on a single pentatonic scale so nothing is silent and the
+mix can be judged. They are **placeholders, not composed audio** — replace them
+with the real thing at the same filenames. Every cue is decoration: a missing file
+never interrupts a spin, and no result is ever communicated by sound alone.
 
 `neon_spin.wav`, `neon_reel_stop.wav`, `neon_line_win.wav`, `neon_click.wav`,
 `neon_scatter.wav`, `neon_token.wav`, `neon_rush_start.wav`, `neon_vault.wav`,

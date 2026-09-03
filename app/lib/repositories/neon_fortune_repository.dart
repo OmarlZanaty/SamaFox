@@ -29,6 +29,9 @@ class NeonFortuneRepository {
         fairness: NeonFairness.fromJson(
           Map<String, dynamic>.from(body['fairness'] as Map? ?? const {}),
         ),
+        lucky: NeonLuckyDrop.fromJson(
+          Map<String, dynamic>.from(body['lucky'] as Map? ?? const {}),
+        ),
       );
     } on DioException catch (e) {
       throw NeonFortuneException(_message(e, 'تعذر تحميل اللعبة'));
@@ -69,6 +72,35 @@ class NeonFortuneRepository {
       );
     } on DioException catch (e) {
       throw NeonFortuneException(_message(e, 'تعذر تحديث الجوائز'));
+    }
+  }
+
+  Future<NeonLuckyDrop> fetchLuckyDrop() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('games/neon/lucky');
+      final body = res.data ?? const {};
+      return NeonLuckyDrop.fromJson(Map<String, dynamic>.from(body['lucky'] as Map? ?? const {}));
+    } on DioException catch (e) {
+      throw NeonFortuneException(_message(e, 'تعذر قراءة الصندوق'));
+    }
+  }
+
+  /// Claims the free coin drop. The server owns the cooldown; a claim that is
+  /// too early comes back as an error carrying the updated status.
+  Future<NeonLuckyClaim> claimLuckyDrop() async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>('games/neon/lucky/claim');
+      final body = res.data ?? const {};
+      if (body['success'] != true) {
+        throw NeonFortuneException(body['message']?.toString() ?? 'تعذر فتح الصندوق');
+      }
+      return NeonLuckyClaim(
+        reward: (body['reward'] as num?)?.toInt() ?? 0,
+        balance: (body['balance'] as num?)?.toInt() ?? 0,
+        lucky: NeonLuckyDrop.fromJson(Map<String, dynamic>.from(body['lucky'] as Map? ?? const {})),
+      );
+    } on DioException catch (e) {
+      throw NeonFortuneException(_message(e, 'تعذر فتح الصندوق'));
     }
   }
 
@@ -455,6 +487,7 @@ class NeonState {
     required this.history,
     required this.feed,
     required this.fairness,
+    required this.lucky,
   });
 
   final NeonLayout layout;
@@ -463,4 +496,50 @@ class NeonState {
   final List<NeonSpinRecord> history;
   final List<NeonFeedEntry> feed;
   final NeonFairness fairness;
+  final NeonLuckyDrop lucky;
+}
+
+/// The free coin chest and its cooldown, as the server sees it.
+class NeonLuckyDrop {
+  const NeonLuckyDrop({
+    required this.reward,
+    required this.cooldownMs,
+    required this.canClaim,
+    required this.nextClaimAt,
+  });
+
+  final int reward;
+  final int cooldownMs;
+  final bool canClaim;
+
+  /// Epoch ms of the next claim, or null when it is available now.
+  final int? nextClaimAt;
+
+  Duration get remaining {
+    final next = nextClaimAt;
+    if (canClaim || next == null) return Duration.zero;
+    final ms = next - DateTime.now().millisecondsSinceEpoch;
+    return ms <= 0 ? Duration.zero : Duration(milliseconds: ms);
+  }
+
+  static NeonLuckyDrop fromJson(Map<String, dynamic> j) => NeonLuckyDrop(
+        reward: (j['reward'] as num?)?.toInt() ?? 0,
+        cooldownMs: (j['cooldownMs'] as num?)?.toInt() ?? 0,
+        canClaim: j['canClaim'] == true,
+        nextClaimAt: (j['nextClaimAt'] as num?)?.toInt(),
+      );
+
+  static const empty = NeonLuckyDrop(
+    reward: 0,
+    cooldownMs: 0,
+    canClaim: false,
+    nextClaimAt: null,
+  );
+}
+
+class NeonLuckyClaim {
+  const NeonLuckyClaim({required this.reward, required this.balance, required this.lucky});
+  final int reward;
+  final int balance;
+  final NeonLuckyDrop lucky;
 }

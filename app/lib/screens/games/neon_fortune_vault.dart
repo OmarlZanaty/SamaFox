@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../repositories/neon_fortune_repository.dart';
+import 'neon_fortune_strings.dart';
 import 'neon_fortune_symbols.dart';
 
 /// خزنة الأضواء — Vault of Lights.
@@ -68,11 +69,12 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    final s = NeonStrings.of(context);
     final tier = _completedTier;
     final picksLeft = widget.vault.capsules.length - _revealed.length;
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: s.direction,
       child: Container(
         color: kNeonInk.withValues(alpha: 0.94),
         child: SafeArea(
@@ -81,9 +83,9 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text(
-                  'خزنة الأضواء',
-                  style: TextStyle(
+                Text(
+                  s.vaultName,
+                  style: const TextStyle(
                     color: kNeonGold,
                     fontSize: 26,
                     fontWeight: FontWeight.w900,
@@ -93,19 +95,19 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
                 const SizedBox(height: 6),
                 Text(
                   _settled
-                      ? (tier != null ? 'ثلاثية مكتملة!' : 'لم تكتمل ثلاثية — جائزة مواساة')
-                      : 'اكشف الكبسولات — ثلاث متطابقة تفوز بالجائزة',
+                      ? (tier != null ? s.vaultWon : s.vaultMissed)
+                      : s.vaultInstructions,
                   style: const TextStyle(color: kNeonTextDim, fontSize: 13.5),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
                 if (!_settled)
                   Text(
-                    'المتبقي: $picksLeft',
+                    s.remaining(picksLeft),
                     style: const TextStyle(color: kNeonCyan, fontSize: 12),
                   ),
                 const SizedBox(height: 18),
-                _progress(),
+                _progress(s),
                 const SizedBox(height: 18),
                 Flexible(
                   child: AspectRatio(
@@ -118,14 +120,14 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
                         mainAxisSpacing: 10,
                         crossAxisSpacing: 10,
                       ),
-                      itemBuilder: (context, i) => _capsule(i),
+                      itemBuilder: (context, i) => _capsule(s, i),
                     ),
                   ),
                 ),
                 const SizedBox(height: 18),
                 if (_settled) ...[
                   Text(
-                    tier != null ? (kJackpotNames[tier] ?? tier) : 'جائزة مواساة',
+                    tier != null ? s.tier(tier) : s.consolation,
                     style: TextStyle(
                       color: tier != null ? (kJackpotColors[tier] ?? kNeonGold) : kNeonCyan,
                       fontSize: 18,
@@ -134,7 +136,7 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${neonCoins(widget.vault.amount)} عملة',
+                    s.coins(neonCoins(widget.vault.amount)),
                     style: const TextStyle(
                       color: kNeonGold,
                       fontSize: 34,
@@ -152,18 +154,18 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                       onPressed: widget.onFinished,
-                      child: const Text(
-                        'متابعة',
-                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                      child: Text(
+                        s.carryOn,
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
                       ),
                     ),
                   ),
                 ] else
                   TextButton(
                     onPressed: _revealAll,
-                    child: const Text(
-                      'اكشف الكل',
-                      style: TextStyle(color: kNeonCyan, fontSize: 15),
+                    child: Text(
+                      s.revealAll,
+                      style: const TextStyle(color: kNeonCyan, fontSize: 15),
                     ),
                   ),
               ],
@@ -174,7 +176,7 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
     );
   }
 
-  Widget _progress() {
+  Widget _progress(NeonStrings s) {
     final counts = _counts;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -204,7 +206,7 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
     );
   }
 
-  Widget _capsule(int i) {
+  Widget _capsule(NeonStrings s, int i) {
     final revealed = _revealed.contains(i);
     final content = widget.vault.capsules[i];
     final isTier = content != 'SPARKLE';
@@ -238,7 +240,7 @@ class _NeonVaultOverlayState extends State<NeonVaultOverlay> {
                         Icon(kJackpotIcons[content], color: color, size: 30),
                         const SizedBox(height: 4),
                         Text(
-                          kJackpotNames[content] ?? content,
+                          s.tier(content),
                           style: TextStyle(
                             color: color,
                             fontSize: 12,
