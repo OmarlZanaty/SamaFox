@@ -63,6 +63,8 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFEA35D7),
     gradient: [Color(0xFF250A46), Color(0xFF17062E)],
     art: 'assets/images/cards/card_neon.png',
+    // Delivered without lettering, so the hub draws the name.
+    drawTitle: true,
   ),
 ];
 
@@ -197,8 +199,6 @@ class GamesHubScreen extends ConsumerWidget {
       case 'القط الجشع':
         screen = const GreedyCatScreen();
         break;
-      // نيون فورتشن is built but has no hub card yet — this branch goes live the
-      // moment its _GameEntry is added to [_games].
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
         break;
@@ -225,6 +225,13 @@ class _GameEntry {
   /// Optional key art; the gradient and emoji stand in when absent.
   final String? art;
 
+  /// Draw [title] and [tagline] over the artwork.
+  ///
+  /// Most banners have their name lettered into the image, so text on top would
+  /// double up. A banner delivered without lettering sets this instead, and gets
+  /// its name from code — which also keeps that name translatable.
+  final bool drawTitle;
+
   const _GameEntry({
     required this.title,
     required this.tagline,
@@ -232,6 +239,7 @@ class _GameEntry {
     required this.accent,
     required this.gradient,
     this.art,
+    this.drawTitle = false,
   });
 }
 
@@ -246,8 +254,9 @@ class _GameCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AspectRatio(
-        // The banners are 2:1 and carry their own frame, glow and title, so the
-        // card is the artwork — anything drawn on top would double up.
+        // The banners are 2:1 and most carry their own frame, glow and title, so
+        // the card is the artwork — text on top of those would double up. A
+        // banner without lettering opts into `drawTitle` and gets its name here.
         aspectRatio: 2.0,
         child: Container(
           decoration: BoxDecoration(
@@ -288,10 +297,75 @@ class _GameCard extends StatelessWidget {
                   child:
                       Text(entry.emoji, style: const TextStyle(fontSize: 84)),
                 ),
+              if (entry.drawTitle) ..._titleOverlay(),
             ]),
           ),
         ),
       ),
     );
+  }
+
+  /// Name and tagline over the artwork, for banners delivered without lettering.
+  ///
+  /// A scrim runs from the trailing edge inward so the words hold their contrast
+  /// whatever the art does behind them, and both it and the text follow the
+  /// reading direction — the Arabic layout puts them on the right, an English
+  /// one on the left, and the art is composed with that side left quiet.
+  List<Widget> _titleOverlay() {
+    return [
+      Positioned.fill(
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: AlignmentDirectional.centerEnd,
+                end: AlignmentDirectional.centerStart,
+                colors: [
+                  const Color(0xFF17062E).withValues(alpha: 0.82),
+                  const Color(0xFF17062E).withValues(alpha: 0.45),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.32, 0.62],
+              ),
+            ),
+          ),
+        ),
+      ),
+      PositionedDirectional(
+        end: 20,
+        top: 0,
+        bottom: 0,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              entry.title,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                shadows: [
+                  Shadow(color: entry.accent, blurRadius: 18),
+                  const Shadow(color: Colors.black87, blurRadius: 6),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              entry.tagline,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                color: entry.accent,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                shadows: const [Shadow(color: Colors.black87, blurRadius: 5)],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 }
