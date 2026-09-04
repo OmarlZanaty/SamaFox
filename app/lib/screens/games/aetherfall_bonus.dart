@@ -105,7 +105,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text(
-                          'SKYFIRE VAULT',
+                          'خزنة السماء',
                           style: TextStyle(
                             color: _ember,
                             fontSize: 34,
@@ -115,7 +115,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '${widget.tumbles} FREE TUMBLES',
+                          '${widget.tumbles} تساقطات مجانية',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -131,7 +131,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                     bottom: 40,
                     child: TextButton(
                       onPressed: widget.onDone,
-                      child: const Text('Skip', style: TextStyle(color: Colors.white54)),
+                      child: const Text('تخطّي', style: TextStyle(color: Colors.white54)),
                     ),
                   ),
               ],
@@ -252,9 +252,9 @@ class BonusHud extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _stat('TUMBLES LEFT', '$tumblesLeft', _cyan),
+            _stat('التساقطات المتبقية', '$tumblesLeft', _cyan),
             _divider(),
-            _stat('CHARGE BANK', '+$chargeBank%', _ember),
+            _stat('بنك الشحن', '+$chargeBank%', _ember),
             _divider(),
             _locks(),
           ],
@@ -269,7 +269,7 @@ class BonusHud extends StatelessWidget {
     final thread = art?.forFx('fx_constellation_thread');
     final earned = locks.clamp(0, lockTarget);
     if (thread == null) {
-      return _stat('LOCKS', '$earned/$lockTarget', _mint);
+      return _stat('الأقفال', '$earned/$lockTarget', _mint);
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -288,7 +288,7 @@ class BonusHud extends StatelessWidget {
           ),
         ),
         Text(
-          'LOCKS $earned/$lockTarget',
+          'الأقفال $earned/$lockTarget',
           style: const TextStyle(color: Colors.white54, fontSize: 9, letterSpacing: 1),
         ),
       ],
@@ -307,6 +307,8 @@ class BonusHud extends StatelessWidget {
         children: [
           Text(
             value,
+            // Counters and percentages stay left-to-right inside the RTL HUD.
+            textDirection: TextDirection.ltr,
             style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
           ),
           Text(
@@ -332,7 +334,7 @@ class StarburstBanner extends StatelessWidget {
         boxShadow: [BoxShadow(color: _mint.withValues(alpha: 0.6), blurRadius: 18)],
       ),
       child: const Text(
-        'STARBURST TUMBLE',
+        'تساقط نجمي',
         style: TextStyle(
           color: _midnight,
           fontWeight: FontWeight.w900,
@@ -382,15 +384,15 @@ class BonusSummarySheet extends StatelessWidget {
             style: const TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold),
           ),
           const Text(
-            'TOTAL COINS WON',
+            'إجمالي العملات',
             style: TextStyle(color: Colors.white54, fontSize: 11, letterSpacing: 1),
           ),
           const SizedBox(height: 18),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _metric('HIGHEST CHARGE', '+$highestCharge%'),
-              _metric('CASCADES', '$cascadeCount'),
+              _metric('أعلى شحنة', '+$highestCharge%'),
+              _metric('التتابعات', '$cascadeCount'),
             ],
           ),
           const SizedBox(height: 22),
@@ -404,7 +406,7 @@ class BonusSummarySheet extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
-              child: const Text('CONTINUE', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text('متابعة', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ],

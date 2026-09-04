@@ -6,10 +6,12 @@ import 'aetherfall_symbols.dart';
 const _midnight = Color(0xFF0B1030);
 const _cyan = Color(0xFF4DD8E6);
 const _ember = Color(0xFFFF8A3D);
+const _mint = Color(0xFF7CE8B0);
 
-/// Help panel: rules, live paytable, feature explanations and the free-play
-/// notice. Everything here must stay in sync with the server's actual layout,
-/// so it renders straight from [AetherfallLayout] rather than hard-coded copy.
+/// شرح اللعبة: القواعد وجدول الأرباح والميزات.
+///
+/// كل رقم هنا يأتي من [AetherfallLayout] الذي يرسله الخادم، لا من نص ثابت، حتى
+/// يبقى الشرح مطابقًا للعبة الفعلية إذا تغيّرت أي قيمة.
 class AetherfallHelpSheet extends StatelessWidget {
   const AetherfallHelpSheet({super.key, required this.layout});
 
@@ -42,86 +44,88 @@ class AetherfallHelpSheet extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             const Text(
-              'HOW TO PLAY',
-              style: TextStyle(color: _cyan, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1),
+              'كيف تلعب',
+              style: TextStyle(color: _cyan, fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             _section(
-              'Igniting a tumble',
-              'Set your bet and tap IGNITE. The chambers populate with '
-                  'symbols and any qualifying win dissolves and refills automatically '
-                  '— a spin can chain several tumbles in a row.',
+              'ابدأ الجولة',
+              'اختر قيمة رهانك ثم اضغط «اشعل». تمتلئ الخانات بالرموز، وكل فوز '
+                  'يتلاشى تلقائيًا وتنزل رموز جديدة مكانه — لذلك قد تعطيك ضغطة '
+                  'واحدة عدة تساقطات متتالية.',
             ),
             _section(
-              'Anywhere wins',
-              'Symbols pay anywhere on the ${layout.cols}×${layout.rows} board — they do '
-                  'not need to line up or touch. Landing ${layout.minMatch} or more of the '
-                  'same symbol (Prism Wilds count toward every symbol) triggers a win for '
-                  'that symbol.',
+              'الفوز من أي مكان',
+              'لا حاجة لأن تصطف الرموز أو تتلامس. يكفي أن يظهر ${layout.minMatch} '
+                  'رموز متشابهة أو أكثر في أي مكان على اللوح (${layout.cols}×${layout.rows}) '
+                  'حتى تربح. كلما زاد عددها زاد الربح.',
             ),
             const SizedBox(height: 18),
             const Text(
-              'PAYTABLE',
-              style: TextStyle(color: _cyan, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1),
+              'جدول الأرباح',
+              style: TextStyle(color: _cyan, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'الأرقام مضاعفات لقيمة رهانك، حسب عدد الرموز الظاهرة.',
+              style: TextStyle(color: Colors.white38, fontSize: 11),
             ),
             const SizedBox(height: 8),
             _paytable(),
             const SizedBox(height: 18),
             const Text(
-              'FEATURES',
-              style: TextStyle(color: _cyan, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1),
+              'الميزات',
+              style: TextStyle(color: _cyan, fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             _section(
-              'Prism Wild',
-              'Substitutes for all eight standard symbols to help complete a win. It '
-                  'never substitutes for the Vault Key.',
+              'المنشور البديل',
+              'يحلّ محل أي رمز من الرموز الثمانية العادية ليكمل لك الفوز. لكنه لا '
+                  'يحلّ محل مفتاح الخزنة.',
             ),
             _section(
-              'Vault Key & the Skyfire Vault',
-              '${layout.vaultKeyTrigger} or more Vault Keys on the very first grid of a spin '
-                  'open the Skyfire Vault bonus: ${layout.vaultBonusStartTumbles} free tumbles. '
-                  'During the bonus, ${layout.vaultRetriggerKeys} Vault Keys on a single free '
-                  'tumble add ${layout.vaultRetriggerTumbles} more tumbles.',
+              'مفتاح الخزنة وخزنة السماء',
+              'ظهور ${layout.vaultKeyTrigger} مفاتيح أو أكثر في أول لوح من الجولة '
+                  'يفتح خزنة السماء: ${layout.vaultBonusStartTumbles} تساقطات مجانية. '
+                  'وداخل الخزنة، ${layout.vaultRetriggerKeys} مفاتيح في تساقط واحد '
+                  'تضيف لك ${layout.vaultRetriggerTumbles} تساقطات أخرى.',
             ),
             _section(
-              'Ember Charge',
-              'Charge capsules collected during a winning tumble show a percentage value. '
-                  'In base play, every charge collected across a sequence is summed and applied '
-                  'once as a bonus to that sequence\'s win. In the Skyfire Vault, charge collects '
-                  'in a persistent Charge Bank and is applied once to the whole bonus total at the end.',
+              'شحنة الجمر',
+              'كبسولات تحمل نسبة مئوية. تُحتسب فقط إذا وقع فوز في نفس التساقط. في '
+                  'اللعب العادي تُجمع كل الشحنات خلال السلسلة وتُضاف مرة واحدة إلى ربح '
+                  'السلسلة، وفي خزنة السماء تتجمع في «بنك الشحن» وتُضاف مرة واحدة إلى '
+                  'إجمالي الخزنة في النهاية.',
             ),
             _section(
-              'Constellation Lock',
-              'Skyfire Vault only. Each winning tumble pins one random symbol cell with a '
-                  'constellation thread: that symbol holds its place while everything else '
-                  'falls around it, and it carries into the next free tumble. A pinned cell '
-                  'can still win, and clearing it releases the pin. Once '
-                  '${layout.constellationLockTarget} cells are pinned the threads connect, '
-                  'they are spent on a free Starburst Tumble with a guaranteed Prism Wild.',
+              'قفل الكوكبة',
+              'داخل خزنة السماء فقط. كل تساقط رابح يثبّت رمزًا واحدًا في مكانه بخيط '
+                  'كوكبة: يبقى الرمز ثابتًا بينما يتساقط ما حوله، ويستمر إلى التساقط '
+                  'التالي. الرمز المثبّت يمكن أن يربح، وعندها يُفك تثبيته. وعند تثبيت '
+                  '${layout.constellationLockTarget} رموز تتصل الخيوط وتحصل على «تساقط '
+                  'نجمي» مجاني مع منشور بديل مضمون.',
             ),
             const SizedBox(height: 18),
             const Text(
-              'CONTROLS & SAFETY',
-              style: TextStyle(color: _cyan, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1),
+              'التحكم والإعدادات',
+              style: TextStyle(color: _cyan, fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             _section(
-              'AUTO',
-              'Repeats IGNITE at your current bet automatically, spending coins each time. '
-                  'Tap STOP at any time to end it immediately; it also stops on its own once '
-                  'your balance can no longer cover the bet.',
+              'اللعب التلقائي',
+              'يكرّر «اشعل» بنفس الرهان ويخصم العملات في كل مرة. اضغط «إيقاف» لتتوقف '
+                  'فورًا، وهو يتوقف من نفسه إذا لم يعد رصيدك يغطي الرهان.',
             ),
             _section(
-              'Sound, motion & accessibility',
-              'Settings holds a master volume, Reduced Motion (shorter animations, no screen '
-                  'shake or flashing), High Contrast, Symbol Markers that give each symbol its '
-                  'own glyph so colour is not the only difference, and left-handed controls.',
+              'الصوت والحركة وسهولة القراءة',
+              'في الإعدادات: مستوى الصوت، و«حركة أقل» لتقصير الحركات وإلغاء الاهتزاز '
+                  'والوميض، و«تباين عالٍ»، و«علامات الرموز» التي تضع على كل رمز علامته '
+                  'الخاصة فلا يبقى اللون هو الفارق الوحيد، وتحكّم لليد اليسرى.',
             ),
             _section(
-              'Provably fair',
-              'Settings also opens the fairness sheet: the committed server-seed hash, your '
-                  'client seed and the current nonce. Set your own client seed there at any time.',
+              'عدالة مثبتة',
+              'من الإعدادات أيضًا تفتح صفحة العدالة: بصمة بذرة الخادم وبذرتك ورقم '
+                  'الجولة. تستطيع تغيير بذرتك في أي وقت.',
             ),
             const SizedBox(height: 18),
             Container(
@@ -132,12 +136,12 @@ class AetherfallHelpSheet extends StatelessWidget {
                 border: Border.all(color: _ember.withValues(alpha: 0.4)),
               ),
               child: Text(
-                'Aetherfall is played with coins from your balance. Each IGNITE deducts your '
-                'bet (${layout.minBet}–${layout.maxBet} coins) before the spin resolves, and any '
-                'win is credited straight back. Every spin — including the whole Skyfire Vault — '
-                'is decided by the server from a seed pair you can check, so no result is '
-                'influenced by the app on your device.',
-                style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.5),
+                'أثيرفول تُلعب بعملاتك. كل ضغطة «اشعل» تخصم رهانك '
+                '(${layout.minBet}–${layout.maxBet} عملة) قبل حساب النتيجة، وأي ربح '
+                'يُضاف إلى رصيدك مباشرة. كل جولة — بما فيها خزنة السماء كاملة — '
+                'يحسمها الخادم من بذرتين يمكنك التحقق منهما، فلا شيء في التطبيق على '
+                'جهازك يؤثر على النتيجة.',
+                style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.6),
               ),
             ),
           ],
@@ -151,57 +155,32 @@ class AetherfallHelpSheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 13.5,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(body, style: const TextStyle(color: Colors.white60, fontSize: 12.5, height: 1.5)),
+            Text(body, style: const TextStyle(color: Colors.white60, fontSize: 12.5, height: 1.7)),
           ],
         ),
       );
 
-  /// Payouts come off the server's table, so they can carry two decimals (0.95)
-  /// or none at all (135). Show what the table actually says — rounding to one
-  /// decimal here would print x0.9 for a symbol that really pays 0.95.
-  static String _payout(num v) =>
-      v.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+  /// الأرباح تأتي من جدول الخادم، وقد تحمل خانتين عشريتين (0.95) أو لا شيء (135).
+  /// التقريب إلى خانة واحدة كان سيعرض x0.9 لرمز يدفع فعليًا 0.95.
+  static String _payout(num v) => v.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
 
   Widget _paytable() {
-    final rows = layout.standardSymbols;
+    final symbols = layout.standardSymbols;
     return Column(
       children: [
-        for (final sym in rows)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            child: Row(
-              children: [
-                SizedBox(width: 30, height: 30, child: SymbolTile(symbol: sym)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    kSymbolNames[sym] ?? sym,
-                    style: const TextStyle(color: Colors.white, fontSize: 12.5),
-                  ),
-                ),
-                for (final v in layout.paytable[sym] ?? const [0, 0, 0])
-                  Container(
-                    margin: const EdgeInsets.only(left: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      'x${_payout(v)}',
-                      style: const TextStyle(color: _cyan, fontSize: 11),
-                    ),
-                  ),
-              ],
-            ),
-          ),
         const Padding(
-          padding: EdgeInsets.only(top: 4),
+          padding: EdgeInsets.only(bottom: 6),
           child: Row(
             children: [
-              SizedBox(width: 40),
               Expanded(child: SizedBox()),
               _BandLabel('9-11'),
               _BandLabel('12-14'),
@@ -209,6 +188,35 @@ class AetherfallHelpSheet extends StatelessWidget {
             ],
           ),
         ),
+        for (final sym in symbols)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    kSymbolNames[sym] ?? sym,
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ),
+                for (final v in layout.paytable[sym] ?? const [0, 0, 0])
+                  Container(
+                    width: 52,
+                    margin: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '${_payout(v)}x',
+                      style: const TextStyle(color: _cyan, fontSize: 11),
+                    ),
+                  ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -217,11 +225,159 @@ class AetherfallHelpSheet extends StatelessWidget {
 class _BandLabel extends StatelessWidget {
   const _BandLabel(this.text);
   final String text;
+
   @override
   Widget build(BuildContext context) => Container(
-        width: 54,
-        margin: const EdgeInsets.only(left: 6),
+        width: 52,
+        margin: const EdgeInsets.only(right: 6),
         alignment: Alignment.center,
-        child: Text(text, style: const TextStyle(color: Colors.white38, fontSize: 9)),
+        child: Text(
+          text,
+          style: const TextStyle(color: Colors.white38, fontSize: 10),
+        ),
+      );
+}
+
+/// شرح قصير يظهر مرة واحدة قبل أول جولة.
+///
+/// اللوح لا يشبه ماكينات الحظ المعتادة — لا خطوط ولا اصطفاف — ولو دخل اللاعب
+/// دون تفسير فلن يفهم لماذا ربح. أربع نقاط فقط، ثم زر واحد يبدأ اللعب، وبقية
+/// التفاصيل تبقى في صفحة «كيف تلعب».
+class AetherfallFirstRunSheet extends StatelessWidget {
+  const AetherfallFirstRunSheet({
+    super.key,
+    required this.layout,
+    required this.onOpenHelp,
+  });
+
+  final AetherfallLayout layout;
+  final VoidCallback onOpenHelp;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'أثيرفول في أربع نقاط',
+              style: TextStyle(color: _cyan, fontSize: 19, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _point(
+              Icons.grid_view_rounded,
+              _cyan,
+              'الفوز من أي مكان',
+              '${layout.minMatch} رموز متشابهة أو أكثر في أي مكان على اللوح — '
+                  'لا يلزم أن تصطف أو تتلامس.',
+            ),
+            _point(
+              Icons.south_rounded,
+              _mint,
+              'الرموز تتساقط',
+              'الرموز الرابحة تختفي وتنزل غيرها مكانها، فقد تربح عدة مرات من ضغطة واحدة.',
+            ),
+            _point(
+              Icons.bolt_rounded,
+              _ember,
+              'شحنة الجمر تزيد الربح',
+              'كبسولات بنسبة مئوية تُجمع خلال الجولة وتُضاف دفعة واحدة إلى ربح السلسلة.',
+            ),
+            _point(
+              Icons.vpn_key_rounded,
+              const Color(0xFFCB9B5C),
+              'المفاتيح تفتح الخزنة',
+              '${layout.vaultKeyTrigger} مفاتيح في أول لوح تفتح خزنة السماء: '
+                  '${layout.vaultBonusStartTumbles} تساقطات مجانية.',
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _cyan,
+                      foregroundColor: const Color(0xFF07030F),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text(
+                      'ابدأ اللعب',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    onOpenHelp();
+                  },
+                  child: const Text('الشرح الكامل', style: TextStyle(color: Colors.white54)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _point(IconData icon, Color color, String title, String body) => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withValues(alpha: 0.16),
+                border: Border.all(color: color.withValues(alpha: 0.5)),
+              ),
+              child: Icon(icon, color: color, size: 19),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    body,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12.5,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       );
 }

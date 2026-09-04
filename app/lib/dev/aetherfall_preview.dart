@@ -44,7 +44,10 @@ class AetherfallPreviewApp extends StatelessWidget {
         theme: ThemeData.dark().copyWith(
           textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'ElMessiri'),
         ),
-        home: AetherfallPreview(bonus: bonus, celebrate: celebrate, a11y: a11y),
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: AetherfallPreview(bonus: bonus, celebrate: celebrate, a11y: a11y),
+        ),
       );
 }
 
@@ -130,7 +133,7 @@ class _PreviewState extends State<AetherfallPreview> {
                         children: [
                           _chargeMeter(48),
                           const Spacer(),
-                          _stat('SEQUENCE\nWIN', '4820', _cyan),
+                          _stat('ربح\nالسلسلة', '4820', _cyan),
                         ],
                       ),
                       const SizedBox(height: 10),
@@ -181,7 +184,7 @@ class _PreviewState extends State<AetherfallPreview> {
   Widget _topBar() => Row(
         children: [
           const Text(
-            'AETHERFALL',
+            'أثيرفول',
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -225,7 +228,7 @@ class _PreviewState extends State<AetherfallPreview> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'SKYFIRE\nCHARGE',
+              'شحنة\nالسماء',
               style: TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 1, height: 1.2),
             ),
             const SizedBox(height: 3),
@@ -259,6 +262,7 @@ class _PreviewState extends State<AetherfallPreview> {
                     child: Center(
                       child: Text(
                         '+$charge%',
+                        textDirection: TextDirection.ltr,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -303,9 +307,9 @@ class _PreviewState extends State<AetherfallPreview> {
 
   Widget _controls() => Row(
         children: [
-          Expanded(child: _skinned('btn_ignite', 'IGNITE', 52, _bgBottom)),
+          Expanded(child: _skinned('btn_ignite', 'اشعل', 52, _bgBottom)),
           const SizedBox(width: 10),
-          SizedBox(width: 130, child: _skinned('btn_auto', 'AUTO', 52, Colors.white)),
+          SizedBox(width: 130, child: _skinned('btn_auto', 'تلقائي', 52, Colors.white)),
         ],
       );
 
@@ -336,23 +340,23 @@ class _PreviewState extends State<AetherfallPreview> {
         children: [
           OutlinedButton(
             onPressed: () => setState(() => _bonus = !_bonus),
-            child: Text(_bonus ? 'base play' : 'bonus'),
+            child: Text(_bonus ? 'اللعب العادي' : 'الخزنة'),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _celebrate = true),
-            child: const Text('celebration'),
+            child: const Text('احتفال'),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _transition = true),
-            child: const Text('vault transition'),
+            child: const Text('دخول الخزنة'),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _highContrast = !_highContrast),
-            child: Text(_highContrast ? 'contrast: high' : 'contrast: normal'),
+            child: Text(_highContrast ? 'تباين عالٍ' : 'تباين عادي'),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _shapeCoded = !_shapeCoded),
-            child: Text(_shapeCoded ? 'markers: on' : 'markers: off'),
+            child: Text(_shapeCoded ? 'العلامات: تعمل' : 'العلامات: مغلقة'),
           ),
         ],
       );

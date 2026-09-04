@@ -97,7 +97,7 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
             Semantics(
               header: true,
               child: const Text(
-                'PROVABLY FAIR',
+                'عدالة مثبتة',
                 style: TextStyle(
                   color: _cyan,
                   fontSize: 18,
@@ -108,20 +108,19 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Every spin is decided by the server from three values: a secret server '
-              'seed, your client seed, and a nonce that counts up by one each spin. '
-              'The server publishes the hash of its seed before you play, so it cannot '
-              'change that seed after seeing your bet. Change your own seed whenever '
-              'you like — the result set changes with it.',
+              'كل جولة يحسمها الخادم من ثلاث قيم: بذرة سرية عنده، وبذرة تخصّك أنت، '
+              'ورقم جولة يزيد واحدًا في كل مرة. الخادم ينشر بصمة بذرته قبل أن تلعب، '
+              'فلا يستطيع تغييرها بعد أن يرى رهانك. وتستطيع تغيير بذرتك متى شئت، '
+              'فتتغير النتائج معها.',
               style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.6),
             ),
             const SizedBox(height: 18),
-            _field('SERVER SEED HASH (committed)', _fair.serverSeedHash, copyable: true),
-            _field('YOUR CLIENT SEED', _fair.clientSeed, copyable: true),
-            _field('NONCE (spins on this seed pair)', '${_fair.nonce}'),
+            _field('بصمة بذرة الخادم (معلنة مسبقًا)', _fair.serverSeedHash, copyable: true),
+            _field('بذرتك', _fair.clientSeed, copyable: true),
+            _field('رقم الجولة على هذا الزوج', '${_fair.nonce}'),
             const SizedBox(height: 14),
             const Text(
-              'SET YOUR CLIENT SEED',
+              'غيّر بذرتك',
               style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1),
             ),
             const SizedBox(height: 6),
@@ -130,7 +129,7 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
                 Expanded(
                   child: Semantics(
                     textField: true,
-                    label: 'Client seed',
+                    label: 'بذرتك',
                     child: TextField(
                       controller: _seed,
                       maxLength: 64,
@@ -152,7 +151,7 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
                 const SizedBox(width: 8),
                 Semantics(
                   button: true,
-                  label: 'Save client seed',
+                  label: 'حفظ البذرة',
                   child: ElevatedButton(
                     onPressed: _busy ? null : _apply,
                     style: ElevatedButton.styleFrom(
@@ -213,7 +212,7 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
                 if (copyable)
                   Semantics(
                     button: true,
-                    label: 'Copy $label',
+                    label: 'نسخ $label',
                     child: IconButton(
                       icon: const Icon(Icons.copy_rounded, size: 16, color: Colors.white38),
                       onPressed: () {
