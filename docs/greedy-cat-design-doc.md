@@ -262,6 +262,27 @@ Four real overflows were found and fixed by this test: the header row, the
 jackpot bar's label row, the LuckyDrop teaser, and the milestone chest row. All
 four were on narrow screens only.
 
+### Artwork — the shading pass
+
+The first version filled every shape with a flat `Color` and leant on a thick
+outline, which read as clip-art rather than as a game. Every surface is now
+built from four moves in a fixed order — gradient fill, contact occlusion,
+specular gloss, rim light — with the key light consistently upper-left, so
+shadows fall the same way on every object.
+
+What that changed, concretely: the food plaques became a painted `PlaquePainter`
+(turned wooden rim with a sweep gradient, a dished face that darkens under the
+rim's overhang, a glaze) instead of two nested flat `Container`s; the food icons
+grew from 46% to 62% of the plaque, having previously sat marooned in the middle
+of an empty dish; the mascot's head, body and ears became one unioned
+silhouette, removing the hard seam where the body's stroke ran behind the head;
+and the mascot was reproportioned to a chibi head-to-body ratio with short wide
+ears after the first pass read as a rabbit in a sack.
+
+Two regressions came out of that and were fixed: the taller head put the
+countdown badge directly over the cat's face, and the win pose's raised paws
+ended up beside its ears.
+
 ### Artwork — `flutter test test/greedy_cat_art_test.dart`
 Renders every painter to `build/greedy_cat_contact_sheet.png` and fails if any
 throws. Reviewing that sheet caught four defects, all fixed:
