@@ -60,16 +60,6 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
     'crazytime': 'CT',
   };
 
-  static const Map<String, String> _spotNames = {
-    '1': '١',
-    '2': '٢',
-    '5': '٥',
-    '10': '١٠',
-    'coinflip': 'قلب العملة',
-    'cashhunt': 'صيد النقود',
-    'pachinko': 'باتشينكو',
-    'crazytime': 'الوقت المجنون',
-  };
 
   static const Map<String, String> _spotEmoji = {
     '1': '1️⃣',
@@ -839,7 +829,7 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                 children: [
                   FittedBox(
                     child: Text(
-                      _spotNames[state.resultSegment] ?? '',
+                      kCrazySpotNames[state.resultSegment] ?? '',
                       maxLines: 1,
                       style: TextStyle(
                         color: Colors.white,
@@ -913,7 +903,7 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                   height: 22, child: _spotIcon(state.resultSegment ?? '1')),
               const SizedBox(width: 8),
               Text(
-                _spotNames[state.resultSegment] ?? '',
+                kCrazySpotNames[state.resultSegment] ?? '',
                 style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -1063,7 +1053,7 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                   ),
                   FittedBox(
                     child: Text(
-                      isNumber ? '$payout:1' : (_spotNames[spot] ?? spot),
+                      isNumber ? '$payout:1' : (kCrazySpotNames[spot] ?? spot),
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.85),
                         fontSize: 10,
