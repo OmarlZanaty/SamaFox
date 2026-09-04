@@ -610,6 +610,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
       ['assets/images/cards/card_crazy.png', Color(0xFFFFC107)],
       ['assets/images/cards/card_crash.png', Color(0xFFFF9800)],
       ['assets/images/cards/card_aetherfall.png', Color(0xFF4DD8E6)],
+      ['assets/images/cards/card_neon.png', Color(0xFFEA35D7)],
     ];
 
     return Container(
