@@ -923,15 +923,20 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
         for (var i = 0; i < symbols.length; i++)
           _positionedCard(i, symbols[i], count, cardRadius, cardSize, side),
 
-        // The mascot sits in the hub.
-        SizedBox(
-          width: hubRadius * 1.9,
-          height: hubRadius * 1.9,
-          child: CustomPaint(
-            painter: CatMascotPainter(
-              mood: _catMood,
-              breath: reduced ? 0.25 : _ambient.value,
-              blink: _blink.value,
+        // The mascot sits in the hub, pushed down so the timer badge overlaps
+        // only the top of its head. The chibi head is tall enough that a
+        // centred mascot puts its eyes directly behind the countdown.
+        Transform.translate(
+          offset: Offset(0, hubRadius * 0.35),
+          child: SizedBox(
+            width: hubRadius * 1.55,
+            height: hubRadius * 1.55,
+            child: CustomPaint(
+              painter: CatMascotPainter(
+                mood: _catMood,
+                breath: reduced ? 0.25 : _ambient.value,
+                blink: _blink.value,
+              ),
             ),
           ),
         ),
@@ -1023,63 +1028,56 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: GreedyPalette.cream,
-                    border: Border.all(
-                      color: isWinner
-                          ? Color.lerp(GreedyPalette.gold, Colors.white, pulse)!
-                          : GreedyPalette.woodOutline,
-                      width: isWinner ? size * 0.055 : size * 0.038,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: isWinner
-                            ? GreedyPalette.gold.withOpacity(0.7)
-                            : Colors.black.withOpacity(0.22),
-                        blurRadius: isWinner ? 16 : 5,
-                        offset: Offset(0, isWinner ? 0 : 2),
-                      ),
-                    ],
+                // The plaque and its shading are painted, not stacked out of
+                // Containers — a flat cream circle behind a flat ring is what
+                // made the wheel read as paper cut-outs.
+                SizedBox.expand(
+                  child: CustomPaint(
+                    painter: PlaquePainter(winner: isWinner, pulse: pulse),
                   ),
+                ),
+                Center(
                   child: Padding(
-                    padding: EdgeInsets.all(size * 0.055),
+                    padding: EdgeInsets.only(bottom: size * 0.16),
+                    // Fills the dish properly: at 0.46 the food sat in the
+                    // middle of a large empty plaque and read as an afterthought.
+                    child: FoodIcon(symbol.key, size: size * 0.62),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: size * 0.115,
+                  child: Center(
                     child: Container(
+                      padding: EdgeInsets.symmetric(
+                          horizontal: size * 0.075, vertical: size * 0.012),
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: GreedyPalette.warmPale,
+                        gradient: const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.white, GreedyPalette.creamDeep],
+                        ),
+                        borderRadius: BorderRadius.circular(size),
                         border: Border.all(
-                            color: GreedyPalette.woodHighlight, width: size * 0.03),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(height: size * 0.04),
-                          FoodIcon(symbol.key, size: size * 0.46),
-                          SizedBox(height: size * 0.01),
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: size * 0.07, vertical: size * 0.012),
-                            decoration: BoxDecoration(
-                              color: GreedyPalette.cream,
-                              borderRadius: BorderRadius.circular(size),
-                              border: Border.all(
-                                  color: GreedyPalette.woodOutline,
-                                  width: size * 0.018),
-                            ),
-                            child: FittedBox(
-                              child: Text(
-                                'مضاعفة ${symbol.multiplier}',
-                                style: TextStyle(
-                                  fontSize: size * 0.115,
-                                  fontWeight: FontWeight.w900,
-                                  color: GreedyPalette.darkText,
-                                ),
-                              ),
-                            ),
+                            color: GreedyPalette.woodOutline, width: size * 0.018),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.18),
+                            blurRadius: size * 0.03,
+                            offset: Offset(0, size * 0.012),
                           ),
                         ],
+                      ),
+                      child: FittedBox(
+                        child: Text(
+                          'مضاعفة ${symbol.multiplier}',
+                          style: TextStyle(
+                            fontSize: size * 0.115,
+                            fontWeight: FontWeight.w900,
+                            color: GreedyPalette.darkText,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1177,7 +1175,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
     final state = _state;
     final seconds = (_msLeft / 1000).ceil();
     final urgent = state?.isBetting == true && seconds <= 5;
-    final diameter = side * 0.19;
+    final diameter = side * 0.175;
 
     // The ring drains across whichever phase is running, so the arc always
     // means the same thing: time left in the phase named beneath it.

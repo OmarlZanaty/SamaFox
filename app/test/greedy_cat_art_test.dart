@@ -272,23 +272,13 @@ Widget _card(String symbol, int i, double side, double radius, double size) {
     top: side / 2 + radius * _sin(angle) - size / 2,
     width: size,
     height: size,
-    child: Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: GreedyPalette.cream,
-        border: Border.all(color: GreedyPalette.woodOutline, width: 5),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(7),
-        child: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: GreedyPalette.warmPale,
-            border: Border.all(color: GreedyPalette.woodHighlight, width: 4),
-          ),
-          child: Center(child: FoodIcon(symbol, size: size * 0.5)),
+    child: Stack(
+      children: [
+        SizedBox.expand(
+          child: CustomPaint(painter: PlaquePainter(winner: i == 0, pulse: 0.8)),
         ),
-      ),
+        Center(child: FoodIcon(symbol, size: size * 0.62)),
+      ],
     ),
   );
 }
