@@ -375,7 +375,7 @@ class BonusSummarySheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'SKYFIRE VAULT — SUMMARY',
+            'خزنة السماء — الحصيلة',
             style: TextStyle(color: _ember, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5),
           ),
           const SizedBox(height: 18),
