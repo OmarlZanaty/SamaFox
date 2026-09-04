@@ -72,6 +72,7 @@ model User {
   giftBattlesUser1         GiftBattle[]              @relation("GiftBattleUser1")
   giftBattlesUser2         GiftBattle[]              @relation("GiftBattleUser2")
   leaderboardEntries       LeaderboardEntry[]
+  gameDailyStats           GameDailyStat[]
   subscription             UserSubscription?
   items                    UserItem[]
   familyMembership         FamilyMember?
