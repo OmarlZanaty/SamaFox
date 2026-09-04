@@ -112,11 +112,14 @@ class GamesHubScreen extends ConsumerWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('ألعاب',
-            style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold)),
+        title: const Text(
+          'ألعاب',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         centerTitle: true,
       ),
       body: Container(
@@ -148,7 +151,9 @@ class GamesHubScreen extends ConsumerWidget {
                 final gap = (slack / (_games.length - 1)).clamp(12.0, 48.0);
                 return Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: hPad, vertical: vPad),
+                    horizontal: hPad,
+                    vertical: vPad,
+                  ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -163,7 +168,9 @@ class GamesHubScreen extends ConsumerWidget {
 
               return ListView.separated(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: hPad, vertical: vPad),
+                  horizontal: hPad,
+                  vertical: vPad,
+                ),
                 itemCount: cards.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 16),
                 itemBuilder: (_, i) => cards[i],
@@ -271,34 +278,37 @@ class _GameCard extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Stack(fit: StackFit.expand, children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: entry.gradient,
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: entry.gradient,
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
                   ),
                 ),
-              ),
-              if (entry.art != null)
-                Image.asset(
-                  entry.art!,
-                  fit: BoxFit.cover,
-                  // Falls back to the gradient plus the game's emoji if the
-                  // artwork is ever missing, so the row never renders empty.
-                  errorBuilder: (_, __, ___) => Center(
+                if (entry.art != null)
+                  Image.asset(
+                    entry.art!,
+                    fit: BoxFit.cover,
+                    // Falls back to the gradient plus the game's emoji if the
+                    // artwork is ever missing, so the row never renders empty.
+                    errorBuilder: (_, __, ___) => Center(
+                      child:
+                          Text(entry.emoji, style: const TextStyle(fontSize: 84)),
+                    ),
+                  )
+                else
+                  Center(
                     child:
                         Text(entry.emoji, style: const TextStyle(fontSize: 84)),
                   ),
-                )
-              else
-                Center(
-                  child:
-                      Text(entry.emoji, style: const TextStyle(fontSize: 84)),
-                ),
-              if (entry.drawTitle) ..._titleOverlay(),
-            ]),
+                if (entry.drawTitle) ..._titleOverlay(),
+              ],
+            ),
           ),
         ),
       ),
