@@ -2,6 +2,20 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+/// Arabic names for every wheel spot, shared by the wheel and the bonus
+/// overlays so the two can never drift apart. The keys are the server's
+/// segment ids and must stay as they are.
+const Map<String, String> kCrazySpotNames = {
+  '1': '١',
+  '2': '٢',
+  '5': '٥',
+  '10': '١٠',
+  'coinflip': 'قلب العملة',
+  'cashhunt': 'صيد النقود',
+  'pachinko': 'باتشينكو',
+  'crazytime': 'الوقت المجنون',
+};
+
 /// The four bonus rounds of عجلة الحظ.
 ///
 /// None of these decide anything: the server has already rolled the entire
@@ -41,7 +55,7 @@ class _CoinFlipBonusState extends State<CoinFlipBonus>
     final winner = widget.data['winner']?.toString() ?? 'red';
 
     return _BonusShell(
-      title: 'COIN FLIP',
+      title: kCrazySpotNames['coinflip']!,
       accent: const Color(0xFFE53935),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -147,7 +161,7 @@ class CashHuntBonus extends StatelessWidget {
         .toList();
 
     return _BonusShell(
-      title: 'CASH HUNT',
+      title: kCrazySpotNames['cashhunt']!,
       iconPath: 'assets/images/crazy/icon_cashhunt.png',
       accent: const Color(0xFF2E7D32),
       subtitle: picking ? 'اختر رمزًا واحدًا' : 'كُشف عن المضاعفات',
@@ -256,10 +270,10 @@ class _PachinkoBonusState extends State<PachinkoBonus>
         .toList();
 
     return _BonusShell(
-      title: 'PACHINKO',
+      title: kCrazySpotNames['pachinko']!,
       iconPath: 'assets/images/crazy/icon_pachinko.png',
       accent: const Color(0xFFD81B60),
-      subtitle: _dropIndex > 0 ? 'DOUBLE! كل المضاعفات تضاعفت' : null,
+      subtitle: _dropIndex > 0 ? 'مضاعفة! كل المضاعفات تضاعفت' : null,
       child: AspectRatio(
         aspectRatio: 0.9,
         child: AnimatedBuilder(
@@ -393,7 +407,7 @@ class CrazyTimeBonus extends StatelessWidget {
     final multipliers = (data['multipliers'] as Map?) ?? const {};
 
     return _BonusShell(
-      title: 'CRAZY TIME',
+      title: kCrazySpotNames['crazytime']!,
       iconPath: 'assets/images/crazy/icon_crazytime.png',
       accent: const Color(0xFFC62828),
       subtitle: picking ? 'اختر القلاب الخاص بك' : null,

@@ -788,8 +788,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                 // trailing "!" is reordered to the front ("!FLEW AWAY").
                 if (crashed)
                   const Directionality(
-                    textDirection: TextDirection.ltr,
-                    child: Text('FLEW AWAY!',
+                    textDirection: TextDirection.rtl,
+                    child: Text('طار بعيدًا!',
                         style: TextStyle(
                             color: _flewAway,
                             fontSize: 30,
@@ -1215,7 +1215,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                       onPressed: betting ? () => _cancelBet(panel) : null,
                       style:
                           ElevatedButton.styleFrom(backgroundColor: _cancelRed),
-                      child: const Text('CANCEL',
+                      child: const Text('إلغاء',
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold)),
@@ -1226,7 +1226,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                         backgroundColor: _betGreen,
                         disabledBackgroundColor: Colors.white12,
                       ),
-                      child: const Text('BET',
+                      child: const Text('راهن',
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold)),
@@ -1859,7 +1859,7 @@ class _FlightPainter extends CustomPainter {
 
     final a = art;
     if (a != null) {
-      final src = _CrashArt.cloudsSrc;
+      const src = _CrashArt.cloudsSrc;
 
       // Three decks, far to near. Each draws the full strip twice, offset by one
       // strip width, so it wraps without a seam.
@@ -2208,7 +2208,7 @@ class _FlightPainter extends CustomPainter {
     final a = art;
     if (a != null) {
       const width = 74.0;
-      final src = _CrashArt.planeSrc;
+      const src = _CrashArt.planeSrc;
       final height = width * src.height / src.width;
       final paint = Paint()..filterQuality = FilterQuality.medium;
 
@@ -2222,8 +2222,8 @@ class _FlightPainter extends CustomPainter {
       // The illustrated propeller spins on the nose. The sprite already has a
       // faint blur baked in, so this sits lightly on top rather than replacing
       // it.
-      final pSrc = _CrashArt.propellerSrc;
-      final pw = width * 0.30;
+      const pSrc = _CrashArt.propellerSrc;
+      const pw = width * 0.30;
       final ph = pw * pSrc.height / pSrc.width;
       canvas.save();
       canvas.translate(width * 0.46, -height * 0.04);
@@ -2614,7 +2614,7 @@ class _CelebrationPainter extends CustomPainter {
 
       final a = art;
       if (a != null) {
-        final src = _CrashArt.coinSrc;
+        const src = _CrashArt.coinSrc;
         const cw = 16.0;
         canvas.drawImageRect(
           a.coin,

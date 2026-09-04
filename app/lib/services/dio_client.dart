@@ -7,6 +7,7 @@ import 'package:samafox/services/socket_service.dart';
 
 import '../config/app_config.dart';
 import '../utils/storage_service.dart';
+import 'token_refresher.dart';
 
 class DioClient {
   static Dio? _dio;
@@ -104,32 +105,22 @@ class AuthInterceptor extends Interceptor {
 
     _isRefreshing = true;
     try {
-      final refreshToken = await StorageService.getRefreshToken();
-      if (refreshToken == null) {
+      // Shared with the socket's auth-failure handler so the two never rotate
+      // the refresh token concurrently — see TokenRefresher.
+      final result = await TokenRefresher.refresh();
+
+      if (!result.ok) {
         _rejectAllPending();
+        if (result.sessionEnded) {
+          // Refresh was refused outright — force logout.
+          await StorageService.clearTokens();
+          SocketService().disconnect();
+        }
         handler.next(err);
         return;
       }
 
-      final refreshDio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
-      final response = await refreshDio.post(
-        '/auth/refresh',
-        data: {'refreshToken': refreshToken},
-      );
-
-      final newAccessToken = response.data['accessToken'] as String?;
-      final newRefreshToken = response.data['refreshToken'] as String?;
-
-      if (newAccessToken == null) {
-        _rejectAllPending();
-        handler.next(err);
-        return;
-      }
-
-      await StorageService.saveTokens(
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken ?? refreshToken,
-      );
+      final newAccessToken = result.accessToken!;
       SocketService().updateToken(newAccessToken);
 
       // Unblock all parked requests with the new token.
@@ -139,20 +130,8 @@ class AuthInterceptor extends Interceptor {
       final retryOptions = err.requestOptions;
       retryOptions.headers['Authorization'] = 'Bearer $newAccessToken';
       handler.resolve(await DioClient.dio.fetch(retryOptions));
-    } catch (e) {
-      // Refresh failed — reject all pending and force logout.
-      // A banned account is refused here with 403 BANNED; surface the reason
-      // so the user is told why instead of being dropped at a silent login.
-      if (e is DioException && e.response?.statusCode == 403) {
-        final data = e.response?.data;
-        if (data is Map && (data['code'] ?? '').toString() == 'BANNED') {
-          final msg = (data['message'] ?? '').toString().trim();
-          ErrorInterceptor.onBanned?.call(msg.isEmpty ? 'تم حظر حسابك' : msg);
-        }
-      }
+    } catch (_) {
       _rejectAllPending();
-      await StorageService.clearTokens();
-      SocketService().disconnect();
       handler.next(err);
     } finally {
       _isRefreshing = false;

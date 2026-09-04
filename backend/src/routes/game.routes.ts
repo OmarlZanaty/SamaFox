@@ -56,6 +56,18 @@ import {
   rotateAetherfallSeed,
   verifyAetherfallSpin,
 } from '../controllers/aetherfall.controller';
+import {
+  getNeonFortuneState,
+  spinNeonFortune,
+  getNeonFortuneJackpots,
+  getNeonFortuneLucky,
+  claimNeonFortuneLucky,
+  getNeonFortuneHistory,
+  getNeonFortuneFairness,
+  setNeonFortuneClientSeed,
+  rotateNeonFortuneSeed,
+  verifyNeonFortuneSpin,
+} from '../controllers/neonFortune.controller';
 
 const router = Router();
 
@@ -225,6 +237,28 @@ router.get('/aetherfall/fair', authenticate, getAetherfallFairness);
 router.post('/aetherfall/seed', authenticate, aetherfallLimiter, setAetherfallClientSeed);
 router.post('/aetherfall/seed/rotate', authenticate, aetherfallLimiter, rotateAetherfallSeed);
 router.post('/aetherfall/verify', authenticate, verifyAetherfallSpin);
+
+// نيون فورتشن (Neon Fortune): one request per spin, and a spin can carry a whole
+// free-spin round and a vault bonus with it, so the allowance matches أثيرفول.
+const neonFortuneLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `neon-fortune:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/neon/state', authenticate, getNeonFortuneState);
+router.post('/neon/spin', authenticate, neonFortuneLimiter, spinNeonFortune);
+router.get('/neon/jackpots', authenticate, getNeonFortuneJackpots);
+router.get('/neon/lucky', authenticate, getNeonFortuneLucky);
+router.post('/neon/lucky/claim', authenticate, neonFortuneLimiter, claimNeonFortuneLucky);
+router.get('/neon/history', authenticate, getNeonFortuneHistory);
+router.get('/neon/fair', authenticate, getNeonFortuneFairness);
+router.post('/neon/seed', authenticate, neonFortuneLimiter, setNeonFortuneClientSeed);
+router.post('/neon/seed/rotate', authenticate, neonFortuneLimiter, rotateNeonFortuneSeed);
+router.post('/neon/verify', authenticate, verifyNeonFortuneSpin);
 
 router.get('/boxing/round', authenticate, getBoxingRound);
 router.post('/boxing/round/join', authenticate, boxingLimiter, joinBoxingRound);

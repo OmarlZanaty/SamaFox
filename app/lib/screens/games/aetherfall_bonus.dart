@@ -1,4 +1,8 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+
+import 'aetherfall_symbols.dart';
 
 const _midnight = Color(0xFF0B1030);
 const _ember = Color(0xFFFF8A3D);
@@ -14,11 +18,15 @@ class SkyfireVaultTransition extends StatefulWidget {
     required this.tumbles,
     required this.onDone,
     this.reducedMotion = false,
+    this.art,
   });
 
   final int tumbles;
   final VoidCallback onDone;
   final bool reducedMotion;
+
+  /// Effect textures; null falls back to the plain keys-and-text transition.
+  final AetherfallArt? art;
 
   @override
   State<SkyfireVaultTransition> createState() => _SkyfireVaultTransitionState();
@@ -62,9 +70,17 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
             final t = _ctrl.value;
             final keyGlow = Curves.easeOut.transform((t * 2).clamp(0, 1).toDouble());
             final textIn = Curves.easeOutBack.transform(((t - 0.4) * 2.5).clamp(0, 1).toDouble());
+            final burst = widget.art?.forFx('fx_key_unlock');
             return Stack(
               alignment: Alignment.center,
               children: [
+                // The unlock burst blooms behind the keys as they align, then
+                // fades as the vault name comes forward.
+                if (burst != null)
+                  CustomPaint(
+                    size: Size.infinite,
+                    painter: _BurstPainter(image: burst, progress: t),
+                  ),
                 Opacity(
                   opacity: keyGlow,
                   child: Row(
@@ -89,7 +105,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text(
-                          'SKYFIRE VAULT',
+                          'خزنة السماء',
                           style: TextStyle(
                             color: _ember,
                             fontSize: 34,
@@ -99,7 +115,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '${widget.tumbles} FREE TUMBLES',
+                          '${widget.tumbles} تساقطات مجانية',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -115,7 +131,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                     bottom: 40,
                     child: TextButton(
                       onPressed: widget.onDone,
-                      child: const Text('Skip', style: TextStyle(color: Colors.white54)),
+                      child: const Text('تخطّي', style: TextStyle(color: Colors.white54)),
                     ),
                   ),
               ],
@@ -127,6 +143,79 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
   }
 }
 
+/// The Vault Key unlock burst: scales up and fades out as the transition runs.
+/// Additive, because the texture is light drawn on black.
+class _BurstPainter extends CustomPainter {
+  _BurstPainter({required this.image, required this.progress});
+
+  final ui.Image image;
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grow = Curves.easeOutCubic.transform(progress.clamp(0.0, 1.0));
+    final fade = (1 - Curves.easeInCubic.transform(progress.clamp(0.0, 1.0))).clamp(0.0, 1.0);
+    if (fade <= 0.01) return;
+
+    final extent = size.shortestSide * (0.5 + grow * 1.1);
+    final dst = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: extent,
+      height: extent,
+    );
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      dst,
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..filterQuality = FilterQuality.medium
+        ..color = Colors.white.withValues(alpha: 0.9 * fade),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BurstPainter old) => old.progress != progress;
+}
+
+/// One constellation thread, lit once its lock has been earned.
+class _LockThread extends StatelessWidget {
+  const _LockThread({required this.image, required this.lit});
+
+  final ui.Image image;
+  final bool lit;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 26,
+        height: 13,
+        child: CustomPaint(painter: _ThreadPainter(image: image, lit: lit)),
+      );
+}
+
+class _ThreadPainter extends CustomPainter {
+  _ThreadPainter({required this.image, required this.lit});
+
+  final ui.Image image;
+  final bool lit;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      Offset.zero & size,
+      Paint()
+        ..blendMode = BlendMode.plus
+        ..filterQuality = FilterQuality.medium
+        ..color = Colors.white.withValues(alpha: lit ? 1.0 : 0.18),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ThreadPainter old) => old.lit != lit;
+}
+
 /// Persistent HUD strip shown during bonus play: tumbles left, charge bank,
 /// constellation locks.
 class BonusHud extends StatelessWidget {
@@ -136,12 +225,16 @@ class BonusHud extends StatelessWidget {
     required this.chargeBank,
     required this.locks,
     required this.lockTarget,
+    this.art,
   });
 
   final int tumblesLeft;
   final int chargeBank;
   final int locks;
   final int lockTarget;
+
+  /// Effect textures; null keeps the plain "2/3" counter.
+  final AetherfallArt? art;
 
   @override
   Widget build(BuildContext context) {
@@ -152,16 +245,53 @@ class BonusHud extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: _ember.withValues(alpha: 0.4)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _stat('TUMBLES LEFT', '$tumblesLeft', _cyan),
-          _divider(),
-          _stat('CHARGE BANK', '+$chargeBank%', _ember),
-          _divider(),
-          _stat('LOCKS', '${locks.clamp(0, lockTarget)}/$lockTarget', _mint),
-        ],
+      // Scaled down rather than clipped: lockTarget comes from the server, so
+      // the thread row can grow beyond what a 360px screen fits.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _stat('التساقطات المتبقية', '$tumblesLeft', _cyan),
+            _divider(),
+            _stat('بنك الشحن', '+$chargeBank%', _ember),
+            _divider(),
+            _locks(),
+          ],
+        ),
       ),
+    );
+  }
+
+  /// Locks read as a row of constellation threads that light up as they are
+  /// earned, with the count kept underneath so the progress is still literal.
+  Widget _locks() {
+    final thread = art?.forFx('fx_constellation_thread');
+    final earned = locks.clamp(0, lockTarget);
+    if (thread == null) {
+      return _stat('الأقفال', '$earned/$lockTarget', _mint);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 15,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < lockTarget; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 1),
+                  child: _LockThread(image: thread, lit: i < earned),
+                ),
+            ],
+          ),
+        ),
+        Text(
+          'الأقفال $earned/$lockTarget',
+          style: const TextStyle(color: Colors.white54, fontSize: 9, letterSpacing: 1),
+        ),
+      ],
     );
   }
 
@@ -177,6 +307,8 @@ class BonusHud extends StatelessWidget {
         children: [
           Text(
             value,
+            // Counters and percentages stay left-to-right inside the RTL HUD.
+            textDirection: TextDirection.ltr,
             style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
           ),
           Text(
@@ -202,7 +334,7 @@ class StarburstBanner extends StatelessWidget {
         boxShadow: [BoxShadow(color: _mint.withValues(alpha: 0.6), blurRadius: 18)],
       ),
       child: const Text(
-        'STARBURST TUMBLE',
+        'تساقط نجمي',
         style: TextStyle(
           color: _midnight,
           fontWeight: FontWeight.w900,
@@ -214,18 +346,18 @@ class StarburstBanner extends StatelessWidget {
   }
 }
 
-/// End-of-bonus summary sheet: total credits, highest charge event, cascade
+/// End-of-bonus summary sheet: total coins won, highest charge event, cascade
 /// count, and a replay button.
 class BonusSummarySheet extends StatelessWidget {
   const BonusSummarySheet({
     super.key,
-    required this.totalCredits,
+    required this.totalCoins,
     required this.highestCharge,
     required this.cascadeCount,
     required this.onClose,
   });
 
-  final int totalCredits;
+  final int totalCoins;
   final int highestCharge;
   final int cascadeCount;
   final VoidCallback onClose;
@@ -243,24 +375,24 @@ class BonusSummarySheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'SKYFIRE VAULT — SUMMARY',
+            'خزنة السماء — الحصيلة',
             style: TextStyle(color: _ember, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5),
           ),
           const SizedBox(height: 18),
           Text(
-            '$totalCredits',
+            '$totalCoins',
             style: const TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold),
           ),
           const Text(
-            'TOTAL VIRTUAL CREDITS',
+            'إجمالي العملات',
             style: TextStyle(color: Colors.white54, fontSize: 11, letterSpacing: 1),
           ),
           const SizedBox(height: 18),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _metric('HIGHEST CHARGE', '+$highestCharge%'),
-              _metric('CASCADES', '$cascadeCount'),
+              _metric('أعلى شحنة', '+$highestCharge%'),
+              _metric('التتابعات', '$cascadeCount'),
             ],
           ),
           const SizedBox(height: 22),
@@ -274,7 +406,7 @@ class BonusSummarySheet extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
-              child: const Text('CONTINUE', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text('متابعة', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ],

@@ -36,6 +36,21 @@
       ],
       "cwd": "app",
       "port": 5758
+    },
+    {
+      "name": "aetherfall-preview",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-t",
+        "lib/dev/aetherfall_preview.dart",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5759"
+      ],
+      "cwd": "app",
+      "port": 5759
     }
   ]
 }

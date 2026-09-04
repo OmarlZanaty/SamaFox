@@ -112,25 +112,39 @@ const Map<String, SymbolVisual> kSymbolVisuals = {
 /// Display names for the paytable / help panel — original wording, not copied
 /// from any published game.
 const Map<String, String> kSymbolNames = {
-  'L1': 'Cyan Rune Prism',
-  'L2': 'Ember Shard',
-  'L3': 'Mint Spiral Seed',
-  'L4': 'Orbit Stone',
-  'H1': 'Copper Astrolabe',
-  'H2': 'Meteor-Heart Capsule',
-  'H3': 'Aurora Compass',
-  'H4': 'Skyfire Crown',
-  'WILD': 'Prism Wild',
-  'KEY': 'Vault Key',
-  'CHARGE': 'Ember Charge',
+  'L1': 'منشور الرون',
+  'L2': 'شظية الجمر',
+  'L3': 'البذرة الحلزونية',
+  'L4': 'حجر المدار',
+  'H1': 'الأسطرلاب النحاسي',
+  'H2': 'قلب النيزك',
+  'H3': 'بوصلة الشفق',
+  'H4': 'تاج السماء',
+  'WILD': 'المنشور البديل',
+  'KEY': 'مفتاح الخزنة',
+  'CHARGE': 'شحنة الجمر',
 };
 
-/// Loaded artwork for every symbol, keyed by symbol id. Any missing file
-/// leaves its slot null and callers fall back to the painted glyph.
+/// Particle and ribbon textures, keyed by the stem used in [AetherfallArt.fx].
+/// These are additive light on black, so they are drawn with [ui.BlendMode.plus]
+/// and need no alpha of their own to look right over the board.
+const List<String> kFxAssets = [
+  'fx_particle_spark',
+  'fx_particle_ember',
+  'fx_ribbon_compass',
+  'fx_constellation_thread',
+  'fx_key_unlock',
+];
+
+/// Loaded artwork for every symbol plus the effect textures. Any missing file
+/// leaves its slot null and callers fall back to the painted version.
 class AetherfallArt {
-  const AetherfallArt(this.images);
+  const AetherfallArt(this.images, this.fx);
 
   final Map<String, ui.Image?> images;
+
+  /// Effect textures keyed by file stem, e.g. 'fx_particle_spark'.
+  final Map<String, ui.Image?> fx;
 
   static Future<ui.Image?> _load(String path) async {
     try {
@@ -152,10 +166,18 @@ class AetherfallArt {
     for (var i = 0; i < entries.length; i++) {
       map[entries[i].id] = results[i];
     }
-    return AetherfallArt(map);
+
+    final fxResults = await Future.wait(kFxAssets.map((n) => _load('$dir/$n.png')));
+    final fxMap = <String, ui.Image?>{};
+    for (var i = 0; i < kFxAssets.length; i++) {
+      fxMap[kFxAssets[i]] = fxResults[i];
+    }
+
+    return AetherfallArt(map, fxMap);
   }
 
   ui.Image? forSymbol(String id) => images[id];
+  ui.Image? forFx(String name) => fx[name];
 }
 
 /// One symbol tile: real art if loaded, otherwise a painted glass glyph.
@@ -167,6 +189,8 @@ class SymbolTile extends StatelessWidget {
     this.chargeValue,
     this.highlighted = false,
     this.dimmed = false,
+    this.highContrast = false,
+    this.shapeCoded = false,
   });
 
   final String symbol;
@@ -175,33 +199,61 @@ class SymbolTile extends StatelessWidget {
   final bool highlighted;
   final bool dimmed;
 
+  /// Stronger borders and a darker chamber, for players who cannot separate the
+  /// tile from the board at the default contrast.
+  final bool highContrast;
+
+  /// Marks each family with a distinct corner glyph so the symbols can be told
+  /// apart without relying on their colour.
+  final bool shapeCoded;
+
   @override
   Widget build(BuildContext context) {
     final visual = kSymbolVisuals[symbol];
     if (visual == null) return const SizedBox.shrink();
 
-    return Opacity(
-      opacity: dimmed ? 0.35 : 1.0,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          gradient: RadialGradient(
-            colors: [visual.color.withValues(alpha: 0.28), visual.color.withValues(alpha: 0.08)],
+    final label = kSymbolNames[symbol] ?? symbol;
+    return Semantics(
+      label: chargeValue != null ? '$label, +$chargeValue%' : label,
+      selected: highlighted,
+      image: art != null,
+      child: Opacity(
+        opacity: dimmed ? 0.35 : 1.0,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            gradient: RadialGradient(
+              colors: highContrast
+                  ? [const Color(0xFF05060F), const Color(0xFF05060F)]
+                  : [visual.color.withValues(alpha: 0.28), visual.color.withValues(alpha: 0.08)],
+            ),
+            border: Border.all(
+              color: highlighted
+                  ? (highContrast ? Colors.white : visual.glow)
+                  : visual.color.withValues(alpha: highContrast ? 0.95 : 0.55),
+              width: highlighted ? (highContrast ? 3.0 : 2.4) : (highContrast ? 2.0 : 1.2),
+            ),
+            boxShadow: highlighted
+                ? [BoxShadow(color: visual.glow.withValues(alpha: 0.75), blurRadius: 16, spreadRadius: 1)]
+                : [BoxShadow(color: visual.color.withValues(alpha: 0.25), blurRadius: 6)],
           ),
-          border: Border.all(
-            color: highlighted ? visual.glow : visual.color.withValues(alpha: 0.55),
-            width: highlighted ? 2.4 : 1.2,
+          child: Stack(
+            children: [
+              Center(
+                child: art != null
+                    ? RawImage(image: art, fit: BoxFit.contain, width: 34, height: 34)
+                    : symbol == 'CHARGE' && chargeValue != null
+                        ? _chargeBadge(visual, chargeValue!)
+                        : Icon(visual.icon, color: visual.color, size: 22),
+              ),
+              if (shapeCoded)
+                Positioned(
+                  top: 2,
+                  left: 3,
+                  child: Icon(visual.icon, size: 9, color: Colors.white.withValues(alpha: 0.85)),
+                ),
+            ],
           ),
-          boxShadow: highlighted
-              ? [BoxShadow(color: visual.glow.withValues(alpha: 0.75), blurRadius: 16, spreadRadius: 1)]
-              : [BoxShadow(color: visual.color.withValues(alpha: 0.25), blurRadius: 6)],
-        ),
-        child: Center(
-          child: art != null
-              ? RawImage(image: art, fit: BoxFit.contain, width: 34, height: 34)
-              : symbol == 'CHARGE' && chargeValue != null
-                  ? _chargeBadge(visual, chargeValue!)
-                  : Icon(visual.icon, color: visual.color, size: 22),
         ),
       ),
     );
@@ -213,6 +265,7 @@ class SymbolTile extends StatelessWidget {
           Icon(visual.icon, color: visual.color, size: 15),
           Text(
             '+$value%',
+            textDirection: TextDirection.ltr,
             style: TextStyle(
               color: visual.glow,
               fontSize: 10,

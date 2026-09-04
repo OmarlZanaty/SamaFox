@@ -35,7 +35,7 @@ export const getPlinkoState = async (req: Request, res: Response) => {
       layout: getLayout(),
       balance: user?.coinsBalance ?? 0,
       history: getHistory(userId),
-      fairness: getFairness(userId),
+      fairness: await getFairness(userId),
     });
   } catch (error) {
     console.error('[plinko] state error', error);
@@ -69,25 +69,25 @@ export const getPlinkoHistory = async (req: Request, res: Response) => {
 export const getPlinkoFairness = async (req: Request, res: Response) => {
   const userId = userIdOf(req);
   if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  res.json({ success: true, fairness: getFairness(userId) });
+  res.json({ success: true, fairness: await getFairness(userId) });
 };
 
 export const setPlinkoClientSeed = async (req: Request, res: Response) => {
   const userId = userIdOf(req);
   if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-  const result = setClientSeed(userId, req.body?.clientSeed);
+  const result = await setClientSeed(userId, req.body?.clientSeed);
   if (!result.ok) {
     return res.status(400).json({ success: false, code: result.code, message: result.message });
   }
-  res.json({ success: true, fairness: getFairness(userId) });
+  res.json({ success: true, fairness: await getFairness(userId) });
 };
 
 /** Reveals the current server seed and starts a new one. */
 export const rotatePlinkoSeed = async (req: Request, res: Response) => {
   const userId = userIdOf(req);
   if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-  res.json({ success: true, ...rotateServerSeed(userId) });
+  res.json({ success: true, ...(await rotateServerSeed(userId)) });
 };
 
 /** Recomputes a past drop from revealed seeds so the player can check it. */
