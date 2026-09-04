@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../repositories/aetherfall_repository.dart';
 import 'aetherfall_bonus.dart';
@@ -66,6 +67,16 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
 
   AetherfallFairness? _fairness;
 
+  // Settings survive the visit, like القط الجشع. Accessibility choices in
+  // particular are not something a player should have to set on every entry.
+  static const _prefsMuted = 'aetherfall_muted';
+  static const _prefsVolume = 'aetherfall_volume';
+  static const _prefsMotion = 'aetherfall_reduced_motion';
+  static const _prefsContrast = 'aetherfall_high_contrast';
+  static const _prefsMarkers = 'aetherfall_symbol_markers';
+  static const _prefsLeftHanded = 'aetherfall_left_handed';
+  static const _prefsSeenIntro = 'aetherfall_seen_intro';
+
   bool _auto = false;
   bool _stopRequested = false;
 
@@ -127,6 +138,8 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         );
         _loading = false;
       });
+      await _restoreSettings();
+      await _maybeShowIntro();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -134,6 +147,61 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         _notice = 'تعذر تحميل اللعبة';
       });
     }
+  }
+
+  Future<void> _restoreSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _muted = prefs.getBool(_prefsMuted) ?? false;
+        _volume = prefs.getDouble(_prefsVolume) ?? 0.8;
+        _reducedMotion = prefs.getBool(_prefsMotion) ?? false;
+        _highContrast = prefs.getBool(_prefsContrast) ?? false;
+        _shapeCoded = prefs.getBool(_prefsMarkers) ?? false;
+        _leftHanded = prefs.getBool(_prefsLeftHanded) ?? false;
+      });
+      _sfx.enabled = !_muted;
+      _sfx.volume = _volume;
+    } catch (_) {
+      // Settings are a convenience; failing to read them must not block play.
+    }
+  }
+
+  Future<void> _persist(String key, Object value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (value is bool) await prefs.setBool(key, value);
+      if (value is double) await prefs.setDouble(key, value);
+    } catch (_) {}
+  }
+
+  /// The board pays anywhere and cascades, which is not how a player expects a
+  /// reel game to behave — without a word of explanation the first win looks
+  /// arbitrary. Four points, once per install.
+  Future<void> _maybeShowIntro() async {
+    if (_layout == null) return;
+    bool seen = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      seen = prefs.getBool(_prefsSeenIntro) ?? false;
+      await prefs.setBool(_prefsSeenIntro, true);
+    } catch (_) {
+      return; // Never let a preferences failure block the game.
+    }
+    if (seen || !mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _bgTop,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (_) => AetherfallFirstRunSheet(
+        layout: _layout!,
+        onOpenHelp: _openHelp,
+      ),
+    );
   }
 
   // ── Bet controls ─────────────────────────────────────────────────────────
@@ -251,7 +319,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         });
         if ((frame.retriggerAdded ?? 0) > 0) {
           _sfx.keyCollect();
-          await _flashBanner('+${frame.retriggerAdded} TUMBLES');
+          await _flashBanner('+${frame.retriggerAdded} تساقطات');
         }
       }
 
@@ -427,7 +495,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                   Semantics(
                     header: true,
                     child: const Text(
-                      'SETTINGS',
+                      'الإعدادات',
                       style: TextStyle(
                         color: _cyan,
                         fontSize: 15,
@@ -438,14 +506,15 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                   ),
                   const SizedBox(height: 8),
                   _toggle(
-                    'Sound',
-                    'Every cue in the game',
+                    'الصوت',
+                    'كل أصوات اللعبة',
                     !_muted,
                     (on) {
                       setState(() {
                         _muted = !on;
                         _sfx.enabled = on;
                       });
+                      _persist(_prefsMuted, !on);
                       setSheetState(() {});
                     },
                   ),
@@ -459,8 +528,8 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                         const Icon(Icons.volume_down_rounded, color: Colors.white38, size: 18),
                         Expanded(
                           child: Semantics(
-                            label: 'Volume',
-                            value: '${(_volume * 100).round()} percent',
+                            label: 'مستوى الصوت',
+                            value: '${(_volume * 100).round()} بالمئة',
                             slider: true,
                             child: Slider(
                               value: _volume,
@@ -472,6 +541,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                                         _volume = v;
                                         _sfx.volume = v;
                                       });
+                                      _persist(_prefsVolume, v);
                                       setSheetState(() {});
                                     },
                             ),
@@ -482,38 +552,42 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                     ),
                   ),
                   _toggle(
-                    'Reduced Motion',
-                    'Shortens animations and removes screen shake',
+                    'حركة أقل',
+                    'يقصّر الحركات ويلغي اهتزاز الشاشة والوميض',
                     _reducedMotion,
                     (on) {
                       setState(() => _reducedMotion = on);
+                      _persist(_prefsMotion, on);
                       setSheetState(() {});
                     },
                   ),
                   _toggle(
-                    'High Contrast',
-                    'Darker chambers and stronger symbol outlines',
+                    'تباين عالٍ',
+                    'خانات أغمق وحدود أوضح للرموز',
                     _highContrast,
                     (on) {
                       setState(() => _highContrast = on);
+                      _persist(_prefsContrast, on);
                       setSheetState(() {});
                     },
                   ),
                   _toggle(
-                    'Symbol Markers',
-                    'Marks each symbol with its own glyph, so colour is not the only difference',
+                    'علامات الرموز',
+                    'يضع على كل رمز علامته الخاصة، فلا يبقى اللون هو الفارق الوحيد',
                     _shapeCoded,
                     (on) {
                       setState(() => _shapeCoded = on);
+                      _persist(_prefsMarkers, on);
                       setSheetState(() {});
                     },
                   ),
                   _toggle(
-                    'Left-handed Controls',
-                    'Mirrors the bet and spin row',
+                    'تحكّم لليد اليسرى',
+                    'يعكس صف الرهان والتدوير',
                     _leftHanded,
                     (on) {
                       setState(() => _leftHanded = on);
+                      _persist(_prefsLeftHanded, on);
                       setSheetState(() {});
                     },
                   ),
@@ -523,9 +597,9 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.verified_outlined, color: _mint, size: 20),
-                      title: const Text('Provably Fair', style: TextStyle(color: Colors.white)),
+                      title: const Text('عدالة مثبتة', style: TextStyle(color: Colors.white)),
                       subtitle: const Text(
-                        'Check the seeds behind your spins',
+                        'تحقّق من البذور التي تحسم جولاتك',
                         style: TextStyle(color: Colors.white38, fontSize: 11),
                       ),
                       onTap: () {
@@ -546,7 +620,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                         Navigator.of(sheetContext).pop();
                       },
                       child: const Text(
-                        'Reset session stats',
+                        'تصفير إحصاءات الجلسة',
                         style: TextStyle(color: Colors.white54),
                       ),
                     ),
@@ -666,7 +740,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
         child: Row(
           children: [
             const Text(
-              'AETHERFALL',
+              'أثيرفول',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 20,
@@ -747,18 +821,18 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
             children: [
               _SkyfireChargeMeter(charge: _skyfireCharge),
               const Spacer(),
-              _sideStat('SEQUENCE\nWIN', _sequenceWin.round().toString(), _cyan, alignEnd: true),
+              _sideStat('ربح\nالسلسلة', _sequenceWin.round().toString(), _cyan, alignEnd: true),
             ],
           ),
           Row(
             children: [
               Text(
-                'TUMBLES $_tumbleCount',
+                'التساقطات $_tumbleCount',
                 style: const TextStyle(color: Colors.white38, fontSize: 10, letterSpacing: 1),
               ),
               const Spacer(),
               Text(
-                'SHARDS $_starShards',
+                'الشظايا $_starShards',
                 style: const TextStyle(color: Colors.white38, fontSize: 10, letterSpacing: 1),
               ),
             ],
@@ -876,7 +950,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (_auto)
-                _pillButton('STOP', Colors.redAccent, _stopAuto)
+                _pillButton('إيقاف', Colors.redAccent, _stopAuto)
               else
                 SizedBox(
                   width: 160,
@@ -893,7 +967,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                       unawaited(_ignite());
                     },
                     child: const Text(
-                      'AUTO',
+                      'تلقائي',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -941,7 +1015,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
   Widget _igniteButton(bool enabled) => Semantics(
         button: true,
         enabled: enabled,
-        label: 'IGNITE, spin for $_bet coins',
+        label: 'اشعل، جولة بـ $_bet عملة',
         child: _SkinnedButton(
         asset: 'btn_ignite',
         tint: _cyan,
@@ -955,7 +1029,7 @@ class _AetherfallScreenState extends State<AetherfallScreen> {
                 child: CircularProgressIndicator(strokeWidth: 2.4, color: _bgBottom),
               )
             : const Text(
-                'IGNITE',
+                'اشعل',
                 style: TextStyle(
                   color: _bgBottom,
                   fontWeight: FontWeight.w900,
@@ -1010,7 +1084,7 @@ class _SkyfireChargeMeter extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'SKYFIRE\nCHARGE',
+            'شحنة\nالسماء',
             style: TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 1, height: 1.2),
           ),
           const SizedBox(height: 3),
@@ -1049,6 +1123,9 @@ class _SkyfireChargeMeter extends StatelessWidget {
                   child: Center(
                     child: Text(
                       '+$charge%',
+                      // Digits with a leading sign are bidi-neutral; without
+                      // this the '+' jumps to the far end under RTL.
+                      textDirection: TextDirection.ltr,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 13,

@@ -112,17 +112,17 @@ const Map<String, SymbolVisual> kSymbolVisuals = {
 /// Display names for the paytable / help panel — original wording, not copied
 /// from any published game.
 const Map<String, String> kSymbolNames = {
-  'L1': 'Cyan Rune Prism',
-  'L2': 'Ember Shard',
-  'L3': 'Mint Spiral Seed',
-  'L4': 'Orbit Stone',
-  'H1': 'Copper Astrolabe',
-  'H2': 'Meteor-Heart Capsule',
-  'H3': 'Aurora Compass',
-  'H4': 'Skyfire Crown',
-  'WILD': 'Prism Wild',
-  'KEY': 'Vault Key',
-  'CHARGE': 'Ember Charge',
+  'L1': 'منشور الرون',
+  'L2': 'شظية الجمر',
+  'L3': 'البذرة الحلزونية',
+  'L4': 'حجر المدار',
+  'H1': 'الأسطرلاب النحاسي',
+  'H2': 'قلب النيزك',
+  'H3': 'بوصلة الشفق',
+  'H4': 'تاج السماء',
+  'WILD': 'المنشور البديل',
+  'KEY': 'مفتاح الخزنة',
+  'CHARGE': 'شحنة الجمر',
 };
 
 /// Particle and ribbon textures, keyed by the stem used in [AetherfallArt.fx].
@@ -265,6 +265,7 @@ class SymbolTile extends StatelessWidget {
           Icon(visual.icon, color: visual.color, size: 15),
           Text(
             '+$value%',
+            textDirection: TextDirection.ltr,
             style: TextStyle(
               color: visual.glow,
               fontSize: 10,
