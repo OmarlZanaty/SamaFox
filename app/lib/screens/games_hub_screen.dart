@@ -47,9 +47,6 @@ const List<_GameEntry> _games = [
     gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
     art: 'assets/images/cards/card_aetherfall.png',
   ),
-    gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
-    art: 'assets/images/cards/card_greedy.png',
-  ),
   _GameEntry(
     title: 'نيون فورتشن',
     tagline: 'أدر واجمع الجاكبوت',
