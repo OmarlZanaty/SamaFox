@@ -72,6 +72,7 @@ model User {
   giftBattlesUser1         GiftBattle[]              @relation("GiftBattleUser1")
   giftBattlesUser2         GiftBattle[]              @relation("GiftBattleUser2")
   leaderboardEntries       LeaderboardEntry[]
+  gameDailyStats           GameDailyStat[]
   subscription             UserSubscription?
   items                    UserItem[]
   familyMembership         FamilyMember?
@@ -571,6 +572,43 @@ model LeaderboardEntry {
 
   @@unique([leaderboardId, userId])
   @@map("leaderboard_entries")
+}
+
+// ============================================
+// GAME DAILY STAT MODEL
+// ============================================
+
+/// One player's running total for one game on one UTC day.
+///
+/// The wager games each need a "today" board (أرباح اليوم / سجلي / ترتيب اليوم)
+/// and were keeping it in memory, which meant it silently reset on every
+/// deploy. `game` is a discriminator so the sibling games can move onto this
+/// table without another migration.
+///
+/// `day` is a UTC "YYYY-MM-DD" string rather than a timestamp: the reset is
+/// defined as UTC midnight, and a plain string makes that unambiguous, indexes
+/// well, and matches the key the services already compute.
+model GameDailyStat {
+  id          String   @id @default(cuid())
+  game        String // 'greedy', and whichever games adopt it next
+  day         String // UTC date, "YYYY-MM-DD"
+  userId      Int
+  net         Int      @default(0) // won minus staked, today
+  wagered     Int      @default(0)
+  best        Int      @default(0) // biggest single-round payout today
+  countryCode String? // denormalised so the regional board is one query
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Cascade: a deleted account should not leave its board rows behind.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([game, day, userId])
+  // Serves the global board.
+  @@index([game, day, net])
+  // Serves the regional board.
+  @@index([game, day, countryCode, net])
+  @@map("game_daily_stats")
 }
 
 // ============================================

@@ -48,6 +48,15 @@ import {
   verifyPlinkoDrop,
 } from '../controllers/plinko.controller';
 import {
+  getGreedyState,
+  placeGreedyBet,
+  reduceGreedyBet,
+  clearGreedyBets,
+  repeatGreedyBets,
+  getGreedyHistory,
+  getGreedyRanking,
+} from '../controllers/greedyCat.controller';
+import {
   getAetherfallState,
   spinAetherfall,
   getAetherfallHistory,
@@ -198,6 +207,25 @@ router.post('/crazy/clear', authenticate, crazyWheelLimiter, clearCrazyBets);
 router.post('/crazy/repeat', authenticate, crazyWheelLimiter, repeatCrazyBets);
 router.post('/crazy/pick', authenticate, crazyWheelLimiter, submitCrazyPick);
 router.get('/crazy/history', authenticate, getCrazyHistory);
+
+// القط الجشع (Greedy Cat): eight food cards plus two category buttons, tapped
+// repeatedly inside a 30s window, so it needs the same headroom as عجلة الحظ.
+const greedyCatLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `greedy-cat:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/greedy/state', authenticate, getGreedyState);
+router.post('/greedy/bet', authenticate, greedyCatLimiter, placeGreedyBet);
+router.post('/greedy/reduce', authenticate, greedyCatLimiter, reduceGreedyBet);
+router.post('/greedy/clear', authenticate, greedyCatLimiter, clearGreedyBets);
+router.post('/greedy/repeat', authenticate, greedyCatLimiter, repeatGreedyBets);
+router.get('/greedy/history', authenticate, getGreedyHistory);
+router.get('/greedy/ranking', authenticate, getGreedyRanking);
 
 // بلينكو: every drop is its own request and auto-bet fires them back to back, so
 // this needs the highest allowance of any game.

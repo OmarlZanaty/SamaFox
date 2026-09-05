@@ -8,6 +8,7 @@ import { createNotification } from './notification.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
 import { CRAZY_ROOM, getPublicState as getCrazyWheelState } from './crazyWheel.service';
+import { GREEDY_ROOM, getPublicState as getGreedyCatState } from './greedyCat.service';
 import { CRASH_ROOM, getCrashStatePublic, getCrashChat } from './crash.service';
 import {
   BOXING_RING_ROOM,
@@ -720,6 +721,17 @@ socket.on('crazy_join_table', () => {
 
 socket.on('crazy_leave_table', () => {
   socket.leave(CRAZY_ROOM);
+});
+
+// ── Greedy cat (القط الجشع): same deal — subscribing is free, every bet goes
+// through REST so it stays authenticated and rate-limited.
+socket.on('greedy_join_table', () => {
+  socket.join(GREEDY_ROOM);
+  socket.emit('greedy_state', getGreedyCatState());
+});
+
+socket.on('greedy_leave_table', () => {
+  socket.leave(GREEDY_ROOM);
 });
 
 // ── Crash (طيّار): subscribing to the table is free — betting, cashing out and

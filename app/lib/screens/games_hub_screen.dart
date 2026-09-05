@@ -4,6 +4,7 @@ import 'games/aetherfall_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
+import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
 // Older games are hidden from the hub for now — see _hiddenGames below.
 // import 'games/skill_wheel_screen.dart';
@@ -46,6 +47,14 @@ const List<_GameEntry> _games = [
     accent: Color(0xFF4DD8E6),
     gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
     art: 'assets/images/cards/card_aetherfall.png',
+  ),
+  _GameEntry(
+    title: 'القط الجشع',
+    tagline: 'اختر طعامك واربح',
+    emoji: '🐱',
+    accent: Color(0xFFFFD83D),
+    gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
+    art: 'assets/images/cards/card_greedy.png',
   ),
   _GameEntry(
     title: 'نيون فورتشن',
@@ -193,6 +202,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'أثيرفول':
         screen = const AetherfallScreen();
+        break;
+      case 'القط الجشع':
+        screen = const GreedyCatScreen();
         break;
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
