@@ -284,6 +284,12 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
   void _onResultRevealed(GreedyState state) {
     _sfx.stopSpin();
     _sfx.stopped();
+    // Pull the balance the moment the result lands, rather than waiting for the
+    // `greedy_result` event to do it. That event is the only other trigger, so
+    // if it is missed — a reconnect, a backgrounded app, a dropped frame on the
+    // socket — the coin balance sat stale on screen while the server had
+    // already moved it.
+    _refresh();
     if (state.myStaked <= 0) return;
     if (state.myPayout > 0) {
       _sfx.win();

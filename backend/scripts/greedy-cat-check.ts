@@ -37,6 +37,10 @@ const users = new Map<number, { name: string; avatarUrl: string | null; countryC
 
 let upsertCount = 0;
 
+/// Stands in for a database round-trip. Every stub method awaits this, so the
+/// service's awaits actually yield the way they do against Postgres.
+const io = () => new Promise((r) => setTimeout(r, 0));
+
 function matches(row: StatRow, where: any): boolean {
   if (where.game !== undefined && row.game !== where.game) return false;
   if (where.day !== undefined && row.day !== where.day) return false;
@@ -58,6 +62,7 @@ const fakePrisma = {
       return rows;
     },
     async upsert({ where, create, update }: any) {
+      await io();
       upsertCount++;
       const key = where.game_day_userId;
       if (!key) throw new Error('upsert must use the game_day_userId compound key');
@@ -75,15 +80,22 @@ const fakePrisma = {
   },
   user: {
     async findUnique({ where }: any) {
+      await io();
       return users.get(where.id) ?? null;
     },
     async update({ where, data }: any) {
+      // Defer the mutation past a macrotask, the way a real round-trip to
+      // Postgres would. Without this the stub mutates synchronously inside the
+      // call, which hides every "we announced before the write landed" bug —
+      // including the one this file exists to catch.
+      await io();
       const u = users.get(where.id);
       if (u && data.coinsBalance?.increment) u.coinsBalance += data.coinsBalance.increment;
       if (u && data.coinsBalance?.decrement) u.coinsBalance -= data.coinsBalance.decrement;
       return u;
     },
     async updateMany({ where, data }: any) {
+      await io();
       const u = users.get(where.id);
       const need = where.coinsBalance?.gte ?? 0;
       if (!u || u.coinsBalance < need) return { count: 0 };
@@ -139,7 +151,30 @@ function seedStat(userId: number, net: number, country: string | null, best = ne
   });
 }
 
-const fakeIo = { to: () => ({ emit: () => {} }) };
+/// Records the wallet balance at the instant the result is announced.
+///
+/// This is what actually catches the ordering bug: settle() used to run
+/// fire-and-forget while broadcast() went out synchronously after it, so the
+/// result was public before the coins had moved. Reading the balance after the
+/// round is over cannot see that — by then settlement has caught up. Sampling
+/// it inside the emit can.
+let balanceAtResultAnnounce: number | null = null;
+let watchWalletOf: number | null = null;
+
+const fakeIo = {
+  to: () => ({
+    emit: (event: string, payload: any) => {
+      if (
+        event === 'greedy_state' &&
+        payload?.phase === 'result' &&
+        balanceAtResultAnnounce === null &&
+        watchWalletOf !== null
+      ) {
+        balanceAtResultAnnounce = users.get(watchWalletOf)?.coinsBalance ?? null;
+      }
+    },
+  }),
+};
 
 async function main() {
   console.log('القط الجشع — daily board checks\n');
@@ -304,8 +339,14 @@ async function main() {
     await new Promise((r) => setTimeout(r, 30));
 
     seedUser(5, 'مستقر', 'SA', 500_000);
-    const staked = 20_000;
-    await service.placeBet(5, 'fish', staked);
+    watchWalletOf = 5;
+    balanceAtResultAnnounce = null;
+    // Cover the whole ring, so this round ALWAYS pays out. Betting one symbol
+    // meant a ~96% chance of a losing round, where no credit happens at all and
+    // the "coins moved before the announce" probe passes for the wrong reason.
+    const staked = 80_000;
+    await service.placeBet(5, 'salad', staked / 2);
+    await service.placeBet(5, 'pizza', staked / 2);
     const writesBefore = upsertCount;
 
     // Betting 30s + closing 5s + spinning 6s, plus a margin.
@@ -313,6 +354,25 @@ async function main() {
 
     const after = service.getPublicState(5);
     const persisted = stats.find((r) => r.userId === 5 && r.day === today() && r.game === 'greedy');
+
+    // The regression that prompted this: settle() used to be fire-and-forget
+    // with broadcast() called synchronously after it, so the first
+    // `phase: 'result'` state carried payout 0 and an unmoved balance.
+    // The regression this guards: the wallet must already agree with the
+    // published result the moment the result is public. Works for a win or a
+    // loss, because balance = start + net covers both.
+    //   net = payout - staked, so start + net == start - staked + payout.
+    check('the wallet agrees with the published result',
+      users.get(5)!.coinsBalance === 500_000 + (persisted?.net ?? NaN),
+      `balance ${users.get(5)!.coinsBalance}, expected ${500_000 + (persisted?.net ?? NaN)} ` +
+        `(net ${persisted?.net}) — payout not credited before the result went out`);
+    check('the state reports the same net the wallet moved by',
+      (after?.today?.net ?? null) === (persisted?.net ?? undefined));
+    // The ordering guarantee itself, sampled inside the broadcast.
+    check('the coins had already moved when the result was announced',
+      balanceAtResultAnnounce === 500_000 + (persisted?.net ?? NaN),
+      `at announce the wallet read ${balanceAtResultAnnounce}, ` +
+        `expected ${500_000 + (persisted?.net ?? NaN)} — settlement had not finished`);
 
     check('settlement writes the player through to the table', persisted !== undefined);
     check('exactly one write per player per round',
@@ -326,10 +386,8 @@ async function main() {
     // early `continue` for them was exactly the bug this guards against.
     const won = (persisted?.best ?? 0) > 0;
     check(`a ${won ? 'winning' : 'losing'} round is persisted`, persisted !== undefined);
-    check('a losing round records no record payout',
-      won || persisted?.best === 0, `best was ${persisted?.best}`);
-    check('a losing round nets exactly the stake back out',
-      won || persisted?.net === -staked, `net was ${persisted?.net}`);
+    check('covering the whole ring always pays something', won,
+      `best was ${persisted?.best} — expected a payout on every round`);
     check('wagered accumulated from bet time survives the write-through',
       persisted?.wagered === staked, `got ${persisted?.wagered}`);
 
