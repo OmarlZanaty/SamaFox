@@ -780,9 +780,23 @@ function advance() {
   if (r.phase === 'spinning') {
     r.phase = 'result';
     r.endsAt = Date.now() + RESULT_MS;
-    settle(r).catch((err) => console.error('[greedyCat] settle error', err));
-    broadcast();
     timer = setTimeout(advance, RESULT_MS);
+
+    // Settle BEFORE announcing the result.
+    //
+    // This used to call settle() fire-and-forget and then broadcast()
+    // synchronously, so the first `phase: 'result'` state went out while
+    // settle() was still on its first await: every payout read as 0 and no
+    // balance had moved yet. The result card showed a win of nothing, and the
+    // coin balance only caught up if the separate `greedy_result` event
+    // happened to arrive and trigger a refetch.
+    //
+    // The phase and the timer are set first, so a client polling `state`
+    // mid-settlement still sees the right phase and countdown; it just gets the
+    // payouts a moment later, which is the honest answer.
+    settle(r)
+      .catch((err) => console.error('[greedyCat] settle error', err))
+      .finally(() => broadcast());
     return;
   }
 
