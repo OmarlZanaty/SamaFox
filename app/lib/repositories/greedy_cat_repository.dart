@@ -37,6 +37,12 @@ class GreedyCatRepository {
       _betCall('games/greedy/bet', {'target': target, 'amount': amount},
           'تعذر وضع الرهان');
 
+  /// Takes one unit back off a single food card. Symbols only — a category
+  /// badge stops being meaningful once one of its four members changes.
+  Future<GreedyBetResult> reduceBet({required String target, required int amount}) =>
+      _betCall('games/greedy/reduce', {'target': target, 'amount': amount},
+          'تعذر تقليل الرهان');
+
   Future<GreedyBetResult> clearBets() =>
       _betCall('games/greedy/clear', const {}, 'تعذر مسح الرهانات');
 
@@ -285,6 +291,7 @@ class GreedyState {
   final int todayNet;
   final int todayBest;
   final List<GreedyHistoryEntry> history;
+  final List<GreedyWinner> winners;
 
   const GreedyState({
     required this.phase,
@@ -304,6 +311,7 @@ class GreedyState {
     required this.todayNet,
     required this.todayBest,
     required this.history,
+    required this.winners,
   });
 
   bool get isBetting => phase == 'betting';
@@ -353,6 +361,10 @@ class GreedyState {
           .whereType<Map>()
           .map((e) => GreedyHistoryEntry.fromJson(Map<String, dynamic>.from(e)))
           .toList(),
+      winners: ((json['winners'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => GreedyWinner.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
     );
   }
 
@@ -400,6 +412,32 @@ class GreedyState {
         todayNet: todayNet ?? this.todayNet,
         todayBest: todayBest ?? this.todayBest,
         history: history,
+        winners: winners,
+      );
+}
+
+/// One of the round's biggest payouts, shown on the result card.
+class GreedyWinner {
+  final int userId;
+  final String name;
+  final String? avatarUrl;
+  final int payout;
+  final int profit;
+
+  const GreedyWinner({
+    required this.userId,
+    required this.name,
+    required this.avatarUrl,
+    required this.payout,
+    required this.profit,
+  });
+
+  factory GreedyWinner.fromJson(Map<String, dynamic> json) => GreedyWinner(
+        userId: (json['userId'] as num?)?.toInt() ?? 0,
+        name: json['name']?.toString() ?? 'لاعب',
+        avatarUrl: json['avatarUrl']?.toString(),
+        payout: (json['payout'] as num?)?.toInt() ?? 0,
+        profit: (json['profit'] as num?)?.toInt() ?? 0,
       );
 }
 

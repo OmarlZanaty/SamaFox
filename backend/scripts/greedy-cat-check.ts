@@ -233,7 +233,68 @@ async function main() {
   check('a category stake that will not divide by four is rejected', odd.ok === false);
   service.stopGreedyCatEngine();
 
-  // ── 5. Settlement write-through (opt-in: costs a full round) ──
+  // ── 5. Two players in one round ────────────────────────────
+  // Concurrency was an explicitly unverified gap: every earlier check drove a
+  // single player. This puts two in the same round and checks the engine keeps
+  // them apart.
+  console.log('');
+  console.log('multi-player round');
+  service.startGreedyCatEngine(fakeIo);
+  await new Promise((r) => setTimeout(r, 30));
+
+  seedUser(10, 'لاعب أ', 'SA', 200_000);
+  seedUser(11, 'لاعب ب', 'EG', 200_000);
+  await service.placeBet(10, 'fish', 5_000);
+  await service.placeBet(11, 'corn', 3_000);
+  await service.placeBet(11, 'fish', 1_000);
+
+  const a = service.getPublicState(10);
+  const b = service.getPublicState(11);
+  check('each player sees only their own stakes',
+    a?.me?.bets?.fish === 5_000 && a?.me?.bets?.corn === undefined &&
+      b?.me?.bets?.corn === 3_000 && b?.me?.bets?.fish === 1_000,
+    `a=${JSON.stringify(a?.me?.bets)} b=${JSON.stringify(b?.me?.bets)}`);
+  check('the shared total adds both players together',
+    a?.totals?.fish?.amount === 6_000, `fish total ${a?.totals?.fish?.amount}`);
+  check('the shared total counts both players on a symbol',
+    a?.totals?.fish?.players === 2, `fish players ${a?.totals?.fish?.players}`);
+  check('each balance is charged independently',
+    users.get(10)!.coinsBalance === 195_000 && users.get(11)!.coinsBalance === 196_000,
+    `a=${users.get(10)!.coinsBalance} b=${users.get(11)!.coinsBalance}`);
+
+  await service.reduceBet(11, 'fish', 1_000);
+  check('one player reducing leaves the other untouched',
+    service.getPublicState(10)?.me?.bets?.fish === 5_000);
+  check('the refund goes to the right player',
+    users.get(11)!.coinsBalance === 197_000, `got ${users.get(11)!.coinsBalance}`);
+  check('the shared total drops by exactly the reduction',
+    service.getPublicState(10)?.totals?.fish?.amount === 5_000);
+  service.stopGreedyCatEngine();
+
+  // ── 6. Reducing a single bet ───────────────────────────────
+  console.log('');
+  console.log('reducing a bet');
+  service.startGreedyCatEngine(fakeIo);
+  await new Promise((r) => setTimeout(r, 30));
+  seedUser(20, 'مقلّل', 'SA', 100_000);
+  await service.placeBet(20, 'goat', 5_000);
+  const partial = await service.reduceBet(20, 'goat', 1_000);
+  check('a partial reduction leaves the remainder',
+    partial.bets.goat === 4_000, `got ${partial.bets.goat}`);
+  const over = await service.reduceBet(20, 'goat', 999_999);
+  check('reducing by more than is staked refunds only the stake',
+    over.bets.goat === undefined && users.get(20)!.coinsBalance === 100_000,
+    `bets=${JSON.stringify(over.bets)} balance=${users.get(20)!.coinsBalance}`);
+  const none = await service.reduceBet(20, 'goat', 100);
+  check('reducing a card with no bet is refused',
+    none.ok === false && none.code === 'NO_BET');
+  await service.placeBet(20, 'salad', 400);
+  await service.reduceBet(20, 'corn', 100);
+  check('reducing a category member drops the now-inaccurate category badge',
+    service.getPublicState(20)?.me?.categories?.salad === undefined);
+  service.stopGreedyCatEngine();
+
+  // ── 7. Settlement write-through (opt-in: costs a full round) ──
   // A round is betting 30s + closing 5s + spinning 6s before `settle` runs, so
   // this is behind a flag rather than in the default run.
   if (process.argv.includes('--settle')) {

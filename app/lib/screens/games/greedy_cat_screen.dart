@@ -396,6 +396,36 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
     }
   }
 
+  /// Long-press on a food card. Takes one denomination back off it — the brief
+  /// asks for a way to undo a single bet, not just to clear the whole round.
+  Future<void> _reduce(String symbolKey) async {
+    final state = _state;
+    if (_busy || state?.acceptsBets != true) return;
+    if ((state?.myBets[symbolKey] ?? 0) <= 0) return;
+
+    setState(() {
+      _busy = true;
+      _notice = null;
+    });
+    try {
+      final res = await _repo.reduceBet(target: symbolKey, amount: _denomination);
+      if (!mounted) return;
+      _sfx.click();
+      setState(() {
+        _balance = res.balance;
+        _state = _state?.copyWith(
+          bets: res.bets,
+          categories: res.categories,
+          staked: res.bets.values.fold<int>(0, (a, b) => a + b),
+        );
+      });
+    } on GreedyCatException catch (e) {
+      if (mounted) setState(() => _notice = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   void _rejectForBalance([String? message]) {
     setState(() => _notice = message ?? 'رصيدك لا يكفي');
     _shake.forward(from: 0);
@@ -1015,9 +1045,10 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
       button: true,
       enabled: enabled,
       label: '${symbol.nameAr}، مضاعفة ${symbol.multiplier}'
-          '${mine > 0 ? '، رهانك ${_fmt(mine)}' : ''}',
+          '${mine > 0 ? '، رهانك ${_fmt(mine)}، اضغط مطولاً للتقليل' : ''}',
       child: GestureDetector(
         onTap: enabled ? () => _bet(symbol.key) : null,
+        onLongPress: enabled && mine > 0 ? () => _reduce(symbol.key) : null,
         child: AnimatedScale(
           scale: mine > 0 ? 1.04 : 1.0,
           duration: const Duration(milliseconds: 180),
@@ -2144,6 +2175,10 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                         ),
                       ),
                     ],
+                    if (state.winners.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _winnersStrip(state.winners),
+                    ],
                     const SizedBox(height: 14),
                     GestureDetector(
                       onTap: _dismissResult,
@@ -2208,6 +2243,90 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
           ],
         ),
       );
+
+  /// «أكبر الفائزين» — the round's top three payouts, from the server. Real
+  /// players, not fictional filler: the service ranks them at settlement.
+  Widget _winnersStrip(List<GreedyWinner> winners) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: GreedyPalette.warmPale.withOpacity(0.7),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: GreedyPalette.creamDeep, width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'أكبر الفائزين',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w900,
+                color: GreedyPalette.mutedText,
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (var i = 0; i < winners.length && i < 3; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    _rankBadge(i + 1),
+                    const SizedBox(width: 6),
+                    _avatar(winners[i].avatarUrl, winners[i].name, 22),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        winners[i].name,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: GreedyPalette.darkText,
+                        ),
+                      ),
+                    ),
+                    const CoinEmblem(size: 14),
+                    const SizedBox(width: 3),
+                    Text(
+                      _compact(winners[i].payout),
+                      textDirection: TextDirection.ltr,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF1B8A54),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      );
+
+  /// 1 / 2 / 3 in gold, silver and bronze — rank by shape and colour, so it
+  /// still reads for anyone who cannot separate the three hues.
+  Widget _rankBadge(int rank) {
+    const colours = [Color(0xFFFFD83D), Color(0xFFD7DDE4), Color(0xFFE2A96A)];
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: colours[(rank - 1).clamp(0, 2)],
+        border: Border.all(color: GreedyPalette.woodOutline, width: 1.4),
+      ),
+      child: Center(
+        child: Text(
+          '$rank',
+          style: const TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w900,
+            color: GreedyPalette.darkText,
+          ),
+        ),
+      ),
+    );
+  }
 
   void _dismissResult() {
     final round = _resultRound;

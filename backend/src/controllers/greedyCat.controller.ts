@@ -7,6 +7,7 @@ import {
   getPublicState,
   getRanking,
   placeBet,
+  reduceBet,
   repeatBets,
 } from '../services/greedyCat.service';
 
@@ -61,6 +62,23 @@ export const placeGreedyBet = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[greedyCat] bet error', error);
     res.status(500).json({ success: false, message: 'تعذر وضع الرهان' });
+  }
+};
+
+export const reduceGreedyBet = async (req: Request, res: Response) => {
+  try {
+    const userId = userIdOf(req);
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { target, amount } = req.body ?? {};
+    const result = await reduceBet(userId, String(target), Number(amount));
+    if (!result.ok) {
+      return res.status(400).json({ success: false, code: result.code, message: result.message });
+    }
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[greedyCat] reduce error', error);
+    res.status(500).json({ success: false, message: 'تعذر تقليل الرهان' });
   }
 };
 

@@ -142,6 +142,15 @@ function publicState() {
       multiplier: state.phase === 'result' ? state.multiplier : 0,
     },
     today: { net: state.todayNet, best: state.todayBest },
+    winners: state.phase === 'result'
+      ? NAMES.slice(0, 3).map((name, i) => ({
+          userId: 200 + i,
+          name,
+          avatarUrl: null,
+          payout: Math.round(900000 / (i + 1.4)),
+          profit: Math.round(700000 / (i + 1.4)),
+        }))
+      : [],
     history: state.history.slice(-15),
   };
 }
@@ -176,6 +185,27 @@ app.post('/api/v1/games/greedy/bet', (req, res) => {
   if (CATEGORIES[target]) state.categories[target] = (state.categories[target] || 0) + amount;
   balance -= amount;
   state.pot += amount;
+  broadcast();
+  res.json({ success: true, bets: state.bets, categories: state.categories, balance });
+});
+
+app.post('/api/v1/games/greedy/reduce', (req, res) => {
+  const { target, amount } = req.body || {};
+  if (state.phase !== 'betting') {
+    return res.status(400).json({ success: false, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' });
+  }
+  const staked = state.bets[target] || 0;
+  if (staked <= 0) {
+    return res.status(400).json({ success: false, code: 'NO_BET', message: 'لا يوجد رهان على هذا الطبق' });
+  }
+  const take = Math.min(amount, staked);
+  if (staked - take > 0) state.bets[target] = staked - take;
+  else delete state.bets[target];
+  for (const [k, members] of Object.entries(CATEGORIES)) {
+    if (members.includes(target)) delete state.categories[k];
+  }
+  balance += take;
+  state.pot = Math.max(0, state.pot - take);
   broadcast();
   res.json({ success: true, bets: state.bets, categories: state.categories, balance });
 });

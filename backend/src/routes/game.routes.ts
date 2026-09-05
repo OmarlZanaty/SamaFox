@@ -50,6 +50,7 @@ import {
 import {
   getGreedyState,
   placeGreedyBet,
+  reduceGreedyBet,
   clearGreedyBets,
   repeatGreedyBets,
   getGreedyHistory,
@@ -220,6 +221,7 @@ const greedyCatLimiter = rateLimit({
 
 router.get('/greedy/state', authenticate, getGreedyState);
 router.post('/greedy/bet', authenticate, greedyCatLimiter, placeGreedyBet);
+router.post('/greedy/reduce', authenticate, greedyCatLimiter, reduceGreedyBet);
 router.post('/greedy/clear', authenticate, greedyCatLimiter, clearGreedyBets);
 router.post('/greedy/repeat', authenticate, greedyCatLimiter, repeatGreedyBets);
 router.get('/greedy/history', authenticate, getGreedyHistory);
