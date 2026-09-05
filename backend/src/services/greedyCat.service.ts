@@ -177,6 +177,17 @@ interface Round {
   players: Map<number, PlayerBets>;
   seed: string;
   seedHash: string;
+  /// Top payouts, filled at settlement. Kept on the round rather than only
+  /// emitted, so a client that reloads mid-result still sees the board.
+  winners: RoundWinner[];
+}
+
+export interface RoundWinner {
+  userId: number;
+  name: string;
+  avatarUrl: string | null;
+  payout: number;
+  profit: number;
 }
 
 export interface HistoryEntry {
@@ -373,6 +384,7 @@ export function getPublicState(userId?: number) {
       net: mine?.net ?? 0,
       best: mine?.best ?? 0,
     },
+    winners: round.phase === 'result' ? round.winners : [],
     history: history.slice(-15),
   };
 }
@@ -554,6 +566,60 @@ export async function clearBets(userId: number) {
   return { ok: true as const, bets: {}, categories: {}, balance: await balanceOf(userId) };
 }
 
+/**
+ * Takes [amount] back off one symbol, refunding it. Betting phase only.
+ *
+ * The brief asks for a way to reduce a single bet rather than only clearing the
+ * whole round, which is what `clearBets` does. Long-pressing a food card calls
+ * this with the selected denomination; a stake smaller than that is simply
+ * removed outright rather than refusing.
+ */
+export async function reduceBet(userId: number, target: string, amount: number) {
+  if (!round || round.phase !== 'betting') {
+    return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' };
+  }
+  if (!SYMBOL_KEYS.includes(target as SymbolKey)) {
+    return { ok: false as const, code: 'BAD_TARGET', message: 'خيار غير صحيح' };
+  }
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return { ok: false as const, code: 'BAD_AMOUNT', message: 'قيمة غير صحيحة' };
+  }
+
+  const player = round.players.get(userId);
+  const staked = player?.bets[target] ?? 0;
+  if (!player || staked <= 0) {
+    return { ok: false as const, code: 'NO_BET', message: 'لا يوجد رهان على هذا الطبق' };
+  }
+
+  // Never refund more than is actually on the card.
+  const take = Math.min(amount, staked);
+  const left = staked - take;
+  if (left > 0) player.bets[target] = left;
+  else delete player.bets[target];
+
+  // A category badge claims "this much, split four ways". Once one of its four
+  // symbols is reduced that is no longer true, so drop the badge and let the
+  // per-card amounts speak for themselves — the stakes are unchanged either way.
+  for (const [key, members] of Object.entries(CATEGORIES)) {
+    if (members.includes(target as SymbolKey)) delete player.categories[key];
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { coinsBalance: { increment: take } },
+  });
+  jackpotPot = Math.max(0, jackpotPot - take);
+  cacheRow(player).wagered -= take;
+
+  broadcast();
+  return {
+    ok: true as const,
+    bets: player.bets,
+    categories: player.categories,
+    balance: await balanceOf(userId),
+  };
+}
+
 /** Re-places the exact symbol stakes from the player's previous round. */
 export async function repeatBets(userId: number) {
   if (!round || round.phase !== 'betting') {
@@ -667,6 +733,7 @@ async function settle(r: Round) {
   }
 
   winners.sort((a, b) => b.payout - a.payout);
+  r.winners = winners.slice(0, 3);
   history.push({ roundId: r.id, symbol, multiplier: def.multiplier, at: Date.now() });
   if (history.length > 100) history.splice(0, history.length - 100);
 
@@ -733,6 +800,7 @@ function startRound() {
     players: new Map(),
     seed,
     seedHash: crypto.createHash('sha256').update(seed).digest('hex'),
+    winners: [],
   };
   broadcast();
   timer = setTimeout(advance, BETTING_MS);
