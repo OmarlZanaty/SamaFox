@@ -247,6 +247,21 @@ that comparison caught the foreign key defaulting to `ON DELETE RESTRICT` while
 the hand-written SQL said `CASCADE`, and an `updatedAt` default Prisma does not
 generate. Both are now aligned.
 
+### Betting controls and concurrency — `npm run check:greedy`
+39 checks. Beyond the daily board, these cover the two controls the first build
+was missing:
+
+*Reducing one bet.* A partial reduction leaves the remainder; reducing by more
+than is staked removes the bet and refunds only what was there; reducing a card
+with no bet is refused; and reducing a member of a category drops that
+category's badge, because "this much, split four ways" stops being true the
+moment one of the four changes.
+
+*Two players in one round.* Each sees only their own stakes, the shared totals
+add both and count both players on a symbol, balances are charged
+independently, and one player reducing leaves the other untouched. This closes
+the concurrency gap the report previously carried as unverified.
+
 ### Compilation
 - `npx tsc --noEmit` on the backend — clean.
 - `flutter analyze` on all six new/changed Dart files — 0 errors, 0 warnings.
