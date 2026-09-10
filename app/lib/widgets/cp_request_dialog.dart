@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../config/app_config.dart';
 import '../repositories/cp_repository.dart';
+import '../widgets/app_network_image.dart';
 
 /// A15 / #44 — the accept/reject prompt for an incoming CP gift.
 ///
@@ -126,7 +127,7 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
                   const SizedBox(width: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
+                    child: AppNetworkImage(
                       giftIcon,
                       width: 40,
                       height: 40,

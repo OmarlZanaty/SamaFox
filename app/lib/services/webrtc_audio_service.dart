@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../config/app_config.dart';
 import 'socket_service.dart';
+import 'audio_route.dart';
 
 
 /// Complete WebRTC Audio Service with Peer Connections
@@ -47,6 +49,79 @@ class WebRTCAudioService {
 // ICE restart helpers
   final Map<int, Timer> _iceFailTimers = {};
 
+  /// Candidates that arrived before the peer's remote description was in place.
+  ///
+  /// Trickle ICE starts the instant an offer is sent, while the answering side
+  /// still has several awaits to go before `setRemoteDescription` lands. Adding
+  /// a candidate before then throws, and the old handler swallowed that
+  /// exception — so the opening candidates of every call, the host and
+  /// server-reflexive ones that actually connect two phones, were dropped on
+  /// the floor. Whether a peer came up at all depended on that race, which is
+  /// precisely why voice worked for some clients and not others.
+  final Map<int, List<RTCIceCandidate>> _pendingCandidates = {};
+
+  /// Peers whose remote description is set, so candidates can go straight in.
+  final Set<int> _remoteDescriptionSet = {};
+
+  /// Perfect-negotiation bookkeeping: peers we are mid-offer towards, and peers
+  /// whose recovery is already running — ICE state and connection state both
+  /// report the same failure, and without this they would recover it twice.
+  final Set<int> _makingOffer = {};
+  final Set<int> _restarting = {};
+
+  /// Consecutive recovery attempts per peer, cleared once it connects.
+  final Map<int, int> _recoveryAttempts = {};
+
+  /// True while the session was opened without a microphone.
+  bool _listenOnly = false;
+
+  /// Guards [_recoverLocalMic] against re-entry.
+  bool _recoveringMic = false;
+
+  /// STUN can only introduce two peers when at least one is reachable from
+  /// outside. It cannot help when both sit behind a carrier-grade NAT, the
+  /// normal case for two users on mobile data, and that pair simply never
+  /// connects. Configure a TURN server (see [AppConfig.turnUrls]) and it is
+  /// added here automatically.
+  static List<Map<String, dynamic>> get _iceServers {
+    final servers = <Map<String, dynamic>>[
+      {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+      {'urls': 'stun:stun2.l.google.com:19302'},
+      {'urls': 'stun:stun3.l.google.com:19302'},
+      {'urls': 'stun:stun4.l.google.com:19302'},
+    ];
+
+    final turnUrls = AppConfig.turnUrls
+        .split(',')
+        .map((u) => u.trim())
+        .where((u) => u.isNotEmpty)
+        .toList();
+    if (turnUrls.isNotEmpty) {
+      servers.add(<String, dynamic>{
+        'urls': turnUrls,
+        if (AppConfig.turnUsername.isNotEmpty) 'username': AppConfig.turnUsername,
+        if (AppConfig.turnCredential.isNotEmpty)
+          'credential': AppConfig.turnCredential,
+      });
+    }
+    return servers;
+  }
+
+  /// Only one side may drive a rebuild, otherwise both tear down at once and
+  /// the replacement offer lands on a peer that is still disposing of the old
+  /// connection. The initiator drives; the other side is the "polite" peer and
+  /// yields on a collision.
+  bool _isPolite(int otherUserId) => !_shouldInitiateWith(otherUserId);
+
+  /// Ids cross the socket as ints today and as strings on some server builds;
+  /// a hard cast turns that into a thrown handler and a dead peer.
+  static int? _asUserId(dynamic raw) {
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse('$raw');
+  }
+
   // Voice Activity Detection (VAD) — A10 "المتكلم على المايك يظهر حوله دائرة
   // متحركة ... واذا سكت تختفي الدائرة".
   //
@@ -84,12 +159,29 @@ class WebRTCAudioService {
 
   Future<void> _ensureLocalStream() async {
     if (_localStream != null && _localAudioTrack != null) return;
+    await _captureLocalStream();
+  }
 
+  /// The one place the microphone is opened. `initialize` used to carry its own
+  /// copy of this with a different constraint set, so a stream acquired
+  /// anywhere else came up without the echo canceller.
+  Future<void> _captureLocalStream() async {
     final stream = await navigator.mediaDevices.getUserMedia({
       'audio': {
         'echoCancellation': true,
         'noiseSuppression': true,
         'autoGainControl': true,
+
+        // WebRTC Android legacy keys (plugin prints these)
+        'googEchoCancellation': true,
+        'googEchoCancellation2': true,
+        'googDAEchoCancellation': true,
+        'googNoiseSuppression': true,
+        'googAutoGainControl': true,
+        'googHighpassFilter': true,
+
+        // Helpful constraints
+        'channelCount': 1,
       },
       'video': false,
     });
@@ -103,7 +195,81 @@ class WebRTCAudioService {
     if (_localAudioTrack == null) {
       _log('❌ No audio track found (getUserMedia returned none)');
     } else {
+      _localAudioTrack!.enabled = true;
+      _watchLocalTrack(_localAudioTrack!);
       _log('Track enabled=${_localAudioTrack!.enabled}');
+    }
+  }
+
+  /// A local microphone track can die without the app noticing: an incoming
+  /// phone call, another app claiming the mic, or the OS reclaiming capture all
+  /// end it. WebRTC keeps sending the now-silent stream, so the seat still
+  /// looks live while nobody can hear the user — the report that the mic "cuts
+  /// out" and only a full rejoin brings it back. Re-acquire instead.
+  void _watchLocalTrack(MediaStreamTrack track) {
+    track.onEnded = () {
+      _log('🎤 local track ended — re-acquiring the microphone');
+      unawaited(_recoverLocalMic());
+    };
+    track.onMute = () => _log('🎤 local track muted by the platform');
+    track.onUnMute = () => _log('🎤 local track un-muted by the platform');
+  }
+
+  /// Stop watching a track we are about to stop ourselves. Without this,
+  /// leaving the room ends the track, the watchdog reads that as the mic being
+  /// snatched away, and re-opens the microphone of a user who just left.
+  void _detachTrackWatch(MediaStreamTrack track) {
+    track.onEnded = null;
+    track.onMute = null;
+    track.onUnMute = null;
+  }
+
+  Future<void> _recoverLocalMic() async {
+    if (_recoveringMic || _listenOnly || !_initialized) return;
+    _recoveringMic = true;
+    try {
+      final wasMuted = _isMicMuted;
+
+      final old = _localStream;
+      _localStream = null;
+      _localAudioTrack = null;
+      if (old != null) {
+        for (final t in old.getTracks()) {
+          _detachTrackWatch(t);
+          try {
+            await t.stop();
+          } catch (_) {}
+        }
+      }
+
+      await _captureLocalStream();
+      final track = _localAudioTrack;
+      if (track == null) {
+        _log('❌ mic recovery: no track after re-capture');
+        return;
+      }
+      track.enabled = !wasMuted;
+
+      // Swap the new track into every live sender. `replaceTrack` does this in
+      // place, so the peers keep their transceivers and no renegotiation
+      // round-trip (and no audible gap) is needed.
+      for (final entry in _peerConnections.entries) {
+        try {
+          final senders = await entry.value.getSenders();
+          for (final sender in senders) {
+            if (sender.track?.kind == 'audio') {
+              await sender.replaceTrack(track);
+            }
+          }
+        } catch (e) {
+          _log('⚠️ replaceTrack for ${entry.key} failed: $e');
+        }
+      }
+      _log('✅ microphone re-acquired');
+    } catch (e) {
+      _log('❌ mic recovery failed: $e');
+    } finally {
+      _recoveringMic = false;
     }
   }
 
@@ -149,9 +315,10 @@ class WebRTCAudioService {
   Future<void> _attachLocalTrackToAllPeers() async {
     if (_localStream == null) return;
 
-    final track = _localStream!.getAudioTracks().isNotEmpty
-        ? _localStream!.getAudioTracks().first
-        : null;
+    final track = _localAudioTrack ??
+        (_localStream!.getAudioTracks().isNotEmpty
+            ? _localStream!.getAudioTracks().first
+            : null);
     if (track == null) return;
 
     for (final pc in _peerConnections.values) {
@@ -168,33 +335,91 @@ class WebRTCAudioService {
     }
   }
 
+  /// Make sure this client actually has a microphone to send, and that every
+  /// peer is carrying it.
+  ///
+  /// A session opened listen-only has no local stream at all: its peers were
+  /// negotiated receive-only and `unmuteAudio` had nothing to enable. Someone
+  /// who joined as a listener and was then approved for a mic therefore stayed
+  /// silent for the whole room while their own UI showed them live.
+  Future<void> _ensureSpeakingStream() async {
+    _listenOnly = false;
+    if (_localStream == null || _localAudioTrack == null) {
+      await _ensureMicReady();
+      await _captureLocalStream();
+    }
+    await _attachLocalTrackToAllPeers();
+    await _renegotiateAllPeers();
+  }
+
   Future<void> _renegotiateAllPeers() async {
-    for (final entry in _peerConnections.entries) {
-      final otherUserId = entry.key;
-      final pc = entry.value;
+    // Snapshot: sending an offer can end up rebuilding a peer, and mutating the
+    // map while iterating it throws.
+    for (final otherUserId in _peerConnections.keys.toList()) {
+      await _sendOffer(otherUserId);
+    }
+  }
 
-      try {
-        // create new offer (unified-plan renegotiation)
-        final offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+  /// The plugin's own default offer constraints, spelled out because this
+  /// interface version types the parameter non-nullable — "use the default"
+  /// cannot be said with `null` — and because the ice-restart variant below has
+  /// to keep everything else about the offer identical.
+  static const Map<String, dynamic> _defaultOfferConstraints = {
+    'mandatory': {
+      'OfferToReceiveAudio': true,
+      'OfferToReceiveVideo': true,
+    },
+    'optional': <dynamic>[],
+  };
 
-        _socketService.emit('webrtc_offer', {
-          'roomId': _currentRoomId,
-          'to': otherUserId,
-          'from': _currentUserId,
-          'offer': {'sdp': offer.sdp, 'type': offer.type},
-        });
+  /// `IceRestart` is libwebrtc's legacy mandatory-constraint spelling, which is
+  /// what the Android and iOS bridges parse. [RTCPeerConnection.restartIce]
+  /// already arms the flag natively; this is the fallback for a platform where
+  /// that call does nothing.
+  static const Map<String, dynamic> _iceRestartOfferConstraints = {
+    'mandatory': {
+      'OfferToReceiveAudio': true,
+      'OfferToReceiveVideo': true,
+      'IceRestart': true,
+    },
+    'optional': <dynamic>[],
+  };
 
-        _log('🔁 Renegotiation offer sent to $otherUserId');
-      } catch (e) {
-        _log('⚠️ renegotiate failed to $otherUserId: $e');
-      }
+  /// Create and send an offer to one peer, with the glare bookkeeping the
+  /// receiving side relies on to resolve a collision.
+  Future<void> _sendOffer(int otherUserId, {bool iceRestart = false}) async {
+    final pc = _peerConnections[otherUserId];
+    if (pc == null) return;
+    if (_makingOffer.contains(otherUserId)) {
+      _log('⏭️ offer to $otherUserId already in flight');
+      return;
+    }
+
+    _makingOffer.add(otherUserId);
+    try {
+      final offer = await pc.createOffer(
+        iceRestart ? _iceRestartOfferConstraints : _defaultOfferConstraints,
+      );
+      await pc.setLocalDescription(offer);
+
+      _socketService.emit('webrtc_offer', {
+        'roomId': _currentRoomId,
+        'to': otherUserId,
+        'from': _currentUserId,
+        'offer': {'sdp': offer.sdp, 'type': offer.type},
+      });
+
+      _log('📤 Offer sent to $otherUserId (iceRestart=$iceRestart)');
+    } catch (e) {
+      _log('⚠️ offer to $otherUserId failed: $e');
+    } finally {
+      _makingOffer.remove(otherUserId);
     }
   }
 
   Future<void> _forceAndroidVoiceRoute() async {
     if (kIsWeb || !Platform.isAndroid) return;
-    await _applyEchoSafeMode(talking: false); // default: speaker ON only if listening
+    await _applyEchoSafeMode(talking: false);
   }
 
 
@@ -208,12 +433,22 @@ class WebRTCAudioService {
     }
   }
 
-  /// Always route audio to the loudspeaker (both talking and listening).
-  /// Echo/noise are handled by the WebRTC AEC/NS processing, so we keep the
-  /// speaker on so the mic is heard out loud and never falls back to earpiece.
+  /// Re-apply the user's chosen route.
+  ///
+  /// A3 — this used to ignore its argument and force `speakerOn: true` every
+  /// time. It runs on mute, on unmute, on init and on every mic re-acquire, so
+  /// choosing the earpiece was silently undone within seconds and the icon
+  /// looked dead ("ايقونة السماعه موجوده لكن غير فعاله"). The choice lives in
+  /// [AudioRoute] now, shared with the game sound effects, and this only
+  /// re-asserts it.
+  ///
+  /// `talking` is kept in the signature because the call sites read as
+  /// documentation of when the route is re-applied, but it no longer overrides
+  /// the user: echo is handled by the AEC/NS processing already enabled on the
+  /// capture stream, not by silently moving them to the earpiece.
   Future<void> _applyEchoSafeMode({required bool talking}) async {
     if (kIsWeb || !Platform.isAndroid) return;
-    await _applyAndroidAudioRoute(speakerOn: true);
+    await _applyAndroidAudioRoute(speakerOn: AudioRoute.instance.speakerOn);
   }
 
 
@@ -237,59 +472,50 @@ class WebRTCAudioService {
 
     // ✅ Prevent double initialize for same room/user
     if (_initialized && _currentRoomId == roomId && _currentUserId == userId) {
+      // ...except when a listen-only session now has to speak. Returning here
+      // unconditionally left `_localStream` null, so the user took a mic seat
+      // with nothing to send and every unmute was a silent no-op.
+      if (!listenOnly && _localStream == null) {
+        _log('⬆️ Upgrading listen-only session to speaking');
+        await _ensureSpeakingStream();
+        await _forceAndroidVoiceRoute();
+      }
       _log('initialize skipped (already initialized for same room/user)');
       return;
     }
     _initialized = true;
+    _listenOnly = listenOnly;
 
-// ✅ On socket reconnect, rejoin voice + refresh voice users (so signaling resumes)
+// ✅ On socket reconnect, rebuild the whole voice mesh.
     await _reconnectSub?.cancel();
-    _reconnectSub = _socketService.reconnectStream.listen((_) {
+    _reconnectSub = _socketService.reconnectStream.listen((_) async {
       if (_currentRoomId == null || _currentUserId == null) return;
 
-      _log('🔁 socket reconnected -> rejoin voice + refresh users');
+      _log('🔁 socket reconnected -> rebuilding voice mesh');
+
+      // Every peer connection made over the old socket is dead: its signalling
+      // path is gone, so it can neither restart ICE nor renegotiate. Drop ours
+      // first, then announce with `resume: true` — the server only broadcasts
+      // the matching `user_left_voice` for a resume, and without it every peer
+      // keeps OUR corpse, sees us "already connected" and skips rebuilding, so
+      // the returning user comes back mute for the entire room.
+      await _teardownAllPeers();
+
       _socketService.emit('user_joined_voice', {
         'roomId': _currentRoomId,
         'userId': _currentUserId,
+        'resume': true,
       });
       _socketService.emit('get_voice_users', {'roomId': _currentRoomId});
     });
 
 
     if (!listenOnly) {
-      _localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': {
-          'echoCancellation': true,
-          'noiseSuppression': true,
-          'autoGainControl': true,
-
-          // WebRTC Android legacy keys (plugin prints these)
-          'googEchoCancellation': true,
-          'googEchoCancellation2': true,
-          'googDAEchoCancellation': true,
-          'googNoiseSuppression': true,
-          'googAutoGainControl': true,
-          'googHighpassFilter': true,
-
-          // Helpful constraints
-          'channelCount': 1,
-        },
-        'video': false,
-      });
-
-
-      final tracks = _localStream!.getAudioTracks();
-      _log('Local stream created. audioTracks=${tracks.length}');
-      for (final t in tracks) {
-        t.enabled = true;
-        _log('Track id=${t.id} kind=${t.kind} enabled=${t.enabled}');
-      }
+      await _captureLocalStream();
       await _forceAndroidVoiceRoute();
-
-
-    }
-    else {
+    } else {
       _localStream = null;
+      _localAudioTrack = null;
       _log('Listen-only mode → no mic stream');
     }
 
@@ -325,28 +551,22 @@ class WebRTCAudioService {
       }
 
       // stop local mic track
+      _initialized = false; // before stopping, so the watchdog stays quiet
       if (_localStream != null) {
         for (final t in _localStream!.getTracks()) {
+          _detachTrackWatch(t);
           try { await t.stop(); } catch (_) {}
         }
         _localStream = null;
+        _localAudioTrack = null;
       }
 
-      // close all peer connections
-      for (final pc in _peerConnections.values) {
-        try { await pc.close(); } catch (_) {}
-      }
-      _peerConnections.clear();
-
-      // cleanup remote streams/renderers
-      for (final r in _remoteRenderers.values) {
-        try { await r.dispose(); } catch (_) {}
-      }
-      _remoteRenderers.clear();
-      _remoteStreams.clear();
+      // close all peer connections and everything hanging off them
+      await _teardownAllPeers();
       _audioRenderers.clear();
 
       _initialized = false;
+      _listenOnly = false;
       _currentRoomId = null;
       _currentUserId = null;
     } catch (_) {}
@@ -467,17 +687,45 @@ class WebRTCAudioService {
     // Listen for WebRTC offers
     _socketService.on('webrtc_offer', (data) async {
       try {
-        final fromUserId = data['from'] as int;
-        final offer = Map<String, dynamic>.from(data['offer'] as Map);
+        final map = Map<String, dynamic>.from(data as Map);
+        final fromUserId = _asUserId(map['from']);
+        if (fromUserId == null) {
+          debugPrint('⚠️ webrtc_offer without a usable sender: $map');
+          return;
+        }
+        final offer = Map<String, dynamic>.from(map['offer'] as Map);
 
         debugPrint('📨 Received offer from user $fromUserId');
 
         final pc = await _createPeerConnection(fromUserId, isInitiator: false);
 
+        // Perfect negotiation. Both sides can be offering at the same moment —
+        // a mic approval renegotiates towards everyone while a peer is
+        // recovering — and applying an offer on top of our own throws, which
+        // used to kill that link permanently. The impolite peer (the initiator)
+        // ignores the collision; the polite one rolls its own offer back and
+        // accepts.
+        final state = await pc.getSignalingState();
+        final collision = _makingOffer.contains(fromUserId) ||
+            state == RTCSignalingState.RTCSignalingStateHaveLocalOffer;
+        if (collision) {
+          if (!_isPolite(fromUserId)) {
+            _log('🙅 Ignoring colliding offer from $fromUserId (impolite peer)');
+            return;
+          }
+          _log('🙇 Rolling back local offer to $fromUserId (polite peer)');
+          try {
+            await pc.setLocalDescription(RTCSessionDescription(null, 'rollback'));
+          } catch (e) {
+            _log('⚠️ rollback rejected by the platform: $e');
+          }
+        }
+
         // Set remote description (offer)
         await pc.setRemoteDescription(
           RTCSessionDescription(offer['sdp'] as String, offer['type'] as String),
         );
+        await _flushPendingCandidates(fromUserId);
 
         // Create and send answer
         final answer = await pc.createAnswer();
@@ -503,16 +751,30 @@ class WebRTCAudioService {
     // Listen for WebRTC answers
     _socketService.on('webrtc_answer', (data) async {
       try {
-        final fromUserId = data['from'] as int;
-        final answer = Map<String, dynamic>.from(data['answer'] as Map);
+        final map = Map<String, dynamic>.from(data as Map);
+        final fromUserId = _asUserId(map['from']);
+        if (fromUserId == null) {
+          debugPrint('⚠️ webrtc_answer without a usable sender: $map');
+          return;
+        }
+        final answer = Map<String, dynamic>.from(map['answer'] as Map);
 
         debugPrint('📨 Received answer from user $fromUserId');
 
         final pc = _peerConnections[fromUserId];
         if (pc != null) {
+          // An answer for an offer we already dropped — rolled back after a
+          // collision, or superseded by a rebuild — throws on the way in and
+          // takes the peer with it. Only apply one we are still waiting for.
+          final state = await pc.getSignalingState();
+          if (state != RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+            _log('↩️ Ignoring stale answer from $fromUserId (state=$state)');
+            return;
+          }
           await pc.setRemoteDescription(
             RTCSessionDescription(answer['sdp'] as String, answer['type'] as String),
           );
+          await _flushPendingCandidates(fromUserId);
           debugPrint('✅ Set remote description for user $fromUserId');
         }
       } catch (e) {
@@ -524,19 +786,31 @@ class WebRTCAudioService {
     // Listen for ICE candidates
     _socketService.on('webrtc_ice_candidate', (data) async {
       try {
-        final fromUserId = data['from'] as int;
-        final candidate = Map<String, dynamic>.from(data['candidate'] as Map);
+        final map = Map<String, dynamic>.from(data as Map);
+        final fromUserId = _asUserId(map['from']);
+        if (fromUserId == null) return;
+        final raw = Map<String, dynamic>.from(map['candidate'] as Map);
+
+        final candidate = RTCIceCandidate(
+          raw['candidate'] as String?,
+          raw['sdpMid'] as String?,
+          raw['sdpMLineIndex'] is int
+              ? raw['sdpMLineIndex'] as int
+              : int.tryParse('${raw['sdpMLineIndex']}'),
+        );
 
         final pc = _peerConnections[fromUserId];
-        if (pc != null) {
-          await pc.addCandidate(
-            RTCIceCandidate(
-              candidate['candidate'] as String,
-              candidate['sdpMid'] as String?,
-              candidate['sdpMLineIndex'] as int?,
-            ),
-          );
+        if (pc == null || !_remoteDescriptionSet.contains(fromUserId)) {
+          // Hold it. Adding a candidate before the remote description throws
+          // and the candidate is then gone for good — see [_pendingCandidates].
+          // The cap keeps a peer that never completes from growing without
+          // bound; ICE needs only the first handful to find a path.
+          final queue = _pendingCandidates.putIfAbsent(fromUserId, () => []);
+          if (queue.length < 128) queue.add(candidate);
+          return;
         }
+
+        await pc.addCandidate(candidate);
       } catch (e) {
         debugPrint('⚠️ Error adding ICE candidate: $e');
       }
@@ -554,11 +828,10 @@ class WebRTCAudioService {
 
         _log('✅ approveMic received, enabling mic & renegotiating...');
 
+        // Capture first, then unmute: with no stream there is nothing to
+        // unmute, and the peers still have to be told about the new track.
+        await _ensureSpeakingStream();
         await unmuteAudio();
-
-        // ⭐ هنا بالظبط تضيف السطرين
-        await _attachLocalTrackToAllPeers();
-        await _renegotiateAllPeers();
 
       } catch (e) {
         _log('❌ approveMic handler error: $e');
@@ -569,7 +842,9 @@ class WebRTCAudioService {
     // Listen for user leaving voice chat
     _socketService.on('user_left_voice', (data) {
       try {
-        final otherUserId = data['userId'] as int;
+        final map = Map<String, dynamic>.from(data as Map);
+        final otherUserId = _asUserId(map['userId']);
+        if (otherUserId == null || otherUserId == _currentUserId) return;
         debugPrint('👤 User $otherUserId left voice chat');
         _closePeerConnection(otherUserId);
       } catch (e) {
@@ -585,23 +860,24 @@ class WebRTCAudioService {
         required bool isInitiator,
       }) async {
     try {
-      // Check if connection already exists
-      if (_peerConnections.containsKey(otherUserId)) {
-        debugPrint('⚠️ Peer connection already exists for user $otherUserId');
-        return _peerConnections[otherUserId]!;
+      // Reuse a LIVE connection only. Handing back a closed or failed one is
+      // how a peer stayed dead after a network blip: the offer meant to rebuild
+      // it was applied to the corpse, threw, and nothing tried again.
+      final existing = _peerConnections[otherUserId];
+      if (existing != null) {
+        if (_isPeerUsable(existing)) {
+          debugPrint('⚠️ Peer connection already exists for user $otherUserId');
+          return existing;
+        }
+        _log('♻️ Dropping dead peer connection with $otherUserId before rebuild');
+        await _disposePeer(otherUserId);
       }
 
       debugPrint('🔗 Creating peer connection with user $otherUserId (initiator: $isInitiator)');
 
       // ICE servers configuration with STUN/TURN and optimizations
       final configuration = <String, dynamic>{
-        'iceServers': [
-          {'urls': 'stun:stun.l.google.com:19302'},
-          {'urls': 'stun:stun1.l.google.com:19302'},
-          {'urls': 'stun:stun2.l.google.com:19302'},
-          {'urls': 'stun:stun3.l.google.com:19302'},
-          {'urls': 'stun:stun4.l.google.com:19302'},
-        ],
+        'iceServers': _iceServers,
         'sdpSemantics': 'unified-plan',
         'bundlePolicy': 'max-bundle',
         'rtcpMuxPolicy': 'require',
@@ -690,48 +966,49 @@ class WebRTCAudioService {
         debugPrint('❄️ ICE connection state with user $otherUserId: $state');
 
         if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-          _restartPeer(otherUserId);
+          unawaited(_recoverPeer(otherUserId));
           return;
         }
 
         if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+          // `disconnected` is routine on a phone: a wifi/4G handover, a lift, a
+          // moment of packet loss all land here and clear themselves within
+          // seconds. Rebuilding the connection at 4s turned every blip into an
+          // audible drop, so give ICE room to heal on its own first.
           _iceFailTimers[otherUserId]?.cancel();
-          _iceFailTimers[otherUserId] = Timer(const Duration(seconds: 4), () {
-            _restartPeer(otherUserId);
+          _iceFailTimers[otherUserId] = Timer(const Duration(seconds: 8), () {
+            unawaited(_recoverPeer(otherUserId));
           });
           return;
         }
 
         if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
             state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
-          _iceFailTimers[otherUserId]?.cancel();
-          _iceFailTimers.remove(otherUserId);
+          _iceFailTimers.remove(otherUserId)?.cancel();
+          _recoveryAttempts.remove(otherUserId);
         }
       };
 
-      // Overall connection state (debug)
+      // Overall connection state. DTLS can fail while ICE still reports itself
+      // connected, so this is a second, independent failure signal — the peer
+      // is silent either way and only this one notices.
       pc.onConnectionState = (RTCPeerConnectionState state) {
         debugPrint('🔄 Connection state with user $otherUserId: $state');
+
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+          unawaited(_recoverPeer(otherUserId));
+        } else if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          _iceFailTimers.remove(otherUserId)?.cancel();
+          _recoveryAttempts.remove(otherUserId);
+        }
       };
 
       _peerConnections[otherUserId] = pc;
 
       // Create offer if initiator
       if (isInitiator) {
-        final offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        _socketService.emit('webrtc_offer', {
-          'roomId': _currentRoomId,
-          'to': otherUserId,
-          'from': _currentUserId,
-          'offer': {
-            'sdp': offer.sdp,
-            'type': offer.type,
-          },
-        });
-
-        debugPrint('📤 Sent offer to user $otherUserId');
+        await _sendOffer(otherUserId);
       }
 
       startMicStats();
@@ -836,9 +1113,15 @@ class WebRTCAudioService {
     }
   }
 
-  /// Set speaker on/off
+  /// Set speaker on/off.
+  ///
+  /// A3 — records the choice in [AudioRoute] and pushes it to the registered
+  /// game players as well, so "كل صوت يخرج منها" holds for the room AND the
+  /// games rather than just the voice stream.
   Future<void> setSpeakerphoneOn(bool on) async {
     _isSpeakerOn = on;
+    AudioRoute.instance.speakerOn = on;
+    unawaited(AudioRoute.instance.apply());
 
     // Android route
     if (!kIsWeb && Platform.isAndroid) {
@@ -865,77 +1148,148 @@ class WebRTCAudioService {
   Map<int, MediaStream> get remoteStreams => _remoteStreams;
   int get peerConnectionCount => _peerConnections.length;
 
-  Future<void> _restartPeer(int otherUserId) async {
-    try {
-      _log('🔁 Restarting peer connection with user $otherUserId');
-
-      // Close old one
-      final old = _peerConnections[otherUserId];
-      try {
-        await old?.close();
-      } catch (_) {}
-
-      _peerConnections.remove(otherUserId);
-
-      // Remove renderer/stream to force rebuild
-      final renderer = _remoteRenderers.remove(otherUserId);
-      if (renderer != null) {
-        try { await renderer.dispose(); } catch (_) {}
-        _audioRenderers.remove(renderer);
-      }
-      _remoteStreams.remove(otherUserId);
-
-      // Create new PC
-      final initiator = _shouldInitiateWith(otherUserId);
-      final pc = await _createPeerConnection(otherUserId, isInitiator: initiator);
-
-      // If we are initiator and PC was created without offer (rare), force renegotiate
-      if (initiator) {
-        try {
-          final offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          _socketService.emit('webrtc_offer', {
-            'roomId': _currentRoomId,
-            'to': otherUserId,
-            'from': _currentUserId,
-            'offer': {'sdp': offer.sdp, 'type': offer.type},
-          });
-          _log('📤 Re-offer sent to $otherUserId after restart');
-        } catch (e) {
-          _log('⚠️ Re-offer failed after restart: $e');
-        }
-      }
-    } catch (e) {
-      _log('❌ restartPeer error: $e');
+  /// Is this connection still worth using?
+  bool _isPeerUsable(RTCPeerConnection pc) {
+    if (pc.signalingState == RTCSignalingState.RTCSignalingStateClosed) {
+      return false;
     }
+    final conn = pc.connectionState;
+    if (conn == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+        conn == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+      return false;
+    }
+    final ice = pc.iceConnectionState;
+    if (ice == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+        ice == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Bring a broken peer back.
+  ///
+  /// The first two attempts ask ICE to find a new path. That keeps the
+  /// transceivers, the tracks and the whole audio pipeline in place and
+  /// recovers in well under a second. Only a failure that survives both earns a
+  /// full rebuild — the old code went straight to the teardown, and because
+  /// BOTH ends did it at the same moment the replacement offer regularly landed
+  /// on a peer still disposing of the connection it was meant to replace.
+  ///
+  /// Only the initiator drives recovery, for the same reason: two ends racing
+  /// to repair one link is what left it broken.
+  Future<void> _recoverPeer(int otherUserId) async {
+    if (_restarting.contains(otherUserId)) return;
+    if (_currentRoomId == null || _currentUserId == null) return;
+
+    _iceFailTimers.remove(otherUserId)?.cancel();
+
+    final pc = _peerConnections[otherUserId];
+    if (pc == null) return;
+
+    final attempt = (_recoveryAttempts[otherUserId] ?? 0) + 1;
+    _recoveryAttempts[otherUserId] = attempt;
+    final drives = _shouldInitiateWith(otherUserId);
+
+    _restarting.add(otherUserId);
+    try {
+      if (attempt <= 2) {
+        if (!drives) {
+          _log('🩹 Waiting for $otherUserId to drive recovery #$attempt');
+          return;
+        }
+        _log('🩹 ICE restart #$attempt with $otherUserId');
+        try {
+          await pc.restartIce();
+        } catch (e) {
+          _log('⚠️ restartIce unavailable ($e) — re-offering instead');
+        }
+        // The fresh offer must be applied by the far end, so the candidates it
+        // trickles back belong to the new generation.
+        _remoteDescriptionSet.remove(otherUserId);
+        _pendingCandidates.remove(otherUserId);
+        await _sendOffer(otherUserId, iceRestart: true);
+        return;
+      }
+
+      _log('🔁 Rebuilding peer connection with $otherUserId (attempt $attempt)');
+      await _disposePeer(otherUserId);
+      await _createPeerConnection(otherUserId, isInitiator: drives);
+    } catch (e) {
+      _log('❌ recoverPeer error: $e');
+    } finally {
+      _restarting.remove(otherUserId);
+    }
+  }
+
+  /// Close one peer and forget every piece of state that belongs to it.
+  /// Leaving any of it behind is what made a rebuilt connection inherit the
+  /// previous one's candidates and negotiation flags.
+  Future<void> _disposePeer(int otherUserId, {bool notify = false}) async {
+    _iceFailTimers.remove(otherUserId)?.cancel();
+    _makingOffer.remove(otherUserId);
+    _remoteDescriptionSet.remove(otherUserId);
+    _pendingCandidates.remove(otherUserId);
+
+    final pc = _peerConnections.remove(otherUserId);
+    if (pc != null) {
+      try {
+        await pc.close();
+      } catch (e) {
+        _log('⚠️ closing peer $otherUserId: $e');
+      }
+    }
+
+    final renderer = _remoteRenderers.remove(otherUserId);
+    if (renderer != null) {
+      try {
+        await renderer.dispose();
+      } catch (_) {}
+      _audioRenderers.remove(renderer);
+    }
+    _remoteStreams.remove(otherUserId);
+
+    if (notify) onRemoteStreamRemoved?.call(otherUserId);
+  }
+
+  /// Drop the entire mesh, keeping the local microphone. Used when the socket
+  /// comes back: every connection negotiated over the old one is unrecoverable,
+  /// because the signalling path that could have repaired it is gone.
+  Future<void> _teardownAllPeers() async {
+    for (final otherUserId in _peerConnections.keys.toList()) {
+      await _disposePeer(otherUserId, notify: true);
+    }
+    _recoveryAttempts.clear();
+    _restarting.clear();
+  }
+
+  /// Apply the candidates held for a peer now that its remote description is
+  /// in place, and let later ones through directly.
+  Future<void> _flushPendingCandidates(int otherUserId) async {
+    _remoteDescriptionSet.add(otherUserId);
+
+    final pc = _peerConnections[otherUserId];
+    final queued = _pendingCandidates.remove(otherUserId);
+    if (pc == null || queued == null || queued.isEmpty) return;
+
+    for (final candidate in queued) {
+      try {
+        await pc.addCandidate(candidate);
+      } catch (e) {
+        _log('⚠️ buffered candidate from $otherUserId rejected: $e');
+      }
+    }
+    _log('❄️ Applied ${queued.length} buffered candidate(s) from $otherUserId');
   }
 
 
   /// Close peer connection with specific user
   void _closePeerConnection(int otherUserId) {
-    try {
-      final pc = _peerConnections[otherUserId];
-      if (pc != null) {
-        pc.close();
-        _peerConnections.remove(otherUserId);
-        debugPrint('✅ Closed peer connection with user $otherUserId');
-      }
-
-      // Dispose remote renderer
-      final renderer = _remoteRenderers[otherUserId];
-      if (renderer != null) {
-        renderer.dispose();
-        _remoteRenderers.remove(otherUserId);
-        _audioRenderers.remove(renderer);
-      }
-
-      // Remove remote stream
-      _remoteStreams.remove(otherUserId);
-
-      onRemoteStreamRemoved?.call(otherUserId);
-    } catch (e) {
-      debugPrint('❌ Error closing peer connection: $e');
-    }
+    _recoveryAttempts.remove(otherUserId);
+    unawaited(
+      _disposePeer(otherUserId, notify: true).then(
+        (_) => debugPrint('✅ Closed peer connection with user $otherUserId'),
+      ),
+    );
   }
 
   /// Dispose all resources
@@ -952,6 +1306,12 @@ class WebRTCAudioService {
         t.cancel();
       }
       _iceFailTimers.clear();
+      _pendingCandidates.clear();
+      _remoteDescriptionSet.clear();
+      _makingOffer.clear();
+      _restarting.clear();
+      _recoveryAttempts.clear();
+      _listenOnly = false;
 
       _statsTimer?.cancel();
       _statsTimer = null;
@@ -988,9 +1348,11 @@ class WebRTCAudioService {
       // Stop local stream
       if (_localStream != null) {
         for (var track in _localStream!.getTracks()) {
+          _detachTrackWatch(track);
           await track.stop();
         }
         _localStream = null;
+        _localAudioTrack = null;
       }
 
       _socketService.emit('user_left_voice', {

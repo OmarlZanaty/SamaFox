@@ -24,6 +24,22 @@ class SocketService {
   int _authRefreshCount = 0;
   static const int _maxAuthRefreshes = 2;
 
+  /// Handlers registered through [on] by the rest of the app (WebRTC signaling
+  /// above all). They are kept here, not only on the socket, because
+  /// [updateToken] REBUILDS the socket: a token that expires mid-room used to
+  /// throw away every WebRTC listener with the old instance, leaving the
+  /// signalling channel permanently deaf — offers, answers and ICE candidates
+  /// arrived and nothing was listening. That is the "الصوت بيفصل" nobody could
+  /// recover from without restarting the app. Re-attached on every socket built
+  /// by [connect].
+  final Map<String, List<Function(dynamic)>> _appListeners = {};
+
+  /// True once any socket has completed a handshake. A later connect is
+  /// therefore a RE-connect — including one on a freshly rebuilt socket, which
+  /// never fires `onReconnect` — and listeners have to resync.
+  bool _hasEverConnected = false;
+  DateTime? _lastReconnectBroadcast;
+
   final _dmConversationController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get dmConversationStream => _dmConversationController.stream;
 
@@ -226,6 +242,7 @@ class SocketService {
       debugPrint("❌ SOCKET ERROR: $e");
     });
     _setupListeners();
+    _reattachAppListeners();
     _socket!.connect();
 
     AppLogger.info('Socket connection initiated (auth token set)');
@@ -277,11 +294,47 @@ class SocketService {
   }
 
 
-  void off(String event) => _socket?.off(event);
+  /// Remove only what THIS app registered through [on].
+  ///
+  /// The blanket `socket.off(event)` this used to be also removed the internal
+  /// listeners set up in [_setupListeners], which feed the app's own streams.
+  /// WebRTCAudioService re-registers its signalling handlers with an `off`
+  /// first, so initialising voice silently killed `voiceUsersStream` — the room
+  /// stopped learning who was on a mic — for the rest of the session.
+  void off(String event) {
+    final handlers = _appListeners.remove(event);
+    if (handlers == null) return;
+    for (final handler in handlers) {
+      _socket?.off(event, handler);
+    }
+  }
 
   void on(String event, Function(dynamic) callback) {
-    if (_socket == null) return;
-    _socket!.on(event, callback);
+    _appListeners.putIfAbsent(event, () => []).add(callback);
+    // A null socket is not a failure: the handler is stored and attached by the
+    // next connect(), so a listener registered before login still works.
+    _socket?.on(event, callback);
+  }
+
+  /// Re-attach everything registered through [on] to a newly built socket.
+  void _reattachAppListeners() {
+    final sock = _socket;
+    if (sock == null) return;
+    for (final entry in _appListeners.entries) {
+      for (final cb in entry.value) {
+        sock.on(entry.key, cb);
+      }
+    }
+  }
+
+  /// Tell listeners the transport came back. Collapses the burst that arrives
+  /// when socket.io fires `reconnect` and `connect` back to back.
+  void _broadcastReconnect() {
+    final now = DateTime.now();
+    final last = _lastReconnectBroadcast;
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) return;
+    _lastReconnectBroadcast = now;
+    _reconnectController.add(null);
   }
 
 
@@ -616,6 +669,14 @@ class SocketService {
       // The token in hand works; let a future expiry refresh from a clean slate.
       _authRefreshCount = 0;
       _connectionController.add(true);
+      // Every connect after the very first one is a recovery, whether socket.io
+      // reconnected in place or connect() built a new socket after a token
+      // refresh. Both leave stale peer connections behind that only the
+      // listeners can clear.
+      if (_hasEverConnected) {
+        _broadcastReconnect();
+      }
+      _hasEverConnected = true;
     });
 
 
@@ -635,7 +696,7 @@ class SocketService {
       if (t != null && t.isNotEmpty) {
         _applyTokenToSocket(t);
       }
-      _reconnectController.add(null);
+      _broadcastReconnect();
     });
 
     // ✅ DM message (backend emits this)

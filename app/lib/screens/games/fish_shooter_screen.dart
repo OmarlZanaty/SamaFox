@@ -710,9 +710,9 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
       Positioned(
         left: 4,
         top: h * 0.4,
-        child: Opacity(
+        child: const Opacity(
             opacity: 0.35,
-            child: const Text('⚓', style: TextStyle(fontSize: 30))),
+            child: Text('⚓', style: TextStyle(fontSize: 30))),
       ),
     ];
   }

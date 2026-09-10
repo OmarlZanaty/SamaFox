@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../widgets/app_network_image.dart';
 
 /// خلفية الصفحة الشخصية — the background a user picks for his own profile page.
 ///
@@ -91,7 +92,7 @@ class _ProfileBackgroundState extends State<ProfileBackground> {
             )
           : const SizedBox.shrink();
     } else {
-      art = Image.network(
+      art = AppNetworkImage(
         widget.url,
         fit: BoxFit.cover,
         // gif / webp animate on their own through this widget.

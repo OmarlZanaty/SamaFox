@@ -23,13 +23,13 @@ class HostScreen extends ConsumerWidget {
         centerTitle: true,
       ),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              const Color(0xFF1A0E3E),
-              const Color(0xFF0D0620),
+              Color(0xFF1A0E3E),
+              Color(0xFF0D0620),
             ],
           ),
         ),

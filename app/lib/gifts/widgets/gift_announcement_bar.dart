@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../config/app_config.dart';
 import '../services/gift_socket_service.dart';
+import '../../widgets/app_network_image.dart';
 
 /// A22 — شريط إعلان الهدية.
 ///
@@ -139,7 +140,7 @@ class _GiftAnnouncementBarState extends State<GiftAnnouncementBar>
           if (iconUrl.isNotEmpty) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
+              child: AppNetworkImage(
                 iconUrl,
                 width: 30,
                 height: 30,

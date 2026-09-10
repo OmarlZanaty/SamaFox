@@ -17,6 +17,7 @@ import 'package:characters/characters.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
+import '../widgets/app_network_image.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final int partnerId;
@@ -509,9 +510,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       CircleAvatar(
                                         radius: 16,
                                         backgroundColor: Colors.black.withOpacity(0.06),
-                                        child: Text(
+                                        child: const Text(
                                           'Me', // 👉 replace with your real avatar later
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.bold,
                                           ),
@@ -999,7 +1000,7 @@ class _AvatarCircle extends StatelessWidget {
             child: avatarUrl == null
                 ? Text(initial, style: const TextStyle(fontWeight: FontWeight.w700))
                 : ClipOval(
-              child: Image.network(
+              child: AppNetworkImage(
                 avatarUrl!,
                 width: 34,
                 height: 34,

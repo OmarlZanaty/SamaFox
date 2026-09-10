@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../models/gift.dart';
+import '../../widgets/app_network_image.dart';
 
 /// Renders an SVG_CSS gift via a transparent WebView.
 /// Hard rules per spec:
@@ -78,7 +79,7 @@ class _SvgCssGiftPlayerState extends State<SvgCssGiftPlayer> {
     final html = widget.gift.animationHtml;
     if (html == null || html.isEmpty) {
       return Center(
-        child: Image.network(
+        child: AppNetworkImage(
           widget.gift.iconUrl,
           errorBuilder: (_, __, ___) => const SizedBox.shrink(),
         ),

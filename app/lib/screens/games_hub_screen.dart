@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'games/aetherfall_screen.dart';
+import 'games/asterion_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
@@ -55,6 +56,16 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFFD83D),
     gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
     art: 'assets/images/cards/card_greedy.png',
+  ),
+  _GameEntry(
+    title: 'أستيريون',
+    tagline: 'اجمع كرات العاصفة',
+    emoji: '⛈️',
+    accent: Color(0xFF5EE0F5),
+    gradient: [Color(0xFF141A47), Color(0xFF06071A)],
+    // No banner has been delivered yet, so the card draws its own name over the
+    // gradient rather than showing a broken image.
+    drawTitle: true,
   ),
   _GameEntry(
     title: 'نيون فورتشن',
@@ -205,6 +216,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'القط الجشع':
         screen = const GreedyCatScreen();
+        break;
+      case 'أستيريون':
+        screen = const AsterionScreen();
         break;
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();

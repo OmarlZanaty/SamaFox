@@ -1,10 +1,20 @@
 import 'package:audioplayers/audioplayers.dart';
 
+import '../../services/audio_route.dart';
+
 /// Sound for نيون فورتشن. Every cue is decoration — a missing file or a playback
 /// failure must never interrupt a spin, same contract as PlinkoSfx and
 /// AetherfallSfx. No result is ever communicated by sound alone.
 class NeonFortuneSfx {
-  NeonFortuneSfx({this.enabled = true});
+  NeonFortuneSfx({this.enabled = true}) {
+    // A3 / G3(e) — game sound must follow the room's سماعة toggle. These
+    // players are created here and shared with nothing, so registering them
+    // is the only way a route change can ever reach them.
+    AudioRoute.instance.registerAll(_routedPlayers);
+  }
+
+  /// Every player this class owns, for audio-route registration.
+  List<AudioPlayer> get _routedPlayers => [_ui, _feature, ..._stopPool];
 
   bool enabled;
 
@@ -52,6 +62,7 @@ class NeonFortuneSfx {
   }
 
   void dispose() {
+    AudioRoute.instance.unregisterAll(_routedPlayers);
     _ui.dispose();
     _feature.dispose();
     for (final p in _stopPool) {

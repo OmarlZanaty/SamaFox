@@ -12,6 +12,7 @@ import '../utils/storage_service.dart';
 import '../widgets/video_preview_widget.dart';
 import '../widgets/FramedAvatar.dart';
 import 'home_screen.dart'; // product tile widget
+import '../widgets/app_network_image.dart';
 
 class StoreScreen extends ConsumerStatefulWidget {
   const StoreScreen({super.key});
@@ -27,19 +28,37 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
   bool loadingInventory = true;
 
 
+  /// When the catalog was last pulled from the server, shared by every visit to
+  /// the store within one run of the app.
+  static DateTime? _lastCatalogFetch;
+
+  /// How long a catalog stays good enough to show without going back to the
+  /// server. Long enough that browsing in and out of the store is instant,
+  /// short enough that a product added from لوحة التحكم shows up on the next
+  /// visit rather than after a restart.
+  static const Duration _catalogTtl = Duration(seconds: 60);
+
   @override
   void initState() {
     super.initState();
     loadOwnedItems();
-    // Auto-refresh the product catalog every time the store opens, so newly
-    // added products (e.g. a background uploaded from the dashboard) show up.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.invalidate(storeProvider);
-    });
+    // The catalog used to be invalidated on EVERY open, so walking into the
+    // store always paid a full round-trip before anything could render. It is
+    // still auto-refreshed — just not when we already fetched it moments ago.
+    final last = _lastCatalogFetch;
+    if (last == null || DateTime.now().difference(last) > _catalogTtl) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _lastCatalogFetch = DateTime.now();
+        ref.invalidate(storeProvider);
+      });
+    }
   }
 
   /// Re-fetch the product catalog + owned items (pull-to-refresh / manual).
   Future<void> _refreshStore() async {
+    // An explicit pull-to-refresh always goes to the server.
+    _lastCatalogFetch = DateTime.now();
     ref.invalidate(storeProvider);
     await Future.wait([
       ref.read(storeProvider.future),
@@ -361,7 +380,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                               ? VideoPreview(url: product.fileUrl)
                               : Center(child: VideoPreview(url: product.fileUrl))
                         else
-                          Image.network(
+                          AppNetworkImage(
                             product.fileUrl,
                             // A background covers the page; a decoration frame
                             // is stretched to its border and must not be
@@ -578,7 +597,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                 // paying for a decoder just to show a thumbnail.
                 child: isVideo(product.fileUrl)
                     ? _VideoPosterTile(product: product)
-                    : Image.network(
+                    : AppNetworkImage(
                   product.fileUrl,
                   fit: BoxFit.cover,
                   // A decoded full-resolution PNG per tile is the other half of
@@ -785,7 +804,7 @@ class _VideoPosterTile extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         if (_hasImagePoster)
-          Image.network(
+          AppNetworkImage(
             product.previewUrl,
             fit: BoxFit.cover,
             cacheWidth: 320,

@@ -94,10 +94,10 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
           child: Column(
             children: [
               // header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(10, 10, 10, 6),
                 child: Row(
-                  children: const [
+                  children: [
                     Icon(Icons.chat_bubble_outline, color: Colors.white70, size: 18),
                     SizedBox(width: 6),
                     Text('Chat', style: TextStyle(color: Colors.white70)),

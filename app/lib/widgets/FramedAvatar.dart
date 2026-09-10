@@ -1,7 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../config/app_config.dart';
 import '../models/product_layout.dart';
+import '../utils/image_opaque_bounds.dart';
+import '../widgets/app_network_image.dart';
 
 enum AvatarFrameType { samafoxDefault, vip, crown, neon, none }
 
@@ -128,18 +132,35 @@ class FramedAvatar extends StatelessWidget {
               height: f != null ? size * f.innerScale : avatarSize,
               child: ClipOval(child: _avatarChild()),
             ),
-          // The frame occupies the seat box itself. An unmeasured frame keeps
-          // the old 10% bleed so existing artwork still looks the same.
+          // The frame occupies the seat box itself. An unmeasured frame has its
+          // artwork auto-fitted instead, so a file with a wide transparent
+          // margin still puts its RING on the seat rather than somewhere inside
+          // it — until that measurement lands (and for assets and SVGs, which
+          // are not measured) the old 20% bleed is kept, so nothing regresses.
           Positioned.fill(
             child: IgnorePointer(
               child: hole != null
                   ? _frameChild()
-                  : Transform.scale(scale: 1.2, child: _frameChild()),
+                  : _AutoFitFrame(
+                      url: _measurableFrameUrl(),
+                      size: size,
+                      child: _frameChild(),
+                    ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  /// The frame's raster URL, or null when there is nothing to measure — an
+  /// SVG has no pixels to scan and a bundled asset is already cropped.
+  String? _measurableFrameUrl() {
+    final raw = frame?.url;
+    if (raw == null || raw.isEmpty) return null;
+    final url = _absoluteUrl(raw);
+    if (url.toLowerCase().endsWith('.svg')) return null;
+    return url;
   }
 
   Widget _frameChild() {
@@ -151,7 +172,7 @@ class FramedAvatar extends StatelessWidget {
       if (url.toLowerCase().endsWith('.svg')) {
         return SvgPicture.network(url, fit: BoxFit.contain);
       }
-      return Image.network(
+      return AppNetworkImage(
         url,
         fit: BoxFit.contain,
         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
@@ -176,7 +197,7 @@ class FramedAvatar extends StatelessWidget {
   Widget _avatarChild() {
     final url = imageUrl;
     if (url != null && url.isNotEmpty) {
-      return Image.network(
+      return AppNetworkImage(
         _absoluteUrl(url),
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _fallback(),
@@ -211,5 +232,102 @@ class FramedAvatar extends StatelessWidget {
     final base = AppConfig.socketUrl.replaceFirst(RegExp(r'/+$'), '');
     if (raw.startsWith('/')) return '$base$raw';
     return '$base/$raw';
+  }
+}
+
+/// Scales frame artwork until the part of it that is actually painted fills the
+/// seat box, and centres that part on the seat.
+///
+/// Only for frames لوحة التحكم has not measured. A configured frame is placed on
+/// its own inner box and never comes through here.
+class _AutoFitFrame extends StatefulWidget {
+  const _AutoFitFrame({
+    required this.url,
+    required this.size,
+    required this.child,
+  });
+
+  final String? url;
+  final double size;
+  final Widget child;
+
+  @override
+  State<_AutoFitFrame> createState() => _AutoFitFrameState();
+}
+
+class _AutoFitFrameState extends State<_AutoFitFrame> {
+  OpaqueBounds? _bounds;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_AutoFitFrame oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _bounds = null;
+      _load();
+    }
+  }
+
+  void _load() {
+    final url = widget.url;
+    if (url == null) return;
+
+    final known = ImageOpaqueBounds.peek(url);
+    if (known != null) {
+      _bounds = known;
+      return;
+    }
+
+    ImageOpaqueBounds.resolve(url).then((value) {
+      if (!mounted || value == null || widget.url != url) return;
+      setState(() => _bounds = value);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final b = _bounds;
+    // Not measured yet, unmeasurable, or already edge to edge: the artwork keeps
+    // the bleed it has always had.
+    if (b == null || b.isFull) {
+      return Transform.scale(scale: 1.2, child: widget.child);
+    }
+
+    // Where BoxFit.contain drops the artwork inside the square seat box.
+    final double drawnW = b.aspect >= 1 ? 1.0 : b.aspect;
+    final double drawnH = b.aspect >= 1 ? 1.0 / b.aspect : 1.0;
+    final double drawnX = (1.0 - drawnW) / 2;
+    final double drawnY = (1.0 - drawnH) / 2;
+
+    // The painted part, in box fractions.
+    final double left = drawnX + b.rect.left * drawnW;
+    final double top = drawnY + b.rect.top * drawnH;
+    final double width = b.rect.width * drawnW;
+    final double height = b.rect.height * drawnH;
+    if (width <= 0 || height <= 0) {
+      return Transform.scale(scale: 1.2, child: widget.child);
+    }
+
+    // Grow until the longer side of the paint spans the seat. Capped so a file
+    // that is almost all margin cannot blow its ring up to absurd size.
+    final double scale = (1.0 / math.max(width, height)).clamp(1.0, 3.0).toDouble();
+
+    // Offset is measured before the scale is applied, which is why it is not
+    // divided by it: the translation is scaled along with the child.
+    final double dx = (0.5 - (left + width / 2)) * widget.size;
+    final double dy = (0.5 - (top + height / 2)) * widget.size;
+
+    return Transform.scale(
+      scale: scale,
+      child: Transform.translate(
+        offset: Offset(dx, dy),
+        child: widget.child,
+      ),
+    );
   }
 }

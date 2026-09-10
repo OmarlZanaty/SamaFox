@@ -258,8 +258,8 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
           colors: [
@@ -267,7 +267,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
             Color(0xFFD81B60),
           ],
         ),
-        borderRadius: const BorderRadius.only(
+        borderRadius: BorderRadius.only(
           topLeft: Radius.circular(22),
           topRight: Radius.circular(22),
         ),
@@ -443,15 +443,15 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        const Row(
           children: [
-            const Icon(
+            Icon(
               Icons.mic,
               color: Color(0xFFFFD700),
               size: 20,
             ),
-            const SizedBox(width: 8),
-            const Text(
+            SizedBox(width: 8),
+            Text(
               'عدد المايكات',
               style: TextStyle(
                 color: Colors.white,

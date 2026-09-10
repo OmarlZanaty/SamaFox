@@ -114,17 +114,17 @@ class _TestApiScreenState extends State<TestApiScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.blue.shade200),
               ),
-              child: Column(
+              child: const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     '🔗 Backend Server',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text('API: ${AppConfig.apiBaseUrl}'),
                   Text('Socket: ${AppConfig.socketUrl}'),
                 ],

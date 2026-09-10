@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../widgets/app_network_image.dart';
 
 /// إطار تزيين الصفحة الشخصية.
 ///
@@ -96,7 +97,7 @@ class _ProfileDecorFrameState extends State<ProfileDecorFrame> {
         ),
       );
     } else {
-      art = Image.network(
+      art = AppNetworkImage(
         widget.url,
         fit: BoxFit.fill,
         // gif / webp animate on their own through this widget.

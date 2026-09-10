@@ -32,6 +32,8 @@ import '../widgets/video_preview_widget.dart';
 import '../services/socket_service.dart';
 import '../config/app_config.dart';
 import 'home_screen.dart';
+import '../widgets/app_network_image.dart';
+import '../widgets/cp_box.dart';
 
 /// Model for Received Gift
 class ReceivedGift {
@@ -155,7 +157,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               final Widget child = iconUrl == null
                   ? Icon(_badgeIconFor((b['type'] ?? '').toString()),
                       size: 16, color: const Color(0xFFDCC8FF))
-                  : Image.network(
+                  : AppNetworkImage(
                       iconUrl,
                       width: _kBadgeSize,
                       height: _kBadgeSize,
@@ -777,7 +779,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       borderRadius: BorderRadius.circular(10),
                       child: isVideo(item.fileUrl)
                           ? VideoPreview(url: item.fileUrl)
-                          : Image.network(
+                          : AppNetworkImage(
                         item.previewUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) =>
@@ -978,7 +980,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.network(
+                          child: AppNetworkImage(
                             gift.imageUrl,
                             fit: BoxFit.contain,
                             errorBuilder: (_, __, ___) => const Icon(
@@ -1251,6 +1253,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       _buildInventorySection(),
                       const SizedBox(height: 10),
                     ],
+
+                    // C17 — the CP box sits directly above الهدايا الممنوحة,
+                    // which is the placement the client asked for after it
+                    // was first built onto the rooms page. Own profile only:
+                    // it opens YOUR CP list and offers to cancel YOUR pairs.
+                    if (isOwnProfile) const CpBox(),
 
                     _buildReceivedGiftsSection(),
 
@@ -2301,7 +2309,7 @@ class _FullImageViewer extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4,
-          child: Image.network(
+          child: AppNetworkImage(
             imageUrl,
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54, size: 64),

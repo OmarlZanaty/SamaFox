@@ -69,6 +69,8 @@ import 'package:share_plus/share_plus.dart';
 import '../widgets/FramedAvatar.dart';
 import '../widgets/user_trail.dart';
 import '../screens/profile_screen.dart'; // adjust path to your project
+import '../widgets/app_network_image.dart';
+import '../services/audio_route.dart';
 
 final isAndroid = !kIsWeb && Platform.isAndroid;
 
@@ -158,6 +160,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   DateTime? _lastPlayedSeatEffectAt;
   static const Duration _seatEffectDedupWindow = Duration(seconds: 2);
 
+  // A3 — the room's own effects player follows the سماعة toggle as well;
+  // registered in initState so gift and entrance sounds cannot stay on the
+  // loudspeaker after the user moved the room to the earpiece.
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _showGlow = false;
   Color _glowColor = Colors.purpleAccent;
@@ -1902,7 +1907,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   child: item.previewUrl.isNotEmpty && !_isVideoAssetUrl(item.previewUrl)
                                       ? ClipRRect(
                                           borderRadius: BorderRadius.circular(14),
-                                          child: Image.network(
+                                          child: AppNetworkImage(
                                             item.previewUrl,
                                             fit: BoxFit.cover,
                                             errorBuilder: (_, __, ___) => const Icon(
@@ -2151,6 +2156,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         );
       },
     );
+  }
+
+  /// A3 — flip between loudspeaker and earpiece for EVERYTHING: the room's
+  /// voice stream and the game sound effects both, which is the client's
+  /// "لما أفعّل السماعة كل صوت يخرج منها ... صوت الغرفة وصوت الألعاب".
+  ///
+  /// `setSpeakerphoneOn` records the choice in AudioRoute and re-applies it to
+  /// every registered game player, so a game already open follows immediately.
+  Future<void> _toggleSpeaker() async {
+    final next = !AudioRoute.instance.speakerOn;
+    await _audioService.setSpeakerphoneOn(next);
+    if (!mounted) return;
+    setState(() {});
+    _showRoomSnack(next ? 'تم التحويل إلى السماعة الخارجية' : 'تم التحويل إلى سماعة الأذن');
   }
 
   void _openSoundEffectsDialog(BuildContext context) {
@@ -2415,6 +2434,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     debugPrint('🟣 RoomScreen.initState room=${widget.roomId}');
     super.initState();
     AudioController.instance.initialize();
+    AudioRoute.instance.register(_audioPlayer);
 
     _audioService = WebRTCAudioService();
 
@@ -2784,6 +2804,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       debugPrint('🟣 audio kept alive for PiP room=${widget.roomId}');
     }
 
+    AudioRoute.instance.unregister(_audioPlayer);
     _audioPlayer.dispose();  // ✅ ADD
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
@@ -3086,7 +3107,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         borderRadius: BorderRadius.circular(12),
                         child: Stack(fit: StackFit.expand, children: [
                           if (url.isNotEmpty)
-                            Image.network(url,
+                            AppNetworkImage(url,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) => Container(
                                     color: Colors.white10,
@@ -3490,12 +3511,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   const SizedBox(height: 10),
 
                   // ✅ GAME SCREEN
-                  Expanded(
+                  const Expanded(
                     child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
+                      borderRadius: BorderRadius.vertical(
                         top: Radius.circular(22),
                       ),
-                      child: const GamesHubScreen(),
+                      child: GamesHubScreen(),
                     ),
                   ),
                 ],
@@ -3533,7 +3554,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               color: Color(0xFF2A1655),
               borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
             ),
-            child: Column(
+            child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
 
@@ -3679,7 +3701,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   crossAxisCount: 5,
                   mainAxisSpacing: 18,
                   crossAxisSpacing: 10,
-                  childAspectRatio: 0.75,
+                  // 0.75 gave an 85.5dp tile, but a two-line Arabic label needs
+                  // ~91dp (56 icon + 6 gap + 2 lines) — that 5.5dp shortfall was
+                  // the "BOTTOM OVERFLOWED BY 5.5 PIXELS" banner on the sheet.
+                  childAspectRatio: 0.62,
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
 
@@ -3698,6 +3723,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     _menuItem(Icons.volume_up, "مستوى الصوت", Colors.white70, () {
                       Navigator.pop(context);
                       _openVolumeDialog(this.context);
+                    }),
+
+                    // A3 — the السماعة toggle. There was no control anywhere
+                    // that called setSpeakerphoneOn, which is a large part of
+                    // why the icon "غير فعاله": nothing was wired to it.
+                    _menuItem(
+                        AudioRoute.instance.speakerOn
+                            ? Icons.volume_up_rounded
+                            : Icons.hearing,
+                        AudioRoute.instance.speakerOn ? "السماعة الخارجية" : "سماعة الأذن",
+                        AudioRoute.instance.speakerOn ? Colors.greenAccent : Colors.white70,
+                        () async {
+                      Navigator.pop(context);
+                      await _toggleSpeaker();
                     }),
 
                     _menuItem(Icons.multitrack_audio, "مؤثرات صوتية", Colors.white70, () {
@@ -3762,6 +3801,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                 const SizedBox(height: 10),
               ],
+            ),
             ),
           ),
         );
@@ -4012,7 +4052,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             // ===== Background image =====
             if ((state.roomBackgroundUrl ?? '').trim().isNotEmpty)
               Positioned.fill(
-                child: Image.network(
+                child: AppNetworkImage(
                   state.roomBackgroundUrl!.trim(),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => const SizedBox.shrink(),
@@ -4623,7 +4663,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
             // ===== Music control bar — draggable, only for owner/admins, and
             // only while the room is actually playing something. =====
-            MusicPlayerBar(roomId: widget.roomId, canControl: isAdmin),
+            MusicPlayerBar(
+              roomId: widget.roomId,
+              canControl: isAdmin,
+              myUserId: userId ?? 0,
+            ),
           ],
         ),
       ),
@@ -5323,7 +5367,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                             for (final m in medals)
                                               Tooltip(
                                                 message: m.name,
-                                                child: Image.network(
+                                                child: AppNetworkImage(
                                                   m.iconUrl,
                                                   width: 24,
                                                   height: 24,
@@ -5497,7 +5541,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     final m = medals[i];
                                     return Tooltip(
                                       message: m.name,
-                                      child: Image.network(
+                                      child: AppNetworkImage(
                                         m.iconUrl,
                                         width: 34,
                                         height: 34,
@@ -6656,6 +6700,8 @@ Widget _menuItem(
           child: Text(
             label,
             textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white70,
               fontSize: 11,

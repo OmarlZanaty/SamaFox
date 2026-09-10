@@ -236,7 +236,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
           ],
           bottom: TabBar(
             controller: _tabController,
-            tabs: [
+            tabs: const [
               Tab(text: 'الإشعارات'),
               Tab(text: 'طلبات المتابعة'),
               Tab(text: 'طلبات العلاقة'),

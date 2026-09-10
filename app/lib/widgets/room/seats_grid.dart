@@ -128,7 +128,7 @@ class SeatsGrid extends StatelessWidget {
                       for (int col = 0; col < solved.columns; col++)
                         if (row * solved.columns + col < seatNumbers.length)
                           Padding(
-                            padding: EdgeInsets.symmetric(horizontal: _spacing / 2),
+                            padding: const EdgeInsets.symmetric(horizontal: _spacing / 2),
                             child: _seat(
                               seatNumbers[row * solved.columns + col],
                               solved.seatSize,

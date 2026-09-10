@@ -78,9 +78,9 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
-                Text(
+                const Text(
                   'Unlock exclusive features and benefits',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white70,
                     fontSize: 14,
                   ),
@@ -277,7 +277,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               ],
             ),
           ),
-          Icon(
+          const Icon(
             Icons.check_circle,
             color: Colors.green,
             size: 24,

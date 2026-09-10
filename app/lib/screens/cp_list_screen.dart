@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../repositories/cp_repository.dart';
 import 'profile_screen.dart';
+import '../widgets/app_network_image.dart';
 
 /// #20 — "في الصفحة الرئيسية يعمل مربع باسم CP … يظهر له كل الاشخاص اللي عامل
 /// معاهم CP، ولما يضغط على شخص منهم يجيله: الغاء CP مع فلان؟ نعم / لا. لو ضغط
@@ -188,7 +189,7 @@ class _CpListScreenState extends State<CpListScreen> {
               const SizedBox(width: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                child: Image.network(
+                child: AppNetworkImage(
                   _resolveAvatar(p.giftIconUrl)!,
                   width: 16,
                   height: 16,

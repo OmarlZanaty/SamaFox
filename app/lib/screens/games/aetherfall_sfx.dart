@@ -1,9 +1,19 @@
 import 'package:audioplayers/audioplayers.dart';
 
+import '../../services/audio_route.dart';
+
 /// Sound for أثيرفول. Every cue is decoration — a missing file or a playback
 /// failure must never interrupt a spin, same contract as PlinkoSfx.
 class AetherfallSfx {
-  AetherfallSfx({this.enabled = true, double volume = 1.0}) : _volume = volume;
+  AetherfallSfx({this.enabled = true, double volume = 1.0}) : _volume = volume {
+    // A3 / G3(e) — game sound must follow the room's سماعة toggle. These
+    // players are created here and shared with nothing, so registering them
+    // is the only way a route change can ever reach them.
+    AudioRoute.instance.registerAll(_routedPlayers);
+  }
+
+  /// Every player this class owns, for audio-route registration.
+  List<AudioPlayer> get _routedPlayers => [_ui, _land, _feature, ..._tumblePool];
 
   bool enabled;
 
@@ -64,6 +74,7 @@ class AetherfallSfx {
   void error() => _fire(_ui, 'sounds/aetherfall_error.wav', 0.4);
 
   void dispose() {
+    AudioRoute.instance.unregisterAll(_routedPlayers);
     _ui.dispose();
     _land.dispose();
     _feature.dispose();

@@ -1,5 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 
+import '../../services/audio_route.dart';
+
 /// Sound for القط الجشع.
 ///
 /// The assets are generated, not sourced — see
@@ -11,7 +13,15 @@ import 'package:audioplayers/audioplayers.dart';
 /// round-robin pool; a win chime must never be clipped by the next tick, so it
 /// gets a player of its own.
 class GreedyCatSfx {
-  GreedyCatSfx({this.sfxEnabled = true, this.musicEnabled = true});
+  GreedyCatSfx({this.sfxEnabled = true, this.musicEnabled = true}) {
+    // A3 / G3(e) — game sound must follow the room's سماعة toggle. These
+    // players are created here and shared with nothing, so registering them
+    // is the only way a route change can ever reach them.
+    AudioRoute.instance.registerAll(_routedPlayers);
+  }
+
+  /// Every player this class owns, for audio-route registration.
+  List<AudioPlayer> get _routedPlayers => [..._tickPool, _ui, _result, _spin, _music];
 
   bool sfxEnabled;
   bool musicEnabled;
@@ -109,6 +119,7 @@ class GreedyCatSfx {
   void modalClose() => _fire(_ui, 'sounds/greedy_modal_close.wav', 0.3);
 
   void dispose() {
+    AudioRoute.instance.unregisterAll(_routedPlayers);
     for (final p in _tickPool) {
       p.dispose();
     }

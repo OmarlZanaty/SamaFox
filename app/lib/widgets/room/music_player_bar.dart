@@ -15,10 +15,18 @@ import '../../providers/music_provider.dart';
 /// Buttons, in the order requested:
 ///   ⏪ previous · ▶ play · ⏸ pause · ⏭ next · ✖ stop (bar disappears)
 class MusicPlayerBar extends ConsumerStatefulWidget {
-  const MusicPlayerBar({super.key, required this.roomId, required this.canControl});
+  const MusicPlayerBar({
+    super.key,
+    required this.roomId,
+    required this.canControl,
+    required this.myUserId,
+  });
 
   final int roomId;
   final bool canControl;
+
+  /// Who is looking. A8 shows the bar only to the user who started the music.
+  final int myUserId;
 
   @override
   ConsumerState<MusicPlayerBar> createState() => _MusicPlayerBarState();
@@ -63,7 +71,18 @@ class _MusicPlayerBarState extends ConsumerState<MusicPlayerBar> {
   @override
   Widget build(BuildContext context) {
     final music = ref.watch(roomMusicProvider(widget.roomId));
-    if (!music.active || !widget.canControl) return const SizedBox.shrink();
+
+    // A8 — "تظهر عند اللي مشغّل الموسيقى فقط، لكن الصوت يسمعه الجميع". The bar
+    // is a CONTROL, so it belongs to whoever actually started the music, not to
+    // every moderator in the room. Playback is untouched: every client still
+    // plays the track, only this widget is hidden.
+    //
+    // hostId 0 means an older server that does not report a host; falling back
+    // to the permission check keeps the bar reachable rather than stranding the
+    // music with no way to stop it.
+    final iStartedIt = music.hostId != 0 && music.hostId == widget.myUserId;
+    final maySeeBar = music.hostId == 0 ? widget.canControl : iStartedIt;
+    if (!music.active || !maySeeBar) return const SizedBox.shrink();
 
     final notifier = ref.read(roomMusicProvider(widget.roomId).notifier);
     final size = MediaQuery.of(context).size;

@@ -11,6 +11,7 @@ import '../../providers/auth_provider.dart';
 import '../../screens/profile_screen.dart';
 import '../../utils/image_intrinsic_size.dart';
 import 'TopWaveClipper.dart';
+import '../../widgets/app_network_image.dart';
 
 // ==========================
 // 🔥 NEW: merged feed model
@@ -334,7 +335,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// One achievement icon. Never let a broken url punch a hole in a message.
   static Widget _badgeIcon(String url) => Padding(
         padding: const EdgeInsets.only(left: 4),
-        child: Image.network(
+        child: AppNetworkImage(
           url,
           width: 18,
           height: 18,
@@ -394,7 +395,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     return Align(
       child: Container(
         padding: const EdgeInsets.fromLTRB(10, 20, 10, 10),
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: Colors.transparent, // 🔥 important
         ),
         child: Column(
@@ -691,7 +692,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                 fontSize: 14, // ✅ Bigger text
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                 shadows: isSelected ? [
-                  Shadow(
+                  const Shadow(
                     blurRadius: 10.0,
                     color: Colors.black45,
                     offset: Offset(2.0, 2.0),

@@ -27,6 +27,28 @@ class AppConfig {
 
 
 
+  // ── Voice / WebRTC ────────────────────────────────────────────────────────
+  // STUN alone only connects two peers when at least one of them is reachable
+  // from the outside. Two users on mobile data usually sit behind carrier-grade
+  // NAT, where no direct path exists at all and the voice link silently never
+  // comes up — the single biggest cause of "الصوت بيفصل" reports on phones.
+  // A TURN server relays that traffic. Supply one at build time:
+  //   --dart-define=TURN_URLS=turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp
+  //   --dart-define=TURN_USERNAME=... --dart-define=TURN_CREDENTIAL=...
+  // Comma-separated; leave empty to keep the STUN-only behaviour.
+  static const String turnUrls = String.fromEnvironment(
+    'TURN_URLS',
+    defaultValue: '',
+  );
+  static const String turnUsername = String.fromEnvironment(
+    'TURN_USERNAME',
+    defaultValue: '',
+  );
+  static const String turnCredential = String.fromEnvironment(
+    'TURN_CREDENTIAL',
+    defaultValue: '',
+  );
+
   // App Configuration
   static const String appName = 'SamaFox';
   static const String appVersion = '1.0.0';

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:samafox/services/level_catalog_service.dart';
+import '../widgets/app_network_image.dart';
 
 /// LV (المستوى) chip — the counterpart of [VipBadge], following the same rule:
 /// لوحة التحكم wins when it configures a badge image or a name for the tier
@@ -39,7 +40,7 @@ class _LevelBadgeState extends State<LevelBadge> {
           maxHeight: widget.fontSize * 1.8,
           maxWidth: widget.fontSize * 3.4,
         ),
-        child: Image.network(
+        child: AppNetworkImage(
         badgeUrl,
         height: widget.fontSize * 1.8,
         fit: BoxFit.contain,

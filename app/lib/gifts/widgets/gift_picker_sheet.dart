@@ -5,6 +5,7 @@ import '../../repositories/cp_repository.dart';
 import '../../screens/store_screen.dart';
 import '../models/gift.dart';
 import '../services/gift_repository.dart';
+import '../../widgets/app_network_image.dart';
 
 /// A recipient candidate for the gift picker.
 class GiftRecipient {
@@ -453,7 +454,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               padding: const EdgeInsets.all(1.5),
               child: ClipOval(
                 child: avatarUrl != null
-                    ? Image.network(avatarUrl, fit: BoxFit.cover,
+                    ? AppNetworkImage(avatarUrl, fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _avatarFallback(r.name))
                     : _avatarFallback(r.name),
               ),
@@ -519,7 +520,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                   child: SizedBox(
                     width: double.infinity,
                     child: resolvedUrl.isNotEmpty
-                        ? Image.network(resolvedUrl, fit: BoxFit.cover,
+                        ? AppNetworkImage(resolvedUrl, fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => _giftFallback(gift))
                         : _giftFallback(gift),
                   ),
