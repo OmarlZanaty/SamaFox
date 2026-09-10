@@ -57,6 +57,24 @@ import {
   adminListAgencyMembers,
   adminRemoveAgencyMember,
   adminAdjustMemberTarget,
+  adminAdjustUserTarget,
+  adminListRoomCupRewards,
+  adminSaveRoomCupReward,
+  adminDeleteRoomCupReward,
+  adminListSupporterRewards,
+  adminSaveSupporterReward,
+  adminDeleteSupporterReward,
+  adminGetRoomSupportWindow,
+  adminSetRoomSupportWindow,
+  adminSendMessage,
+  adminListDeviceBans,
+  adminCreateDeviceBan,
+  adminDeleteDeviceBan,
+  adminUserChargeHistory,
+  adminGetGates,
+  adminSetGates,
+  adminListGameConfig,
+  adminSetGameConfig,
   adminListTopSupporters,
   adminResetSupporterCounter,
   adminDashboardMe,
@@ -127,6 +145,10 @@ router.get('/agencies/:id/members', adminListAgencyMembers);
 router.delete('/agency-members/:memberId', adminRemoveAgencyMember);
 // B8 - add/deduct one member's target (negative amountCoins deducts).
 router.post('/agency-members/:memberId/target-adjust', adminAdjustMemberTarget);
+// B13 — same operation addressed by user (displayId or internal id), so a
+// target can be adjusted from the user search instead of only from an
+// agency's member list. `?by=id` forces the internal-id reading.
+router.post('/users/:id/target-adjust', adminAdjustUserTarget);
 // B9 - top supporters board + per-account counter reset.
 router.get('/top-supporters', adminListTopSupporters);
 router.post('/users/:id/reset-supporter-counter', adminResetSupporterCounter);
@@ -152,5 +174,37 @@ router.delete('/target-tiers/:id', adminDeleteTargetTier);
 // requireAdminDashboard) is accepted. It was previously only on /admin/settings, which
 // uses a different auth the dashboard doesn't hold → the save returned 401.
 router.patch('/settings', require('../controllers/settings.controller').updateSettings);
+
+
+// ── A15: قائمة المكافآت ──────────────────────────────────────────────────
+router.get('/rewards/room-cup', adminListRoomCupRewards);
+router.post('/rewards/room-cup', adminSaveRoomCupReward);
+router.delete('/rewards/room-cup/:id', adminDeleteRoomCupReward);
+router.get('/rewards/supporters', adminListSupporterRewards);
+router.post('/rewards/supporters', adminSaveSupporterReward);
+router.delete('/rewards/supporters/:id', adminDeleteSupporterReward);
+
+// ── A14: مدة تصفير إجمالي دعم الروم ──────────────────────────────────────
+router.get('/rewards/room-support-window', adminGetRoomSupportWindow);
+router.post('/rewards/room-support-window', adminSetRoomSupportWindow);
+
+// ── F3: رسائل الإدارة ────────────────────────────────────────────────────
+router.post('/messages', adminSendMessage);
+
+// ── F4: حظر الجهاز / الشبكة ──────────────────────────────────────────────
+router.get('/device-bans', adminListDeviceBans);
+router.post('/device-bans', adminCreateDeviceBan);
+router.delete('/device-bans/:id', adminDeleteDeviceBan);
+
+// ── B14: سجل شحنات مستخدم ────────────────────────────────────────────────
+router.get('/users/:id/charges', adminUserChargeHistory);
+
+// ── C16 / C18: بوابات الليفل والـVIP ─────────────────────────────────────
+router.get('/gates', adminGetGates);
+router.post('/gates', adminSetGates);
+
+// ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────
+router.get('/games', adminListGameConfig);
+router.post('/games/:game', adminSetGameConfig);
 
 export default router;

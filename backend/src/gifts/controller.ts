@@ -363,7 +363,33 @@ export async function leaderboard(req: Request, res: Response) {
     const limit = parseLimit((req.query as any)?.limit, 20, 100);
     const range = String((req.query as any)?.range ?? 'all');
     const board = await buildSupportersBoard({ roomId, limit, sinceMs: RANGE_MS[range] });
-    return res.json({ success: true, scope: 'room', roomId, range, board });
+
+    // A14 — إجمالي دعم الروم, carried on the board response so the app does not
+    // need a second round trip to draw the figure under the cup. The k/m
+    // shortening is the client's job; this is the raw number and the window it
+    // was measured over.
+    const { roomSupportTotal, getRoomSupportWindowHours, pendingSupporterRewards } =
+      await import('../services/roomReward.service');
+    const [supportTotal, windowHours] = await Promise.all([
+      roomSupportTotal(roomId),
+      getRoomSupportWindowHours(),
+    ]);
+
+    // A15b — rungs THIS viewer can claim right now, so the board can draw the
+    // "مكافأة لك" square next to their own name.
+    const viewerId = (req as any).userId as number | undefined;
+    const myRewards = viewerId ? await pendingSupporterRewards(viewerId, roomId) : [];
+
+    return res.json({
+      success: true,
+      scope: 'room',
+      roomId,
+      range,
+      board,
+      supportTotal,
+      supportWindowHours: windowHours,
+      myRewards,
+    });
   } catch (err) {
     console.error('[gifts.leaderboard]', err);
     return res.status(500).json({ success: false, message: 'Failed to load leaderboard' });
@@ -538,5 +564,31 @@ export async function sendBatch(req: Request, res: Response) {
   } catch (err) {
     console.error('[gifts.sendBatch]', err);
     return res.status(500).json({ success: false, message: 'Send failed' });
+  }
+}
+
+/**
+ * A15b — POST /gifts/supporter-rewards/:id/claim — the "مكافأة لك" button.
+ */
+export async function claimSupporterRewardHandler(req: Request, res: Response) {
+  try {
+    const userId = (req as any).userId as number | undefined;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+    const rewardId = Number(req.params.id);
+    if (!Number.isFinite(rewardId)) return res.status(400).json({ success: false, message: 'Invalid reward id' });
+
+    const { claimSupporterReward, SupporterRewardError } = await import('../services/roomReward.service');
+    try {
+      const { coins } = await claimSupporterReward(userId, rewardId);
+      return res.json({ success: true, coins, message: `تم إضافة ${coins} كوينز إلى محفظتك` });
+    } catch (e: any) {
+      if (e instanceof SupporterRewardError) {
+        return res.status(e.status).json({ success: false, message: e.message });
+      }
+      throw e;
+    }
+  } catch (err) {
+    console.error('[gifts.claimSupporterReward]', err);
+    return res.status(500).json({ success: false, message: 'Failed to claim reward' });
   }
 }

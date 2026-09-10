@@ -15,12 +15,16 @@ const router = Router();
 const adminMiddleware = async (req: any, res: any, next: any) => {
   try {
     const prisma = require('../utils/prisma').default;
+    // isSuperAdmin counts too — see middlewares/admin.middleware.ts. This local
+    // copy guards EVERY /api/v1/admin route, including the in-app ban, so
+    // omitting the super tier here disabled the whole surface for the one
+    // account the owner actually tests with.
     const user = await prisma.user.findUnique({
       where: { id: req.userId },
-      select: { id: true, isAdmin: true },
+      select: { id: true, isAdmin: true, isSuperAdmin: true },
     });
 
-    if (!user || !user.isAdmin) {
+    if (!user || (!user.isAdmin && !user.isSuperAdmin)) {
       return res.status(403).json({ message: 'Access denied. Admin only.' });
     }
 

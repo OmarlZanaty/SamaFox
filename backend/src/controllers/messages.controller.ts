@@ -3,6 +3,36 @@ import prisma from '../utils/prisma';
 import { createNotification } from '../services/notification.service';
 import { isBlockedBetween, blockedUserIds } from '../utils/blockGuard';
 
+/**
+ * C18 — minimum VIP tier allowed to send images in a DM, set from لوحة التحكم.
+ * 0 / unset = everyone may. Lives in AppSetting so it ships without a migration.
+ */
+export const MESSAGE_IMAGE_MIN_VIP_KEY = 'message_image_min_vip';
+
+export async function getMessageImageMinVip(): Promise<number> {
+  try {
+    const row = await (prisma as any).appSetting.findUnique({
+      where: { key: MESSAGE_IMAGE_MIN_VIP_KEY },
+    });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch {
+    // Fail OPEN: a settings blip must not stop everyone from sending images.
+    return 0;
+  }
+}
+
+export async function setMessageImageMinVip(level: number): Promise<number> {
+  const value = String(Math.max(0, Math.floor(level)));
+  await (prisma as any).appSetting.upsert({
+    where: { key: MESSAGE_IMAGE_MIN_VIP_KEY },
+    update: { value },
+    create: { key: MESSAGE_IMAGE_MIN_VIP_KEY, value },
+  });
+  return Number(value);
+}
+
+
 type AuthedRequest = Request & { userId?: number };
 
 function toInt(v: any): number | null {
@@ -194,6 +224,24 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
   // ✅ Accept: text OR imageUrl OR audioUrl
   if (!text && !imageUrl && !audioUrl) {
     return res.status(400).json({ message: 'text, imageUrl, or audioUrl is required' });
+  }
+
+  // C18 — "تحديد من أي VIP يُسمح بإرسال الصور من لوحة التحكم". Enforced on the
+  // server, not just hidden in the app: the picker being invisible is a
+  // courtesy, this is the rule. Voice notes are deliberately ungated — the
+  // client only ever asked for the image restriction.
+  if (imageUrl) {
+    const minVip = await getMessageImageMinVip();
+    if (minVip > 0) {
+      const sender = await prisma.user.findUnique({ where: { id: me }, select: { vipLevel: true } });
+      if ((sender?.vipLevel ?? 0) < minVip) {
+        return res.status(403).json({
+          code: 'VIP_REQUIRED',
+          minVip,
+          message: `إرسال الصور متاح من VIP ${minVip} فما فوق`,
+        });
+      }
+    }
   }
 
   // ensure participant

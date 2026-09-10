@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { authMiddleware } from '../middlewares/auth.middleware';
+import { authMiddleware, optionalAuth } from '../middlewares/auth.middleware';
 import * as A from './agency.controller';
 
 const router = Router();
 
-router.get('/charging', A.listChargingAgencies);
-router.get('/hosting', A.listHostingAgencies);
+// B8 — public, but identity-aware: an agency OWNER sees only his own agency,
+// everyone else still sees the full list. optionalAuth never rejects.
+router.get('/charging', optionalAuth, A.listChargingAgencies);
+router.get('/hosting', optionalAuth, A.listHostingAgencies);
 router.post('/request', authMiddleware, A.requestAgency);
 router.get('/my-agency', authMiddleware, A.getMyAgency);
 router.post('/send-coins', authMiddleware, A.sendCoinsToUser);

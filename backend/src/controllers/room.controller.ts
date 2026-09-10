@@ -4,6 +4,41 @@ import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
 import { broadcastRoomClosed } from '../services/socket.service';
 
+/**
+ * A16 — غرفة الإدارة. Pinned to the top of the room list and drawn as the large
+ * card ("خلي الغرفه دي هي اول غرفه وبحجم كبير في العرض"). One id, in one place,
+ * so the app and the API cannot disagree about which room is special.
+ */
+export const FEATURED_ROOM_ID = 100000;
+
+/** Shared shape for room-list rows, so the pinned fetch matches the page fetch. */
+const roomListInclude = {
+  owner: {
+    select: {
+      id: true,
+      name: true,
+      avatarUrl: true,
+      displayId: true,
+      level: true,
+      vipLevel: true,
+    },
+  },
+  members: {
+    take: 3,
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          avatarUrl: true,
+          avatarFrameUrl: true,
+        },
+      },
+    },
+  },
+  _count: { select: { members: true } },
+} as const;
+
 
 export const getRooms = async (req: Request, res: Response) => {
   try {
@@ -27,36 +62,7 @@ export const getRooms = async (req: Request, res: Response) => {
 
     const rooms = await prisma.room.findMany({
       where,
-      include: {
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            avatarUrl: true,
-            displayId: true,
-            level: true,
-            vipLevel: true
-          }
-        },
-        members: {
-          take: 3,
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                avatarUrl: true,
-                avatarFrameUrl: true, // ✅ ADD
-              }
-            }
-          }
-        },
-        _count: {
-          select: {
-            members: true
-          }
-        }
-      },
+      include: roomListInclude,
       skip,
       take: safeLimit,
       orderBy: {
@@ -66,9 +72,30 @@ export const getRooms = async (req: Request, res: Response) => {
 
     const total = await prisma.room.count({ where });
 
+    // A16 — الإدارة room pinned first and drawn large ("تكون اول غرفه وبحجم
+    // كبير في العرض"). Ordering cannot express this: room ids run 1,2,3… so
+    // sorting by id would bury 100000 at the very end, and sorting by date only
+    // holds until someone makes a newer room. So it is hoisted explicitly, and
+    // fetched separately on page 1 in case it falls outside the page window.
+    let ordered = rooms;
+    if (safePage === 1) {
+      const alreadyThere = rooms.find((r: any) => r.id === FEATURED_ROOM_ID);
+      const featured =
+        alreadyThere ??
+        (await prisma.room.findFirst({
+          where: { ...where, id: FEATURED_ROOM_ID },
+          include: roomListInclude,
+        }));
+      if (featured) {
+        ordered = [featured, ...rooms.filter((r: any) => r.id !== FEATURED_ROOM_ID)];
+      }
+    }
+
     res.json({
-      rooms: rooms.map(room => ({
+      rooms: ordered.map(room => ({
         id: room.id,
+        // The app draws this one as the big card.
+        isFeatured: room.id === FEATURED_ROOM_ID,
         name: room.name,
         description: room.description,
         coverImageUrl: room.coverImageUrl,

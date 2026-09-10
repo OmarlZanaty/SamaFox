@@ -9,11 +9,15 @@ export const adminMiddleware: RequestHandler = async (req: Request, res: Respons
   try {
     const userId = req.userId ?? req.authUser?.id;
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+    // A super admin outranks a plain admin, so he must pass every gate a plain
+    // admin passes. Selecting `isAdmin` alone locked out any account with
+    // isSuperAdmin=true / isAdmin=false — which is the owner's own test account,
+    // and why "زر الحظر ظاهر للسوبر أدمن لكنه غير فعال".
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, isAdmin: true },
+      select: { id: true, isAdmin: true, isSuperAdmin: true },
     });
-    if (!user || !user.isAdmin) {
+    if (!user || (!user.isAdmin && !user.isSuperAdmin)) {
       return res.status(403).json({ success: false, message: 'Admin access required' });
     }
     return next();

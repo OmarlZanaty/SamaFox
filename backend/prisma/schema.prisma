@@ -122,6 +122,11 @@ model User {
 
   gameFairSeeds GameFairSeed[]
 
+  // A15 / C16
+  supporterRewardClaims SupporterRewardClaim[]
+  profileVisitsReceived ProfileVisit[]         @relation("ProfileVisitsReceived")
+  profileVisitsMade     ProfileVisit[]         @relation("ProfileVisitsMade")
+
   @@map("users")
 }
 
@@ -1432,4 +1437,135 @@ model GameFairSeed {
 
   @@unique([userId, game])
   @@map("game_fair_seeds")
+}
+
+// ============================================
+// A15 — نظام المكافآت (Rewards)
+// ============================================
+
+/// A15a — مكافأة كأس الروم.
+///
+/// "أحدد عدد الكوينز المدعوم في الغرفة + عدد كوينز المكافأة، تروح لمحفظة صاحب
+/// الغرفة (خاص بوكالة المضيفين فقط)". One row per rung, paid at most once per
+/// room per rung — `RoomCupRewardPayout` is the ledger that makes that true.
+model RoomCupReward {
+  id             Int      @id @default(autoincrement())
+  /// Coins supported IN THE ROOM that unlock this rung.
+  thresholdCoins BigInt
+  /// Coins paid into the room owner's wallet when it is reached.
+  rewardCoins    BigInt
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  payouts RoomCupRewardPayout[]
+
+  @@index([thresholdCoins])
+  @@map("room_cup_rewards")
+}
+
+/// One rung, paid once, for one room. The unique pair is the whole point.
+model RoomCupRewardPayout {
+  id       Int      @id @default(autoincrement())
+  rewardId Int
+  roomId   Int
+  /// Who was the room owner at payout time, for the audit trail.
+  userId   Int
+  coins    BigInt
+  paidAt   DateTime @default(now())
+
+  reward RoomCupReward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+
+  @@unique([rewardId, roomId])
+  @@index([roomId])
+  @@map("room_cup_reward_payouts")
+}
+
+/// A15b — مكافأة الداعمين.
+///
+/// "أحدد عدد كوينز دعم مستهدف؛ الداعم اللي يكمله يلاقي جنب اسمه في كأس الروم
+/// مربع مكافأة لك يضغط عليه فياخد المكافأة". Unlike the room-cup rung this is
+/// CLAIMED by the supporter, not pushed — the button is the feature.
+model SupporterReward {
+  id          Int      @id @default(autoincrement())
+  /// Coins the supporter must have gifted to qualify.
+  targetCoins BigInt
+  /// Coins handed over when they press "مكافأة لك".
+  rewardCoins BigInt
+  /// null = counts support anywhere; set = only inside this room.
+  roomId      Int?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  claims SupporterRewardClaim[]
+
+  @@index([targetCoins])
+  @@map("supporter_rewards")
+}
+
+model SupporterRewardClaim {
+  id        Int      @id @default(autoincrement())
+  rewardId  Int
+  userId    Int
+  roomId    Int?
+  coins     BigInt
+  claimedAt DateTime @default(now())
+
+  reward SupporterReward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([rewardId, userId])
+  @@index([userId])
+  @@map("supporter_reward_claims")
+}
+
+// ============================================
+// F4 — حظر الجهاز / الشبكة
+// ============================================
+
+/// A ban that survives making a new account: it keys on the DEVICE or the IP
+/// rather than the user row. The client asked for this twice and it had never
+/// been built ("اتفقنا عليه ولم ترد عليّ").
+///
+/// Exactly one of deviceId / ipAddress is meaningful per row; both are indexed
+/// because login checks each independently.
+model DeviceBan {
+  id        Int       @id @default(autoincrement())
+  deviceId  String?
+  ipAddress String?
+  reason    String?
+  /// null = permanent.
+  expiresAt DateTime?
+  bannedBy  Int?
+  createdAt DateTime  @default(now())
+
+  @@unique([deviceId])
+  @@unique([ipAddress])
+  @@index([expiresAt])
+  @@map("device_bans")
+}
+
+// ============================================
+// C16 — الزوار
+// ============================================
+
+/// One visit to a profile. Only visits made FROM THE HOME PAGE are recorded —
+/// the client was explicit that opening someone from inside a room does not
+/// count ("اللي دخلوا بروفايلي من الصفحه الرئيسيه مش من الغرفه").
+model ProfileVisit {
+  id        Int      @id @default(autoincrement())
+  /// Whose profile was opened.
+  profileId Int
+  /// Who opened it.
+  viewerId  Int
+  /// 'home' is the only source that is stored; kept as a column so a future
+  /// surface can be counted separately instead of silently joining this one.
+  source    String   @default("home")
+  createdAt DateTime @default(now())
+
+  profile User @relation("ProfileVisitsReceived", fields: [profileId], references: [id], onDelete: Cascade)
+  viewer  User @relation("ProfileVisitsMade", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, createdAt])
+  @@index([viewerId])
+  @@map("profile_visits")
 }
