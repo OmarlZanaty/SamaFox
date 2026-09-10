@@ -102,7 +102,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
   Future<List<Map<String, dynamic>>> _fetchBadges(int userId) async {
     try {
-      final res = await DioClient.dio.get('/users/$userId/badges');
+      // C11 — onlyBadges: the endpoint otherwise appends one representative of
+      // every OTHER product type the user owns (frame, entrance, room theme)
+      // into the same row, which is the client's
+      // "الشارات ظاهره ومختلطه بمنتجات تانيه".
+      final res = await DioClient.dio.get(
+        '/users/$userId/badges',
+        queryParameters: const {'onlyBadges': 1},
+      );
       final list = (res.data is Map) ? (res.data['data'] as List? ?? const []) : const [];
       return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (_) {

@@ -7,11 +7,11 @@ import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
 import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
-// Older games are hidden from the hub for now — see _hiddenGames below.
-// import 'games/skill_wheel_screen.dart';
-// import 'games/fish_shooter_screen.dart';
-// import 'games/lion_tiger_screen.dart';
-// import 'games/skill_dice_screen.dart';
+// G3(a) — these four shipped but were parked out of the hub; they are back.
+import 'games/skill_wheel_screen.dart';
+import 'games/fish_shooter_screen.dart';
+import 'games/lion_tiger_screen.dart';
+import 'games/skill_dice_screen.dart';
 
 /// Full-bleed stacked cards: one game per row, artwork filling the card, the
 /// name drawn over it. Titles stay in code rather than baked into the artwork
@@ -77,12 +77,6 @@ const List<_GameEntry> _games = [
     // Delivered without lettering, so the hub draws the name.
     drawTitle: true,
   ),
-];
-
-/// Kept so the older games can be put back in one move: add the entry to
-/// [_games] and restore its case in [GamesHubScreen._open].
-// ignore: unused_element
-const List<_GameEntry> _hiddenGames = [
   _GameEntry(
     title: 'عجلة المهارة',
     tagline: 'أوقف العجلة',
@@ -223,12 +217,18 @@ class GamesHubScreen extends ConsumerWidget {
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
         break;
-      // Hidden games — restore the _GameEntry to [_games] and these match by
-      // title wherever it lands:
-      // case 'عجلة المهارة': screen = const SkillWheelScreen(); break;
-      // case 'صياد السمك': screen = const FishShooterScreen(); break;
-      // case 'حلبة الأسد والنمر': screen = const LionTigerScreen(); break;
-      // case 'نرد المهارة': screen = const SkillDiceScreen(); break;
+      case 'عجلة المهارة':
+        screen = const SkillWheelScreen();
+        break;
+      case 'صياد السمك':
+        screen = const FishShooterScreen();
+        break;
+      case 'حلبة الأسد والنمر':
+        screen = const LionTigerScreen();
+        break;
+      case 'نرد المهارة':
+        screen = const SkillDiceScreen();
+        break;
       default:
         return;
     }

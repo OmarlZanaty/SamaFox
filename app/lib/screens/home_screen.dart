@@ -200,6 +200,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     final isSearchMode = _controller.text.trim().isNotEmpty;
 
     final rooms = List.of(roomsState.rooms);
+
+    // A16 — غرفة الإدارة: "خلي الغرفه دي هي اول غرفه وبحجم كبير في العرض".
+    // The API already returns it first and flags it; pulling it OUT of `rooms`
+    // here is what stops it being drawn a second time inside the normal grid.
+    final featuredIndex = rooms.indexWhere((r) => r.isFeatured == true);
+    final featuredRoom = featuredIndex >= 0 ? rooms.removeAt(featuredIndex) : null;
     rooms.shuffle(Random(7));
 
     final w = MediaQuery.of(context).size.width;
@@ -401,6 +407,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 130),
                           sliver: SliverList(
                             delegate: SliverChildListDelegate([
+
+                              // A16 — the pinned admin room, full width and
+                              // taller than a grid tile, above everything else.
+                              if (featuredRoom != null) ...[
+                                SizedBox(
+                                  height: 168,
+                                  child: _RoomTile(
+                                    stringsOnline: strings.online,
+                                    room: featuredRoom,
+                                    isFeatured: true,
+                                    onTap: () => Navigator.pushNamed(
+                                      context,
+                                      '/room',
+                                      arguments: featuredRoom.id,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                              ],
 
                               // 🦊 SamaFox + top rooms block
                               LayoutBuilder(
