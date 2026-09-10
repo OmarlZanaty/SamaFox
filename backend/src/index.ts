@@ -54,6 +54,7 @@ import { startExpirySweep } from './services/expiry.service';
 import { startBetaSyncWatchdog } from './services/betaWatchdog.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
+import appDownloadRoutes from './routes/appDownload.routes';
 import { setGiftIo } from './gifts/controller';
 
 import helmet from 'helmet';
@@ -198,6 +199,9 @@ app.get('/api/v1/settings', require('./controllers/settings.controller').getSett
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/upload', uploadRoutes); // backward-compatible path
 app.use('/api/v1/room-admin', roomAdminRoutes);
+// G2 — direct APK download for the /download.html page. Public on purpose:
+// the whole point is a link an agent can send to someone with no account.
+app.use('/api/v1/app', appDownloadRoutes);
 app.use('/api/v1/music', musicRoutes);
 // A15 — نظام الـ CP: gift invitations, accept/reject, and the pair list the
 // home-page CP box and the profile CP card both read.

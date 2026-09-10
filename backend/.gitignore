@@ -21,3 +21,6 @@ dev.db*
 cookies.txt
 *.cookie
 tatus
+
+# G2 — published APKs are build output, not source
+public/downloads/*.apk

@@ -48,3 +48,6 @@ samafox-backend/.env.*
 
 # Archives
 *.zip
+
+# A2 — TURN credentials, never committed
+turn.env
