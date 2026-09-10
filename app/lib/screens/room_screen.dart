@@ -2158,6 +2158,114 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  /// A12 — إعدادات الغرفة.
+  ///
+  /// Holds exactly the room-management controls that used to be printed open in
+  /// the main menu. The client asked for the room cup to take that spot and for
+  /// these to move one level down ("تحط كأس الروم مكان إجراءات الغرفة، وتنقل
+  /// إجراءات الغرفة جوه إعدادات الغرفة"), so this is a relocation and not a
+  /// redesign — the widgets below are the originals, unchanged.
+  void _openRoomSettingsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0E3E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+
+                  // =======================
+                  // 🛠 ADMIN
+                  // =======================
+                  const Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      "إدارة الغرفة",
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // 🔥 ROW 1
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      Consumer(builder: (ctx, wref, _) {
+                        final locked = wref
+                                .watch(roomsProvider)
+                                .findById(widget.roomId)
+                                ?.isRoomLocked ??
+                            false;
+                        return _menuItem(
+                          locked ? Icons.lock_open : Icons.lock,
+                          locked ? "فتح الغرفة" : "قفل الغرفة",
+                          Colors.white70,
+                          () {
+                            Navigator.pop(context);
+                            _toggleRoomLock();
+                          },
+                        );
+                      }),
+                      _menuItem(Icons.admin_panel_settings, "مسؤول الغرفة", Colors.white70, () {
+                        Navigator.pop(context);
+                        _openManageAdminsDialog(this.context);
+                      }),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // 🔥 ROW 2
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _menuItem(Icons.bar_chart, "نمط الميكروفون", Colors.white70, () {
+                        Navigator.pop(context);
+                        _openSeatCountDialog(this.context);
+                      }),
+                      _menuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
+                        Navigator.pop(context);
+                        _openBackgroundChooser();
+                      }),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // 🔥 ROW 3
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _menuItem(Icons.block, "قائمة الحظر", Colors.white70, () {
+                        Navigator.pop(context);
+                        _openBanListDialog(this.context);
+                      }),
+                      _menuItem(Icons.delete_outline, "حذف الدردشة", Colors.redAccent, () {
+                        Navigator.pop(context);
+                        _clearRoomChat();
+                      }),
+                    ],
+                  ),
+
+                  const SizedBox(height: 22),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// A3 — flip between loudspeaker and earpiece for EVERYTHING: the room's
   /// voice stream and the game sound effects both, which is the client's
   /// "لما أفعّل السماعة كل صوت يخرج منها ... صوت الغرفة وصوت الألعاب".
@@ -3602,82 +3710,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                 const SizedBox(height: 16),
 
+                // A12 — "تنقل إجراءات الغرفة جوه إعدادات الغرفة". These
+                // controls used to sit open in the main menu, which is what
+                // the room cup now occupies in the header. One entry here,
+                // the controls themselves one level down.
                 if (isAdmin) ...[
-
-                  // =======================
-                  // 🛠 ADMIN
-                  // =======================
-                  const Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      "إدارة الغرفة",
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // 🔥 ROW 1
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Consumer(builder: (ctx, wref, _) {
-                        final locked = wref
-                                .watch(roomsProvider)
-                                .findById(widget.roomId)
-                                ?.isRoomLocked ??
-                            false;
-                        return _menuItem(
-                          locked ? Icons.lock_open : Icons.lock,
-                          locked ? "فتح الغرفة" : "قفل الغرفة",
-                          Colors.white70,
-                          () {
-                            Navigator.pop(context);
-                            _toggleRoomLock();
-                          },
-                        );
-                      }),
-                      _menuItem(Icons.admin_panel_settings, "مسؤول الغرفة", Colors.white70, () {
-                        Navigator.pop(context);
-                        _openManageAdminsDialog(this.context);
-                      }),
-                    ],
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // 🔥 ROW 2
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _menuItem(Icons.bar_chart, "نمط الميكروفون", Colors.white70, () {
-                        Navigator.pop(context);
-                        _openSeatCountDialog(this.context);
-                      }),
-                      _menuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
-                        Navigator.pop(context);
-                        _openBackgroundChooser();
-                      }),
-                    ],
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // 🔥 ROW 3
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _menuItem(Icons.block, "قائمة الحظر", Colors.white70, () {
-                        Navigator.pop(context);
-                        _openBanListDialog(this.context);
-                      }),
-                      _menuItem(Icons.delete_outline, "حذف الدردشة", Colors.redAccent, () {
-                        Navigator.pop(context);
-                        _clearRoomChat();
-                      }),
-                    ],
-                  ),
-
+                  _menuItem(Icons.tune, "إعدادات الغرفة", Colors.white70, () {
+                    Navigator.pop(context);
+                    _openRoomSettingsSheet(this.context);
+                  }),
                   const SizedBox(height: 22),
                 ],
 

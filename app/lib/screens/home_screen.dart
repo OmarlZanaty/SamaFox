@@ -636,7 +636,9 @@ class SearchResultTile extends StatelessWidget {
             // UserProfileScreen was a stripped-down stub with none of the
             // room/message/follow row, badges, or caching fixes.
             Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ProfileScreen(userId: result.id)),
+              MaterialPageRoute(
+                builder: (_) => ProfileScreen(userId: result.id, source: 'home'),
+              ),
             );
           }
         },

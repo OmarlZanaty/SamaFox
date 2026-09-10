@@ -64,6 +64,14 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
 
   late Future<List<_Supporter>> _future;
 
+  /// A14 — إجمالي الكوينز المرمية في الغرفة, over whatever window the dashboard
+  /// has configured. Null until the first load answers.
+  int? _supportTotal;
+
+  /// A15b — rungs this viewer has earned and not yet claimed. Each one draws a
+  /// "مكافأة لك" button.
+  List<Map<String, dynamic>> _myRewards = const [];
+
   bool get _isRoom => widget.roomId != null;
   int get _limit => _isRoom ? 20 : 30;
 
@@ -76,7 +84,17 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
   Future<List<_Supporter>> _load() async {
     final path = _isRoom ? '/gifts/leaderboard/${widget.roomId}' : '/gifts/supporters';
     final resp = await DioClient.dio.get(path, queryParameters: {'limit': _limit});
-    final raw = (resp.data is Map) ? (resp.data['board'] as List? ?? const []) : const [];
+    final data = resp.data is Map ? resp.data as Map : const {};
+    final raw = (data['board'] as List? ?? const []);
+
+    // A14 / A15b ride along on the room board rather than costing another
+    // round trip. Both are absent on the app-wide board and on an older
+    // server, and the UI simply omits them.
+    _supportTotal = (data['supportTotal'] as num?)?.toInt();
+    _myRewards = ((data['myRewards'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
     final out = <_Supporter>[];
     for (var i = 0; i < raw.length; i++) {
       final e = raw[i];
@@ -99,6 +117,43 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
       context,
       MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId, roomId: widget.roomId)),
     );
+  }
+
+  /// A14 — "مختصر (k / m)". One decimal below 10 so 1.2m stays readable, none
+  /// above it so 250k does not become 250.0k.
+  String _short(int v) {
+    if (v >= 1000000) {
+      final m = v / 1000000;
+      return '${m < 10 ? m.toStringAsFixed(1) : m.round()}m';
+    }
+    if (v >= 1000) {
+      final k = v / 1000;
+      return '${k < 10 ? k.toStringAsFixed(1) : k.round()}k';
+    }
+    return '$v';
+  }
+
+  /// A15b — the "مكافأة لك" button. The server re-checks eligibility and the
+  /// unique claim row is what stops a double tap paying twice, so the button
+  /// only has to stay honest about the outcome.
+  Future<void> _claimReward(Map<String, dynamic> reward) async {
+    final id = (reward['rewardId'] as num?)?.toInt();
+    if (id == null) return;
+    try {
+      final res = await DioClient.dio.post('/gifts/supporter-rewards/$id/claim');
+      final coins = (res.data is Map) ? (res.data['coins'] as num?)?.toInt() ?? 0 : 0;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم إضافة $coins كوينز إلى محفظتك')),
+      );
+      setState(() => _future = _load());
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is DioException && e.response?.data is Map
+          ? (e.response!.data['message']?.toString() ?? 'تعذّر استلام المكافأة')
+          : 'تعذّر استلام المكافأة';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
   }
 
   String _coins(int v) {
@@ -171,6 +226,57 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
                 children: [
+                  // A14 — إجمالي دعم الروم, directly under the cup.
+                  if (_isRoom && _supportTotal != null) ...[
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0x55FFD700)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.monetization_on, color: _gold, size: 18),
+                            const SizedBox(width: 6),
+                            Text(
+                              'إجمالي دعم الغرفة: ${_short(_supportTotal!)}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // A15b — "مكافأة لك", one button per rung this viewer earned.
+                  for (final r in _myRewards) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF7A1D4E),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () => _claimReward(r),
+                        icon: const Icon(Icons.card_giftcard),
+                        label: Text(
+                          'مكافأة لك — ${r['rewardCoins'] ?? ''} كوينز',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+
                   // ── الأول ──
                   Center(child: _podium(first, size: 108, crown: true)),
                   const SizedBox(height: 18),

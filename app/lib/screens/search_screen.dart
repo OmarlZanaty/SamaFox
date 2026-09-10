@@ -233,7 +233,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       // user from search silently did nothing. Push the real profile screen.
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => ProfileScreen(userId: id as int)),
+        MaterialPageRoute(
+          builder: (_) => ProfileScreen(userId: id as int, source: 'home'),
+        ),
       );
     }
   }

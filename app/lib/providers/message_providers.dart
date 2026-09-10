@@ -371,6 +371,28 @@ class ChatController extends StateNotifier<ChatState> {
     state = state.copyWith(messages: [...state.messages, sent]);
   }
 
+  /// C18 — send a picture. Mirrors [sendVoice]: upload first, then send the
+  /// message carrying the resulting URL.
+  ///
+  /// A VIP tier below the dashboard's threshold is refused by the SERVER with
+  /// code VIP_REQUIRED; that error is allowed to propagate so the screen can
+  /// show the server's own message rather than guessing the rule locally.
+  Future<void> sendImage(String filePath) async {
+    final cid = state.conversationId;
+    if (cid == null) throw Exception('Conversation not ready');
+
+    final imageUrl = await _repo.uploadChatImage(filePath);
+    if (imageUrl.isEmpty) throw Exception('تعذّر رفع الصورة');
+
+    final sent = await _repo.sendMessage(
+      conversationId: cid,
+      text: '',
+      type: 'image',
+      imageUrl: imageUrl,
+    );
+    state = state.copyWith(messages: [...state.messages, sent]);
+  }
+
   Future<void> load() async {
     try {
       state = state.copyWith(loading: true, error: null);
