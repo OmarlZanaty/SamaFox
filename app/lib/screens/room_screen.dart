@@ -71,6 +71,7 @@ import '../widgets/user_trail.dart';
 import '../screens/profile_screen.dart'; // adjust path to your project
 import '../widgets/app_network_image.dart';
 import '../services/audio_route.dart';
+import '../services/screen_record_service.dart';
 
 final isAndroid = !kIsWeb && Platform.isAndroid;
 
@@ -173,6 +174,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// Is the room currently playing music? Lives in the room music provider so
   /// it is the same answer for everybody, not a per-device flag.
   bool get _musicOn => ref.read(roomMusicProvider(widget.roomId)).active;
+
+  /// A11 — mirrors the native service so the menu entry reads correctly.
+  bool _isScreenRecording = false;
 
   int? _activeConversationId;
   int? _activeUserId;
@@ -2266,6 +2270,39 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  /// A11 — start/stop the in-app screen recording.
+  ///
+  /// The hint about the loudspeaker is shown BEFORE the first recording rather
+  /// than after: the mic is the only source Android will let the app record, so
+  /// on the earpiece the other speakers come out faint. Better to say so than
+  /// to let someone record five minutes and report it as broken.
+  Future<void> _toggleScreenRecording() async {
+    final svc = ScreenRecordService.instance;
+
+    if (_isScreenRecording) {
+      final path = await svc.stop();
+      if (!mounted) return;
+      setState(() => _isScreenRecording = false);
+      _showRoomSnack(
+        path == null ? 'التسجيل كان قصيراً جداً' : 'تم حفظ التسجيل',
+      );
+      return;
+    }
+
+    if (!AudioRoute.instance.speakerOn) {
+      _showRoomSnack(ScreenRecordService.speakerHint);
+    }
+
+    // false also means "the user declined the system dialog", which needs no
+    // message of its own.
+    final started = await svc.start();
+    if (!mounted) return;
+    if (started) {
+      setState(() => _isScreenRecording = true);
+      _showRoomSnack('بدأ تسجيل الشاشة');
+    }
+  }
+
   /// A3 — flip between loudspeaker and earpiece for EVERYTHING: the room's
   /// voice stream and the game sound effects both, which is the client's
   /// "لما أفعّل السماعة كل صوت يخرج منها ... صوت الغرفة وصوت الألعاب".
@@ -3779,6 +3816,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       Navigator.pop(context);
                       await _toggleSpeaker();
                     }),
+
+                    // A11 — record the screen WITH sound. The phone's own
+                    // recorder cannot capture the room, so the app does it.
+                    if (ScreenRecordService.instance.supported)
+                      _menuItem(
+                          _isScreenRecording
+                              ? Icons.stop_circle
+                              : Icons.fiber_manual_record,
+                          _isScreenRecording ? "إيقاف التسجيل" : "تسجيل الشاشة",
+                          _isScreenRecording ? Colors.redAccent : Colors.white70,
+                          () async {
+                        Navigator.pop(context);
+                        await _toggleScreenRecording();
+                      }),
 
                     _menuItem(Icons.multitrack_audio, "مؤثرات صوتية", Colors.white70, () {
                       Navigator.pop(context);
