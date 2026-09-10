@@ -41,6 +41,9 @@ const sectionTitles = {
   vip:       "مستويات VIP",
   levels:    "مستويات LV",
   admins:    "المشرفون",
+  rewards:   "المكافآت",
+  games:     "الألعاب",
+  moderation: "الرسائل والحظر",
   settings:  "الإعدادات",
 };
 
@@ -59,6 +62,9 @@ function navigate(sec) {
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "levels") loadLvLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "games") loadGamesConfig().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "moderation") loadModeration().catch(e => showToast("خطأ: " + e.message));
   if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} }
 }
 
@@ -2807,3 +2813,259 @@ async function loadAll() {
     }
   };
 })();
+
+
+// ============================================================
+// A15 / A14 — المكافآت
+//
+// Two independent ladders plus the room-support window. Every write reloads
+// from the server rather than patching the table in place: the tables are small
+// and a reload cannot drift out of sync with what was actually saved.
+// ============================================================
+
+const num = (v) => Number(v ?? 0).toLocaleString("en-US");
+
+async function loadRewards() {
+  const [win, cup, sup] = await Promise.all([
+    apiFetch("/admin-dashboard/rewards/room-support-window"),
+    apiFetch("/admin-dashboard/rewards/room-cup"),
+    apiFetch("/admin-dashboard/rewards/supporters"),
+  ]);
+
+  document.getElementById("rw_window").value = win?.data?.hours ?? 0;
+
+  const cupBody = document.querySelector("#roomCupRewardsTable tbody");
+  const cupRows = cup?.data ?? [];
+  cupBody.innerHTML = cupRows.length
+    ? cupRows.map(r => `
+      <tr>
+        <td><strong>${num(r.thresholdCoins)}</strong> كوينز</td>
+        <td>${num(r.rewardCoins)} كوينز</td>
+        <td><button class="btn btn-outline btn-sm" onclick="deleteRoomCupReward(${r.id})">حذف</button></td>
+      </tr>`).join("")
+    : `<tr><td colspan="3" class="cell-muted">لا توجد درجات بعد</td></tr>`;
+
+  const supBody = document.querySelector("#supporterRewardsTable tbody");
+  const supRows = sup?.data ?? [];
+  supBody.innerHTML = supRows.length
+    ? supRows.map(r => `
+      <tr>
+        <td><strong>${num(r.targetCoins)}</strong> كوينز</td>
+        <td>${num(r.rewardCoins)} كوينز</td>
+        <td>${r.roomId ? `#${r.roomId}` : "كل الغرف"}</td>
+        <td><button class="btn btn-outline btn-sm" onclick="deleteSupporterReward(${r.id})">حذف</button></td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" class="cell-muted">لا توجد درجات بعد</td></tr>`;
+}
+
+async function saveRoomSupportWindow() {
+  const hours = Number(document.getElementById("rw_window").value);
+  if (!Number.isFinite(hours) || hours < 0) return showToast("❌ أدخل عدد ساعات صحيح");
+  await apiFetch("/admin-dashboard/rewards/room-support-window", "POST", { hours });
+  showToast("✅ تم الحفظ");
+  loadRewards().catch(() => {});
+}
+
+async function saveRoomCupReward() {
+  const thresholdCoins = Number(document.getElementById("rcr_threshold").value);
+  const rewardCoins    = Number(document.getElementById("rcr_reward").value);
+  if (!(thresholdCoins > 0) || !(rewardCoins > 0)) return showToast("❌ أدخل أرقاماً موجبة");
+  await apiFetch("/admin-dashboard/rewards/room-cup", "POST", { thresholdCoins, rewardCoins });
+  document.getElementById("rcr_threshold").value = "";
+  document.getElementById("rcr_reward").value = "";
+  showToast("✅ تمت إضافة الدرجة");
+  loadRewards().catch(() => {});
+}
+
+async function deleteRoomCupReward(id) {
+  await apiFetch(`/admin-dashboard/rewards/room-cup/${id}`, "DELETE");
+  showToast("✅ تم الحذف");
+  loadRewards().catch(() => {});
+}
+
+async function saveSupporterReward() {
+  const targetCoins = Number(document.getElementById("sr_target").value);
+  const rewardCoins = Number(document.getElementById("sr_reward").value);
+  const roomRaw     = document.getElementById("sr_room").value;
+  if (!(targetCoins > 0) || !(rewardCoins > 0)) return showToast("❌ أدخل أرقاماً موجبة");
+  await apiFetch("/admin-dashboard/rewards/supporters", "POST", {
+    targetCoins, rewardCoins, roomId: roomRaw === "" ? null : Number(roomRaw),
+  });
+  document.getElementById("sr_target").value = "";
+  document.getElementById("sr_reward").value = "";
+  document.getElementById("sr_room").value = "";
+  showToast("✅ تمت إضافة الدرجة");
+  loadRewards().catch(() => {});
+}
+
+async function deleteSupporterReward(id) {
+  await apiFetch(`/admin-dashboard/rewards/supporters/${id}`, "DELETE");
+  showToast("✅ تم الحذف");
+  loadRewards().catch(() => {});
+}
+
+// ============================================================
+// G3(d) — لوحة تحكم الألعاب
+// ============================================================
+
+const GAME_LABELS = {
+  "crash": "طيّار",
+  "plinko": "بلينكو",
+  "crazy-wheel": "عجلة الحظ",
+  "greedy-cat": "القط الجشع",
+  "neon-fortune": "نيون فورتشن",
+  "aetherfall": "أثيرفول",
+  "asterion": "أستيريون",
+  "olympus": "أوليمبوس",
+  "boxing": "الملاكمة",
+  "dice": "نرد المهارة",
+  "wheel": "عجلة المهارة",
+};
+
+async function loadGamesConfig() {
+  const res = await apiFetch("/admin-dashboard/games");
+  const rows = res?.data ?? [];
+  const body = document.querySelector("#gamesTable tbody");
+  body.innerHTML = rows.map(g => `
+    <tr>
+      <td><strong>${escapeHtml(GAME_LABELS[g.game] || g.game)}</strong><div class="cell-muted">${escapeHtml(g.game)}</div></td>
+      <td>
+        <select id="gc_en_${g.game}" class="form-input form-input--sm">
+          <option value="1" ${g.enabled ? "selected" : ""}>تعمل</option>
+          <option value="0" ${g.enabled ? "" : "selected"}>متوقفة</option>
+        </select>
+      </td>
+      <td><input id="gc_min_${g.game}" type="number" min="0" class="form-input form-input--sm"
+                 value="${g.minBet == null ? "" : g.minBet}" placeholder="الأصلي" /></td>
+      <td><input id="gc_max_${g.game}" type="number" min="0" class="form-input form-input--sm"
+                 value="${g.maxBet == null ? "" : g.maxBet}" placeholder="الأصلي" /></td>
+      <td><button class="btn btn-primary btn-sm" onclick="saveGameConfig('${g.game}')">حفظ</button></td>
+    </tr>`).join("");
+}
+
+async function saveGameConfig(game) {
+  const enabled = document.getElementById(`gc_en_${game}`).value === "1";
+  // Empty string is sent through deliberately — the API reads it as "clear the
+  // override and go back to the game's own built-in limit", which is different
+  // from 0.
+  const minBet = document.getElementById(`gc_min_${game}`).value;
+  const maxBet = document.getElementById(`gc_max_${game}`).value;
+  await apiFetch(`/admin-dashboard/games/${game}`, "POST", { enabled, minBet, maxBet });
+  showToast("✅ تم الحفظ");
+  loadGamesConfig().catch(() => {});
+}
+
+// ============================================================
+// F3 / F4 / C16 / C18 / B13 / B14 — الرسائل والحظر
+// ============================================================
+
+async function loadModeration() {
+  const [bans, gates] = await Promise.all([
+    apiFetch("/admin-dashboard/device-bans"),
+    apiFetch("/admin-dashboard/gates"),
+  ]);
+
+  document.getElementById("gate_visitors").value    = gates?.data?.visitorsMinLevel ?? 0;
+  document.getElementById("gate_image_vip").value   = gates?.data?.messageImageMinVip ?? 0;
+
+  const rows = bans?.data ?? [];
+  const body = document.querySelector("#deviceBansTable tbody");
+  body.innerHTML = rows.length
+    ? rows.map(b => `
+      <tr>
+        <td>${escapeHtml(b.deviceId || "—")}</td>
+        <td>${escapeHtml(b.ipAddress || "—")}</td>
+        <td>${escapeHtml(b.reason || "—")}</td>
+        <td>${b.expiresAt ? fmtDate(b.expiresAt) : "أبدي"}</td>
+        <td><button class="btn btn-outline btn-sm" onclick="deleteDeviceBan(${b.id})">رفع الحظر</button></td>
+      </tr>`).join("")
+    : `<tr><td colspan="5" class="cell-muted">لا يوجد حظر مسجّل</td></tr>`;
+}
+
+async function sendAdminMessage() {
+  const target = document.getElementById("msg_target").value.trim() || "all";
+  const title  = document.getElementById("msg_title").value.trim();
+  const body   = document.getElementById("msg_body").value.trim();
+  if (!title || !body) return showToast("❌ اكتب العنوان والنص");
+
+  if (target === "all" && !confirm("إرسال هذه الرسالة لكل المستخدمين؟")) return;
+
+  const res = await apiFetch("/admin-dashboard/messages", "POST", { target, title, body });
+  document.getElementById("msg_title").value = "";
+  document.getElementById("msg_body").value = "";
+  showToast(`✅ تم الإرسال إلى ${num(res?.data?.sent ?? 0)} مستخدم`);
+}
+
+async function createDeviceBan() {
+  const deviceId  = document.getElementById("db_device").value.trim();
+  const ipAddress = document.getElementById("db_ip").value.trim();
+  const reason    = document.getElementById("db_reason").value.trim();
+  const days      = Number(document.getElementById("db_days").value || 0);
+  if (!deviceId && !ipAddress) return showToast("❌ أدخل معرّف جهاز أو IP");
+
+  await apiFetch("/admin-dashboard/device-bans", "POST", { deviceId, ipAddress, reason, days });
+  document.getElementById("db_device").value = "";
+  document.getElementById("db_ip").value = "";
+  document.getElementById("db_reason").value = "";
+  document.getElementById("db_days").value = "";
+  showToast("✅ تم الحظر");
+  loadModeration().catch(() => {});
+}
+
+async function deleteDeviceBan(id) {
+  await apiFetch(`/admin-dashboard/device-bans/${id}`, "DELETE");
+  showToast("✅ تم رفع الحظر");
+  loadModeration().catch(() => {});
+}
+
+async function saveGates() {
+  const visitorsMinLevel   = Number(document.getElementById("gate_visitors").value || 0);
+  const messageImageMinVip = Number(document.getElementById("gate_image_vip").value || 0);
+  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip });
+  showToast("✅ تم الحفظ");
+}
+
+async function adjustUserTarget() {
+  const id     = Number(document.getElementById("ut_user").value);
+  const amount = Number(document.getElementById("ut_amount").value);
+  if (!(id > 0)) return showToast("❌ أدخل رقم المستخدم");
+  if (!Number.isFinite(amount) || amount === 0) return showToast("❌ أدخل كمية غير صفرية");
+
+  const res = await apiFetch(`/admin-dashboard/users/${id}/target-adjust`, "POST", { amountCoins: amount });
+  document.getElementById("ut_amount").value = "";
+  showToast(`✅ ${res?.data?.name ?? ""} — التارجيت الآن ${num(res?.data?.earnedCoins)}`);
+}
+
+async function loadUserCharges() {
+  const id = Number(document.getElementById("ut_user").value);
+  if (!(id > 0)) return showToast("❌ أدخل رقم المستخدم");
+
+  const res  = await apiFetch(`/admin-dashboard/users/${id}/charges`);
+  const d    = res?.data ?? {};
+  const rows = d.charges ?? [];
+  const body = document.querySelector("#userChargesTable tbody");
+
+  body.innerHTML = rows.length
+    ? rows.map(c => `
+      <tr>
+        <td>${fmtDate(c.createdAt)}</td>
+        <td><strong>${num(c.amountCoins)}</strong></td>
+        <td>${c.from ? `${escapeHtml(c.from.name || "")} <span class="cell-muted">#${c.from.displayId ?? c.from.id}</span>` : "—"}</td>
+        <td>${c.agency ? escapeHtml(c.agency.agencyName || "") : "—"}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" class="cell-muted">لا توجد شحنات</td></tr>`;
+
+  document.getElementById("userChargesMeta").textContent =
+    `${escapeHtml(d.user?.name ?? "")} — ${num(d.count)} شحنة بإجمالي ${num(d.totalCoins)} كوينز`;
+}
+
+// Exposed for the inline onclick handlers in admin-dashboard.html.
+Object.assign(window, {
+  loadRewards, saveRoomSupportWindow,
+  saveRoomCupReward, deleteRoomCupReward,
+  saveSupporterReward, deleteSupporterReward,
+  loadGamesConfig, saveGameConfig,
+  loadModeration, sendAdminMessage,
+  createDeviceBan, deleteDeviceBan,
+  saveGates, adjustUserTarget, loadUserCharges,
+});
