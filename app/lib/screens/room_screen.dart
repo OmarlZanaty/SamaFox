@@ -2288,6 +2288,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (_isScreenRecording) {
       final path = await svc.stop();
+
+      // A11 — two captures ran side by side for the length of the recording.
+      // Even sharing VOICE_COMMUNICATION, some devices hand the mic back in a
+      // state WebRTC does not notice, and the user stays silent to the room
+      // with no sign anything is wrong. Re-assert the seat's mic state so the
+      // track is put back the way it was.
+      try {
+        if (_audioService.isMicMuted) {
+          await _audioService.muteAudio();
+        } else {
+          await _audioService.unmuteAudio();
+        }
+      } catch (e) {
+        debugPrint('[ScreenRecord] mic re-assert failed: $e');
+      }
+
       if (!mounted) return;
       setState(() => _isScreenRecording = false);
       _showRoomSnack(

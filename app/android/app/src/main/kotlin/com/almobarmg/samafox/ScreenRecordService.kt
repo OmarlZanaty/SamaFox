@@ -211,10 +211,20 @@ class ScreenRecordService : Service() {
             // Order matters to MediaRecorder: sources, then format, then the
             // per-track settings, then prepare.
             //
-            // MIC, not an internal-audio capture: see the class comment. The
-            // room's voice is USAGE_VOICE_COMMUNICATION and the platform does
-            // not allow it to be captured.
-            rec.setAudioSource(MediaRecorder.AudioSource.MIC)
+            // Not an internal-audio capture: see the class comment. The room's
+            // voice is USAGE_VOICE_COMMUNICATION and the platform does not
+            // allow it to be captured, so the microphone is the only source.
+            //
+            // A11 — but NOT AudioSource.MIC. WebRTC is already capturing when
+            // this runs, and Android's concurrent-capture rules hand the mic to
+            // the most recent client: taking MIC here silenced the room's own
+            // track, so the user recorded and simultaneously dropped out of the
+            // conversation they were recording. VOICE_COMMUNICATION is the
+            // source the platform expects during a call — it is the one an
+            // ongoing VoIP capture is allowed to share, and it arrives
+            // echo-cancelled, which also stops the loudspeaker's output being
+            // recorded back in as a howl.
+            rec.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             rec.setVideoSource(MediaRecorder.VideoSource.SURFACE)
             rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
