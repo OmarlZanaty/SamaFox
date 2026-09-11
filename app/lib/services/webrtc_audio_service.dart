@@ -1041,6 +1041,28 @@ class WebRTCAudioService {
     }
   }
 
+  /// A2 — go live on the mic.
+  ///
+  /// The room is now joined listen-only: nobody captures a microphone until
+  /// they actually take a seat. Before this, EVERY member of a room opened a
+  /// live capture and transmitted into a full mesh, so a 30-person room ran 30
+  /// hot microphones — the "ضوضاء وصدى" report, and an upstream load no phone
+  /// survives. Call this when the user takes a seat.
+  Future<void> goLive() async {
+    if (!_initialized) return;
+    await _ensureSpeakingStream();
+    await unmuteAudio();
+    _log('goLive -> speaking');
+  }
+
+  /// A2 — stop transmitting, keep listening. Called when the user leaves a seat.
+  Future<void> goListenOnly() async {
+    if (!_initialized) return;
+    await muteAudio();
+    _listenOnly = true;
+    _log('goListenOnly -> receive only');
+  }
+
   Future<void> unmuteAudio() async {
     try {
       if (_localStream != null) {

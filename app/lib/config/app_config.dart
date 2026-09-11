@@ -59,7 +59,12 @@ class AppConfig {
   static const int sendTimeout = 30000;
   
   // Socket Configuration
-  static const int socketReconnectionAttempts = 5;
+  /// A2 — unlimited. At 5 the socket gave up PERMANENTLY: a lift, a tunnel or
+  /// a wifi↔4G handover longer than ~15s exhausted the budget and signalling
+  /// was dead for the rest of the session, so ICE restart could never fire and
+  /// the room stayed on screen with no audio. socket.io treats a negative
+  /// value as infinite.
+  static const int socketReconnectionAttempts = -1;
   static const int socketReconnectionDelay = 1000;
   
   // Pagination

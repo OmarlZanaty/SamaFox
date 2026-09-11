@@ -2786,10 +2786,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       // optional: init audio service early (only if you want)
       final userId = ref.read(authStateProvider).user?.id;
       if (userId != null && !_audioReady) {
+        // A2 — join the room LISTEN-ONLY. Every member used to open a live
+        // capture on join, so a 30-person room had 30 hot microphones feeding a
+        // full mesh. The mic is captured only when a seat is taken, via
+        // _audioService.goLive() below.
         await _audioService.initialize(
           roomId: widget.roomId,
           userId: userId,
-          listenOnly: false,
+          listenOnly: true,
         );
         _audioReady = true;
         // Start measuring my own mic so the room can see who is talking.
@@ -4835,6 +4839,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
         ));
 
+        // A2 — now, and only now, capture the microphone and start sending.
+        unawaited(_audioService.goLive());
+
         // A10 — "المتكلم على المايك يظهر حوله دائرة متحركة". The detector only
         // runs while this user actually holds a mic; it was never switched on
         // at all before, which is why the ring never appeared for anyone (the
@@ -4849,7 +4856,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 // Leave seat
     if (prevSeat != null && newSeatNumber == null) {
-      await _audioService.muteAudio();
+      // A2 — back to listen-only: stop transmitting, keep hearing the room.
+      await _audioService.goListenOnly();
       // No mic, no ring, no detector.
       _audioService.disableVAD();
       // The ongoing notification must not outlive the mic that justified it.
@@ -5737,14 +5745,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         spacing: 8,
                         runSpacing: 8,
                         children: [
+                          // A18 — كتم / فك كتم for a PLATFORM admin too, in any
+                          // room including a super admin's. Kicking, blocking
+                          // and appointing stay room-only: the client listed a
+                          // platform admin's powers as the ban durations plus
+                          // the four mic controls, nothing more.
+                          if (isAdmin || _iAmPlatformAdmin)
+                            _adminChipBtn(seat.forceMuted ? Icons.mic : Icons.mic_off,
+                                seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك',
+                                Colors.orange, () async {
+                              Navigator.pop(context);
+                              await _forceMute(seat.userId, !seat.forceMuted);
+                            }),
                           if (isAdmin) ...
                           [
-                          _adminChipBtn(seat.forceMuted ? Icons.mic : Icons.mic_off,
-                              seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك',
-                              Colors.orange, () async {
-                            Navigator.pop(context);
-                            await _forceMute(seat.userId, !seat.forceMuted);
-                          }),
                           // Seat-bound actions only make sense for a real seat.
                           // The card also opens for a chat writer who is not on
                           // one (seatNumber -1), where these would act on a
@@ -5769,28 +5783,30 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             Navigator.pop(context);
                             await _promptKickUser(seat.userId);
                           }),
-                          if (seatNumber > 0)
-                          Builder(builder: (ctx) {
-                            final isSeatLocked = ref.read(roomControllerProvider(widget.roomId))
-                                .lockedSeats.contains(seatNumber);
-                            return _adminChipBtn(
-                              isSeatLocked ? Icons.lock_open : Icons.lock_outline,
-                              isSeatLocked ? 'فك قفل المقعد' : 'قفل المقعد',
-                              isSeatLocked ? Colors.lightGreen : Colors.amber,
-                              () {
-                                Navigator.pop(context);
-                                final newLocked = !isSeatLocked;
-                                ref.read(roomControllerProvider(widget.roomId).notifier)
-                                    .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
-                                _showRoomSnack(newLocked ? 'تم قفل المقعد $seatNumber' : 'تم فك قفل المقعد $seatNumber');
-                              },
-                            );
-                          }),
                           _adminChipBtn(Icons.shield_moon_outlined, 'تعيين مشرف', Colors.cyan, () async {
                             Navigator.pop(context);
                             await _appointSupervisor(seat.userId);
                           }),
                           ],
+                          // A18 — قفل / فك قفل المقعد, likewise open to a
+                          // platform admin.
+                          if ((isAdmin || _iAmPlatformAdmin) && seatNumber > 0)
+                            Builder(builder: (ctx) {
+                              final isSeatLocked = ref.read(roomControllerProvider(widget.roomId))
+                                  .lockedSeats.contains(seatNumber);
+                              return _adminChipBtn(
+                                isSeatLocked ? Icons.lock_open : Icons.lock_outline,
+                                isSeatLocked ? 'فك قفل المقعد' : 'قفل المقعد',
+                                isSeatLocked ? Colors.lightGreen : Colors.amber,
+                                () {
+                                  Navigator.pop(context);
+                                  final newLocked = !isSeatLocked;
+                                  ref.read(roomControllerProvider(widget.roomId).notifier)
+                                      .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
+                                  _showRoomSnack(newLocked ? 'تم قفل المقعد $seatNumber' : 'تم فك قفل المقعد $seatNumber');
+                                },
+                              );
+                            }),
                           // Platform ban, straight off the mic — independent of
                           // any room role. A room owner moderates HIS room; a
                           // platform admin bans from the app.
