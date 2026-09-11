@@ -1,3 +1,5 @@
+import 'product_layout.dart';
+
 enum LocalMsgStatus { sending, sent, failed }
 
 class DirectMessage {
@@ -19,6 +21,11 @@ class DirectMessage {
   final String? audioUrl;           // for voice message
   final String? pinnedAt;           // for pinned messages
 
+  /// C6 — the sender's equipped chat-bubble design and its dashboard inner-box
+  /// guides. Absent on an older server, in which case the flat bubble is drawn.
+  final String? bubbleUrl;
+  final ProductLayout bubbleLayout;
+
   final LocalMsgStatus localStatus;
 
   const DirectMessage({
@@ -36,6 +43,8 @@ class DirectMessage {
     required this.audioUrl,
     required this.pinnedAt,
     required this.localStatus,
+    this.bubbleUrl,
+    this.bubbleLayout = ProductLayout.empty,
   });
 
   DirectMessage copyWith({
@@ -53,6 +62,8 @@ class DirectMessage {
     String? audioUrl,
     String? pinnedAt,
     LocalMsgStatus? localStatus,
+    String? bubbleUrl,
+    ProductLayout? bubbleLayout,
   }) {
     return DirectMessage(
       id: id ?? this.id,
@@ -69,6 +80,8 @@ class DirectMessage {
       audioUrl: audioUrl ?? this.audioUrl,
       pinnedAt: pinnedAt ?? this.pinnedAt,
       localStatus: localStatus ?? this.localStatus,
+      bubbleUrl: bubbleUrl ?? this.bubbleUrl,
+      bubbleLayout: bubbleLayout ?? this.bubbleLayout,
     );
   }
 
@@ -102,6 +115,8 @@ class DirectMessage {
       audioUrl: j['audioUrl'] as String? ?? j['voiceUrl'] as String?,
       pinnedAt: j['pinnedAt'] as String?,
       localStatus: LocalMsgStatus.sent, // server messages already sent
+      bubbleUrl: j['bubbleUrl'] as String?,
+      bubbleLayout: ProductLayout.parse(j['bubbleMeta']),
     );
   }
 

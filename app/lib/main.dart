@@ -33,6 +33,7 @@ import 'services/global_notification_service.dart';
 import 'repositories/cp_repository.dart';
 import 'widgets/cp_request_dialog.dart';
 import 'widgets/global_notification_bar.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -71,13 +72,25 @@ class SamaFoxApp extends ConsumerStatefulWidget {
   ConsumerState<SamaFoxApp> createState() => _SamaFoxAppState();
 }
 
-class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
+class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _globalNotificationSub;
   late final SocketService _socketService;
 
   @override
   void initState() {
     super.initState();
+
+    // A10 — "طول ما المستخدم داخل التطبيق الشاشة ما تفصلش تلقائي", and
+    // deliberately independent of the phone's own sleep timeout. Held for the
+    // whole app rather than just the room: the client's wording is
+    // "داخل التطبيق", and the store, the games and the chat all suffered the
+    // same mid-read blackout.
+    //
+    // Released when the app leaves the foreground so it can never keep a
+    // backgrounded phone awake — that would be a battery complaint instead.
+    WidgetsBinding.instance.addObserver(this);
+    _applyWakelock(true);
+
     _socketService = SocketService();
     _globalNotificationSub = _socketService.notificationStream.listen((data) {
       final type = (data['type'] as String? ?? '').toLowerCase();
@@ -272,8 +285,26 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> {
     });
   }
 
+  /// Never let a wakelock failure surface: an unsupported platform or a denied
+  /// request must not break app start-up.
+  Future<void> _applyWakelock(bool enable) async {
+    try {
+      await WakelockPlus.toggle(enable: enable);
+    } catch (e) {
+      debugPrint('[wakelock] toggle($enable) failed: $e');
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    _applyWakelock(state == AppLifecycleState.resumed);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _applyWakelock(false);
     _globalNotificationSub?.cancel();
     _socketService.off('follow_request');
     _socketService.off('follow_accepted');

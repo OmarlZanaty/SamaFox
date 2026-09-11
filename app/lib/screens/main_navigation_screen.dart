@@ -102,7 +102,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     final isSelected = _selectedIndex == index;
 
     // Colors matching the image
-    final activeColor = const Color(0xFF4ECDC4); // Teal/cyan
+    const activeColor = Color(0xFF4ECDC4); // Teal/cyan
     final inactiveColor = Colors.white.withOpacity(0.4);
 
     return Expanded(

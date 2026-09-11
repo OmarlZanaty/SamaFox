@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../config/app_config.dart';
 import '../services/gift_socket_service.dart';
+import '../../widgets/app_network_image.dart';
 
 /// A22 — شريط إعلان الهدية.
 ///
@@ -103,7 +104,12 @@ class _GiftAnnouncementBarState extends State<GiftAnnouncementBar>
 
     return Positioned.fill(
       child: IgnorePointer(
-        child: Center(
+        // D6 — "حطه علي يمين الشاشه مش النص". Physically right, not
+        // AlignmentDirectional: the room is laid out RTL, where `start` IS the
+        // right edge, so a directional value here would read as correct and
+        // render on the wrong side.
+        child: Align(
+          alignment: Alignment.centerRight,
           child: FadeTransition(
             opacity: _ctrl,
             child: ScaleTransition(
@@ -120,7 +126,10 @@ class _GiftAnnouncementBarState extends State<GiftAnnouncementBar>
   Widget _bar(GiftAnnouncement a) {
     final iconUrl = _resolveUrl(a.giftIconUrl);
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
+      // D6 — "حطه علي يمين الشاشه مش النص". Pinned right with a max width so
+      // a long name still wraps inside the bar instead of stretching it back
+      // across the screen.
+      margin: const EdgeInsets.only(left: 48, right: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -139,7 +148,7 @@ class _GiftAnnouncementBarState extends State<GiftAnnouncementBar>
           if (iconUrl.isNotEmpty) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
+              child: AppNetworkImage(
                 iconUrl,
                 width: 30,
                 height: 30,

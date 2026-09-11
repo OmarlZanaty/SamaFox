@@ -61,14 +61,26 @@ async function isRoomAdminOrOwner(userId: number, roomId: number): Promise<{ isA
 // mute or pull an admin off the mic — the immunity the owner asked for. Note
 // this ranking governs MODERATION only; room settings stay gated by
 // isRoomAdminOrOwner, which platform admins deliberately do not satisfy.
-const ROLE_RANK: Record<string, number> = {
+const ROLE_RANK = {
   super: 5,
   platform: 4,
   owner: 3,
   admin: 2,
   supervisor: 1,
   member: 0,
-};
+} as const;
+
+/**
+ * Rank of an effective role, 0 for anything unrecognised.
+ *
+ * Every permission check goes through this rather than comparing role STRINGS.
+ * Matching literals is what broke تعيين المشرف: `getRoomRole` answers 'super'
+ * for a platform admin and returns before it looks at ownership, so a check
+ * written as `role !== 'owner' && role !== 'admin'` refused the highest tier in
+ * the system.
+ */
+const rankOf = (role: string): number =>
+  (ROLE_RANK as Record<string, number>)[role] ?? 0;
 
 /** Effective role: super | platform | owner | admin | supervisor | member. */
 async function getRoomRole(userId: number, roomId: number): Promise<string> {
@@ -104,11 +116,11 @@ async function assertCanModerate(
     getRoomRole(requesterId, roomId),
     getRoomRole(targetId, roomId),
   ]);
-  if ((ROLE_RANK[requesterRole] ?? 0) < 1) {
+  if (rankOf(requesterRole) < ROLE_RANK.supervisor) {
     // requester is not at least a supervisor
     return { ok: false, status: 403, error: 'Not allowed' };
   }
-  if ((ROLE_RANK[targetRole] ?? 0) >= (ROLE_RANK[requesterRole] ?? 0)) {
+  if (rankOf(targetRole) >= rankOf(requesterRole)) {
     return { ok: false, status: 403, error: 'لا يمكنك تنفيذ هذا الإجراء على هذا المستخدم' };
   }
   return { ok: true };
@@ -128,12 +140,19 @@ export async function addRoomAdmin(req: Request, res: Response) {
 
     const role = req.body.role === 'supervisor' ? 'supervisor' : 'admin';
     const requesterRole = await getRoomRole(requesterId, roomId);
+    const requesterRank = rankOf(requesterRole);
 
-    // Only the owner may appoint full admins; owner OR admins may appoint supervisors.
-    if (role === 'admin' && requesterRole !== 'owner') {
+    // Rank, not string equality. `getRoomRole` resolves a platform admin to
+    // 'super'/'platform' and returns BEFORE it ever looks at room ownership, so
+    // matching on the literals 'owner'/'admin' rejected every super admin — and
+    // rejected a room owner who also happens to be one. That is the client's
+    // "تعذر التعيين", which he hit every time because the account he tests with
+    // is a super admin. ROLE_RANK already orders the tiers; use it.
+    //   super 5 · platform 4 · owner 3 · admin 2 · supervisor 1 · member 0
+    if (role === 'admin' && requesterRank < ROLE_RANK.owner) {
       return res.status(403).json({ error: 'Only room owner can add admins' });
     }
-    if (role === 'supervisor' && requesterRole !== 'owner' && requesterRole !== 'admin') {
+    if (role === 'supervisor' && requesterRank < ROLE_RANK.admin) {
       return res.status(403).json({ error: 'Only owner or admins can add supervisors' });
     }
 
@@ -162,7 +181,12 @@ export async function removeRoomAdmin(req: Request, res: Response) {
 
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) return res.status(404).json({ error: 'Room not found' });
-    if (room.ownerId !== requesterId) return res.status(403).json({ error: 'Only room owner can remove admins' });
+    // Same rank rule as addRoomAdmin — appointing and revoking must agree, or a
+    // super admin could grant a supervisor he is then unable to remove.
+    const removerRank = rankOf(await getRoomRole(requesterId, roomId));
+    if (removerRank < ROLE_RANK.owner) {
+      return res.status(403).json({ error: 'Only room owner can remove admins' });
+    }
 
     const member = await prisma.roomMember.update({
       where: { userId_roomId: { userId, roomId } },
@@ -236,6 +260,17 @@ export async function banUser(req: Request, res: Response) {
     });
 
     await prisma.roomMember.deleteMany({ where: { roomId, userId } });
+
+    // Live removal, exactly like kickUser. Without this the ban only deleted a
+    // membership row: the banned user stayed sitting in the room until he left
+    // on his own, so from the admin's side the button "did nothing" — the
+    // client's "زر الحظر ظاهر للسوبر أدمن لكنه غير فعّال".
+    io.to(`user:${userId}`).emit('kicked_from_room', {
+      roomId,
+      until: ban.expiresAt,
+      message: reason || 'تم حظرك من الغرفة',
+    });
+    io.to(`room:${roomId}`).emit('room_user_banned', { roomId, userId });
 
     return res.json({ success: true, message: 'User banned', ban });
   } catch (e) {

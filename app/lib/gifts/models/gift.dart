@@ -16,7 +16,7 @@ bool _looksLikeVideo(String? url) {
 String? _absoluteUrl(String? url) {
   if (url == null || url.isEmpty) return url;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  final raw = AppConfig.socketUrl;
+  const raw = AppConfig.socketUrl;
   final base = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
   return url.startsWith('/') ? '$base$url' : '$base/$url';
 }

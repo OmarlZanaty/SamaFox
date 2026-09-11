@@ -8,6 +8,7 @@ import { createNotification } from './notification.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
 import { CRAZY_ROOM, getPublicState as getCrazyWheelState } from './crazyWheel.service';
+import { GREEDY_ROOM, getPublicState as getGreedyCatState } from './greedyCat.service';
 import { CRASH_ROOM, getCrashStatePublic, getCrashChat } from './crash.service';
 import {
   BOXING_RING_ROOM,
@@ -722,6 +723,17 @@ socket.on('crazy_leave_table', () => {
   socket.leave(CRAZY_ROOM);
 });
 
+// ── Greedy cat (القط الجشع): same deal — subscribing is free, every bet goes
+// through REST so it stays authenticated and rate-limited.
+socket.on('greedy_join_table', () => {
+  socket.join(GREEDY_ROOM);
+  socket.emit('greedy_state', getGreedyCatState());
+});
+
+socket.on('greedy_leave_table', () => {
+  socket.leave(GREEDY_ROOM);
+});
+
 // ── Crash (طيّار): subscribing to the table is free — betting, cashing out and
 // chatting all go through the REST endpoints so they stay authenticated and
 // rate-limited. The socket only pushes state.
@@ -1417,83 +1429,15 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         }
       }
 
-      // ✅ Auto-seat admins
-      if (admins.has(uid)) {
-        let seatNum: number | null = null;
-
-        // already seated?
-        for (const [num, occupant] of seatsMap.entries()) {
-          if (occupant === uid) {
-            seatNum = num;
-            break;
-          }
-        }
-
-        // find first available seat
-        if (seatNum == null) {
-          const room = await prisma.room.findUnique({
-            where: { id: rid },
-            select: { maxSeats: true },
-          });
-          const maxSeats = room?.maxSeats ?? 8;
-
-          for (let i = 1; i <= maxSeats; i++) {
-            if (!seatsMap.has(i) && !locked.has(i)) {
-              seatNum = i;
-              break;
-            }
-          }
-        }
-
-        if (seatNum != null) {
-          seatsMap.set(seatNum, uid);
-          mutedMap.set(uid, false);
-
-          const user = await prisma.user.findUnique({
-            where: { id: uid },
-             select: {
-  id: true,
-  name: true,
-  avatarUrl: true,        // 🔥 ADD THIS
-  avatarFrameUrl: true,
-  // `meta` = the frame's inner-hole guides from لوحة التحكم, so the
-  // client can seat the avatar exactly inside the ring whatever the
-  // artwork's padding or decoration is (client: "دائرة الاطار من الداخل
-  // على حرف المايك والصورة ايا كان حجمه وايا كانت زخرفته").
-  activeFrame: { select: { assetUrl: true, meta: true } },
-  level: true,
-  displayId: true,
-  vipLevel: true,
-}
-          });
-            const avatarFrameUrl = user?.activeFrame?.assetUrl ?? user?.avatarFrameUrl ?? null;
-          console.log('[auto-seat assigned]', { uid, rid, seatNum });
-
-          io.to(`room:${rid}`).emit('seat_occupied', {
-  seatNumber: seatNum,
-  userId: uid,
-  username: user?.name ?? null,
-  avatarUrl: user?.avatarUrl ?? null,
-  avatarFrameUrl, // ✅ ADD
-  frameImageUrl: avatarFrameUrl,
-  frameMeta: (user?.activeFrame as any)?.meta ?? null,
-  level: user?.level ?? 1,
-  displayId: user?.displayId ?? null,
-  vipLevel: user?.vipLevel ?? 0,
-  isMuted: false,
-});
-
-// (user_joined is emitted once for every entrant below, not just here.)
-
-getVoiceSet(rid).add(uid);
-await emitVoiceUsers(io, rid);
-//await emitRoomState(io, rid);
-
-
-        } else {
-          console.log('[auto-seat failed] no seat available', { uid, rid });
-        }
-      }
+      // A9 — NO auto-seating, for anyone.
+      //
+      // This used to seat every member of `admins` (room owner + room
+      // moderators + EVERY platform super admin) on the first free mic the
+      // moment they joined. The owner asked for it gone outright, so a super
+      // admin can sit in a room and watch without announcing himself:
+      // "الغاء الصعود التلقائي تماما - اللي عايز يصعد يضغط مايك عشان السوبر
+      // ادمن يقدر يتابع متخفي". Taking a seat is a deliberate tap now, and the
+      // normal take-seat path already handles admins correctly.
 
       // Unified snapshot (full seats 1..maxSeats) to avoid payload mismatches.
       await emitRoomState(io, rid);

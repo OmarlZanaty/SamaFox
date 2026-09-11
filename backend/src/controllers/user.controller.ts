@@ -516,6 +516,13 @@ export const getUserBadges = async (req: Request, res: Response) => {
     const userId = Number(req.params.userId);
     if (!userId || userId <= 0) return res.status(400).json({ success: false, message: 'Invalid userId' });
 
+    // C11 — "الشارات ظاهرة ومختلطة بمنتجات تانية". The row below also emits one
+    // representative of every OTHER special-item type the user owns (frame,
+    // entrance effect, room theme), which is what puts non-badges in the badge
+    // row. `onlyBadges=1` asks for the real badges alone; the mixed shape stays
+    // the default so any caller still relying on it is unaffected.
+    const onlyBadges = String((req.query as any)?.onlyBadges ?? '') === '1';
+
     const owned = await (prisma as any).userItem.findMany({
       where: {
         userId,
@@ -545,7 +552,7 @@ export const getUserBadges = async (req: Request, res: Response) => {
       if (!byType.has(o.item.type)) byType.set(o.item.type, o.item);
     }
 
-    const data = [...badges, ...byType.values()].map((item: any) => ({
+    const data = [...badges, ...(onlyBadges ? [] : byType.values())].map((item: any) => ({
       type: item.type,
       name: item.name,
       iconUrl: item.assetUrl,

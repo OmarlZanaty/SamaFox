@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  G5 — the launcher name on an Arabic device.
+
+  The app's audience is Arabic-speaking and the owner's complaint was that
+  searching "غرف دردشة صوتية" does not find it. The launcher label is a small
+  part of that, but it is the part that lives in this repo: everything else
+  (Play title, short description, keywords, screenshots) is Play Console text,
+  written up in docs/aso-plan.md.
+-->
+<resources>
+    <string name="app_name">سما فوكس</string>
+</resources>

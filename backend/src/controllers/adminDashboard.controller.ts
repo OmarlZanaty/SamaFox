@@ -6,8 +6,18 @@ import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned } 
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
-import { grantVipRewardsForRange } from '../services/vip.service';
-import { grantLevelRewards as grantLvLevelRewards, notifyLevelUp } from '../services/xp.service';
+import {
+  grantVipRewardsForRange,
+  evaluateVip,
+  getVipThresholdOverrides,
+  vipThresholdWithOverrides,
+} from '../services/vip.service';
+import {
+  grantLevelRewards as grantLvLevelRewards,
+  notifyLevelUp,
+  getLevelThresholdOverrides,
+  levelThresholdWithOverrides,
+} from '../services/xp.service';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { createNotification } from '../services/notification.service';
 import {
@@ -171,11 +181,18 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
   }
 };
 
-// Manual override of level/xp/vipLevel (#12, #18) — the automatic level/XP
-// system was previously dead (nothing awarded XP) and vipLevel only follows
-// totalRecharge, so an admin has no way to correct a user's standing. Each
-// field is independently settable (no forced recompute between them) so this
-// works as a true manual override, not a recalculation trigger.
+// Manual override of level/xp/vipLevel (#12, #18).
+//
+// E3 — a manual promotion is treated as if the user had actually earned it, so
+// he CONTINUES FROM THE NEW POSITION instead of being asked for the cumulative
+// total again. Raising someone to VIP 5 by hand used to leave `totalRecharge`
+// untouched, and VIP progress is derived from that field — so the app still
+// wanted the full 6,000,000 for VIP 6 rather than the 1,000,000 difference
+// ("المفروض يحسبه كأنه شحن فعلي فيكمل من موضعه الجديد"). `level` had the same
+// hole against `xp`. Each still drives only its own counter, and both are
+// raised to the FLOOR of the new tier, never lowered: a demotion must not
+// destroy recharge history, and a user sitting above his tier's floor keeps the
+// surplus he genuinely earned.
 export const adminUpdateUserProgression = async (req: AdminReq, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -204,9 +221,24 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
     // Capture the standing first so we can grant exactly the tiers crossed.
     const before = await (prisma as any).user.findUnique({
       where: { id },
-      select: { level: true, vipLevel: true },
+      select: { level: true, vipLevel: true, xp: true, totalRecharge: true },
     });
     if (!before) return fail(res, 404, 'User not found');
+
+    // E3: carry the underlying counters up with the manual tier so the next
+    // tier costs the DIFFERENCE, not the cumulative total.
+    if (data.vipLevel != null && data.vipLevel > before.vipLevel) {
+      const vipOverrides = await getVipThresholdOverrides();
+      const floor = vipThresholdWithOverrides(data.vipLevel, vipOverrides);
+      if (floor > (before.totalRecharge ?? 0)) data.totalRecharge = floor;
+    }
+    if (data.level != null && data.level > before.level && data.xp == null) {
+      // Skipped when the admin set `xp` explicitly in the same request — an
+      // explicit value is the more specific instruction and must win.
+      const xpOverrides = await getLevelThresholdOverrides();
+      const floor = levelThresholdWithOverrides(data.level, xpOverrides);
+      if (floor > (before.xp ?? 0)) data.xp = floor;
+    }
 
     const updated = await (prisma as any).user.update({
       where: { id },
@@ -428,6 +460,7 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
 
     // Set inside the transaction, acted on after it commits.
     let chargedAgencyId = 0;
+    let creditedUserId = 0;
     let chargedAmount = 0;
 
     const result = await db.$transaction(async (tx: any) => {
@@ -450,10 +483,16 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
         const ownerId = ownerRow?.userId ?? agency.userId;
         await tx.user.update({
           where: { id: ownerId },
-          data: { coinsBalance: { increment: topup.amount } },
+          data: {
+            coinsBalance: { increment: topup.amount },
+            // E2 — same rule as adminTopupAgency: an approved top-up is a real
+            // recharge and must count toward VIP.
+            totalRecharge: { increment: topup.amount },
+          },
         });
         chargedAgencyId = topup.agencyId;
         chargedAmount = topup.amount;
+        creditedUserId = ownerId;
       }
 
       const updated = await tx.agencyTopupRequest.update({
@@ -469,6 +508,11 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
     // Outside the transaction: the reward ladder must not be able to roll back
     // an approved top-up.
     if (chargedAgencyId) await recordAgencySelfCharge(chargedAgencyId, chargedAmount);
+    // E2 — re-evaluate VIP after the credit commits, never inside the
+    // transaction: a tier grant must not be able to roll the top-up back.
+    if (creditedUserId) {
+      try { await evaluateVip(creditedUserId); } catch (e) { console.warn('evaluateVip failed:', e); }
+    }
 
     return ok(res, { data: serialize(result.data) });
   } catch {
@@ -1273,9 +1317,17 @@ export const adminTopupAgency = async (req: AdminReq, res: Response) => {
 
     const owner = await db.user.update({
       where: { id: ownerId },
-      data: { coinsBalance: { increment: numericAmount } },
+      data: {
+        coinsBalance: { increment: numericAmount },
+        // E2 — "اي شحن علي محفظه المستخدم يتفاعل مع الـVIP". VIP progress is
+        // read off `totalRecharge`, so a credit that moves only coinsBalance is
+        // invisible to it. Every path that genuinely tops a wallet up has to
+        // move both, or the tier silently stops advancing.
+        totalRecharge: { increment: numericAmount },
+      },
       select: { coinsBalance: true },
     });
+    try { await evaluateVip(ownerId); } catch (e) { console.warn('evaluateVip failed:', e); }
 
     // Counts as one self-charge for the dashboard ranking, and pays out any
     // reward rung it crosses. It also owns the `totalTopupCoins` increment
@@ -2047,6 +2099,102 @@ export const adminSetSuperAdmin = async (req: AdminReq, res: Response) => {
 // proportional behaviour the client described for التبديل in item #10 and the
 // only way the two figures can never drift apart.
 // ============================================================
+/**
+ * B13 — إضافة / خصم التارجيت addressed by USER instead of by membership row.
+ *
+ * `adminAdjustMemberTarget` below keys off `agencyMember.id`, so it is only
+ * reachable by drilling into an agency's member list. An account the admin
+ * looked up by ID — the super admin's own, typically — has no row in that view
+ * and therefore no button at all, which is the client's "مش شغالة (ومش شغالة
+ * على السوبر أدمن تحديدا)".
+ *
+ * This resolves the person the way the admin actually identifies them (the
+ * 6-digit displayId off the profile card, falling back to the internal row id —
+ * the same fix B10 needed) and then moves the target on whichever membership
+ * actually carries one. A user who genuinely belongs to no agency has no target
+ * to move (B12 keeps it hidden for them), and is told so plainly rather than
+ * failing silently.
+ */
+export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
+  try {
+    const raw = Number(req.params.id);
+    if (!Number.isFinite(raw) || raw <= 0) return fail(res, 400, 'Invalid user id');
+
+    const amount = Math.floor(Number((req.body as { amountCoins?: number | string })?.amountCoins));
+    if (!Number.isFinite(amount) || amount === 0) {
+      return fail(res, 400, 'amountCoins must be a non-zero number (negative deducts)');
+    }
+
+    const byInternalId = String((req.query as any)?.by ?? '') === 'id';
+    const user = byInternalId
+      ? await db.user.findUnique({ where: { id: raw }, select: { id: true, name: true, displayId: true } })
+      : (await db.user.findFirst({ where: { displayId: raw }, select: { id: true, name: true, displayId: true } })) ??
+        (await db.user.findUnique({ where: { id: raw }, select: { id: true, name: true, displayId: true } }));
+    if (!user) return fail(res, 404, 'لا يوجد مستخدم بهذا الرقم');
+
+    // Same set of memberships that carry target elsewhere: any hosting member,
+    // plus a charging owner or فرع. Owner rows win so the adjustment lands on
+    // the agency the admin is most likely looking at.
+    const membership = await db.agencyMember.findFirst({
+      where: {
+        userId: user.id,
+        OR: [
+          { agency: { type: 'HOSTING', status: 'approved' } },
+          { role: { in: ['OWNER', 'BRANCH'] }, agency: { type: 'CHARGING', status: 'approved' } },
+        ],
+      },
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
+    });
+    if (!membership) {
+      return fail(res, 400, `${user.name ?? 'هذا المستخدم'} ليس عضواً في أي وكالة معتمدة — لا يوجد تارجيت لتعديله`);
+    }
+
+    const currentEarned =
+      (await memberTargetEarned(membership)) + Number(membership.commissionTargetCoins ?? 0n);
+    if (amount < 0 && currentEarned + amount < 0) {
+      return fail(res, 400, `لا يمكن الخصم: التارجيت الحالي ${currentEarned} فقط`);
+    }
+
+    const updated = await db.agencyMember.update({
+      where: { id: membership.id },
+      data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
+    });
+    const newEarned =
+      (await memberTargetEarned(updated)) + Number(updated.commissionTargetCoins ?? 0n);
+
+    try {
+      const { createNotification } = await import('../services/notification.service');
+      await createNotification({
+        userId: user.id,
+        type: 'TARGET_ADJUSTED',
+        title: amount > 0 ? 'تمت إضافة تارجيت' : 'تم خصم تارجيت',
+        body:
+          amount > 0
+            ? `أضافت الإدارة ${amount} إلى التارجيت الخاص بك`
+            : `خصمت الإدارة ${Math.abs(amount)} من التارجيت الخاص بك`,
+        data: { amountCoins: amount, agencyId: membership.agencyId },
+      });
+    } catch (e) {
+      console.warn('target adjustment notification failed:', e);
+    }
+
+    return ok(res, {
+      data: {
+        userId: user.id,
+        displayId: user.displayId ?? null,
+        name: user.name ?? null,
+        memberId: membership.id,
+        agencyId: membership.agencyId,
+        amountCoins: amount,
+        earnedCoins: newEarned,
+      },
+    });
+  } catch (e) {
+    console.error('adminAdjustUserTarget error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
   try {
     const memberId = Number(req.params.memberId);
@@ -2198,6 +2346,434 @@ export const adminResetSupporterCounter = async (req: AdminReq, res: Response) =
     return ok(res, { data: user });
   } catch (e) {
     console.error('adminResetSupporterCounter error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// A15 — قائمة "المكافآت" في لوحة التحكم
+//
+// Two independent ladders, both configured here:
+//   • مكافأة كأس الروم   — coins supported in a room -> coins to the room owner
+//                          (وكالة المضيفين only; paid automatically)
+//   • مكافأة الداعمين     — coins a supporter has gifted -> coins they can CLAIM
+//                          from the "مكافأة لك" square in كأس الروم
+// plus A14's reset window for إجمالي دعم الروم.
+// ============================================================
+
+export const adminListRoomCupRewards = async (_req: AdminReq, res: Response) => {
+  try {
+    const rows = await db.roomCupReward.findMany({ orderBy: { thresholdCoins: 'asc' } });
+    return ok(res, {
+      data: rows.map((r: any) => ({
+        id: r.id,
+        thresholdCoins: String(r.thresholdCoins),
+        rewardCoins: String(r.rewardCoins),
+        isActive: r.isActive,
+      })),
+    });
+  } catch (e) {
+    console.error('adminListRoomCupRewards error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSaveRoomCupReward = async (req: AdminReq, res: Response) => {
+  try {
+    const threshold = Math.floor(Number((req.body as any)?.thresholdCoins));
+    const reward = Math.floor(Number((req.body as any)?.rewardCoins));
+    if (!Number.isFinite(threshold) || threshold <= 0) return fail(res, 400, 'thresholdCoins must be > 0');
+    if (!Number.isFinite(reward) || reward <= 0) return fail(res, 400, 'rewardCoins must be > 0');
+
+    const row = await db.roomCupReward.create({
+      data: { thresholdCoins: BigInt(threshold), rewardCoins: BigInt(reward) },
+    });
+    return ok(res, {
+      data: { id: row.id, thresholdCoins: String(row.thresholdCoins), rewardCoins: String(row.rewardCoins) },
+    });
+  } catch (e) {
+    console.error('adminSaveRoomCupReward error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDeleteRoomCupReward = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    await db.roomCupReward.delete({ where: { id } });
+    return ok(res, { data: { id } });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Reward not found');
+    console.error('adminDeleteRoomCupReward error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminListSupporterRewards = async (_req: AdminReq, res: Response) => {
+  try {
+    const rows = await db.supporterReward.findMany({ orderBy: { targetCoins: 'asc' } });
+    return ok(res, {
+      data: rows.map((r: any) => ({
+        id: r.id,
+        targetCoins: String(r.targetCoins),
+        rewardCoins: String(r.rewardCoins),
+        roomId: r.roomId ?? null,
+        isActive: r.isActive,
+      })),
+    });
+  } catch (e) {
+    console.error('adminListSupporterRewards error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSaveSupporterReward = async (req: AdminReq, res: Response) => {
+  try {
+    const target = Math.floor(Number((req.body as any)?.targetCoins));
+    const reward = Math.floor(Number((req.body as any)?.rewardCoins));
+    const roomRaw = (req.body as any)?.roomId;
+    const roomId = roomRaw == null || roomRaw === '' ? null : Math.floor(Number(roomRaw));
+    if (!Number.isFinite(target) || target <= 0) return fail(res, 400, 'targetCoins must be > 0');
+    if (!Number.isFinite(reward) || reward <= 0) return fail(res, 400, 'rewardCoins must be > 0');
+    if (roomId != null && !Number.isFinite(roomId)) return fail(res, 400, 'roomId must be a number or empty');
+
+    const row = await db.supporterReward.create({
+      data: { targetCoins: BigInt(target), rewardCoins: BigInt(reward), roomId },
+    });
+    return ok(res, {
+      data: {
+        id: row.id,
+        targetCoins: String(row.targetCoins),
+        rewardCoins: String(row.rewardCoins),
+        roomId: row.roomId ?? null,
+      },
+    });
+  } catch (e) {
+    console.error('adminSaveSupporterReward error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDeleteSupporterReward = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    await db.supporterReward.delete({ where: { id } });
+    return ok(res, { data: { id } });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Reward not found');
+    console.error('adminDeleteSupporterReward error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/** A14 — read/write the إجمالي دعم الروم reset window, in hours (0 = all-time). */
+export const adminGetRoomSupportWindow = async (_req: AdminReq, res: Response) => {
+  try {
+    const { getRoomSupportWindowHours } = await import('../services/roomReward.service');
+    return ok(res, { data: { hours: await getRoomSupportWindowHours() } });
+  } catch (e) {
+    console.error('adminGetRoomSupportWindow error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSetRoomSupportWindow = async (req: AdminReq, res: Response) => {
+  try {
+    const hours = Math.floor(Number((req.body as any)?.hours));
+    if (!Number.isFinite(hours) || hours < 0) return fail(res, 400, 'hours must be >= 0');
+    const { setRoomSupportWindowHours } = await import('../services/roomReward.service');
+    return ok(res, { data: { hours: await setRoomSupportWindowHours(hours) } });
+  } catch (e) {
+    console.error('adminSetRoomSupportWindow error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// F3 — رسائل الإدارة
+//
+// "إشعارات/رسائل من الإدارة للجميع أو لمستخدم بعينه، مع مراعاة الأرقام الصينية
+// (رقمين أو 3)". The recipient is identified the way an admin actually reads an
+// id off a profile card — the 6-digit displayId — falling back to the internal
+// row id. That is the same resolution B10 needed, and "الأرقام الصينية" is just
+// a short displayId, which `findFirst({ displayId })` matches exactly.
+// ============================================================
+
+export const adminSendMessage = async (req: AdminReq, res: Response) => {
+  try {
+    const title = String((req.body as any)?.title ?? '').trim();
+    const body = String((req.body as any)?.body ?? '').trim();
+    if (!title || !body) return fail(res, 400, 'title و body مطلوبان');
+
+    const target = String((req.body as any)?.target ?? 'all');
+    const adminId = (req as any).userId as number | undefined;
+
+    if (target === 'all') {
+      const users = await db.user.findMany({ select: { id: true } });
+      if (users.length === 0) return ok(res, { data: { sent: 0 } });
+
+      // createMany, not a loop of createNotification: a broadcast to every
+      // account is one statement, and a per-row round trip would take minutes
+      // on a real user table.
+      await db.notification.createMany({
+        data: users.map((u: { id: number }) => ({
+          userId: u.id,
+          actorId: adminId ?? null,
+          type: 'admin_message',
+          title,
+          body,
+        })),
+      });
+      return ok(res, { data: { sent: users.length, target: 'all' } });
+    }
+
+    const raw = Number(target);
+    if (!Number.isFinite(raw) || raw <= 0) return fail(res, 400, 'target must be "all" or a user id');
+
+    const user =
+      (await db.user.findFirst({ where: { displayId: raw }, select: { id: true, name: true, displayId: true } })) ??
+      (await db.user.findUnique({ where: { id: raw }, select: { id: true, name: true, displayId: true } }));
+    if (!user) return fail(res, 404, 'لا يوجد مستخدم بهذا الرقم');
+
+    await db.notification.create({
+      data: { userId: user.id, actorId: adminId ?? null, type: 'admin_message', title, body },
+    });
+    return ok(res, {
+      data: { sent: 1, target: user.id, displayId: user.displayId ?? null, name: user.name ?? null },
+    });
+  } catch (e) {
+    console.error('adminSendMessage error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// F4 — حظر الجهاز / الشبكة
+// ============================================================
+
+export const adminListDeviceBans = async (_req: AdminReq, res: Response) => {
+  try {
+    const rows = await db.deviceBan.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+    return ok(res, { data: rows });
+  } catch (e) {
+    console.error('adminListDeviceBans error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminCreateDeviceBan = async (req: AdminReq, res: Response) => {
+  try {
+    const deviceId = String((req.body as any)?.deviceId ?? '').trim() || null;
+    const ipAddress = String((req.body as any)?.ipAddress ?? '').trim() || null;
+    const reason = String((req.body as any)?.reason ?? '').trim() || null;
+    const days = Number((req.body as any)?.days);
+
+    if (!deviceId && !ipAddress) return fail(res, 400, 'أدخل معرّف جهاز أو عنوان IP');
+
+    const expiresAt =
+      Number.isFinite(days) && days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;
+    const adminId = (req as any).userId as number | undefined;
+
+    // upsert-by-hand: deviceId and ipAddress are each uniquely indexed, so a
+    // repeat ban refreshes the existing row rather than throwing.
+    const existing = await db.deviceBan.findFirst({
+      where: { OR: [...(deviceId ? [{ deviceId }] : []), ...(ipAddress ? [{ ipAddress }] : [])] },
+    });
+    const row = existing
+      ? await db.deviceBan.update({
+          where: { id: existing.id },
+          data: { deviceId, ipAddress, reason, expiresAt, bannedBy: adminId ?? null },
+        })
+      : await db.deviceBan.create({
+          data: { deviceId, ipAddress, reason, expiresAt, bannedBy: adminId ?? null },
+        });
+
+    return ok(res, { data: row });
+  } catch (e) {
+    console.error('adminCreateDeviceBan error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminDeleteDeviceBan = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return fail(res, 400, 'Invalid id');
+    await db.deviceBan.delete({ where: { id } });
+    return ok(res, { data: { id } });
+  } catch (e: any) {
+    if (e?.code === 'P2025') return fail(res, 404, 'Ban not found');
+    console.error('adminDeleteDeviceBan error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// B14 — سجل شحنات مستخدم بعينه
+//
+// "بحث بالمستخدم يظهر قائمة شحناته (شحن كام ومن مين)". The attribution columns
+// were already being written on every AGENCY_TOPUP transaction; nothing ever
+// read them back.
+// ============================================================
+
+export const adminUserChargeHistory = async (req: AdminReq, res: Response) => {
+  try {
+    const raw = Number(req.params.id);
+    if (!Number.isFinite(raw) || raw <= 0) return fail(res, 400, 'Invalid user id');
+
+    const user =
+      (await db.user.findFirst({ where: { displayId: raw }, select: { id: true, name: true, displayId: true } })) ??
+      (await db.user.findUnique({ where: { id: raw }, select: { id: true, name: true, displayId: true } }));
+    if (!user) return fail(res, 404, 'لا يوجد مستخدم بهذا الرقم');
+
+    const rows = await db.transaction.findMany({
+      where: { userId: user.id, type: 'AGENCY_TOPUP' },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    const senderIds = [...new Set(rows.map((r: any) => r.senderId).filter(Boolean))] as number[];
+    const agencyIds = [...new Set(rows.map((r: any) => r.agencyId).filter(Boolean))] as number[];
+    const [senders, agencies] = await Promise.all([
+      senderIds.length
+        ? db.user.findMany({ where: { id: { in: senderIds } }, select: { id: true, name: true, displayId: true } })
+        : [],
+      agencyIds.length
+        ? db.chargingAgency.findMany({ where: { id: { in: agencyIds } }, select: { id: true, agencyName: true } })
+        : [],
+    ]);
+    const senderById = new Map(senders.map((u: any) => [u.id, u]));
+    const agencyById = new Map(agencies.map((a: any) => [a.id, a]));
+
+    const total = rows.reduce((sum: number, r: any) => sum + Number(r.amountCoins ?? 0), 0);
+
+    return ok(res, {
+      data: {
+        user,
+        totalCoins: total,
+        count: rows.length,
+        charges: rows.map((r: any) => ({
+          id: r.id,
+          amountCoins: Number(r.amountCoins ?? 0),
+          createdAt: r.createdAt,
+          from: r.senderId ? senderById.get(r.senderId) ?? null : null,
+          agency: r.agencyId ? agencyById.get(r.agencyId) ?? null : null,
+        })),
+      },
+    });
+  } catch (e) {
+    console.error('adminUserChargeHistory error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * C16 / C18 — two small gates the client asked to control from لوحة التحكم:
+ *   • visitorsMinLevel — الليفل المطلوب لرؤية قائمة الزوار
+ *   • messageImageMinVip — أقل VIP يسمح بإرسال الصور في الرسائل الخاصة
+ * Grouped in one read/write pair so the dashboard needs one card, not four.
+ */
+export const adminGetGates = async (_req: AdminReq, res: Response) => {
+  try {
+    const [{ getVisitorsMinLevel }, { getMessageImageMinVip }] = await Promise.all([
+      import('../follow/relations.controller'),
+      import('./messages.controller'),
+    ]);
+    const [visitorsMinLevel, messageImageMinVip] = await Promise.all([
+      getVisitorsMinLevel(),
+      getMessageImageMinVip(),
+    ]);
+    return ok(res, { data: { visitorsMinLevel, messageImageMinVip } });
+  } catch (e) {
+    console.error('adminGetGates error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSetGates = async (req: AdminReq, res: Response) => {
+  try {
+    const out: Record<string, number> = {};
+    const body = req.body as any;
+
+    if (body?.visitorsMinLevel != null) {
+      const v = Math.floor(Number(body.visitorsMinLevel));
+      if (!Number.isFinite(v) || v < 0) return fail(res, 400, 'visitorsMinLevel must be >= 0');
+      const { setVisitorsMinLevel } = await import('../follow/relations.controller');
+      out.visitorsMinLevel = await setVisitorsMinLevel(v);
+    }
+    if (body?.messageImageMinVip != null) {
+      const v = Math.floor(Number(body.messageImageMinVip));
+      if (!Number.isFinite(v) || v < 0) return fail(res, 400, 'messageImageMinVip must be >= 0');
+      const { setMessageImageMinVip } = await import('./messages.controller');
+      out.messageImageMinVip = await setMessageImageMinVip(v);
+    }
+    if (Object.keys(out).length === 0) return fail(res, 400, 'nothing to update');
+
+    return ok(res, { data: out });
+  } catch (e) {
+    console.error('adminSetGates error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ============================================================
+// G3(d) — لوحة تحكم الألعاب
+// ============================================================
+
+export const adminListGameConfig = async (_req: AdminReq, res: Response) => {
+  try {
+    const { KNOWN_GAMES, getGameSettings } = await import('../services/gameConfig.service');
+    const data = await Promise.all(
+      KNOWN_GAMES.map(async (game) => ({ game, ...(await getGameSettings(game)) })),
+    );
+    return ok(res, { data });
+  } catch (e) {
+    console.error('adminListGameConfig error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSetGameConfig = async (req: AdminReq, res: Response) => {
+  try {
+    const game = String(req.params.game ?? '').trim();
+    if (!game) return fail(res, 400, 'Invalid game');
+
+    const { KNOWN_GAMES, setGameSettings } = await import('../services/gameConfig.service');
+    if (!(KNOWN_GAMES as readonly string[]).includes(game)) return fail(res, 404, 'Unknown game');
+
+    const body = req.body as any;
+    const patch: Record<string, unknown> = {};
+
+    if (body?.enabled != null) patch.enabled = Boolean(body.enabled);
+
+    // An empty string means "clear the override and go back to the game's own
+    // built-in limit" — distinct from 0, which would be a real limit.
+    for (const field of ['minBet', 'maxBet'] as const) {
+      if (body?.[field] === undefined) continue;
+      if (body[field] === null || body[field] === '') {
+        patch[field] = null;
+        continue;
+      }
+      const n = Math.floor(Number(body[field]));
+      if (!Number.isFinite(n) || n < 0) return fail(res, 400, `${field} must be >= 0 or empty`);
+      patch[field] = n;
+    }
+
+    if (Object.keys(patch).length === 0) return fail(res, 400, 'nothing to update');
+
+    const next = await setGameSettings(game, patch as any);
+    if (
+      next.minBet != null &&
+      next.maxBet != null &&
+      next.minBet > next.maxBet
+    ) {
+      return fail(res, 400, 'أقل رهان أكبر من أعلى رهان');
+    }
+    return ok(res, { data: { game, ...next } });
+  } catch (e) {
+    console.error('adminSetGameConfig error:', e);
     return fail(res, 500, 'Server error');
   }
 };

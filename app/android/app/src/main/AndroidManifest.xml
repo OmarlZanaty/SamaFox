@@ -27,11 +27,25 @@
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!--
+      A11 - "تسجيل الشاشة بدون صوت". Screen capture must run inside a
+      foreground service of type mediaProjection from Android 10, and Android 14
+      additionally requires this dedicated permission.
+
+      PLAY POLICY: like FOREGROUND_SERVICE_MICROPHONE above, this needs its own
+      declaration in Play Console - "lets the user record their own session in a
+      voice room" - before submitting.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Android 13+: the ongoing "mic is open" notification needs consent. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- G5 — the label was the literal "samafox": lowercase, English, and not
+         what any of this app's users would search for. It is the localised
+         @string/app_name now, which resolves to "سما فوكس" on an Arabic
+         device via res/values-ar/strings.xml. -->
     <application
-        android:label="samafox"
+        android:label="@string/app_name"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher">
@@ -93,6 +107,18 @@
             android:name=".RoomAudioService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!--
+          A11 - owns the MediaProjection capture. `mediaProjection` is the type
+          Android requires for screen recording; `microphone` is declared too
+          because the recorder captures the mic (the room's own voice stream is
+          USAGE_VOICE_COMMUNICATION, which the platform forbids any app from
+          capturing - see ScreenRecordService).
+        -->
+        <service
+            android:name=".ScreenRecordService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
 
         <!-- image_cropper's native crop UI (profile photo crop tool) -->
         <activity

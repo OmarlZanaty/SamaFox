@@ -3,6 +3,7 @@ import '../../models/direct_message.dart';
 import 'chat_ui_helpers.dart';
 import 'reaction_picker.dart';
 import 'voice_message_bubble.dart';
+import 'bubble_skin.dart';
 
 class MessageBubble extends StatelessWidget {
   final DirectMessage m;
@@ -56,10 +57,15 @@ class MessageBubble extends StatelessWidget {
           ? (isDark ? Colors.white12 : Colors.black.withOpacity(0.06))
           : (isDark ? Colors.white10 : Colors.black.withOpacity(0.04));
 
-      core = Container(
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
+      // C6 — the sender's bought bubble, the same rendering the room uses. With
+      // no design equipped this falls back to the flat DM bubble, so a user who
+      // owns nothing sees no change at all.
+      core = BubbleSkin(
+        bubbleUrl: m.bubbleUrl,
+        layout: m.bubbleLayout,
+        maxWidthFactor: 0.78,
+        defaultPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        plainDecoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: isDark ? Colors.white10 : Colors.black12),

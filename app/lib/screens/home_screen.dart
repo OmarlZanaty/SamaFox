@@ -12,12 +12,11 @@ import '../services/dio_client.dart';
 import 'room_screen.dart';
 import 'profile_screen.dart';
 import 'supporters_board_screen.dart';
-import '../repositories/cp_repository.dart';
-import 'cp_list_screen.dart';
 import '../widgets/marquee_text.dart';
 import 'create_room_dialog.dart';
 import '../widgets/user_trail.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import '../widgets/app_network_image.dart';
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -201,6 +200,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     final isSearchMode = _controller.text.trim().isNotEmpty;
 
     final rooms = List.of(roomsState.rooms);
+
+    // A16 — غرفة الإدارة: "خلي الغرفه دي هي اول غرفه وبحجم كبير في العرض".
+    // The API already returns it first and flags it; pulling it OUT of `rooms`
+    // here is what stops it being drawn a second time inside the normal grid.
+    final featuredIndex = rooms.indexWhere((r) => r.isFeatured == true);
+    final featuredRoom = featuredIndex >= 0 ? rooms.removeAt(featuredIndex) : null;
     rooms.shuffle(Random(7));
 
     final w = MediaQuery.of(context).size.width;
@@ -305,13 +310,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                     ),
 
                     // 🔥 ADD HERE
-                    SliverToBoxAdapter(child: SizedBox(height: 10)),
-                    SliverToBoxAdapter(child: _AdsSlider()),
-                    SliverToBoxAdapter(child: SizedBox(height: 10)),
+                    const SliverToBoxAdapter(child: SizedBox(height: 10)),
+                    const SliverToBoxAdapter(child: _AdsSlider()),
+                    const SliverToBoxAdapter(child: SizedBox(height: 10)),
                     // #20 — "في الصفحة الرئيسية يعمل مربع باسم CP … يظهر له كل
                     // الاشخاص اللي عامل معاهم CP". Hidden while searching so it
                     // does not sit between the query and its results.
-                    if (!isSearchMode) const SliverToBoxAdapter(child: _CpBox()),
                     // ✅ removed the top bubbles row (plus icon + people icons)
 
                     if (isSearchMode)
@@ -404,11 +408,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                           sliver: SliverList(
                             delegate: SliverChildListDelegate([
 
+                              // A16 — the pinned admin room, full width and
+                              // taller than a grid tile, above everything else.
+                              if (featuredRoom != null) ...[
+                                SizedBox(
+                                  height: 168,
+                                  child: _RoomTile(
+                                    stringsOnline: strings.online,
+                                    room: featuredRoom,
+                                    isFeatured: true,
+                                    onTap: () => Navigator.pushNamed(
+                                      context,
+                                      '/room',
+                                      arguments: featuredRoom.id,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                              ],
+
                               // 🦊 SamaFox + top rooms block
                               LayoutBuilder(
                                 builder: (context, constraints) {
                                   final totalWidth = constraints.maxWidth;
-                                  final spacing = 6.0;
+                                  const spacing = 6.0;
                                   final itemWidth = (totalWidth - spacing * 2) / 3;
 
                                   if (rooms.length == 1) {
@@ -613,7 +636,9 @@ class SearchResultTile extends StatelessWidget {
             // UserProfileScreen was a stripped-down stub with none of the
             // room/message/follow row, badges, or caching fixes.
             Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ProfileScreen(userId: result.id)),
+              MaterialPageRoute(
+                builder: (_) => ProfileScreen(userId: result.id, source: 'home'),
+              ),
             );
           }
         },
@@ -650,103 +675,6 @@ class SearchResultTile extends StatelessWidget {
   }
 }
 
-
-// ===================== TOP HEADER =====================
-/// #20 — the home-page CP box.
-///
-/// A decorated entry point ("في مربع مزخرف علي ذوقك") that opens the list of
-/// everyone the user has a CP with. The count is loaded lazily and the box is
-/// still shown at zero, because it is also how someone discovers the feature
-/// exists — hiding it until you already have a CP would be backwards.
-class _CpBox extends StatefulWidget {
-  const _CpBox();
-
-  @override
-  State<_CpBox> createState() => _CpBoxState();
-}
-
-class _CpBoxState extends State<_CpBox> {
-  late Future<List<CpPartner>> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = CpRepository().partners();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: GestureDetector(
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CpListScreen()),
-          );
-          // Coming back from a cancellation must not leave a stale count.
-          if (mounted) setState(() => _future = CpRepository().partners());
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF3A1250), Color(0xFF7A1D4E)],
-              begin: Alignment.centerRight,
-              end: Alignment.centerLeft,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0x66FF4081)),
-            boxShadow: const [
-              BoxShadow(color: Color(0x33FF4081), blurRadius: 14, offset: Offset(0, 4)),
-            ],
-          ),
-          child: Row(
-            children: [
-              const Text('💞', style: TextStyle(fontSize: 22)),
-              const SizedBox(width: 10),
-              const Text(
-                'CP',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.5,
-                ),
-              ),
-              const SizedBox(width: 8),
-              FutureBuilder<List<CpPartner>>(
-                future: _future,
-                builder: (context, snap) {
-                  // A failed load shows no chip rather than an error: the box
-                  // still opens, and the list screen reports the failure itself.
-                  if (!snap.hasData) return const SizedBox.shrink();
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.16),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '${snap.data!.length}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const Spacer(),
-              const Icon(Icons.chevron_left, color: Colors.white70, size: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _AdsSlider extends StatefulWidget {
   const _AdsSlider();
@@ -1113,7 +1041,7 @@ class _RoomTile extends StatelessWidget {
             if (cover != null)
               ClipRRect(
                 borderRadius: BorderRadius.circular(22),
-                child: Image.network(
+                child: AppNetworkImage(
                   cover,
                   fit: BoxFit.cover,
                   width: double.infinity,
@@ -1159,11 +1087,11 @@ class _RoomTile extends StatelessWidget {
                           child: Text.rich(
                             TextSpan(
                               children: [
-                                WidgetSpan(
+                                const WidgetSpan(
                                   alignment: PlaceholderAlignment.middle, // Correct named argument
                                   child: Icon(Icons.people, color: Colors.white, size: 14),
                                 ),
-                                WidgetSpan(
+                                const WidgetSpan(
                                   child: SizedBox(width: 6), // Correct named argument
                                 ),
                                 TextSpan(
@@ -1196,7 +1124,7 @@ class _RoomTile extends StatelessWidget {
                     Shadow(
                       blurRadius: 10.0,       // Soft shadow
                       color: Colors.black.withOpacity(0.8),  // Shadow color
-                      offset: Offset(2.0, 2.0),             // Shadow offset
+                      offset: const Offset(2.0, 2.0),             // Shadow offset
                     ),
                   ],
                 ),
@@ -1272,8 +1200,8 @@ class _SamaFoxRoom extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
-                  Row(
-                    children: const [
+                  const Row(
+                    children: [
                       Icon(Icons.shield, color: Color(0xFFFFD36E), size: 22),
                       SizedBox(width: 6),
                       Text(
@@ -1546,7 +1474,7 @@ class _GlassBottomBar extends StatelessWidget {
                     ),
                     child: hasRoom && roomImageUrl != null
                         ? ClipOval(
-                      child: Image.network(
+                      child: AppNetworkImage(
                         roomImageUrl!,
                         fit: BoxFit.cover,
                         width: 62,

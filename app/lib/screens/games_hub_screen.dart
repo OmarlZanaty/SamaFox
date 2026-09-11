@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'games/aetherfall_screen.dart';
+import 'games/asterion_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
+import 'games/olympus_screen.dart';
+import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
-// Older games are hidden from the hub for now — see _hiddenGames below.
-// import 'games/skill_wheel_screen.dart';
-// import 'games/fish_shooter_screen.dart';
-// import 'games/lion_tiger_screen.dart';
-// import 'games/skill_dice_screen.dart';
+// G3(a) — these four shipped but were parked out of the hub; they are back.
+import 'games/skill_wheel_screen.dart';
+import 'games/fish_shooter_screen.dart';
+import 'games/lion_tiger_screen.dart';
+import 'games/skill_dice_screen.dart';
 
 /// Full-bleed stacked cards: one game per row, artwork filling the card, the
 /// name drawn over it. Titles stay in code rather than baked into the artwork
@@ -48,6 +51,34 @@ const List<_GameEntry> _games = [
     art: 'assets/images/cards/card_aetherfall.png',
   ),
   _GameEntry(
+    title: 'بوابات أوليمبوس',
+    tagline: 'اجمع صواعق زيوس',
+    emoji: '⚡',
+    accent: Color(0xFFE3B84A),
+    gradient: [Color(0xFF3A1A72), Color(0xFF12052B)],
+    art: 'assets/images/cards/card_olympus.png',
+    // The banner carries no lettering, so the hub draws the name over it.
+    drawTitle: true,
+  ),
+  _GameEntry(
+    title: 'القط الجشع',
+    tagline: 'اختر طعامك واربح',
+    emoji: '🐱',
+    accent: Color(0xFFFFD83D),
+    gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
+    art: 'assets/images/cards/card_greedy.png',
+  ),
+  _GameEntry(
+    title: 'أستيريون',
+    tagline: 'اجمع كرات العاصفة',
+    emoji: '⛈️',
+    accent: Color(0xFF5EE0F5),
+    gradient: [Color(0xFF141A47), Color(0xFF06071A)],
+    // No banner has been delivered yet, so the card draws its own name over the
+    // gradient rather than showing a broken image.
+    drawTitle: true,
+  ),
+  _GameEntry(
     title: 'نيون فورتشن',
     tagline: 'أدر واجمع الجاكبوت',
     emoji: '🐯',
@@ -57,12 +88,6 @@ const List<_GameEntry> _games = [
     // Delivered without lettering, so the hub draws the name.
     drawTitle: true,
   ),
-];
-
-/// Kept so the older games can be put back in one move: add the entry to
-/// [_games] and restore its case in [GamesHubScreen._open].
-// ignore: unused_element
-const List<_GameEntry> _hiddenGames = [
   _GameEntry(
     title: 'عجلة المهارة',
     tagline: 'أوقف العجلة',
@@ -194,15 +219,30 @@ class GamesHubScreen extends ConsumerWidget {
       case 'أثيرفول':
         screen = const AetherfallScreen();
         break;
+      case 'بوابات أوليمبوس':
+        screen = const OlympusScreen();
+        break;
+      case 'القط الجشع':
+        screen = const GreedyCatScreen();
+        break;
+      case 'أستيريون':
+        screen = const AsterionScreen();
+        break;
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
         break;
-      // Hidden games — restore the _GameEntry to [_games] and these match by
-      // title wherever it lands:
-      // case 'عجلة المهارة': screen = const SkillWheelScreen(); break;
-      // case 'صياد السمك': screen = const FishShooterScreen(); break;
-      // case 'حلبة الأسد والنمر': screen = const LionTigerScreen(); break;
-      // case 'نرد المهارة': screen = const SkillDiceScreen(); break;
+      case 'عجلة المهارة':
+        screen = const SkillWheelScreen();
+        break;
+      case 'صياد السمك':
+        screen = const FishShooterScreen();
+        break;
+      case 'حلبة الأسد والنمر':
+        screen = const LionTigerScreen();
+        break;
+      case 'نرد المهارة':
+        screen = const SkillDiceScreen();
+        break;
       default:
         return;
     }

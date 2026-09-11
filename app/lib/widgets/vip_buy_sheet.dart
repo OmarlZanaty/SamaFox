@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/dio_client.dart';
 import '../services/level_catalog_service.dart';
 import '../utils/storage_service.dart';
+import '../widgets/app_network_image.dart';
 
 /// Buy a VIP tier with coins (شراء VIP).
 ///
@@ -225,7 +226,7 @@ class _VipBuySheetState extends State<VipBuySheet> {
       child: Row(
         children: [
           if (badge != null)
-            Image.network(badge, width: 38, height: 38, fit: BoxFit.contain,
+            AppNetworkImage(badge, width: 38, height: 38, fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Icon(Icons.workspace_premium,
                     color: Color(0xFFFFD700), size: 32))
           else

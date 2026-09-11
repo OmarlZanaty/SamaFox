@@ -32,6 +32,9 @@ import '../widgets/video_preview_widget.dart';
 import '../services/socket_service.dart';
 import '../config/app_config.dart';
 import 'home_screen.dart';
+import '../widgets/app_network_image.dart';
+import '../widgets/cp_box.dart';
+import 'relations_screen.dart';
 
 /// Model for Received Gift
 class ReceivedGift {
@@ -70,7 +73,13 @@ class ProfileScreen extends ConsumerStatefulWidget {
   /// ever reach a mic.
   final int? roomId;
 
-  const ProfileScreen({super.key, this.userId, this.roomId});
+  /// C16 — where this profile was opened FROM. Only 'home' counts as a visit:
+  /// the client was explicit that opening someone from inside a room must not
+  /// show up in الزوار ("اللي دخلوا بروفايلي من الصفحه الرئيسيه مش من الغرفه").
+  /// Anything else is simply not recorded.
+  final String? source;
+
+  const ProfileScreen({super.key, this.userId, this.roomId, this.source});
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -100,7 +109,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
   Future<List<Map<String, dynamic>>> _fetchBadges(int userId) async {
     try {
-      final res = await DioClient.dio.get('/users/$userId/badges');
+      // C11 — onlyBadges: the endpoint otherwise appends one representative of
+      // every OTHER product type the user owns (frame, entrance, room theme)
+      // into the same row, which is the client's
+      // "الشارات ظاهره ومختلطه بمنتجات تانيه".
+      final res = await DioClient.dio.get(
+        '/users/$userId/badges',
+        queryParameters: const {'onlyBadges': 1},
+      );
       final list = (res.data is Map) ? (res.data['data'] as List? ?? const []) : const [];
       return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (_) {
@@ -155,7 +171,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               final Widget child = iconUrl == null
                   ? Icon(_badgeIconFor((b['type'] ?? '').toString()),
                       size: 16, color: const Color(0xFFDCC8FF))
-                  : Image.network(
+                  : AppNetworkImage(
                       iconUrl,
                       width: _kBadgeSize,
                       height: _kBadgeSize,
@@ -450,6 +466,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
   @override
   void initState() {
+    unawaited(_recordVisitIfFromHome());
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
@@ -777,7 +794,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       borderRadius: BorderRadius.circular(10),
                       child: isVideo(item.fileUrl)
                           ? VideoPreview(url: item.fileUrl)
-                          : Image.network(
+                          : AppNetworkImage(
                         item.previewUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) =>
@@ -978,7 +995,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: Image.network(
+                          child: AppNetworkImage(
                             gift.imageUrl,
                             fit: BoxFit.contain,
                             errorBuilder: (_, __, ___) => const Icon(
@@ -1251,6 +1268,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       _buildInventorySection(),
                       const SizedBox(height: 10),
                     ],
+
+                    // C17 — the CP box sits directly above الهدايا الممنوحة,
+                    // which is the placement the client asked for after it
+                    // was first built onto the rooms page. Own profile only:
+                    // it opens YOUR CP list and offers to cancel YOUR pairs.
+                    if (isOwnProfile) const CpBox(),
 
                     _buildReceivedGiftsSection(),
 
@@ -1607,11 +1630,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
+          // C16 — both counters open the four-tab screen
+          // (أصدقاء / أتابعه / يتابعني / الزوار) instead of the old
+          // one-directional sheet, landing on the tab that was tapped.
           GestureDetector(
-            onTap: _showFollowingSheet,
+            onTap: () => _openRelations(1),
             child: _buildStatItem('${user.followingCount ?? 0}', 'Following'),
           ),
-          _buildStatItem('${user.followersCount ?? 0}', 'Fans'),
+          GestureDetector(
+            onTap: () => _openRelations(2),
+            child: _buildStatItem('${user.followersCount ?? 0}', 'Fans'),
+          ),
           GestureDetector(
             onTap: () => _showProgressDialog(context, vip: false),
             child: _buildStatItem('${user.level ?? 1}', 'Level'),
@@ -1625,97 +1654,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     );
   }
 
-  /// #25: list of accounts I follow; a live badge lets me jump into their room.
-  Future<void> _showFollowingSheet() async {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A0E3E),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: FollowService.getFollowing(),
-          builder: (ctx, snap) {
-            if (!snap.hasData) {
-              return const SizedBox(
-                height: 220,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            final list = snap.data!;
-            if (list.isEmpty) {
-              return const SizedBox(
-                height: 220,
-                child: Center(child: Text('لا يوجد متابَعون بعد', style: TextStyle(color: Colors.white70))),
-              );
-            }
-            return SizedBox(
-              height: MediaQuery.of(context).size.height * 0.6,
-              child: Column(
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.all(14),
-                    child: Text('المتابَعون', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: list.length,
-                      itemBuilder: (_, i) {
-                        final u = list[i];
-                        final liveRoomId = u['liveRoomId'];
-                        final name = (u['name'] ?? '').toString();
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: const Color(0xFF3D2B7A),
-                            backgroundImage: (u['avatarUrl'] != null && '${u['avatarUrl']}'.isNotEmpty)
-                                ? NetworkImage('${u['avatarUrl']}')
-                                : null,
-                            child: (u['avatarUrl'] == null || '${u['avatarUrl']}'.isEmpty)
-                                ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                    style: const TextStyle(color: Colors.white))
-                                : null,
-                          ),
-                          title: Text(name, style: const TextStyle(color: Colors.white)),
-                          subtitle: Text('ID: ${u['displayId'] ?? '-'}',
-                              style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                          trailing: liveRoomId != null
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFF4081),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: const Text('LIVE',
-                                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                                )
-                              : const Icon(Icons.chevron_left, color: Colors.white38),
-                          onTap: () {
-                            Navigator.pop(context);
-                            if (liveRoomId != null) {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => RoomScreen(roomId: liveRoomId as int)),
-                              );
-                            } else {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => ProfileScreen(userId: u['id'] as int)),
-                              );
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
+  /// C16 — tell the server this profile was viewed from the home page. The
+  /// server de-duplicates repeat views and ignores any source but 'home', so
+  /// this is fire-and-forget: a failure must never affect the page opening.
+  Future<void> _recordVisitIfFromHome() async {
+    final id = widget.userId;
+    if (widget.source != 'home' || id == null) return;
+    try {
+      await DioClient.dio.post('/follow/visits/$id', data: const {'source': 'home'});
+    } catch (_) {
+      // Recording a visit is never worth surfacing.
+    }
+  }
+
+  /// C16 — open أصدقاء / أتابعه / يتابعني / الزوار on [tab].
+  void _openRelations(int tab) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RelationsScreen(initialTab: tab)),
     );
   }
 
@@ -2301,7 +2257,7 @@ class _FullImageViewer extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4,
-          child: Image.network(
+          child: AppNetworkImage(
             imageUrl,
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54, size: 64),

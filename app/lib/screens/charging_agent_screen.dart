@@ -13,6 +13,7 @@ import '../services/image_upload_service.dart';
 import '../utils/storage_service.dart';
 import '../utils/result.dart';
 import 'package:dio/dio.dart';
+import '../widgets/app_network_image.dart';
 
 /// Charging Agent Screen - وكيل الشحن
 class ChargingAgentScreen extends ConsumerStatefulWidget {
@@ -1515,7 +1516,7 @@ class _AgencyGridCard extends StatelessWidget {
                   color: Colors.white.withOpacity(0.08),
                   child: const Center(child: Icon(Icons.store, color: Colors.white70)),
                 )
-                    : Image.network(
+                    : AppNetworkImage(
                   a.agencyImageUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Container(

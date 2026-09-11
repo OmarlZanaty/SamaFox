@@ -310,6 +310,10 @@ body::before {
 
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
+/* Compact variant for buttons that sit inside a table row, where the default
+   8px/16px padding makes every row taller than its text needs. */
+.btn-sm { padding: 5px 11px; font-size: 12px; gap: 5px; }
+
 .btn-primary {
   background: var(--brand);
   color: #fff;

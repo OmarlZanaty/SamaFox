@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# A2 / G1 / G6 — the release build.
+#
+# This script exists because the single most damaging bug in the app was not in
+# any source file: `AppConfig.turnUrls` defaults to an empty string, and NOTHING
+# in the repository ever passed --dart-define=TURN_URLS. Every release ever
+# built therefore shipped STUN-only WebRTC. Two users on mobile data sit behind
+# carrier-grade NAT with no direct path between them, so the voice link simply
+# never comes up — which is the "الصوت راح خالص / بيقطع" the owner reported
+# twelve times.
+#
+# A build command that has to be typed correctly from memory will eventually be
+# typed wrong. So it lives here, in the repo, and refuses to produce a release
+# that would repeat the bug.
+#
+# Usage:
+#   cp turn.env.example turn.env      # fill in your coturn details
+#   ./build-release.sh                # app bundle for Play (default)
+#   ./build-release.sh apk            # a direct-download APK (G2)
+#
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+TARGET="${1:-appbundle}"
+ENV_FILE="${TURN_ENV_FILE:-turn.env}"
+
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  set -a; source "$ENV_FILE"; set +a
+fi
+
+: "${TURN_URLS:=}"
+: "${TURN_USERNAME:=}"
+: "${TURN_CREDENTIAL:=}"
+: "${API_BASE_URL:=}"
+: "${SOCKET_URL:=}"
+
+if [[ -z "$TURN_URLS" ]]; then
+  cat >&2 <<'WARN'
+────────────────────────────────────────────────────────────────────────
+  TURN_URLS is empty.
+
+  Building now produces a STUN-only app: two users on mobile data will
+  not hear each other at all. This is the exact defect this script was
+  written to prevent, so it stops here.
+
+  Fix: copy turn.env.example to turn.env and fill in your coturn server,
+  or export TURN_URLS / TURN_USERNAME / TURN_CREDENTIAL yourself.
+
+  To build anyway (local testing on one wifi network only):
+      ALLOW_NO_TURN=1 ./build-release.sh
+────────────────────────────────────────────────────────────────────────
+WARN
+  if [[ "${ALLOW_NO_TURN:-0}" != "1" ]]; then
+    exit 1
+  fi
+  echo "ALLOW_NO_TURN=1 — continuing without TURN. Do not ship this build." >&2
+fi
+
+DEFINES=()
+[[ -n "$TURN_URLS" ]]       && DEFINES+=("--dart-define=TURN_URLS=$TURN_URLS")
+[[ -n "$TURN_USERNAME" ]]   && DEFINES+=("--dart-define=TURN_USERNAME=$TURN_USERNAME")
+[[ -n "$TURN_CREDENTIAL" ]] && DEFINES+=("--dart-define=TURN_CREDENTIAL=$TURN_CREDENTIAL")
+[[ -n "$API_BASE_URL" ]]    && DEFINES+=("--dart-define=API_BASE_URL=$API_BASE_URL")
+[[ -n "$SOCKET_URL" ]]      && DEFINES+=("--dart-define=SOCKET_URL=$SOCKET_URL")
+
+echo "▶ flutter build $TARGET  (${#DEFINES[@]} dart-defines)"
+flutter build "$TARGET" --release "${DEFINES[@]}"
+
+case "$TARGET" in
+  appbundle)
+    echo "✅ build/app/outputs/bundle/release/app-release.aab"
+    echo "   Upload this to Play — it serves each device only its own ABI."
+    ;;
+  apk)
+    echo "✅ build/app/outputs/flutter-apk/app-release.apk"
+    echo "   This is the direct-download build (G2). It is a universal APK and"
+    echo "   therefore larger than what Play delivers; that is expected."
+    ;;
+esac

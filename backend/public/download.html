@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>تحميل سما فوكس</title>
+<meta name="description" content="حمّل تطبيق سما فوكس — غرف دردشة صوتية، مباشرة على هاتفك." />
+<!--
+  G2 — the direct-download page.
+
+  Asked for nine times, more than any other single item in the chat: the agents
+  needed a link they could send people before the Play listing went live. It
+  lives here, in the backend's own public folder, so it is served by the server
+  that already exists at no extra cost and cannot drift out of sync with the
+  APK it offers.
+
+  The version strip is filled in from /api/v1/app/latest, which reads whatever
+  APK is actually sitting in backend/public/downloads. Nothing here is
+  hard-coded, so publishing a new build is a file copy.
+-->
+<style>
+  :root {
+    --bg: #0D0620;
+    --card: #1A0E3E;
+    --line: rgba(255,255,255,.10);
+    --text: #F4F1FF;
+    --muted: #A79ED0;
+    --accent: #4ECDC4;
+    --accent-2: #FF4081;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: radial-gradient(1200px 600px at 50% -10%, #2A1655 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Segoe UI", Tahoma, system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  .logo {
+    width: 96px; height: 96px; border-radius: 24px; display: block; margin: 8px auto 18px;
+    background: linear-gradient(135deg, #7A1D4E, #3A1250);
+    border: 1px solid var(--line);
+    object-fit: cover;
+  }
+  h1 { text-align: center; font-size: 28px; margin: 0 0 6px; }
+  .sub { text-align: center; color: var(--muted); margin: 0 0 26px; font-size: 15px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 18px; padding: 20px; margin-bottom: 16px;
+  }
+  .btn {
+    display: block; width: 100%; text-align: center; text-decoration: none;
+    padding: 16px; border-radius: 14px; font-size: 18px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), #2FA8A0); color: #04211F;
+    border: none; cursor: pointer;
+  }
+  .btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+  .meta { text-align: center; color: var(--muted); font-size: 13px; margin-top: 12px; }
+  ol { padding-inline-start: 20px; line-height: 2; color: var(--muted); margin: 0; }
+  ol strong { color: var(--text); }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .note {
+    font-size: 13px; color: var(--muted); text-align: center;
+    border-top: 1px solid var(--line); padding-top: 14px; margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <img class="logo" src="/logo.png" alt="سما فوكس" onerror="this.style.display='none'" />
+  <h1>سما فوكس</h1>
+  <p class="sub">غرف دردشة صوتية — تكلم، العب، واكسب مع أصدقائك</p>
+
+  <div class="card">
+    <a class="btn" id="dl" href="#" aria-disabled="true">تحميل التطبيق</a>
+    <div class="meta" id="meta">جارٍ التحقق من آخر إصدار…</div>
+  </div>
+
+  <div class="card">
+    <h2>خطوات التثبيت</h2>
+    <ol>
+      <li>اضغط <strong>تحميل التطبيق</strong> وانتظر انتهاء التنزيل.</li>
+      <li>افتح الملف من الإشعارات أو من مجلد <strong>التنزيلات</strong>.</li>
+      <li>لو ظهرت رسالة <strong>«تثبيت تطبيقات غير معروفة»</strong>، فعّل الإذن للمتصفح ثم ارجع.</li>
+      <li>اضغط <strong>تثبيت</strong>، ثم <strong>فتح</strong>.</li>
+    </ol>
+    <p class="note">
+      هذه النسخة للتثبيت المباشر قبل نزول التطبيق على المتجر. التحديثات القادمة تصلك من المتجر.
+    </p>
+  </div>
+
+</div>
+
+<script>
+// Ask the server what the current build actually is, rather than trusting a
+// version number typed into this page — a stale one here is how people end up
+// installing an old APK and reporting bugs that were fixed weeks ago.
+(async () => {
+  const btn  = document.getElementById('dl');
+  const meta = document.getElementById('meta');
+  try {
+    const res  = await fetch('/api/v1/app/latest', { headers: { Accept: 'application/json' } });
+    const data = await res.json();
+    if (!res.ok || !data || !data.url) throw new Error(data && data.message || 'unavailable');
+
+    btn.href = data.url;
+    btn.setAttribute('aria-disabled', 'false');
+    btn.setAttribute('download', '');
+
+    const bits = [];
+    if (data.version) bits.push('الإصدار ' + data.version);
+    if (data.sizeMb)  bits.push(data.sizeMb + ' ميجابايت');
+    if (data.updatedAt) {
+      bits.push(new Date(data.updatedAt).toLocaleDateString('ar-EG'));
+    }
+    meta.textContent = bits.join(' · ') || 'جاهز للتحميل';
+  } catch (e) {
+    btn.setAttribute('aria-disabled', 'true');
+    btn.textContent = 'التحميل غير متاح حالياً';
+    meta.textContent = 'لم يتم رفع نسخة بعد — حاول لاحقاً.';
+  }
+})();
+</script>
+</body>
+</html>

@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../repositories/crash_repository.dart';
 import '../../services/socket_service.dart';
+import '../../services/audio_route.dart';
 
 /// طيّار — the Aviator-style crash game.
 ///
@@ -136,6 +137,10 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
     super.initState();
     _balance = ref.read(authStateProvider).user?.coinsBalance ?? 0;
 
+    // A3 / G3(e) — طيّار is the game the client named when he asked that the
+    // سماعة toggle move the game sound too ("صوت الالعاب، لعبة الصاروخ تحديدا").
+    AudioRoute.instance.registerAll([_sfx, _engine]);
+
     _socket.on('crash_state', _onState);
     _socket.on('crash_takeoff', _onTakeoff);
     _socket.on('crash_crashed', _onCrashed);
@@ -190,6 +195,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
     _bigWinTimer?.cancel();
     _chatInput.dispose();
     _chatScroll.dispose();
+    AudioRoute.instance.unregisterAll([_sfx, _engine]);
     _sfx.dispose();
     _engine.dispose();
     for (final p in _panels) {

@@ -67,7 +67,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
                 const SizedBox(width: 12),
                 const Text(
                   'Room Control Panel',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,

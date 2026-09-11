@@ -1,5 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 
+import '../../services/audio_route.dart';
+
 /// Sound for بلينكو.
 ///
 /// Peg ticks fire up to sixteen times per drop and several drops overlap during
@@ -7,7 +9,15 @@ import 'package:audioplayers/audioplayers.dart';
 /// round-robin pool lets ticks overlap; landings get their own player so a win
 /// chime is never clipped by the next ball's first bounce.
 class PlinkoSfx {
-  PlinkoSfx({this.enabled = true});
+  PlinkoSfx({this.enabled = true}) {
+    // A3 / G3(e) — game sound must follow the room's سماعة toggle. These
+    // players are created here and shared with nothing, so registering them
+    // is the only way a route change can ever reach them.
+    AudioRoute.instance.registerAll(_routedPlayers);
+  }
+
+  /// Every player this class owns, for audio-route registration.
+  List<AudioPlayer> get _routedPlayers => [..._pegPool, _landing, _ui];
 
   bool enabled;
 
@@ -61,6 +71,7 @@ class PlinkoSfx {
   }
 
   void dispose() {
+    AudioRoute.instance.unregisterAll(_routedPlayers);
     for (final p in _pegPool) {
       p.dispose();
     }

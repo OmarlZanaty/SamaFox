@@ -90,6 +90,18 @@ class MessageRepository {
     return (data['audioUrl'] ?? data['url'] ?? '') as String;
   }
 
+  /// C18 — upload a picture for a DM. Reuses the shared /upload/image
+  /// endpoint rather than adding a messages-only one, so a picture in a chat
+  /// is stored exactly like every other uploaded image.
+  Future<String> uploadChatImage(String filePath) async {
+    final form = FormData.fromMap({
+      'image': await MultipartFile.fromFile(filePath),
+    });
+    final res = await _dio.post('/upload/image', data: form);
+    final data = (res.data as Map).cast<String, dynamic>();
+    return (data['url'] ?? data['imageUrl'] ?? '') as String;
+  }
+
   Future<void> pinMessage(int messageId) async {
     await _dio.post('$_base/messages/$messageId/pin');
   }

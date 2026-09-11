@@ -350,6 +350,18 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     }
   }
 
+  // A15a — this gift may have pushed the room past a كأس الروم reward rung.
+  // After the transaction commits, and swallowing its own failures: a reward
+  // misconfiguration must never roll back a gift that already went through.
+  if (input.roomId) {
+    try {
+      const { evaluateRoomCupRewards } = await import('../services/roomReward.service');
+      await evaluateRoomCupRewards(input.roomId);
+    } catch (e) {
+      console.warn('room cup reward evaluation failed:', e);
+    }
+  }
+
   // Medals: unlock any gifts_sent / level achievements this send earned.
   // Best-effort and non-blocking — checkAchievements existed but had no
   // caller anywhere, so no medal could ever unlock before this.

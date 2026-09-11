@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:samafox/services/level_catalog_service.dart';
+import '../widgets/app_network_image.dart';
 
 /// VIP chip shown for users with a VIP level (Step 3/4). Renders nothing for
 /// level 0.
@@ -44,7 +45,7 @@ class _VipBadgeState extends State<VipBadge> {
           maxHeight: widget.fontSize * 1.8,
           maxWidth: widget.fontSize * 3.4,
         ),
-        child: Image.network(
+        child: AppNetworkImage(
         badgeUrl,
         height: widget.fontSize * 1.8,
         fit: BoxFit.contain,

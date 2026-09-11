@@ -29,13 +29,13 @@ class GamesScreen extends ConsumerWidget {
         ),
       ),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              const Color(0xFF1A0E3E),
-              const Color(0xFF0D0620),
+              Color(0xFF1A0E3E),
+              Color(0xFF0D0620),
             ],
           ),
         ),
@@ -138,7 +138,7 @@ class _GameCard extends StatelessWidget {
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.diamond,
                     color: Colors.white,
                     size: 20,
@@ -220,22 +220,22 @@ final List<GameItem> games = [
     id: 'skill_wheel',
     name: 'عجلة المهارة',
     icon: Icons.track_changes,
-    gradientColors: [Color(0xFF6B21A8), Color(0xFF1a0533)],
-    borderColor: Color(0xFFFFD700),
+    gradientColors: [const Color(0xFF6B21A8), const Color(0xFF1a0533)],
+    borderColor: const Color(0xFFFFD700),
   ),
   GameItem(
     id: 'reaction',
     name: 'اختبار السرعة',
     icon: Icons.flash_on,
-    gradientColors: [Color(0xFFFF5722), Color(0xFFBF360C)],
-    borderColor: Color(0xFFFFD740),
+    gradientColors: [const Color(0xFFFF5722), const Color(0xFFBF360C)],
+    borderColor: const Color(0xFFFFD740),
   ),
   GameItem(
     id: 'math',
     name: 'تحدي الحساب',
     icon: Icons.calculate,
-    gradientColors: [Color(0xFF607D8B), Color(0xFF263238)],
-    borderColor: Color(0xFF00BCD4),
+    gradientColors: [const Color(0xFF607D8B), const Color(0xFF263238)],
+    borderColor: const Color(0xFF00BCD4),
   ),
 
   // باقي الألعاب (قريباً)
@@ -243,35 +243,35 @@ final List<GameItem> games = [
     id: 'quiz',
     name: 'تحدي المعرفة',
     icon: Icons.quiz,
-    gradientColors: [Color(0xFF3F51B5), Color(0xFF1A237E)],
-    borderColor: Color(0xFFFFD700),
+    gradientColors: [const Color(0xFF3F51B5), const Color(0xFF1A237E)],
+    borderColor: const Color(0xFFFFD700),
   ),
   GameItem(
     id: 'word',
     name: 'خمن الكلمة',
     icon: Icons.text_fields,
-    gradientColors: [Color(0xFF009688), Color(0xFF004D40)],
-    borderColor: Color(0xFF00E5FF),
+    gradientColors: [const Color(0xFF009688), const Color(0xFF004D40)],
+    borderColor: const Color(0xFF00E5FF),
   ),
   GameItem(
     id: 'memory',
     name: 'لعبة الذاكرة',
     icon: Icons.grid_on,
-    gradientColors: [Color(0xFF9C27B0), Color(0xFF4A148C)],
-    borderColor: Color(0xFFFF80AB),
+    gradientColors: [const Color(0xFF9C27B0), const Color(0xFF4A148C)],
+    borderColor: const Color(0xFFFF80AB),
   ),
   GameItem(
     id: 'puzzle',
     name: 'ألغاز ذكية',
     icon: Icons.extension,
-    gradientColors: [Color(0xFF4CAF50), Color(0xFF1B5E20)],
-    borderColor: Color(0xFFB2FF59),
+    gradientColors: [const Color(0xFF4CAF50), const Color(0xFF1B5E20)],
+    borderColor: const Color(0xFFB2FF59),
   ),
   GameItem(
     id: 'draw',
     name: 'ارسم وخمّن',
     icon: Icons.brush,
-    gradientColors: [Color(0xFF03A9F4), Color(0xFF01579B)],
-    borderColor: Color(0xFFFFD700),
+    gradientColors: [const Color(0xFF03A9F4), const Color(0xFF01579B)],
+    borderColor: const Color(0xFFFFD700),
   ),
 ];

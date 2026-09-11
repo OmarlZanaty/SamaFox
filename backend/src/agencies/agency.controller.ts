@@ -58,11 +58,36 @@ export const requestAgency = async (req: AuthReq, res: Response) => {
   }
 };
 
+/**
+ * B8 — which agencies of [type] this caller may see.
+ *
+ * Client rule: "صاحب الوكاله يشوف وكالته هو بس، والمستخدم العادي اللي مالوش
+ * وكاله يشوف كل الوكالات عادي". Both list endpoints returned every approved
+ * agency to everyone, so an agent opening العمل كوكيل was shown the whole
+ * market including his competitors.
+ *
+ * Returns a Prisma `id` filter to AND into the query, or null for "no filter"
+ * (the caller owns nothing of this type, or is not signed in at all — the
+ * lists are public routes and an anonymous browser still gets the full list).
+ */
+async function visibleAgencyFilter(
+  userId: number | undefined,
+  type: 'CHARGING' | 'HOSTING',
+): Promise<{ id: number } | null> {
+  if (!userId) return null;
+  const owned = await db.agencyMember.findFirst({
+    where: { userId, role: 'OWNER', agency: { type, status: 'approved' } },
+    select: { agencyId: true },
+  });
+  return owned ? { id: owned.agencyId } : null;
+}
+
 // GET /agencies/charging
-export const listChargingAgencies = async (_req: Request, res: Response) => {
+export const listChargingAgencies = async (req: AuthReq, res: Response) => {
   try {
+    const mine = await visibleAgencyFilter(req.userId, 'CHARGING');
     const agencies = await db.chargingAgency.findMany({
-      where: { type: 'CHARGING', status: 'approved' },
+      where: { type: 'CHARGING', status: 'approved', ...(mine ?? {}) },
       select: {
         id: true,
         agencyName: true,
@@ -84,10 +109,11 @@ export const listChargingAgencies = async (_req: Request, res: Response) => {
 };
 
 // GET /agencies/hosting
-export const listHostingAgencies = async (_req: Request, res: Response) => {
+export const listHostingAgencies = async (req: AuthReq, res: Response) => {
   try {
+    const mine = await visibleAgencyFilter(req.userId, 'HOSTING');
     const agencies = await db.chargingAgency.findMany({
-      where: { type: 'HOSTING', status: 'approved' },
+      where: { type: 'HOSTING', status: 'approved', ...(mine ?? {}) },
       include: { members: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -229,6 +255,17 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
         await tx.chargingAgency.update({
           where: { id: membership.agencyId },
           data: { totalSentCoins: { increment: coins } },
+        });
+
+        // B6 — charging credits the seller's TARGET, at face value and with NO
+        // commission on top: "ينزله تارجيت بس من غير نسبه لانه اخد نسبته وقت
+        // الشحن". Booked on targetAdjustmentCoins, the same column بيع/تبديل
+        // move, so the dollar figure derived from it through TargetTier follows
+        // automatically. Inside the transaction — the target must not be able
+        // to move without the coins moving with it.
+        await tx.agencyMember.update({
+          where: { id: membership.id },
+          data: { targetAdjustmentCoins: { increment: BigInt(coins) } },
         });
 
         await tx.user.update({

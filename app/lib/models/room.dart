@@ -94,6 +94,12 @@ class Room {
   @JsonKey(defaultValue: false)
   final bool? muteEntranceSounds;
 
+  /// A16 — غرفة الإدارة. The API pins it first in the list and flags it here so
+  /// the home page draws it as the big card. Defaults false so an older server
+  /// simply renders every room the way it always did.
+  @JsonKey(defaultValue: false)
+  final bool? isFeatured;
+
   Room({
     required this.id,
     required this.name,
@@ -116,6 +122,7 @@ class Room {
     this.backgroundMusicUrl,
     this.muteGiftSounds,
     this.muteEntranceSounds,
+    this.isFeatured,
   });
 
   factory Room.fromJson(Map<String, dynamic> json) => _$RoomFromJson(json);

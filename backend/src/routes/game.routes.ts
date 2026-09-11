@@ -48,6 +48,15 @@ import {
   verifyPlinkoDrop,
 } from '../controllers/plinko.controller';
 import {
+  getGreedyState,
+  placeGreedyBet,
+  reduceGreedyBet,
+  clearGreedyBets,
+  repeatGreedyBets,
+  getGreedyHistory,
+  getGreedyRanking,
+} from '../controllers/greedyCat.controller';
+import {
   getAetherfallState,
   spinAetherfall,
   getAetherfallHistory,
@@ -56,6 +65,24 @@ import {
   rotateAetherfallSeed,
   verifyAetherfallSpin,
 } from '../controllers/aetherfall.controller';
+import {
+  getAsterionState,
+  spinAsterion,
+  getAsterionHistory,
+  getAsterionFairness,
+  setAsterionClientSeed,
+  rotateAsterionSeed,
+  verifyAsterionSpin,
+} from '../controllers/asterion.controller';
+import {
+  getOlympusState,
+  spinOlympus,
+  getOlympusHistory,
+  getOlympusFairness,
+  setOlympusClientSeed,
+  rotateOlympusSeed,
+  verifyOlympusSpin,
+} from '../controllers/olympus.controller';
 import {
   getNeonFortuneState,
   spinNeonFortune,
@@ -68,6 +95,11 @@ import {
   rotateNeonFortuneSeed,
   verifyNeonFortuneSpin,
 } from '../controllers/neonFortune.controller';
+import { gameGuard } from '../services/gameConfig.service';
+
+// G3(d) — one guard per game in front of the STAKE-TAKING endpoints only.
+// Cash-outs, cancels and verifies are deliberately left open: taking a game
+// offline must never trap coins a player has already put in.
 
 const router = Router();
 
@@ -131,12 +163,12 @@ const boxingLimiter = rateLimit({
   message: { success: false, message: 'Too many requests, slow down' },
 });
 
-router.post('/dice/play', authenticate, diceLimiter, playDice);
+router.post('/dice/play', authenticate, diceLimiter, gameGuard('dice'), playDice);
 router.get('/dice/round', authenticate, getDiceRound);
-router.post('/dice/round/join', authenticate, skillDiceLimiter, joinDiceRound);
+router.post('/dice/round/join', authenticate, skillDiceLimiter, gameGuard('dice'), joinDiceRound);
 router.post('/dice/round/submit', authenticate, skillDiceLimiter, submitDiceRound);
 router.get('/wheel/round', authenticate, getWheelRound);
-router.post('/wheel/round/join', authenticate, skillWheelLimiter, joinWheelRoundHandler);
+router.post('/wheel/round/join', authenticate, skillWheelLimiter, gameGuard('wheel'), joinWheelRoundHandler);
 router.post('/wheel/round/submit', authenticate, skillWheelLimiter, submitWheelRoundHandler);
 // Crash (طيّار): rounds cycle every ~10s and a player may bet on two panels and
 // cash both out, so this needs a much higher allowance than the skill games.
@@ -170,7 +202,7 @@ const crashChatLimiter = rateLimit({
 });
 
 router.get('/crash/state', authenticate, getCrashState);
-router.post('/crash/bet', authenticate, crashLimiter, placeCrashBetHandler);
+router.post('/crash/bet', authenticate, crashLimiter, gameGuard('crash'), placeCrashBetHandler);
 router.post('/crash/cancel', authenticate, crashLimiter, cancelCrashBetHandler);
 router.post('/crash/cashout', authenticate, crashCashOutLimiter, cashOutCrashHandler);
 router.get('/crash/history', authenticate, getCrashHistoryHandler);
@@ -193,11 +225,30 @@ const crazyWheelLimiter = rateLimit({
 });
 
 router.get('/crazy/state', authenticate, getCrazyState);
-router.post('/crazy/bet', authenticate, crazyWheelLimiter, placeCrazyBet);
+router.post('/crazy/bet', authenticate, crazyWheelLimiter, gameGuard('crazy-wheel'), placeCrazyBet);
 router.post('/crazy/clear', authenticate, crazyWheelLimiter, clearCrazyBets);
-router.post('/crazy/repeat', authenticate, crazyWheelLimiter, repeatCrazyBets);
+router.post('/crazy/repeat', authenticate, crazyWheelLimiter, gameGuard('crazy-wheel'), repeatCrazyBets);
 router.post('/crazy/pick', authenticate, crazyWheelLimiter, submitCrazyPick);
 router.get('/crazy/history', authenticate, getCrazyHistory);
+
+// القط الجشع (Greedy Cat): eight food cards plus two category buttons, tapped
+// repeatedly inside a 30s window, so it needs the same headroom as عجلة الحظ.
+const greedyCatLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `greedy-cat:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/greedy/state', authenticate, getGreedyState);
+router.post('/greedy/bet', authenticate, greedyCatLimiter, gameGuard('greedy-cat'), placeGreedyBet);
+router.post('/greedy/reduce', authenticate, greedyCatLimiter, reduceGreedyBet);
+router.post('/greedy/clear', authenticate, greedyCatLimiter, clearGreedyBets);
+router.post('/greedy/repeat', authenticate, greedyCatLimiter, gameGuard('greedy-cat'), repeatGreedyBets);
+router.get('/greedy/history', authenticate, getGreedyHistory);
+router.get('/greedy/ranking', authenticate, getGreedyRanking);
 
 // بلينكو: every drop is its own request and auto-bet fires them back to back, so
 // this needs the highest allowance of any game.
@@ -211,7 +262,7 @@ const plinkoLimiter = rateLimit({
 });
 
 router.get('/plinko/state', authenticate, getPlinkoState);
-router.post('/plinko/drop', authenticate, plinkoLimiter, dropPlinkoBall);
+router.post('/plinko/drop', authenticate, plinkoLimiter, gameGuard('plinko'), dropPlinkoBall);
 router.get('/plinko/history', authenticate, getPlinkoHistory);
 router.get('/plinko/fair', authenticate, getPlinkoFairness);
 router.post('/plinko/seed', authenticate, plinkoLimiter, setPlinkoClientSeed);
@@ -231,12 +282,52 @@ const aetherfallLimiter = rateLimit({
 });
 
 router.get('/aetherfall/state', authenticate, getAetherfallState);
-router.post('/aetherfall/spin', authenticate, aetherfallLimiter, spinAetherfall);
+router.post('/aetherfall/spin', authenticate, aetherfallLimiter, gameGuard('aetherfall'), spinAetherfall);
 router.get('/aetherfall/history', authenticate, getAetherfallHistory);
 router.get('/aetherfall/fair', authenticate, getAetherfallFairness);
 router.post('/aetherfall/seed', authenticate, aetherfallLimiter, setAetherfallClientSeed);
 router.post('/aetherfall/seed/rotate', authenticate, aetherfallLimiter, rotateAetherfallSeed);
 router.post('/aetherfall/verify', authenticate, verifyAetherfallSpin);
+
+// أستيريون (Citadel of Asterion): one tap is one request — the deal, every
+// tumble and the whole Skyfall Trials feature resolve in a single call — so it
+// gets the same generous allowance as أثيرفول.
+const asterionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `asterion:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/asterion/state', authenticate, getAsterionState);
+router.post('/asterion/spin', authenticate, asterionLimiter, gameGuard('asterion'), spinAsterion);
+router.get('/asterion/history', authenticate, getAsterionHistory);
+router.get('/asterion/fair', authenticate, getAsterionFairness);
+router.post('/asterion/seed', authenticate, asterionLimiter, setAsterionClientSeed);
+router.post('/asterion/seed/rotate', authenticate, asterionLimiter, rotateAsterionSeed);
+router.post('/asterion/verify', authenticate, verifyAsterionSpin);
+
+// بوابات أوليمبوس (Gates of Olympus): one tap is one request — the deal, every
+// tumble and the whole 15-spin free-spins feature resolve in a single call — so
+// it gets the same generous allowance as أثيرفول and أستيريون.
+const olympusLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `olympus:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/olympus/state', authenticate, getOlympusState);
+router.post('/olympus/spin', authenticate, olympusLimiter, gameGuard('olympus'), spinOlympus);
+router.get('/olympus/history', authenticate, getOlympusHistory);
+router.get('/olympus/fair', authenticate, getOlympusFairness);
+router.post('/olympus/seed', authenticate, olympusLimiter, setOlympusClientSeed);
+router.post('/olympus/seed/rotate', authenticate, olympusLimiter, rotateOlympusSeed);
+router.post('/olympus/verify', authenticate, verifyOlympusSpin);
 
 // نيون فورتشن (Neon Fortune): one request per spin, and a spin can carry a whole
 // free-spin round and a vault bonus with it, so the allowance matches أثيرفول.
@@ -250,7 +341,7 @@ const neonFortuneLimiter = rateLimit({
 });
 
 router.get('/neon/state', authenticate, getNeonFortuneState);
-router.post('/neon/spin', authenticate, neonFortuneLimiter, spinNeonFortune);
+router.post('/neon/spin', authenticate, neonFortuneLimiter, gameGuard('neon-fortune'), spinNeonFortune);
 router.get('/neon/jackpots', authenticate, getNeonFortuneJackpots);
 router.get('/neon/lucky', authenticate, getNeonFortuneLucky);
 router.post('/neon/lucky/claim', authenticate, neonFortuneLimiter, claimNeonFortuneLucky);
@@ -261,7 +352,7 @@ router.post('/neon/seed/rotate', authenticate, neonFortuneLimiter, rotateNeonFor
 router.post('/neon/verify', authenticate, verifyNeonFortuneSpin);
 
 router.get('/boxing/round', authenticate, getBoxingRound);
-router.post('/boxing/round/join', authenticate, boxingLimiter, joinBoxingRound);
+router.post('/boxing/round/join', authenticate, boxingLimiter, gameGuard('boxing'), joinBoxingRound);
 router.post('/boxing/round/submit', authenticate, boxingLimiter, submitBoxingRound);
 router.get('/leaderboard', getLeaderboard);
 router.get('/stats/:userId', getUserGameStats);

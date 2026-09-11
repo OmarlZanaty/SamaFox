@@ -4,6 +4,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import * as authController from '../controllers/auth.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
+import { deviceBanMiddleware } from '../middlewares/deviceBan.middleware';
 
 const router = Router();
 
@@ -25,11 +26,13 @@ const loginLimiter = rateLimit({
   message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
 });
 
-router.post('/register', authLimiter, authController.register);
-router.post('/login', loginLimiter, authController.login);
-router.post('/google/mobile', authLimiter, authController.googleLogin);
+// F4 — deviceBanMiddleware guards every way IN, registration included: an
+// account ban that a new signup defeats is not a ban.
+router.post('/register', authLimiter, deviceBanMiddleware, authController.register);
+router.post('/login', loginLimiter, deviceBanMiddleware, authController.login);
+router.post('/google/mobile', authLimiter, deviceBanMiddleware, authController.googleLogin);
 router.post('/refresh', authLimiter, authController.refreshToken);
-router.post('/facebook', authController.facebookLogin);
+router.post('/facebook', deviceBanMiddleware, authController.facebookLogin);
 router.get('/me', authMiddleware, authController.getCurrentUser);
 router.post('/logout', authMiddleware, authController.logout);
 

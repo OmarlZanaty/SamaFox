@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../models/user.dart';
 import '../services/dio_client.dart';
 import '../services/level_catalog_service.dart';
+import '../widgets/app_network_image.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -450,14 +451,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF1A0E3E),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              const Color(0xFF2A1A5E),
-              const Color(0xFF1A0E3E),
-              const Color(0xFF0D0620),
+              Color(0xFF2A1A5E),
+              Color(0xFF1A0E3E),
+              Color(0xFF0D0620),
             ],
           ),
         ),
@@ -526,10 +527,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                 height: 120,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  gradient: LinearGradient(
+                                  gradient: const LinearGradient(
                                     colors: [
-                                      const Color(0xFF8E24AA),
-                                      const Color(0xFFD81B60),
+                                      Color(0xFF8E24AA),
+                                      Color(0xFFD81B60),
                                     ],
                                   ),
                                   boxShadow: [
@@ -553,7 +554,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                 )
                                     : (user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty
                                     ? ClipOval(
-                                  child: Image.network(
+                                  child: AppNetworkImage(
                                     user.avatarUrl!,
                                     fit: BoxFit.cover,
                                   ),

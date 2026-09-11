@@ -52,9 +52,22 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            // Optional but recommended:
-            // isMinifyEnabled = false
-            // isShrinkResources = false
+
+            // G1/G6 — the release APK was 161 MB. That is over Play's 150 MB
+            // ceiling for a bundle, and it directly contradicts the owner's
+            // "استهلاك بيانات قليل جدا لان معظم المستخدمين علي باقات": most of
+            // this app's users pay for that download by the megabyte.
+            //
+            // R8 plus resource shrinking is the cheap half. The expensive half
+            // is per-ABI native code, and that is what `flutter build appbundle`
+            // gives for free — Play then serves each device only its own
+            // architecture. Build the bundle, not the fat universal APK.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

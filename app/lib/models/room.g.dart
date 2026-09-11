@@ -60,6 +60,7 @@ Room _$RoomFromJson(Map<String, dynamic> json) => Room(
       backgroundMusicUrl: json['backgroundMusicUrl'] as String?,
       muteGiftSounds: json['muteGiftSounds'] as bool? ?? false,
       muteEntranceSounds: json['muteEntranceSounds'] as bool? ?? false,
+      isFeatured: json['isFeatured'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$RoomToJson(Room instance) => <String, dynamic>{
@@ -84,6 +85,7 @@ Map<String, dynamic> _$RoomToJson(Room instance) => <String, dynamic>{
       'backgroundMusicUrl': instance.backgroundMusicUrl,
       'muteGiftSounds': instance.muteGiftSounds,
       'muteEntranceSounds': instance.muteEntranceSounds,
+      'isFeatured': instance.isFeatured,
     };
 
 CreateRoomRequest _$CreateRoomRequestFromJson(Map<String, dynamic> json) =>
