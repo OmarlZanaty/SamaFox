@@ -507,22 +507,36 @@ async function buildRoomUsers(io: Server, rid: number) {
 }
 
 /**
- * The شارات a user carries into the chat and the entrance line: the icons of
- * their most recently unlocked achievements, newest first.
+ * The شارات a user carries into the chat and the entrance line.
+ *
+ * C11 — this used to return ACHIEVEMENT icons, which are a different thing
+ * entirely: the badge a user bought in the store and equipped never appeared
+ * anywhere in the room, while an achievement they never chose did. The store
+ * sells type BADGE and the profile has a شارات tab to equip them; those are
+ * what belongs here.
+ *
+ * Expired items are excluded — every product carries a term now, and a lapsed
+ * badge must stop showing the moment it lapses, not at the next login.
  *
  * Capped at three — a chat bubble is not a trophy cabinet, and the row has to
  * stay on one line next to the VIP and LV chips.
  */
 async function userBadgeIcons(userId: number, take = 3): Promise<string[]> {
   try {
-    const rows = await (prisma as any).userAchievement.findMany({
-      where: { userId },
-      include: { achievement: { select: { iconUrl: true } } },
-      orderBy: { unlockedAt: 'desc' },
+    const now = new Date();
+    const rows = await (prisma as any).userItem.findMany({
+      where: {
+        userId,
+        isActive: true,
+        item: { type: 'BADGE' },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      include: { item: { select: { assetUrl: true } } },
+      orderBy: { acquiredAt: 'desc' },
       take,
     });
     return rows
-      .map((r: any) => r?.achievement?.iconUrl)
+      .map((r: any) => r?.item?.assetUrl)
       .filter((u: unknown): u is string => typeof u === 'string' && u.length > 0);
   } catch (e) {
     // Badges are decoration: never let them break a message or an entrance.
@@ -1569,7 +1583,10 @@ socket.on('leave_room', async ({ roomId }: any) => {
       // ✅ FIX: fetch username from DB — never trust client-provided username (was spoofable)
       const user = await prisma.user.findUnique({
         where: { id: uid },
-        select: { name: true, avatarUrl: true, level: true, vipLevel: true },
+        // A20 — displayId included: the profile card opened from a chat
+        // message had no source for it and printed the INTERNAL row id, which
+        // is not the number anyone can search, report or block by.
+        select: { name: true, avatarUrl: true, level: true, vipLevel: true, displayId: true },
       });
       const username = user?.name ?? 'Unknown';
 
@@ -1613,6 +1630,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
         // Group 12: level-tiered + custom chat bubbles.
         level: user?.level ?? 1,
         vipLevel: user?.vipLevel ?? 0,
+        displayId: user?.displayId ?? null,
         bubbleUrl,
         bubbleMeta,
         // Identity line above the text: "فهد  VIP 6 · LV 8" + his badges.

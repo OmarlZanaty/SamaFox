@@ -2140,7 +2140,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             ElevatedButton(
               onPressed: () async {
                 setState(() => _volumeLevel = tempVolume);
-                await _audioPlayer.setVolume(tempVolume);
+                // A3 — "ومؤشر الصوت يتحكم في كل الأصوات". This used to set the
+                // room's effects player, the seat clip and the voice, and stop
+                // there: a user who dragged it to zero to quiet the room still
+                // had a game firing cues over the top at full volume. Games
+                // register their players with AudioRoute, so setting it there
+                // reaches every one of them — and it is remembered, so the
+                // level survives a restart instead of springing back to full.
+                await AudioRoute.instance.setMasterVolume(tempVolume);
                 if (_seatVideoController != null) {
                   await _seatVideoController!.setVolume(tempVolume);
                 }
@@ -2281,6 +2288,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (_isScreenRecording) {
       final path = await svc.stop();
+
+      // A11 — two captures ran side by side for the length of the recording.
+      // Even sharing VOICE_COMMUNICATION, some devices hand the mic back in a
+      // state WebRTC does not notice, and the user stays silent to the room
+      // with no sign anything is wrong. Re-assert the seat's mic state so the
+      // track is put back the way it was.
+      try {
+        if (_audioService.isMicMuted) {
+          await _audioService.muteAudio();
+        } else {
+          await _audioService.unmuteAudio();
+        }
+      } catch (e) {
+        debugPrint('[ScreenRecord] mic re-assert failed: $e');
+      }
+
       if (!mounted) return;
       setState(() => _isScreenRecording = false);
       _showRoomSnack(
@@ -2312,6 +2335,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Future<void> _toggleSpeaker() async {
     final next = !AudioRoute.instance.speakerOn;
     await _audioService.setSpeakerphoneOn(next);
+    // A3 — and remember it. The choice used to live only in memory, so a user
+    // who picked the earpiece came back after a restart on loudspeaker.
+    await AudioRoute.instance.setSpeaker(next);
     if (!mounted) return;
     setState(() {});
     _showRoomSnack(next ? 'تم التحويل إلى السماعة الخارجية' : 'تم التحويل إلى سماعة الأذن');
@@ -2584,6 +2610,24 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _audioService = WebRTCAudioService();
 
     _loadActiveItems(); // 🔥 ADD THIS
+
+    // A3 — the saved speaker choice and volume, applied before anything can
+    // make a sound.
+    unawaited(AudioRoute.instance.restore().then((_) {
+      if (!mounted) return;
+      setState(() => _volumeLevel = AudioRoute.instance.masterVolume);
+      unawaited(AudioRoute.instance.apply());
+      unawaited(AudioRoute.instance.applyVolume());
+    }));
+
+    // A1 — the foreground service starts on ENTERING the room, not on taking a
+    // mic. Everyone in the room needs the process kept alive: a listener who
+    // backgrounded the app had no service at all, so Android was free to
+    // freeze the process, the socket went with it, and the client's
+    // "كأنه لم يخرج من الروم إطلاقاً" held only for speakers. Taking a seat
+    // still calls start() again, which only refreshes the notification text.
+    unawaited(RoomAudioKeepAlive.instance.start());
+
     _timer?.cancel();
     _timer = Timer(const Duration(seconds: 5), () {    });
     // Listen for keyboard visibility changes
@@ -4270,6 +4314,40 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       // was reachable only from inside the ⋮ menu; it now has
                       // its own place in the header, and the room-actions menu
                       // it used to hide behind stays where it is.
+
+                      // A3 — "ايقونة السماعه" on the bar itself. The toggle
+                      // existed only inside the ⋮ menu, so the client saw no
+                      // speaker icon in the room and reported it missing; and
+                      // there was no way to see WHICH route you were on
+                      // without opening the menu. Green when the loudspeaker
+                      // is on, so the state reads at a glance.
+                      const SizedBox(width: 6),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: _toggleSpeaker,
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: AudioRoute.instance.speakerOn
+                                  ? Colors.greenAccent.withOpacity(0.22)
+                                  : Colors.black.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Icon(
+                              AudioRoute.instance.speakerOn
+                                  ? Icons.volume_up_rounded
+                                  : Icons.hearing,
+                              color: AudioRoute.instance.speakerOn
+                                  ? Colors.greenAccent
+                                  : Colors.white70,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+
                       const SizedBox(width: 6),
                       Material(
                         color: Colors.transparent,
@@ -4447,8 +4525,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     roomId: widget.roomId,
                     // Tapping a writer's name opens the room's own profile
                     // card, not a separate screen.
-                    onUserTap: (uid, name) =>
-                        showUserProfileCard(userId: uid, username: name),
+                    onUserTap: (uid, name, {level, vipLevel, displayId, avatarUrl}) =>
+                        showUserProfileCard(
+                          userId: uid,
+                          username: name,
+                          level: level,
+                          vipLevel: vipLevel,
+                          displayId: displayId,
+                          avatarUrl: avatarUrl,
+                        ),
                   ),
                 ),
               ),
@@ -4752,10 +4837,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               child: EntranceBannerLayer(roomId: widget.roomId),
             ),
 
-            // ===== A22: شريط إعلان الهدية — centred, one at a time, ~1.5s.
-            // Deliberately NOT at the top: the client's complaint was that the
-            // notifications kept covering the gift bar up there.
-            GiftAnnouncementBar(socket: _giftSocket, roomId: widget.roomId),
+            // ===== A22: شريط إعلان الهدية — one at a time, ~1.5s. Deliberately
+            // NOT at the top: the client's complaint was that the notifications
+            // kept covering the gift bar up there. D6/D9: right for the sender,
+            // centred for everyone else — see GiftAnnouncementBar.myUserId.
+            GiftAnnouncementBar(
+              socket: _giftSocket,
+              roomId: widget.roomId,
+              myUserId: userId,
+            ),
 
             // ===== Music control bar — draggable, only for owner/admins, and
             // only while the room is actually playing something. =====
@@ -5064,10 +5154,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// If the user happens to be seated, his real seat is used so the seat-only
   /// controls still apply; otherwise a seatless stand-in carries just his
   /// identity and `seatNumber: -1` hides those controls.
+  /// A20 — [level], [vipLevel] and [displayId] are what the CALLER knows about
+  /// this user. A tap from the chat carries them on the message; a tap on a
+  /// seat does not need them, because the seat itself has them. Without this
+  /// the card synthesised a blank seat for anyone not sitting on one, and a
+  /// chat-only user opened as "LV 0", no VIP chip, and the internal row id.
   void showUserProfileCard({
     required int userId,
     String? username,
     String? avatarUrl,
+    int? level,
+    int? vipLevel,
+    int? displayId,
   }) {
     if (userId <= 0) {
       _showRoomSnack('تعذّر فتح ملف هذا المستخدم');
@@ -5091,7 +5189,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           userId: userId,
           username: username,
           avatarUrl: avatarUrl,
-          level: 0,
+          // A20 — what the caller knew, not zeros. `level: 0` rendered as
+          // "LV 0", which is not a level anybody has.
+          level: level ?? 1,
+          vipLevel: vipLevel ?? 0,
+          displayId: displayId,
           isMuted: true,
           isLocked: false,
         );

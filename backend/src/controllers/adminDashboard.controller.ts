@@ -10,13 +10,13 @@ import {
   grantVipRewardsForRange,
   evaluateVip,
   getVipThresholdOverrides,
-  vipThresholdWithOverrides,
+  vipRechargeFloor,
 } from '../services/vip.service';
 import {
   grantLevelRewards as grantLvLevelRewards,
   notifyLevelUp,
   getLevelThresholdOverrides,
-  levelThresholdWithOverrides,
+  levelXpFloor,
 } from '../services/xp.service';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { createNotification } from '../services/notification.service';
@@ -117,7 +117,11 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
           xp: true,
           createdAt: true,
           updatedAt: true,
-        },
+          // F4 — what the device-ban form needs and never had a source for.
+          lastDeviceId: true,
+          lastIp: true,
+          lastSeenAt: true,
+        } as any,
       }),
     ]);
 
@@ -229,14 +233,14 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
     // tier costs the DIFFERENCE, not the cumulative total.
     if (data.vipLevel != null && data.vipLevel > before.vipLevel) {
       const vipOverrides = await getVipThresholdOverrides();
-      const floor = vipThresholdWithOverrides(data.vipLevel, vipOverrides);
+      const floor = vipRechargeFloor(data.vipLevel, vipOverrides);
       if (floor > (before.totalRecharge ?? 0)) data.totalRecharge = floor;
     }
     if (data.level != null && data.level > before.level && data.xp == null) {
       // Skipped when the admin set `xp` explicitly in the same request — an
       // explicit value is the more specific instruction and must win.
       const xpOverrides = await getLevelThresholdOverrides();
-      const floor = levelThresholdWithOverrides(data.level, xpOverrides);
+      const floor = levelXpFloor(data.level, xpOverrides);
       if (floor > (before.xp ?? 0)) data.xp = floor;
     }
 
@@ -1015,6 +1019,15 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
           // rank agencies and reward the biggest charger.
           selfChargeCount: Number(a.selfChargeCount ?? 0),
           selfChargeCoins: String(a.totalTopupCoins ?? 0),
+          // B7 — "عايز اشوف تارجيت وكيل الشحن من اللوحة". A charging agent's
+          // target is what his own selling produced, which for a CHARGING
+          // agency is the sum over its OWNER/BRANCH rows — not
+          // computeAgencyEarnedCoins, which measures a HOSTING agency's hosts.
+          // The value existed nowhere in this payload, so the dashboard had
+          // nothing to print even though every other target view had it.
+          chargingTargetCoins:
+            a.type === 'CHARGING' ? String(await computeChargingAgencyTarget(a.id)) : null,
+          chargingTargetGoal: String(a.targetCoins ?? 0),
         };
       }),
     );
@@ -1022,6 +1035,23 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
   } catch {
     return fail(res, 500, 'Server error');
   }
+};
+
+/**
+ * The target a charging agency has actually built: every OWNER/BRANCH seat's
+ * running total, which is where sendCoinsToUser and transferCoins book a sale
+ * and where بيع/تبديل take it back out again. Read straight off the same
+ * column those writes use, so the dashboard cannot drift from the app.
+ */
+const computeChargingAgencyTarget = async (agencyId: number): Promise<number> => {
+  const seats = await db.agencyMember.findMany({
+    where: { agencyId, role: { in: ['OWNER', 'BRANCH'] } },
+    select: { targetAdjustmentCoins: true },
+  });
+  return seats.reduce(
+    (sum: number, m: any) => sum + Math.max(0, Number(m.targetAdjustmentCoins ?? 0)),
+    0,
+  );
 };
 
 // PATCH /admin-dashboard/agencies/:id — edit agency name + lock renaming (group 7)
@@ -1554,7 +1584,7 @@ const giftAnimationMsFor = (animationMs: unknown): number | undefined => {
 };
 
 export const adminCreateGift = async (req: AdminReq, res: Response) => {
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible, animationMs, videoHasAlpha } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible, animationMs, videoHasAlpha, category } = req.body;
   if (!nameAr || !iconUrl || coinCost == null) {
     return res.status(400).json({ success: false, message: 'nameAr, iconUrl, coinCost required' });
   }
@@ -1572,7 +1602,13 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
       sortOrder: Number(sortOrder ?? 0),
       format: resolvedFormat as any,
       tier: (tier ?? 'SMALL') as any,
-      category: 'admin',
+      // D3 — this was hardcoded to 'admin'. GiftCategory has had full CRUD in
+      // gifts/admin.controller since the lists shipped, and the app renders a
+      // tab per category, but every gift created from THIS dashboard — the one
+      // actually in use — landed in the same list and there was no way to move
+      // it afterwards. 'admin' stays the default for a gift saved without a
+      // list chosen, so existing behaviour is unchanged.
+      category: category ? String(category) : 'admin',
       ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
       ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
@@ -1588,7 +1624,7 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
 
 export const adminUpdateGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible, animationMs, videoHasAlpha } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible, animationMs, videoHasAlpha, category } = req.body;
   const resolvedMs = giftAnimationMsFor(animationMs);
 
   const gift = await prisma.gift.update({
@@ -1603,6 +1639,9 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
       ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
       ...(tier !== undefined && { tier: tier as any }),
+      // D3 — "زر نقل الهدية من قائمة لقائمة". Moving a gift between lists is
+      // just this field; the endpoint never accepted it.
+      ...(category !== undefined && { category: category ? String(category) : null }),
       ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
       ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
       // A newly-attached video always wins over whatever format was posted.
@@ -1767,6 +1806,47 @@ export const adminListVipLevels = async (_req: AdminReq, res: Response) => {
   }
 };
 
+/**
+ * C11 — hand a tier's reward items to everyone already at or above it.
+ *
+ * Runs after the response: a tier with thousands of members must not hold the
+ * dashboard's save open, and a failure part-way through is safe to leave —
+ * granting is idempotent, so re-saving the tier finishes the job. Paged rather
+ * than loaded whole, and sequential so a backfill cannot saturate the pool
+ * underneath live traffic.
+ */
+const backfillVipTier = async (level: number): Promise<void> => {
+  const pageSize = 200;
+  let cursor: number | undefined;
+  let granted = 0;
+  try {
+    for (;;) {
+      const page = await db.user.findMany({
+        where: {
+          vipLevel: { gte: level },
+          OR: [{ vipExpiresAt: null }, { vipExpiresAt: { gt: new Date() } }],
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: pageSize,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      });
+      if (page.length === 0) break;
+      for (const u of page) {
+        await grantVipRewardsForRange(u.id, level - 1, level).catch((e) =>
+          console.warn('[backfillVipTier] grant failed for', u.id, e),
+        );
+        granted++;
+      }
+      cursor = page[page.length - 1].id;
+      if (page.length < pageSize) break;
+    }
+    console.log(`[backfillVipTier] VIP ${level}: ${granted} member(s) topped up`);
+  } catch (e) {
+    console.warn('[backfillVipTier] aborted:', (e as Error).message);
+  }
+};
+
 export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
   try {
     const level = Number(req.body?.level);
@@ -1813,6 +1893,17 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
       update: data,
       create: { level, ...data },
     });
+
+    // C11 — rewards are granted at the moment a user CROSSES a tier, so adding
+    // an item to a tier gave it to nobody: every existing VIP had already
+    // crossed, and the admin saw the item configured while the members it was
+    // meant for never received it. Backfill everyone already standing at or
+    // above the tier. grantVipRewardsForRange never double-grants a UserItem,
+    // so re-saving a tier is harmless.
+    if (rewardItemIds !== undefined) {
+      void backfillVipTier(level);
+    }
+
     return res.json({ success: true, data: saved });
   } catch (e) {
     console.error('adminUpsertVipLevel error:', e);

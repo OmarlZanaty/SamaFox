@@ -62,4 +62,18 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'updatedAt': instance.updatedAt,
       'agencyRole': instance.agencyRole,
       'agencyName': instance.agencyName,
+      // A17 and friends — User.fromJson is hand-written and reads 39 fields,
+      // but this generated writer emitted only 26, so every cache write
+      // silently dropped the rest. isSuperAdmin going missing is why a super
+      // admin could come back from storage as a plain admin; age, the profile
+      // background/decoration and the badges were lost the same way.
+      'isSuperAdmin': instance.isSuperAdmin,
+      'age': instance.age,
+      'familyName': instance.familyName,
+      'liveRoomId': instance.liveRoomId,
+      'ownedRoomId': instance.ownedRoomId,
+      'profileBgUrl': instance.profileBgUrl,
+      'profileBgType': instance.profileBgType,
+      'profileDecorUrl': instance.profileDecorUrl,
+      'profileDecorType': instance.profileDecorType,
     };

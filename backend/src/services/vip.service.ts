@@ -37,7 +37,35 @@ export async function getVipThresholdOverrides(): Promise<Map<number, number>> {
 
 /** Cumulative coins required for [level], honoring admin overrides (group 10). */
 export function vipThresholdWithOverrides(level: number, overrides: Map<number, number>): number {
-  return overrides.get(level) ?? vipThreshold(level);
+  // E1/E3 — same reasoning as levelThresholdWithOverrides in xp.service: an
+  // unconfigured tier must never undercut a configured one below it, or the
+  // table runs backwards and every reader of it disagrees with the others.
+  const own = overrides.get(level);
+  if (own != null) return own;
+  let floor = 0;
+  for (const [lvl, threshold] of overrides) {
+    if (lvl < level && threshold > floor) floor = threshold;
+  }
+  return Math.max(vipThreshold(level), floor);
+}
+
+/**
+ * The smallest totalRecharge that actually computes to VIP [level].
+ *
+ * E3 — every path that awards a tier without the user having paid for it
+ * through recharge (dashboard promotion, and the coin PURCHASE at
+ * vip.routes) must carry this counter up with the tier. Skip it and the
+ * user keeps the badge only until the next recharge triggers a recompute,
+ * which reads a totalRecharge belonging to the old tier and demotes them.
+ * Shared so the two call sites cannot drift apart again.
+ */
+export function vipRechargeFloor(level: number, overrides: Map<number, number>): number {
+  let floor = 0;
+  for (let l = 1; l <= level; l++) {
+    const t = vipThresholdWithOverrides(l, overrides);
+    if (t > floor) floor = t;
+  }
+  return floor;
 }
 
 /** computeVipLevel but with admin-configured thresholds taking precedence. */

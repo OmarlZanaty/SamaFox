@@ -39,11 +39,54 @@ export const getLevelThresholdOverrides = async (
   }
 };
 
-/** Cumulative XP required for [level], honoring admin overrides. */
+/**
+ * Cumulative XP required for [level], honoring admin overrides.
+ *
+ * E1 — the fallback used to be applied PER LEVEL in isolation, so a partly
+ * filled board produced a table that ran backwards. Set level 10 to 50,000 and
+ * leave 11 unset and level 11 fell back to the formula's 10,000: lower than the
+ * tier below it. Every consumer then disagreed with itself — the progress bar
+ * showed a "next level" the user had already passed, and the floor written by
+ * the dashboard promotion computed back to a different level on the next gift,
+ * silently demoting the user the admin had just promoted.
+ *
+ * An unconfigured level is now never cheaper than the highest configured tier
+ * beneath it. A configured one is left exactly as the admin typed it — that is
+ * an explicit instruction, and guessing over it would be worse.
+ */
 export const levelThresholdWithOverrides = (
   level: number,
   overrides: Map<number, number>,
-): number => overrides.get(level) ?? Math.pow(level - 1, 2) * 100;
+): number => {
+  const own = overrides.get(level);
+  if (own != null) return own;
+  let floor = 0;
+  for (const [lvl, threshold] of overrides) {
+    if (lvl < level && threshold > floor) floor = threshold;
+  }
+  return Math.max(Math.pow(level - 1, 2) * 100, floor);
+};
+
+/**
+ * The smallest XP total that actually computes to [level].
+ *
+ * Used when an admin promotes someone by hand: the counter has to come with
+ * them, or the next gift recomputes the level from an XP total that belongs to
+ * the old tier and takes the promotion straight back. Taking the max across
+ * every tier up to [level] means this holds even for a hand-entered board that
+ * runs backwards.
+ */
+export const levelXpFloor = (
+  level: number,
+  overrides: Map<number, number>,
+): number => {
+  let floor = 0;
+  for (let l = 2; l <= level; l++) {
+    const t = levelThresholdWithOverrides(l, overrides);
+    if (t > floor) floor = t;
+  }
+  return floor;
+};
 
 /**
  * calculateLevel with admin-configured thresholds taking precedence.

@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io' show Platform;
+
+import 'package:device_info_plus/device_info_plus.dart';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -65,6 +68,26 @@ class AuthInterceptor extends Interceptor {
   // Each pending 401 gets its own completer so it can be individually resolved.
   final List<Completer<String>> _pendingCompleters = [];
 
+  /// F4 — resolved once and kept. Reading it from the platform on every
+  /// request would put a channel round-trip in front of all network traffic.
+  static String? _deviceId;
+
+  static Future<String?> _cachedDeviceId() async {
+    if (_deviceId != null) return _deviceId;
+    try {
+      if (kIsWeb) return _deviceId = 'web';
+      if (Platform.isAndroid) {
+        _deviceId = (await DeviceInfoPlugin().androidInfo).id;
+      } else if (Platform.isIOS) {
+        _deviceId = (await DeviceInfoPlugin().iosInfo).identifierForVendor;
+      }
+    } catch (_) {
+      // A device that will not identify itself is still allowed to use the
+      // app — the IP half of the ban still applies to it.
+    }
+    return _deviceId;
+  }
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
     String? token = await StorageService.getAccessToken();
@@ -72,6 +95,15 @@ class AuthInterceptor extends Interceptor {
     if (token != null && token.isNotEmpty) {
       options.headers['Authorization'] = 'Bearer $token';
     }
+
+    // F4 — the server has read `x-device-id` since the device ban shipped, but
+    // nothing ever sent it outside guest login, so a ban could only ever be
+    // placed on an IP and an admin had no way to discover a device id at all.
+    final deviceId = await _cachedDeviceId();
+    if (deviceId != null && deviceId.isNotEmpty) {
+      options.headers['x-device-id'] = deviceId;
+    }
+
     handler.next(options);
   }
 

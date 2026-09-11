@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/room_controller_provider.dart';
 import '../../utils/image_intrinsic_size.dart';
+import '../product_video_layer.dart';
 
 /// Group 12: animated user-entrance banner.
 ///
@@ -103,8 +104,33 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
 
   /// The stretchable plate. A purchased design fills the same footprint; the
   /// bundled artwork is 9-sliced so only its middle grows.
-  DecorationImage _plate(EntranceEvent e) {
+  /// D5 — an entrance bought as a VIDEO used to be handed to NetworkImage,
+  /// fail, and fall back to the bundled bar: the buyer's own entrance was
+  /// never the one that played. A clip has no 9-slice — there is no flat
+  /// middle to stretch — so it is fitted behind the row instead, clipped to
+  /// the bar so it cannot spill across the room.
+  Widget _plateSkin(EntranceEvent e, Widget bar) {
     final url = (e.bannerUrl ?? '').trim();
+    if (!isProductVideoUrl(url)) return bar;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: ProductVideoLayer(url: url, fit: BoxFit.cover),
+          ),
+        ),
+        bar,
+      ],
+    );
+  }
+
+  DecorationImage? _plate(EntranceEvent e) {
+    final url = (e.bannerUrl ?? '').trim();
+    // Video is drawn by _plateSkin, behind this. Returning null rather than
+    // the bundled bar is the point: the purchased entrance must not have the
+    // default artwork showing through it.
+    if (isProductVideoUrl(url)) return null;
     if (url.isNotEmpty) {
       // `centerSlice` is in the SOURCE image's pixels. Passing the BUNDLED
       // bar's 226x46 for every uploaded design sliced it in the wrong place;
@@ -216,7 +242,7 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
                 children: [
                   Padding(
                     padding: EdgeInsets.only(left: barInset),
-                    child: Container(
+                    child: _plateSkin(e, Container(
                       height: custom ? null : _barHeight,
                       constraints: BoxConstraints(
                         minWidth: 150,
@@ -266,7 +292,7 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
                           ),
                         ],
                       ),
-                    ),
+                    )),
                   ),
                   // The bundled crest is part of the DEFAULT design only — it
                   // must never be painted on top of a purchased bar.

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+
+import '../widgets/vip_badge.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:samafox/screens/edit_profile_screen.dart';
@@ -1187,7 +1189,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       const SizedBox(height: 4),
                     ],
 
-                    _buildLevelBadge(user.level ?? 1),
+                    // C2/C3/C12 — one identity row, matching the room card:
+                    // the level chip and the VIP chip together, with the ID
+                    // pushed to the far side. The VIP was missing entirely
+                    // here (the page had no VIP chip at all, so it "vanished"
+                    // whenever a badge was present), and the ID sat three rows
+                    // further down instead of beside the level.
+                    Row(
+                      children: [
+                        _buildLevelBadge(user.level ?? 1),
+                        if ((user.vipLevel ?? 0) > 0) ...[
+                          const SizedBox(width: 6),
+                          VipBadge(level: user.vipLevel ?? 0),
+                        ],
+                        const Spacer(),
+                        _buildUserIdRow(user.publicDisplayId, context),
+                      ],
+                    ),
                     const SizedBox(height: 4),
 
                     // #28: badges row — owned special items (frames/effects/themes).
@@ -1230,7 +1248,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       const SizedBox(height: 4),
                     ],
 
-                    _buildUserIdRow(user.publicDisplayId, context),
                     const SizedBox(height: 12),
 
                     _buildStatsRow(user),
@@ -1641,13 +1658,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             onTap: () => _openRelations(2),
             child: _buildStatItem('${user.followersCount ?? 0}', 'Fans'),
           ),
+          // C16 — "بدل ما الليفل والـVIP يتكرروا تحت". They are in the identity
+          // row above now, so these two tiles become the buckets that had no
+          // entry point at all: أصدقاء (tab 0) and الزوار (tab 3).
           GestureDetector(
-            onTap: () => _showProgressDialog(context, vip: false),
-            child: _buildStatItem('${user.level ?? 1}', 'Level'),
+            onTap: () => _openRelations(0),
+            child: _buildStatItem('', 'أصدقاء'),
           ),
           GestureDetector(
-            onTap: () => _showProgressDialog(context, vip: true),
-            child: _buildStatItem('${user.vipLevel ?? 0}', 'VIP'),
+            onTap: () => _openRelations(3),
+            child: _buildStatItem('', 'الزوار'),
           ),
         ],
       ),

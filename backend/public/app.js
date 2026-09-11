@@ -465,6 +465,14 @@ async function loadUsers() {
         <span class="cell-muted">Lv.${u.level ?? 1} · VIP${u.vipLevel ?? 0}${u.target ? ` · 🎯${u.target.targetGoalCoins}` : ""}</span>
       </td>
       <td>${u.isAdmin ? '<span class="badge badge-admin">أدمن</span>' : ""}</td>
+      <td>${
+        u.lastDeviceId || u.lastIp
+          ? `<div class="cell-muted" title="آخر ظهور: ${fmtDate(u.lastSeenAt)}">`
+            + `${u.lastDeviceId ? `<code>${escapeHtml(u.lastDeviceId)}</code><br>` : ""}`
+            + `${u.lastIp ? escapeHtml(u.lastIp) : ""}</div>`
+            + `<button class="btn-ghost-sm" onclick="banDeviceOf('${escapeHtml(u.lastDeviceId ?? "")}','${escapeHtml(u.lastIp ?? "")}')">حظر الجهاز</button>`
+          : '<span class="cell-muted">—</span>'
+      }</td>
       <td><span class="cell-muted">${fmtDate(u.createdAt)}</span></td>
       <td>
         <div class="td-actions">
@@ -809,6 +817,12 @@ async function loadAgencies() {
           ? '<span class="cell-muted">—</span>'
           : `<strong>${Number(a.selfChargeCount ?? 0).toLocaleString("en-US")}</strong> مرة`
             + `<div class="cell-muted">${Number(a.selfChargeCoins ?? 0).toLocaleString("en-US")} كوينز</div>`
+      }</td>
+      <td>${
+        a.type === "HOSTING"
+          ? '<span class="cell-muted">—</span>'
+          : `<strong>${Number(a.chargingTargetCoins ?? 0).toLocaleString("en-US")}</strong>`
+            + `<div class="cell-muted">من ${Number(a.chargingTargetGoal ?? 0).toLocaleString("en-US")}</div>`
       }</td>
       <td>${imgs || "—"}</td>
       <td><span class="cell-muted">${fmtDate(a.createdAt)}</span></td>
@@ -1600,7 +1614,53 @@ window.addProduct = async function () {
   }
 };
 
+// D3 — the gift lists. GiftCategory has had full CRUD since the lists shipped,
+// but this dashboard never read it: every gift was forced into 'admin' and
+// there was no way to move one afterwards, so the app showed eleven tabs with
+// everything piled into one of them.
+let _giftCategories = [];
+
+async function loadGiftCategories() {
+  try {
+    const d = await apiFetchAny(["/admin/gifts/categories", "/admin-dashboard/gifts/categories"]);
+    _giftCategories = d?.data || d?.categories || [];
+  } catch (e) {
+    // A dashboard that cannot list the lists must still be able to edit a
+    // gift — it just falls back to the default list.
+    console.warn("gift categories unavailable:", e);
+    _giftCategories = [];
+  }
+  return _giftCategories;
+}
+
+function giftCategoryLabel(key) {
+  if (!key) return "—";
+  const hit = _giftCategories.find((c) => c.key === key);
+  return hit ? (hit.nameAr || hit.name || hit.key) : key;
+}
+
+function fillGiftCategorySelect(selected) {
+  const sel = document.getElementById("gift_category");
+  if (!sel) return;
+  const options = _giftCategories.length
+    ? _giftCategories
+    : [{ key: "admin", nameAr: "عام" }];
+  sel.innerHTML = options
+    .map((c) => `<option value="${escapeHtml(c.key)}">${escapeHtml(c.nameAr || c.name || c.key)}</option>`)
+    .join("");
+  if (selected && !options.some((c) => c.key === selected)) {
+    // A gift sitting in a list that was since deleted keeps its value visible
+    // rather than being silently moved by opening the dialog.
+    sel.insertAdjacentHTML(
+      "afterbegin",
+      `<option value="${escapeHtml(selected)}">${escapeHtml(selected)} (قائمة محذوفة)</option>`,
+    );
+  }
+  sel.value = selected || "admin";
+}
+
 window.loadGifts = async function () {
+  await loadGiftCategories();
   const d = await apiFetchAny(["/admin-dashboard/gifts", "/admin/gifts"]);
   const rows = d.data || d.gifts || [];
   const tbody = document.querySelector("#giftsTable tbody");
@@ -1617,6 +1677,7 @@ window.loadGifts = async function () {
           ? `<img src="${normalizeGiftImageUrl(g.iconUrl)}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
           : '<span class="cell-muted">—</span>'
       }</td>
+      <td><span class="cell-muted">${escapeHtml(giftCategoryLabel(g.category))}</span></td>
       <td>${g.coinCost ?? 0}</td>
       <td>${g.sortOrder ?? 0}</td>
       <td>${g.isActive ? "✅" : "⛔"}</td>
@@ -1680,6 +1741,7 @@ window.uploadGiftVideo = async function () {
 };
 
 window.openGiftModal = async function (id = null) {
+  if (!_giftCategories.length) await loadGiftCategories();
   const modal = document.getElementById('giftModal');
   const title = document.getElementById('giftModalTitle');
   const form = document.getElementById('giftForm');
@@ -1713,6 +1775,7 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
     document.getElementById('gift_cpEligible').checked = Boolean(gift.cpEligible);
     document.getElementById('gift_tier').value = gift.tier || 'SMALL';
+    fillGiftCategorySelect(gift.category || 'admin');
     const preview = document.getElementById("giftImagePreview");
     const safeGiftImage = normalizeGiftImageUrl(gift.iconUrl);
     if (safeGiftImage) {
@@ -1724,6 +1787,7 @@ window.openGiftModal = async function (id = null) {
   } else {
     document.getElementById('gift_isActive').checked = true;
     document.getElementById('gift_cpEligible').checked = false;
+    fillGiftCategorySelect('admin');
     document.getElementById("giftImagePreview").style.display = "none";
     const info = document.getElementById('giftVideoInfo');
     if (info) info.style.display = 'none';
@@ -1756,6 +1820,9 @@ window.saveGift = async function () {
     isActive: document.getElementById('gift_isActive').checked,
     cpEligible: document.getElementById('gift_cpEligible').checked,
     tier: tierField || autoTier,
+    // D3 — which list the gift belongs to; sending it on PATCH is the "move"
+    // the client asked for.
+    category: document.getElementById('gift_category')?.value || 'admin',
   };
   // Video gifts play their clip on send; image gifts use the flying-image animation.
   payload.format = payload.animationUrl ? 'VIDEO' : 'SVG_CSS';
@@ -2235,6 +2302,14 @@ async function loadAdmins() {
 
   const note = document.getElementById("adminsSuperNote");
   if (note) note.style.display = currentAdminIsSuper ? "none" : "block";
+
+  // F2 — a normal admin cannot assign anyone, so do not show him the control.
+  // It used to stay visible and simply return a raw 403 when pressed, which is
+  // exactly the "no ability to assign" the client reported.
+  const grantBox = document.getElementById("adminGrantId");
+  const grantBtn = document.getElementById("btnGrantAdmin");
+  if (grantBox) grantBox.style.display = currentAdminIsSuper ? "" : "none";
+  if (grantBtn) grantBtn.style.display = currentAdminIsSuper ? "" : "none";
 
   const d = await apiFetch("/admin-dashboard/admins");
   const rows = d.data || [];
@@ -2997,6 +3072,22 @@ async function sendAdminMessage() {
   document.getElementById("msg_title").value = "";
   document.getElementById("msg_body").value = "";
   showToast(`✅ تم الإرسال إلى ${num(res?.data?.sent ?? 0)} مستخدم`);
+}
+
+// F4 — ban straight from the user row. The moderation form still exists for a
+// device id learned some other way; this is for the ordinary case, where the
+// admin is looking at the account that misbehaved and wants the handset behind
+// it gone. Prefilling the form rather than banning outright keeps the reason
+// and the duration a deliberate choice.
+async function banDeviceOf(deviceId, ipAddress) {
+  navigate("moderation");
+  await loadModeration().catch(() => {});
+  const dev = document.getElementById("db_device");
+  const ip  = document.getElementById("db_ip");
+  if (dev) dev.value = deviceId || "";
+  if (ip)  ip.value  = ipAddress || "";
+  (document.getElementById("db_reason") || {}).focus?.();
+  showToast("تم ملء بيانات الجهاز — أكمل السبب والمدة");
 }
 
 async function createDeviceBan() {

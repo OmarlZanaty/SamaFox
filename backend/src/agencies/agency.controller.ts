@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
@@ -1665,6 +1666,13 @@ export const getBroadcastTime = async (req: AuthReq, res: Response) => {
   }
 };
 
+/**
+ * Thrown to roll a target withdrawal back when the membership row moved between
+ * the availability check and the write. Its own class so the catch cannot
+ * swallow a genuine database failure and report it as a lost race.
+ */
+class TargetRaceError extends Error {}
+
 export const convertTarget = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId;
@@ -1733,22 +1741,44 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
     }
 
     const credit = Math.floor(amount / 2);
-    const [, updatedUser] = await db.$transaction([
-      db.agencyMember.update({
-        where: { id: membership.id },
-        data: {
-          // The withdrawal itself…
-          targetAdjustmentCoins: { decrement: BigInt(amount) },
-          // …and the lifetime counter the target card displays.
-          convertedTargetCoins: { increment: amount },
+
+    // B11 — `available` above was computed from a row read OUTSIDE any
+    // transaction, and the decrement that follows was unconditional. Two taps
+    // that raced (a double-tap, a retry after a slow response) both passed the
+    // check and both ran, withdrawing the target twice and minting real coins
+    // for the second one. The decrement is now conditional on the row still
+    // holding the exact `targetAdjustmentCoins` the check was based on: the
+    // loser of the race matches nothing, and the throw rolls the whole thing
+    // back before any coins are credited.
+    const observedAdjustment = BigInt(membership.targetAdjustmentCoins ?? 0n);
+    let updatedUser: { coinsBalance: number };
+    try {
+      updatedUser = await db.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          const guard = await tx.agencyMember.updateMany({
+            where: { id: membership.id, targetAdjustmentCoins: observedAdjustment },
+            data: {
+              // The withdrawal itself…
+              targetAdjustmentCoins: { decrement: BigInt(amount) },
+              // …and the lifetime counter the target card displays.
+              convertedTargetCoins: { increment: amount },
+            },
+          });
+          if (guard.count === 0) throw new TargetRaceError();
+          return tx.user.update({
+            where: { id: userId },
+            data: { coinsBalance: { increment: credit } },
+            select: { coinsBalance: true },
+          });
         },
-      }),
-      db.user.update({
-        where: { id: userId },
-        data: { coinsBalance: { increment: credit } },
-        select: { coinsBalance: true },
-      }),
-    ]);
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (e) {
+      if (e instanceof TargetRaceError) {
+        return fail(res, 409, 'تم تعديل التارجيت للتو — حدّث الصفحة وحاول مرة أخرى');
+      }
+      throw e;
+    }
 
     return res.json({
       success: true,
@@ -1865,26 +1895,44 @@ export const sellTarget = async (req: AuthReq, res: Response) => {
     // a later change to the tiers doesn't rewrite what this sale was worth.
     const dollarsValue = await coinsToDollars(amount);
 
-    await db.$transaction([
-      db.agencyMember.update({
-        where: { id: sellerMembership.id },
-        data: { targetAdjustmentCoins: { decrement: BigInt(amount) } },
-      }),
-      db.agencyMember.update({
-        where: { id: buyerMembership.id },
-        data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
-      }),
-      (db as any).targetSale.create({
-        data: {
-          sellerId,
-          buyerId: buyer.id,
-          amountCoins: BigInt(amount),
-          sellerAgencyId: sellerMembership.agencyId,
-          buyerAgencyId: buyerMembership.agencyId,
-          dollarsValue,
+    // B11 — same race as convertTarget, and worse here: the buyer's side is an
+    // increment, so a duplicated sale creates target out of nothing. Pin the
+    // seller's decrement to the row the availability check read.
+    const observedSellerAdjustment = BigInt(sellerMembership.targetAdjustmentCoins ?? 0n);
+    try {
+      await db.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          const guard = await tx.agencyMember.updateMany({
+            where: {
+              id: sellerMembership.id,
+              targetAdjustmentCoins: observedSellerAdjustment,
+            },
+            data: { targetAdjustmentCoins: { decrement: BigInt(amount) } },
+          });
+          if (guard.count === 0) throw new TargetRaceError();
+          await tx.agencyMember.update({
+            where: { id: buyerMembership.id },
+            data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
+          });
+          await (tx as any).targetSale.create({
+            data: {
+              sellerId,
+              buyerId: buyer.id,
+              amountCoins: BigInt(amount),
+              sellerAgencyId: sellerMembership.agencyId,
+              buyerAgencyId: buyerMembership.agencyId,
+              dollarsValue,
+            },
+          });
         },
-      }),
-    ]);
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (e) {
+      if (e instanceof TargetRaceError) {
+        return fail(res, 409, 'تم تعديل التارجيت للتو — حدّث الصفحة وحاول مرة أخرى');
+      }
+      throw e;
+    }
 
     const sellerTargetNow = Math.max(0, earnedCoins - amount);
     const buyerTargetNow = await memberTargetEarned({

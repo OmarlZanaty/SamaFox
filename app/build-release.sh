@@ -66,8 +66,18 @@ DEFINES=()
 [[ -n "$API_BASE_URL" ]]    && DEFINES+=("--dart-define=API_BASE_URL=$API_BASE_URL")
 [[ -n "$SOCKET_URL" ]]      && DEFINES+=("--dart-define=SOCKET_URL=$SOCKET_URL")
 
+# G1 — the direct-download APK was ONE universal binary carrying arm64, armv7
+# and x86 native code, so every user downloaded three architectures to run one.
+# `--split-per-abi` emits one APK per architecture; arm64 is what to publish for
+# any phone made in the last decade. Play is unaffected — the bundle handles
+# this itself, and passing the flag to an appbundle build is an error.
+SPLIT=()
+if [[ "$TARGET" == "apk" && "${NO_ABI_SPLIT:-0}" != "1" ]]; then
+  SPLIT+=(--split-per-abi)
+fi
+
 echo "▶ flutter build $TARGET  (${#DEFINES[@]} dart-defines)"
-flutter build "$TARGET" --release "${DEFINES[@]}"
+flutter build "$TARGET" --release "${DEFINES[@]}" "${SPLIT[@]}"
 
 case "$TARGET" in
   appbundle)
@@ -75,8 +85,20 @@ case "$TARGET" in
     echo "   Upload this to Play — it serves each device only its own ABI."
     ;;
   apk)
-    echo "✅ build/app/outputs/flutter-apk/app-release.apk"
-    echo "   This is the direct-download build (G2). It is a universal APK and"
-    echo "   therefore larger than what Play delivers; that is expected."
+    echo "✅ build/app/outputs/flutter-apk/"
+    if [[ "${NO_ABI_SPLIT:-0}" == "1" ]]; then
+      echo "   app-release.apk — universal (NO_ABI_SPLIT=1). Every user"
+      echo "   downloads three architectures to run one; only do this when you"
+      echo "   genuinely cannot tell devices apart."
+    else
+      echo "   app-arm64-v8a-release.apk   ← publish this one (G2)"
+      echo "   app-armeabi-v7a-release.apk ← only for phones older than ~2015"
+      echo "   app-x86_64-release.apk      ← emulators"
+      echo "   Each carries one architecture instead of all three."
+    fi
+    echo
+    echo "   Note: the remaining size is ASSETS (~61 MB of game artwork), which"
+    echo "   no build flag can shrink. Cutting it means re-encoding the art —"
+    echo "   the client's call, not a build setting."
     ;;
 esac

@@ -228,6 +228,7 @@
               <th>الكوينز</th>
               <th>المستوى / VIP / التارجت</th>
               <th>أدمن</th>
+              <th>الجهاز / الشبكة</th>
               <th>تاريخ الإنشاء</th>
               <th>إجراءات</th>
             </tr>
@@ -362,6 +363,7 @@
               <th>الهاتف</th>
               <th>الحالة</th>
               <th>شحنت لنفسها</th>
+              <th>التارجيت</th>
               <th>الصور</th>
               <th>تاريخ الإنشاء</th>
               <th>إجراءات</th>
@@ -625,7 +627,7 @@
           <table id="giftsTable">
             <thead>
               <tr>
-                <th>ID</th><th>الاسم العربي</th><th>الصورة</th><th>القيمة</th><th>الترتيب</th><th>نشط</th><th>إجراءات</th>
+                <th>ID</th><th>الاسم العربي</th><th>الصورة</th><th>القائمة</th><th>القيمة</th><th>الترتيب</th><th>نشط</th><th>إجراءات</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -1378,6 +1380,11 @@
       <input id="gift_sortOrder" type="hidden" />
 
       <input id="gift_nameAr" class="form-input" placeholder="اسم الهدية" />
+
+      <!-- D3 — القائمة التي تظهر فيها الهدية داخل التطبيق. تغييرها هنا هو
+           "نقل الهدية من قائمة لقائمة" الذي طلبه العميل. -->
+      <label class="form-label" for="gift_category">القائمة</label>
+      <select id="gift_category" class="form-input"></select>
 
       <div class="form-row" style="gap:8px;align-items:center;">
         <input id="gift_imageFile" type="file" accept="image/*" class="form-input" />

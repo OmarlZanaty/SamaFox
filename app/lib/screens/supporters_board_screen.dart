@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/auth_provider.dart';
 import '../services/dio_client.dart';
 import '../widgets/FramedAvatar.dart';
 import 'profile_screen.dart';
@@ -13,14 +15,14 @@ import 'profile_screen.dart';
 ///
 /// Layout follows the client's sketch: #1 alone on top, #2 and #3 side by side
 /// under it, then #4 downwards as a ranked list.
-class SupportersBoardScreen extends StatefulWidget {
+class SupportersBoardScreen extends ConsumerStatefulWidget {
   const SupportersBoardScreen({super.key, this.roomId});
 
   /// Room-scoped board when set; app-wide board when null.
   final int? roomId;
 
   @override
-  State<SupportersBoardScreen> createState() => _SupportersBoardScreenState();
+  ConsumerState<SupportersBoardScreen> createState() => _SupportersBoardScreenState();
 }
 
 class _Supporter {
@@ -57,7 +59,7 @@ class _Supporter {
   }
 }
 
-class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
+class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
   static const _gold = Color(0xFFFFD700);
   static const _silver = Color(0xFFCFD8DC);
   static const _bronze = Color(0xFFCD7F32);
@@ -154,6 +156,50 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
           : 'تعذّر استلام المكافأة';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
+  }
+
+  /// The signed-in viewer, or 0 before auth has settled.
+  int get _myUserId => ref.read(authStateProvider).user?.id ?? 0;
+
+  bool _viewerOnBoard(List<_Supporter> board) {
+    final me = _myUserId;
+    return me != 0 && board.any((s) => s.userId == me);
+  }
+
+  /// Rungs this viewer has earned and not claimed. Shown next to their own
+  /// name rather than in a pile at the top of the screen.
+  List<Map<String, dynamic>> _rewardsFor(int userId) =>
+      userId != 0 && userId == _myUserId ? _myRewards : const [];
+
+  Widget _claimButton(Map<String, dynamic> r, {bool compact = true}) {
+    final label = 'مكافأة لك — ${r['rewardCoins'] ?? ''} كوينز';
+    if (!compact) {
+      return ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF7A1D4E),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        onPressed: () => _claimReward(r),
+        icon: const Icon(Icons.card_giftcard),
+        label: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+      );
+    }
+    // Inside a row: short label, small target, no width of its own so a long
+    // name still gets the space it needs.
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF7A1D4E),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        minimumSize: const Size(0, 32),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+      ),
+      onPressed: () => _claimReward(r),
+      icon: const Icon(Icons.card_giftcard, size: 14),
+      label: Text('مكافأة لك · ${r['rewardCoins'] ?? ''}'),
+    );
   }
 
   String _coins(int v) {
@@ -256,25 +302,21 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
                     const SizedBox(height: 14),
                   ],
 
-                  // A15b — "مكافأة لك", one button per rung this viewer earned.
-                  for (final r in _myRewards) ...[
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7A1D4E),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onPressed: () => _claimReward(r),
-                        icon: const Icon(Icons.card_giftcard),
-                        label: Text(
-                          'مكافأة لك — ${r['rewardCoins'] ?? ''} كوينز',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
+                  // A15 — "مكافأة لك" used to be a stack of full-width buttons
+                  // above the whole board, detached from the person they
+                  // belonged to. The rewards are the VIEWER's, so the button
+                  // belongs beside the viewer's own name in the list (see
+                  // _row / _podium). It only falls back to a banner here when
+                  // the viewer earned a rung but does not appear on the board
+                  // at all — otherwise there would be nowhere to put it.
+                  if (_myRewards.isNotEmpty && !_viewerOnBoard(board)) ...[
+                    for (final r in _myRewards) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: _claimButton(r, compact: false),
                       ),
-                    ),
-                    const SizedBox(height: 10),
+                      const SizedBox(height: 10),
+                    ],
                   ],
 
                   // ── الأول ──
@@ -417,6 +459,13 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
               ),
             ],
           ),
+          // A15 — a viewer standing on the podium claims from the podium; the
+          // top three are drawn here rather than by _row, so without this the
+          // best supporters would be the only ones with no button at all.
+          for (final r in _rewardsFor(s.userId)) ...[
+            const SizedBox(height: 6),
+            _claimButton(r),
+          ],
         ],
       ),
     );
@@ -469,6 +518,12 @@ class _SupportersBoardScreenState extends State<SupportersBoardScreen> {
                 ],
               ),
             ),
+            // A15 — "جنب الاسم": the viewer's own unclaimed rungs sit in their
+            // own row, where it is obvious whose reward it is.
+            for (final r in _rewardsFor(s.userId)) ...[
+              _claimButton(r),
+              const SizedBox(width: 8),
+            ],
             Text(
               _coins(s.coins),
               style: const TextStyle(color: _gold, fontWeight: FontWeight.bold, fontSize: 15),

@@ -12,6 +12,7 @@ import '../../screens/profile_screen.dart';
 import '../../utils/image_intrinsic_size.dart';
 import 'TopWaveClipper.dart';
 import '../../widgets/app_network_image.dart';
+import '../product_video_layer.dart';
 
 // ==========================
 // 🔥 NEW: merged feed model
@@ -36,7 +37,18 @@ class RoomChatPanel extends ConsumerStatefulWidget {
   /// Opens the room's own profile card for a chat writer. Supplied by
   /// RoomScreen — the card belongs to the room, so tapping a name must not
   /// navigate away from it.
-  final void Function(int userId, String username)? onUserTap;
+  /// A20 — the writer's standing travels WITH the tap. The room's profile card
+  /// used to synthesise a blank seat for anyone who was not sitting on one, so
+  /// a chat-only user opened as "LV 0", no VIP chip, and the internal id. The
+  /// message already carries all three.
+  final void Function(
+    int userId,
+    String username, {
+    int? level,
+    int? vipLevel,
+    int? displayId,
+    String? avatarUrl,
+  })? onUserTap;
 
   const RoomChatPanel({super.key, required this.roomId, this.onUserTap});
 
@@ -121,8 +133,31 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// dashboard configured. Nothing here decides how tall the bubble is — the
   /// Container wraps its child, so 1, 2 or 5 lines each get a bubble that grew
   /// to fit ("وكبر مع كبر الكلام بالطول والعرض").
+  /// D5 — a bought VIDEO bubble used to be handed to NetworkImage, fail, and
+  /// render as no decoration at all: the buyer wore nothing. A clip cannot be
+  /// a DecorationImage and has no 9-slice — there is no flat middle to stretch
+  /// — so it goes behind the text instead, clipped to the bubble's own radius
+  /// and sized by the bubble, which is still sized by the message.
+  Widget _bubbleSkin(SocketMessage m, Widget bubble) {
+    final url = (m.bubbleUrl ?? '').trim();
+    if (!isProductVideoUrl(url)) return bubble;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: ProductVideoLayer(url: url, fit: BoxFit.cover),
+          ),
+        ),
+        bubble,
+      ],
+    );
+  }
+
   BoxDecoration _bubbleDecoration(SocketMessage m) {
     final url = (m.bubbleUrl ?? '').trim();
+    // Video is drawn by _bubbleSkin, behind this.
+    if (isProductVideoUrl(url)) return const BoxDecoration();
     if (url.isNotEmpty) {
       // `centerSlice` is in the SOURCE image's pixels. This used to be handed
       // the BUNDLED artwork's 148x36, so an uploaded bubble of any other size
@@ -227,7 +262,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// Opens the writer's card. Prefers the room's own profile dialog (same one
   /// the seats use, so the admin controls are right there); falls back to the
   /// full profile screen only if this panel was mounted without the callback.
-  void _openProfile(int userId, String username) {
+  void _openProfile(int userId, String username, {SocketMessage? from}) {
     if (userId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تعذّر فتح الملف الشخصي لهذا المستخدم')),
@@ -236,7 +271,14 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     }
     final open = widget.onUserTap;
     if (open != null) {
-      open(userId, username);
+      open(
+        userId,
+        username,
+        level: from?.level,
+        vipLevel: from?.vipLevel,
+        displayId: from?.displayId,
+        avatarUrl: from?.avatar,
+      );
       return;
     }
     Navigator.push(
@@ -465,13 +507,13 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                   // Whole bubble opens the same card as the
                                   // name — one behaviour, and the 11px name was
                                   // too small a target on its own.
-                                  onTap: () => _openProfile(m.userId, m.username),
+                                  onTap: () => _openProfile(m.userId, m.username, from: m),
                                   onLongPress: () => _showChatUserActions(m.userId, m.username),
                                   child: Stack(
                                   children: [
                                     // 💬 BUBBLE — custom design if the sender
                                     // activated one, otherwise tiered by level.
-                                    Container(
+_bubbleSkin(m,                                     Container(
                                       constraints: BoxConstraints(maxWidth: _maxBubbleWidth(context)),
                                       // Confined to the artwork's empty middle.
                                       padding: _bubblePadding(m, _bubbleReference(context)),
@@ -487,7 +529,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                           // bubble still opens the quick menu.
                                           GestureDetector(
                                             behavior: HitTestBehavior.opaque,
-                                            onTap: () => _openProfile(m.userId, m.username),
+                                            onTap: () => _openProfile(m.userId, m.username, from: m),
                                             child: Padding(
                                               // Bigger touch target: 11px text
                                               // was near impossible to hit.
@@ -554,7 +596,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                           ),
                                         ],
                                       ),
-                                    ),
+                                    )),
 
                                     // 🔻 RTL TAIL
                                     Positioned(
