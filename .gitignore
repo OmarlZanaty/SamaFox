@@ -10,4 +10,9 @@ logs
 *.key
 **/cookies.txt
 **/*.cookie
-**/dev.db*.olympus-art-backups/
+**/dev.db
+
+# Local backups written by tools/olympus_art_prep.py before it overwrites
+# a delivered asset. Never part of the app.
+.olympus-art-backups/
+
