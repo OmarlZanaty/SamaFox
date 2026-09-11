@@ -22,9 +22,28 @@ import '../../widgets/app_network_image.dart';
 ///  • it does not linger — [_kVisible] keeps it near the 1–1.5s the client
 ///    asked for on the gift toasts.
 class GiftAnnouncementBar extends StatefulWidget {
-  const GiftAnnouncementBar({super.key, required this.socket, this.roomId});
+  const GiftAnnouncementBar({
+    super.key,
+    required this.socket,
+    this.roomId,
+    this.myUserId,
+  });
 
   final GiftSocketService socket;
+
+  /// D6/D9 — who is looking. The two requests are for two different bars that
+  /// had been built as one:
+  ///
+  ///  • D6, «حطه علي يمين الشاشه مش النص» — the SENDER's own confirmation of
+  ///    the gift he just sent, on the right, near where he tapped;
+  ///  • D9, «يظهر في منتصف الشاشة في شريط مستقل» — the room-wide announcement
+  ///    that someone gifted someone, centred.
+  ///
+  /// One widget cannot be both right-aligned and centred, which is why closing
+  /// one of these kept reopening the other. The sender id on the event is what
+  /// tells them apart: the bar is a confirmation for the person who sent it and
+  /// an announcement for everyone else.
+  final int? myUserId;
 
   /// When set, announcements from other rooms are ignored. The server already
   /// scopes the event per room; this is belt-and-braces for a client that is
@@ -102,23 +121,26 @@ class _GiftAnnouncementBarState extends State<GiftAnnouncementBar>
     final a = _current;
     if (a == null) return const SizedBox.shrink();
 
+    // D6 vs D9 — see [myUserId]. Physically right, never AlignmentDirectional:
+    // the room is laid out RTL, where `start` IS the right edge, so a
+    // directional value would read as correct here and render on the wrong
+    // side. The vertical is the same for both: centreRight/centre is exactly
+    // the 50% line, which is where the gift panel's top edge sits (its height
+    // is half the screen), so the panel met the bar every time. -0.35 lifts it
+    // clear.
+    final isMine = widget.myUserId != null && a.senderId == widget.myUserId;
+    final alignment = isMine ? const Alignment(1.0, -0.35) : const Alignment(0.0, -0.35);
+
     return Positioned.fill(
       child: IgnorePointer(
-        // D6 — "حطه علي يمين الشاشه مش النص". Physically right, not
-        // AlignmentDirectional: the room is laid out RTL, where `start` IS the
-        // right edge, so a directional value here would read as correct and
-        // render on the wrong side.
         child: Align(
-          // D6 — "ارفعه لفوق شوية": centreRight is exactly the 50% line, which
-          // is where the gift panel's top edge sits (its height is half the
-          // screen), so the panel met the bar every time. -0.35 lifts it clear.
-          alignment: const Alignment(1.0, -0.35),
+          alignment: alignment,
           child: FadeTransition(
             opacity: _ctrl,
             child: ScaleTransition(
               scale: Tween<double>(begin: 0.88, end: 1.0)
                   .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack)),
-              child: _bar(a),
+              child: _bar(a, isMine),
             ),
           ),
         ),
@@ -126,13 +148,16 @@ class _GiftAnnouncementBarState extends State<GiftAnnouncementBar>
     );
   }
 
-  Widget _bar(GiftAnnouncement a) {
+  Widget _bar(GiftAnnouncement a, bool isMine) {
     final iconUrl = _resolveUrl(a.giftIconUrl);
     return Container(
-      // D6 — "حطه علي يمين الشاشه مش النص". Pinned right with a max width so
-      // a long name still wraps inside the bar instead of stretching it back
-      // across the screen.
-      margin: const EdgeInsets.only(left: 48, right: 12),
+      // The sender's bar is pinned to the right edge; the announcement keeps
+      // equal margins so it reads as centred rather than as a right-hand bar
+      // that happens to be narrow. Both cap their width, so a long name wraps
+      // inside the bar instead of stretching it back across the screen.
+      margin: isMine
+          ? const EdgeInsets.only(left: 48, right: 12)
+          : const EdgeInsets.symmetric(horizontal: 24),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         gradient: const LinearGradient(

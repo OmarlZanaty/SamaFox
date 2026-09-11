@@ -4752,10 +4752,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               child: EntranceBannerLayer(roomId: widget.roomId),
             ),
 
-            // ===== A22: شريط إعلان الهدية — centred, one at a time, ~1.5s.
-            // Deliberately NOT at the top: the client's complaint was that the
-            // notifications kept covering the gift bar up there.
-            GiftAnnouncementBar(socket: _giftSocket, roomId: widget.roomId),
+            // ===== A22: شريط إعلان الهدية — one at a time, ~1.5s. Deliberately
+            // NOT at the top: the client's complaint was that the notifications
+            // kept covering the gift bar up there. D6/D9: right for the sender,
+            // centred for everyone else — see GiftAnnouncementBar.myUserId.
+            GiftAnnouncementBar(
+              socket: _giftSocket,
+              roomId: widget.roomId,
+              myUserId: userId,
+            ),
 
             // ===== Music control bar — draggable, only for owner/admins, and
             // only while the room is actually playing something. =====

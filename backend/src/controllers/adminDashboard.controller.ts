@@ -1584,7 +1584,7 @@ const giftAnimationMsFor = (animationMs: unknown): number | undefined => {
 };
 
 export const adminCreateGift = async (req: AdminReq, res: Response) => {
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible, animationMs, videoHasAlpha } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, format, tier, name, isActive, cpEligible, animationMs, videoHasAlpha, category } = req.body;
   if (!nameAr || !iconUrl || coinCost == null) {
     return res.status(400).json({ success: false, message: 'nameAr, iconUrl, coinCost required' });
   }
@@ -1602,7 +1602,13 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
       sortOrder: Number(sortOrder ?? 0),
       format: resolvedFormat as any,
       tier: (tier ?? 'SMALL') as any,
-      category: 'admin',
+      // D3 — this was hardcoded to 'admin'. GiftCategory has had full CRUD in
+      // gifts/admin.controller since the lists shipped, and the app renders a
+      // tab per category, but every gift created from THIS dashboard — the one
+      // actually in use — landed in the same list and there was no way to move
+      // it afterwards. 'admin' stays the default for a gift saved without a
+      // list chosen, so existing behaviour is unchanged.
+      category: category ? String(category) : 'admin',
       ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
       ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
@@ -1618,7 +1624,7 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
 
 export const adminUpdateGift = async (req: AdminReq, res: Response) => {
   const id = String(req.params.id);
-  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible, animationMs, videoHasAlpha } = req.body;
+  const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible, animationMs, videoHasAlpha, category } = req.body;
   const resolvedMs = giftAnimationMsFor(animationMs);
 
   const gift = await prisma.gift.update({
@@ -1633,6 +1639,9 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
       ...(cpEligible !== undefined && { cpEligible: Boolean(cpEligible) }),
       ...(tier !== undefined && { tier: tier as any }),
+      // D3 — "زر نقل الهدية من قائمة لقائمة". Moving a gift between lists is
+      // just this field; the endpoint never accepted it.
+      ...(category !== undefined && { category: category ? String(category) : null }),
       ...(resolvedMs !== undefined && { animationMs: resolvedMs }),
       ...(videoHasAlpha !== undefined && { videoHasAlpha: Boolean(videoHasAlpha) }),
       // A newly-attached video always wins over whatever format was posted.

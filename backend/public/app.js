@@ -1614,7 +1614,53 @@ window.addProduct = async function () {
   }
 };
 
+// D3 — the gift lists. GiftCategory has had full CRUD since the lists shipped,
+// but this dashboard never read it: every gift was forced into 'admin' and
+// there was no way to move one afterwards, so the app showed eleven tabs with
+// everything piled into one of them.
+let _giftCategories = [];
+
+async function loadGiftCategories() {
+  try {
+    const d = await apiFetchAny(["/admin/gifts/categories", "/admin-dashboard/gifts/categories"]);
+    _giftCategories = d?.data || d?.categories || [];
+  } catch (e) {
+    // A dashboard that cannot list the lists must still be able to edit a
+    // gift — it just falls back to the default list.
+    console.warn("gift categories unavailable:", e);
+    _giftCategories = [];
+  }
+  return _giftCategories;
+}
+
+function giftCategoryLabel(key) {
+  if (!key) return "—";
+  const hit = _giftCategories.find((c) => c.key === key);
+  return hit ? (hit.nameAr || hit.name || hit.key) : key;
+}
+
+function fillGiftCategorySelect(selected) {
+  const sel = document.getElementById("gift_category");
+  if (!sel) return;
+  const options = _giftCategories.length
+    ? _giftCategories
+    : [{ key: "admin", nameAr: "عام" }];
+  sel.innerHTML = options
+    .map((c) => `<option value="${escapeHtml(c.key)}">${escapeHtml(c.nameAr || c.name || c.key)}</option>`)
+    .join("");
+  if (selected && !options.some((c) => c.key === selected)) {
+    // A gift sitting in a list that was since deleted keeps its value visible
+    // rather than being silently moved by opening the dialog.
+    sel.insertAdjacentHTML(
+      "afterbegin",
+      `<option value="${escapeHtml(selected)}">${escapeHtml(selected)} (قائمة محذوفة)</option>`,
+    );
+  }
+  sel.value = selected || "admin";
+}
+
 window.loadGifts = async function () {
+  await loadGiftCategories();
   const d = await apiFetchAny(["/admin-dashboard/gifts", "/admin/gifts"]);
   const rows = d.data || d.gifts || [];
   const tbody = document.querySelector("#giftsTable tbody");
@@ -1631,6 +1677,7 @@ window.loadGifts = async function () {
           ? `<img src="${normalizeGiftImageUrl(g.iconUrl)}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
           : '<span class="cell-muted">—</span>'
       }</td>
+      <td><span class="cell-muted">${escapeHtml(giftCategoryLabel(g.category))}</span></td>
       <td>${g.coinCost ?? 0}</td>
       <td>${g.sortOrder ?? 0}</td>
       <td>${g.isActive ? "✅" : "⛔"}</td>
@@ -1694,6 +1741,7 @@ window.uploadGiftVideo = async function () {
 };
 
 window.openGiftModal = async function (id = null) {
+  if (!_giftCategories.length) await loadGiftCategories();
   const modal = document.getElementById('giftModal');
   const title = document.getElementById('giftModalTitle');
   const form = document.getElementById('giftForm');
@@ -1727,6 +1775,7 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_isActive').checked = Boolean(gift.isActive);
     document.getElementById('gift_cpEligible').checked = Boolean(gift.cpEligible);
     document.getElementById('gift_tier').value = gift.tier || 'SMALL';
+    fillGiftCategorySelect(gift.category || 'admin');
     const preview = document.getElementById("giftImagePreview");
     const safeGiftImage = normalizeGiftImageUrl(gift.iconUrl);
     if (safeGiftImage) {
@@ -1738,6 +1787,7 @@ window.openGiftModal = async function (id = null) {
   } else {
     document.getElementById('gift_isActive').checked = true;
     document.getElementById('gift_cpEligible').checked = false;
+    fillGiftCategorySelect('admin');
     document.getElementById("giftImagePreview").style.display = "none";
     const info = document.getElementById('giftVideoInfo');
     if (info) info.style.display = 'none';
@@ -1770,6 +1820,9 @@ window.saveGift = async function () {
     isActive: document.getElementById('gift_isActive').checked,
     cpEligible: document.getElementById('gift_cpEligible').checked,
     tier: tierField || autoTier,
+    // D3 — which list the gift belongs to; sending it on PATCH is the "move"
+    // the client asked for.
+    category: document.getElementById('gift_category')?.value || 'admin',
   };
   // Video gifts play their clip on send; image gifts use the flying-image animation.
   payload.format = payload.animationUrl ? 'VIDEO' : 'SVG_CSS';

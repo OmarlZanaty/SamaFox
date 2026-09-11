@@ -45,10 +45,24 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     _hardTimer = Timer(VideoGiftPlayer.maxPlayback, _markComplete);
   }
 
+  /// D1 — a video gift that fails shows nothing at all, and the failure used
+  /// to be discarded by a bare `catch (_)`. The sender had paid, the room saw
+  /// an empty flash, and there was no way to tell a bad upload from a missing
+  /// codec from a dead URL. Every failure path now says what happened and for
+  /// which gift; the user-visible behaviour (skip the clip, don't hang the
+  /// room) is unchanged.
+  void _reportFailure(String stage, Object? error) {
+    debugPrint(
+      '🎬 [VideoGiftPlayer] $stage failed for gift ${widget.gift.id} '
+      '(${widget.gift.animationUrl}): ${error ?? 'no detail'}',
+    );
+    widget.onError?.call();
+  }
+
   Future<void> _initialize() async {
     final url = widget.gift.animationUrl;
     if (url == null || url.isEmpty) {
-      widget.onError?.call();
+      _reportFailure('lookup', 'gift has no animationUrl');
       _markComplete();
       return;
     }
@@ -58,7 +72,9 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
         final cached = await DefaultCacheManager().getSingleFile(url);
         controller = VideoPlayerController.file(File(cached.path),
             videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
-      } catch (_) {
+      } catch (e) {
+        // Not a failure yet — the network player below is the real attempt.
+        debugPrint('🎬 [VideoGiftPlayer] cache miss for $url, streaming: $e');
         controller = VideoPlayerController.networkUrl(
           Uri.parse(url),
           videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
@@ -67,8 +83,16 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
       _controller = controller;
       await controller.initialize();
       controller.setLooping(false);
-      // The clip's own audio track. `mixWithOthers` keeps the room's voice
-      // audible underneath instead of the video taking the session over.
+      // D1 — the clip's own audio track, at full volume. `mixWithOthers` is
+      // what keeps this from hijacking the call: without it the platform gives
+      // the video exclusive use of the audio session and the room goes silent
+      // for as long as the gift plays.
+      //
+      // Routing is deliberately NOT forced here. The gift follows whatever the
+      // call is already using — earpiece or speaker — because the alternative
+      // is a gift that blasts out of the speaker while the user is holding the
+      // phone to their ear. The room's own speaker toggle stays the one place
+      // that decides.
       await controller.setVolume(1.0);
       controller.addListener(_onTick);
       if (!mounted) return;
@@ -87,8 +111,8 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
       }
 
       await controller.play();
-    } catch (_) {
-      widget.onError?.call();
+    } catch (e) {
+      _reportFailure('playback', e);
       _markComplete();
     }
   }
@@ -97,7 +121,7 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     final c = _controller;
     if (c == null) return;
     if (c.value.hasError) {
-      widget.onError?.call();
+      _reportFailure('decode', c.value.errorDescription);
       _markComplete();
       return;
     }
