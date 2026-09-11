@@ -1,0 +1,720 @@
+<title>فحص سمافوكس</title>
+
+<style id="app-style">
+@import url('https://fonts.googleapis.com/css2?family=Changa:wght@500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+:root {
+  --ground:      #F5F2FB;
+  --ground-deep: #EBE5F7;
+  --card:        #FFFFFF;
+  --rule:        #E1D8F3;
+  --rule-soft:   #EEE8F9;
+  --ink:         #1A1030;
+  --ink-soft:    #605579;
+  --ink-faint:   #8B81A6;
+  --accent:      #6A38DC;
+  --accent-wash: #EFE8FF;
+  --gold:        #8A5A0C;
+  --gold-wash:   #FBF0DA;
+  --ok:          #16704F;
+  --ok-wash:     #DFF3EA;
+  --shadow:      0 1px 2px rgba(26, 16, 48, .05), 0 8px 24px -14px rgba(26, 16, 48, .28);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.0625rem;
+  --step-2:  1.375rem;
+  --step-3:  2rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #120A26;
+    --ground-deep: #0C0619;
+    --card:        #1B1138;
+    --rule:        #2F2159;
+    --rule-soft:   #251845;
+    --ink:         #EEE9FB;
+    --ink-soft:    #AA9DCC;
+    --ink-faint:   #7E71A3;
+    --accent:      #A98BFF;
+    --accent-wash: #2A1B57;
+    --gold:        #E9B85E;
+    --gold-wash:   #3A2A11;
+    --ok:          #5FD3A6;
+    --ok-wash:     #10382A;
+    --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -16px rgba(0, 0, 0, .8);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #120A26;
+  --ground-deep: #0C0619;
+  --card:        #1B1138;
+  --rule:        #2F2159;
+  --rule-soft:   #251845;
+  --ink:         #EEE9FB;
+  --ink-soft:    #AA9DCC;
+  --ink-faint:   #7E71A3;
+  --accent:      #A98BFF;
+  --accent-wash: #2A1B57;
+  --gold:        #E9B85E;
+  --gold-wash:   #3A2A11;
+  --ok:          #5FD3A6;
+  --ok-wash:     #10382A;
+  --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -16px rgba(0, 0, 0, .8);
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { direction: rtl; }
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1rem, 3vw, 2rem) 5rem;
+}
+
+/* ---------- header ---------- */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(1.25rem, 4vw, 2.75rem);
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead-text { flex: 1 1 22rem; min-width: 0; }
+
+h1 {
+  font-family: Changa, "IBM Plex Sans Arabic", Tahoma, sans-serif;
+  font-weight: 700;
+  font-size: var(--step-3);
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  margin: 0 0 .45rem;
+  text-wrap: balance;
+}
+
+.masthead p {
+  margin: 0;
+  color: var(--ink-soft);
+  max-width: 46ch;
+}
+
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: var(--step--1);
+  letter-spacing: .12em;
+  color: var(--accent);
+  margin: 0 0 .5rem;
+  text-transform: uppercase;
+}
+
+/* progress ring — the room's speaking ring, reused */
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex: 0 0 auto;
+}
+
+.ring { position: relative; width: 78px; height: 78px; flex: none; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 7; stroke-linecap: round; }
+.ring .track { stroke: var(--rule); }
+.ring .live {
+  stroke: var(--accent);
+  stroke-dasharray: 163.4;
+  transition: stroke-dashoffset .5s cubic-bezier(.4, 0, .2, 1);
+}
+.ring .pct {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: Changa, sans-serif;
+  font-weight: 600;
+  font-size: var(--step-0);
+  font-variant-numeric: tabular-nums;
+}
+.ring.done::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--ok);
+  animation: pulse 2.2s ease-out infinite;
+}
+@keyframes pulse {
+  0%   { transform: scale(.94); opacity: .9; }
+  70%  { transform: scale(1.12); opacity: 0; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+
+.tallies { display: grid; gap: .3rem; }
+.tally {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+.tally b {
+  font-family: Changa, sans-serif;
+  font-size: var(--step-1);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+}
+
+/* ---------- controls ---------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin: 1.5rem 0 .5rem;
+}
+
+.filter {
+  font: inherit;
+  font-size: var(--step--1);
+  font-weight: 500;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: .35rem 1rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.filter:hover { color: var(--ink); border-color: var(--ink-faint); }
+.filter[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+.filter:focus-visible,
+.check input:focus-visible + .box,
+.reset:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.reset {
+  margin-inline-start: auto;
+  font: inherit;
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  padding: .35rem .25rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.reset:hover { color: var(--ink); text-decoration: underline; }
+
+.sync {
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  min-height: 1.4em;
+  margin: 0 0 1.5rem;
+}
+
+/* ---------- sections ---------- */
+
+section { margin-top: 2.75rem; }
+
+.sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .25rem 1rem;
+  margin-bottom: .9rem;
+}
+.sec-head h2 {
+  font-family: Changa, sans-serif;
+  font-weight: 600;
+  font-size: var(--step-2);
+  margin: 0;
+}
+.sec-head .count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sec-head .note {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--step--1);
+}
+
+.table-scroll { overflow-x: auto; border-radius: 14px; }
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+thead th {
+  text-align: right;
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 600;
+  font-size: var(--step--1);
+  letter-spacing: .04em;
+  color: var(--ink-soft);
+  background: var(--ground-deep);
+  padding: .7rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 1rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule-soft);
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr.done { background: var(--ground-deep); }
+tbody tr.done .item-title,
+tbody tr.done .steps,
+tbody tr.done .expect { opacity: .55; }
+
+.col-check { width: 3.2rem; }
+.col-item  { width: 20%; min-width: 12rem; }
+.col-state { width: 8.5rem; }
+.col-steps { width: 34%; }
+
+/* checkbox */
+.check { display: inline-flex; cursor: pointer; }
+.check input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.check .box {
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1.5px solid var(--ink-faint);
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  transition: background .15s, border-color .15s;
+}
+.check .box::after {
+  content: "";
+  width: .42rem;
+  height: .78rem;
+  border: solid transparent;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+  transition: border-color .15s;
+}
+.check input:checked + .box {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.check input:checked + .box::after { border-color: var(--card); }
+
+/* item cell */
+.item-id {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  color: var(--accent);
+  letter-spacing: .06em;
+  display: block;
+  margin-bottom: .15rem;
+}
+.item-title { font-weight: 600; line-height: 1.5; }
+
+/* state pill */
+.pill {
+  display: inline-block;
+  font-size: var(--step--1);
+  font-weight: 600;
+  line-height: 1.5;
+  padding: .2rem .7rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pill.ok  { color: var(--ok);   background: var(--ok-wash); }
+.pill.fix { color: var(--gold); background: var(--gold-wash); }
+.pill.dep { color: var(--accent); background: var(--accent-wash); }
+
+.steps {
+  margin: 0;
+  padding-inline-start: 1.2rem;
+  display: grid;
+  gap: .35rem;
+}
+.steps li { padding-inline-start: .15rem; }
+.steps li::marker {
+  color: var(--ink-faint);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .85em;
+}
+
+.expect { margin: 0; color: var(--ink-soft); }
+tbody tr.is-fix .expect { color: var(--ink); }
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .9em;
+  background: var(--accent-wash);
+  color: var(--accent);
+  padding: .1rem .4rem;
+  border-radius: 5px;
+  direction: ltr;
+  display: inline-block;
+}
+
+footer {
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-faint);
+  font-size: var(--step--1);
+}
+footer p { margin: 0 0 .4rem; }
+
+/* ---------- narrow screens: table folds into cards ---------- */
+
+@media (max-width: 900px) {
+  .table-scroll { overflow-x: visible; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  thead { display: none; }
+  table { border: 0; background: none; box-shadow: none; border-radius: 0; }
+  tbody tr {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    margin-bottom: 1rem;
+    padding: .35rem .25rem;
+    position: relative;
+  }
+  tbody td { border-bottom: 0; padding: .5rem 1rem; }
+  tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--ink-faint);
+    margin-bottom: .2rem;
+  }
+  td.col-check {
+    width: auto;
+    position: absolute;
+    top: .85rem;
+    left: 1rem;
+    padding: 0;
+  }
+  td.col-item { padding-inline-end: 3.5rem; }
+  td.col-state::before { display: none; }
+  td.col-state { padding-top: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+</style>
+
+<div id="app"></div>
+
+<script id="app-data" type="application/json">__DATA__</script>
+
+<script id="app-script">
+(function () {
+  "use strict";
+
+  var dataEl = document.getElementById("app-data");
+  var DATA = JSON.parse(dataEl.textContent);
+  var checked = Object.assign({}, DATA.checked || {});
+  var filter = "all";
+  var LS_KEY = "samafox-qa-checked";
+  var artifactApi = null;
+  var publishTimer = null;
+  var syncEl = null;
+
+  document.documentElement.setAttribute("lang", "ar");
+  document.documentElement.setAttribute("dir", "rtl");
+
+  var STATE_LABEL = {
+    ok:  "مُتحقَّق",
+    fix: "أُصلح اليوم",
+    dep: "خطوة نشر"
+  };
+
+  // ---------- persistence ----------
+
+  function readLocal() {
+    try {
+      var raw = window.localStorage.getItem(LS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeLocal() {
+    try {
+      window.localStorage.setItem(LS_KEY, JSON.stringify(checked));
+    } catch (e) {
+      /* private window, blocked storage — the page still works */
+    }
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // Rebuild the whole document from its own stylesheet, script and data.
+  // Deliberately not a dump of the live DOM: only the tick state changes.
+  function buildDoc() {
+    var css = document.getElementById("app-style").textContent;
+    var js = document.getElementById("app-script").textContent;
+    var payload = JSON.stringify(Object.assign({}, DATA, { checked: checked }));
+    var close = "<" + "/script>";
+    return [
+      "<!doctype html>",
+      '<html lang="ar" dir="rtl">',
+      "<head>",
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      "<title>" + esc(DATA.title) + "</title>",
+      '<style id="app-style">' + css + "</style>",
+      "</head>",
+      "<body>",
+      '<div id="app"></div>',
+      '<script id="app-data" type="application/json">' + payload + close,
+      '<script id="app-script">' + js + close,
+      "</body>",
+      "</html>"
+    ].join("\n");
+  }
+
+  function note(text) {
+    if (syncEl) syncEl.textContent = text || "";
+  }
+
+  function schedulePublish() {
+    if (!artifactApi) return;
+    if (publishTimer) clearTimeout(publishTimer);
+    note("جارٍ الحفظ للجميع…");
+    // Rapid ticking is batched into one publish.
+    publishTimer = setTimeout(function () {
+      publishTimer = null;
+      artifactApi.publish(buildDoc()).then(function () {
+        note("محفوظ للجميع.");
+      })["catch"](function (err) {
+        if (err && err.code === "conflict") return; // another view won; this one reloads
+        note("تعذّر الحفظ المشترك — العلامات محفوظة على هذا الجهاز فقط.");
+      });
+    }, 900);
+  }
+
+  function connect() {
+    if (!window.claude || typeof window.claude.use !== "function") {
+      note("العلامات محفوظة على هذا الجهاز فقط.");
+      return;
+    }
+    window.claude.use("artifact").then(function (api) {
+      if (!api) {
+        note("العلامات محفوظة على هذا الجهاز فقط.");
+        return;
+      }
+      artifactApi = api;
+      note("العلامات مشتركة — أي تعديل يظهر لكل من يفتح الصفحة.");
+    })["catch"](function () {
+      note("العلامات محفوظة على هذا الجهاز فقط.");
+    });
+  }
+
+  // ---------- rendering ----------
+
+  function visible(item) {
+    if (filter === "fix") return item.s === "fix";
+    if (filter === "todo") return !checked[item.id];
+    return true;
+  }
+
+  function rowHtml(item) {
+    var isDone = !!checked[item.id];
+    var steps = item.how.map(function (s) {
+      return "<li>" + esc(s) + "</li>";
+    }).join("");
+
+    return '<tr class="' + (isDone ? "done " : "") + (item.s === "fix" ? "is-fix" : "") + '" data-id="' + item.id + '">'
+      + '<td class="col-check">'
+      + '<label class="check"><input type="checkbox" ' + (isDone ? "checked" : "")
+      + ' data-id="' + item.id + '" aria-label="تم اختبار ' + esc(item.id) + '"><span class="box"></span></label>'
+      + "</td>"
+      + '<td class="col-item" data-label="البند">'
+      + '<span class="item-id">' + esc(item.id) + "</span>"
+      + '<span class="item-title">' + esc(item.t) + "</span>"
+      + "</td>"
+      + '<td class="col-state" data-label="الحالة">'
+      + '<span class="pill ' + item.s + '">' + STATE_LABEL[item.s] + "</span>"
+      + "</td>"
+      + '<td class="col-steps" data-label="طريقة الاختبار"><ol class="steps">' + steps + "</ol></td>"
+      + '<td data-label="النتيجة المتوقعة"><p class="expect">' + esc(item.e) + "</p></td>"
+      + "</tr>";
+  }
+
+  function sectionHtml(sec) {
+    var rows = DATA.items.filter(function (i) {
+      return i.sec === sec.key && visible(i);
+    });
+    if (!rows.length) return "";
+
+    var total = DATA.items.filter(function (i) { return i.sec === sec.key; }).length;
+
+    return "<section>"
+      + '<div class="sec-head">'
+      + "<h2>" + esc(sec.name) + "</h2>"
+      + '<span class="count">' + rows.length + " من " + total + "</span>"
+      + '<p class="note">' + esc(sec.note) + "</p>"
+      + "</div>"
+      + '<div class="table-scroll"><table><thead><tr>'
+      + '<th class="col-check"><span aria-hidden="true">✓</span></th>'
+      + '<th class="col-item">البند</th>'
+      + '<th class="col-state">الحالة</th>'
+      + '<th class="col-steps">طريقة الاختبار</th>'
+      + "<th>النتيجة المتوقعة</th>"
+      + "</tr></thead><tbody>"
+      + rows.map(rowHtml).join("")
+      + "</tbody></table></div></section>";
+  }
+
+  function headerHtml() {
+    var total = DATA.items.length;
+    var doneCount = DATA.items.filter(function (i) { return checked[i.id]; }).length;
+    var fixCount = DATA.items.filter(function (i) { return i.s === "fix"; }).length;
+    var pct = total ? Math.round((doneCount / total) * 100) : 0;
+    var CIRC = 163.4;
+    var offset = CIRC - (CIRC * pct) / 100;
+
+    return '<header class="masthead">'
+      + '<div class="masthead-text">'
+      + '<p class="eyebrow">SamaFox · 23–26 Aug 2026</p>'
+      + "<h1>" + esc(DATA.title) + "</h1>"
+      + "<p>" + esc(DATA.subtitle) + "</p>"
+      + "</div>"
+      + '<div class="gauge">'
+      + '<div class="ring' + (pct === 100 ? " done" : "") + '">'
+      + '<svg viewBox="0 0 78 78" aria-hidden="true">'
+      + '<circle class="track" cx="39" cy="39" r="26"></circle>'
+      + '<circle class="live" cx="39" cy="39" r="26" style="stroke-dashoffset:' + offset + '"></circle>'
+      + "</svg>"
+      + '<span class="pct">' + pct + "%</span>"
+      + "</div>"
+      + '<div class="tallies">'
+      + '<span class="tally"><b>' + total + "</b> بنداً في الدفعة</span>"
+      + '<span class="tally"><b>' + fixCount + "</b> كان مكسوراً وأُصلح</span>"
+      + '<span class="tally"><b>' + doneCount + "</b> تم اختباره</span>"
+      + "</div></div></header>";
+  }
+
+  function controlsHtml() {
+    function btn(key, label) {
+      return '<button class="filter" type="button" data-filter="' + key
+        + '" aria-pressed="' + (filter === key) + '">' + label + "</button>";
+    }
+    return '<div class="controls">'
+      + btn("all", "الكل")
+      + btn("fix", "أُصلح اليوم")
+      + btn("todo", "لم يُختبر بعد")
+      + '<button class="reset" type="button" id="reset">مسح كل العلامات</button>'
+      + "</div>"
+      + '<p class="sync" id="sync"></p>';
+  }
+
+  function footerHtml() {
+    return "<footer>"
+      + "<p>البنود المعلّمة «أُصلح اليوم» هي التي كانت مكتوبة كمنتهية لكنها لم تكن تعمل فعلاً؛ ابدأ الفحص بها.</p>"
+      + "<p>التفاصيل التقنية لكل بند في <code>FIXES_2026-08-26.md</code> داخل المشروع.</p>"
+      + "</footer>";
+  }
+
+  function render() {
+    var html = headerHtml() + controlsHtml()
+      + DATA.sections.map(sectionHtml).join("")
+      + footerHtml();
+    document.getElementById("app").innerHTML = '<div class="wrap">' + html + "</div>";
+    syncEl = document.getElementById("sync");
+  }
+
+  // ---------- events ----------
+
+  document.addEventListener("change", function (ev) {
+    var input = ev.target;
+    if (!input || input.type !== "checkbox" || !input.dataset.id) return;
+    if (input.checked) {
+      checked[input.dataset.id] = true;
+    } else {
+      delete checked[input.dataset.id];
+    }
+    writeLocal();
+    render();
+    schedulePublish();
+  });
+
+  document.addEventListener("click", function (ev) {
+    var f = ev.target.closest ? ev.target.closest("[data-filter]") : null;
+    if (f) {
+      filter = f.dataset.filter;
+      render();
+      return;
+    }
+    if (ev.target.id === "reset") {
+      if (!window.confirm("مسح كل علامات الاختبار؟")) return;
+      checked = {};
+      writeLocal();
+      render();
+      schedulePublish();
+    }
+  });
+
+  // ---------- boot ----------
+
+  // The published document is the shared truth. A local copy only fills in when
+  // nothing was published yet, so one tester's device never overwrites the team's.
+  if (!Object.keys(checked).length) {
+    var local = readLocal();
+    if (local) checked = local;
+  }
+
+  render();
+  connect();
+})();
+</script>

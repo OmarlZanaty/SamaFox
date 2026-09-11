@@ -1,0 +1,720 @@
+<title>فحص سمافوكس</title>
+
+<style id="app-style">
+@import url('https://fonts.googleapis.com/css2?family=Changa:wght@500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+:root {
+  --ground:      #F5F2FB;
+  --ground-deep: #EBE5F7;
+  --card:        #FFFFFF;
+  --rule:        #E1D8F3;
+  --rule-soft:   #EEE8F9;
+  --ink:         #1A1030;
+  --ink-soft:    #605579;
+  --ink-faint:   #8B81A6;
+  --accent:      #6A38DC;
+  --accent-wash: #EFE8FF;
+  --gold:        #8A5A0C;
+  --gold-wash:   #FBF0DA;
+  --ok:          #16704F;
+  --ok-wash:     #DFF3EA;
+  --shadow:      0 1px 2px rgba(26, 16, 48, .05), 0 8px 24px -14px rgba(26, 16, 48, .28);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.0625rem;
+  --step-2:  1.375rem;
+  --step-3:  2rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #120A26;
+    --ground-deep: #0C0619;
+    --card:        #1B1138;
+    --rule:        #2F2159;
+    --rule-soft:   #251845;
+    --ink:         #EEE9FB;
+    --ink-soft:    #AA9DCC;
+    --ink-faint:   #7E71A3;
+    --accent:      #A98BFF;
+    --accent-wash: #2A1B57;
+    --gold:        #E9B85E;
+    --gold-wash:   #3A2A11;
+    --ok:          #5FD3A6;
+    --ok-wash:     #10382A;
+    --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -16px rgba(0, 0, 0, .8);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #120A26;
+  --ground-deep: #0C0619;
+  --card:        #1B1138;
+  --rule:        #2F2159;
+  --rule-soft:   #251845;
+  --ink:         #EEE9FB;
+  --ink-soft:    #AA9DCC;
+  --ink-faint:   #7E71A3;
+  --accent:      #A98BFF;
+  --accent-wash: #2A1B57;
+  --gold:        #E9B85E;
+  --gold-wash:   #3A2A11;
+  --ok:          #5FD3A6;
+  --ok-wash:     #10382A;
+  --shadow:      0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -16px rgba(0, 0, 0, .8);
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { direction: rtl; }
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1rem, 3vw, 2rem) 5rem;
+}
+
+/* ---------- header ---------- */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(1.25rem, 4vw, 2.75rem);
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead-text { flex: 1 1 22rem; min-width: 0; }
+
+h1 {
+  font-family: Changa, "IBM Plex Sans Arabic", Tahoma, sans-serif;
+  font-weight: 700;
+  font-size: var(--step-3);
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  margin: 0 0 .45rem;
+  text-wrap: balance;
+}
+
+.masthead p {
+  margin: 0;
+  color: var(--ink-soft);
+  max-width: 46ch;
+}
+
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: var(--step--1);
+  letter-spacing: .12em;
+  color: var(--accent);
+  margin: 0 0 .5rem;
+  text-transform: uppercase;
+}
+
+/* progress ring — the room's speaking ring, reused */
+.gauge {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex: 0 0 auto;
+}
+
+.ring { position: relative; width: 78px; height: 78px; flex: none; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 7; stroke-linecap: round; }
+.ring .track { stroke: var(--rule); }
+.ring .live {
+  stroke: var(--accent);
+  stroke-dasharray: 163.4;
+  transition: stroke-dashoffset .5s cubic-bezier(.4, 0, .2, 1);
+}
+.ring .pct {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: Changa, sans-serif;
+  font-weight: 600;
+  font-size: var(--step-0);
+  font-variant-numeric: tabular-nums;
+}
+.ring.done::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--ok);
+  animation: pulse 2.2s ease-out infinite;
+}
+@keyframes pulse {
+  0%   { transform: scale(.94); opacity: .9; }
+  70%  { transform: scale(1.12); opacity: 0; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+
+.tallies { display: grid; gap: .3rem; }
+.tally {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+.tally b {
+  font-family: Changa, sans-serif;
+  font-size: var(--step-1);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+}
+
+/* ---------- controls ---------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin: 1.5rem 0 .5rem;
+}
+
+.filter {
+  font: inherit;
+  font-size: var(--step--1);
+  font-weight: 500;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: .35rem 1rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.filter:hover { color: var(--ink); border-color: var(--ink-faint); }
+.filter[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+.filter:focus-visible,
+.check input:focus-visible + .box,
+.reset:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.reset {
+  margin-inline-start: auto;
+  font: inherit;
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  padding: .35rem .25rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.reset:hover { color: var(--ink); text-decoration: underline; }
+
+.sync {
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  min-height: 1.4em;
+  margin: 0 0 1.5rem;
+}
+
+/* ---------- sections ---------- */
+
+section { margin-top: 2.75rem; }
+
+.sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .25rem 1rem;
+  margin-bottom: .9rem;
+}
+.sec-head h2 {
+  font-family: Changa, sans-serif;
+  font-weight: 600;
+  font-size: var(--step-2);
+  margin: 0;
+}
+.sec-head .count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sec-head .note {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--step--1);
+}
+
+.table-scroll { overflow-x: auto; border-radius: 14px; }
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+thead th {
+  text-align: right;
+  font-family: "IBM Plex Sans Arabic", sans-serif;
+  font-weight: 600;
+  font-size: var(--step--1);
+  letter-spacing: .04em;
+  color: var(--ink-soft);
+  background: var(--ground-deep);
+  padding: .7rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 1rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule-soft);
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr.done { background: var(--ground-deep); }
+tbody tr.done .item-title,
+tbody tr.done .steps,
+tbody tr.done .expect { opacity: .55; }
+
+.col-check { width: 3.2rem; }
+.col-item  { width: 20%; min-width: 12rem; }
+.col-state { width: 8.5rem; }
+.col-steps { width: 34%; }
+
+/* checkbox */
+.check { display: inline-flex; cursor: pointer; }
+.check input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.check .box {
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1.5px solid var(--ink-faint);
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  transition: background .15s, border-color .15s;
+}
+.check .box::after {
+  content: "";
+  width: .42rem;
+  height: .78rem;
+  border: solid transparent;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+  transition: border-color .15s;
+}
+.check input:checked + .box {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.check input:checked + .box::after { border-color: var(--card); }
+
+/* item cell */
+.item-id {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: var(--step--1);
+  color: var(--accent);
+  letter-spacing: .06em;
+  display: block;
+  margin-bottom: .15rem;
+}
+.item-title { font-weight: 600; line-height: 1.5; }
+
+/* state pill */
+.pill {
+  display: inline-block;
+  font-size: var(--step--1);
+  font-weight: 600;
+  line-height: 1.5;
+  padding: .2rem .7rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pill.ok  { color: var(--ok);   background: var(--ok-wash); }
+.pill.fix { color: var(--gold); background: var(--gold-wash); }
+.pill.dep { color: var(--accent); background: var(--accent-wash); }
+
+.steps {
+  margin: 0;
+  padding-inline-start: 1.2rem;
+  display: grid;
+  gap: .35rem;
+}
+.steps li { padding-inline-start: .15rem; }
+.steps li::marker {
+  color: var(--ink-faint);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: .85em;
+}
+
+.expect { margin: 0; color: var(--ink-soft); }
+tbody tr.is-fix .expect { color: var(--ink); }
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: .9em;
+  background: var(--accent-wash);
+  color: var(--accent);
+  padding: .1rem .4rem;
+  border-radius: 5px;
+  direction: ltr;
+  display: inline-block;
+}
+
+footer {
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-faint);
+  font-size: var(--step--1);
+}
+footer p { margin: 0 0 .4rem; }
+
+/* ---------- narrow screens: table folds into cards ---------- */
+
+@media (max-width: 900px) {
+  .table-scroll { overflow-x: visible; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  thead { display: none; }
+  table { border: 0; background: none; box-shadow: none; border-radius: 0; }
+  tbody tr {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    margin-bottom: 1rem;
+    padding: .35rem .25rem;
+    position: relative;
+  }
+  tbody td { border-bottom: 0; padding: .5rem 1rem; }
+  tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--ink-faint);
+    margin-bottom: .2rem;
+  }
+  td.col-check {
+    width: auto;
+    position: absolute;
+    top: .85rem;
+    left: 1rem;
+    padding: 0;
+  }
+  td.col-item { padding-inline-end: 3.5rem; }
+  td.col-state::before { display: none; }
+  td.col-state { padding-top: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+</style>
+
+<div id="app"></div>
+
+<script id="app-data" type="application/json">{"title":"فحص سمافوكس","subtitle":"كل تحديثات دفعة 23 – 26 أغسطس 2026، بنداً بنداً، بخطوات تُنفَّذ على التطبيق واللوحة.","sections":[{"key":"app","name":"التطبيق","note":"يُختبر من الهاتف بحسابين على الأقل، ويفضّل جهازين حقيقيين لبنود الصوت."},{"key":"dash","name":"لوحة التحكم","note":"يُختبر من المتصفح، ولكل بند أثر يُتحقَّق منه داخل التطبيق."},{"key":"dep","name":"قبل النشر","note":"خطوات على السيرفر. البنود المُصلَحة اليوم لن تعمل قبل تنفيذها."}],"items":[{"sec":"app","id":"A1","t":"مستوى LV مربوط بلوحة التحكم","s":"ok","how":["في اللوحة ← المستويات (LV): اضبط عتبة المستوى 2 على 1000 كوينز.","سجّل حساباً جديداً تماماً ولا ترسل أي هدية.","من الحساب الجديد أرسل هدايا بقيمة 1000 كوينز إلى مستخدم آخر.","جرّب أيضاً الإهداء لنفسك بنفس القيمة."],"e":"الحساب الجديد يبدأ LV 1 ولا يرتفع إطلاقاً بدون دعم. بعد 1000 كوينز مُهداة يصبح LV 2. الإهداء لنفسك لا يرفع المستوى. المستوى يتبع الكوينزات المُنفَقة على الهدايا لا المُستلَمة."},{"sec":"app","id":"A2","t":"الشارات لكل مستوى VIP","s":"ok","how":["اللوحة ← VIP ← المستوى 5: ارفع صورة شارة كبيرة (مثلاً 1024 بكسل).","افتح التطبيق بحساب VIP 5 وانظر بجانب الاسم في الغرفة وفي الصفحة الرئيسية."],"e":"الشارة تظهر بحجم شارات التطبيق الصغير مهما كانت الصورة كبيرة، ولا تُفكّك الصف. ولو حُذفت الصورة تعود الشارة الذهبية الافتراضية بدل فراغ."},{"sec":"app","id":"A3","t":"فقاعات الدردشة — الكلام داخل الفقاعة","s":"fix","how":["اللوحة ← إضافة منتج ← فقاعة دردشة: ارفع الصورة وحدّد «المربع الداخلي الفارغ» من المعاينة.","اشترِ الفقاعة وفعّلها من الحقيبة.","اكتب رسالة قصيرة، ثم رسالة تأخذ سطرين، ثم رسالة تأخذ 3 أسطر أو أكثر."],"e":"الكلام كله داخل المربع الفارغ ولا يخرج على الزخرفة. الفقاعة تكبر طولاً وعرضاً مع الكلام، وأطرافها المزخرفة تبقى بشكلها ولا تتمدّد — مهما كان مقاس الصورة المرفوعة."},{"sec":"app","id":"A4","t":"شريط الدخولية — الصيغة والشارات بداخله","s":"fix","how":["اللوحة: ارفع شريط دخولية مزخرف وحدّد مربعه الداخلي.","امنحه لحساب VIP، ثم ادخل به الغرفة."],"e":"يقرأ «VIP 1 · LV 5 · فهد دخل الغرفة». شارتا VIP وLV داخل الشريط لا خارجه، وارتفاع الشريط يكبر ليحتوي النص بدل أن يظهر رفيعاً والكلام أكبر منه. والزخرفة على الطرفين لا تتمطّط."},{"sec":"app","id":"A6","t":"خصم التارجيت عند البيع أو التبديل","s":"ok","how":["حساب وكيل أو مضيف عنده 3 مليون تارجيت و30 دولار.","بدّل أو بِع مليون تارجيت.","افتح التارجيت من الصفحة الشخصية ومن لوحة الوكالة."],"e":"يصبح 2 مليون و20 دولار في كل الشاشات فوراً — العدد وقيمته بالدولار ينقصان معاً، ولا يُحتسب المبلغ مرتين."},{"sec":"app","id":"A7","t":"صفحة المحفظة","s":"ok","how":["افتح المحفظة."],"e":"علامة الصح على البطاقة العلوية فقط، والبطاقة الثانية بدونها."},{"sec":"app","id":"A8","t":"غير المسجّل (وكيل/مضيف) لا يرى تارجيت","s":"ok","how":["افتح الصفحة الشخصية بحساب عادي ليس وكيلاً ولا مضيفاً ولا وكيل شحن.","كرّر بحساب مضيف في وكالة، ثم بحساب وكيل."],"e":"الحساب العادي لا يرى قسم التارجيت إطلاقاً لأنه أخذ 5% وقت الدعم. الوكيل والمضيف ووكيل الشحن يرونه."},{"sec":"app","id":"A9","t":"خلفية الصفحة الشخصية (صورة أو فيديو)","s":"fix","how":["اللوحة ← إضافة منتج ← «خلفية الصفحة الشخصية»: ارفع صورة، وكرّر بفيديو.","في التطبيق: المتجر ← تبويب «خلفية الصفحة» ← اشترِ.","الحقيبة ← تبويب «خلفية الصفحة» ← استخدام.","افتح صفحتك، ثم افتح صفحتك من حساب آخر."],"e":"التبويب موجود والمنتج ظاهر وقابل للشراء — قبل الإصلاح كان يُنشأ في اللوحة ولا يظهر في التطبيق أبداً. الخلفية تبدأ من حد الصفحة من فوق إلى تحت والزيادة مقصوصة، والفيديو يعمل صامتاً ومكرراً. والزائر يراها أيضاً لا صاحبها فقط."},{"sec":"app","id":"A10","t":"دائرة المتحدث على المايك","s":"fix","how":["ادخل غرفة بحسابين على مايكين مختلفين (جهازان).","تكلّم من الحساب الأول ثم اصمت تماماً.","اكتم المايك أثناء الكلام.","اترك المايك وأنت متكلّم.","اجلس على المايك واصمت خمس دقائق كاملة."],"e":"دائرة نابضة حول صورة المتحدث تظهر أثناء الكلام وتختفي خلال أقل من ثانية من الصمت، وتظهر على الجهاز الآخر أيضاً. الكتم يُخفيها فوراً ومغادرة المايك تُطفئها. ومهم جداً: المايك لم يعد يُكتَم تلقائياً بعد لحظات صمت — كان هذا عطلاً في نفس الكود."},{"sec":"app","id":"A11","t":"فروع وكالة الشحن تشحن من كوينزاتها","s":"ok","how":["أضف حساباً كفرع في وكالة شحن.","اشحن للفرع كوينزات شخصية.","من حساب الفرع اشحن لمستخدم عادي.","راجع رصيد الفرع ورصيد الوكالة الأم وسجل التحويلات."],"e":"الخصم من محفظة الفرع نفسه لا من كوينزات الوكيل الأم، والفرع يرى سجل شحناته ولا تظهر له رسالة «لست وكالة معتمدة»."},{"sec":"app","id":"A12","t":"سرعة فتح التطبيق ودخول الغرفة","s":"ok","how":["أغلق التطبيق من المهام تماماً ثم افتحه واحسب الوقت.","ادخل غرفة فيها حركة هدايا.","راقب استهلاك النت في أول دقيقة."],"e":"شاشة البداية حوالي 0.9 ثانية بدل 2، لأن التحقق من الحساب صار يعمل بالتوازي لا بعدها. وتحميل مقاطع الهدايا مؤجَّل 6 ثوانٍ ومحدود بـ6 مقاطع من الأرخص، فلا يبتلع النت وقت الدخول."},{"sec":"app","id":"A13","t":"حظر السوبر أدمن فعّال","s":"ok","how":["والمستخدم فاتح التطبيق: احظره من اللوحة أو من داخل الغرفة.","من حسابه: جرّب فتح أي شاشة، ثم أعد تشغيل التطبيق، ثم جرّب تسجيل الدخول من جديد.","احظر حظراً مؤقتاً ليوم وانتظر انتهاءه."],"e":"يُطرد من الغرفة والاتصال فوراً، وكل طلب يرجع 403 برسالة الحظر، ولا ينفعه تحديث التوكن. والحظر المؤقت ينتهي وحده ويختفي من اللوحة بدون تدخل."},{"sec":"app","id":"A14","t":"صلاحيات الأدمن العادي","s":"ok","how":["بحساب أدمن عادي (ليس سوبر) ادخل غرفة لا تملكها واضغط على مايك مستخدم.","اختر «حظر من التطبيق».","جرّب نفس الشيء على حساب أدمن آخر وعلى سوبر أدمن.","كرّر كله بحساب سوبر أدمن."],"e":"الأدمن يرى «حظر من التطبيق» في أي غرفة حتى لو لا يملكها، بمُدد: يوم / يومان / 3 أيام فقط. ولا يظهر الخيار إطلاقاً على أدمن أو سوبر أدمن، والسيرفر يرفضه حتى لو تلاعب أحد بالتطبيق. والسوبر أدمن يرى: يوم / شهر / حظر أبدي."},{"sec":"app","id":"A15","t":"نظام CP كاملاً","s":"ok","how":["أرسل هدية من تبويب CP في صفحة الهدايا إلى مستخدم آخر.","من حساب المستلم: ارفض.","كرّر الإرسال ثم اقبل.","الصفحة الرئيسية ← مربع CP ← اضغط على الشخص ← «إلغاء CP مع فلان؟» ← نعم."],"e":"لا يُخصم شيء عند الإرسال. الرفض يخصم 30% من قيمة الهدية فقط والهدية لا تتم. القبول يخصم السعر كاملاً ويُنشئ الارتباط ويظهر في الصفحتين الشخصيتين. و«نعم» تفكّ الارتباط فلا يعود الشخص في القائمة إلا بهدية CP جديدة."},{"sec":"app","id":"A16","t":"الصورة الشخصية المتحركة GIF لمستوى VIP محدّد","s":"ok","how":["اللوحة ← VIP ← المستوى 10: فعّل «صورة شخصية متحركة».","بحساب VIP 9 حاول رفع صورة GIF.","بحساب VIP 10 ارفع نفس الصورة.","بحساب VIP 12 جرّب أيضاً."],"e":"VIP 9 يُرفض برسالة واضحة تذكر المستوى المطلوب. وVIP 10 وما فوق يُقبل وتبقى الصورة متحركة بدون مرور على أداة القصّ. ولو لم تُفعَّل أي درجة تبقى الخاصية مقفولة على الجميع."},{"sec":"app","id":"A17","t":"مركبة الدخول تُرسم من فوق","s":"ok","how":["ادخل الغرفة بحساب له مركبة دخول والمايكات ممتلئة."],"e":"المركبة والشريط يُرسمان فوق المايكات ولا يختفيان خلفها — مثل الهدايا تماماً."},{"sec":"app","id":"A18","t":"كل المايكات داخل نصف الشاشة","s":"ok","how":["اضبط الغرفة على 30 مايك من إعدادات الغرفة.","املأ أكبر عدد ممكن منها.","جرّب على شاشة صغيرة وشاشة كبيرة."],"e":"كل المايكات ظاهرة في النصف العلوي دفعة واحدة بدون أي سحب لفوق. وحجم المايك وعدد الأعمدة يتغيران تلقائياً كلما زاد العدد."},{"sec":"app","id":"A19","t":"ضبط الإطار على حرف المايك","s":"ok","how":["اللوحة ← إضافة منتج ← إطار: ارفع الصورة و«حدّد المربع الداخلي» من المعاينة — خطوة إلزامية لكل إطار.","فعّل الإطار واجلس على المايك.","كرّر مع إطار صغير وإطار كبير جداً بزخرفة خارجة."],"e":"دائرة الإطار من الداخل منطبقة على حرف المايك والصورة مهما كان حجم الزخرفة، وبدون نزول لتحت. ملاحظة مهمة: الإطار الذي لم تُحدَّد له المربعات الداخلية في اللوحة يبقى بالسلوك القديم، فلازم تحديد لكل إطار."},{"sec":"app","id":"A20","t":"قيمة الدعم تحت المايك فوراً","s":"ok","how":["ارمِ هدية على مستخدم جالس على المايك وراقب الرقم تحت صورته أثناء الأنيميشن."],"e":"الرقم يزيد لحظة وصول الهدية لا بعد 25 ثانية، ويُصحَّح تلقائياً من السيرفر في التحديث التالي."},{"sec":"app","id":"A21","t":"مدة الإشعارات وموضعها","s":"ok","how":["اجعل شخصاً يرمي عليك هدية وراقب إشعار «وصلتك هدية».","افتعل إشعار نسبة الوكيل وراقب موضعه بالنسبة لشريط الهدية.","افتعل إشعار متابعة أو رسالة.","افتح قائمة الإشعارات بعدها."],"e":"إشعار الهدية ونسبة الوكيل ثانية ونصف بالكثير. وإشعار نسبة الوكيل ينزل تحت شريط الهدية ولا يغطيه. وباقي الإشعارات تبقى 6 ثوانٍ. وكل ما مرّ سريعاً موجود في قائمة الإشعارات."},{"sec":"app","id":"A22","t":"شريط إعلان الهدية في منتصف الشاشة","s":"ok","how":["أرسل هدية لشخص واحد داخل الغرفة.","ثم أرسل بـ«الميك الكامل» لعدة أشخاص."],"e":"شريط مزخرف في منتصف الشاشة يقرأ «فلان أهدى هدية كذا إلى فلان». ومع أكثر من مستلم يقرأ «إلى الجميع» — شريط واحد فقط لا شريط لكل مستلم."},{"sec":"app","id":"A23","t":"الاحتفاظ بالغرفة — الصوت لا ينقطع","s":"fix","how":["اجلس على المايك وتكلّم وتأكد أن الطرف الآخر يسمعك.","اضغط زر الاحتفاظ بالغرفة — تخرج من شاشة الغرفة وتبقى الفقاعة.","تنقّل في التطبيق دقيقة كاملة: تكلّم، واسمع من على المايك.","اضغط الفقاعة ← توسيع للرجوع للغرفة.","الفقاعة ← إغلاق ← مغادرة."],"e":"أهم اختبار في الدفعة. في الخطوة 3 الصوت لا ينقطع لحظة، لا سماعاً ولا إرسالاً، وكأنك لم تخرج. والرجوع للغرفة لا يعيد التهيئة ولا يُسبّب قطعاً. و«مغادرة» وحدها هي التي تُنهي الصوت وتُخرجك من الغرفة وتُزيل إشعار المايك."},{"sec":"app","id":"A24","t":"مستوى الصوت صفر يكتم فعلاً","s":"ok","how":["داخل الغرفة ← مستوى الصوت ← اسحب إلى 0 ← حفظ.","اطلب من شخص يتكلّم.","ثم اطلب من شخص ثالث يدخل المايك بعد ضبطك للصفر."],"e":"صمت تام يشمل أصوات الناس نفسها لا المؤثرات فقط، وأي شخص يدخل المايك بعد ذلك يصل مكتوماً هو أيضاً."},{"sec":"app","id":"A25","t":"سرعة المتجر وصور المركبات","s":"fix","how":["على السيرفر بعد النشر شغّل: npm run backfill:posters","افتح المتجر ← تبويب «مركبة».","اضغط على أي مركبة."],"e":"التبويب يفتح فوراً بلا تقطيع لأنه لم يعد يُشغّل مشغّل فيديو لكل مربع. وكل مركبة تظهر بصورة حقيقية مأخوذة من الفيديو نفسه لا مربعات رمادية فارغة. والضغط يشغّل الفيديو كامل الشاشة."},{"sec":"app","id":"A26","t":"تارجيت وكيل الشحن وفروعه","s":"ok","how":["ارمِ هدايا على حساب وكيل شحن أو فرع.","راجع محفظته وتارجيته.","راجع عمولة صاحب الوكالة."],"e":"لا يدخل محفظته نصف قيمة الهدية إطلاقاً، والقيمة كاملة تنزل في تارجيته. ولا تُحتسب عليه نسبة الـ20% لأن نسبته أُخذت وقت الشحن."},{"sec":"app","id":"A27","t":"الميك الكامل وجميع الغرفة","s":"ok","how":["اجعل 10 أشخاص على المايكات وآخرين في التيكست فقط.","افتح الهدايا ← من فوق اختر «الميك الكامل» ← هدية بـ100 كوينز ← إرسال.","كرّر باختيار «جميع الغرفة».","جرّب وأنت برصيد لا يكفي."],"e":"«الميك الكامل» يحدّد كل من على المايكات: كل واحد يستلم هدية بـ100 ويُخصم منك 1000. و«جميع الغرفة» تشمل من في التيكست أيضاً. طلب واحد فقط للسيرفر ورسالة «تم إرسال الهدية إلى 10 مستلمين». ولو الرصيد لا يكفي لا يُخصم شيء إطلاقاً."},{"sec":"dash","id":"B1","t":"كل المنتجات تقبل صورة وفيديو","s":"ok","how":["اللوحة ← إضافة منتج: جرّب رفع mp4 على نوع «شارة».","جرّب رفع صورة PNG على نوع «مركبة».","كرّر على كل نوع في القائمة."],"e":"كل نوع يقبل صورة أو فيديو بلا استثناء، ولا يُرفض إلا الملف الذي ليس صورة ولا فيديو."},{"sec":"dash","id":"B2","t":"قائمة «خلفية الصفحة الشخصية»","s":"fix","how":["اللوحة ← إضافة منتج ← افتح قائمة النوع.","أنشئ منتجاً بهذا النوع ثم تابع اختبار A9."],"e":"الخيار موجود في القائمة، والمنتج بعد إنشائه يظهر فعلاً في متجر التطبيق تحت تبويب «خلفية الصفحة» — قبل الإصلاح كان يُنشأ ولا يظهر أبداً."},{"sec":"dash","id":"B3","t":"إطار تزيين الصفحة الشخصية","s":"fix","how":["اللوحة ← إضافة منتج ← «إطار تزيين الصفحة الشخصية»: ارفع إطاراً وسطه شفاف، وكرّر بفيديو.","في التطبيق: المتجر ← تبويب «تزيين الصفحة» ← اشترِ ← الحقيبة ← استخدام.","افتح صفحتك وجرّب الضغط على كل الأزرار التي تحت الإطار.","افتح صفحتك من حساب آخر، ثم ألغِ الاستخدام."],"e":"الإطار يقع على حدود الصفحة الشخصية من الأطراف ولا يغطي أي محتوى، وكل زر تحته يعمل عادي. يعمل بالصورة وبالفيديو، والزائر يراه أيضاً، وإلغاء الاستخدام يشيله فوراً."},{"sec":"dash","id":"B4","t":"أضف قائمة هدايا (تبويب جديد)","s":"ok","how":["لوحة الهدايا ← «أضف قائمة هدايا» ← اكتب اسماً عربياً.","افتح صفحة الهدايا في التطبيق بدون تحديث نسخة التطبيق."],"e":"تبويب جديد بالاسم الذي كتبته يظهر في صفحة الهدايا خلال ثوانٍ، بدون إصدار نسخة جديدة من التطبيق."},{"sec":"dash","id":"B5","t":"اختيار القائمة عند إضافة هدية","s":"ok","how":["لوحة الهدايا ← إضافة هدية ← افتح منتقي القائمة."],"e":"المنتقي يعرض كل القوائم الموجودة فعلاً لا قائمة ثابتة في الكود، والهدية تظهر في التبويب الذي اخترته."},{"sec":"dash","id":"B6","t":"نقل هدية إلى قائمة أخرى","s":"ok","how":["افتح هدية موجودة ← «نقل إلى قائمة» ← اختر قائمة أخرى.","راجع التبويبين في التطبيق."],"e":"الهدية تختفي من التبويب القديم وتظهر في الجديد."},{"sec":"dash","id":"B7","t":"حذف المنتج يحذفه من كل مكان","s":"ok","how":["امنح منتجاً — إطاراً مثلاً — لمستخدم وفعّله عنده.","احذف المنتج من اللوحة.","راجع المتجر وحقيبة المستخدم ومايكه."],"e":"يختفي من المتجر ومن حقيبة كل المستخدمين، ويُفكّ عن كل من كان مفعّلاً عنده — لا يبقى إطار «شبح» على المايك."},{"sec":"dash","id":"B8","t":"إضافة وخصم التارجيت","s":"ok","how":["اللوحة ← الوكالات ← أعضاء الوكالة ← اختر عضواً.","أضف تارجيت ولاحظ العدد وقيمته بالدولار.","اخصم تارجيت.","جرّب خصم أكبر من رصيده."],"e":"الإضافة تزيد العدد وقيمته بالدولار معاً، والخصم ينقصهما معاً. والخصم الأكبر من الرصيد مرفوض برسالة تذكر الرصيد الحالي، والعضو يصله إشعار."},{"sec":"dash","id":"B9","t":"تصفير عدّاد أعلى المستويات","s":"ok","how":["اللوحة ← ميزات الأدمن ← أعلى المستويات ← «تصفير العداد» لحسابك.","افتح كأس الدعم في التطبيق.","أرسل هدية جديدة من نفس الحساب وارجع للكأس."],"e":"الحساب يختفي من أعلى المستويات فيتنافس الداعمون. وأول هدية جديدة تُرجعه بالقيمة التي دعم بها بعد التصفير فقط — إزالة مؤقتة لا دائمة، ولا تُحذف أي بيانات."},{"sec":"dash","id":"B10","t":"عدّاد شحن الوكالة لنفسها","s":"ok","how":["اللوحة ← وكالات الشحن ← راجع عمود «شحنت لنفسها».","اشحن وكالة لنفسها مرة واحدة وارجع."],"e":"عدد المرات ومجموع الكوينزات ظاهران لكل وكالة، وتقدر ترتّبهم لتعرف أكثر وكالة شحنت. والأرقام القديمة معبّأة من سجل الشحنات."},{"sec":"dash","id":"B11","t":"المكافأة التلقائية عند بلوغ عتبة","s":"ok","how":["اللوحة ← درجات المكافأة: أضف درجة، مثلاً 10 مليون ← 500 ألف كوينز ومنتج.","اشحن الوكالة لنفسها حتى تتجاوز العتبة.","اشحن مرة أخرى فوق العتبة.","جرّب شحنة واحدة كبيرة تتخطى عدة درجات."],"e":"المكافأة تصل تلقائياً عند تجاوز العتبة ومرة واحدة فقط مهما تكرّر الشحن. والشحنة الكبيرة تدفع كل درجة عبرتها مرة واحدة. وأي خطأ في إعداد المكافأة لا يُفشل عملية الشحن."},{"sec":"dep","id":"D1","t":"نسخة احتياطية للقاعدة قبل أي شيء","s":"dep","how":["خُذ نسخة كاملة من قاعدة البيانات على السيرفر قبل تشغيل النشر."],"e":"إلزامي. ميجريشن 20260823000000 يعيد كتابة أعمدة التارجيت التاريخية، ولا رجعة منه بدون نسخة."},{"sec":"dep","id":"D2","t":"تشغيل النشر","s":"dep","how":["على السيرفر: bash deploy.sh"],"e":"السكربت صار يستخدم prisma migrate deploy بدل db push — الذي كان يتخطى بصمت تسوية التارجيت وتعبئة عدّاد الشحن وبذر قوائم الهدايا. ويعلّم 0_init كمُطبَّق أولاً، وهذا لازم على القاعدة الحيّة."},{"sec":"dep","id":"D3","t":"التحقق من الأعمدة الجديدة","s":"dep","how":["راجع في القاعدة: items.previewUrl و users.profileDecorUrl و users.profileDecorType."],"e":"الثلاثة موجودة. لو ناقصة فالميجريشن لم يُطبَّق، ولن تعمل بنود A9 وA25 وB2 وB3."},{"sec":"dep","id":"D4","t":"تعبئة صور المركبات القديمة","s":"dep","how":["npm run backfill:posters"],"e":"يمرّ على كل منتج فيديو بلا صورة ويستخرج له إطاراً ثابتاً. آمن للتكرار. ولو ffmpeg غير موجود على السيرفر تبقى المربعات الرمادية للمنتجات القديمة فقط."},{"sec":"dep","id":"D5","t":"إقرار Play Console قبل رفع نسخة أندرويد","s":"dep","how":["املأ إقرار الخدمة الأمامية في Play Console واذكر السلوك في وصف التطبيق قبل الرفع."],"e":"بند A23 يضيف صلاحية FOREGROUND_SERVICE_MICROPHONE — نفس العائلة التي رُفض بسببها تطبيق سابق على هذا الحساب. وملف RoomAudioService.kt لم يُجمَّع ولا مرة بعد، فأول بناء أندرويد هو أول اختبار حقيقي له."}],"checked":{}}</script>
+
+<script id="app-script">
+(function () {
+  "use strict";
+
+  var dataEl = document.getElementById("app-data");
+  var DATA = JSON.parse(dataEl.textContent);
+  var checked = Object.assign({}, DATA.checked || {});
+  var filter = "all";
+  var LS_KEY = "samafox-qa-checked";
+  var artifactApi = null;
+  var publishTimer = null;
+  var syncEl = null;
+
+  document.documentElement.setAttribute("lang", "ar");
+  document.documentElement.setAttribute("dir", "rtl");
+
+  var STATE_LABEL = {
+    ok:  "مُتحقَّق",
+    fix: "أُصلح اليوم",
+    dep: "خطوة نشر"
+  };
+
+  // ---------- persistence ----------
+
+  function readLocal() {
+    try {
+      var raw = window.localStorage.getItem(LS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeLocal() {
+    try {
+      window.localStorage.setItem(LS_KEY, JSON.stringify(checked));
+    } catch (e) {
+      /* private window, blocked storage — the page still works */
+    }
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // Rebuild the whole document from its own stylesheet, script and data.
+  // Deliberately not a dump of the live DOM: only the tick state changes.
+  function buildDoc() {
+    var css = document.getElementById("app-style").textContent;
+    var js = document.getElementById("app-script").textContent;
+    var payload = JSON.stringify(Object.assign({}, DATA, { checked: checked }));
+    var close = "<" + "/script>";
+    return [
+      "<!doctype html>",
+      '<html lang="ar" dir="rtl">',
+      "<head>",
+      '<meta charset="utf-8">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+      "<title>" + esc(DATA.title) + "</title>",
+      '<style id="app-style">' + css + "</style>",
+      "</head>",
+      "<body>",
+      '<div id="app"></div>',
+      '<script id="app-data" type="application/json">' + payload + close,
+      '<script id="app-script">' + js + close,
+      "</body>",
+      "</html>"
+    ].join("\n");
+  }
+
+  function note(text) {
+    if (syncEl) syncEl.textContent = text || "";
+  }
+
+  function schedulePublish() {
+    if (!artifactApi) return;
+    if (publishTimer) clearTimeout(publishTimer);
+    note("جارٍ الحفظ للجميع…");
+    // Rapid ticking is batched into one publish.
+    publishTimer = setTimeout(function () {
+      publishTimer = null;
+      artifactApi.publish(buildDoc()).then(function () {
+        note("محفوظ للجميع.");
+      })["catch"](function (err) {
+        if (err && err.code === "conflict") return; // another view won; this one reloads
+        note("تعذّر الحفظ المشترك — العلامات محفوظة على هذا الجهاز فقط.");
+      });
+    }, 900);
+  }
+
+  function connect() {
+    if (!window.claude || typeof window.claude.use !== "function") {
+      note("العلامات محفوظة على هذا الجهاز فقط.");
+      return;
+    }
+    window.claude.use("artifact").then(function (api) {
+      if (!api) {
+        note("العلامات محفوظة على هذا الجهاز فقط.");
+        return;
+      }
+      artifactApi = api;
+      note("العلامات مشتركة — أي تعديل يظهر لكل من يفتح الصفحة.");
+    })["catch"](function () {
+      note("العلامات محفوظة على هذا الجهاز فقط.");
+    });
+  }
+
+  // ---------- rendering ----------
+
+  function visible(item) {
+    if (filter === "fix") return item.s === "fix";
+    if (filter === "todo") return !checked[item.id];
+    return true;
+  }
+
+  function rowHtml(item) {
+    var isDone = !!checked[item.id];
+    var steps = item.how.map(function (s) {
+      return "<li>" + esc(s) + "</li>";
+    }).join("");
+
+    return '<tr class="' + (isDone ? "done " : "") + (item.s === "fix" ? "is-fix" : "") + '" data-id="' + item.id + '">'
+      + '<td class="col-check">'
+      + '<label class="check"><input type="checkbox" ' + (isDone ? "checked" : "")
+      + ' data-id="' + item.id + '" aria-label="تم اختبار ' + esc(item.id) + '"><span class="box"></span></label>'
+      + "</td>"
+      + '<td class="col-item" data-label="البند">'
+      + '<span class="item-id">' + esc(item.id) + "</span>"
+      + '<span class="item-title">' + esc(item.t) + "</span>"
+      + "</td>"
+      + '<td class="col-state" data-label="الحالة">'
+      + '<span class="pill ' + item.s + '">' + STATE_LABEL[item.s] + "</span>"
+      + "</td>"
+      + '<td class="col-steps" data-label="طريقة الاختبار"><ol class="steps">' + steps + "</ol></td>"
+      + '<td data-label="النتيجة المتوقعة"><p class="expect">' + esc(item.e) + "</p></td>"
+      + "</tr>";
+  }
+
+  function sectionHtml(sec) {
+    var rows = DATA.items.filter(function (i) {
+      return i.sec === sec.key && visible(i);
+    });
+    if (!rows.length) return "";
+
+    var total = DATA.items.filter(function (i) { return i.sec === sec.key; }).length;
+
+    return "<section>"
+      + '<div class="sec-head">'
+      + "<h2>" + esc(sec.name) + "</h2>"
+      + '<span class="count">' + rows.length + " من " + total + "</span>"
+      + '<p class="note">' + esc(sec.note) + "</p>"
+      + "</div>"
+      + '<div class="table-scroll"><table><thead><tr>'
+      + '<th class="col-check"><span aria-hidden="true">✓</span></th>'
+      + '<th class="col-item">البند</th>'
+      + '<th class="col-state">الحالة</th>'
+      + '<th class="col-steps">طريقة الاختبار</th>'
+      + "<th>النتيجة المتوقعة</th>"
+      + "</tr></thead><tbody>"
+      + rows.map(rowHtml).join("")
+      + "</tbody></table></div></section>";
+  }
+
+  function headerHtml() {
+    var total = DATA.items.length;
+    var doneCount = DATA.items.filter(function (i) { return checked[i.id]; }).length;
+    var fixCount = DATA.items.filter(function (i) { return i.s === "fix"; }).length;
+    var pct = total ? Math.round((doneCount / total) * 100) : 0;
+    var CIRC = 163.4;
+    var offset = CIRC - (CIRC * pct) / 100;
+
+    return '<header class="masthead">'
+      + '<div class="masthead-text">'
+      + '<p class="eyebrow">SamaFox · 23–26 Aug 2026</p>'
+      + "<h1>" + esc(DATA.title) + "</h1>"
+      + "<p>" + esc(DATA.subtitle) + "</p>"
+      + "</div>"
+      + '<div class="gauge">'
+      + '<div class="ring' + (pct === 100 ? " done" : "") + '">'
+      + '<svg viewBox="0 0 78 78" aria-hidden="true">'
+      + '<circle class="track" cx="39" cy="39" r="26"></circle>'
+      + '<circle class="live" cx="39" cy="39" r="26" style="stroke-dashoffset:' + offset + '"></circle>'
+      + "</svg>"
+      + '<span class="pct">' + pct + "%</span>"
+      + "</div>"
+      + '<div class="tallies">'
+      + '<span class="tally"><b>' + total + "</b> بنداً في الدفعة</span>"
+      + '<span class="tally"><b>' + fixCount + "</b> كان مكسوراً وأُصلح</span>"
+      + '<span class="tally"><b>' + doneCount + "</b> تم اختباره</span>"
+      + "</div></div></header>";
+  }
+
+  function controlsHtml() {
+    function btn(key, label) {
+      return '<button class="filter" type="button" data-filter="' + key
+        + '" aria-pressed="' + (filter === key) + '">' + label + "</button>";
+    }
+    return '<div class="controls">'
+      + btn("all", "الكل")
+      + btn("fix", "أُصلح اليوم")
+      + btn("todo", "لم يُختبر بعد")
+      + '<button class="reset" type="button" id="reset">مسح كل العلامات</button>'
+      + "</div>"
+      + '<p class="sync" id="sync"></p>';
+  }
+
+  function footerHtml() {
+    return "<footer>"
+      + "<p>البنود المعلّمة «أُصلح اليوم» هي التي كانت مكتوبة كمنتهية لكنها لم تكن تعمل فعلاً؛ ابدأ الفحص بها.</p>"
+      + "<p>التفاصيل التقنية لكل بند في <code>FIXES_2026-08-26.md</code> داخل المشروع.</p>"
+      + "</footer>";
+  }
+
+  function render() {
+    var html = headerHtml() + controlsHtml()
+      + DATA.sections.map(sectionHtml).join("")
+      + footerHtml();
+    document.getElementById("app").innerHTML = '<div class="wrap">' + html + "</div>";
+    syncEl = document.getElementById("sync");
+  }
+
+  // ---------- events ----------
+
+  document.addEventListener("change", function (ev) {
+    var input = ev.target;
+    if (!input || input.type !== "checkbox" || !input.dataset.id) return;
+    if (input.checked) {
+      checked[input.dataset.id] = true;
+    } else {
+      delete checked[input.dataset.id];
+    }
+    writeLocal();
+    render();
+    schedulePublish();
+  });
+
+  document.addEventListener("click", function (ev) {
+    var f = ev.target.closest ? ev.target.closest("[data-filter]") : null;
+    if (f) {
+      filter = f.dataset.filter;
+      render();
+      return;
+    }
+    if (ev.target.id === "reset") {
+      if (!window.confirm("مسح كل علامات الاختبار؟")) return;
+      checked = {};
+      writeLocal();
+      render();
+      schedulePublish();
+    }
+  });
+
+  // ---------- boot ----------
+
+  // The published document is the shared truth. A local copy only fills in when
+  // nothing was published yet, so one tester's device never overwrites the team's.
+  if (!Object.keys(checked).length) {
+    var local = readLocal();
+    if (local) checked = local;
+  }
+
+  render();
+  connect();
+})();
+</script>
