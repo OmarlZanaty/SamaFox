@@ -2140,7 +2140,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             ElevatedButton(
               onPressed: () async {
                 setState(() => _volumeLevel = tempVolume);
-                await _audioPlayer.setVolume(tempVolume);
+                // A3 — "ومؤشر الصوت يتحكم في كل الأصوات". This used to set the
+                // room's effects player, the seat clip and the voice, and stop
+                // there: a user who dragged it to zero to quiet the room still
+                // had a game firing cues over the top at full volume. Games
+                // register their players with AudioRoute, so setting it there
+                // reaches every one of them — and it is remembered, so the
+                // level survives a restart instead of springing back to full.
+                await AudioRoute.instance.setMasterVolume(tempVolume);
                 if (_seatVideoController != null) {
                   await _seatVideoController!.setVolume(tempVolume);
                 }
@@ -2312,6 +2319,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Future<void> _toggleSpeaker() async {
     final next = !AudioRoute.instance.speakerOn;
     await _audioService.setSpeakerphoneOn(next);
+    // A3 — and remember it. The choice used to live only in memory, so a user
+    // who picked the earpiece came back after a restart on loudspeaker.
+    await AudioRoute.instance.setSpeaker(next);
     if (!mounted) return;
     setState(() {});
     _showRoomSnack(next ? 'تم التحويل إلى السماعة الخارجية' : 'تم التحويل إلى سماعة الأذن');
@@ -2584,6 +2594,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _audioService = WebRTCAudioService();
 
     _loadActiveItems(); // 🔥 ADD THIS
+
+    // A3 — the saved speaker choice and volume, applied before anything can
+    // make a sound.
+    unawaited(AudioRoute.instance.restore().then((_) {
+      if (!mounted) return;
+      setState(() => _volumeLevel = AudioRoute.instance.masterVolume);
+      unawaited(AudioRoute.instance.apply());
+      unawaited(AudioRoute.instance.applyVolume());
+    }));
 
     // A1 — the foreground service starts on ENTERING the room, not on taking a
     // mic. Everyone in the room needs the process kept alive: a listener who
@@ -4279,6 +4298,40 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       // was reachable only from inside the ⋮ menu; it now has
                       // its own place in the header, and the room-actions menu
                       // it used to hide behind stays where it is.
+
+                      // A3 — "ايقونة السماعه" on the bar itself. The toggle
+                      // existed only inside the ⋮ menu, so the client saw no
+                      // speaker icon in the room and reported it missing; and
+                      // there was no way to see WHICH route you were on
+                      // without opening the menu. Green when the loudspeaker
+                      // is on, so the state reads at a glance.
+                      const SizedBox(width: 6),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: _toggleSpeaker,
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: AudioRoute.instance.speakerOn
+                                  ? Colors.greenAccent.withOpacity(0.22)
+                                  : Colors.black.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Icon(
+                              AudioRoute.instance.speakerOn
+                                  ? Icons.volume_up_rounded
+                                  : Icons.hearing,
+                              color: AudioRoute.instance.speakerOn
+                                  ? Colors.greenAccent
+                                  : Colors.white70,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+
                       const SizedBox(width: 6),
                       Material(
                         color: Colors.transparent,

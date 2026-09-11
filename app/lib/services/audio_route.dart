@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// A3 / G3(e) — the single source of truth for "speaker or earpiece".
 ///
@@ -33,6 +34,69 @@ class AudioRoute {
   /// Written when the user flips the in-room speaker icon; anything that later
   /// re-applies a route reads this rather than assuming.
   bool speakerOn = true;
+
+  /// A3 — the room's volume slider, applied to every registered player.
+  ///
+  /// The slider used to reach the room's voice, the effects player and the
+  /// seat clip, and nothing else: a user who dragged it to zero to quiet the
+  /// room still had a game firing cues at full volume over it. Games register
+  /// their players here already, so this is the one place that can hold the
+  /// choice for all of them.
+  double masterVolume = 1.0;
+
+  static const String _speakerKey = 'audio_route_speaker_on';
+  static const String _volumeKey = 'audio_route_master_volume';
+
+  /// Load the user's saved choices. Safe to call more than once.
+  ///
+  /// A3 — neither of these survived a restart: the user set the earpiece, came
+  /// back, and was on loudspeaker again with no indication why.
+  Future<void> restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      speakerOn = prefs.getBool(_speakerKey) ?? speakerOn;
+      masterVolume = (prefs.getDouble(_volumeKey) ?? masterVolume).clamp(0.0, 1.0);
+    } catch (e) {
+      // A preferences failure must not cost anyone their audio; the defaults
+      // are the same ones that shipped before this was persisted.
+      debugPrint('[AudioRoute] restore failed: $e');
+    }
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_speakerKey, speakerOn);
+      await prefs.setDouble(_volumeKey, masterVolume);
+    } catch (e) {
+      debugPrint('[AudioRoute] persist failed: $e');
+    }
+  }
+
+  /// Flip the route and remember it.
+  Future<void> setSpeaker(bool on) async {
+    speakerOn = on;
+    await apply();
+    await _persist();
+  }
+
+  /// Set the level every registered player uses, and remember it.
+  Future<void> setMasterVolume(double v) async {
+    masterVolume = v.clamp(0.0, 1.0);
+    await applyVolume();
+    await _persist();
+  }
+
+  /// Push [masterVolume] to every registered player.
+  Future<void> applyVolume() async {
+    for (final p in _players) {
+      try {
+        await p.setVolume(masterVolume);
+      } catch (e) {
+        debugPrint('[AudioRoute] volume failed: $e');
+      }
+    }
+  }
 
   /// Players whose route must follow the toggle. Held weakly by convention:
   /// a game screen calls [unregister] in its dispose.
@@ -76,6 +140,13 @@ class AudioRoute {
   /// not blast its first sound out of the speaker.
   Future<void> register(AudioPlayer player) async {
     _players.add(player);
+    try {
+      // Before the route, and regardless of platform: a game opened while the
+      // room is muted must not play its first cue at full volume.
+      await player.setVolume(masterVolume);
+    } catch (e) {
+      debugPrint('[AudioRoute] initial volume failed: $e');
+    }
     if (!_supported) return;
     try {
       await player.setAudioContext(_contextFor(speakerOn));

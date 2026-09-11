@@ -24,6 +24,11 @@ class SeatsGrid extends StatelessWidget {
   final Set<int> lockedSeats;
   final Set<int> mutedSeats; // #11: admin-muted seat numbers
 
+  /// A5 — when the room is configured with more mics than the box can hold at
+  /// a usable size, let the grid scroll instead of shrinking the seats past
+  /// legibility or spilling out of the clip. This flag existed and was never
+  /// read: at 30 mics the top row ended up behind the header and could not be
+  /// reached at all.
   final bool scrollable;
   final int? myUserId;
   final bool isAdmin;
@@ -48,7 +53,7 @@ class SeatsGrid extends StatelessWidget {
     required this.seatKeys, // ✅ NEW
     this.mutedSeats = const {},
     this.seatEarnings = const {},
-    this.scrollable = false,
+    this.scrollable = true,
   });
 
   /// Rooms can be configured up to 30 mics.
@@ -110,7 +115,16 @@ class SeatsGrid extends StatelessWidget {
         final solved = _solve(box, safeCount);
         final rows = (safeCount / solved.columns).ceil();
 
-        return Padding(
+        // A5 — what the rows will actually need. _solve clamps the seat size at
+        // a floor, so past a certain mic count the grid is TALLER than the box
+        // it was given and the overflow lands under the header. Scrolling is
+        // the honest answer: every seat stays legible and every seat is
+        // reachable.
+        final neededHeight =
+            rows * (solved.seatSize + _labelHeight) + (rows - 1) * _spacing;
+        final overflows = box.height > 0 && neededHeight > box.height;
+
+        final grid = Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).padding.bottom,
           ),
@@ -139,6 +153,15 @@ class SeatsGrid extends StatelessWidget {
                 ),
             ],
           ),
+        );
+
+        if (!scrollable || !overflows) return grid;
+
+        // BouncingScrollPhysics so the scroll is discoverable: a grid that
+        // merely clipped gave no hint there were more seats below.
+        return SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: grid,
         );
       },
     );
