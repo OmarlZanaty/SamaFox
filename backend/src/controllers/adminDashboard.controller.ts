@@ -117,7 +117,11 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
           xp: true,
           createdAt: true,
           updatedAt: true,
-        },
+          // F4 — what the device-ban form needs and never had a source for.
+          lastDeviceId: true,
+          lastIp: true,
+          lastSeenAt: true,
+        } as any,
       }),
     ]);
 

@@ -465,6 +465,14 @@ async function loadUsers() {
         <span class="cell-muted">Lv.${u.level ?? 1} · VIP${u.vipLevel ?? 0}${u.target ? ` · 🎯${u.target.targetGoalCoins}` : ""}</span>
       </td>
       <td>${u.isAdmin ? '<span class="badge badge-admin">أدمن</span>' : ""}</td>
+      <td>${
+        u.lastDeviceId || u.lastIp
+          ? `<div class="cell-muted" title="آخر ظهور: ${fmtDate(u.lastSeenAt)}">`
+            + `${u.lastDeviceId ? `<code>${escapeHtml(u.lastDeviceId)}</code><br>` : ""}`
+            + `${u.lastIp ? escapeHtml(u.lastIp) : ""}</div>`
+            + `<button class="btn-ghost-sm" onclick="banDeviceOf('${escapeHtml(u.lastDeviceId ?? "")}','${escapeHtml(u.lastIp ?? "")}')">حظر الجهاز</button>`
+          : '<span class="cell-muted">—</span>'
+      }</td>
       <td><span class="cell-muted">${fmtDate(u.createdAt)}</span></td>
       <td>
         <div class="td-actions">
@@ -3011,6 +3019,22 @@ async function sendAdminMessage() {
   document.getElementById("msg_title").value = "";
   document.getElementById("msg_body").value = "";
   showToast(`✅ تم الإرسال إلى ${num(res?.data?.sent ?? 0)} مستخدم`);
+}
+
+// F4 — ban straight from the user row. The moderation form still exists for a
+// device id learned some other way; this is for the ordinary case, where the
+// admin is looking at the account that misbehaved and wants the handset behind
+// it gone. Prefilling the form rather than banning outright keeps the reason
+// and the duration a deliberate choice.
+async function banDeviceOf(deviceId, ipAddress) {
+  navigate("moderation");
+  await loadModeration().catch(() => {});
+  const dev = document.getElementById("db_device");
+  const ip  = document.getElementById("db_ip");
+  if (dev) dev.value = deviceId || "";
+  if (ip)  ip.value  = ipAddress || "";
+  (document.getElementById("db_reason") || {}).focus?.();
+  showToast("تم ملء بيانات الجهاز — أكمل السبب والمدة");
 }
 
 async function createDeviceBan() {
