@@ -12,6 +12,7 @@ import '../../screens/profile_screen.dart';
 import '../../utils/image_intrinsic_size.dart';
 import 'TopWaveClipper.dart';
 import '../../widgets/app_network_image.dart';
+import '../product_video_layer.dart';
 
 // ==========================
 // 🔥 NEW: merged feed model
@@ -121,8 +122,31 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// dashboard configured. Nothing here decides how tall the bubble is — the
   /// Container wraps its child, so 1, 2 or 5 lines each get a bubble that grew
   /// to fit ("وكبر مع كبر الكلام بالطول والعرض").
+  /// D5 — a bought VIDEO bubble used to be handed to NetworkImage, fail, and
+  /// render as no decoration at all: the buyer wore nothing. A clip cannot be
+  /// a DecorationImage and has no 9-slice — there is no flat middle to stretch
+  /// — so it goes behind the text instead, clipped to the bubble's own radius
+  /// and sized by the bubble, which is still sized by the message.
+  Widget _bubbleSkin(SocketMessage m, Widget bubble) {
+    final url = (m.bubbleUrl ?? '').trim();
+    if (!isProductVideoUrl(url)) return bubble;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: ProductVideoLayer(url: url, fit: BoxFit.cover),
+          ),
+        ),
+        bubble,
+      ],
+    );
+  }
+
   BoxDecoration _bubbleDecoration(SocketMessage m) {
     final url = (m.bubbleUrl ?? '').trim();
+    // Video is drawn by _bubbleSkin, behind this.
+    if (isProductVideoUrl(url)) return const BoxDecoration();
     if (url.isNotEmpty) {
       // `centerSlice` is in the SOURCE image's pixels. This used to be handed
       // the BUNDLED artwork's 148x36, so an uploaded bubble of any other size
@@ -471,7 +495,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                   children: [
                                     // 💬 BUBBLE — custom design if the sender
                                     // activated one, otherwise tiered by level.
-                                    Container(
+_bubbleSkin(m,                                     Container(
                                       constraints: BoxConstraints(maxWidth: _maxBubbleWidth(context)),
                                       // Confined to the artwork's empty middle.
                                       padding: _bubblePadding(m, _bubbleReference(context)),
@@ -554,7 +578,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                           ),
                                         ],
                                       ),
-                                    ),
+                                    )),
 
                                     // 🔻 RTL TAIL
                                     Positioned(

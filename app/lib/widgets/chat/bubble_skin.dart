@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/product_layout.dart';
 import '../../utils/image_intrinsic_size.dart';
+import '../product_video_layer.dart';
 
 /// C6 — the chat-bubble artwork, wrapped around whatever it is given.
 ///
@@ -92,6 +93,10 @@ class _BubbleSkinState extends State<BubbleSkin> {
 
   BoxDecoration _decoration() {
     final url = (widget.bubbleUrl ?? '').trim();
+    // D5 — a video bubble is drawn as a layer behind the text by build(),
+    // because a clip cannot be a DecorationImage and has no 9-slice: there is
+    // no "flat middle" to stretch, so the whole frame is simply fitted.
+    if (isProductVideoUrl(url)) return const BoxDecoration();
     if (url.isNotEmpty) {
       final intrinsic = _intrinsic(url);
       return BoxDecoration(
@@ -135,6 +140,29 @@ class _BubbleSkinState extends State<BubbleSkin> {
 
   @override
   Widget build(BuildContext context) {
+    final url = (widget.bubbleUrl ?? '').trim();
+
+    // D5 — a bought video bubble used to resolve to a failed NetworkImage and
+    // render as no decoration at all. It goes behind the text instead of into
+    // the BoxDecoration, clipped to the same radius so it cannot spill past
+    // the bubble, and sized by the text exactly as the image version is.
+    if (isProductVideoUrl(url)) {
+      return Container(
+        constraints: BoxConstraints(maxWidth: _maxWidth(context)),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: ProductVideoLayer(url: url, fit: BoxFit.cover),
+              ),
+              Padding(padding: _padding(context), child: widget.child),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Container(
       constraints: BoxConstraints(maxWidth: _maxWidth(context)),
       padding: _padding(context),

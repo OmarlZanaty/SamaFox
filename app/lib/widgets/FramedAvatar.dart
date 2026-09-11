@@ -6,6 +6,7 @@ import '../config/app_config.dart';
 import '../models/product_layout.dart';
 import '../utils/image_opaque_bounds.dart';
 import '../widgets/app_network_image.dart';
+import 'product_video_layer.dart';
 
 enum AvatarFrameType { samafoxDefault, vip, crown, neon, none }
 
@@ -160,6 +161,9 @@ class FramedAvatar extends StatelessWidget {
     if (raw == null || raw.isEmpty) return null;
     final url = _absoluteUrl(raw);
     if (url.toLowerCase().endsWith('.svg')) return null;
+    // D5 — nor a clip: there is no still to scan, and asking the image
+    // pipeline for one logs a decode error on every rebuild.
+    if (isProductVideoUrl(url)) return null;
     return url;
   }
 
@@ -171,6 +175,12 @@ class FramedAvatar extends StatelessWidget {
       final url = _absoluteUrl(remoteUrl);
       if (url.toLowerCase().endsWith('.svg')) {
         return SvgPicture.network(url, fit: BoxFit.contain);
+      }
+      // D5 — a video frame used to be handed to the raster loader, fail, and
+      // fall through to the errorBuilder's empty box: the user had bought a
+      // frame and wore nothing.
+      if (isProductVideoUrl(url)) {
+        return ProductVideoLayer(url: url, fit: BoxFit.contain);
       }
       return AppNetworkImage(
         url,
