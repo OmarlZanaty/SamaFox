@@ -762,9 +762,20 @@ class _AdsSliderState extends State<_AdsSlider> {
   late final PageController _controller;
   int _current = 0;
 
+  /// G4 — the home banners.
+  ///
+  /// This used to list `Ads.png` three times. That file is not a banner: it is
+  /// a DESIGN MOCKUP containing three placeholder adverts side by side, with
+  /// its own carousel dots and buttons painted into the picture. Showing it
+  /// three times put those painted dots on screen next to the real ones, and
+  /// the adverts themselves ("Epic Dragon Quest", "Magic Tournament") have
+  /// nothing to do with a voice-chat app.
+  ///
+  /// Until real artwork lands this shows the one image once, so the duplicate
+  /// dots are gone. Add the real banners here — the carousel, the auto-advance
+  /// and the dots all size themselves off this list.
+  // TODO(client): replace with the four banners supplied on 05/09/2026.
   final List<String> images = [
-    "assets/images/Ads.png",
-    "assets/images/Ads.png",
     "assets/images/Ads.png",
   ];
 
@@ -781,6 +792,8 @@ class _AdsSliderState extends State<_AdsSlider> {
       await Future.delayed(const Duration(seconds: 4));
 
       if (!mounted) return;
+      // Nothing to advance to, and animating a one-page view just burns frames.
+      if (images.length < 2) continue;
 
       _current++;
       if (_current >= images.length) _current = 0;
@@ -836,9 +849,10 @@ class _AdsSliderState extends State<_AdsSlider> {
           ),
         ),
 
-        const SizedBox(height: 10),
+        if (images.length > 1) const SizedBox(height: 10),
 
-        // 🔘 DOTS INDICATOR
+        // 🔘 DOTS INDICATOR — only meaningful with more than one banner.
+        if (images.length > 1)
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(images.length, (index) {

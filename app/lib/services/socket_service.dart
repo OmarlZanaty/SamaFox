@@ -228,6 +228,9 @@ class SocketService {
         .enableReconnection()
         .setReconnectionAttempts(AppConfig.socketReconnectionAttempts)
         .setReconnectionDelay(AppConfig.socketReconnectionDelay)
+        // Unlimited attempts (A2) would otherwise hammer a dead network
+        // once a second forever; cap the backoff at 10s.
+        .setReconnectionDelayMax(10000)
         .setAuth({'token': jwt}) // ✅ EXACTLY what server expects
         .build();
 
@@ -687,6 +690,21 @@ class SocketService {
     _socket!.onDisconnect((_) {
       AppLogger.info('❌ Socket disconnected');
       _connectionController.add(false);
+    });
+
+    // A2 — if the client ever stops trying on its own, start again. With
+    // unlimited attempts this should not fire, but when it did the room stayed
+    // on screen with dead signalling and no way back short of restarting the
+    // app, so the belt-and-braces is worth the four lines.
+    _socket!.on('reconnect_failed', (_) {
+      AppLogger.warning('⚠️ Socket gave up reconnecting — forcing a new attempt');
+      Future.delayed(const Duration(seconds: 5), () {
+        try {
+          if (_socket != null && !(_socket!.connected)) _socket!.connect();
+        } catch (e) {
+          AppLogger.warning('forced reconnect failed: $e');
+        }
+      });
     });
 
     _socket!.onReconnect((_) {

@@ -262,6 +262,28 @@ function getQueue(roomId: number): number[] {
   return roomMicQueue.get(roomId)!;
 }
 
+/// A18 — قفل مايك / فتح مايك / كتم / فك كتم for a PLATFORM admin, in any room
+/// including a super admin's.
+///
+/// Deliberately NOT done by widening [getAdmins]: that set also gates
+/// `remove_from_seat` and room moderation, and the client was explicit that a
+/// platform admin's powers are the ban durations plus these four mic controls —
+/// nothing else. So this is a separate, narrower check used only by `seat_lock`
+/// and `set_seat_mute`.
+async function canControlMic(roomId: number, userId: number): Promise<boolean> {
+  if (getAdmins(roomId).has(userId)) return true;
+  try {
+    const u = await (prisma as any).user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true, isSuperAdmin: true },
+    });
+    return Boolean(u?.isAdmin || u?.isSuperAdmin);
+  } catch (e) {
+    console.warn('canControlMic lookup failed:', e);
+    return false;
+  }
+}
+
 function getAdmins(roomId: number): Set<number> {
   if (!roomAdmins.has(roomId)) roomAdmins.set(roomId, new Set());
   return roomAdmins.get(roomId)!;
@@ -1078,7 +1100,7 @@ socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
 
   await populateAdmins(rid);
   const admins = getAdmins(rid);
-  if (!admins.has(uid)) return; // ✅ only admin/owner
+  if (!(await canControlMic(roomId, uid))) return; // room admin/owner, or platform admin (A18)
 
   const room = await prisma.room.findUnique({
     where: { id: rid },
@@ -1922,7 +1944,7 @@ socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
 
     await populateAdmins(rid);
     const admins = getAdmins(rid);
-    if (!admins.has(socket.userId)) return; // only admins
+    if (!(await canControlMic(roomId, socket.userId))) return; // + platform admin (A18)
 
     // verify target is actually on that seat
     const seats = getSeats(rid);

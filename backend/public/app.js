@@ -1471,7 +1471,10 @@ window.confirmEditProduct = async function () {
 window.deleteProduct = async function (id) {
   if (!confirm("هل أنت متأكد من حذف المنتج؟")) return;
   try {
-    await apiFetch("/admin/products/" + id, {
+    // D4 — must be the cascade-safe route. /admin/products deletes the Item row
+    // directly, and user_items.itemId has no onDelete, so any product a user
+    // owns throws and the row never disappears from the dashboard.
+    await apiFetch("/admin-products/products/" + id, {
       method: "DELETE",
     });
     showToast("✓ تم حذف المنتج");
