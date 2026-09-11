@@ -85,6 +85,7 @@ model User {
   agencyRequests           AgencyRequest[]
   agencyMembers            AgencyMember[]
   reviewedTopups           AgencyTopupRequest[]      @relation("TopupReviewedBy")
+  requestedTopups          AgencyTopupRequest[]      @relation("TopupRequestedBy")
   AgencyTransfer           AgencyTransfer[]
   conversationsA           Conversation[]            @relation("ConvUserA")
   conversationsB           Conversation[]            @relation("ConvUserB")
@@ -958,6 +959,11 @@ model AgencyTransfer {
 model AgencyTopupRequest {
   id         Int       @id @default(autoincrement())
   agencyId   Int
+  // B5 — who asked, and therefore whose wallet the approval credits. A فرع
+  // requests against the agency he belongs to but is topped up personally;
+  // without this the approval always paid the OWNER. Null on legacy rows,
+  // which are owner requests by construction.
+  requesterId Int?
   amount     Int
   receiptUrl String
   note       String?
@@ -969,7 +975,8 @@ model AgencyTopupRequest {
   agency ChargingAgency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
 
   // ✅ reviewer relation must have a name + opposite name
-  reviewer User? @relation("TopupReviewedBy", fields: [reviewedBy], references: [id])
+  reviewer  User? @relation("TopupReviewedBy", fields: [reviewedBy], references: [id])
+  requester User? @relation("TopupRequestedBy", fields: [requesterId], references: [id])
 
   @@index([agencyId])
   @@index([status])

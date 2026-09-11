@@ -810,6 +810,12 @@ async function loadAgencies() {
           : `<strong>${Number(a.selfChargeCount ?? 0).toLocaleString("en-US")}</strong> مرة`
             + `<div class="cell-muted">${Number(a.selfChargeCoins ?? 0).toLocaleString("en-US")} كوينز</div>`
       }</td>
+      <td>${
+        a.type === "HOSTING"
+          ? '<span class="cell-muted">—</span>'
+          : `<strong>${Number(a.chargingTargetCoins ?? 0).toLocaleString("en-US")}</strong>`
+            + `<div class="cell-muted">من ${Number(a.chargingTargetGoal ?? 0).toLocaleString("en-US")}</div>`
+      }</td>
       <td>${imgs || "—"}</td>
       <td><span class="cell-muted">${fmtDate(a.createdAt)}</span></td>
       <td>

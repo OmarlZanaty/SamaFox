@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import prisma from '../utils/prisma';
-import { vipThreshold, getVipThresholdOverrides, vipThresholdWithOverrides } from '../services/vip.service';
+import {
+  vipThreshold,
+  getVipThresholdOverrides,
+  vipThresholdWithOverrides,
+  vipRechargeFloor,
+} from '../services/vip.service';
 import { getLevelThresholdOverrides, levelThresholdWithOverrides } from '../services/xp.service';
 import { grantVipRewardsForRange } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
@@ -76,7 +81,12 @@ router.post('/buy', authMiddleware, async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({
         where: { id: userId },
-        select: { coinsBalance: true, vipLevel: true, vipExpiresAt: true },
+        select: {
+          coinsBalance: true,
+          vipLevel: true,
+          vipExpiresAt: true,
+          totalRecharge: true,
+        },
       });
       if (!user) return { ok: false as const, status: 404, message: 'المستخدم غير موجود' };
       if (user.vipLevel >= level) {
@@ -95,12 +105,22 @@ router.post('/buy', authMiddleware, async (req, res) => {
         ? new Date(base.getTime() + Number(cfg.durationDays) * 24 * 60 * 60 * 1000)
         : null;
 
+      // E3 — a tier bought with coins never touched totalRecharge, so the
+      // purchase survived only until the next recharge: computeVipLevel* reads
+      // a counter that still belongs to the old tier and takes the level
+      // straight back, with no refund. Carry the counter up with the tier, the
+      // same way the dashboard promotion does, through the same helper.
+      const floor = vipRechargeFloor(level, await getVipThresholdOverrides());
+      const carry =
+        floor > ((user as any).totalRecharge ?? 0) ? { totalRecharge: floor } : {};
+
       await tx.user.update({
         where: { id: userId },
         data: {
           coinsBalance: { decrement: cfg.priceCoins },
           vipLevel: level,
           vipExpiresAt: expiresAt,
+          ...carry,
         } as any,
       });
       return { ok: true as const, previousLevel: user.vipLevel, expiresAt };
