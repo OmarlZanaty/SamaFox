@@ -1806,6 +1806,47 @@ export const adminListVipLevels = async (_req: AdminReq, res: Response) => {
   }
 };
 
+/**
+ * C11 — hand a tier's reward items to everyone already at or above it.
+ *
+ * Runs after the response: a tier with thousands of members must not hold the
+ * dashboard's save open, and a failure part-way through is safe to leave —
+ * granting is idempotent, so re-saving the tier finishes the job. Paged rather
+ * than loaded whole, and sequential so a backfill cannot saturate the pool
+ * underneath live traffic.
+ */
+const backfillVipTier = async (level: number): Promise<void> => {
+  const pageSize = 200;
+  let cursor: number | undefined;
+  let granted = 0;
+  try {
+    for (;;) {
+      const page = await db.user.findMany({
+        where: {
+          vipLevel: { gte: level },
+          OR: [{ vipExpiresAt: null }, { vipExpiresAt: { gt: new Date() } }],
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: pageSize,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      });
+      if (page.length === 0) break;
+      for (const u of page) {
+        await grantVipRewardsForRange(u.id, level - 1, level).catch((e) =>
+          console.warn('[backfillVipTier] grant failed for', u.id, e),
+        );
+        granted++;
+      }
+      cursor = page[page.length - 1].id;
+      if (page.length < pageSize) break;
+    }
+    console.log(`[backfillVipTier] VIP ${level}: ${granted} member(s) topped up`);
+  } catch (e) {
+    console.warn('[backfillVipTier] aborted:', (e as Error).message);
+  }
+};
+
 export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
   try {
     const level = Number(req.body?.level);
@@ -1852,6 +1893,17 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
       update: data,
       create: { level, ...data },
     });
+
+    // C11 — rewards are granted at the moment a user CROSSES a tier, so adding
+    // an item to a tier gave it to nobody: every existing VIP had already
+    // crossed, and the admin saw the item configured while the members it was
+    // meant for never received it. Backfill everyone already standing at or
+    // above the tier. grantVipRewardsForRange never double-grants a UserItem,
+    // so re-saving a tier is harmless.
+    if (rewardItemIds !== undefined) {
+      void backfillVipTier(level);
+    }
+
     return res.json({ success: true, data: saved });
   } catch (e) {
     console.error('adminUpsertVipLevel error:', e);

@@ -21,6 +21,44 @@ export const uploadImage = async (req: Request, res: Response) => {
     }
 
     const file = req.file;
+
+    // C10 — the animated-image perk was enforced on the AVATAR endpoint only.
+    // This one takes the room picture, so the gate was trivially sidestepped:
+    // upload the GIF here and point the room at it. Same tier config, checked
+    // at the only other place an image file enters the system.
+    //
+    // Admins are exempt on purpose — this endpoint is also what the dashboard
+    // posts gift and product artwork through, and animated gift icons are the
+    // whole point of the catalogue.
+    const uploaderId = (req as any).userId as number | undefined;
+    if (
+      uploaderId &&
+      isAnimatedImage({ filename: file.filename, mimetype: file.mimetype })
+    ) {
+      const uploader = await prisma.user.findUnique({
+        where: { id: uploaderId },
+        select: { isAdmin: true },
+      });
+      if (!uploader?.isAdmin) {
+        const { allowed, minLevel } = await canUseAnimatedAvatar(uploaderId);
+        if (!allowed) {
+          try {
+            await fsp.unlink(file.path);
+          } catch {
+            /* the temp file is disposable; a failed cleanup must not fail the request */
+          }
+          return res.status(403).json({
+            success: false,
+            code: 'ANIMATED_IMAGE_NOT_ALLOWED',
+            message:
+              minLevel == null
+                ? 'الصورة المتحركة غير متاحة حالياً'
+                : `الصورة المتحركة متاحة لأعضاء VIP ${minLevel} فما فوق`,
+          });
+        }
+      }
+    }
+
     const baseUrl = getPublicBaseUrl(req);
     const imageUrl = `${baseUrl}/uploads/${file.filename}`;
 

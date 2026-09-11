@@ -507,22 +507,36 @@ async function buildRoomUsers(io: Server, rid: number) {
 }
 
 /**
- * The شارات a user carries into the chat and the entrance line: the icons of
- * their most recently unlocked achievements, newest first.
+ * The شارات a user carries into the chat and the entrance line.
+ *
+ * C11 — this used to return ACHIEVEMENT icons, which are a different thing
+ * entirely: the badge a user bought in the store and equipped never appeared
+ * anywhere in the room, while an achievement they never chose did. The store
+ * sells type BADGE and the profile has a شارات tab to equip them; those are
+ * what belongs here.
+ *
+ * Expired items are excluded — every product carries a term now, and a lapsed
+ * badge must stop showing the moment it lapses, not at the next login.
  *
  * Capped at three — a chat bubble is not a trophy cabinet, and the row has to
  * stay on one line next to the VIP and LV chips.
  */
 async function userBadgeIcons(userId: number, take = 3): Promise<string[]> {
   try {
-    const rows = await (prisma as any).userAchievement.findMany({
-      where: { userId },
-      include: { achievement: { select: { iconUrl: true } } },
-      orderBy: { unlockedAt: 'desc' },
+    const now = new Date();
+    const rows = await (prisma as any).userItem.findMany({
+      where: {
+        userId,
+        isActive: true,
+        item: { type: 'BADGE' },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      include: { item: { select: { assetUrl: true } } },
+      orderBy: { acquiredAt: 'desc' },
       take,
     });
     return rows
-      .map((r: any) => r?.achievement?.iconUrl)
+      .map((r: any) => r?.item?.assetUrl)
       .filter((u: unknown): u is string => typeof u === 'string' && u.length > 0);
   } catch (e) {
     // Badges are decoration: never let them break a message or an entrance.
