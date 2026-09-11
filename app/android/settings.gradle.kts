@@ -32,7 +32,10 @@ dependencyResolutionManagement {
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
     id("com.android.application") version "8.9.1" apply false
-    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+    // Kotlin 2.x is required by the plugins this app depends on: at 1.9.22 the
+    // release build fails in :package_info_plus:compileReleaseKotlin, which
+    // blocks every release artifact. Gradle 8.11 and AGP 8.9 both support it.
+    id("org.jetbrains.kotlin.android") version "2.1.0" apply false
     id("com.google.gms.google-services") version "4.4.2" apply false
 }
 
