@@ -2236,6 +2236,14 @@ async function loadAdmins() {
   const note = document.getElementById("adminsSuperNote");
   if (note) note.style.display = currentAdminIsSuper ? "none" : "block";
 
+  // F2 — a normal admin cannot assign anyone, so do not show him the control.
+  // It used to stay visible and simply return a raw 403 when pressed, which is
+  // exactly the "no ability to assign" the client reported.
+  const grantBox = document.getElementById("adminGrantId");
+  const grantBtn = document.getElementById("btnGrantAdmin");
+  if (grantBox) grantBox.style.display = currentAdminIsSuper ? "" : "none";
+  if (grantBtn) grantBtn.style.display = currentAdminIsSuper ? "" : "none";
+
   const d = await apiFetch("/admin-dashboard/admins");
   const rows = d.data || [];
   const tbody = document.querySelector("#adminsTable tbody");

@@ -427,96 +427,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                                 const SizedBox(height: 6),
                               ],
 
-                              // 🦊 SamaFox + top rooms block
-                              LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final totalWidth = constraints.maxWidth;
-                                  const spacing = 6.0;
-                                  final itemWidth = (totalWidth - spacing * 2) / 3;
-
-                                  if (rooms.length == 1) {
-                                    return SizedBox(
-                                      height: itemWidth * 2 + spacing,
-                                      child: Row(
-                                        children: [
-                                          SizedBox(
-                                            width: itemWidth * 2 + spacing,
-                                            height: double.infinity,
-                                            child: _SamaFoxRoom(
-                                              onTap: () {
-                                                Navigator.pushNamed(context, '/room', arguments: "samafox");
-                                              },
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          SizedBox(
-                                            width: itemWidth,
-                                            height: itemWidth,
-                                            child: _RoomTile(
-                                              stringsOnline: strings.online,
-                                              room: rooms[0],
-                                              isFeatured: false,
-                                              onTap: () => Navigator.pushNamed(context, '/room', arguments: rooms[0].id),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }
-
-                                  return SizedBox(
-                                    height: itemWidth * 2 + spacing,
-                                    child: Row(
-                                      children: [
-                                        SizedBox(
-                                          width: itemWidth * 2 + spacing,
-                                          height: double.infinity,
-                                          child: _SamaFoxRoom(
-                                            onTap: () {
-                                              Navigator.pushNamed(context, '/room', arguments: "samafox");
-                                            },
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        SizedBox(
-                                          width: itemWidth,
-                                          child: Column(
-                                            children: [
-                                              SizedBox(
-                                                height: itemWidth,
-                                                child: _RoomTile(
-                                                  stringsOnline: strings.online,
-                                                  room: rooms[0],
-                                                  isFeatured: false,
-                                                  onTap: () => Navigator.pushNamed(context, '/room', arguments: rooms[0].id),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 6),
-                                              SizedBox(
-                                                height: itemWidth,
-                                                child: _RoomTile(
-                                                  stringsOnline: strings.online,
-                                                  room: rooms[1],
-                                                  isFeatured: false,
-                                                  onTap: () => Navigator.pushNamed(context, '/room', arguments: rooms[1].id),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-
-                              const SizedBox(height: 6),
-
+                              // A16 — the hardcoded "غرفة سما فوكس / ADMIN ROOM"
+                              // card used to sit here, two thirds of the width,
+                              // above every real room. It was also dead: it
+                              // pushed '/room' with the String "samafox" while
+                              // the route casts its argument to int, so tapping
+                              // it threw. The real pinned room is the featured
+                              // card above; every other room now goes through
+                              // the grid below.
                               // 📦 REST GRID (normal 3 columns)
                               GridView.builder(
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
-                                itemCount: rooms.length > 2 ? rooms.length - 2 : 0,
+                                itemCount: rooms.length,
                                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: 3,
                                   mainAxisSpacing: 6,
@@ -524,7 +447,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                                   childAspectRatio: 1,
                                 ),
                                 itemBuilder: (context, index) {
-                                  final room = rooms[index + 2];
+                                  final room = rooms[index];
 
                                   return _RoomTile(
                                     stringsOnline: strings.online,
@@ -1144,121 +1067,6 @@ class _RoomTile extends StatelessWidget {
                 ),
               ),
                   const SizedBox(height: 6),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SamaFoxRoom extends StatelessWidget {
-  const _SamaFoxRoom({required this.onTap});
-
-  final VoidCallback onTap;
-
-  static const _brand = Color(0xFF6B4CE6);
-  static const _gold = Color(0xFFFFD36E);
-
-  @override
-  Widget build(BuildContext context) {
-
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: onTap,
-      child: Container(
-        height: 260,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(0.15)),
-          gradient: const LinearGradient(
-            colors: [
-              Color(0xFFB55CFF),
-              Color(0xFF6B4CE6),
-              Color(0xFF24124D),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _brand.withOpacity(0.35),
-              blurRadius: 25,
-              spreadRadius: 2,
-            )
-          ],
-        ),
-        child: Stack(
-          children: [
-
-            // Background logo
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.18,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: Image.asset(
-                    "assets/images/logo.png",
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-
-                  const Row(
-                    children: [
-                      Icon(Icons.shield, color: Color(0xFFFFD36E), size: 22),
-                      SizedBox(width: 6),
-                      Text(
-                        "ADMIN ROOM",
-                        style: TextStyle(
-                          color: Color(0xFFFFD36E),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      )
-                    ],
-                  ),
-
-                  const Spacer(),
-
-                  Row(
-                    children: [
-                      Image.asset(
-                        "assets/images/logo.png",
-                        width: 36,
-                        height: 36,
-                      ),
-                      const SizedBox(width: 8),
-                      const Text(
-                        "غرفة سما فوكس",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  const Text(
-                    "الغرفة الرسمية للإدارة",
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                    ),
-                  )
                 ],
               ),
             ),

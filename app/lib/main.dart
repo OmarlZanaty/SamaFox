@@ -200,9 +200,11 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
           duration: (isGiftReceived || isAgentPercentage)
               ? kNotificationBriefDuration
               : kNotificationDefaultDuration,
-          // Only the agent-percentage banner moves. The gift-received one was
-          // never a position complaint — only a duration one.
-          topOffset: isAgentPercentage ? kBelowGiftBarOffset : 0,
+          // D8 — "الإشعار ينزل تحت شريط الهدية مباشرة مش فوقه". BOTH banners
+          // the client named cover the gift bar, so both drop below it; only
+          // the agent-percentage one did before.
+          topOffset:
+              (isAgentPercentage || isGiftReceived) ? kBelowGiftBarOffset : 0,
         ),
       );
     });
@@ -396,6 +398,11 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
               Consumer(
                 builder: (context, ref, _) => const PipOverlay(),
               ),
+              // D6/D7 — this cannot be reordered to sit under the room's
+              // banners: they live inside `child` above, so any sibling after
+              // it paints over them regardless of order. The overlap is solved
+              // by moving the notification DOWN instead — see kBelowGiftBarOffset
+              // where the banner is built.
               const GlobalNotificationBar(),
             ],
           ),

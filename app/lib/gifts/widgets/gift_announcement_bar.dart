@@ -109,7 +109,10 @@ class _GiftAnnouncementBarState extends State<GiftAnnouncementBar>
         // right edge, so a directional value here would read as correct and
         // render on the wrong side.
         child: Align(
-          alignment: Alignment.centerRight,
+          // D6 — "ارفعه لفوق شوية": centreRight is exactly the 50% line, which
+          // is where the gift panel's top edge sits (its height is half the
+          // screen), so the panel met the bar every time. -0.35 lifts it clear.
+          alignment: const Alignment(1.0, -0.35),
           child: FadeTransition(
             opacity: _ctrl,
             child: ScaleTransition(
