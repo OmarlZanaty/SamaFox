@@ -5,6 +5,7 @@ import 'games/asterion_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
+import 'games/olympus_screen.dart';
 import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
 // G3(a) — these four shipped but were parked out of the hub; they are back.
@@ -48,6 +49,16 @@ const List<_GameEntry> _games = [
     accent: Color(0xFF4DD8E6),
     gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
     art: 'assets/images/cards/card_aetherfall.png',
+  ),
+  _GameEntry(
+    title: 'بوابات أوليمبوس',
+    tagline: 'اجمع صواعق زيوس',
+    emoji: '⚡',
+    accent: Color(0xFFE3B84A),
+    gradient: [Color(0xFF3A1A72), Color(0xFF12052B)],
+    art: 'assets/images/cards/card_olympus.png',
+    // The banner carries no lettering, so the hub draws the name over it.
+    drawTitle: true,
   ),
   _GameEntry(
     title: 'القط الجشع',
@@ -207,6 +218,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'أثيرفول':
         screen = const AetherfallScreen();
+        break;
+      case 'بوابات أوليمبوس':
+        screen = const OlympusScreen();
         break;
       case 'القط الجشع':
         screen = const GreedyCatScreen();

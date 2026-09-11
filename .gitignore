@@ -10,4 +10,4 @@ logs
 *.key
 **/cookies.txt
 **/*.cookie
-**/dev.db*
+**/dev.db*.olympus-art-backups/

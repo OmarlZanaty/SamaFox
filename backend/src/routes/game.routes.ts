@@ -309,6 +309,26 @@ router.post('/asterion/seed', authenticate, asterionLimiter, setAsterionClientSe
 router.post('/asterion/seed/rotate', authenticate, asterionLimiter, rotateAsterionSeed);
 router.post('/asterion/verify', authenticate, verifyAsterionSpin);
 
+// بوابات أوليمبوس (Gates of Olympus): one tap is one request — the deal, every
+// tumble and the whole 15-spin free-spins feature resolve in a single call — so
+// it gets the same generous allowance as أثيرفول and أستيريون.
+const olympusLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `olympus:${req.userId ?? req.ip}`,
+  message: { success: false, message: 'Too many requests, slow down' },
+});
+
+router.get('/olympus/state', authenticate, getOlympusState);
+router.post('/olympus/spin', authenticate, olympusLimiter, gameGuard('olympus'), spinOlympus);
+router.get('/olympus/history', authenticate, getOlympusHistory);
+router.get('/olympus/fair', authenticate, getOlympusFairness);
+router.post('/olympus/seed', authenticate, olympusLimiter, setOlympusClientSeed);
+router.post('/olympus/seed/rotate', authenticate, olympusLimiter, rotateOlympusSeed);
+router.post('/olympus/verify', authenticate, verifyOlympusSpin);
+
 // نيون فورتشن (Neon Fortune): one request per spin, and a spin can carry a whole
 // free-spin round and a vault bonus with it, so the allowance matches أثيرفول.
 const neonFortuneLimiter = rateLimit({

@@ -4,7 +4,11 @@
     {
       "name": "dashboard-static",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5959"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5959"
+      ],
       "cwd": "backend/public",
       "port": 5959
     },
@@ -51,6 +55,21 @@
       ],
       "cwd": "app",
       "port": 5759
+    },
+    {
+      "name": "olympus-preview",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-t",
+        "lib/dev/olympus_preview.dart",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5760"
+      ],
+      "cwd": "app",
+      "port": 5760
     }
   ]
 }

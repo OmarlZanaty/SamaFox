@@ -127,6 +127,9 @@ flutter:
     - assets/images/plinko/
     # أثيرفول artwork — likewise.
     - assets/images/aetherfall/
+    - assets/images/olympus/
+    # Recorded spins for lib/dev/olympus_play.dart. ~50 KB, dev harness only.
+    - assets/dev/
     - assets/images/neon/
     # القط الجشع artwork — likewise. The screen paints its own vector art, so
     # this folder is empty until the commissioned PNGs land; see
