@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// A23 — keeps the room's voice alive while the app is in the background.
 ///
@@ -31,10 +32,47 @@ class RoomAudioKeepAlive {
 
   bool get _supported => !kIsWeb && Platform.isAndroid;
 
-  /// Call when the user takes a mic seat. Safe to call repeatedly — starting an
-  /// already-running service only refreshes its notification.
+  /// Call when the user ENTERS a room, and again when they take a seat (which
+  /// only refreshes the notification — starting twice is safe).
+  ///
+  /// A1 — this used to be called on mic-take alone, so the client's
+  /// *"كأنه لم يخرج من الروم إطلاقاً"* held only for speakers. A listener who
+  /// backgrounded the app had no foreground service at all: the process was
+  /// freezable, the socket went with it, and they came back to a room that had
+  /// stopped receiving. Everyone in the room gets the service now.
   Future<void> start({String? roomName}) async {
     if (!_supported) return;
+
+    // A1 — Android 13+ will not SHOW a foreground service's notification
+    // without this, and several OEM builds then treat the service as
+    // notification-less and reap it. Declared in the manifest since the
+    // service shipped; never requested, so it was never granted. Asked for
+    // here rather than at launch: this is the moment it is actually needed,
+    // and a refusal costs nothing — the service still starts, exactly as it
+    // did before.
+    try {
+      if (await Permission.notification.isDenied) {
+        await Permission.notification.request();
+      }
+    } catch (e) {
+      debugPrint('[RoomAudioKeepAlive] notification permission check failed: $e');
+    }
+
+    // The service declares FOREGROUND_SERVICE_TYPE_MICROPHONE, and from
+    // Android 14 starting one of those without RECORD_AUDIO is a SecurityException
+    // thrown inside the SERVICE — which crashes the app rather than failing the
+    // channel call. A user who declined the microphone simply keeps the
+    // behaviour they had before this existed.
+    try {
+      if (!await Permission.microphone.isGranted) {
+        debugPrint('[RoomAudioKeepAlive] microphone not granted; not starting');
+        return;
+      }
+    } catch (e) {
+      debugPrint('[RoomAudioKeepAlive] microphone check failed: $e');
+      return;
+    }
+
     try {
       await _channel.invokeMethod<bool>('start', {'roomName': roomName});
       _running = true;

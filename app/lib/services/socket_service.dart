@@ -1217,6 +1217,11 @@ class SocketMessage {
   // Group 12: level-tiered + custom chat bubbles.
   final int level;
   final int vipLevel;
+
+  /// A20 — the PUBLIC six-digit id. The profile card opened from a chat
+  /// message used to fall back to the internal row id, which is not the
+  /// number anyone can search, report or block by.
+  final int? displayId;
   final String? bubbleUrl;
 
   /// Where that bubble design's EMPTY inner box is, per لوحة التحكم. Drives
@@ -1238,6 +1243,7 @@ class SocketMessage {
     this.avatar,
     this.level = 1,
     this.vipLevel = 0,
+    this.displayId,
     this.bubbleUrl,
     this.bubbleLayout = ProductLayout.empty,
     this.badges = const [],
@@ -1260,6 +1266,7 @@ class SocketMessage {
       avatar: json['avatar'] as String? ?? json['avatarUrl'] as String?,
       level: _i(json['level'] ?? 1),
       vipLevel: _i(json['vipLevel'] ?? 0),
+      displayId: json['displayId'] == null ? null : _i(json['displayId']),
       bubbleUrl: json['bubbleUrl'] as String?,
       bubbleLayout: ProductLayout.parse(json['bubbleMeta']),
       badges: (json['badges'] as List?)

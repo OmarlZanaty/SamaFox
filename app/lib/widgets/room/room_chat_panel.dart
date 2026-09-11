@@ -37,7 +37,18 @@ class RoomChatPanel extends ConsumerStatefulWidget {
   /// Opens the room's own profile card for a chat writer. Supplied by
   /// RoomScreen — the card belongs to the room, so tapping a name must not
   /// navigate away from it.
-  final void Function(int userId, String username)? onUserTap;
+  /// A20 — the writer's standing travels WITH the tap. The room's profile card
+  /// used to synthesise a blank seat for anyone who was not sitting on one, so
+  /// a chat-only user opened as "LV 0", no VIP chip, and the internal id. The
+  /// message already carries all three.
+  final void Function(
+    int userId,
+    String username, {
+    int? level,
+    int? vipLevel,
+    int? displayId,
+    String? avatarUrl,
+  })? onUserTap;
 
   const RoomChatPanel({super.key, required this.roomId, this.onUserTap});
 
@@ -251,7 +262,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// Opens the writer's card. Prefers the room's own profile dialog (same one
   /// the seats use, so the admin controls are right there); falls back to the
   /// full profile screen only if this panel was mounted without the callback.
-  void _openProfile(int userId, String username) {
+  void _openProfile(int userId, String username, {SocketMessage? from}) {
     if (userId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تعذّر فتح الملف الشخصي لهذا المستخدم')),
@@ -260,7 +271,14 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     }
     final open = widget.onUserTap;
     if (open != null) {
-      open(userId, username);
+      open(
+        userId,
+        username,
+        level: from?.level,
+        vipLevel: from?.vipLevel,
+        displayId: from?.displayId,
+        avatarUrl: from?.avatar,
+      );
       return;
     }
     Navigator.push(
@@ -489,7 +507,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                   // Whole bubble opens the same card as the
                                   // name — one behaviour, and the 11px name was
                                   // too small a target on its own.
-                                  onTap: () => _openProfile(m.userId, m.username),
+                                  onTap: () => _openProfile(m.userId, m.username, from: m),
                                   onLongPress: () => _showChatUserActions(m.userId, m.username),
                                   child: Stack(
                                   children: [
@@ -511,7 +529,7 @@ _bubbleSkin(m,                                     Container(
                                           // bubble still opens the quick menu.
                                           GestureDetector(
                                             behavior: HitTestBehavior.opaque,
-                                            onTap: () => _openProfile(m.userId, m.username),
+                                            onTap: () => _openProfile(m.userId, m.username, from: m),
                                             child: Padding(
                                               // Bigger touch target: 11px text
                                               // was near impossible to hit.

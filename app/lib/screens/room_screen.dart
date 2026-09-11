@@ -2584,6 +2584,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _audioService = WebRTCAudioService();
 
     _loadActiveItems(); // 🔥 ADD THIS
+
+    // A1 — the foreground service starts on ENTERING the room, not on taking a
+    // mic. Everyone in the room needs the process kept alive: a listener who
+    // backgrounded the app had no service at all, so Android was free to
+    // freeze the process, the socket went with it, and the client's
+    // "كأنه لم يخرج من الروم إطلاقاً" held only for speakers. Taking a seat
+    // still calls start() again, which only refreshes the notification text.
+    unawaited(RoomAudioKeepAlive.instance.start());
+
     _timer?.cancel();
     _timer = Timer(const Duration(seconds: 5), () {    });
     // Listen for keyboard visibility changes
@@ -4447,8 +4456,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     roomId: widget.roomId,
                     // Tapping a writer's name opens the room's own profile
                     // card, not a separate screen.
-                    onUserTap: (uid, name) =>
-                        showUserProfileCard(userId: uid, username: name),
+                    onUserTap: (uid, name, {level, vipLevel, displayId, avatarUrl}) =>
+                        showUserProfileCard(
+                          userId: uid,
+                          username: name,
+                          level: level,
+                          vipLevel: vipLevel,
+                          displayId: displayId,
+                          avatarUrl: avatarUrl,
+                        ),
                   ),
                 ),
               ),
@@ -5069,10 +5085,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// If the user happens to be seated, his real seat is used so the seat-only
   /// controls still apply; otherwise a seatless stand-in carries just his
   /// identity and `seatNumber: -1` hides those controls.
+  /// A20 — [level], [vipLevel] and [displayId] are what the CALLER knows about
+  /// this user. A tap from the chat carries them on the message; a tap on a
+  /// seat does not need them, because the seat itself has them. Without this
+  /// the card synthesised a blank seat for anyone not sitting on one, and a
+  /// chat-only user opened as "LV 0", no VIP chip, and the internal row id.
   void showUserProfileCard({
     required int userId,
     String? username,
     String? avatarUrl,
+    int? level,
+    int? vipLevel,
+    int? displayId,
   }) {
     if (userId <= 0) {
       _showRoomSnack('تعذّر فتح ملف هذا المستخدم');
@@ -5096,7 +5120,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           userId: userId,
           username: username,
           avatarUrl: avatarUrl,
-          level: 0,
+          // A20 — what the caller knew, not zeros. `level: 0` rendered as
+          // "LV 0", which is not a level anybody has.
+          level: level ?? 1,
+          vipLevel: vipLevel ?? 0,
+          displayId: displayId,
           isMuted: true,
           isLocked: false,
         );

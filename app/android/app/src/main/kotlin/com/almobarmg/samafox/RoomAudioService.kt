@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 
 /**
  * A23 — "الاحتفاظ بالغرفة": keeping a mic seat while the app is in the
@@ -49,6 +50,7 @@ class RoomAudioService : Service() {
         const val ACTION_STOP = "com.almobarmg.samafox.action.STOP_ROOM_AUDIO"
         const val EXTRA_ROOM_NAME = "roomName"
 
+        private const val TAG = "RoomAudioService"
         private const val CHANNEL_ID = "samafox_room_audio"
         private const val NOTIFICATION_ID = 4201
 
@@ -87,17 +89,28 @@ class RoomAudioService : Service() {
 
     @SuppressLint("InlinedApi")
     private fun startAsForeground(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10+ wants the type at start time; from Android 14 a
-            // mismatch with the manifest declaration is a hard crash.
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            startForeground(NOTIFICATION_ID, notification)
+        // A1 — the service is started for EVERY room member now, not only
+        // someone on a mic, so it meets devices and policies it never used to.
+        // A refusal here must degrade to "background audio may cut out", which
+        // is what happened before the service existed — never to a crash.
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ wants the type at start time; from Android 14 a
+                // mismatch with the manifest declaration is a hard crash, and
+                // a MICROPHONE type without RECORD_AUDIO is a SecurityException
+                // thrown here, inside the service.
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "foreground start refused: ${e.message}")
+            stopSelf()
         }
     }
 

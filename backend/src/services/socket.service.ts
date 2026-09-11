@@ -1583,7 +1583,10 @@ socket.on('leave_room', async ({ roomId }: any) => {
       // ✅ FIX: fetch username from DB — never trust client-provided username (was spoofable)
       const user = await prisma.user.findUnique({
         where: { id: uid },
-        select: { name: true, avatarUrl: true, level: true, vipLevel: true },
+        // A20 — displayId included: the profile card opened from a chat
+        // message had no source for it and printed the INTERNAL row id, which
+        // is not the number anyone can search, report or block by.
+        select: { name: true, avatarUrl: true, level: true, vipLevel: true, displayId: true },
       });
       const username = user?.name ?? 'Unknown';
 
@@ -1627,6 +1630,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
         // Group 12: level-tiered + custom chat bubbles.
         level: user?.level ?? 1,
         vipLevel: user?.vipLevel ?? 0,
+        displayId: user?.displayId ?? null,
         bubbleUrl,
         bubbleMeta,
         // Identity line above the text: "فهد  VIP 6 · LV 8" + his badges.
