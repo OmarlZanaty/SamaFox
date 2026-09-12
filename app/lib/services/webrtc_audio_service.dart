@@ -1335,9 +1335,14 @@ class WebRTCAudioService {
         return;
       }
 
-      if (identical(audioSender.track, track)) return;
+      // Compare by track ID, NOT object identity. flutter_webrtc returns a
+      // fresh Dart wrapper from every getSenders() call, so `identical` was
+      // never true and this replaced the track on EVERY reuse — pointless churn
+      // on a live capture, and the device log showed the platform muting the
+      // mic right after it.
+      if (audioSender.track?.id == track.id) return;
 
-      // A sender exists but points at a track we have since replaced. swapping
+      // A sender exists but points at a track we have since replaced. Swapping
       // it in place needs no renegotiation, so the room hears no gap.
       await audioSender.replaceTrack(track);
       _log('🔁 Swapped stale mic track on reused peer $otherUserId');
