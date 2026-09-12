@@ -511,8 +511,55 @@ class WebRTCAudioService {
   }
 
 
-  /// Initialize WebRTC for a specific room and user
+  /// Serialises [initialize]. Null when no initialization is running.
+  Future<void>? _initInFlight;
+
+  /// Initialize WebRTC for a specific room and user.
+  ///
+  /// Re-entrancy is the whole point of this wrapper. The "already initialized"
+  /// guard inside sits AFTER two awaits (_ensureMicReady and
+  /// waitUntilConnected) and `_initialized` is only set after those, so two
+  /// calls landing within that window BOTH passed the guard and both built a
+  /// mesh. Observed on device: two `initialize` lines 400ms apart on re-entering
+  /// a room, then `Peer connection already exists`, and a published track with
+  /// `Track enabled=true` but `totalSamples=0.0` — the peer was still sending
+  /// the FIRST capture, which the second had already replaced and stopped. The
+  /// user appeared live, on a seat, and was silent to everyone; reopening the
+  /// app rejoined and raced again, which is why a restart did not help.
+  ///
+  /// A second caller now waits for the first to finish and then falls through
+  /// to the real guard, which short-circuits (and performs the listen-only →
+  /// speaking upgrade if that is what it asked for).
   Future<void> initialize({
+    required int roomId,
+    required int userId,
+    bool listenOnly = false,
+  }) async {
+    final pending = _initInFlight;
+    if (pending != null) {
+      _log('initialize queued behind one already running');
+      try {
+        await pending;
+      } catch (_) {
+        // The first attempt's failure is its own caller's problem; this one
+        // still gets a clean run below.
+      }
+    }
+
+    final run = _initializeInner(
+      roomId: roomId,
+      userId: userId,
+      listenOnly: listenOnly,
+    );
+    _initInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (identical(_initInFlight, run)) _initInFlight = null;
+    }
+  }
+
+  Future<void> _initializeInner({
     required int roomId,
     required int userId,
     bool listenOnly = false,
