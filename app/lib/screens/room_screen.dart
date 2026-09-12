@@ -168,7 +168,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   bool _showGlow = false;
   Color _glowColor = Colors.purpleAccent;
 
-  bool _noiseReduction = false;
+  // A2 — true, matching WebRTCAudioService's own default. At `false` the menu
+  // showed تقليل الضوضاء as OFF while the capture had it ON, so the switch was
+  // wrong before the user ever touched it.
+  bool _noiseReduction = true;
   double _volumeLevel = 1.0;
 
   /// Is the room currently playing music? Lives in the room music provider so
@@ -2093,10 +2096,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
-  void _toggleNoiseReduction() {
-    setState(() => _noiseReduction = !_noiseReduction);
+  /// A2 — this used to flip a local bool and show a toast. Noise suppression
+  /// was hardcoded ON at capture, so the switch did nothing in either position
+  /// while telling the user it had taken effect. It is a real capture
+  /// constraint now; the service re-acquires the mic and swaps the new track
+  /// into every peer, so the room hears no gap.
+  Future<void> _toggleNoiseReduction() async {
+    final next = !_noiseReduction;
+    setState(() => _noiseReduction = next);
+    try {
+      await _audioService.setNoiseSuppression(next);
+    } catch (e) {
+      debugPrint('[room] noise suppression toggle failed: $e');
+      if (!mounted) return;
+      // Put the switch back rather than leave it lying about the audio.
+      setState(() => _noiseReduction = !next);
+      _showRoomSnack('تعذّر تغيير تقليل الضوضاء');
+      return;
+    }
+    if (!mounted) return;
     _showRoomSnack(
-      _noiseReduction ? 'تم تفعيل تقليل الضوضاء' : 'تم إيقاف تقليل الضوضاء',
+      next ? 'تم تفعيل تقليل الضوضاء' : 'تم إيقاف تقليل الضوضاء',
     );
   }
 
@@ -2610,6 +2630,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _audioService = WebRTCAudioService();
 
     _loadActiveItems(); // 🔥 ADD THIS
+
+    // A2 — the saved تقليل الضوضاء choice, loaded before the first capture so
+    // the mic opens with the constraint the user actually chose.
+    unawaited(_audioService.restorePreferences().then((_) {
+      if (!mounted) return;
+      setState(() => _noiseReduction = _audioService.noiseSuppression);
+    }));
 
     // A3 — the saved speaker choice and volume, applied before anything can
     // make a sound.

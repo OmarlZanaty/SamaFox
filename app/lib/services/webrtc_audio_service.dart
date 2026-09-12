@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -77,6 +78,56 @@ class WebRTCAudioService {
 
   /// Guards [_recoverLocalMic] against re-entry.
   bool _recoveringMic = false;
+
+  /// A2 — تقليل الضوضاء. Was a switch in the room menu that flipped a bool in
+  /// the widget and showed a toast: suppression was hardcoded ON at capture, so
+  /// the control did nothing in either position and told the user it had.
+  ///
+  /// It is a capture-time constraint, which is why turning it off has to
+  /// re-acquire the microphone — see [setNoiseSuppression]. Default true, the
+  /// behaviour every existing user already has.
+  bool _noiseSuppression = true;
+  bool get noiseSuppression => _noiseSuppression;
+
+  static const String _kNoiseSuppressionKey = 'mic_noise_suppression';
+
+  /// Load the saved choice. Call before the first capture; safe to call twice.
+  Future<void> restorePreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _noiseSuppression = prefs.getBool(_kNoiseSuppressionKey) ?? _noiseSuppression;
+    } catch (e) {
+      // A preferences failure must never cost anyone their microphone.
+      _log('noise-suppression preference load failed: $e');
+    }
+  }
+
+  /// Turn تقليل الضوضاء on or off for real.
+  ///
+  /// The constraint is applied when the microphone is OPENED, so an already
+  /// running capture has to be replaced. [_recoverLocalMic] is exactly that
+  /// operation — re-capture, then `replaceTrack` into every live sender, which
+  /// keeps the transceivers and avoids a renegotiation round-trip, so the room
+  /// hears no gap. Mute state is carried across by that path.
+  ///
+  /// While listen-only (no seat) there is no capture to replace; the new value
+  /// simply applies to the next one.
+  Future<void> setNoiseSuppression(bool enabled) async {
+    if (_noiseSuppression == enabled) return;
+    _noiseSuppression = enabled;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kNoiseSuppressionKey, enabled);
+    } catch (e) {
+      _log('noise-suppression preference save failed: $e');
+    }
+
+    if (_localStream != null && !_listenOnly && _initialized) {
+      await _recoverLocalMic();
+    }
+    _log('noiseSuppression=$enabled');
+  }
 
   /// STUN can only introduce two peers when at least one is reachable from
   /// outside. It cannot help when both sit behind a carrier-grade NAT, the
@@ -166,19 +217,26 @@ class WebRTCAudioService {
   /// copy of this with a different constraint set, so a stream acquired
   /// anywhere else came up without the echo canceller.
   Future<void> _captureLocalStream() async {
+    // A2 — only the NOISE keys follow the toggle. Echo cancellation and
+    // auto-gain stay on whatever the user picks: switching those off in a
+    // speakerphone room feeds the loudspeaker straight back into the mic, and
+    // "تقليل الضوضاء" is not a request for howling.
+    final ns = _noiseSuppression;
     final stream = await navigator.mediaDevices.getUserMedia({
       'audio': {
         'echoCancellation': true,
-        'noiseSuppression': true,
+        'noiseSuppression': ns,
         'autoGainControl': true,
 
         // WebRTC Android legacy keys (plugin prints these)
         'googEchoCancellation': true,
         'googEchoCancellation2': true,
         'googDAEchoCancellation': true,
-        'googNoiseSuppression': true,
+        'googNoiseSuppression': ns,
         'googAutoGainControl': true,
-        'googHighpassFilter': true,
+        // The highpass filter is part of the same noise chain — it is what
+        // removes rumble and handling noise, so it follows the switch too.
+        'googHighpassFilter': ns,
 
         // Helpful constraints
         'channelCount': 1,
@@ -273,9 +331,10 @@ class WebRTCAudioService {
     }
   }
 
-  /// Step 5: mic is "perfect" when we have a live local audio track captured
-  /// with echo-cancellation / noise-suppression / auto-gain enabled (the
-  /// constraints above). Used to award the perfect-mic badge.
+  /// Step 5: mic is "perfect" when we have a live local audio track. It is
+  /// captured with echo-cancellation and auto-gain always on; noise
+  /// suppression follows the user's own تقليل الضوضاء switch, and turning that
+  /// off is a deliberate choice rather than an unhealthy microphone.
   bool get micHealthy => _localStream != null && _localAudioTrack != null;
 
   Future<void> setLocalMuted(bool muted) async {
