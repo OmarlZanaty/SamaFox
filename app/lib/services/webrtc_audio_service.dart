@@ -814,6 +814,7 @@ class WebRTCAudioService {
         final state = await pc.getSignalingState();
         final collision = _makingOffer.contains(fromUserId) ||
             state == RTCSignalingState.RTCSignalingStateHaveLocalOffer;
+        var rolledBack = false;
         if (collision) {
           if (!_isPolite(fromUserId)) {
             _log('🙅 Ignoring colliding offer from $fromUserId (impolite peer)');
@@ -822,6 +823,7 @@ class WebRTCAudioService {
           _log('🙇 Rolling back local offer to $fromUserId (polite peer)');
           try {
             await pc.setLocalDescription(RTCSessionDescription(null, 'rollback'));
+            rolledBack = true;
           } catch (e) {
             _log('⚠️ rollback rejected by the platform: $e');
           }
@@ -848,6 +850,22 @@ class WebRTCAudioService {
         });
 
         debugPrint('📤 Sent answer to user $fromUserId');
+
+        // A2 — the offer we just discarded was OURS, and it carried whatever
+        // local change prompted it: on a rejoin that is the microphone track
+        // goLive() had just attached. The remote's offer was built before it
+        // knew about that track, so answering it settles the session WITHOUT
+        // our audio in it — sender present, `packetsSent=0`, silent to the whole
+        // room while the seat looks live.
+        //
+        // Perfect negotiation expects the polite peer to re-offer once the
+        // collision is resolved; this implementation drives offers by hand, so
+        // nothing did. The remote is stable now that it has our answer, so this
+        // offer will not collide again.
+        if (rolledBack) {
+          _log('↩️ Re-offering to $fromUserId after rollback');
+          unawaited(_sendOffer(fromUserId));
+        }
       } catch (e) {
         debugPrint('❌ Error handling webrtc_offer: $e');
         onError?.call('Error handling offer: $e');
