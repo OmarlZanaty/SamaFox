@@ -3009,6 +3009,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // Close the room and dispose resources
     debugPrint('🟣 RoomScreen.dispose room=${widget.roomId} pip=$_handedOffToPip');
 
+    // Same leak as the room controller's: these five were registered in
+    // initState on the SocketService SINGLETON and never removed, so every room
+    // opened left another copy behind for the life of the process. Open ten
+    // rooms and one `room_closed` fired ten times — ten snackbars and ten
+    // Navigator pops. Registered per screen, so they belong to this screen.
+    for (final event in const [
+      'room_background_changed',
+      'kicked_from_room',
+      'room_closed',
+      'room_force_closed',
+      'room_updated',
+    ]) {
+      SocketService().off(event);
+    }
+
     // A23 — everything that carries the room's VOICE is skipped when the screen
     // is being handed to the PiP bubble. The visual resources below are torn
     // down either way; they have nothing to do with the audio.
