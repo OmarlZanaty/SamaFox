@@ -130,21 +130,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   /// artwork's pixel dimensions are.
   static const double _kBadgeSize = 26;
 
-  IconData _badgeIconFor(String type) {
-    switch (type) {
-      case 'FRAME':
-      case 'PROFILE_FRAME':
-        return Icons.filter_frames;
-      case 'ENTRANCE_EFFECT':
-      case 'ENTRANCE_BANNER':
-        return Icons.auto_awesome;
-      case 'ROOM_THEME':
-        return Icons.wallpaper;
-      default:
-        return Icons.military_tech;
-    }
-  }
-
   Widget _buildBadgesRow(int userId) {
     if (_badgesUserId != userId) {
       _badgesUserId = userId;
@@ -165,40 +150,40 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               final iconUrl = LevelCatalogService.absoluteBadgeUrl(
                 (b['iconUrl'] ?? '').toString(),
               );
+
+              // C11 — "أيقونة الشارات لم تُحذف". The backend was changed to
+              // emit each badge individually precisely so the row would stop
+              // showing "one generic icon standing in for the whole type"
+              // (user.controller.ts), but the app kept drawing exactly that: a
+              // Material medal in a purple circle whenever the artwork was
+              // missing OR merely failed to load. On screen it is
+              // indistinguishable from a real badge, so a broken upload looked
+              // like an award the user had never earned.
+              //
+              // A badge IS its artwork. No artwork, no badge — the row simply
+              // omits it rather than inventing a stand-in.
+              if (iconUrl == null) return const SizedBox.shrink();
+
               // The dashboard artwork is authoritative, but it is uploaded at
               // whatever size the admin had (often huge). Every badge is drawn
               // inside the SAME square box with BoxFit.contain, so a 1024px PNG
               // and a 64px PNG end up identical on screen — the client's
               // "تظهر في التطبيق صغيرة" requirement.
-              final Widget child = iconUrl == null
-                  ? Icon(_badgeIconFor((b['type'] ?? '').toString()),
-                      size: 16, color: const Color(0xFFDCC8FF))
-                  : AppNetworkImage(
-                      iconUrl,
-                      width: _kBadgeSize,
-                      height: _kBadgeSize,
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.medium,
-                      errorBuilder: (_, __, ___) => Icon(
-                          _badgeIconFor((b['type'] ?? '').toString()),
-                          size: 16,
-                          color: const Color(0xFFDCC8FF)),
-                    );
               return Tooltip(
                 message: (b['name'] ?? '').toString(),
-                child: iconUrl != null
-                    ? SizedBox(
-                        width: _kBadgeSize, height: _kBadgeSize, child: child)
-                    : Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF9C6BFF).withOpacity(0.18),
-                          shape: BoxShape.circle,
-                          border:
-                              Border.all(color: const Color(0xFF9C6BFF).withOpacity(0.5)),
-                        ),
-                        child: child,
-                      ),
+                child: SizedBox(
+                  width: _kBadgeSize,
+                  height: _kBadgeSize,
+                  child: AppNetworkImage(
+                    iconUrl,
+                    width: _kBadgeSize,
+                    height: _kBadgeSize,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.medium,
+                    // Same rule on failure: show nothing, never a stand-in.
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
               );
             }).toList(),
           ),

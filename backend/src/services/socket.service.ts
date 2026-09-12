@@ -524,17 +524,34 @@ async function buildRoomUsers(io: Server, rid: number) {
 async function userBadgeIcons(userId: number, take = 3): Promise<string[]> {
   try {
     const now = new Date();
-    const rows = await (prisma as any).userItem.findMany({
-      where: {
-        userId,
-        isActive: true,
-        item: { type: 'BADGE' },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
+    const owned = {
+      userId,
+      item: { type: 'BADGE' },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    };
+    const select = {
       include: { item: { select: { assetUrl: true } } },
-      orderBy: { acquiredAt: 'desc' },
+      orderBy: { acquiredAt: 'desc' as const },
       take,
+    };
+
+    // Equipped first — a user who chose which badges to wear gets exactly
+    // those.
+    let rows = await (prisma as any).userItem.findMany({
+      where: { ...owned, isActive: true },
+      ...select,
     });
+
+    // …but grantLevelRewards creates every granted item with isActive:false
+    // (vip.service.ts), and nothing auto-equips. So a user who never opened
+    // the شارات tab owns his tier's badges and wears none, and reading only
+    // the active rows showed him NOTHING — the same empty row this item was
+    // raised about. Fall back to what he owns, newest first, which is also
+    // what the profile badge row displays.
+    if (rows.length === 0) {
+      rows = await (prisma as any).userItem.findMany({ where: owned, ...select });
+    }
+
     return rows
       .map((r: any) => r?.item?.assetUrl)
       .filter((u: unknown): u is string => typeof u === 'string' && u.length > 0);
