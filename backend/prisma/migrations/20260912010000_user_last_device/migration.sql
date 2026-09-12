@@ -1,9 +1,11 @@
 -- F4: record the handset and network an account was last seen on, so an admin
 -- has something to type into the device-ban form. The ban itself already
 -- worked; nothing ever surfaced a device id.
-ALTER TABLE "User" ADD COLUMN "lastDeviceId" TEXT;
-ALTER TABLE "User" ADD COLUMN "lastIp" TEXT;
-ALTER TABLE "User" ADD COLUMN "lastSeenAt" TIMESTAMP(3);
+--
+-- Table is `users` (the User model is @@map'd), and the index names follow it.
+ALTER TABLE "users" ADD COLUMN "lastDeviceId" TEXT;
+ALTER TABLE "users" ADD COLUMN "lastIp" TEXT;
+ALTER TABLE "users" ADD COLUMN "lastSeenAt" TIMESTAMP(3);
 
-CREATE INDEX "User_lastDeviceId_idx" ON "User"("lastDeviceId");
-CREATE INDEX "User_lastIp_idx" ON "User"("lastIp");
+CREATE INDEX "users_lastDeviceId_idx" ON "users"("lastDeviceId");
+CREATE INDEX "users_lastIp_idx" ON "users"("lastIp");
