@@ -512,18 +512,14 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _reconnectSub?.cancel(); // ✅ ADD
     _reconnectSub = null;    // ✅ ADD
 
-    // remove raw listeners to avoid duplicates on re-entry
-    _socket.off('mic_queue_updated');
-    _socket.off('seat_occupied');
-    _socket.off('seat_released');
-    _socket.off('seat_updated');
-    _socket.off('user_joined');
-    _socket.off('user_entered');
-    _socket.off('room_users');
-    _socket.off('user_left');
-    _socket.off('seat_error');
-    _socket.off('seat_mute_changed');
-    _socket.off('relation_ended');
+    // remove raw listeners to avoid duplicates on re-entry. The hand-written
+    // list here was missing six of the events actually registered
+    // (chat_cleared, gift_sent, removed_from_seat, seat_block_changed,
+    // seat_mute_lock, user_speaking), so leaving and re-entering a room leaked
+    // those regardless of the reconnect path.
+    for (final event in _rawRoomEvents) {
+      _socket.off(event);
+    }
 
     state = state.copyWith(isOpen: false);
 
@@ -531,7 +527,43 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   }
 
+  /// Every raw socket event this controller listens to. Kept as one list so
+  /// binding and unbinding cannot drift — they had, and that is the bug below.
+  static const List<String> _rawRoomEvents = [
+    'mic_queue_updated',
+    'seat_occupied',
+    'seat_released',
+    'seat_updated',
+    'seat_error',
+    'seat_mute_changed',
+    'seat_mute_lock',
+    'seat_block_changed',
+    'seat_lock',
+    'removed_from_seat',
+    'user_entered',
+    'user_joined',
+    'user_left',
+    'user_speaking',
+    'room_users',
+    'relation_ended',
+    'chat_cleared',
+    'gift_sent',
+  ];
+
   void _bindStreams() {
+    // THE reconnect bug. This method is called again on every reconnect, and
+    // SocketService.on() appends to its handler list without dedupe, while
+    // off() ran only in closeRoom(). So each drop DOUBLED every room handler:
+    // after four blips a single seat_updated fired sixteen times, stale
+    // closures overwrote fresh state, and seats, mics and the room menu went
+    // dead until the app was restarted — exactly the report.
+    //
+    // Clearing first makes re-binding idempotent, so a reconnect replaces the
+    // handlers instead of stacking another set on top.
+    for (final event in _rawRoomEvents) {
+      _socket.off(event);
+    }
+
     _msgSub?.cancel();
     _seatSub?.cancel();
     _seatsStateSub?.cancel();
@@ -813,8 +845,6 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
       // ✅ Force refresh snapshots so seats stop showing “available”
       _socket.getVoiceUsers(roomId: roomId);
-      _socket.emit('get_room_seats_state', {'roomId': roomId});
-      _socket.emit('request_room_seats_state', {'roomId': roomId});
     });
 
     _reconnectSub?.cancel();
@@ -822,12 +852,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final user = ref.read(authStateProvider).user;
       if (user == null) return;
       debugPrint('🔁 reconnect -> rejoin room=$roomId');
-      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
-      _socket.emit('get_room_seats_state', {'roomId': roomId});
-      _socket.emit('request_room_seats_state', {'roomId': roomId});
-      _socket.getVoiceUsers(roomId: roomId);
-      // Re-register raw socket listeners that were cleared when the socket reconnected.
+      // Listeners FIRST. join_room makes the server emit the room state back,
+      // and re-binding afterwards raced it: the reply could land before any
+      // handler existed and the seat map was simply dropped.
       _bindStreams();
+      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
+      _socket.getVoiceUsers(roomId: roomId);
     });
 
 
