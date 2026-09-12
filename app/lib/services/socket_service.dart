@@ -222,17 +222,26 @@ class SocketService {
       _socket = null;
     }
 
+    // setReconnectionAttempts is applied below, and ONLY for a finite cap:
+    // leaving the option unset makes the manager default to double.infinity,
+    // which is what "unlimited" has to mean here. An int cannot express that,
+    // and a negative value silently inverts the guard into "give up at once".
     final options = IO.OptionBuilder()
         .setTransports(['websocket', 'polling'])
         .enableAutoConnect()
         .enableReconnection()
-        .setReconnectionAttempts(AppConfig.socketReconnectionAttempts)
         .setReconnectionDelay(AppConfig.socketReconnectionDelay)
         // Unlimited attempts (A2) would otherwise hammer a dead network
         // once a second forever; cap the backoff at 10s.
         .setReconnectionDelayMax(10000)
         .setAuth({'token': jwt}) // ✅ EXACTLY what server expects
         .build();
+
+    // Applied here rather than in the chain: the option must be ABSENT for
+    // unlimited, and OptionBuilder has no way to conditionally skip a setter.
+    if (AppConfig.socketReconnectionAttempts > 0) {
+      options['reconnectionAttempts'] = AppConfig.socketReconnectionAttempts;
+    }
 
     _socket = IO.io(AppConfig.socketUrl, options);
 

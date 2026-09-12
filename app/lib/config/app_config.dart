@@ -59,12 +59,23 @@ class AppConfig {
   static const int sendTimeout = 30000;
   
   // Socket Configuration
-  /// A2 — unlimited. At 5 the socket gave up PERMANENTLY: a lift, a tunnel or
-  /// a wifi↔4G handover longer than ~15s exhausted the budget and signalling
-  /// was dead for the rest of the session, so ICE restart could never fire and
-  /// the room stayed on screen with no audio. socket.io treats a negative
-  /// value as infinite.
-  static const int socketReconnectionAttempts = -1;
+  /// A2 — unlimited, expressed as "do not call setReconnectionAttempts".
+  ///
+  /// At 5 the socket gave up PERMANENTLY: a lift, a tunnel or a wifi↔4G
+  /// handover longer than ~15s exhausted the budget and signalling was dead for
+  /// the rest of the session.
+  ///
+  /// -1 was WORSE, not infinite. The Dart client is not the JS one: manager.dart
+  /// guards with `_backoff.attempts >= reconnectionAttempts`, and attempts
+  /// starts at 0, so 0 >= -1 is true on the very FIRST retry and it stopped
+  /// immediately — one network blip and the room was dead until the app was
+  /// restarted. Verified on a device: "Socket disconnected" with no reconnect
+  /// line after it, ever.
+  ///
+  /// The library defaults this to double.infinity when the option is absent,
+  /// which is exactly what we want and cannot be expressed as an int. Any value
+  /// <= 0 here means "leave it unset"; see SocketService.
+  static const int socketReconnectionAttempts = 0;
   static const int socketReconnectionDelay = 1000;
   
   // Pagination
