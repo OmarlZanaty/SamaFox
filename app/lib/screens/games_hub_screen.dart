@@ -9,10 +9,6 @@ import 'games/olympus_screen.dart';
 import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
 // G3(a) — these four shipped but were parked out of the hub; they are back.
-import 'games/skill_wheel_screen.dart';
-import 'games/fish_shooter_screen.dart';
-import 'games/lion_tiger_screen.dart';
-import 'games/skill_dice_screen.dart';
 
 /// Full-bleed stacked cards: one game per row, artwork filling the card, the
 /// name drawn over it. Titles stay in code rather than baked into the artwork
@@ -87,34 +83,6 @@ const List<_GameEntry> _games = [
     art: 'assets/images/cards/card_neon.png',
     // Delivered without lettering, so the hub draws the name.
     drawTitle: true,
-  ),
-  _GameEntry(
-    title: 'عجلة المهارة',
-    tagline: 'أوقف العجلة',
-    emoji: '🎯',
-    accent: Color(0xFF6B21A8),
-    gradient: [Color(0xFF1a0533), Color(0xFF6B21A8)],
-  ),
-  _GameEntry(
-    title: 'صياد السمك',
-    tagline: 'أطلق واربح',
-    emoji: '🐠',
-    accent: Color(0xFF0E7C9B),
-    gradient: [Color(0xFF063E7A), Color(0xFF0E7C9B)],
-  ),
-  _GameEntry(
-    title: 'حلبة الأسد والنمر',
-    tagline: 'سدّد في الوقت المناسب',
-    emoji: '🥊',
-    accent: Color(0xFF7B1FA2),
-    gradient: [Color(0xFF4A148C), Color(0xFF2B1055)],
-  ),
-  _GameEntry(
-    title: 'نرد المهارة',
-    tagline: 'أوقف النرد',
-    emoji: '🎲',
-    accent: Color(0xFF146A48),
-    gradient: [Color(0xFF0B3B2A), Color(0xFF0E5138)],
   ),
 ];
 
@@ -230,18 +198,6 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
-        break;
-      case 'عجلة المهارة':
-        screen = const SkillWheelScreen();
-        break;
-      case 'صياد السمك':
-        screen = const FishShooterScreen();
-        break;
-      case 'حلبة الأسد والنمر':
-        screen = const LionTigerScreen();
-        break;
-      case 'نرد المهارة':
-        screen = const SkillDiceScreen();
         break;
       default:
         return;
