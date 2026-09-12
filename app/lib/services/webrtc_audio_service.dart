@@ -991,6 +991,18 @@ class WebRTCAudioService {
       if (existing != null) {
         if (_isPeerUsable(existing)) {
           debugPrint('⚠️ Peer connection already exists for user $otherUserId');
+          // A2 — "usable" only ever meant the ICE/DTLS transport was alive, and
+          // that transport SURVIVES a signalling drop: socket.io dies, the media
+          // path does not. So after a reconnect this returned a peer that looked
+          // perfectly healthy and was reused as-is — including when it had been
+          // built during a listen-only spell and therefore carried no sender of
+          // ours at all, or carried one whose track a later capture had already
+          // replaced and stopped.
+          //
+          // On device that read as `MIC SOURCE totalSamples=null` (no sender) or
+          // `OUT AUDIO bytesSent=0 packetsSent=0` (sender, dead track), with the
+          // seat showing live and the room hearing nothing.
+          await _ensureSenderOn(existing, otherUserId);
           return existing;
         }
         _log('♻️ Dropping dead peer connection with $otherUserId before rebuild');
@@ -1293,6 +1305,46 @@ class WebRTCAudioService {
   MediaStream? get localStream => _localStream;
   Map<int, MediaStream> get remoteStreams => _remoteStreams;
   int get peerConnectionCount => _peerConnections.length;
+
+  /// Make sure [pc] is actually sending OUR microphone.
+  ///
+  /// Reusing a live peer is right — rebuilding a working transport costs a
+  /// gap in the audio — but only once it carries the current local track.
+  /// Silent no-op while listen-only: there is deliberately no microphone then.
+  Future<void> _ensureSenderOn(RTCPeerConnection pc, int otherUserId) async {
+    if (_listenOnly) return;
+    final track = _localAudioTrack;
+    if (track == null) return;
+
+    try {
+      final senders = await pc.getSenders();
+      RTCRtpSender? audioSender;
+      for (final s in senders) {
+        if (s.track?.kind == 'audio') {
+          audioSender = s;
+          break;
+        }
+      }
+
+      if (audioSender == null) {
+        // No sender at all — this peer was built listen-only. Adding a track
+        // changes the shape of the session, so it needs renegotiating.
+        await pc.addTrack(track, _localStream!);
+        _log('🎙️ Attached mic to reused peer $otherUserId — renegotiating');
+        await _sendOffer(otherUserId);
+        return;
+      }
+
+      if (identical(audioSender.track, track)) return;
+
+      // A sender exists but points at a track we have since replaced. swapping
+      // it in place needs no renegotiation, so the room hears no gap.
+      await audioSender.replaceTrack(track);
+      _log('🔁 Swapped stale mic track on reused peer $otherUserId');
+    } catch (e) {
+      _log('⚠️ could not ensure sender for $otherUserId: $e');
+    }
+  }
 
   /// Is this connection still worth using?
   bool _isPeerUsable(RTCPeerConnection pc) {
