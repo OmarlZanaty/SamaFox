@@ -34,6 +34,9 @@ class _CpListScreenState extends State<CpListScreen> {
   void initState() {
     super.initState();
     _future = _repo.partners(userId: widget.userId);
+    CpFeatured.get().then((v) {
+      if (mounted) setState(() => _featured = v);
+    });
   }
 
   void _reload() => setState(() => _future = _repo.partners(userId: widget.userId));
@@ -140,6 +143,10 @@ class _CpListScreenState extends State<CpListScreen> {
     );
   }
 
+  /// The partner currently shown beside the photo, so the star renders filled
+  /// on the right row. Loaded once when the list opens.
+  int? _featured;
+
   Widget _row(CpPartner p) {
     final avatar = _resolveAvatar(p.avatarUrl);
     return Container(
@@ -201,10 +208,35 @@ class _CpListScreenState extends State<CpListScreen> {
         ),
         // Only my own list can be edited; a profile visitor just sees the pairs.
         trailing: _isMine
-            ? IconButton(
-                icon: const Icon(Icons.heart_broken, color: Colors.white38),
-                tooltip: 'إلغاء الـ CP',
-                onPressed: () => _confirmCancel(p),
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // "لو انا معايا اكتر من سي بي مين يظهر معايا فوق — خليني
+                  // احدده من القايمه". The filled star is the pair shown beside
+                  // the photo; tapping another moves it.
+                  IconButton(
+                    icon: Icon(
+                      _featured == p.userId ? Icons.star : Icons.star_border,
+                      color: _featured == p.userId
+                          ? const Color(0xFFFFD54F)
+                          : Colors.white38,
+                    ),
+                    tooltip: 'إظهاره في صفحتي',
+                    onPressed: () async {
+                      await CpFeatured.set(p.userId);
+                      if (!mounted) return;
+                      setState(() => _featured = p.userId);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('${p.name} يظهر الآن في صفحتك')),
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.heart_broken, color: Colors.white38),
+                    tooltip: 'إلغاء الـ CP',
+                    onPressed: () => _confirmCancel(p),
+                  ),
+                ],
               )
             : null,
       ),

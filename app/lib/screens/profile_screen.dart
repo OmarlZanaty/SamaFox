@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/vip_badge.dart';
+import '../widgets/cp_relationship.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:samafox/screens/edit_profile_screen.dart';
@@ -129,6 +130,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   /// Fixed on-screen size for every badge in the row, whatever the uploaded
   /// artwork's pixel dimensions are.
   static const double _kBadgeSize = 26;
+
+  /// "خليهم قد بعض" — the level chip is tall and the VIP chip short, so side
+  /// by side one dwarfs the other. Both are given the same height and centred;
+  /// neither is rescaled, so their own artwork stays crisp.
+  static const double _kIdentityChipHeight = 26;
+
+  Widget _sameHeightChip(Widget child) => SizedBox(
+        height: _kIdentityChipHeight,
+        child: FittedBox(fit: BoxFit.contain, child: child),
+      );
 
   Widget _buildBadgesRow(int userId) {
     if (_badgesUserId != userId) {
@@ -1174,33 +1185,44 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       const SizedBox(height: 4),
                     ],
 
-                    // C2/C3/C12 — one identity row, matching the room card:
-                    // the level chip and the VIP chip together, with the ID
-                    // pushed to the far side. The VIP was missing entirely
-                    // here (the page had no VIP chip at all, so it "vanished"
-                    // whenever a badge was present), and the ID sat three rows
-                    // further down instead of beside the level.
-                    Row(
-                      children: [
-                        _buildLevelBadge(user.level ?? 1),
-                        if ((user.vipLevel ?? 0) > 0) ...[
-                          const SizedBox(width: 6),
-                          VipBadge(level: user.vipLevel ?? 0),
-                        ],
-                        const Spacer(),
-                        _buildUserIdRow(user.publicDisplayId, context),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
+                    // "تحت العمر الايدي في النص بالظبط" — the ID sits under the
+                    // age, centred, on its own line. It used to be pushed to
+                    // the far side of a row shared with the level.
+                    Center(child: _buildUserIdRow(user.publicDisplayId, context)),
+                    const SizedBox(height: 6),
 
-                    // #28: badges row — owned special items (frames/effects/themes).
+                    // "تحت العمر الليفل والفي اي بي في النص بردو … الفي اي بي
+                    // صغيره والليفل كبير مش حلو — خليهم قد بعض في مستطيل شفاف".
+                    // Both chips centred, matched in height, inside one soft
+                    // translucent plate so neither dominates the other.
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            _sameHeightChip(_buildLevelBadge(user.level ?? 1)),
+                            if ((user.vipLevel ?? 0) > 0) ...[
+                              const SizedBox(width: 8),
+                              _sameHeightChip(VipBadge(level: user.vipLevel ?? 0)),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // "تحتها الشارات زي ما هيا" — badges come AFTER the identity
+                    // block now, which is the whole point of raising the photo,
+                    // name and id/level/vip above them.
                     _buildBadgesRow(user.id),
                     const SizedBox(height: 4),
-
-                    // A15 / #44 — "بعد الموافقة يظهر الـ CP في الصفحة الشخصية".
-                    // Shown on anyone's profile, but only the owner's own page
-                    // can end a pairing (the list screen enforces that).
-                    _CpProfileCard(userId: user.id, isOwnProfile: isOwnProfile),
 
                     if (user.agencyRole != null) ...[
                       GestureDetector(
@@ -1271,11 +1293,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       const SizedBox(height: 10),
                     ],
 
-                    // C17 — the CP box sits directly above الهدايا الممنوحة,
-                    // which is the placement the client asked for after it
-                    // was first built onto the rooms page. Own profile only:
-                    // it opens YOUR CP list and offers to cancel YOUR pairs.
-                    if (isOwnProfile) const CpBox(),
+                    // C17 — العلاقة, directly above الهدايا الممنوحة, which is
+                    // the placement the client asked for. Shown on ANY profile:
+                    // "عند قبول الـ cp يظهر في الصفحه الشخصيه" is about the pair
+                    // being visible, and hiding it from visitors meant nobody
+                    // could see who you were paired with.
+                    _CpRelationshipSection(
+                      userId: user.id,
+                      isOwnProfile: isOwnProfile,
+                      ownerAvatarUrl: user.avatarUrl,
+                    ),
+
+                    // The lower CP strip is gone: "ده هوا اللي فوق هوا هوا مفيش
+                    // فرق — شيله خالص كفايه اللي فوق". The pair beside the photo
+                    // is the only CP surface on this page now, and tapping it
+                    // still opens the list where a pairing can be ended.
 
                     _buildReceivedGiftsSection(),
 
@@ -1425,15 +1457,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     return Stack(
       alignment: Alignment.center,
       children: [
-        GestureDetector(
-          onTap: () => _openFullImage(context, user.avatarUrl),
-          child: FramedAvatar(
-            size: 120,
-            avatarSize: 80,
-            frame: frame,
-            imageUrl: user.avatarUrl,
-            fallbackText: user.name,
-          ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: () => _openFullImage(context, user.avatarUrl),
+              child: FramedAvatar(
+                size: 120,
+                avatarSize: 80,
+                frame: frame,
+                imageUrl: user.avatarUrl,
+                fallbackText: user.name,
+              ),
+            ),
+            // "خلي شكل السي بي اللي فيه معايا فوق يكون جنب صورتي بالقلوب" —
+            // the pair sits BESIDE the photo, not on its own line. It renders
+            // nothing when there is no CP, so an unpaired profile keeps the
+            // avatar centred exactly as before.
+            _CpProfileCard(
+              userId: user.id,
+              isOwnProfile: isOwnProfile,
+              ownerAvatarUrl: user.avatarUrl,
+            ),
+          ],
         ),
         // Edit button only for own profile
         if (isOwnProfile)
@@ -2279,8 +2326,77 @@ class _FullImageViewer extends StatelessWidget {
 /// Renders nothing at all when the user has no pairings: an empty "CP" heading
 /// on every profile in the app would be noise, and the feature announces itself
 /// on the home page instead.
+/// العلاقة — the framed card, above الهدايا الممنوحة.
+class _CpRelationshipSection extends StatefulWidget {
+  const _CpRelationshipSection({
+    required this.userId,
+    required this.isOwnProfile,
+    this.ownerAvatarUrl,
+  });
+
+  final int userId;
+  final bool isOwnProfile;
+  final String? ownerAvatarUrl;
+
+  @override
+  State<_CpRelationshipSection> createState() => _CpRelationshipSectionState();
+}
+
+class _CpRelationshipSectionState extends State<_CpRelationshipSection> {
+  late Future<List<CpPartner>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = CpRepository().partners(userId: widget.userId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CpRelationshipSection old) {
+    super.didUpdateWidget(old);
+    if (old.userId != widget.userId) {
+      _future = CpRepository().partners(userId: widget.userId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<CpPartner>>(
+        future: _future,
+        builder: (context, snap) {
+          final partners = snap.data ?? const <CpPartner>[];
+          // No pair, no section — an empty frame would just be furniture.
+          if (partners.isEmpty) return const SizedBox.shrink();
+          return FutureBuilder<int?>(
+            future: CpFeatured.get(),
+            builder: (context, chosen) {
+              final p = CpFeatured.pick(partners, chosen.data) ?? partners.first;
+              return CpRelationshipCard(
+                myAvatarUrl: widget.ownerAvatarUrl,
+                partner: p,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CpListScreen(
+                      userId: widget.isOwnProfile ? null : widget.userId,
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+}
+
 class _CpProfileCard extends StatefulWidget {
-  const _CpProfileCard({required this.userId, required this.isOwnProfile});
+  const _CpProfileCard({
+    required this.userId,
+    required this.isOwnProfile,
+    this.ownerAvatarUrl,
+  });
+
+  /// The avatar of whoever's profile this is — the LEFT heart of the pair.
+  final String? ownerAvatarUrl;
 
   final int userId;
   final bool isOwnProfile;
@@ -2323,11 +2439,11 @@ class _CpProfileCardState extends State<_CpProfileCard> {
       builder: (context, snap) {
         final partners = snap.data ?? const <CpPartner>[];
         if (partners.isEmpty) return const SizedBox.shrink();
-        // Four faces is what fits without crowding the header; the rest are
-        // behind the "+N" chip, which opens the full list.
-        final shown = partners.take(4).toList();
-        final extra = partners.length - shown.length;
 
+        // The reference puts the pair at the TOP of the profile as two hearts
+        // with a CP pill under them, not a row of small circles. One pair is
+        // what it shows; the rest stay behind the tap, which still opens the
+        // full list.
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: GestureDetector(
@@ -2346,58 +2462,19 @@ class _CpProfileCardState extends State<_CpProfileCard> {
                 });
               }
             },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF4081).withOpacity(0.14),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFFF4081).withOpacity(0.5)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('💞', style: TextStyle(fontSize: 15)),
-                  const SizedBox(width: 6),
-                  const Text(
-                    'CP',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  for (final p in shown) ...[
-                    _face(p),
-                    const SizedBox(width: 4),
-                  ],
-                  if (extra > 0)
-                    Text(
-                      '+$extra',
-                      style: const TextStyle(color: Colors.white70, fontSize: 11),
-                    ),
-                ],
-              ),
+            child: FutureBuilder<int?>(
+              future: CpFeatured.get(),
+              builder: (context, chosen) {
+                final p = CpFeatured.pick(partners, chosen.data) ?? partners.first;
+                return CpHeartPair(
+                  myAvatarUrl: widget.ownerAvatarUrl,
+                  partnerAvatarUrl: p.avatarUrl,
+                );
+              },
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _face(CpPartner p) {
-    final url = _resolve(p.avatarUrl);
-    return CircleAvatar(
-      radius: 11,
-      backgroundColor: const Color(0xFF2A1A5E),
-      backgroundImage: url != null ? NetworkImage(url) : null,
-      child: url == null
-          ? Text(
-              p.name.isNotEmpty ? p.name.characters.first.toUpperCase() : '?',
-              style: const TextStyle(color: Colors.white, fontSize: 10),
-            )
-          : null,
     );
   }
 }

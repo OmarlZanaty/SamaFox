@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 
 import '../services/dio_client.dart';
@@ -176,6 +177,49 @@ class CpRequest {
 }
 
 /// One person you are CP'd with.
+/// "لو انا معايا اكتر من سي بي مين يظهر معايا فوق — خليني احدده من القايمه".
+///
+/// Which pair is shown beside the photo. Stored on the device rather than the
+/// server: it is a display preference for the owner's own page, nobody else
+/// needs to agree on it, and it must not cost a round trip on every profile
+/// open. Falls back to the newest pair when nothing has been chosen or the
+/// chosen partner is no longer a CP.
+class CpFeatured {
+  CpFeatured._();
+
+  static const String _key = 'cp_featured_partner_id';
+
+  static Future<int?> get() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getInt(_key);
+      return (v == null || v <= 0) ? null : v;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> set(int partnerUserId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_key, partnerUserId);
+    } catch (_) {
+      // A preference that will not save is not worth failing the tap over.
+    }
+  }
+
+  /// The pair to show: the chosen one if it still exists, newest otherwise.
+  static CpPartner? pick(List<CpPartner> partners, int? chosenUserId) {
+    if (partners.isEmpty) return null;
+    if (chosenUserId != null) {
+      for (final p in partners) {
+        if (p.userId == chosenUserId) return p;
+      }
+    }
+    return partners.first;
+  }
+}
+
 class CpPartner {
   final int pairId;
   final int userId;
@@ -185,6 +229,10 @@ class CpPartner {
   final int level;
   final int vipLevel;
   final String? giftIconUrl;
+
+  /// The clip of the gift that created the pair, when it has one. Lets the
+  /// profile card PLAY it instead of showing a still icon.
+  final String? giftAnimationUrl;
   final DateTime? since;
 
   const CpPartner({
@@ -196,6 +244,7 @@ class CpPartner {
     this.level = 1,
     this.vipLevel = 0,
     this.giftIconUrl,
+    this.giftAnimationUrl,
     this.since,
   });
 
@@ -211,6 +260,7 @@ class CpPartner {
       level: (partner['level'] as num?)?.toInt() ?? 1,
       vipLevel: (partner['vipLevel'] as num?)?.toInt() ?? 0,
       giftIconUrl: gift?['iconUrl']?.toString(),
+      giftAnimationUrl: gift?['animationUrl']?.toString(),
       since: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
     );
   }

@@ -702,8 +702,30 @@ class WebRTCAudioService {
         final pc = entry.value;
 
         try {
+          // The ONE thing this poll never reported, and the thing that decides
+          // how to read everything else it does report: whether the connection
+          // is up at all. `bytesSent=0` and a media-source with no audioLevel
+          // are what you see when the peer never connected — nothing is being
+          // encoded — and that is indistinguishable from a broken microphone
+          // unless the transport state is printed beside them.
+          _log(
+            'LINK to=$otherUserId conn=${pc.connectionState} '
+            'ice=${pc.iceConnectionState} sig=${pc.signalingState}',
+          );
+
           final stats = await pc.getStats();
+          var sawCandidatePair = false;
           for (final r in stats) {
+            // Which path ICE actually chose — host, srflx (STUN) or relay
+            // (TURN). If nothing is ever nominated, the two ends never found a
+            // route to each other and no amount of microphone work will help.
+            if (r.type == 'candidate-pair' && r.values['state'] == 'succeeded') {
+              sawCandidatePair = true;
+              _log(
+                'PATH to=$otherUserId nominated=${r.values['nominated']} '
+                'rtt=${r.values['currentRoundTripTime']}',
+              );
+            }
             // Outbound RTP stats
             if (r.type == 'outbound-rtp' &&
                 (r.values['kind'] == 'audio' || r.values['mediaType'] == 'audio')) {
@@ -723,6 +745,9 @@ class WebRTCAudioService {
             }
           }
 
+          if (!sawCandidatePair) {
+            _log('PATH to=$otherUserId — no succeeded candidate pair yet');
+          }
         } catch (_) {
           // ignore stats errors for some connections
         }

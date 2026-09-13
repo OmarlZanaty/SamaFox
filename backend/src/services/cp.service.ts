@@ -254,7 +254,16 @@ export async function listCpPartners(userId: number) {
   const gifts = giftIds.length
     ? await prisma.gift.findMany({
         where: { id: { in: giftIds } },
-        select: { id: true, name: true, nameAr: true, iconUrl: true },
+        // animationUrl/format so the profile card can PLAY the gift that made
+        // the pair ("طبعاً الهديه تشكل بردو") instead of showing a still icon.
+        select: {
+          id: true,
+          name: true,
+          nameAr: true,
+          iconUrl: true,
+          animationUrl: true,
+          format: true,
+        },
       })
     : [];
   const giftById = new Map(gifts.map((g) => [g.id, g]));
