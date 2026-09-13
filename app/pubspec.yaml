@@ -1,7 +1,12 @@
 name: samafox
 description: A modern social voice chat application built with Flutter
 publish_to: 'none'
-version: 1.0.18+24
+# The build number must stay ABOVE whatever is live on Play. It was carried in
+# android/local.properties as 2024 while this file said +24 — and `flutter run`
+# regenerates local.properties FROM this file, so that override was silently
+# overwritten and the next build would have dropped to 24 and been rejected as
+# a downgrade. pubspec is the single source of truth now.
+version: 1.0.18+2025
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
