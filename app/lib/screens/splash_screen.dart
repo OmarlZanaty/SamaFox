@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../providers/localization_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/force_update_gate.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -30,12 +31,32 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     // and on a slow connection that is exactly the "hangs on open" the client
     // described. The two now overlap: the splash lasts however long the slower
     // of the timer and the auth check takes, not the sum of both.
+    // The update gate rides along with the auth check rather than after it:
+    // both are network calls the splash is already waiting on, so checking the
+    // version costs no extra time on a cold start. It fails open, so a slow or
+    // unreachable server never turns into a locked-out user.
+    // Started first so it runs alongside the two below rather than after them.
+    final updateCheck = ForceUpdateGate.check();
+
     await Future.wait([
       Future<void>.delayed(_minSplash),
       ref.read(authStateProvider.notifier).checkAuthStatus(),
     ]);
+    final verdict = await updateCheck;
 
     if (!mounted) return;
+
+    // An out-of-date build stops here and never reaches home or login: the old
+    // client is no longer allowed to talk to the server, so there is nothing
+    // useful past this screen.
+    if (verdict != null) {
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => UpdateRequiredScreen(verdict: verdict),
+        ),
+      );
+      return;
+    }
 
     final authState = ref.read(authStateProvider);
 

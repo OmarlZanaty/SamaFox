@@ -14,11 +14,10 @@ import 'product_video_layer.dart';
 ///                            tier name and level, and how long the pair has
 ///                            lasted.
 ///
-/// The ornament is DRAWN here rather than shipped as bitmaps. The reference is
-/// another operator's artwork and copying it is both a legal risk and the one
-/// thing the brief ruled out; painted gradients and borders carry the same
-/// shape without lifting anything. It also keeps the 61MB asset bundle from
-/// growing, which G1 is already fighting.
+/// The ornament is original artwork commissioned for this app (see [CpArt] and
+/// CP_ARTWORK_BRIEF.md). The reference video belongs to another operator and
+/// none of its assets are used. Every painted fallback below survives a missing
+/// file, so a bad export degrades to plain gold rather than a blank page.
 class CpTier {
   const CpTier(this.level, this.name, this.minDays, this.a, this.b);
 
@@ -48,6 +47,28 @@ class CpTier {
     }
     return hit;
   }
+}
+
+/// The commissioned set. Every one of these is original artwork made for this
+/// app — the reference video's assets belong to another operator and are not
+/// used anywhere here.
+class CpArt {
+  CpArt._();
+  static const String heartFrame = 'assets/images/cp/cp_heart_frame.png';
+  static const String emblem = 'assets/images/cp/cp_emblem.png';
+  static const String cardFrame = 'assets/images/cp/cp_card_frame.png';
+  static const String pill = 'assets/images/cp/cp_pill.png';
+  static const String tierGlow = 'assets/images/cp/cp_tier_glow.png';
+
+  /// Where the photo sits inside [heartFrame], as a fraction of the asset.
+  /// The frame's gold border occupies the outer edge; the transparent window
+  /// starts here. Measured off the delivered 512x512 art.
+  static const double photoInset = 0.17;
+
+  /// The transparent middle of [cardFrame], as fractions of its 1024x640.
+  /// Content is padded to these so it never sits under the filigree.
+  static const EdgeInsets cardContentInset =
+      EdgeInsets.fromLTRB(0.075, 0.09, 0.075, 0.09);
 }
 
 String _abs(String? raw) {
@@ -95,22 +116,11 @@ class CpHeartAvatar extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // The rim: a slightly larger heart in gold behind the photo, so the
-          // edge reads as a frame rather than a cut-out.
-          ClipPath(
-            clipper: _HeartClipper(),
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFFFE082), Color(0xFFC9971B)],
-                ),
-              ),
-            ),
-          ),
+          // The photo goes UNDER the frame, clipped to a heart so it does not
+          // square off inside the gold. The frame's own transparent window sits
+          // exactly over it.
           Padding(
-            padding: EdgeInsets.all(size * 0.07),
+            padding: EdgeInsets.all(size * CpArt.photoInset),
             child: ClipPath(
               clipper: _HeartClipper(),
               child: resolved.isEmpty
@@ -122,6 +132,14 @@ class CpHeartAvatar extends StatelessWidget {
                           Container(color: const Color(0xFF3A1B5C)),
                     ),
             ),
+          ),
+          Image.asset(
+            CpArt.heartFrame,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.medium,
+            // A missing asset must not blank the avatar out — the photo below
+            // still reads fine on its own.
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),
         ],
       ),
@@ -160,26 +178,38 @@ class CpHeartPair extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFE91E63), Color(0xFF9C27B0)],
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFFFE082), width: 1.2),
-              boxShadow: const [
-                BoxShadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 2)),
+          // The plaque, with CP printed over its flat centre panel.
+          SizedBox(
+            width: size * 1.15,
+            height: size * 0.43,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Image.asset(
+                  CpArt.pill,
+                  fit: BoxFit.fill,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, __, ___) => Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFE91E63), Color(0xFF9C27B0)],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFFFE082), width: 1.2),
+                    ),
+                  ),
+                ),
+                Text(
+                  'CP',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: size * 0.20,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                    shadows: const [Shadow(color: Color(0xAA000000), blurRadius: 3)],
+                  ),
+                ),
               ],
-            ),
-            child: const Text(
-              'CP',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.2,
-              ),
             ),
           ),
         ],
@@ -227,21 +257,37 @@ class CpRelationshipCard extends StatelessWidget {
           GestureDetector(
             onTap: onTap,
             child: Container(
-              padding: const EdgeInsets.all(14),
+              // Generous padding so names and numbers clear the filigree.
+              padding: const EdgeInsets.fromLTRB(26, 22, 26, 22),
               decoration: BoxDecoration(
+                // The tier gradient stays as the bed the glow and frame sit on:
+                // it is what makes LV.1 and LV.5 look different at a glance.
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [tier.a, tier.b],
                 ),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFE3B84A), width: 2),
                 boxShadow: const [
                   BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 6)),
                 ],
               ),
               child: Stack(
                 children: [
+                  // Warm light under everything, brighter as the pair ages.
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Opacity(
+                        opacity: 0.30 + (tier.level * 0.09),
+                        child: Image.asset(
+                          CpArt.tierGlow,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                  ),
                   // The gift that made the pair, playing behind the card when it
                   // is a video — "طبعاً الهديه تشكل بردو". Muted and looping;
                   // ProductVideoLayer renders nothing until the first frame is
@@ -257,6 +303,21 @@ class CpRelationshipCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                  // The border, painted OVER the content and ignoring taps.
+                  // centerSlice keeps the corner flourishes at their true size
+                  // while only the plain runs between them stretch — the whole
+                  // reason the brief asked for detail in the corners only.
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Image.asset(
+                        CpArt.cardFrame,
+                        fit: BoxFit.fill,
+                        centerSlice: const Rect.fromLTRB(220, 180, 804, 460),
+                        filterQuality: FilterQuality.medium,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -267,8 +328,20 @@ class CpRelationshipCard extends StatelessWidget {
                           Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.favorite,
-                                  color: Color(0xFFFFE082), size: 30),
+                              SizedBox(
+                                width: 74,
+                                height: 56,
+                                child: Image.asset(
+                                  CpArt.emblem,
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.medium,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.favorite,
+                                    color: Color(0xFFFFE082),
+                                    size: 30,
+                                  ),
+                                ),
+                              ),
                               if (icon.isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 SizedBox(

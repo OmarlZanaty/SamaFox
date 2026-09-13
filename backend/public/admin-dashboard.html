@@ -936,8 +936,33 @@
           <label class="settings-hint" style="min-width:220px">معامل الترقية بين المستويات</label>
           <input id="cpLevelMultiplier" type="number" step="0.1" class="form-input" placeholder="1.5" />
         </div>
+        <hr style="border:none;border-top:1px solid var(--card-border);margin:18px 0" />
+        <h3 style="margin:0 0 10px">إجبار التحديث</h3>
+        <p class="settings-hint" style="margin:0 0 12px">
+          أي جهاز رقم إصداره أقل من الرقم ده هيتقفل عليه التطبيق وهيتحوّل لجوجل بلاي.
+          <b>حُط الرقم بعد ما النسخة تنزل فعلاً على بلاي</b> — لو حطيته قبلها هتقفل على
+          المستخدمين من غير ما يلاقوا تحديث. اكتب 0 عشان توقف الإجبار تماماً.
+        </p>
         <div class="form-row">
-          <button class="btn btn-primary" onclick="saveCpSettings()">حفظ إعدادات CP</button>
+          <label class="settings-hint" style="min-width:220px">أقل رقم إصدار مسموح (build)</label>
+          <input id="minSupportedBuild" type="number" class="form-input" placeholder="0" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">عنوان رسالة التحديث</label>
+          <input id="updateTitle" type="text" class="form-input" placeholder="تحديث جديد متاح" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">نص الرسالة</label>
+          <input id="updateMessage" type="text" class="form-input" placeholder="نزّل آخر إصدار عشان تكمل." />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">رابط المتجر</label>
+          <input id="updateStoreUrl" type="text" class="form-input"
+                 placeholder="https://play.google.com/store/apps/details?id=com.almobarmg.samafox" />
+        </div>
+
+        <div class="form-row">
+          <button class="btn btn-primary" onclick="saveCpSettings()">حفظ الإعدادات</button>
           <button class="btn btn-outline" onclick="loadCpSettings()">تحديث</button>
         </div>
         <p class="settings-hint">قيم افتراضية احترافية — عدّلها عند وصول مواصفات العميل. الهدايا التي تحتسب ضمن CP تُفعّل بخيار "CP" في إدارة الهدايا.</p>

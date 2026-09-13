@@ -8,6 +8,21 @@ export const CP_DEFAULTS: Record<string, string> = {
   level_multiplier: '1.5',       // each level threshold = previous * this
   room_background_price_coins: '1000', // device-uploaded room background: price
   room_background_days: '20',          // …and how long it lasts before reverting
+
+  // ── Forced update ────────────────────────────────────────────────────────
+  // `min_supported_build` is the oldest build number allowed to keep running.
+  // A device on anything lower is shown a blocking screen and sent to Play.
+  //
+  // 0 disables the gate entirely, which is the default ON PURPOSE: a wrong
+  // value here locks every user out of the app at once, and that must be a
+  // deliberate act, never something that happens because a row was missing.
+  //
+  // Set it to the build you are shipping only AFTER that build is live on
+  // Play — set it first and you lock people out with nowhere to go.
+  min_supported_build: '0',
+  update_title: 'تحديث جديد متاح',
+  update_message: 'نزّل آخر إصدار من سما فوكس عشان تكمل. فيه مزايا جديدة وإصلاحات في الصوت والغرف.',
+  update_store_url: 'https://play.google.com/store/apps/details?id=com.almobarmg.samafox',
 };
 
 /** Read all app settings merged over the defaults. */
@@ -40,6 +55,12 @@ export async function getSettings(_req: Request, res: Response) {
         // term to the room owner before charging them.
         roomBackgroundPriceCoins: Number(s.room_background_price_coins) || 1000,
         roomBackgroundDays: Number(s.room_background_days) || 20,
+        // The update gate, camelCased for the app. Sent to everyone, including
+        // signed-out devices, because the check runs before login.
+        minSupportedBuild: Number(s.min_supported_build) || 0,
+        updateTitle: s.update_title,
+        updateMessage: s.update_message,
+        updateStoreUrl: s.update_store_url,
       },
     });
   } catch (e) {

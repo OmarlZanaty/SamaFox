@@ -2870,6 +2870,10 @@ async function loadAll() {
       set("cpPerCoin", s.cp_per_coin ?? "1");
       set("cpTargetPerDollar", s.target_coins_per_dollar ?? "10000");
       set("cpLevelMultiplier", s.level_multiplier ?? "1.5");
+      set("minSupportedBuild", s.min_supported_build ?? "0");
+      set("updateTitle", s.update_title ?? "");
+      set("updateMessage", s.update_message ?? "");
+      set("updateStoreUrl", s.update_store_url ?? "");
     } catch (e) {
       showToast("تعذر تحميل إعدادات CP: " + e.message);
     }
@@ -2882,6 +2886,11 @@ async function loadAll() {
         cp_per_coin: val("cpPerCoin") || "1",
         target_coins_per_dollar: val("cpTargetPerDollar") || "10000",
         level_multiplier: val("cpLevelMultiplier") || "1.5",
+        // Forced update. Sent as typed — "0" disables the gate.
+        min_supported_build: String(Number(val("minSupportedBuild")) || 0),
+        update_title: val("updateTitle") || "",
+        update_message: val("updateMessage") || "",
+        update_store_url: val("updateStoreUrl") || "",
       };
       await apiFetchAny(["/admin-dashboard/settings", "/admin/settings"], "PATCH", body);
       showToast("تم حفظ إعدادات CP ✓");
