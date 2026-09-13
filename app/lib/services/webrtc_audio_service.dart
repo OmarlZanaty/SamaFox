@@ -221,22 +221,26 @@ class WebRTCAudioService {
     // auto-gain stay on whatever the user picks: switching those off in a
     // speakerphone room feeds the loudspeaker straight back into the mic, and
     // "تقليل الضوضاء" is not a request for howling.
-    final ns = _noiseSuppression;
+    // BISECT 2026-09-13: back to the exact constants this used before the
+    // تقليل الضوضاء toggle was wired in. On a freshly booted phone the capture
+    // was returning totalSamples=0.0 — a live, enabled track delivering
+    // silence — and these constraints are the only thing that changed in this
+    // method. If the microphone works with these, the toggle has to drive
+    // suppression some other way (applyConstraints on the track, or a
+    // processing flag) rather than by varying what getUserMedia is asked for.
     final stream = await navigator.mediaDevices.getUserMedia({
       'audio': {
         'echoCancellation': true,
-        'noiseSuppression': ns,
+        'noiseSuppression': true,
         'autoGainControl': true,
 
         // WebRTC Android legacy keys (plugin prints these)
         'googEchoCancellation': true,
         'googEchoCancellation2': true,
         'googDAEchoCancellation': true,
-        'googNoiseSuppression': ns,
+        'googNoiseSuppression': true,
         'googAutoGainControl': true,
-        // The highpass filter is part of the same noise chain — it is what
-        // removes rumble and handling noise, so it follows the switch too.
-        'googHighpassFilter': ns,
+        'googHighpassFilter': true,
 
         // Helpful constraints
         'channelCount': 1,
@@ -1192,11 +1196,61 @@ class WebRTCAudioService {
   }
 
   /// A2 — stop transmitting, keep listening. Called when the user leaves a seat.
+  ///
+  /// This used to only set `track.enabled = false`, which leaves the CAPTURE
+  /// open: every listener in the room went on holding a live AudioRecord, just
+  /// a muted one. That defeated the point of the listen-only join, and it is
+  /// what produced the silent microphone — a capture held open and disabled for
+  /// minutes gets reclaimed by the platform, and re-enabling it on the next
+  /// goLive() yields a track that reports `enabled=true` and delivers
+  /// `totalSamples=0.0`. Observed on device across exactly that sequence.
+  ///
+  /// So release it properly. goLive() captures fresh, which is both correct and
+  /// what A2 promised: no microphone is open unless the user is on a seat.
   Future<void> goListenOnly() async {
     if (!_initialized) return;
-    await muteAudio();
     _listenOnly = true;
+    await _releaseLocalMic();
+    await _applyEchoSafeMode(talking: false);
     _log('goListenOnly -> receive only');
+  }
+
+  /// Detach the microphone from every peer and hand it back to the platform.
+  ///
+  /// The senders are cleared first: a sender left pointing at a stopped track
+  /// keeps the m-line alive and publishing silence, which is indistinguishable
+  /// from a working microphone at the far end.
+  Future<void> _releaseLocalMic() async {
+    for (final entry in _peerConnections.entries) {
+      try {
+        for (final sender in await entry.value.getSenders()) {
+          if (sender.track?.kind == 'audio') {
+            await sender.replaceTrack(null);
+          }
+        }
+      } catch (e) {
+        _log('⚠️ could not detach mic from ${entry.key}: $e');
+      }
+    }
+
+    final stream = _localStream;
+    _localStream = null;
+    _localAudioTrack = null;
+    _isMicMuted = true;
+
+    if (stream == null) return;
+    for (final t in stream.getTracks()) {
+      _detachTrackWatch(t);
+      try {
+        await t.stop();
+      } catch (_) {
+        // Already gone; nothing to release.
+      }
+    }
+    try {
+      await stream.dispose();
+    } catch (_) {}
+    _log('🎤 microphone released');
   }
 
   Future<void> unmuteAudio() async {
