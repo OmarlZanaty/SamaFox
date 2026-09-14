@@ -512,14 +512,11 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _reconnectSub?.cancel(); // ✅ ADD
     _reconnectSub = null;    // ✅ ADD
 
-    // remove raw listeners to avoid duplicates on re-entry. The hand-written
-    // list here was missing six of the events actually registered
-    // (chat_cleared, gift_sent, removed_from_seat, seat_block_changed,
-    // seat_mute_lock, user_speaking), so leaving and re-entering a room leaked
+    // Remove exactly the listeners this controller registered — see
+    // _unbindMine. The hand-written list this replaced was missing six of the
+    // events actually registered, so leaving and re-entering a room leaked
     // those regardless of the reconnect path.
-    for (final event in _rawRoomEvents) {
-      _socket.off(event);
-    }
+    _unbindMine();
 
     state = state.copyWith(isOpen: false);
 
@@ -550,6 +547,24 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     'gift_sent',
   ];
 
+  /// Handlers this controller registered, so they can be removed without
+  /// touching anyone else's listener for the same event.
+  final List<MapEntry<String, Function(dynamic)>> _myHandlers = [];
+
+  /// Register a raw socket handler and remember it.
+  void _onRaw(String event, Function(dynamic) handler) {
+    _myHandlers.add(MapEntry(event, handler));
+    _socket.on(event, handler);
+  }
+
+  /// Remove every handler registered through [_onRaw] and nothing else.
+  void _unbindMine() {
+    for (final h in _myHandlers) {
+      _socket.off(h.key, h.value);
+    }
+    _myHandlers.clear();
+  }
+
   void _bindStreams() {
     // THE reconnect bug. This method is called again on every reconnect, and
     // SocketService.on() appends to its handler list without dedupe, while
@@ -558,11 +573,11 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // closures overwrote fresh state, and seats, mics and the room menu went
     // dead until the app was restarted — exactly the report.
     //
-    // Clearing first makes re-binding idempotent, so a reconnect replaces the
-    // handlers instead of stacking another set on top.
-    for (final event in _rawRoomEvents) {
-      _socket.off(event);
-    }
+    // Clearing first makes re-binding idempotent. It clears only handlers THIS
+    // controller registered: the blanket `off(event)` took every listener for
+    // the name, and `gift_sent` is also GiftSocketService's — so entering a
+    // room killed gift animations app-wide until a restart.
+    _unbindMine();
 
     _msgSub?.cancel();
     _seatSub?.cancel();
@@ -579,7 +594,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // Group 12: user_entered fires for EVERY user entering the room (the old
     // user_joined only fired for auto-seated admins) → "[Name] دخل الغرفة"
     // chat line + animated entrance banner for users who own a design.
-    _socket.on('user_entered', (data) {
+    _onRaw('user_entered', (data) {
       if (data is! Map) return;
       final rid = _safeInt(data['roomId']);
       if (rid != null && rid != roomId) return;
@@ -625,7 +640,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     // Who is talking right now, broadcast by each speaker's own client. Purely
     // presentational — it drives the pulsing ring on the seat.
-    _socket.on('user_speaking', (data) {
+    _onRaw('user_speaking', (data) {
       if (data is! Map) return;
       final uid = _safeInt(data['userId']);
       if (uid == null) return;
@@ -635,7 +650,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // The server's roster of everyone currently in the room — sent on join and
     // on request. Without it onlineUsers only ever held me plus whoever
     // arrived after me, which is why "دعوة إلى المقعد" showed just me.
-    _socket.on('room_users', (data) {
+    _onRaw('room_users', (data) {
       if (data is! Map) return;
       final rid = _safeInt(data['roomId']);
       if (rid != null && rid != roomId) return;
@@ -659,7 +674,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // re-binding after a reconnect or re-entering the screen.
     _socket.requestRoomUsers(roomId);
 
-    _socket.on('user_left', (data) {
+    _onRaw('user_left', (data) {
       if (data is! Map) return;
 
       final username = data['username'] ?? 'مستخدم';
@@ -675,7 +690,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
     // Gift sent in the room → show who sent what to whom in the activity feed.
-    _socket.on('gift_sent', (data) {
+    _onRaw('gift_sent', (data) {
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
       final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
@@ -867,7 +882,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // RAW socket listeners (source of truth)
     // ----------------------------
 
-    _socket.on('seat_error', (data) {
+    _onRaw('seat_error', (data) {
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
 
@@ -902,7 +917,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       }
     });
 
-    _socket.on('seat_occupied', (data) {
+    _onRaw('seat_occupied', (data) {
       if (data is Map) {
         final map = Map<String, dynamic>.from(data);
         _applySeatOccupiedFromRaw(map);
@@ -919,7 +934,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       }
     });
 
-    _socket.on('seat_released', (data) {
+    _onRaw('seat_released', (data) {
       if (data is Map) {
         final map = Map<String, dynamic>.from(data);
 
@@ -935,14 +950,14 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       }
     });
 
-    _socket.on('seat_updated', (data) {
+    _onRaw('seat_updated', (data) {
       if (data is Map) {
         final map = Map<String, dynamic>.from(data);
         _applySeatUpdatedFromRaw(map);
       }
     });
 
-    _socket.on('seat_mute_changed', (data) {
+    _onRaw('seat_mute_changed', (data) {
       debugPrint('🧪 RAW seat_mute_changed => $data');
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
@@ -964,7 +979,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
     // Step 10: admin blocked a user from seats — remove them from their seat live.
-    _socket.on('seat_block_changed', (data) {
+    _onRaw('seat_block_changed', (data) {
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
       final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
@@ -985,19 +1000,19 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
     // Step 10: I was removed/blocked from my seat — drop my mic status.
-    _socket.on('removed_from_seat', (data) {
+    _onRaw('removed_from_seat', (data) {
       state = state.copyWith(myMicStatus: MyMicStatus.none);
     });
 
     // Admin cleared the chat — clear it for everyone live.
-    _socket.on('chat_cleared', (data) {
+    _onRaw('chat_cleared', (data) {
       final rid = (data is Map) ? (_safeInt(data['roomId']) ?? _safeInt(data['room_id'])) : null;
       if (rid != null && rid != roomId) return;
       clearMessages();
     });
 
     // Admin muted/unmuted a seat position.
-    _socket.on('seat_mute_lock', (data) {
+    _onRaw('seat_mute_lock', (data) {
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
       final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
@@ -1009,12 +1024,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
     // In initSubscriptions / wherever you handle socket events:
-    _socket.on('relation_ended', (_) {
+    _onRaw('relation_ended', (_) {
       // Force reload room state so relation badge clears
       _socket.emit('init_room_seats', {'roomId': roomId});
     });
 
-    _socket.on('mic_queue_updated', (data) {
+    _onRaw('mic_queue_updated', (data) {
       if (data is Map) {
         final map = Map<String, dynamic>.from(data);
         final rawQueue = map['queue'];

@@ -313,7 +313,20 @@ class SocketService {
   /// WebRTCAudioService re-registers its signalling handlers with an `off`
   /// first, so initialising voice silently killed `voiceUsersStream` — the room
   /// stopped learning who was on a mic — for the rest of the session.
-  void off(String event) {
+  /// Pass [callback] to remove only THAT handler. Without it every handler for
+  /// the event goes, including other services' — which is a footgun: the room
+  /// controller cleared `gift_sent` on entering a room and took
+  /// GiftSocketService's listener with it, so gift animations stopped firing
+  /// app-wide until a restart. Prefer the targeted form for any event more than
+  /// one place cares about.
+  void off(String event, [Function(dynamic)? callback]) {
+    if (callback != null) {
+      final handlers = _appListeners[event];
+      handlers?.remove(callback);
+      if (handlers != null && handlers.isEmpty) _appListeners.remove(event);
+      _socket?.off(event, callback);
+      return;
+    }
     final handlers = _appListeners.remove(event);
     if (handlers == null) return;
     for (final handler in handlers) {
