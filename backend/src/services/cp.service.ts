@@ -1,6 +1,7 @@
 import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
 import { sendGiftAtomic } from '../gifts/giftService';
+import { emitGiftSent, emitGiftAnnouncement } from '../gifts/controller';
 
 /**
  * A15 / #44 — نظام الـ CP.
@@ -155,10 +156,58 @@ export async function acceptCpRequest(requestId: number, recipientId: number) {
     data: { status: 'accepted', resolvedAt: new Date() },
   });
 
-  const recipient = await prisma.user.findUnique({
-    where: { id: request.recipientId },
-    select: { name: true },
+  const [sender, recipient] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: request.senderId },
+      select: { id: true, name: true, avatarUrl: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: request.recipientId },
+      select: { id: true, name: true, avatarUrl: true },
+    }),
+  ]);
+
+  // The gift only actually moves NOW, so this is where the animation belongs.
+  // `sendGiftAtomic` records the transaction but emits nothing — the socket
+  // events live in the HTTP send controller, which a CP acceptance never goes
+  // through. Without this the CP gift was charged and paired but no one ever
+  // saw it fly. Same payload shape as an ordinary send so the overlay, the
+  // activity feed and the announcement bar need no special case.
+  const payload = {
+    transactionId: giftResult.transactionId,
+    senderId: request.senderId,
+    recipientId: request.recipientId,
+    roomId: request.roomId,
+    quantity: request.quantity,
+    totalCoins: giftResult.totalCoins,
+    comboKey: null,
+    comboCount: giftResult.comboCount,
+    broadcast: giftResult.broadcast,
+    sender,
+    recipient,
+    gift: giftResult.gift,
+    isCp: true,
+    ts: Date.now(),
+  };
+  emitGiftSent(payload, [request.senderId, request.recipientId]);
+  emitGiftAnnouncement({
+    senderId: request.senderId,
+    senderName: sender?.name ?? null,
+    senderAvatarUrl: sender?.avatarUrl ?? null,
+    gift: {
+      id: giftResult.gift.id,
+      name: giftResult.gift.name,
+      nameAr: giftResult.gift.nameAr,
+      iconUrl: giftResult.gift.iconUrl,
+    },
+    quantity: request.quantity,
+    recipientCount: 1,
+    recipientName: recipient?.name ?? null,
+    roomId: request.roomId,
+    totalCoins: giftResult.totalCoins,
+    ts: Date.now(),
   });
+
   await createNotification({
     userId: request.senderId,
     actorId: request.recipientId,

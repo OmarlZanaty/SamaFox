@@ -10,14 +10,22 @@ export function setGiftIo(io: Server) {
   ioRef = io;
 }
 
-export function emitGiftSent(payload: any) {
+/**
+ * @param alsoUserIds — extra per-user rooms to deliver `gift_sent` to, on top
+ *   of the room (or the recipient when there is none). A CP gift completes when
+ *   the recipient answers, possibly minutes later and possibly after either of
+ *   them has left the room it was sent from — so both parties get it directly.
+ *   Socket.IO delivers once per socket even when it sits in several of the
+ *   targeted rooms, so nobody sees a doubled animation.
+ */
+export function emitGiftSent(payload: any, alsoUserIds: number[] = []) {
   if (!ioRef) return;
   // Per-room emission for the gift event.
-  if (payload.roomId != null) {
-    ioRef.to(`room:${payload.roomId}`).emit('gift_sent', payload);
-  } else {
-    ioRef.to(payload.recipientId.toString()).emit('gift_sent', payload);
-  }
+  const targets = new Set<string>(
+    payload.roomId != null ? [`room:${payload.roomId}`] : [payload.recipientId.toString()],
+  );
+  for (const uid of alsoUserIds) targets.add(uid.toString());
+  ioRef.to([...targets]).emit('gift_sent', payload);
   if (payload.gift.tier === 'LEGENDARY') {
     // Pre-warm clients before main event.
     ioRef.emit('gift_legendary_incoming', {
@@ -29,6 +37,12 @@ export function emitGiftSent(payload: any) {
   if (payload.broadcast) {
     ioRef.emit('gift_broadcast', payload);
   }
+}
+
+/** A22 — the centred "فلان أهدى <هدية> إلى فلان" bar. Room-scoped only. */
+export function emitGiftAnnouncement(announcement: { roomId: number | null; [k: string]: any }) {
+  if (!ioRef || announcement.roomId == null) return;
+  ioRef.to(`room:${announcement.roomId}`).emit('gift_announcement', announcement);
 }
 
 export async function listCatalog(_req: Request, res: Response) {
@@ -140,25 +154,23 @@ export async function send(req: Request, res: Response) {
     // A22 - the centred announcement bar ("<sender> اهدى <gift> الى <recipient>").
     // Emitted for ordinary single sends too, so the bar is not a fan-out-only
     // feature; the batch endpoint emits the "الى الجميع" variant of the same event.
-    if (ioRef && payload.roomId != null) {
-      ioRef.to(`room:${payload.roomId}`).emit('gift_announcement', {
-        senderId,
-        senderName: sender?.name ?? null,
-        senderAvatarUrl: sender?.avatarUrl ?? null,
-        gift: {
-          id: result.gift.id,
-          name: result.gift.name,
-          nameAr: result.gift.nameAr,
-          iconUrl: result.gift.iconUrl,
-        },
-        quantity: payload.quantity,
-        recipientCount: 1,
-        recipientName: recipientUser?.name ?? null,
-        roomId: payload.roomId,
-        totalCoins: result.totalCoins,
-        ts: Date.now(),
-      });
-    }
+    emitGiftAnnouncement({
+      senderId,
+      senderName: sender?.name ?? null,
+      senderAvatarUrl: sender?.avatarUrl ?? null,
+      gift: {
+        id: result.gift.id,
+        name: result.gift.name,
+        nameAr: result.gift.nameAr,
+        iconUrl: result.gift.iconUrl,
+      },
+      quantity: payload.quantity,
+      recipientCount: 1,
+      recipientName: recipientUser?.name ?? null,
+      roomId: payload.roomId,
+      totalCoins: result.totalCoins,
+      ts: Date.now(),
+    });
 
     // Fire-and-forget: if the gift is a relation-ring, auto-create a relation request.
     maybeCreateRelationRequestFromRing({
@@ -527,8 +539,8 @@ export async function sendBatch(req: Request, res: Response) {
 
     // A22 — the centred announcement bar. One event for the whole fan-out:
     // "فلان أهدى <هدية> إلى الجميع" when it went to more than one person.
-    if (results.length > 0 && ioRef) {
-      const announcement = {
+    if (results.length > 0) {
+      emitGiftAnnouncement({
         senderId,
         senderName: sender.name,
         senderAvatarUrl: sender.avatarUrl,
@@ -546,10 +558,7 @@ export async function sendBatch(req: Request, res: Response) {
         roomId: roomId != null ? Number(roomId) : null,
         totalCoins: perRecipient * results.length,
         ts: Date.now(),
-      };
-      if (announcement.roomId != null) {
-        ioRef.to(`room:${announcement.roomId}`).emit('gift_announcement', announcement);
-      }
+      });
     }
 
     return res.json({
