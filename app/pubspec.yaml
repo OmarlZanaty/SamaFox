@@ -6,7 +6,7 @@ publish_to: 'none'
 # regenerates local.properties FROM this file, so that override was silently
 # overwritten and the next build would have dropped to 24 and been rejected as
 # a downgrade. pubspec is the single source of truth now.
-version: 1.0.19+2026
+version: 1.0.20+2027
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -80,6 +80,11 @@ dependencies:
 
   # Image Picker
   image_picker: ^1.0.7
+  # Referenced directly to turn the system photo picker on for every Android
+  # version (Play policy — no READ_MEDIA_IMAGES). Same versions image_picker
+  # already pulls in.
+  image_picker_android: ^0.8.12
+  image_picker_platform_interface: ^2.10.0
   image_cropper: ^8.0.2
 
   # Picks songs off the phone for room music (image_picker cannot do audio).

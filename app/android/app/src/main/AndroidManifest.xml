@@ -4,7 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- No READ_MEDIA_IMAGES / READ_MEDIA_VIDEO: photos come through the system
+         photo picker (image_picker), which needs no permission, and Play's Photo
+         and Video Permissions policy rejects the broad permission on API 33+.
+         READ_MEDIA_AUDIO stays — the photo picker cannot pick songs. -->
     <!-- Android 13+: needed to pick songs off the phone for room music -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
