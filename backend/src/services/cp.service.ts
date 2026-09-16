@@ -294,8 +294,9 @@ export async function listCpPartners(userId: number) {
     where: { OR: [{ userAId: userId }, { userBId: userId }] },
     orderBy: { createdAt: 'desc' },
     include: {
-      userA: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true } },
-      userB: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true } },
+      // gender colours the partner's ring on the couple card (blue/pink).
+      userA: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true, gender: true } },
+      userB: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true, gender: true } },
     },
   });
 

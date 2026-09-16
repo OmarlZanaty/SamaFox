@@ -228,6 +228,9 @@ class CpPartner {
   final int? displayId;
   final int level;
   final int vipLevel;
+
+  /// 'male' / 'female' / null — picks the blue or pink ring on the couple card.
+  final String? gender;
   final String? giftIconUrl;
 
   /// The clip of the gift that created the pair, when it has one. Lets the
@@ -243,6 +246,7 @@ class CpPartner {
     this.displayId,
     this.level = 1,
     this.vipLevel = 0,
+    this.gender,
     this.giftIconUrl,
     this.giftAnimationUrl,
     this.since,
@@ -259,6 +263,7 @@ class CpPartner {
       displayId: (partner['displayId'] as num?)?.toInt(),
       level: (partner['level'] as num?)?.toInt() ?? 1,
       vipLevel: (partner['vipLevel'] as num?)?.toInt() ?? 0,
+      gender: partner['gender']?.toString(),
       giftIconUrl: gift?['iconUrl']?.toString(),
       giftAnimationUrl: gift?['animationUrl']?.toString(),
       since: DateTime.tryParse(json['createdAt']?.toString() ?? ''),

@@ -1298,10 +1298,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     // "عند قبول الـ cp يظهر في الصفحه الشخصيه" is about the pair
                     // being visible, and hiding it from visitors meant nobody
                     // could see who you were paired with.
-                    _CpRelationshipSection(
+                    CpCoupleSection(
                       userId: user.id,
                       isOwnProfile: isOwnProfile,
+                      ownerName: user.name,
                       ownerAvatarUrl: user.avatarUrl,
+                      ownerDisplayId: user.displayId,
+                      ownerGender: user.gender,
                     ),
 
                     // The lower CP strip is gone: "ده هوا اللي فوق هوا هوا مفيش
@@ -2321,73 +2324,11 @@ class _FullImageViewer extends StatelessWidget {
 }
 
 
-/// A15 / #44 — the CP strip on a profile page.
+/// A15 / #44 — the CP pair beside the profile photo. The couple card lower
+/// down is [CpCoupleSection], shared with the room profile sheet.
 ///
 /// Renders nothing at all when the user has no pairings: an empty "CP" heading
-/// on every profile in the app would be noise, and the feature announces itself
-/// on the home page instead.
-/// العلاقة — the framed card, above الهدايا الممنوحة.
-class _CpRelationshipSection extends StatefulWidget {
-  const _CpRelationshipSection({
-    required this.userId,
-    required this.isOwnProfile,
-    this.ownerAvatarUrl,
-  });
-
-  final int userId;
-  final bool isOwnProfile;
-  final String? ownerAvatarUrl;
-
-  @override
-  State<_CpRelationshipSection> createState() => _CpRelationshipSectionState();
-}
-
-class _CpRelationshipSectionState extends State<_CpRelationshipSection> {
-  late Future<List<CpPartner>> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = CpRepository().partners(userId: widget.userId);
-  }
-
-  @override
-  void didUpdateWidget(covariant _CpRelationshipSection old) {
-    super.didUpdateWidget(old);
-    if (old.userId != widget.userId) {
-      _future = CpRepository().partners(userId: widget.userId);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => FutureBuilder<List<CpPartner>>(
-        future: _future,
-        builder: (context, snap) {
-          final partners = snap.data ?? const <CpPartner>[];
-          // No pair, no section — an empty frame would just be furniture.
-          if (partners.isEmpty) return const SizedBox.shrink();
-          return FutureBuilder<int?>(
-            future: CpFeatured.get(),
-            builder: (context, chosen) {
-              final p = CpFeatured.pick(partners, chosen.data) ?? partners.first;
-              return CpRelationshipCard(
-                myAvatarUrl: widget.ownerAvatarUrl,
-                partner: p,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CpListScreen(
-                      userId: widget.isOwnProfile ? null : widget.userId,
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      );
-}
-
+/// on every profile in the app would be noise.
 class _CpProfileCard extends StatefulWidget {
   const _CpProfileCard({
     required this.userId,

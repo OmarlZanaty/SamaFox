@@ -1,124 +1,192 @@
-# CP / العلاقة — artwork brief
+# CP / علاقة الارتباط — artwork brief (v2, the couple card)
 
-Five assets. Everything else on the card (names, level text, day count, the
-partners' photos) is drawn by the app, so **no text, no faces and no numbers in
-the artwork**.
+The card is built from **10 layered PNGs**. The app draws everything else —
+names, IDs, ♂/♀, the ribbon text, the level and the day count — so **no text,
+no faces and no numbers in any asset** except the "CP" letters on the emblem.
 
-All files: **PNG with a real alpha channel**, transparent outside the artwork.
-Never a white or black backing — it will show as a box on the profile.
+Drop the files in `app/assets/images/cp/` with the exact filenames below. Each
+one is wired already: the card renders today with painted stand-ins, and every
+file that lands simply replaces its stand-in. Send them in any order.
 
-Drop them in `app/assets/images/cp/` with the exact filenames below and tell me;
-wiring each one is a few lines.
-
----
-
-## Rules that apply to every asset
-
-- **Style:** ornate mobile-game UI. Polished gold metal, gemstones, soft inner
-  glow, subtle bevels. Rich but readable at small size.
-- **Palette:** gold `#E3B84A` / `#FFE082` for metal, rose `#E91E63` and deep
-  red `#8E0000` for hearts, violet `#4A148C` for shadow.
-- **Lighting:** from the top-left, consistent across all five, or they will look
-  like a set of stickers from different games.
-- **Margin:** leave ~4% empty padding inside the canvas so the glow isn't
-  clipped.
-- **No drop shadow baked in** — the app adds it, and a baked one doubles up.
+**Order of impact:** ring frames (3, 4) → emblem (2) → background (1) →
+plates (5, 6, 7) → link heart (8) → podium (9) → ribbon (10).
 
 ---
 
-## 1. `cp_heart_frame.png` — the avatar frame
+## The style block — paste this at the START of every prompt
 
-**512 × 512.** The single most important asset: it appears beside the photo and
-twice on the card.
+> Ornate mobile-game UI asset, luxurious fantasy style. Polished gold filigree
+> metal with fine engraved scrollwork, faceted gemstones, strong neon glow,
+> soft bloom, clean sharp edges. Colours: gold `#E3B84A` / pale gold `#FFE082`,
+> hot pink `#FF3FA4`, magenta `#E91E63`, electric blue `#3D8BFF`, violet
+> `#7B1FA2`. Lighting from the top-left, consistent across the set. Front view,
+> perfectly symmetrical. Isolated on a fully transparent background, no drop
+> shadow, no backdrop, no text, no watermark, ~4% empty margin inside the
+> canvas so the glow is not clipped.
 
-> An ornate heart-shaped picture frame for a mobile app, front view, perfectly
-> symmetrical. Polished gold filigree border with small rose-pink gemstones set
-> along the top curves and a single larger ruby at the bottom point. The inside
-> of the heart is completely empty and transparent — it is a window for a
-> photograph. Soft warm rim-light from the top left, gentle inner bevel on the
-> gold. Clean vector-like edges, no text, no face, no background.
+Rules for every file:
 
-**Critical:** the heart's interior must be **fully transparent**, not filled
-with colour. The app clips the user's photo into it. The gold border should
-occupy roughly the outer 10–12% of the shape.
-
----
-
-## 2. `cp_emblem.png` — the centrepiece between the two avatars
-
-**512 × 384** (wider than tall).
-
-> A heraldic emblem for a mobile app: a deep red heart at the centre, wrapped in
-> polished gold scrollwork, with a small ornate gold crown resting on top and a
-> pair of stylised feathered wings spreading symmetrically to the left and
-> right. Jewel accents in rose pink. Front view, perfectly symmetrical, warm
-> top-left lighting. Transparent background, no text, no characters.
-
-Sits between the partners on the العلاقة card. Wings should reach the left and
-right edges of the canvas so it reads as wide.
+- **PNG with a real alpha channel.** Never a white or black backing — it shows
+  as a box on the card. (For the one background asset, opaque is correct.)
+- **Same lighting and same gold** in every file or the set looks like stickers
+  from five different games.
+- **No baked drop shadow** — the app adds it and a baked one doubles up.
+- Export at the sizes given, then run through a PNG optimiser (TinyPNG /
+  `oxipng`). Whole set should land **under 1.5 MB**, not 15.
 
 ---
 
-## 3. `cp_card_frame.png` — the العلاقة card border
+## 1. `cp_scene_bg.png` — the night scene (opaque)
 
-**1024 × 640.** This is a **nine-slice** frame, which constrains the design:
+**1024 × 1024, opaque.** The only asset with no transparency.
 
-> An ornate rectangular frame for a mobile game panel. Gold filigree border with
-> corner flourishes — small roses and scroll leaves at each of the four corners.
-> The four straight edges between the corners are a simple repeating gold
-> moulding with no unique detail. The entire centre is empty and transparent.
-> Warm top-left lighting, rich but not cluttered. No text, no background fill.
+> Fantasy background for a mobile-game card: a dreamy night sky in deep violet
+> and magenta with soft stars and bokeh, a glowing ornate palace with pink and
+> gold lanterns blurred in the far distance, drifting rose petals, a mirror-
+> calm reflective floor in the lower third fading to dark purple. Very soft,
+> low contrast, no sharp objects in the centre, no characters, no text.
+> Cinematic bloom, the whole image slightly dark so bright elements can sit on
+> top of it.
 
-**Critical for nine-slicing:** all the character must live in the **corners**.
-The straight runs get stretched to fit the card, so anything distinctive along
-an edge (a crest, a gem, a bow) will smear. Keep the border ≤ 90px thick on a
-1024-wide canvas.
-
----
-
-## 4. `cp_pill.png` — the "CP" badge plate
-
-**256 × 96.**
-
-> A small ornate horizontal plaque for a mobile game UI. Rounded capsule shape
-> in polished gold with a rose-pink enamel centre panel, a tiny heart motif at
-> each end. The centre panel is flat and clear so a short label can be printed
-> over it. Front view, symmetrical, transparent background, no text.
-
-The app prints **CP** over the centre, so leave that panel plain.
+Keep it **dark and quiet in the middle**: the rings, plates and text are
+printed over it and must stay readable.
 
 ---
 
-## 5. `cp_tier_glow.png` — optional tier backdrop
+## 2. `cp_emblem.png` — the winged CP heart with the crown
 
-**1024 × 640.** Only if you want the higher tiers to look different from the
-first; skip it and the card uses a painted gradient.
+**768 × 512, transparent.** The top of the card.
 
-> A soft abstract glow for a mobile game card background: warm radiating light
-> from the centre, faint sparkles and drifting embers, edges fading completely
-> to transparent. No objects, no text, no hard edges.
+> *(style block)* A heraldic emblem: a large glossy magenta-to-hot-pink
+> gemstone heart at the centre, wrapped in gold scrollwork, with the letters
+> **"CP"** in bold white diamond-encrusted 3D lettering across the heart's face.
+> An ornate gold crown with a purple gem rests on top of the heart. A pair of
+> feathered golden wings spread symmetrically to the far left and right edges
+> of the canvas, glowing warm pink at the tips. Two tiny pink heart gems float
+> beside the wings.
 
-Kept low-contrast — names and numbers are printed over it.
-
----
-
-## If you'd rather send fewer
-
-Order of impact: **1 → 3 → 2 → 4 → 5.**
-
-Asset 1 alone changes how the feature looks more than the other four combined,
-because it appears three times on the page. Send that one first and I'll wire it
-while you work on the rest.
+This is the **only** asset allowed to carry text, and only the two letters
+"CP". Wings must reach the canvas edges so it reads wide.
 
 ---
 
-## Two notes
+## 3. `cp_ring_blue.png` — the male ring frame
 
-**Don't reuse the reference video's artwork.** That's another operator's asset
-and it carries real legal risk. These prompts deliberately describe the same
-*kind* of object without copying their specific design.
+**640 × 640, transparent.** The most important asset: it holds the photo.
 
-**Size matters for this app.** The bundle is already 61 MB of artwork, which is
-the open half of the G1 performance item. Export each of these at the sizes
-above and run them through a PNG optimiser — five assets should land under
-400 KB total, not 4 MB.
+> *(style block)* A round jewelled picture frame. A thick circular gold ring
+> with engraved filigree, glowing **electric blue** neon light around its
+> outer edge. A small ornate gold crown with a blue sapphire sits on top of the
+> ring. A pair of translucent glowing **blue crystal wings** spread out
+> symmetrically to the left and right of the ring. A faceted **blue sapphire
+> heart** in a gold setting sits at the bottom of the ring, overlapping it.
+> **The inside of the ring is completely empty and fully transparent — it is
+> a window for a photograph.**
+
+**Delivered 16/09/2026.** Measured window: centre (0.498, 0.533), diameter
+0.44 of the canvas — wired as `CpArt.ringPhotoCenter(CpSide.blue)`. If the
+ring is ever redrawn, re-measure and update those two numbers.
+
+---
+
+## 4. `cp_ring_pink.png` — the female ring frame
+
+**640 × 640, transparent.** Identical composition to #3 — same ring, same
+crown position, same wing spread, same window — with the colours swapped:
+
+> … glowing **hot-pink** neon light around its outer edge … crown with a
+> **pink gem** … translucent glowing **pink crystal wings** … a faceted **pink
+> gemstone heart** in a gold setting at the bottom …
+
+**Delivered 16/09/2026.** Its window differs from the blue ring's — centre
+(0.496, 0.487), diameter 0.50 — so the geometry is per side in `CpArt`.
+
+---
+
+## 5. `cp_plate_blue.png` — the male name plate
+
+**512 × 112, transparent.**
+
+> *(style block)* A horizontal name-plate for a mobile-game UI: a rounded
+> capsule with a thin polished gold border and small gold flourishes at both
+> ends, filled with a glossy **electric-blue to violet** gradient enamel. The
+> centre of the plate is flat and clear so a name can be printed over it.
+
+The app prints **♂ + name** over the centre. Keep the flourishes to the outer
+12% of each end; the middle 70% must be plain.
+
+---
+
+## 6. `cp_plate_pink.png` — the female name plate
+
+**512 × 112, transparent.** Same shape as #5, filled with a glossy
+**hot-pink to magenta** gradient enamel. The app prints **♀ + name** over it.
+
+---
+
+## 7. `cp_id_plate.png` — the ID plate
+
+**384 × 100, transparent.**
+
+> *(style block)* A small horizontal plaque: a rounded rectangle with a thin
+> polished gold border and tiny gold corner accents, filled with a very dark
+> navy-purple `#1A0B2E` glossy enamel. The centre is flat and clear so a short
+> label can be printed over it.
+
+The app prints **ID: 123456** in pale gold over the centre. (The delivered
+file had the sample text baked in; it was painted out in place.)
+
+---
+
+## 8. `cp_link_heart.png` — the heart that joins the pair
+
+**1024 × 288, transparent.** Sits **behind** both rings at photo height.
+
+> *(style block)* A glowing faceted pink gemstone heart in a gold setting at
+> the exact centre, with two thin ribbons of neon light streaming out
+> horizontally to the far left and far right edges of the canvas — the left
+> ribbon **electric blue**, the right ribbon **hot pink** — each ribbon curling
+> into a soft loop with a few floating sparkles and tiny hearts along it. The
+> ribbons fade out completely at the canvas edges.
+
+The heart must be centred **exactly** at x = 512. The outer ~20% of each side
+is hidden behind the rings, so nothing important out there.
+
+---
+
+## 9. `cp_podium.png` — the heart podium at the foot of the card
+
+**1024 × 512, transparent.** Profile page only (the room sheet is too short).
+
+> *(style block)* A circular glowing stage seen from a low three-quarter
+> angle: three stacked flat discs of dark purple glass with gold rims and
+> concentric rings of pink and magenta neon light, a mirror-like reflection
+> beneath. A large faceted pink gemstone heart in a gold setting floats just
+> above the top disc with a ring of light around it, glowing brightly. Small
+> pink hearts and sparkles drift up. The very bottom fades out to transparent.
+
+Width fills the canvas; heart centred at x = 512.
+
+---
+
+## 10. `cp_ribbon.png` — the banner under the emblem
+
+**512 × 128, transparent.**
+
+> *(style block)* An ornate curved ribbon banner with forked, folded ends,
+> glossy **magenta** satin with a thin gold trim along both edges. The centre
+> face is flat and clear so a short title can be printed over it. No text.
+
+The app prints **علاقة الارتباط** over it. The middle 65% must be plain.
+
+---
+
+## Testing a delivery
+
+Drop the file in, `flutter run`, open any profile that has a CP. The card
+shows the file instantly in place of its painted stand-in. If a ring's photo
+is off-centre, send me the window's centre + diameter and I adjust
+`CpArt.ringPhotoCenter` / `CpArt.ringPhotoDiameter`.
+
+**Don't reuse another operator's artwork.** These prompts describe the same
+*kind* of object as the reference without copying its specific design.

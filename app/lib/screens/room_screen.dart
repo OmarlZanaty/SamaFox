@@ -69,6 +69,7 @@ import 'package:share_plus/share_plus.dart';
 import '../widgets/FramedAvatar.dart';
 import '../widgets/user_trail.dart';
 import '../screens/profile_screen.dart'; // adjust path to your project
+import '../widgets/cp_relationship.dart';
 import '../widgets/app_network_image.dart';
 import '../services/audio_route.dart';
 import '../services/screen_record_service.dart';
@@ -5808,6 +5809,47 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     fontWeight: FontWeight.w700)),
                           ],
                         ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ── العلاقة — the couple card, compact ──
+                  // Same card as the profile page. Gender comes from the
+                  // profile fetch above (blue/pink ring); until it resolves the
+                  // card still draws with the default sides, and it draws
+                  // nothing at all when this user has no CP. Tapping opens the
+                  // full profile, which is where the pair can be managed.
+                  FutureBuilder<Result<User>>(
+                    future: profileFuture,
+                    builder: (context, snapshot) {
+                      final profile = snapshot.data?.isSuccess == true ? snapshot.data!.data : null;
+                      return CpCoupleSection(
+                        userId: seat.userId!,
+                        isOwnProfile: isMine,
+                        ownerName: profile?.name ?? seat.username ?? '',
+                        ownerAvatarUrl: profile?.avatarUrl ?? seat.avatarUrl,
+                        ownerDisplayId: profile?.displayId ?? seat.displayId,
+                        ownerGender: profile?.gender,
+                        compact: true,
+                        showTitle: false,
+                        onTap: () {
+                          Navigator.pop(context);
+                          // Same hand-off as tapping the avatar above: the
+                          // room keeps playing in the PiP bubble.
+                          final roomState = ref.read(roomControllerProvider(widget.roomId));
+                          _handedOffToPip = true;
+                          ref.read(pipProvider.notifier).activate(
+                                roomId: widget.roomId,
+                                roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+                                roomImageUrl: roomState.roomImageUrl,
+                              );
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ProfileScreen(userId: seat.userId!),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),
