@@ -9,7 +9,9 @@ import 'dart:async';
 import 'package:samafox/screens/chat_screen.dart';
 import 'package:samafox/screens/feature_screens.dart';
 import 'package:samafox/screens/store_screen.dart';
+import 'package:samafox/services/crash_reporter.dart';
 import 'package:samafox/services/dio_client.dart';
+import 'package:samafox/services/voice_engine.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/splash_screen.dart';
@@ -39,6 +41,12 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Before anything else can fail. The app shipped with NO error handler of any
+  // kind, which is why "التطبيق يقفل بعد دقيقة" could only ever be guessed at:
+  // a Dart error left nothing behind, and an OS kill for memory left even less.
+  // CrashReporter catches the first and DETECTS the second on the next launch.
+  await CrashReporter.install();
   // Play's Photo and Video Permissions policy: pick photos through the system
   // photo picker everywhere, not only on Android 13+, so no media permission
   // is needed on any version. Manifest declares none.
@@ -59,15 +67,22 @@ void main() async {
   final sharedPreferences = await SharedPreferences.getInstance();
   final _ = DioClient.dio;
   DioClient.init();
+  // Which voice engine rooms use (mesh or SFU): cached value now, server value
+  // refreshed in the background. Never blocks startup.
+  await VoiceEngineConfig.load();
 
-  runApp(
-    ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(sharedPreferences),
-      ],
-      child: const SamaFoxApp(),
-    ),
-  );
+  // Inside the guard: an error that escapes the widget callbacks lands here
+  // instead of disappearing.
+  CrashReporter.guard(() {
+    runApp(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(sharedPreferences),
+        ],
+        child: const SamaFoxApp(),
+      ),
+    );
+  });
 }
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -308,6 +323,19 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     _applyWakelock(state == AppLifecycleState.resumed);
+
+    // `detached` is the app going away on purpose. Clearing the session marker
+    // here is what makes its survival meaningful: if it is still on disk at the
+    // next launch, the previous run did NOT end on purpose — the OS killed it.
+    if (state == AppLifecycleState.detached) {
+      unawaited(CrashReporter.markCleanExit());
+    } else {
+      CrashReporter.breadcrumb('lifecycle ${state.name}');
+      // Going to the background is the last reliable moment to send what has
+      // been logged: the OS may freeze or kill the process before the next
+      // timer tick.
+      if (state == AppLifecycleState.paused) unawaited(CrashReporter.flushEvents());
+    }
   }
 
   @override

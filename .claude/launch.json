@@ -22,7 +22,8 @@
         "--web-port",
         "5757"
       ],
-      "port": 5757
+      "port": 5757,
+      "cwd": "app"
     },
     {
       "name": "crazy-wheel-preview",

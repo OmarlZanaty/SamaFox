@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../config/app_config.dart';
 import '../utils/logger.dart';
+import 'crash_reporter.dart';
 import 'token_refresher.dart';
 import '../models/incoming_message.dart';
 import '../models/message_events.dart';
@@ -210,6 +212,17 @@ class SocketService {
       AppLogger.error('Socket connect aborted: invalid token');
       return;
     }
+
+    // Do not dial with a token the server is guaranteed to reject. The access
+    // token lives 24h and the app is often reopened later than that; connecting
+    // anyway meant a rejected handshake, socket.io retrying it every few
+    // seconds with the SAME dead token, and a server log with hundreds of
+    // "jwt expired" stack traces a day (470 counted). Refresh first, then dial.
+    if (_isExpired(jwt)) {
+      AppLogger.warning('Socket token expired before connect; refreshing first');
+      unawaited(_refreshThenConnect());
+      return;
+    }
     _token = jwt; // ✅ set exactly once
 
     // dispose old socket
@@ -226,8 +239,15 @@ class SocketService {
     // leaving the option unset makes the manager default to double.infinity,
     // which is what "unlimited" has to mean here. An int cannot express that,
     // and a negative value silently inverts the guard into "give up at once".
+    // Polling FIRST, then upgrade to websocket — engine.io's own default, and
+    // for a reason: the first transport in this list is the only one tried for
+    // the initial connection, and a failed initial connection is retried with
+    // the same transport forever. Websocket-first meant a phone whose upgrade
+    // request was refused (one device logged 119 consecutive "HTTP 400, not
+    // upgraded" errors) never got a socket at all — no seats, no voice, no
+    // gifts — while polling would have worked on the very first try.
     final options = IO.OptionBuilder()
-        .setTransports(['websocket', 'polling'])
+        .setTransports(['polling', 'websocket'])
         .enableAutoConnect()
         .enableReconnection()
         .setReconnectionDelay(AppConfig.socketReconnectionDelay)
@@ -247,6 +267,7 @@ class SocketService {
 
     _socket!.onConnectError((e) {
       debugPrint("❌ CONNECT ERROR: $e");
+      CrashReporter.event('socket', 'connect error: $e', level: 'warn');
       _maybeRefreshAuth(e);
     });
 
@@ -495,7 +516,12 @@ class SocketService {
 
     if (_refreshingAuth) return;
     if (_authRefreshCount >= _maxAuthRefreshes) {
-      AppLogger.error('Socket auth refresh gave up after $_authRefreshCount attempts');
+      // Giving up used to mean leaving socket.io to retry the dead token
+      // forever — one rejected handshake every few seconds, for as long as the
+      // app stayed open. Stop the storm instead, and try a clean refresh later.
+      AppLogger.error('Socket auth refresh gave up after $_authRefreshCount attempts; backing off');
+      disconnect();
+      _scheduleAuthRetry();
       return;
     }
 
@@ -519,6 +545,59 @@ class SocketService {
     } finally {
       _refreshingAuth = false;
     }
+  }
+
+  /// `exp` of a JWT, or null when it cannot be read.
+  static int? _jwtExpiry(String jwt) {
+    try {
+      final parts = jwt.split('.');
+      if (parts.length != 3) return null;
+      final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final map = jsonDecode(payload);
+      final exp = map is Map ? map['exp'] : null;
+      return exp is num ? exp.toInt() : int.tryParse('$exp');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Expired, or about to: a token with under a minute left is not worth a
+  /// handshake that the reconnect a minute later will have to redo.
+  static bool _isExpired(String jwt) {
+    final exp = _jwtExpiry(jwt);
+    if (exp == null) return false; // unreadable: let the server decide
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return exp - now < 60;
+  }
+
+  Future<void> _refreshThenConnect() async {
+    if (_refreshingAuth) return;
+    _refreshingAuth = true;
+    try {
+      final result = await TokenRefresher.refresh();
+      if (result.ok) {
+        _authRefreshCount = 0;
+        connect(result.accessToken!);
+      } else if (!result.sessionEnded) {
+        // Transient (offline, server down): try again shortly.
+        _scheduleAuthRetry();
+      }
+      // sessionEnded: the Dio interceptor owns logout; nothing to dial.
+    } finally {
+      _refreshingAuth = false;
+    }
+  }
+
+  Timer? _authRetryTimer;
+
+  /// One clean refresh-and-reconnect attempt a minute from now.
+  void _scheduleAuthRetry() {
+    if (_authRetryTimer != null) return;
+    _authRetryTimer = Timer(const Duration(seconds: 60), () {
+      _authRetryTimer = null;
+      _authRefreshCount = 0;
+      unawaited(_refreshThenConnect());
+    });
   }
 
   void updateToken(String newToken, {bool force = false}) {
@@ -691,6 +770,7 @@ class SocketService {
 
     _socket!.onConnect((_) {
       AppLogger.info('✅ Socket connected!');
+      CrashReporter.event('socket', 'connected');
       // The token in hand works; let a future expiry refresh from a clean slate.
       _authRefreshCount = 0;
       _connectionController.add(true);
@@ -709,7 +789,10 @@ class SocketService {
       AppLogger.info('🧪 onAny event=$event data=$data');
     });
 
-    _socket!.onDisconnect((_) {
+    _socket!.onDisconnect((reason) {
+      // Every drop is worth a line: a room going silent for someone almost
+      // always starts here, and the reason tells transport from server.
+      CrashReporter.event('socket', 'disconnected: $reason', level: 'warn');
       AppLogger.info('❌ Socket disconnected');
       _connectionController.add(false);
     });

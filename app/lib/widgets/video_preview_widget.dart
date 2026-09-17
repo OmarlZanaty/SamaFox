@@ -27,6 +27,11 @@ class _VideoPreviewState extends State<VideoPreview> {
         if (!mounted) return;
         setState(() => isReady = true);
         _controller.play(); // 🔥 AUTOPLAY
+      }).catchError((Object e) {
+        // A clip this device's decoder refuses (seen as MediaCodecVideoRenderer
+        // errors on some phones) is a blank preview, not an uncaught error
+        // reported as a crash.
+        debugPrint('[VideoPreview] cannot play ${widget.url}: $e');
       });
   }
 

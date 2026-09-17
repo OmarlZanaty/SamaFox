@@ -371,18 +371,28 @@ class WebRTCService {
     }
   }
 
-  void _closePeerConnection(int otherUserId) {
-    final pc = _peerConnections[otherUserId];
-    if (pc != null) {
-      pc.close();
-      _peerConnections.remove(otherUserId);
-    }
+  // NOTE: nothing imports this file today — WebRTCAudioService is the live voice
+  // engine. Kept correct rather than left as a leaking copy for someone to
+  // revive: `close()` stops the media but does NOT free the native
+  // PeerConnection, its event channel or the plugin's observer entry. Only
+  // `dispose()` does. See WebRTCAudioService._releasePeerConnection.
+  Future<void> _closePeerConnection(int otherUserId) async {
+    final pc = _peerConnections.remove(otherUserId);
+    if (pc == null) return;
+    try {
+      await pc.close();
+    } catch (_) {}
+    try {
+      await pc.dispose();
+    } catch (_) {}
   }
 
-  void dispose() {
-    _peerConnections.forEach((_, pc) => pc.close());
+  Future<void> dispose() async {
+    for (final id in _peerConnections.keys.toList()) {
+      await _closePeerConnection(id);
+    }
     _peerConnections.clear();
-    _localStream?.dispose();
+    await _localStream?.dispose();
     debugPrint('✅ WebRTC service disposed');
   }
 }

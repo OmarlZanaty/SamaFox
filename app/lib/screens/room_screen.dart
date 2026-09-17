@@ -17,12 +17,16 @@ import '../providers/room_provider.dart';
 import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
-import '../services/webrtc_audio_service.dart';
+import '../services/voice_engine.dart';
+import 'room/pin_dialog.dart';
+import 'room/room_widgets.dart';
 import '../services/room_audio_keepalive.dart';
 import '../widgets/marquee_text.dart';
 import 'supporters_board_screen.dart';
 import '../services/api_service.dart';
 import '../services/audio_controller.dart';
+import '../services/active_room.dart';
+import '../services/crash_reporter.dart';
 import '../services/follow_service.dart';
 import '../widgets/online_dot.dart';
 import '../widgets/vip_badge.dart';
@@ -78,35 +82,6 @@ final isAndroid = !kIsWeb && Platform.isAndroid;
 
 enum _RoomImageType { roomImage, background }
 
-class BottomWaveClipper extends CustomClipper<Path> {
-  final double depth;
-
-  BottomWaveClipper({this.depth = 40});
-
-  @override
-  Path getClip(Size size) {
-    final path = Path();
-
-    path.moveTo(0, 0);
-    path.lineTo(0, size.height - depth);
-
-    path.quadraticBezierTo(
-      size.width / 2,
-      size.height,
-      size.width,
-      size.height - depth,
-    );
-
-    path.lineTo(size.width, 0);
-    path.close();
-
-    return path;
-  }
-
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
-
 class RoomScreen extends ConsumerStatefulWidget {
   final int roomId;
   final int? maxSeats; // ✅ add
@@ -123,7 +98,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   late final GiftRepository _giftRepository = GiftRepository();
   bool _openingMic = false;
   /// WebRTC audio service for voice chat
-  late final WebRTCAudioService _audioService;
+  /// Mesh or SFU — whichever the server selected. See VoiceEngine.
+  late final VoiceEngine _audioService;
   /// Track current seat and mute state to detect changes
   int? _currentSeatNumber;
   bool _currentSeatMuted = true;
@@ -203,6 +179,56 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// owns the teardown from then on (on مغادرة), and re-entering the room finds
   /// the session already initialised.
   bool _handedOffToPip = false;
+
+  /// Set while this room is being closed because the user entered ANOTHER one.
+  ///
+  /// The teardown has already happened in [_closeForRoomSwitch] by the time
+  /// `dispose` runs, and the new room owns the audio session from then on, so
+  /// dispose must not reach for it a second time.
+  bool _leavingForSwitch = false;
+
+  /// One "can't reach some users" notice per room visit.
+  bool _unreachableWarned = false;
+
+  /// Cached so the switch teardown still works if it runs after this screen has
+  /// been disposed (the PiP bubble path), where `ref` is no longer usable.
+  int? _myUserId;
+
+  /// The raw socket handlers THIS screen registered.
+  ///
+  /// They used to be removed with `off(event)`, which drops every listener the
+  /// app has for that event. That is fine when one room screen exists at a
+  /// time; it is not fine when entering room B tears down room A, because A's
+  /// teardown then silences B's `room_closed`, `kicked_from_room` and friends.
+  /// Removing exactly our own handlers makes the order irrelevant.
+  final List<MapEntry<String, Function(dynamic)>> _rawSocketHandlers = [];
+
+  void _onRoomSocketEvent(String event, Function(dynamic) handler) {
+    _rawSocketHandlers.add(MapEntry(event, handler));
+    SocketService().on(event, handler);
+  }
+
+  /// Drop every socket binding this screen owns. Safe to call twice.
+  void _releaseRoomSocketBindings() {
+    for (final h in _rawSocketHandlers) {
+      SocketService().off(h.key, h.value);
+    }
+    _rawSocketHandlers.clear();
+    _socketErrSub?.cancel();
+    _socketErrSub = null;
+    _joinDeniedSub?.cancel();
+    _joinDeniedSub = null;
+    _seatEffectSub?.cancel();
+    _seatEffectSub = null;
+    _seatInviteSub?.cancel();
+    _seatInviteSub = null;
+    _seatInviteResultSub?.cancel();
+    _seatInviteResultSub = null;
+    _giftEarningsSub?.cancel();
+    _giftEarningsSub = null;
+    unawaited(_giftSocket.dispose());
+  }
+
   Offset _pipOffset = const Offset(20, 100);
 
   final FocusNode _topChatFocus = FocusNode();
@@ -768,7 +794,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   /// Reusable 5-digit numeric PIN dialog. Returns the digits, or null if cancelled.
-  /// Delegates to [_PinDialog], which owns its own controller so it is disposed
+  /// Delegates to [PinDialog], which owns its own controller so it is disposed
   /// only once the dialog route is fully gone (avoids "used after disposed").
   Future<String?> _askFiveDigitCode({
     required String title,
@@ -779,7 +805,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _PinDialog(
+      builder: (_) => PinDialog(
         title: title,
         hint: hint,
         confirmLabel: confirmLabel,
@@ -2027,14 +2053,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    _menuItem(Icons.emoji_events, 'التحديات', Colors.amber, () {
+                    roomMenuItem(Icons.emoji_events, 'التحديات', Colors.amber, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
                         MaterialPageRoute(builder: (_) => const ChallengesScreen()),
                       );
                     }),
-                    _menuItem(Icons.sports_esports, 'الألعاب', Colors.greenAccent, () {
+                    roomMenuItem(Icons.sports_esports, 'الألعاب', Colors.greenAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
@@ -2043,7 +2069,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     }),
                     // Room cup: the top 20 supporters OF THIS ROOM — not the
                     // app-wide board, and not the old placeholder list.
-                    _menuItem(Icons.emoji_events, 'كأس الغرفة', Colors.lightBlueAccent, () {
+                    roomMenuItem(Icons.emoji_events, 'كأس الغرفة', Colors.lightBlueAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
@@ -2052,7 +2078,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ),
                       );
                     }),
-                    _menuItem(Icons.account_balance_wallet, 'المحفظة', Colors.orangeAccent, () {
+                    roomMenuItem(Icons.account_balance_wallet, 'المحفظة', Colors.orangeAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
@@ -2176,7 +2202,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // down. Without this the slider only ever touched effects and
                 // the seat clip, so dragging it to 0 left everyone still
                 // audible: "مؤشر الصوت لما أنزله للصفر مش بيقفل".
-                await WebRTCAudioService().setRemoteVolume(tempVolume);
+                await VoiceEngine.instance.setRemoteVolume(tempVolume);
                 if (mounted) Navigator.pop(context);
                 _showRoomSnack(
                   tempVolume == 0 ? 'تم كتم صوت الغرفة' : 'تم تحديث مستوى الصوت',
@@ -2238,7 +2264,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 .findById(widget.roomId)
                                 ?.isRoomLocked ??
                             false;
-                        return _menuItem(
+                        return roomMenuItem(
                           locked ? Icons.lock_open : Icons.lock,
                           locked ? "فتح الغرفة" : "قفل الغرفة",
                           Colors.white70,
@@ -2248,7 +2274,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           },
                         );
                       }),
-                      _menuItem(Icons.admin_panel_settings, "مسؤول الغرفة", Colors.white70, () {
+                      roomMenuItem(Icons.admin_panel_settings, "مسؤول الغرفة", Colors.white70, () {
                         Navigator.pop(context);
                         _openManageAdminsDialog(this.context);
                       }),
@@ -2261,11 +2287,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _menuItem(Icons.bar_chart, "نمط الميكروفون", Colors.white70, () {
+                      roomMenuItem(Icons.bar_chart, "نمط الميكروفون", Colors.white70, () {
                         Navigator.pop(context);
                         _openSeatCountDialog(this.context);
                       }),
-                      _menuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
+                      roomMenuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
                         Navigator.pop(context);
                         _openBackgroundChooser();
                       }),
@@ -2278,11 +2304,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _menuItem(Icons.block, "قائمة الحظر", Colors.white70, () {
+                      roomMenuItem(Icons.block, "قائمة الحظر", Colors.white70, () {
                         Navigator.pop(context);
                         _openBanListDialog(this.context);
                       }),
-                      _menuItem(Icons.delete_outline, "حذف الدردشة", Colors.redAccent, () {
+                      roomMenuItem(Icons.delete_outline, "حذف الدردشة", Colors.redAccent, () {
                         Navigator.pop(context);
                         _clearRoomChat();
                       }),
@@ -2621,14 +2647,71 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     ).whenComplete(controller.dispose);
   }
 
+  /// Leave this room because the user is entering a different one.
+  ///
+  /// "مع دخولي اي غرفه اخرج تلقائي من الغرفه اللي كنت فيها": everything that
+  /// kept the user present here is ended — the voice session (which releases
+  /// the microphone and tells the other room's peers we are gone), the seat and
+  /// the room membership on the server, the bubble if it is showing this room,
+  /// and finally this screen itself, so Back cannot return to a room we left.
+  Future<void> _closeForRoomSwitch() async {
+    if (_leavingForSwitch) return;
+    _leavingForSwitch = true;
+    debugPrint('🚪 leaving room ${widget.roomId} for another room');
+
+    try {
+      _audioService.disableVAD();
+      await _audioService.leaveVoice();
+    } catch (e) {
+      debugPrint('room switch: audio teardown failed: $e');
+    }
+
+    // The seat only comes free when the server is told. Prefer the controller
+    // (it also unbinds its listeners); fall back to the raw socket when this
+    // screen is already gone, which is the PiP case.
+    var toldServer = false;
+    if (mounted) {
+      try {
+        ref.read(roomControllerProvider(widget.roomId).notifier).closeRoom();
+        toldServer = true;
+      } catch (e) {
+        debugPrint('room switch: closeRoom failed: $e');
+      }
+    }
+    if (!toldServer && _myUserId != null) {
+      SocketService().leaveRoom(roomId: widget.roomId, userId: _myUserId!);
+    }
+
+    // Before the next room registers its own: these are removed by identity now,
+    // but cancelling here also stops this screen reacting to events for a room
+    // it has just left.
+    _releaseRoomSocketBindings();
+
+    if (mounted) {
+      try {
+        final pip = ref.read(pipProvider);
+        if (pip.isActive && pip.roomId == widget.roomId) {
+          ref.read(pipProvider.notifier).deactivate();
+        }
+      } catch (_) {}
+
+      final route = ModalRoute.of(context);
+      if (route != null && route.isActive) {
+        Navigator.of(context).removeRoute(route);
+      }
+    }
+  }
+
   @override
   void initState() {
     debugPrint('🟣 RoomScreen.initState room=${widget.roomId}');
+    CrashReporter.breadcrumb('room ${widget.roomId} enter');
+    CrashReporter.setRoom(widget.roomId);
     super.initState();
     AudioController.instance.initialize();
     AudioRoute.instance.register(_audioPlayer);
 
-    _audioService = WebRTCAudioService();
+    _audioService = VoiceEngine.instance;
 
     _loadActiveItems(); // 🔥 ADD THIS
 
@@ -2646,6 +2729,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       setState(() => _volumeLevel = AudioRoute.instance.masterVolume);
       unawaited(AudioRoute.instance.apply());
       unawaited(AudioRoute.instance.applyVolume());
+      // AudioRoute.apply() reaches the game/effect players only. The room's own
+      // VOICE is routed by the WebRTC side, which had already been initialised
+      // with the default (loudspeaker) by the time the saved choice finished
+      // loading — so a user who had chosen the earpiece got the room out of the
+      // speaker and everything else out of the earpiece. Re-assert it here.
+      unawaited(_audioService.reapplyAudioRoute());
     }));
 
     // A1 — the foreground service starts on ENTERING the room, not on taking a
@@ -2671,6 +2760,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // This used to re-`initialize()` the whole audio service on every
     // transition — a full WebRTC setup several times a second once the
     // detector actually started firing.
+    // The voice engine has stopped chasing a peer it cannot reach. Said once:
+    // the cause is the same for every peer on that network, and one line is
+    // information while five are noise.
+    _audioService.onPeerUnreachable = (userId) {
+      if (!mounted || _unreachableWarned) return;
+      _unreachableWarned = true;
+      _showRoomSnack(
+        'تعذّر الاتصال الصوتي مع بعض الموجودين — شبكتك تمنع الاتصال المباشر',
+        error: true,
+      );
+    };
+
     _audioService.onVoiceActivityChanged = (isSpeaking) {
       final userId = ref.read(authStateProvider).user?.id;
       if (userId == null) return;
@@ -2682,7 +2783,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     debugPrint("🧪 seats before speaking update: ${state.seats}");
 
     // ✅ ADD THIS BLOCK
-    WebRTCAudioService().onVoiceUsersUpdated = (users) {
+    VoiceEngine.instance.onVoiceUsersUpdated = (users) {
       debugPrint("🔥 UPDATE UI USERS: $users");
 
       ref
@@ -2727,6 +2828,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     if (!mounted) return; // ✅ stop if disposed
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // One room at a time. Whatever room still owns the voice session — a
+      // screen further down the stack, or the PiP bubble — is left first, and
+      // we wait for it: both rooms share one WebRTC service, and starting this
+      // one while the other is still tearing down is how the microphone ended
+      // up published into the room the user thought they had left.
+      _myUserId = ref.read(authStateProvider).user?.id;
+      await ActiveRoom.instance.enter(widget.roomId, _closeForRoomSwitch);
+      if (!mounted) return;
+
+      // Re-assert it AFTER the old room's teardown: leaving a room stops the
+      // mic foreground service, and initState started it for this one before
+      // that teardown ran. Starting it again only refreshes the notification.
+      unawaited(RoomAudioKeepAlive.instance.start(
+        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+      ));
+
       final controller = ref.read(roomControllerProvider(widget.roomId).notifier);
 
       // Locked-room gate: register the denial listener BEFORE joining, otherwise
@@ -2737,6 +2854,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         final rid = data['roomId'];
         if (rid != null && rid != widget.roomId) return;
         final reason = data['reason'];
+        CrashReporter.event('room', 'join denied: $reason', level: 'warn');
         if (reason == 'banned') {
           _showRoomSnack(
             (data['message'] ?? 'تم طردك من هذه الغرفة').toString(),
@@ -2754,7 +2872,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
 
       // Live room background change (admin set a new background).
-      SocketService().on('room_background_changed', (data) {
+      _onRoomSocketEvent('room_background_changed', (data) {
         if (!mounted || data is! Map) return;
         final rid = data['roomId'];
         if (rid != null && rid != widget.roomId) return;
@@ -2765,26 +2883,28 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
 
       // Admin kicked us live → leave the room immediately.
-      SocketService().on('kicked_from_room', (data) {
+      _onRoomSocketEvent('kicked_from_room', (data) {
         if (!mounted) return;
         final rid = (data is Map) ? data['roomId'] : null;
         if (rid != null && rid != widget.roomId) return;
         final msg = (data is Map ? data['message'] : null)?.toString() ??
             'تم طردك من الغرفة';
+        CrashReporter.event('room', 'kicked: $msg', level: 'warn');
         _showRoomSnack(msg, error: true);
         Navigator.of(context).maybePop();
       });
 
-      SocketService().on('room_closed', (data) {
+      _onRoomSocketEvent('room_closed', (data) {
         if (!mounted) return;
         final rid = (data is Map) ? data['roomId'] : null;
         if (rid != null && rid != widget.roomId) return;
+        CrashReporter.event('room', 'room closed by owner', level: 'warn');
         _showRoomSnack('تم إغلاق الغرفة من قِبَل المالك', error: true);
         Navigator.of(context).maybePop();
       });
 
       // Dashboard force-closed the room → everyone inside leaves immediately.
-      SocketService().on('room_force_closed', (data) {
+      _onRoomSocketEvent('room_force_closed', (data) {
         if (!mounted) return;
         final rid = (data is Map) ? data['roomId'] : null;
         if (rid != null && rid != widget.roomId) return;
@@ -2795,7 +2915,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
 
       // Dashboard renamed the room → refresh so the watched name updates live.
-      SocketService().on('room_updated', (data) {
+      _onRoomSocketEvent('room_updated', (data) {
         if (!mounted || data is! Map) return;
         final rid = data['roomId'];
         if (rid != null && rid != widget.roomId) return;
@@ -2804,6 +2924,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
       // ✅ LOAD INVENTORY FIRST
       await _loadActiveItems();
+      // Each await below is a chance for the user to have left (or been
+      // switched out of) this room. `ref` on a disposed screen throws, and the
+      // client log showed exactly that, 61 times in a day.
+      if (!mounted) return;
       debugPrint("🎬 video url = $_activeSeatEffectUrl");
       // ✅ set from REST list if available (prevents 1-seat fallback)
       final maxSeats = widget.maxSeats;
@@ -2836,6 +2960,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
       // ✅ open room ONCE
       await controller.openRoom();
+      if (!mounted) return;
 
       final user = ref.read(authStateProvider).user;
 
@@ -2868,6 +2993,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           listenOnly: true,
         );
         _audioReady = true;
+        if (!mounted) return;
         // Start measuring my own mic so the room can see who is talking.
         // Nothing switched this on before, which is why the speaking ring
         // never appeared for anyone.
@@ -2932,8 +3058,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// Are we currently suspended (screen locked / app in the background)?
   bool _lifecycleBackgrounded = false;
 
-  /// Was the mic live when we got suspended? Used to restore it on resume.
-  bool _micLiveBeforeBackground = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
@@ -2954,8 +3078,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       // the user actually leaves (ROOM_DISCONNECT_GRACE_MS).
       if (_lifecycleBackgrounded) return;
       _lifecycleBackgrounded = true;
-      // Remembered only so a resume can repair a mic the OS interrupted.
-      _micLiveBeforeBackground = _audioReady && !_audioService.isMicMuted;
     } else if (appState == AppLifecycleState.resumed && _lifecycleBackgrounded) {
       _lifecycleBackgrounded = false;
       // Back in the foreground → re-sync state (and restore the mic if it was
@@ -2975,12 +3097,30 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
     if (!mounted) return;
 
-    if (!_micLiveBeforeBackground) return;
-    _micLiveBeforeBackground = false;
+    // Put the output route back before anything else. An interruption — a call
+    // above all — leaves the phone in the audio mode IT wanted, and that outlives
+    // the interruption: the room comes back on the wrong output, or inaudible.
+    // This is for everyone in the room; a listener has no microphone to repair
+    // but still has to hear it.
+    if (_audioReady) {
+      try {
+        await _audioService.reapplyAudioRoute();
+      } catch (e) {
+        debugPrint('resume route restore failed: $e');
+      }
+    }
+    unawaited(AudioRoute.instance.apply());
+    unawaited(AudioRoute.instance.applyVolume());
 
     // The mic was NOT closed on the way out — this only repairs it if the OS
     // (a phone call, another app grabbing the microphone) interrupted it while
     // we were away. Re-enabling an already-live mic is a no-op.
+    //
+    // This used to be gated on a flag remembered at background time, which meant
+    // a mic interrupted while ALREADY muted-by-the-OS was never repaired. The
+    // seat is the authority on whether this user should be transmitting, and it
+    // is checked right below — including their own mute, which goes through the
+    // server like any other.
     //
     // Only reopen the mic if the seat is still ours and still allowed to talk —
     // an admin may have muted us (or taken the seat) while we were away.
@@ -2999,7 +3139,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     try {
       await AudioController.instance.setMicEnabled(true);
-      if (_audioReady) await _audioService.unmuteAudio();
+      if (_audioReady) {
+        // A phone call is the common interruption, and it does not end politely:
+        // the capture is taken away and the track never comes back on its own.
+        // "مع اغلاق المكالمه المفروض الوضع يرجع كما كان" — so check the microphone
+        // and re-acquire it if it died, instead of enabling a dead track and
+        // reporting success. No-op when it is healthy.
+        await _audioService.ensureMicAlive();
+        await _audioService.unmuteAudio();
+      }
     } catch (e) {
       debugPrint('resume mic restore failed: $e');
     }
@@ -3009,26 +3157,29 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   void dispose() {
     // Close the room and dispose resources
     debugPrint('🟣 RoomScreen.dispose room=${widget.roomId} pip=$_handedOffToPip');
+    CrashReporter.breadcrumb(
+      'room ${widget.roomId} leave (pip=$_handedOffToPip switch=$_leavingForSwitch)',
+    );
+    if (!_handedOffToPip) CrashReporter.setRoom(null);
 
-    // Same leak as the room controller's: these five were registered in
-    // initState on the SocketService SINGLETON and never removed, so every room
-    // opened left another copy behind for the life of the process. Open ten
-    // rooms and one `room_closed` fired ten times — ten snackbars and ten
-    // Navigator pops. Registered per screen, so they belong to this screen.
-    for (final event in const [
-      'room_background_changed',
-      'kicked_from_room',
-      'room_closed',
-      'room_force_closed',
-      'room_updated',
-    ]) {
-      SocketService().off(event);
-    }
+    // Same leak as the room controller's: these were registered in initState on
+    // the SocketService SINGLETON and never removed, so every room opened left
+    // another copy behind for the life of the process. Open ten rooms and one
+    // `room_closed` fired ten times — ten snackbars and ten Navigator pops.
+    // Removed by handler identity, so this can never take another screen's
+    // listeners with it; already done when we are leaving for another room.
+    _releaseRoomSocketBindings();
 
     // A23 — everything that carries the room's VOICE is skipped when the screen
     // is being handed to the PiP bubble. The visual resources below are torn
     // down either way; they have nothing to do with the audio.
-    if (!_handedOffToPip) {
+    if (_leavingForSwitch) {
+      // Already torn down by _closeForRoomSwitch, and the room being entered
+      // now owns the audio session — including the foreground service, which
+      // must keep running across the switch.
+      debugPrint('🟣 audio handed to the next room room=${widget.roomId}');
+    } else if (!_handedOffToPip) {
+      ActiveRoom.instance.release(widget.roomId);
       AudioController.instance.deactivate();
       _audioService.dispose();
       // The ongoing mic notification belongs to the session that just ended.
@@ -3044,18 +3195,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _audioPlayer.dispose();  // ✅ ADD
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
-    _socketErrSub?.cancel();
-    _joinDeniedSub?.cancel();
-    _giftSocket.dispose();
     _seatVideoController?.dispose();
     _externalTextController.dispose(); // Dispose the external controller
     _chatController.dispose();
     _chatFocus.dispose();
     _topChatFocus.dispose();
-    _giftEarningsSub?.cancel();
-    _seatEffectSub?.cancel();
-    _seatInviteSub?.cancel();
-    _seatInviteResultSub?.cancel();
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
 
@@ -3823,11 +3967,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _menuItem(Icons.flag, "مركز الفعاليات", Colors.amber, () {
+                    roomMenuItem(Icons.flag, "مركز الفعاليات", Colors.amber, () {
                       Navigator.pop(context);
                       _openEventsCenter(this.context);
                     }),
-                    _menuItem(Icons.backpack, "حقيبة الظهر", Colors.lightBlueAccent, () {
+                    roomMenuItem(Icons.backpack, "حقيبة الظهر", Colors.lightBlueAccent, () {
                       Navigator.pop(context);
                       _openBackpackSheet(this.context);
                     }),
@@ -3843,7 +3987,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // the room cup now occupies in the header. One entry here,
                 // the controls themselves one level down.
                 if (isAdmin) ...[
-                  _menuItem(Icons.tune, "إعدادات الغرفة", Colors.white70, () {
+                  roomMenuItem(Icons.tune, "إعدادات الغرفة", Colors.white70, () {
                     Navigator.pop(context);
                     _openRoomSettingsSheet(this.context);
                   }),
@@ -3877,19 +4021,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
 
-                    _menuItem(Icons.music_note, "موسيقى",
+                    roomMenuItem(Icons.music_note, "موسيقى",
                         _musicOn ? Colors.greenAccent : Colors.white70, () {
                           Navigator.pop(context);
                           _openMusicSheet();
                         }),
 
-                    _menuItem(Icons.hearing, "تقليل الضوضاء",
+                    roomMenuItem(Icons.hearing, "تقليل الضوضاء",
                         _noiseReduction ? Colors.greenAccent : Colors.white70, () {
                           Navigator.pop(context);
                           _toggleNoiseReduction();
                         }),
 
-                    _menuItem(Icons.volume_up, "مستوى الصوت", Colors.white70, () {
+                    roomMenuItem(Icons.volume_up, "مستوى الصوت", Colors.white70, () {
                       Navigator.pop(context);
                       _openVolumeDialog(this.context);
                     }),
@@ -3897,7 +4041,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     // A3 — the السماعة toggle. There was no control anywhere
                     // that called setSpeakerphoneOn, which is a large part of
                     // why the icon "غير فعاله": nothing was wired to it.
-                    _menuItem(
+                    roomMenuItem(
                         AudioRoute.instance.speakerOn
                             ? Icons.volume_up_rounded
                             : Icons.hearing,
@@ -3911,7 +4055,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     // A11 — record the screen WITH sound. The phone's own
                     // recorder cannot capture the room, so the app does it.
                     if (ScreenRecordService.instance.supported)
-                      _menuItem(
+                      roomMenuItem(
                           _isScreenRecording
                               ? Icons.stop_circle
                               : Icons.fiber_manual_record,
@@ -3922,27 +4066,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         await _toggleScreenRecording();
                       }),
 
-                    _menuItem(Icons.multitrack_audio, "مؤثرات صوتية", Colors.white70, () {
+                    roomMenuItem(Icons.multitrack_audio, "مؤثرات صوتية", Colors.white70, () {
                       Navigator.pop(context);
                       _openSoundEffectsDialog(this.context);
                     }),
 
-                    _menuItem(Icons.mic, "ميكروفون", Colors.white70, () async {
+                    roomMenuItem(Icons.mic, "ميكروفون", Colors.white70, () async {
                       Navigator.pop(context);
                       await _toggleMicFromMenu();
                     }),
 
-                    _menuItem(Icons.share, "مشاركة", Colors.white70, () {
+                    roomMenuItem(Icons.share, "مشاركة", Colors.white70, () {
                       Navigator.pop(context);
                       _shareRoom();
                     }),
 
-                    _menuItem(Icons.report, "إبلاغ", Colors.white70, () {
+                    roomMenuItem(Icons.report, "إبلاغ", Colors.white70, () {
                       Navigator.pop(context);
                       _openReportDialog(this.context);
                     }),
 
-                    _menuItem(Icons.delete, "حذف الدردشة", Colors.white70, () {
+                    roomMenuItem(Icons.delete, "حذف الدردشة", Colors.white70, () {
                       Navigator.pop(context);
                       if (isAdmin) {
                         _clearRoomChat();
@@ -3956,7 +4100,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     // Effects" dialog, which is why the owner couldn't find it
                     // ("موضوع التصفير مش لاقيه") — it now lives as its own item
                     // here, next to the other admin actions.
-                    _menuItem(Icons.restart_alt, "تصفير عدّاد الكوينزات", Colors.orangeAccent, () async {
+                    roomMenuItem(Icons.restart_alt, "تصفير عدّاد الكوينزات", Colors.orangeAccent, () async {
                       Navigator.pop(context);
                       if (!isAdmin) {
                         _showRoomSnack('التصفير متاح لصاحب الغرفة أو المشرفين فقط', error: true);
@@ -3974,7 +4118,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       }
                     }),
 
-                    _menuItem(Icons.settings, "إعدادات الصوت", Colors.white70, () {
+                    roomMenuItem(Icons.settings, "إعدادات الصوت", Colors.white70, () {
                       Navigator.pop(context);
                       _openAudioSettingsDialog(this.context);
                     }),
@@ -4926,35 +5070,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
       final ok = await _ensureMicPermission();
-      if (!ok) {
-        debugPrint('❌ Mic permission denied');
+      if (!ok || !mounted) {
+        if (!ok) debugPrint('❌ Mic permission denied');
         return;
       }
 
-
-
-// ✅ Respect seat mute state when sitting
       if (prevSeat == null && newSeatNumber != null) {
-        final ok = await _ensureMicPermission();
-        if (!ok) {
-          debugPrint('❌ Mic permission denied');
-          return;
-        }
         if (!_audioReady) {
-        await _audioService.initialize(
-          roomId: widget.roomId,
-          userId: userId,
-          listenOnly: true, // ✅ listen-only before taking a seat
-        );
-        _audioReady = true;
+          await _audioService.initialize(
+            roomId: widget.roomId,
+            userId: userId,
+            listenOnly: true, // ✅ listen-only before taking a seat
+          );
+          _audioReady = true;
         }
+        // The seat may have been left, or the room, while the engine started.
+        if (!mounted) return;
 
-        // ✅ Respect seat mute state when sitting
-        if (newMuted) {
-          await _audioService.muteAudio();   // speaker ON (listening)
-        } else {
-          await _audioService.unmuteAudio(); // earpiece (talking)
-        }
+        // NOTE: no mute/unmute here. Until goLive() below there is no capture
+        // at all (the room is joined listen-only), so both calls were no-ops —
+        // and goLive then unmuted unconditionally, which put a muted seat on
+        // the air. The seat's state is passed to goLive instead.
 
         // Step 5: seated speaker — report perfect-mic status to the room.
         SocketService().reportMicStatus(
@@ -4973,7 +5109,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         ));
 
         // A2 — now, and only now, capture the microphone and start sending.
-        unawaited(_audioService.goLive());
+        // Awaited: "مع دخولي الغرفه الصوت يشتغل في نفس اللحظه" — the VAD below
+        // has to see the real capture, not the null one it used to start on.
+        await _audioService.goLive(muted: newMuted);
+        if (!mounted) return;
 
         // A10 — "المتكلم على المايك يظهر حوله دائرة متحركة". The detector only
         // runs while this user actually holds a mic; it was never switched on
@@ -6060,7 +6199,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               children: [
                 // ── rose petal background decoration ──
                 Positioned.fill(
-                  child: CustomPaint(painter: _RosePetalPainter()),
+                  child: CustomPaint(painter: RosePetalPainter()),
                 ),
 
                 // ── couple photo at top ──
@@ -6543,7 +6682,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _statCard(String num, String label, Color c1, Color c2, Color accent, IconData icon) {
+  Widget roomStatCard(String num, String label, Color c1, Color c2, Color accent, IconData icon) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
       decoration: BoxDecoration(
@@ -6683,7 +6822,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     children: [
                       Expanded(
-                        child: _AdminActionCard(
+                        child: AdminActionCard(
                           title: 'صورة الغرفة',
                           subtitle: 'رفع صورة من الهاتف',
                           icon: Icons.image,
@@ -6692,7 +6831,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: _AdminActionCard(
+                        child: AdminActionCard(
                           title: 'خلفية الغرفة',
                           subtitle: 'رفع خلفية من الهاتف',
                           icon: Icons.wallpaper,
@@ -6809,361 +6948,4 @@ class _Recipient {
   final String name;
   final String? avatarUrl;
   _Recipient({required this.id, required this.name, this.avatarUrl});
-}
-
-class _AdminActionCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _AdminActionCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white10,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white24),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: Colors.lightBlueAccent),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-class _ActionCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color iconColor;
-  final VoidCallback onTap;
-
-  const _ActionCard({
-    required this.icon,
-    required this.label,
-    required this.iconColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white10,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white24),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: iconColor, size: 26),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-Widget _levelChip(String text, Color color) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.2),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Text(
-      text,
-      style: TextStyle(color: color, fontWeight: FontWeight.bold),
-    ),
-  );
-}
-
-Widget _statCard({
-  required String title,
-  required String subtitle,
-  required Color color,
-}) {
-  return Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.2),
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: Column(
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            color: color,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: const TextStyle(color: Colors.white70, fontSize: 12),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _circleAction(IconData icon, VoidCallback onTap) {
-  return GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: 46,
-      height: 46,
-      decoration: BoxDecoration(
-        color: Colors.white10,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Icon(icon, color: Colors.white),
-    ),
-  );
-}
-
-Widget _menuItem(
-    IconData icon,
-    String label,
-    Color color,
-    VoidCallback onTap,
-    ) {
-  return GestureDetector(
-    onTap: onTap,
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.08),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: color, size: 26),
-        ),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: 70,
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _badge(IconData icon, Color color) {
-  return Container(
-    padding: const EdgeInsets.all(6),
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.2),
-      shape: BoxShape.circle,
-    ),
-    child: Icon(icon, color: color, size: 16),
-  );
-}
-
-Widget _gradientStat(String title, String subtitle, Color color) {
-  return Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        colors: [color.withOpacity(0.7), color],
-      ),
-      borderRadius: BorderRadius.circular(20),
-      boxShadow: [
-        BoxShadow(
-          color: color.withOpacity(0.4),
-          blurRadius: 10,
-        )
-      ],
-    ),
-    child: Column(
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: const TextStyle(color: Colors.white70, fontSize: 12),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    ),
-  );
-}
-
-// Legacy _GlobalGiftBroadcastOverlay removed — new system renders
-// broadcast banners via BroadcastBannerLayer inside GiftAnimationOverlay.
-
-class _RosePetalPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..style = PaintingStyle.fill;
-    final positions = [
-      Offset(size.width * 0.1, size.height * 0.15),
-      Offset(size.width * 0.85, size.height * 0.12),
-      Offset(size.width * 0.05, size.height * 0.5),
-      Offset(size.width * 0.9, size.height * 0.45),
-      Offset(size.width * 0.2, size.height * 0.8),
-      Offset(size.width * 0.75, size.height * 0.75),
-    ];
-    for (int i = 0; i < positions.length; i++) {
-      paint.color = (i % 2 == 0 ? Colors.pinkAccent : Colors.purpleAccent).withOpacity(0.08);
-      canvas.drawCircle(positions[i], 40 + (i * 8.0), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-/// 5-digit numeric PIN dialog used for locking/entering a locked room.
-/// Owns its [TextEditingController] so it lives exactly as long as the dialog
-/// route (disposing it manually after `showDialog` returns crashes mid-transition).
-class _PinDialog extends StatefulWidget {
-  const _PinDialog({
-    required this.title,
-    required this.hint,
-    required this.confirmLabel,
-    this.initial,
-  });
-
-  final String title;
-  final String hint;
-  final String confirmLabel;
-  final String? initial;
-
-  @override
-  State<_PinDialog> createState() => _PinDialogState();
-}
-
-class _PinDialogState extends State<_PinDialog> {
-  late final TextEditingController _ctrl =
-      TextEditingController(text: widget.initial ?? '');
-  String? _error;
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final v = _ctrl.text.trim();
-    if (!RegExp(r'^\d{5}$').hasMatch(v)) {
-      setState(() => _error = 'يجب أن يكون 5 أرقام');
-      return;
-    }
-    Navigator.pop(context, v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
-        title: Text(widget.title, style: const TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(widget.hint,
-                style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _ctrl,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              maxLength: 5,
-              textAlign: TextAlign.center,
-              onSubmitted: (_) => _submit(),
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 26, letterSpacing: 10),
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(
-                counterText: '',
-                errorText: _error,
-                hintText: '•••••',
-                hintStyle:
-                    const TextStyle(color: Colors.white24, letterSpacing: 10),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, null),
-            child:
-                const Text('إلغاء', style: TextStyle(color: Colors.white54)),
-          ),
-          ElevatedButton(
-            onPressed: _submit,
-            child: Text(widget.confirmLabel),
-          ),
-        ],
-      ),
-    );
-  }
 }

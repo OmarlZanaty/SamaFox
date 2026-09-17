@@ -1,13 +1,16 @@
 // lib/widgets/pip_overlay.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/pip_state.dart';
 import '../providers/room_controller_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/active_room.dart';
 import '../services/audio_controller.dart';
 import '../services/socket_service.dart';
 import '../services/room_audio_keepalive.dart';
-import '../services/webrtc_audio_service.dart';
+import '../services/voice_engine.dart';
 import '../main.dart';
 
 class PipOverlay extends ConsumerStatefulWidget {
@@ -21,6 +24,32 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
   Offset _offset = const Offset(20, 120);
   bool _showCloseOptions = false; // ✅ toggle close popup
 
+  /// The room this bubble has registered with [ActiveRoom], so the same
+  /// registration is not repeated on every rebuild.
+  int? _ownedRoomId;
+
+  /// While the bubble is up, IT is the live room: the screen is gone and only
+  /// this widget can end the session. Entering a different room has to go
+  /// through here, or the user stays on the mic in the room they collapsed —
+  /// which is the "معلق علي المايك في الغرفه اللي قبلها" report.
+  void _claimOwnership(int roomId) {
+    if (_ownedRoomId == roomId) return;
+    _ownedRoomId = roomId;
+    ActiveRoom.instance.handOver(roomId, () => _leaveFromBubble(roomId));
+  }
+
+  /// Close the collapsed room completely: audio, seat, room membership, bubble.
+  Future<void> _leaveFromBubble(int roomId) async {
+    final userId = ref.read(authStateProvider).user?.id;
+    _endRoomAudio();
+    if (userId != null) {
+      SocketService().leaveRoom(roomId: roomId, userId: userId);
+    }
+    _ownedRoomId = null;
+    ActiveRoom.instance.release(roomId);
+    if (mounted) ref.read(pipProvider.notifier).deactivate();
+  }
+
   /// Tear down the audio session RoomScreen left running for the bubble.
   ///
   /// Only for actually LEAVING. Expanding back into the room deliberately does
@@ -28,17 +57,21 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
   /// would put the "الصوت بيقطع" gap back in, just one screen later.
   void _endRoomAudio() {
     AudioController.instance.deactivate();
-    WebRTCAudioService().disableVAD();
-    WebRTCAudioService().dispose();
+    VoiceEngine.instance.disableVAD();
+    unawaited(VoiceEngine.instance.dispose());
     RoomAudioKeepAlive.instance.stop();
   }
 
   @override
   Widget build(BuildContext context) {
     final pip = ref.watch(pipProvider);
-    if (!pip.isActive || pip.roomId == null) return const SizedBox.shrink();
+    if (!pip.isActive || pip.roomId == null) {
+      _ownedRoomId = null;
+      return const SizedBox.shrink();
+    }
 
     final roomId = pip.roomId!;
+    _claimOwnership(roomId);
     final state = ref.watch(roomControllerProvider(roomId));
     final userId = ref.watch(authStateProvider).user?.id;
 
@@ -84,8 +117,7 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
                         // drop the bubble (deactivating unmounts this widget
                         // and, with it, the last watcher of the room
                         // controller, which is what sends `leave_room`).
-                        _endRoomAudio();
-                        ref.read(pipProvider.notifier).deactivate();
+                        unawaited(_leaveFromBubble(roomId));
                       },
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -175,6 +207,7 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
                     GestureDetector(
                       onTap: () {
                         setState(() => _showCloseOptions = false);
+                        _ownedRoomId = null;
                         ref.read(pipProvider.notifier).deactivate();
                         // ✅ use root navigator to push on top of everything
                         navigatorKey.currentState?.pushNamed('/room', arguments: roomId);
@@ -245,6 +278,7 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
                         GestureDetector(
                           onTap: () {
                             setState(() => _showCloseOptions = false);
+                            _ownedRoomId = null;
                             ref.read(pipProvider.notifier).deactivate();
                             navigatorKey.currentState?.pushNamed('/room', arguments: roomId); // ✅
                           },

@@ -76,8 +76,60 @@ if [[ "$TARGET" == "apk" && "${NO_ABI_SPLIT:-0}" != "1" ]]; then
   SPLIT+=(--split-per-abi)
 fi
 
+# A marker older than anything this run produces, so the check below never
+# grades an artifact left over from an earlier build (a universal APK from a
+# NO_ABI_SPLIT run sits beside the split ones and is not rebuilt with them).
+BUILD_MARK="$(mktemp)"
+
 echo "▶ flutter build $TARGET  (${#DEFINES[@]} dart-defines)"
 flutter build "$TARGET" --release "${DEFINES[@]}" "${SPLIT[@]}"
+
+# ── Verify the OUTPUT, not just the input ────────────────────────────────────
+#
+# The guard above only checks that TURN_URLS was set when this script ran. It
+# cannot help when the script is not run at all: version 1.0.20 (build 2027)
+# went to Play from a plain `flutter build appbundle --release`, and its Dart
+# snapshot contained the five Google STUN servers and not one TURN entry. Two
+# users on mobile data could not hear each other, and nothing said why.
+#
+# So the binary itself is inspected. The dart-define values are embedded as
+# plain strings in libapp.so; if `turn:` is not in there, this build must not
+# leave this machine.
+verify_turn_in() {
+  local artifact="$1"
+  local so
+  so="$(unzip -Z1 "$artifact" 2>/dev/null | grep -m1 'lib/arm64-v8a/libapp.so')" || true
+  if [[ -z "$so" ]]; then
+    echo "   (no arm64 libapp.so in $artifact — skipping TURN check)" >&2
+    return 0
+  fi
+  local hits
+  hits="$(unzip -p "$artifact" "$so" | grep -ac 'turn:' || true)"
+  if [[ "${hits:-0}" -gt 0 ]]; then
+    echo "✅ TURN present in $(basename "$artifact") ($hits match)"
+    return 0
+  fi
+  echo "❌ $(basename "$artifact") contains NO TURN configuration." >&2
+  echo "   This is the STUN-only build that ships silent voice. Refusing." >&2
+  return 1
+}
+
+if [[ -n "$TURN_URLS" ]]; then
+  case "$TARGET" in
+    appbundle) verify_turn_in build/app/outputs/bundle/release/app-release.aab ;;
+    apk)
+      for f in build/app/outputs/flutter-apk/app-*release.apk; do
+        [[ -f "$f" ]] || continue
+        if [[ "$f" -ot "$BUILD_MARK" ]]; then
+          echo "   (skipping $(basename "$f") — left over from an earlier build, not produced now)"
+          continue
+        fi
+        verify_turn_in "$f"
+      done
+      ;;
+  esac
+fi
+rm -f "$BUILD_MARK"
 
 case "$TARGET" in
   appbundle)

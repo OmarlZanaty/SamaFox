@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
+
+import '../services/crash_reporter.dart';
 import '../models/user.dart';
 import '../repositories/auth_repository.dart';
 import '../services/dio_client.dart';
@@ -79,6 +81,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> forceLogoutBanned(String message) async {
     if (!state.isAuthenticated && state.user == null) return;
     await _forceLogoutLocal(error: message);
+  }
+
+  /// Every state change passes through here, so the client log always knows
+  /// which user a phone's events belong to — login, logout, restore, ban.
+  @override
+  set state(AuthState value) {
+    super.state = value;
+    CrashReporter.setUser(value.user?.id);
   }
 
   @override

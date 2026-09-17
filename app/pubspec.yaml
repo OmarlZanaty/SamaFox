@@ -6,7 +6,7 @@ publish_to: 'none'
 # regenerates local.properties FROM this file, so that override was silently
 # overwritten and the next build would have dropped to 24 and been rejected as
 # a downgrade. pubspec is the single source of truth now.
-version: 1.0.20+2027
+version: 1.0.22+2030
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -26,6 +26,7 @@ dependencies:
 
   #flutter_webrtc: ^0.9.48
   flutter_webrtc: ^1.2.1
+  livekit_client: ^2.6.2
 
   flutter_staggered_grid_view: ^0.7.0
 
@@ -65,7 +66,7 @@ dependencies:
   permission_handler: ^11.3.1
 
   # Device Info
-  device_info_plus: ^9.1.1
+  device_info_plus: ^12.4.0
 
   # Localization
   flutter_localizations:
@@ -104,6 +105,9 @@ dependencies:
   url_launcher: ^6.2.4
   # Reads this build's own version code for the forced-update gate.
   package_info_plus: ^9.0.1
+  # Already present transitively; declared because CrashReporter uses it
+  # directly to store the session marker that detects an OS kill.
+  path_provider: ^2.1.5
   smooth_page_indicator: ^1.1.0
   confetti: ^0.7.0
   audioplayers: ^5.2.1
@@ -166,3 +170,10 @@ flutter:
           fonts:
             - asset: assets/fonts/ElMessiri-Regular.ttf
               weight: 700
+
+# livekit_client needs protobuf 6; retrofit_generator 8 (a DEV-only code
+# generator whose output is already checked in) still declares protobuf 3. The
+# newer retrofit_generator that would lift this is blocked by hive_generator via
+# the analyzer. The override only affects the generator, never the app binary.
+dependency_overrides:
+  protobuf: ^6.0.0

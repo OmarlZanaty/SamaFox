@@ -25,20 +25,35 @@ class GiftSocketService {
   Stream<GiftSendEvent> get broadcastStream => _broadcast.stream;
   Stream<GiftAnnouncement> get announcementStream => _announcements.stream;
 
+  /// Exactly the handlers this instance registered, so [unbind] can remove its
+  /// own and nothing else.
+  ///
+  /// It used to unbind by EVENT NAME, which removes every listener the app has
+  /// for that event. One instance per room screen plus a room switch (screen B
+  /// binds, screen A then tears down) meant the surviving screen lost gifts
+  /// entirely — no animation, no announcement bar — with nothing in the log to
+  /// say why.
+  final List<MapEntry<String, Function(dynamic)>> _handlers = [];
+
   void bind() {
     if (_bound) return;
     _bound = true;
-    _socket.on('gift_sent', (data) => _dispatch(data, _sent));
-    _socket.on('gift_legendary_incoming', (data) => _dispatch(data, _legendaryIncoming));
-    _socket.on('gift_broadcast', (data) => _dispatch(data, _broadcast));
-    _socket.on('gift_announcement', _dispatchAnnouncement);
+    void listen(String event, Function(dynamic) handler) {
+      _handlers.add(MapEntry(event, handler));
+      _socket.on(event, handler);
+    }
+
+    listen('gift_sent', (data) => _dispatch(data, _sent));
+    listen('gift_legendary_incoming', (data) => _dispatch(data, _legendaryIncoming));
+    listen('gift_broadcast', (data) => _dispatch(data, _broadcast));
+    listen('gift_announcement', _dispatchAnnouncement);
   }
 
   void unbind() {
-    _socket.off('gift_sent');
-    _socket.off('gift_legendary_incoming');
-    _socket.off('gift_broadcast');
-    _socket.off('gift_announcement');
+    for (final h in _handlers) {
+      _socket.off(h.key, h.value);
+    }
+    _handlers.clear();
     _bound = false;
   }
 
