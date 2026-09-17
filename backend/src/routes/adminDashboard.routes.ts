@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware';
 import { requireAdminDashboard, requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
+import { clientLogFiles, tailJsonl } from './appDownload.routes';
 import {
   adminDashboardAnalytics,
   adminDashboardBanUser,
@@ -206,5 +207,65 @@ router.post('/gates', adminSetGates);
 // ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────
 router.get('/games', adminListGameConfig);
 router.post('/games/:game', adminSetGameConfig);
+
+// ── Client logs (what the app is doing on users' phones) ─────────────────────
+//
+// GET /admin-dashboard/client-logs?minutes=60&userId=12&level=error&q=mic&limit=500
+//
+// Reads the tail of logs/client-events.log (live events) and
+// logs/client-reports.log (crashes / OS kills), newest first. Filters are
+// applied server-side so the page stays light on a phone.
+router.get('/client-logs', (req, res) => {
+  try {
+    const minutes = Math.min(Math.max(Number(req.query.minutes) || 60, 1), 60 * 24 * 7);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 5000);
+    const userId = Number(req.query.userId) || null;
+    const room = Number(req.query.room) || null;
+    const level = typeof req.query.level === 'string' ? req.query.level : '';
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    const since = Date.now() - minutes * 60 * 1000;
+
+    const events = tailJsonl(clientLogFiles.events())
+      .filter((e) => Date.parse(String(e.rx ?? e.t)) >= since)
+      .filter((e) => !userId || e.userId === userId)
+      .filter((e) => !room || e.room === room)
+      .filter((e) => !level || e.level === level)
+      .filter((e) => !q || JSON.stringify(e).toLowerCase().includes(q));
+
+    const reports = tailJsonl(clientLogFiles.reports(), 2 * 1024 * 1024)
+      .filter((r) => Date.parse(String(r.receivedAt)) >= since)
+      .filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q))
+      .map((r) => ({
+        t: r.at ?? r.receivedAt,
+        rx: r.receivedAt,
+        level: 'error',
+        kind: 'crash',
+        msg: `${r.kind}: ${r.message ?? ''}`,
+        userId: null,
+        room: null,
+        app: r.appVersion ?? null,
+        device: r.platform ?? null,
+        session: null,
+        data: { peakRssMb: r.peakRssMb, stack: r.stack, breadcrumbs: r.breadcrumbs },
+      }));
+
+    const all = [...events, ...reports]
+      .sort((a, b) => Date.parse(String(b.rx)) - Date.parse(String(a.rx)))
+      .slice(0, limit);
+
+    // A quick shape of the window, for the header of the page.
+    const summary = {
+      total: all.length,
+      errors: all.filter((e) => e.level === 'error').length,
+      warns: all.filter((e) => e.level === 'warn').length,
+      users: new Set(all.map((e) => e.userId).filter(Boolean)).size,
+      apps: Array.from(new Set(all.map((e) => e.app).filter(Boolean))),
+    };
+    return res.json({ success: true, minutes, summary, items: all });
+  } catch (e) {
+    console.error('[admin.client-logs]', e);
+    return res.status(500).json({ success: false, message: 'Failed to read logs' });
+  }
+});
 
 export default router;

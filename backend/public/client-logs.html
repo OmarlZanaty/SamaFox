@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>سجل العملاء — SamaFox</title>
+<style>
+  :root { --bg:#0f0a1f; --card:#1a1233; --line:#2b2050; --fg:#eee; --mut:#a79fc4;
+          --err:#ff5c7a; --warn:#ffb84d; --info:#7bd88f; --acc:#8b6cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif; }
+  header { position:sticky; top:0; background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  header h1 { font-size:16px; margin:0 8px 0 0; }
+  input, select, button { background:#120c26; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit; }
+  input { min-width:120px; }
+  button { background:var(--acc); border-color:var(--acc); cursor:pointer; }
+  button.ghost { background:transparent; }
+  .sum { color:var(--mut); font-size:12px; margin-inline-start:auto; }
+  .sum b { color:var(--fg); }
+  main { padding:12px 16px; }
+  .row { display:grid; grid-template-columns:150px 64px 70px 70px 90px 1fr; gap:10px; padding:8px 10px; border-bottom:1px solid var(--line); align-items:start; }
+  .row:hover { background:#150e2c; }
+  .row.error .lvl { color:var(--err); } .row.warn .lvl { color:var(--warn); } .row.info .lvl { color:var(--info); }
+  .lvl { font-weight:700; text-transform:uppercase; font-size:11px; }
+  .t { color:var(--mut); font-variant-numeric:tabular-nums; font-size:12px; direction:ltr; text-align:right; }
+  .k { color:var(--acc); font-size:12px; }
+  .u, .app { color:var(--mut); font-size:12px; }
+  .msg { word-break:break-word; }
+  .data { display:none; margin-top:6px; background:#0b0716; border:1px solid var(--line); border-radius:8px; padding:8px; font:12px/1.4 ui-monospace,Consolas,monospace; direction:ltr; text-align:left; white-space:pre-wrap; max-height:320px; overflow:auto; }
+  .row.open .data { display:block; }
+  #login { max-width:380px; margin:60px auto; background:var(--card); padding:20px; border-radius:12px; display:none; }
+  #login input { width:100%; margin-bottom:10px; }
+  .empty { color:var(--mut); padding:40px; text-align:center; }
+  @media (max-width:720px) { .row { grid-template-columns:110px 54px 1fr; } .u,.app,.k { display:none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>سجل العملاء</h1>
+  <select id="minutes">
+    <option value="15">آخر 15 دقيقة</option>
+    <option value="60" selected>آخر ساعة</option>
+    <option value="360">آخر 6 ساعات</option>
+    <option value="1440">آخر 24 ساعة</option>
+    <option value="10080">آخر أسبوع</option>
+  </select>
+  <select id="level">
+    <option value="">كل المستويات</option>
+    <option value="error">أخطاء فقط</option>
+    <option value="warn">تحذيرات</option>
+    <option value="info">معلومات</option>
+  </select>
+  <input id="userId" placeholder="رقم المستخدم" inputmode="numeric">
+  <input id="room" placeholder="رقم الغرفة" inputmode="numeric">
+  <input id="q" placeholder="بحث… (mic, socket, livekit, peer)">
+  <button id="refresh">تحديث</button>
+  <label style="color:var(--mut);font-size:12px"><input type="checkbox" id="auto" checked style="min-width:0"> تلقائي كل 10 ث</label>
+  <span class="sum" id="sum"></span>
+</header>
+
+<div id="login">
+  <h3 style="margin-top:0">دخول الأدمن</h3>
+  <input id="email" placeholder="الإيميل" type="email" autocomplete="username">
+  <input id="password" placeholder="كلمة المرور" type="password" autocomplete="current-password">
+  <button id="loginBtn" style="width:100%">دخول</button>
+  <div id="loginErr" style="color:var(--err);margin-top:8px"></div>
+</div>
+
+<main id="list"><div class="empty">…</div></main>
+
+<script>
+// Reads /api/v1/admin-dashboard/client-logs with the dashboard's own cookie
+// session. Same login as admin-dashboard.html; nothing new to remember.
+const $ = (id) => document.getElementById(id);
+const fmt = (iso) => { const d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString('ar-EG', { hour12:false, month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' }); };
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function load() {
+  const p = new URLSearchParams({ minutes: $('minutes').value, level: $('level').value, userId: $('userId').value, room: $('room').value, q: $('q').value, limit: 800 });
+  const r = await fetch('/api/v1/admin-dashboard/client-logs?' + p, { credentials: 'include' });
+  if (r.status === 401 || r.status === 403) { $('login').style.display = 'block'; $('list').innerHTML = ''; return; }
+  $('login').style.display = 'none';
+  const j = await r.json();
+  const s = j.summary || {};
+  $('sum').innerHTML = `<b>${s.total ?? 0}</b> حدث · <b style="color:var(--err)">${s.errors ?? 0}</b> خطأ · <b style="color:var(--warn)">${s.warns ?? 0}</b> تحذير · <b>${s.users ?? 0}</b> مستخدم · ${(s.apps||[]).join(', ')}`;
+  if (!j.items || j.items.length === 0) { $('list').innerHTML = '<div class="empty">لا توجد أحداث في هذه الفترة</div>'; return; }
+  $('list').innerHTML = j.items.map((e) => {
+    const data = e.data === undefined || e.data === null ? '' : `<div class="data">${esc(typeof e.data === 'string' ? e.data : JSON.stringify(e.data, null, 2))}</div>`;
+    return `<div class="row ${esc(e.level)}" onclick="this.classList.toggle('open')">
+      <div class="t">${esc(fmt(e.rx || e.t))}</div>
+      <div class="lvl">${esc(e.level)}</div>
+      <div class="k">${esc(e.kind)}</div>
+      <div class="u">${e.userId ? '#' + e.userId : ''}${e.room ? ' · غ' + e.room : ''}</div>
+      <div class="app">${esc((e.app || '').replace('1.0.', 'v'))}<br>${esc((e.device || '').slice(0, 18))}</div>
+      <div class="msg">${esc(e.msg)}${data}</div>
+    </div>`;
+  }).join('');
+}
+
+$('loginBtn').onclick = async () => {
+  $('loginErr').textContent = '';
+  const r = await fetch('/api/v1/admin-dashboard-auth/login', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
+  if (!r.ok) { $('loginErr').textContent = 'بيانات غير صحيحة'; return; }
+  load();
+};
+$('refresh').onclick = load;
+['minutes','level'].forEach((id) => $(id).onchange = load);
+['userId','room','q'].forEach((id) => $(id).onkeydown = (ev) => { if (ev.key === 'Enter') load(); });
+setInterval(() => { if ($('auto').checked && $('login').style.display !== 'block') load(); }, 10000);
+load();
+</script>
+</body>
+</html>

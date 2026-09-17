@@ -23,6 +23,21 @@ export const CP_DEFAULTS: Record<string, string> = {
   update_title: 'تحديث جديد متاح',
   update_message: 'نزّل آخر إصدار من سما فوكس عشان تكمل. فيه مزايا جديدة وإصلاحات في الصوت والغرف.',
   update_store_url: 'https://play.google.com/store/apps/details?id=com.almobarmg.samafox',
+
+  // ── Voice engine ────────────────────────────────────────────────────────────────────────
+  // `mesh`    — the original peer-to-peer full mesh (every phone connects to
+  //             every other phone). Works up to a handful of people per room.
+  // `livekit` — an SFU: every phone holds ONE connection, to the LiveKit
+  //             server, which forwards audio. Rooms of 30+ become possible.
+  //
+  // A runtime switch rather than a build flag so a problem with the new engine
+  // is rolled back by changing one row, not by shipping an app update. Clients
+  // read it on launch; a room is entered with whatever engine was read.
+  voice_engine: 'mesh',
+  // Where the app connects for `livekit`. ws:// or wss://. Empty = engine
+  // stays `mesh` regardless of the flag, so a half-configured server cannot
+  // strand anyone.
+  livekit_url: '',
 };
 
 /** Read all app settings merged over the defaults. */
@@ -61,6 +76,11 @@ export async function getSettings(_req: Request, res: Response) {
         updateTitle: s.update_title,
         updateMessage: s.update_message,
         updateStoreUrl: s.update_store_url,
+        // Voice engine selection (see CP_DEFAULTS). The URL is what the app
+        // dials; the key/secret never leave the server — the app gets a
+        // short-lived token from /voice/token instead.
+        voiceEngine: s.livekit_url ? s.voice_engine : 'mesh',
+        livekitUrl: s.livekit_url,
       },
     });
   } catch (e) {

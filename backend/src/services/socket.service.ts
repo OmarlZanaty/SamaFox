@@ -468,11 +468,38 @@ await Promise.all(
     seats: seatDetails,
   });
 
+  // Every seat change lands here, and a seat change IS a voice-topology change
+  // (see voiceSnapshot): someone just became, or stopped being, a speaker that
+  // the listeners need a connection to.
+  await emitVoiceUsers(io, rid);
+}
+
+/**
+ * Who is in voice, and which of them hold a mic.
+ *
+ * `speakers` is the set of seat occupants. It is what lets the client stop
+ * building a FULL mesh: a listener only needs a connection to people who can
+ * actually produce audio, and two listeners have nothing to send each other.
+ * Without it every member peered with every other member — 190 connections in
+ * a room of 20, 19 on every phone — which is well past what a mid-range
+ * Android on mobile data can hold, and the direct cause of "بعض المستخدمين
+ * يسمعون وبعضهم لا" as rooms filled up.
+ *
+ * Old clients ignore the extra field and keep the full mesh; new clients fall
+ * back to it if the field is missing. Either way the two sides of a pair make
+ * the same decision from the same snapshot, which is what keeps them agreeing
+ * on whether a connection should exist.
+ */
+function voiceSnapshot(rid: number) {
+  return {
+    roomId: rid,
+    users: Array.from(getVoiceSet(rid).values()),
+    speakers: Array.from(new Set(getSeats(rid).values())),
+  };
 }
 
 async function emitVoiceUsers(io: Server, rid: number) {
-  const users = Array.from(getVoiceSet(rid).values());
-  io.to(`room:${rid}`).emit('voice_users', { roomId: rid, users });
+  io.to(`room:${rid}`).emit('voice_users', voiceSnapshot(rid));
 }
 
 /**
@@ -691,7 +718,16 @@ export const initializeSocketHandlers = (io: Server) => {
 
     payload = verifyAccessToken(token);
   } catch (err) {
-    console.error('[socket auth error]', err);
+    // An expired or malformed token is routine (the app reopened after 24h
+    // and refreshes on the rejection); it does not deserve a stack trace. It
+    // was producing hundreds of ten-line traces a day in error.log, burying
+    // the errors that matter.
+    const e = err as { name?: string; message?: string; expiredAt?: unknown };
+    if (e?.name === 'TokenExpiredError' || e?.name === 'JsonWebTokenError') {
+      console.warn('[socket auth] rejected:', e.name, e.message ?? '', e.expiredAt ?? '');
+    } else {
+      console.error('[socket auth error]', err);
+    }
     return next(new Error('invalid token'));
   }
 
@@ -1392,6 +1428,18 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       // reconnect/foreground, not a new entrance.
       const isResync = userCurrentRoom.get(uid) === rid;
 
+      // One room at a time: entering this one LEAVES the previous one, seat and
+      // all. Without this the seat, the mic queue slot and the voice membership
+      // of the old room all survived — the user showed up on the mic in a room
+      // they were no longer looking at, and their voice was still routed there.
+      // The app leaves the old room itself now; this is the guarantee that holds
+      // for every client, including ones that never will.
+      const previousRoom = userCurrentRoom.get(uid);
+      if (previousRoom && previousRoom !== rid) {
+        console.log('[join_room] leaving previous room first', { uid, previousRoom, rid });
+        await performLeaveRoom(io, socket, uid, previousRoom);
+      }
+
       cancelPendingRelease(uid); // back in time — keep whatever they still hold
       socket.join(`room:${rid}`);
       userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
@@ -1536,11 +1584,24 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
     // ----------------------------
     // Leave room
     // ----------------------------
-socket.on('leave_room', async ({ roomId }: any) => {
-  const rid = toInt(roomId);
-  const uid = socket.userId;
-  if (!uid || !rid) return;
-
+/**
+ * Everything that has to happen when a user stops being in a room: the socket
+ * leaves it, the seat and the mic queue are freed, voice is torn down and the
+ * room is told.
+ *
+ * Extracted from the `leave_room` handler because `join_room` needs exactly the
+ * same work for the room the user is coming FROM. Nothing used to do that, so
+ * entering a second room left the first one holding the seat: the client
+ * reported "لما ادخل اي غرفه بفضل معلق علي المايك في الغرفه اللي قبلها", and
+ * the room he had left went on showing him on the mic. Enforced here rather
+ * than only in the app, so an old build cannot leave a stale seat behind.
+ */
+async function performLeaveRoom(
+  io: Server,
+  socket: AuthenticatedSocket,
+  uid: number,
+  rid: number,
+) {
   socket.leave(`room:${rid}`);
   if (userCurrentRoom.get(uid) === rid) userCurrentRoom.delete(uid); // #25/#31
   // A deliberate exit ends the debounce window: coming back in is a real
@@ -1548,6 +1609,17 @@ socket.on('leave_room', async ({ roomId }: any) => {
   // Reconnects never send leave_room, so they stay debounced.
   recentRoomEntries.delete(`${rid}:${uid}`);
   console.log('[leave_room]', { uid, rid });
+
+  // Voice membership is NOT tied to a seat: every member joins voice, listeners
+  // included (the room is joined listen-only and upgraded on taking a seat).
+  // This used to be dropped only inside the seat loop below, so anyone who left
+  // without a seat stayed in the room's voice set for the life of the process —
+  // and every remaining client kept trying to hold a peer connection open to
+  // someone who was gone.
+  if (getVoiceSet(rid).delete(uid)) {
+    io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
+    await emitVoiceUsers(io, rid);
+  }
 
   // cleanup: remove from queue
   const q = getQueue(rid).filter((id) => id !== uid);
@@ -1581,7 +1653,13 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   // Last one out turns the music off.
   await clearMusicIfRoomEmpty(io, rid);
+}
 
+socket.on('leave_room', async ({ roomId }: any) => {
+  const rid = toInt(roomId);
+  const uid = socket.userId;
+  if (!uid || !rid) return;
+  await performLeaveRoom(io, socket, uid, rid);
 });
 
 
@@ -2179,10 +2257,10 @@ await emitRoomState(io, rid);
       const rid = Number(roomId);
       if (!rid) return;
 
-      const users = Array.from(getVoiceSet(rid).values());
-      console.log('👥 voice_users', { rid, users });
+      const snapshot = voiceSnapshot(rid);
+      console.log('👥 voice_users', { rid, users: snapshot.users, speakers: snapshot.speakers });
 
-      socket.emit('voice_users', { roomId: rid, users });
+      socket.emit('voice_users', snapshot);
     });
 
     socket.on('user_left_voice', async ({ roomId, userId }: any) => {
