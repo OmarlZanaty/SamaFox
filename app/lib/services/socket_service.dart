@@ -239,15 +239,26 @@ class SocketService {
     // leaving the option unset makes the manager default to double.infinity,
     // which is what "unlimited" has to mean here. An int cannot express that,
     // and a negative value silently inverts the guard into "give up at once".
-    // Polling FIRST, then upgrade to websocket — engine.io's own default, and
-    // for a reason: the first transport in this list is the only one tried for
-    // the initial connection, and a failed initial connection is retried with
-    // the same transport forever. Websocket-first meant a phone whose upgrade
-    // request was refused (one device logged 119 consecutive "HTTP 400, not
-    // upgraded" errors) never got a socket at all — no seats, no voice, no
-    // gifts — while polling would have worked on the very first try.
+    // WEBSOCKET FIRST. This list was briefly flipped to polling-first
+    // (engine.io's own default) to help a phone whose websocket upgrade was
+    // refused — one device logged 119 consecutive "HTTP 400, not upgraded"
+    // errors. Build 1.0.22+2030 shipped that flip and NOBODY could enter a
+    // room: 176 `connect error: timeout` in the client log and not one
+    // successful connection, against 48 on 1.0.21.
+    //
+    // The cause is in this client package, not the server. With polling first,
+    // its handshake goes out as a websocket upgrade that still carries
+    // `transport=polling` in the query; nginx and engine.io answer 101, the
+    // XHR handshake the client is waiting for never arrives, and the socket
+    // times out after 20s. Reproducible: polling-first leaves the engine
+    // `closed`, websocket-first leaves it `open`. The server is fine —
+    // `curl '…?EIO=4&transport=polling'` returns a normal 200 handshake.
+    //
+    // So websocket first, with polling only as the fallback. The refused-
+    // upgrade case above is a REAL problem and is still open, but it costs one
+    // device its socket; this cost every device its socket.
     final options = IO.OptionBuilder()
-        .setTransports(['polling', 'websocket'])
+        .setTransports(['websocket', 'polling'])
         .enableAutoConnect()
         .enableReconnection()
         .setReconnectionDelay(AppConfig.socketReconnectionDelay)
