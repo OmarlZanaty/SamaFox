@@ -2768,15 +2768,16 @@ export const adminUserChargeHistory = async (req: AdminReq, res: Response) => {
  */
 export const adminGetGates = async (_req: AdminReq, res: Response) => {
   try {
-    const [{ getVisitorsMinLevel }, { getMessageImageMinVip }] = await Promise.all([
+    const [{ getVisitorsMinLevel }, { getMessageImageMinVip, getRoomImageMinVip }] = await Promise.all([
       import('../follow/relations.controller'),
       import('./messages.controller'),
     ]);
-    const [visitorsMinLevel, messageImageMinVip] = await Promise.all([
+    const [visitorsMinLevel, messageImageMinVip, roomImageMinVip] = await Promise.all([
       getVisitorsMinLevel(),
       getMessageImageMinVip(),
+      getRoomImageMinVip(),
     ]);
-    return ok(res, { data: { visitorsMinLevel, messageImageMinVip } });
+    return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip } });
   } catch (e) {
     console.error('adminGetGates error:', e);
     return fail(res, 500, 'Server error');
@@ -2799,6 +2800,12 @@ export const adminSetGates = async (req: AdminReq, res: Response) => {
       if (!Number.isFinite(v) || v < 0) return fail(res, 400, 'messageImageMinVip must be >= 0');
       const { setMessageImageMinVip } = await import('./messages.controller');
       out.messageImageMinVip = await setMessageImageMinVip(v);
+    }
+    if (body?.roomImageMinVip != null) {
+      const v = Math.floor(Number(body.roomImageMinVip));
+      if (!Number.isFinite(v) || v < 0) return fail(res, 400, 'roomImageMinVip must be >= 0');
+      const { setRoomImageMinVip } = await import('./messages.controller');
+      out.roomImageMinVip = await setRoomImageMinVip(v);
     }
     if (Object.keys(out).length === 0) return fail(res, 400, 'nothing to update');
 

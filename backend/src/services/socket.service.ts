@@ -1679,14 +1679,44 @@ socket.on('leave_room', async ({ roomId }: any) => {
     // ----------------------------
     // Chat
     // ----------------------------
-    socket.on('send_message', async ({ roomId, message }: any) => {
+    socket.on('send_message', async ({ roomId, message, imageUrl }: any) => {
       try {
       const uid = socket.userId;
       const rid = toInt(roomId);
       // ✅ FIX: limit message length to prevent DB/client abuse
       const MAX_MSG = 500;
-      const clean = message?.toString().trim().slice(0, MAX_MSG);
-      if (!uid || !rid || !clean) return;
+      const clean = (message?.toString().trim().slice(0, MAX_MSG) ?? '') as string;
+
+      // صور في شات الروم — the picture was uploaded through /upload/image
+      // first; only OUR uploads are accepted as a url, and the sender must
+      // clear the VIP bar set in لوحة التحكم (room_image_min_vip).
+      let picture: string | null = null;
+      if (imageUrl != null && String(imageUrl).trim()) {
+        const raw = String(imageUrl).trim();
+        const ours = /^(https?:\/\/[^/]+)?\/uploads\/[A-Za-z0-9._-]+$/.test(raw);
+        if (!ours) {
+          socket.emit('room_message_rejected', { code: 'BAD_IMAGE', message: 'صورة غير صالحة' });
+          return;
+        }
+        const { getRoomImageMinVip } = await import('../controllers/messages.controller');
+        const minVip = await getRoomImageMinVip();
+        if (minVip > 0 && uid) {
+          const me = await prisma.user.findUnique({ where: { id: uid }, select: { vipLevel: true } });
+          if ((me?.vipLevel ?? 0) < minVip) {
+            socket.emit('room_message_rejected', {
+              code: 'VIP_REQUIRED',
+              minVip,
+              message: `إرسال الصور في الغرفة متاح من VIP ${minVip} فما فوق`,
+            });
+            return;
+          }
+        }
+        // Stored and sent absolute, like every other upload url the app gets.
+        picture = raw.startsWith('/')
+          ? `${(process.env.PUBLIC_BASE_URL ?? process.env.BASE_URL ?? '').replace(/\/+$/, '')}${raw}`
+          : raw;
+      }
+      if (!uid || !rid || (!clean && !picture)) return;
 
       // ✅ FIX: fetch username from DB — never trust client-provided username (was spoofable)
       const user = await prisma.user.findUnique({
@@ -1723,6 +1753,8 @@ socket.on('leave_room', async ({ roomId }: any) => {
           userId: uid,
           username,
           content: clean,
+          type: picture ? 'image' : 'text',
+          imageUrl: picture,
           timestamp: new Date(),
         },
       });
@@ -1733,6 +1765,8 @@ socket.on('leave_room', async ({ roomId }: any) => {
         userId: uid,
         username,
         message: clean,
+        type: picture ? 'image' : 'text',
+        imageUrl: picture,
         timestamp: Date.now(),
         avatar: user?.avatarUrl ?? null,
         // Group 12: level-tiered + custom chat bubbles.

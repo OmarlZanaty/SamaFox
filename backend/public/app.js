@@ -3056,6 +3056,7 @@ async function loadModeration() {
 
   document.getElementById("gate_visitors").value    = gates?.data?.visitorsMinLevel ?? 0;
   document.getElementById("gate_image_vip").value   = gates?.data?.messageImageMinVip ?? 0;
+  document.getElementById("gate_room_image_vip").value = gates?.data?.roomImageMinVip ?? 0;
 
   const rows = bans?.data ?? [];
   const body = document.querySelector("#deviceBansTable tbody");
@@ -3126,7 +3127,8 @@ async function deleteDeviceBan(id) {
 async function saveGates() {
   const visitorsMinLevel   = Number(document.getElementById("gate_visitors").value || 0);
   const messageImageMinVip = Number(document.getElementById("gate_image_vip").value || 0);
-  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip });
+  const roomImageMinVip    = Number(document.getElementById("gate_room_image_vip").value || 0);
+  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip, roomImageMinVip });
   showToast("✅ تم الحفظ");
 }
 

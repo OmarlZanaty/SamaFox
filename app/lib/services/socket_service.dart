@@ -1059,6 +1059,10 @@ class SocketService {
       }
     });
 
+    _socket!.on('room_message_rejected', (data) {
+      if (data is Map) _roomMessageRejected.add(Map<String, dynamic>.from(data));
+    });
+
     // Typing
     _socket!.on('typing', (data) {
       try {
@@ -1243,6 +1247,29 @@ class SocketService {
     sendMessage(roomId: roomId, userId: userId, username: username, message: message);
   }
 
+  /// صور في شات الروم — the picture is already uploaded (/upload/image); the
+  /// server checks the VIP bar and answers `room_message_rejected` if not.
+  void sendRoomImage({
+    required int roomId,
+    required int userId,
+    required String username,
+    required String imageUrl,
+  }) {
+    emit('send_message', {
+      'roomId': roomId,
+      'userId': userId,
+      'username': username,
+      'message': '',
+      'imageUrl': imageUrl,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  final StreamController<Map<String, dynamic>> _roomMessageRejected =
+      StreamController.broadcast();
+  /// `{code, message, minVip?}` when the server refuses a room message.
+  Stream<Map<String, dynamic>> get roomMessageRejectedStream => _roomMessageRejected.stream;
+
   void sendTyping({
     required int roomId,
     required int userId,
@@ -1340,6 +1367,11 @@ class SocketMessage {
   final int? displayId;
   final String? bubbleUrl;
 
+  /// صور في شات الروم — 'image' messages carry a picture and no text.
+  final String type;
+  final String? imageUrl;
+  bool get isImage => type == 'image' && (imageUrl ?? '').isNotEmpty;
+
   /// Where that bubble design's EMPTY inner box is, per لوحة التحكم. Drives
   /// both the text padding and the 9-slice, so the writing stays inside the
   /// bubble however the artwork is decorated.
@@ -1361,6 +1393,8 @@ class SocketMessage {
     this.vipLevel = 0,
     this.displayId,
     this.bubbleUrl,
+    this.type = 'text',
+    this.imageUrl,
     this.bubbleLayout = ProductLayout.empty,
     this.badges = const [],
   });
@@ -1384,6 +1418,8 @@ class SocketMessage {
       vipLevel: _i(json['vipLevel'] ?? 0),
       displayId: json['displayId'] == null ? null : _i(json['displayId']),
       bubbleUrl: json['bubbleUrl'] as String?,
+      type: (json['type'] ?? 'text').toString(),
+      imageUrl: json['imageUrl'] as String?,
       bubbleLayout: ProductLayout.parse(json['bubbleMeta']),
       badges: (json['badges'] as List?)
               ?.map((e) => e?.toString() ?? '')

@@ -226,6 +226,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _socketErrSub = null;
     _userEventSub?.cancel();
     _userEventSub = null;
+    _roomMsgRejectedSub?.cancel();
+    _roomMsgRejectedSub = null;
     _joinDeniedSub?.cancel();
     _joinDeniedSub = null;
     _seatEffectSub?.cancel();
@@ -3057,6 +3059,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
     });
 
+    _roomMsgRejectedSub?.cancel();
+    _roomMsgRejectedSub = SocketService().roomMessageRejectedStream.listen((r) {
+      if (!mounted) return;
+      final msg = r['message']?.toString() ?? 'تعذّر إرسال الرسالة';
+      _showRoomSnack(msg, error: true);
+    });
+
     _userEventSub?.cancel();
     _userEventSub = SocketService().userEventStream.listen((event) {
       if (!mounted) return;
@@ -3239,6 +3248,39 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
 
     super.dispose();
+  }
+
+  bool _sendingRoomImage = false;
+  StreamSubscription<Map<String, dynamic>>? _roomMsgRejectedSub;
+
+  /// صور في شات الروم — same picker settings as the DM picture, same upload
+  /// endpoint, then one socket emit. Whether this user may is the server's
+  /// call (room_image_min_vip in لوحة التحكم).
+  Future<void> _pickAndSendRoomImage() async {
+    try {
+      final picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 82,
+        maxWidth: 1600,
+      );
+      if (picked == null || !mounted) return;
+      setState(() => _sendingRoomImage = true);
+      final url = await MessageRepository().uploadChatImage(picked.path);
+      if (url.isEmpty) throw Exception('upload failed');
+      if (!mounted) return;
+      ref.read(roomControllerProvider(widget.roomId).notifier).sendRoomImage(imageUrl: url);
+      _closeChat();
+      _topChatFocus.unfocus();
+      setState(() => _showChatPanel = false);
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is DioException && e.response?.data is Map
+          ? (e.response!.data['message']?.toString() ?? 'تعذّر إرسال الصورة')
+          : 'تعذّر إرسال الصورة';
+      _showRoomSnack(msg, error: true);
+    } finally {
+      if (mounted) setState(() => _sendingRoomImage = false);
+    }
   }
 
   void _sendText() {
@@ -4776,6 +4818,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                   child: Row(
                     children: [
+                      // صور في شات الروم — pick, upload, send. The server
+                      // decides the VIP bar; a refusal comes back as a snack.
+                      IconButton(
+                        icon: _sendingRoomImage
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))
+                            : const Icon(Icons.image_outlined, color: Colors.white70),
+                        tooltip: 'صورة',
+                        onPressed: _sendingRoomImage ? null : _pickAndSendRoomImage,
+                      ),
                       Expanded(
                         child: TextField(
                           controller: _externalTextController,

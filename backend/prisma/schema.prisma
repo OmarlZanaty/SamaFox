@@ -252,6 +252,10 @@ model RoomMessage {
   content   String
   timestamp DateTime @default(now())
   avatar    String?
+  // صور في شات الروم — a picture message has type 'image', an imageUrl, and
+  // an empty content. Gated by app_settings.room_image_min_vip.
+  type      String   @default("text")
+  imageUrl  String?
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
   user User @relation("RoomMessageSender", fields: [userId], references: [id], onDelete: Cascade)

@@ -1316,6 +1316,18 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     );
   }
 
+  /// صور في شات الروم.
+  void sendRoomImage({required String imageUrl}) {
+    final user = ref.read(authStateProvider).user;
+    if (user == null) return;
+    _socket.sendRoomImage(
+      roomId: roomId,
+      userId: user.id,
+      username: user.name,
+      imageUrl: imageUrl,
+    );
+  }
+
   void sendTyping({required bool isTyping}) {
     final user = ref.read(authStateProvider).user;
     if (user == null) return;

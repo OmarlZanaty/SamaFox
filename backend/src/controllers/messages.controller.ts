@@ -24,6 +24,32 @@ export async function getMessageImageMinVip(): Promise<number> {
   }
 }
 
+/**
+ * Same gate for pictures in ROOM chat. Separate key so the dashboard can open
+ * one without the other — a room is public, a DM is not.
+ */
+export const ROOM_IMAGE_MIN_VIP_KEY = 'room_image_min_vip';
+
+export async function getRoomImageMinVip(): Promise<number> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: ROOM_IMAGE_MIN_VIP_KEY } });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0; // fail open, as the DM gate does
+  }
+}
+
+export async function setRoomImageMinVip(level: number): Promise<number> {
+  const value = String(Math.max(0, Math.floor(level)));
+  await prisma.appSetting.upsert({
+    where: { key: ROOM_IMAGE_MIN_VIP_KEY },
+    update: { value },
+    create: { key: ROOM_IMAGE_MIN_VIP_KEY, value },
+  });
+  return Number(value);
+}
+
 export async function setMessageImageMinVip(level: number): Promise<number> {
   const value = String(Math.max(0, Math.floor(level)));
   await (prisma as any).appSetting.upsert({

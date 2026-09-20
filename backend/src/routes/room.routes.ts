@@ -104,6 +104,8 @@ router.get('/:roomId/messages', authMiddleware, async (req, res) => {
       userId: msg.userId,
       username: msg.user?.name ?? 'Unknown',
       content: msg.content,
+      type: msg.type,
+      imageUrl: msg.imageUrl,
       timestamp: msg.timestamp.getTime(),
       avatar: msg.user?.avatarUrl ?? null
     }));

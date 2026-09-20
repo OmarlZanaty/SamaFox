@@ -262,6 +262,19 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// Opens the writer's card. Prefers the room's own profile dialog (same one
   /// the seats use, so the admin controls are right there); falls back to the
   /// full profile screen only if this panel was mounted without the callback.
+  void _openImage(String url) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.of(ctx).pop(),
+        child: InteractiveViewer(
+          child: Center(child: AppNetworkImage(url, fit: BoxFit.contain)),
+        ),
+      ),
+    );
+  }
+
   void _openProfile(int userId, String username, {SocketMessage? from}) {
     if (userId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -577,6 +590,24 @@ _bubbleSkin(m,                                     Container(
                                             ),
                                           ],
                                           const SizedBox(height: 2),
+                                          if (m.isImage)
+                                            // صور في شات الروم — a thumbnail in
+                                            // the bubble; tap for full size.
+                                            GestureDetector(
+                                              onTap: () => _openImage(m.imageUrl!),
+                                              child: ClipRRect(
+                                                borderRadius: BorderRadius.circular(10),
+                                                child: ConstrainedBox(
+                                                  constraints: const BoxConstraints(maxWidth: 200, maxHeight: 200),
+                                                  child: AppNetworkImage(
+                                                    m.imageUrl!,
+                                                    fit: BoxFit.cover,
+                                                    cacheWidth: 480,
+                                                  ),
+                                                ),
+                                              ),
+                                            )
+                                          else
                                           Text(
                                             m.message,
                                             style: const TextStyle(
