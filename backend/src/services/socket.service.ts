@@ -4,6 +4,7 @@ import prisma from '../utils/prisma';
 import { getBanState } from '../utils/banGuard';
 import { startBroadcast, endBroadcast } from './broadcast.service';
 import { isBlockedBetween } from '../utils/blockGuard';
+import { checkDmAccess } from './dmAccess.service';
 import { createNotification } from './notification.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
@@ -869,6 +870,18 @@ socket.on('send_dm', async ({ toUserId, text }: any) => {
     socket.emit('dm_blocked', {
       toUserId: receiverId,
       message: 'لا يمكن إرسال رسالة — يوجد حظر بينكما',
+    });
+    return;
+  }
+
+  // قفل الرسائل الخاصة — same gate as POST /messages/send.
+  const access = await checkDmAccess(senderId, receiverId);
+  if (!access.allowed) {
+    socket.emit('dm_blocked', {
+      toUserId: receiverId,
+      code: access.code,
+      message: access.message,
+      priceCoins: access.priceCoins,
     });
     return;
   }

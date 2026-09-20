@@ -40,6 +40,9 @@ class User {
 
   @JsonKey(defaultValue: false)
   final bool? isAdmin;
+  /// قفل الرسائل الخاصة — public | friends | paid, and the fee for `paid`.
+  final String? dmPrivacy;
+  final int? dmPriceCoins;
 
   @JsonKey(defaultValue: false)
   final bool? isOnline;
@@ -104,6 +107,8 @@ class User {
     this.vipLevel,
     this.vipExpiresAt,
     this.isAdmin,
+    this.dmPrivacy,
+    this.dmPriceCoins,
     this.isOnline,
     this.followersCount,
     this.followingCount,
@@ -154,6 +159,8 @@ class User {
       vipLevel: asInt(source['vipLevel']),
       vipExpiresAt: source['vipExpiresAt']?.toString(),
       isAdmin: asBool(source['isAdmin']),
+      dmPrivacy: source['dmPrivacy']?.toString(),
+      dmPriceCoins: source['dmPriceCoins'] == null ? null : asInt(source['dmPriceCoins']),
       isOnline: asBool(source['isOnline']),
       followersCount: asInt(source['followersCount'] ?? source['followerCount']),
       followingCount: asInt(source['followingCount']),
@@ -251,6 +258,8 @@ class User {
       vipLevel: vipLevel ?? this.vipLevel,
       vipExpiresAt: vipExpiresAt ?? this.vipExpiresAt,
       isAdmin: isAdmin ?? this.isAdmin,
+      dmPrivacy: dmPrivacy,
+      dmPriceCoins: dmPriceCoins,
       isOnline: isOnline ?? this.isOnline,
       followersCount: followersCount ?? this.followersCount,
       followingCount: followingCount ?? this.followingCount,

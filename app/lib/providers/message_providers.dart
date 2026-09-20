@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/message_events.dart';
 import '../repositories/message_repository.dart';
@@ -163,6 +164,10 @@ class ChatState {
 
   // Cursor for pagination (oldest message date/id)
   final int? oldestMessageId;
+
+  /// قفل الرسائل الخاصة — null until checked; when `!allowed` the composer is
+  /// replaced by the gate (friends-only notice, or the pay-to-open button).
+  final DmAccess? access;
   const ChatState({
     required this.loading,
     required this.sending,
@@ -173,7 +178,9 @@ class ChatState {
     required this.error,
     required this.partnerId,
     required this.conversationId,
-    required this.oldestMessageId,  });
+    required this.oldestMessageId,
+    this.access,
+  });
 
   factory ChatState.initial(int partnerId) => ChatState(
     loading: true,
@@ -198,6 +205,8 @@ class ChatState {
     String? error,
     int? conversationId,
     int? oldestMessageId,
+    DmAccess? access,
+    bool clearAccess = false,
   }) {
     return ChatState(
       loading: loading ?? this.loading,
@@ -210,6 +219,7 @@ class ChatState {
       partnerId: partnerId,
       conversationId: conversationId ?? this.conversationId,
       oldestMessageId: oldestMessageId ?? this.oldestMessageId,
+      access: clearAccess ? null : (access ?? this.access),
     );
   }
 }
@@ -413,9 +423,56 @@ class ChatController extends StateNotifier<ChatState> {
       );
 
       await _repo.markConversationRead(cid);
+      unawaited(refreshAccess());
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
     }
+  }
+
+  /// قفل الرسائل الخاصة — ask the server whether the composer may open.
+  /// Never throws: a failed check leaves the composer as it was, and a
+  /// refused send still raises the gate through [_accessFromError].
+  Future<void> refreshAccess() async {
+    try {
+      final a = await _repo.getDmAccess(partnerId);
+      if (!mounted) return;
+      state = state.copyWith(access: a);
+    } catch (_) {}
+  }
+
+  /// Pay the partner's fee once. Returns the new coin balance, or null when
+  /// the payment was refused (the error is left in [ChatState.error]).
+  Future<int?> unlock() async {
+    final cid = state.conversationId;
+    if (cid == null) return null;
+    try {
+      final r = await _repo.unlockConversation(cid);
+      if (!mounted) return r.balance;
+      state = state.copyWith(
+        access: DmAccess(
+          allowed: true,
+          reason: 'unlocked',
+          partnerPrivacy: state.access?.partnerPrivacy ?? 'paid',
+          priceCoins: state.access?.priceCoins ?? 0,
+          conversationId: cid,
+        ),
+        error: null,
+      );
+      return r.balance;
+    } on DioException catch (e) {
+      final body = e.response?.data;
+      final msg = body is Map ? body['message']?.toString() : null;
+      if (mounted) state = state.copyWith(error: msg ?? 'تعذّر فتح المحادثة');
+      return null;
+    } catch (_) {
+      if (mounted) state = state.copyWith(error: 'تعذّر فتح المحادثة');
+      return null;
+    }
+  }
+
+  DmAccess? _accessFromError(Object e) {
+    if (e is DioException) return DmAccess.fromRefusal(e.response?.data);
+    return null;
   }
 
   /// ✅ Pull to refresh (re-fetch latest)
@@ -539,6 +596,18 @@ class ChatController extends StateNotifier<ChatState> {
 
       state = state.copyWith(sending: false, messages: updated);
     } catch (e) {
+      // A locked thread: drop the optimistic bubble and raise the gate
+      // instead of leaving a "failed" message the user cannot retry.
+      final gate = _accessFromError(e);
+      if (gate != null) {
+        state = state.copyWith(
+          sending: false,
+          messages: state.messages.where((m) => m.clientId != clientId).toList(),
+          access: gate,
+          error: gate.message,
+        );
+        return;
+      }
       final updated = state.messages.map((m) {
         if (m.clientId != clientId) return m;
         return m.copyWith(localStatus: LocalMsgStatus.failed);

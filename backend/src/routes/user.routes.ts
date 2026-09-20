@@ -17,6 +17,7 @@ import {
   unblockUser,
   deleteMyAccount,
   getUserBadges,
+  updateDmPrivacy,
 } from '../controllers/user.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 
@@ -26,6 +27,8 @@ const router = Router();
 router.get('/me', authMiddleware, getMe);
 router.put('/me', authMiddleware, updateProfile);
 router.put('/me/gender-country', authMiddleware, updateGenderAndCountry);
+// قفل الرسائل الخاصة — public / friends / paid (+ price).
+router.put('/me/dm-privacy', authMiddleware, updateDmPrivacy);
 router.delete('/me', authMiddleware, deleteMyAccount);
 
 // personal blacklist (#2 settings menu) — /me/blocks must stay above /:userId

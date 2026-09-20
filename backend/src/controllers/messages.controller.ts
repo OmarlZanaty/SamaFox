@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { createNotification } from '../services/notification.service';
 import { isBlockedBetween, blockedUserIds } from '../utils/blockGuard';
+import { checkDmAccess, unlockConversationWithFee, DmUnlockError } from '../services/dmAccess.service';
 import { getChatBubble, getChatBubbles } from '../utils/chatBubble';
 
 /**
@@ -273,6 +274,19 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
     });
   }
 
+  // قفل الرسائل الخاصة — friends-only / paid (see dmAccess.service).
+  if (otherId) {
+    const access = await checkDmAccess(me, otherId);
+    if (!access.allowed) {
+      return res.status(access.code === 'DM_FEE_REQUIRED' ? 402 : 403).json({
+        code: access.code,
+        message: access.message,
+        priceCoins: access.priceCoins,
+        conversationId,
+      });
+    }
+  }
+
   const created = await prisma.$transaction(async (tx) => {
     // Build data without triggering TS "unknown property" errors
     const data: any = {
@@ -373,5 +387,43 @@ export async function markConversationRead(req: AuthedRequest, res: Response) {
   } catch (err) {
     console.error('[messages.markConversationRead]', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+}
+
+// ✅ GET /messages/access/:partnerId — may I message this person right now,
+// and if not, what stands in the way (friends-only, or a fee and its price).
+// The chat screen asks this on open so the gate is shown before typing.
+export async function getDmAccess(req: AuthedRequest, res: Response) {
+  try {
+    const me = req.userId;
+    if (!me) return res.status(401).json({ message: 'Unauthorized' });
+    const partnerId = toInt(req.params.partnerId);
+    if (!partnerId) return res.status(400).json({ message: 'partnerId is required' });
+    if (await isBlockedBetween(me, partnerId)) {
+      return res.json({ allowed: false, reason: 'blocked', code: 'BLOCKED', message: 'يوجد حظر بينكما', partnerPrivacy: 'public', priceCoins: 0, conversationId: null });
+    }
+    return res.json(await checkDmAccess(me, partnerId));
+  } catch (err) {
+    console.error('[messages.getDmAccess]', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+}
+
+// ✅ POST /messages/conversations/:conversationId/unlock — pay the receiver's
+// fee once. Coins go to the platform (DM_FEE), not to the receiver.
+export async function unlockConversation(req: AuthedRequest, res: Response) {
+  try {
+    const me = req.userId;
+    if (!me) return res.status(401).json({ message: 'Unauthorized' });
+    const conversationId = toInt(req.params.conversationId);
+    if (!conversationId) return res.status(400).json({ message: 'conversationId is required' });
+    const out = await unlockConversationWithFee(me, conversationId);
+    return res.json({ success: true, ...out });
+  } catch (err) {
+    if (err instanceof DmUnlockError) {
+      return res.status(err.status).json({ success: false, code: err.code, message: err.message });
+    }
+    console.error('[messages.unlockConversation]', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }

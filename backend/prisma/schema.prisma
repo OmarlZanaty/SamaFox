@@ -25,6 +25,13 @@ model User {
   gender                   String? // NEW: "male", "female", "other"
   bio                      String?
   coinsBalance             Int                       @default(0)
+  // قفل الرسائل الخاصة — who may open a DM with this user:
+  //   public  : anyone (default)
+  //   friends : mutual ACCEPTED follows only
+  //   paid    : anyone, but a non-friend pays dmPriceCoins once per
+  //             conversation — to the PLATFORM, not to this user.
+  dmPrivacy                String                    @default("public")
+  dmPriceCoins             Int                       @default(0)
   level                    Int                       @default(1)
   xp                       Int                       @default(0)
   vipLevel                 Int                       @default(0)
@@ -1132,6 +1139,10 @@ model Conversation {
 
   lastMessageId Int?      @unique // ✅ ADD THIS
   lastMessageAt DateTime?
+  // قفل الرسائل الخاصة — a paid lock was bought for this thread. Who paid and
+  // when, so the fee is charged once and the ledger is auditable.
+  unlockedByUserId Int?
+  unlockedAt       DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

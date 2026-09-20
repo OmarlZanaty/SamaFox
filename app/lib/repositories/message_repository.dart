@@ -75,6 +75,22 @@ class MessageRepository {
     return DirectMessage.fromJson(data);
   }
 
+  /// قفل الرسائل الخاصة — may I write to this person, and if not, why.
+  Future<DmAccess> getDmAccess(int partnerId) async {
+    final res = await _dio.get('$_base/access/$partnerId');
+    return DmAccess.fromJson((res.data as Map).cast<String, dynamic>());
+  }
+
+  /// Pay the partner's fee for this thread (once). Returns the new balance.
+  Future<DmUnlockResult> unlockConversation(int conversationId) async {
+    final res = await _dio.post('$_base/conversations/$conversationId/unlock');
+    final data = (res.data as Map).cast<String, dynamic>();
+    return DmUnlockResult(
+      charged: (data['charged'] as num?)?.toInt() ?? 0,
+      balance: (data['balance'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   Future<void> markConversationRead(int conversationId) async {
     await _dio.post('$_base/conversations/$conversationId/read');
   }
@@ -167,4 +183,62 @@ class MessageRepository {
     await _dio.delete('$_base/messages/$messageId');
   }
 
+}
+
+/// قفل الرسائل الخاصة — the server's verdict on one partner.
+class DmAccess {
+  final bool allowed;
+  final String reason;
+  /// DM_FRIENDS_ONLY | DM_FEE_REQUIRED | BLOCKED, when not allowed.
+  final String? code;
+  final String? message;
+  final String partnerPrivacy; // public | friends | paid
+  final int priceCoins;
+  final int? conversationId;
+
+  const DmAccess({
+    required this.allowed,
+    required this.reason,
+    this.code,
+    this.message,
+    required this.partnerPrivacy,
+    required this.priceCoins,
+    this.conversationId,
+  });
+
+  bool get feeRequired => !allowed && code == 'DM_FEE_REQUIRED';
+  bool get friendsOnly => !allowed && code == 'DM_FRIENDS_ONLY';
+
+  factory DmAccess.fromJson(Map<String, dynamic> j) => DmAccess(
+        allowed: j['allowed'] == true,
+        reason: (j['reason'] ?? '').toString(),
+        code: j['code']?.toString(),
+        message: j['message']?.toString(),
+        partnerPrivacy: (j['partnerPrivacy'] ?? 'public').toString(),
+        priceCoins: (j['priceCoins'] as num?)?.toInt() ?? 0,
+        conversationId: (j['conversationId'] as num?)?.toInt(),
+      );
+
+  /// Built from a refused send (402/403 with a code), so the gate appears
+  /// even when the access check was skipped or stale.
+  static DmAccess? fromRefusal(dynamic body) {
+    if (body is! Map) return null;
+    final code = body['code']?.toString();
+    if (code != 'DM_FEE_REQUIRED' && code != 'DM_FRIENDS_ONLY') return null;
+    return DmAccess(
+      allowed: false,
+      reason: code == 'DM_FEE_REQUIRED' ? 'fee_required' : 'friends_only',
+      code: code,
+      message: body['message']?.toString(),
+      partnerPrivacy: code == 'DM_FEE_REQUIRED' ? 'paid' : 'friends',
+      priceCoins: (body['priceCoins'] as num?)?.toInt() ?? 0,
+      conversationId: (body['conversationId'] as num?)?.toInt(),
+    );
+  }
+}
+
+class DmUnlockResult {
+  final int charged;
+  final int balance;
+  const DmUnlockResult({required this.charged, required this.balance});
 }

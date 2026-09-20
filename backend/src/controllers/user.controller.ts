@@ -564,3 +564,47 @@ export const getUserBadges = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'Failed' });
   }
 };
+
+// ------------------------------------
+// PUT /users/me/dm-privacy  { dmPrivacy: public|friends|paid, dmPriceCoins? }
+// ------------------------------------
+// قفل الرسائل الخاصة. The price is only meaningful for `paid`; it is kept
+// (not zeroed) when the user switches away so switching back restores it.
+export const updateDmPrivacy = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as number | undefined;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const { DM_PRIVACY_VALUES, DM_PRICE_MIN, DM_PRICE_MAX } = await import('../services/dmAccess.service');
+    const body = (req.body ?? {}) as { dmPrivacy?: unknown; dmPriceCoins?: unknown };
+    const data: { dmPrivacy?: string; dmPriceCoins?: number } = {};
+    if (body.dmPrivacy !== undefined) {
+      const v = String(body.dmPrivacy);
+      if (!(DM_PRIVACY_VALUES as readonly string[]).includes(v)) {
+        return res.status(400).json({ success: false, message: 'dmPrivacy must be public | friends | paid' });
+      }
+      data.dmPrivacy = v;
+    }
+    if (body.dmPriceCoins !== undefined) {
+      const n = Math.floor(Number(body.dmPriceCoins));
+      if (!Number.isFinite(n) || n < DM_PRICE_MIN || n > DM_PRICE_MAX) {
+        return res.status(400).json({ success: false, message: `dmPriceCoins must be ${DM_PRICE_MIN}..${DM_PRICE_MAX}` });
+      }
+      data.dmPriceCoins = n;
+    }
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { dmPriceCoins: true } });
+    const finalPrivacy = data.dmPrivacy;
+    const finalPrice = data.dmPriceCoins ?? current?.dmPriceCoins ?? 0;
+    if (finalPrivacy === 'paid' && finalPrice <= 0) {
+      return res.status(400).json({ success: false, message: 'حدد سعر الرسالة بالكوينز أولاً' });
+    }
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { dmPrivacy: true, dmPriceCoins: true },
+    });
+    return res.json({ success: true, ...user });
+  } catch (e: any) {
+    console.error('updateDmPrivacy error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};

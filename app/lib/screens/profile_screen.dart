@@ -434,7 +434,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             );
           }
         }),
-        btn(Icons.chat_bubble, 'رسالة', const Color(0xFF4F9BFF), () {
+        // قفل الرسائل الخاصة — the label says what the chat screen will ask
+        // for, so a locked inbox is not a surprise two taps later.
+        btn(
+          user.dmPrivacy == 'paid'
+              ? Icons.lock_outline
+              : user.dmPrivacy == 'friends'
+                  ? Icons.people_outline
+                  : Icons.chat_bubble,
+          user.dmPrivacy == 'paid'
+              ? 'رسالة ${user.dmPriceCoins ?? 0}🪙'
+              : user.dmPrivacy == 'friends'
+                  ? 'رسالة (أصدقاء)'
+                  : 'رسالة',
+          const Color(0xFF4F9BFF),
+          () {
           Navigator.push(
             context,
             MaterialPageRoute(

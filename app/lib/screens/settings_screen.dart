@@ -7,6 +7,7 @@ import '../providers/theme_provider.dart';
 import '../services/dio_client.dart';
 import '../services/user_account_service.dart';
 import 'blocked_users_screen.dart';
+import 'dm_privacy_screen.dart';
 import 'broadcast_time_screen.dart';
 import 'edit_profile_screen.dart';
 
@@ -118,6 +119,20 @@ class SettingsScreen extends ConsumerWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const BlockedUsersScreen()),
+                  );
+                },
+                theme: theme,
+                isDark: isDark,
+              ),
+              _buildDivider(isDark),
+              // قفل الرسائل الخاصة — عامة / الأصدقاء فقط / بكوينز.
+              _buildSettingsTile(
+                icon: Icons.lock_outline,
+                title: 'قفل الرسائل الخاصة',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DmPrivacyScreen()),
                   );
                 },
                 theme: theme,

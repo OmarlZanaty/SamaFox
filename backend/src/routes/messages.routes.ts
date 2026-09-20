@@ -5,6 +5,8 @@ import {
   getMessages,
   sendMessage,
   markConversationRead,
+  getDmAccess,
+  unlockConversation,
 } from '../controllers/messages.controller';
 import { authenticate as requireAuth } from '../middlewares/auth.middleware';
 import multer from "multer";
@@ -25,6 +27,10 @@ router.get('/conversations/:conversationId/messages', requireAuth, getMessages);
 
 // send message
 router.post('/send', requireAuth, sendMessage);
+
+// قفل الرسائل الخاصة — the gate, and paying through it.
+router.get('/access/:partnerId', requireAuth, getDmAccess);
+router.post('/conversations/:conversationId/unlock', requireAuth, unlockConversation);
 
 // mark read
 router.post('/conversations/:conversationId/read', requireAuth, markConversationRead);

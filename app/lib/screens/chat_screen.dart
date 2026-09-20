@@ -9,6 +9,7 @@ import '../widgets/chat/typing_indicator_bar.dart';
 import '../widgets/chat/pinned_search_bar.dart';
 import '../widgets/chat/voice_note_composer.dart';
 import '../providers/message_providers.dart';
+import '../repositories/message_repository.dart';
 import '../theme/app_theme.dart';
 import '../models/direct_message.dart';
 import '../providers/auth_provider.dart';
@@ -553,6 +554,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 isDark: isDark,
               ),
 
+              // قفل الرسائل الخاصة — the gate replaces the composer while the
+              // partner's lock stands; a paid lock opens from here.
+              if (chatState.access != null && !chatState.access!.allowed)
+                DmGateBar(
+                  access: chatState.access!,
+                  isDark: isDark,
+                  onUnlock: () => _unlockChat(chatCtrl),
+                )
+              else
               _ComposerBar(
                 controller: _controller,
                 focus: _focus,
@@ -623,6 +633,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       if (mounted) setState(() => _sendingImage = false);
+    }
+  }
+
+  /// قفل الرسائل الخاصة — pay the partner's fee, once, then the composer
+  /// appears. The balance shown in the app follows the server's number.
+  Future<void> _unlockChat(ChatController ctrl) async {
+    final price = ctrl.state.access?.priceCoins ?? 0;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('فتح المحادثة'),
+        content: Text('هيتخصم $price كوينز مرة واحدة عشان تفتح المحادثة مع هذا المستخدم. الكوينز بتروح للبرنامج.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('ادفع $price 🪙')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final balance = await ctrl.unlock();
+    if (!mounted) return;
+    if (balance != null) {
+      ref.read(authStateProvider.notifier).updateCoinsBalance(balance);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اتفتحت المحادثة ✅')));
+      _focus.requestFocus();
+    } else {
+      final err = ctrl.state.error;
+      if (err != null) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
     }
   }
 
@@ -1160,5 +1198,60 @@ class _StatusIcon extends StatelessWidget {
         : (isDark ? Colors.white54 : Colors.black45);
 
     return Icon(icon, size: 14, color: color);
+  }
+}
+
+/// قفل الرسائل الخاصة — what sits where the composer would be while the
+/// partner's lock stands.
+class DmGateBar extends StatelessWidget {
+  const DmGateBar({super.key, required this.access, required this.isDark, required this.onUnlock});
+  final DmAccess access;
+  final bool isDark;
+  final VoidCallback onUnlock;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isDark ? const Color(0xFF1C1C28) : const Color(0xFFF3F4F6);
+    final fg = isDark ? Colors.white : Colors.black87;
+    return SafeArea(
+      top: false,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        color: bg,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(access.feeRequired ? Icons.lock_outline : Icons.people_outline,
+                    color: const Color(0xFFFFB300)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    access.feeRequired
+                        ? 'هذا المستخدم قافل الرسايل — فتح المحادثة يكلف ${access.priceCoins} كوينز (مرة واحدة)'
+                        : (access.message ?? 'هذا المستخدم يستقبل الرسائل من الأصدقاء فقط'),
+                    style: TextStyle(color: fg, fontSize: 13, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+            if (access.feeRequired) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onUnlock,
+                  icon: const Icon(Icons.lock_open),
+                  label: Text('افتح المحادثة بـ ${access.priceCoins} 🪙'),
+                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFFB300), foregroundColor: Colors.black),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
