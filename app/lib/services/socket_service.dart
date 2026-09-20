@@ -1155,14 +1155,15 @@ class SocketService {
       'username': username,
       if (code != null && code.isNotEmpty) 'code': code,
     });
-    emit('room:join', roomId);
-
-    // ✅ REQUEST SNAPSHOT (try multiple names; server will ignore unknown)
-    emit('init_room_seats', {'roomId': roomId});
-    emit('get_room_seats_state', {'roomId': roomId});
-    emit('request_room_seats_state', {'roomId': roomId});
-    emit('get_room_state', {'roomId': roomId});
-    emit('room_seats_state:get', {'roomId': roomId});
+    // ONE event. `join_room` on the server already answers with the full
+    // seats snapshot (emitRoomState), the roster (`room_users`), the mic
+    // queue and the music state. The six extra emits that used to follow it
+    // were either names the server never handled (`room:join`,
+    // `get_room_seats_state`, `request_room_seats_state`, `get_room_state`,
+    // `room_seats_state:get` — dead on arrival) or a second `init_room_seats`
+    // that re-broadcast the snapshot to the WHOLE room on every entry. Nine
+    // socket round-trips per entry, seven of them for nothing; that was a
+    // measurable part of "دخول الغرف بطيء".
     AppLogger.info('🚪 Joined room $roomId as $username');
 
   }
@@ -1173,7 +1174,6 @@ class SocketService {
     required int userId,
   }) {
     emit('leave_room', {'roomId': roomId, 'userId': userId});
-    emit('room:leave', roomId);
     AppLogger.info('🚪 Left room $roomId');
   }
 

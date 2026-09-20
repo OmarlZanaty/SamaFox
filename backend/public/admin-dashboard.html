@@ -1503,6 +1503,11 @@
   </div>
 </div>
 
-<script src="app.js?v=20260802-mobile"></script>
+<!-- upload progress (uploadWithProgress in app.js) -->
+<div id="uploadBar" style="display:none;position:fixed;left:16px;right:16px;bottom:16px;z-index:9999;background:#111827;color:#fff;border-radius:12px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:13px">
+  <div id="uploadBarLabel" style="margin-bottom:6px">جارٍ الرفع…</div>
+  <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
+</div>
+<script src="app.js?v=20260920-lucky"></script>
 </body>
 </html>

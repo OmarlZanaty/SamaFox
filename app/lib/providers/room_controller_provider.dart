@@ -336,8 +336,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     });
 
     // force refresh (if backend supports)
-    _socket.emit('get_room_seats_state', {'roomId': roomId});
-    _socket.emit('request_room_seats_state', {'roomId': roomId});
+    // The one snapshot request the server answers (the two names that used
+    // to be here were never handled).
+    _socket.emit('init_room_seats', {'roomId': roomId});
   }
 
   void setSeatMutedLocal({required int seatNumber, required bool muted}) {
@@ -409,8 +410,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     );
 
     // ✅ Force refresh so all devices reflect it fast
-    _socket.emit('get_room_seats_state', {'roomId': roomId});
-    _socket.emit('request_room_seats_state', {'roomId': roomId});
+    // The one snapshot request the server answers (the two names that used
+    // to be here were never handled).
+    _socket.emit('init_room_seats', {'roomId': roomId});
     _socket.getVoiceUsers(roomId: roomId);
   }
 
@@ -476,8 +478,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     debugPrint('▶️ foreground -> resync room=$roomId (reconnected=$wasDisconnected)');
     _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
-    _socket.emit('get_room_seats_state', {'roomId': roomId});
-    _socket.emit('request_room_seats_state', {'roomId': roomId});
+    // The one snapshot request the server answers (the two names that used
+    // to be here were never handled).
+    _socket.emit('init_room_seats', {'roomId': roomId});
     _socket.getVoiceUsers(roomId: roomId);
 
     // Raw socket listeners are cleared when the socket itself reconnects.
@@ -913,7 +916,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         _pendingSeatNumber = null;
 
         // force refresh snapshot to be safe
-        _socket.emit('get_room_seats_state', {'roomId': roomId});
+        _socket.emit('init_room_seats', {'roomId': roomId});
       }
     });
 
@@ -1422,8 +1425,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _socket.leaveSeat(roomId: roomId, seatNumber: seatNumber);
 
     // ✅ refresh
-    _socket.emit('get_room_seats_state', {'roomId': roomId});
-    _socket.emit('request_room_seats_state', {'roomId': roomId});
+    // The one snapshot request the server answers (the two names that used
+    // to be here were never handled).
+    _socket.emit('init_room_seats', {'roomId': roomId});
     _socket.getVoiceUsers(roomId: roomId);
   }
 
@@ -1515,8 +1519,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     );
 
     // ✅ Refresh snapshot (optional but ok)
-    _socket.emit('get_room_seats_state', {'roomId': roomId});
-    _socket.emit('request_room_seats_state', {'roomId': roomId});
+    // The one snapshot request the server answers (the two names that used
+    // to be here were never handled).
+    _socket.emit('init_room_seats', {'roomId': roomId});
   }
 
 
@@ -1574,8 +1579,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     }
 
     // refresh snapshot
-    _socket.emit('get_room_seats_state', {'roomId': roomId});
-    _socket.emit('request_room_seats_state', {'roomId': roomId});
+    // The one snapshot request the server answers (the two names that used
+    // to be here were never handled).
+    _socket.emit('init_room_seats', {'roomId': roomId});
     _socket.getVoiceUsers(roomId: roomId);
   }
 

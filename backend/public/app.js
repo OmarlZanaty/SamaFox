@@ -184,6 +184,40 @@ function getApiBaseCandidates() {
   return [...new Set(candidates.filter(Boolean))];
 }
 
+// A multipart upload used to look hung: fetch gives no progress, and the
+// server now also compresses what it receives (a 16 MB clip takes a few
+// seconds to shrink). So every FormData request shows a real progress bar
+// and, once the bytes are up, "جارٍ المعالجة" until the server answers.
+function uploadWithProgress(url, formData, headers) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.withCredentials = true;
+    Object.entries(headers || {}).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    const bar = document.getElementById("uploadBar");
+    const fill = document.getElementById("uploadBarFill");
+    const label = document.getElementById("uploadBarLabel");
+    const show = (pct, text) => {
+      if (!bar) return;
+      bar.style.display = "block";
+      fill.style.width = pct + "%";
+      label.textContent = text;
+    };
+    show(0, "جارٍ الرفع…");
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round((100 * e.loaded) / e.total);
+      show(pct, pct >= 100 ? "جارٍ المعالجة على السيرفر…" : `جارٍ الرفع ${pct}%`);
+    };
+    xhr.onerror = () => { if (bar) bar.style.display = "none"; reject(new TypeError("network")); };
+    xhr.onload = () => {
+      if (bar) bar.style.display = "none";
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, text: () => Promise.resolve(xhr.responseText) });
+    };
+    xhr.send(formData);
+  });
+}
+
 async function fetchWithBaseFallback(path, opts = {}) {
   const candidates = getApiBaseCandidates();
   if (!candidates.length) throw new Error("يرجى إدخال قاعدة الـ API");
@@ -196,11 +230,10 @@ async function fetchWithBaseFallback(path, opts = {}) {
     let res;
 
     try {
-      res = await fetch(base + path, {
-        ...opts,
-        credentials: "include",
-        headers: Object.assign({ Accept: "application/json" }, authHeaders, opts.headers || {}),
-      });
+      const headers = Object.assign({ Accept: "application/json" }, authHeaders, opts.headers || {});
+      res = (opts.body instanceof FormData)
+        ? await uploadWithProgress(base + path, opts.body, headers)
+        : await fetch(base + path, { ...opts, credentials: "include", headers });
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
       continue;
@@ -1303,7 +1336,7 @@ function renderProductRow(p, isPrivate) {
   const preview = isVideo
     ? `<a class="td-link" href="${p.file_url}" target="_blank">▶ تشغيل</a>`
     : p.file_url
-      ? `<img src="${p.file_url}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
+      ? `<img loading="lazy" decoding="async" src="${p.file_url}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
       : "—";
   const safeName = escapeHtml(p.name || "").replace(/'/g, "\\'");
   const moveBtn = isPrivate
@@ -1676,7 +1709,7 @@ window.loadGifts = async function () {
       <td>${escapeHtml(g.nameAr || g.name)}${g.cpEligible ? ' <span title="تحتسب ضمن CP">⚡CP</span>' : ''}</td>
       <td>${
         normalizeGiftImageUrl(g.iconUrl)
-          ? `<img src="${normalizeGiftImageUrl(g.iconUrl)}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
+          ? `<img loading="lazy" decoding="async" src="${normalizeGiftImageUrl(g.iconUrl)}" width="44" height="44" style="border-radius:8px;object-fit:cover;" />`
           : '<span class="cell-muted">—</span>'
       }</td>
       <td><span class="cell-muted">${escapeHtml(giftCategoryLabel(g.category))}</span></td>

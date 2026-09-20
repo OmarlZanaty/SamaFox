@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { optimizeImage, optimizeGif } from '../utils/mediaOptimize';
 import path from 'path';
 import fs from 'fs/promises';
 import prisma from '../utils/prisma';
@@ -280,7 +281,7 @@ export async function uploadIcon(req: Request, res: Response) {
     const file = (req as any).file as Express.Multer.File | undefined;
     if (!file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     const ext = path.extname(file.originalname).toLowerCase();
-    if (!['.png', '.jpg', '.jpeg', '.webp', '.svg'].includes(ext)) {
+    if (!['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif'].includes(ext)) {
       await fs.unlink(file.path).catch(() => {});
       return res.status(400).json({ success: false, message: 'Unsupported image type' });
     }
@@ -291,7 +292,12 @@ export async function uploadIcon(req: Request, res: Response) {
     await ensureDir(ICONS_DIR);
     const target = path.join(ICONS_DIR, path.basename(file.path) + ext);
     await fs.rename(file.path, target);
-    return res.json({ success: true, url: `${getPublicBaseUrl(req)}/assets/icons/${path.basename(target)}` });
+    // A gift icon is a 60px tile in the sheet: 256px is more than enough —
+    // WebP for stills, a 256px / 15fps GIF for animated icons.
+    const opt = ext === '.gif'
+      ? await optimizeGif(target, { maxSide: 256, fps: 15 })
+      : await optimizeImage(target, { maxSide: 256, quality: 85 });
+    return res.json({ success: true, url: `${getPublicBaseUrl(req)}/assets/icons/${path.basename(opt.path)}` });
   } catch (err) {
     console.error('[admin.gifts.uploadIcon]', err);
     return res.status(500).json({ success: false, message: 'Upload failed' });
