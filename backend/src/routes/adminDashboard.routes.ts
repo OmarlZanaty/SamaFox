@@ -73,6 +73,9 @@ import {
   adminDeleteDeviceBan,
   adminUserChargeHistory,
   adminGetGates,
+  adminLuckySummary,
+  adminLuckySaveTiers,
+  adminLuckyTopUp,
   adminSetGates,
   adminListGameConfig,
   adminSetGameConfig,
@@ -202,6 +205,11 @@ router.get('/users/:id/charges', adminUserChargeHistory);
 
 // ── C16 / C18: بوابات الليفل والـVIP ─────────────────────────────────────
 router.get('/gates', adminGetGates);
+
+// ── هدايا الحظ: الصندوق، جدول المضاعفات، آخر الرميات ─────────────────────────
+router.get('/lucky', adminLuckySummary);
+router.post('/lucky/tiers', adminLuckySaveTiers);
+router.post('/lucky/topup', adminLuckyTopUp);
 router.post('/gates', adminSetGates);
 
 // ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────

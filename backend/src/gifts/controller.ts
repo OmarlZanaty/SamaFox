@@ -3,6 +3,7 @@ import prisma from '../utils/prisma';
 import { sendGiftAtomic, GiftSendError } from './giftService';
 import { readCatalogCache, writeCatalogCache, getCatalogVersion } from './catalogCache';
 import { maybeCreateRelationRequestFromRing } from '../services/relationRing.service';
+import { getLuckySettings, verifyRoll, type LuckyRollResult } from './lucky.service';
 import type { Server } from 'socket.io';
 
 let ioRef: Server | null = null;
@@ -36,6 +37,53 @@ export function emitGiftSent(payload: any, alsoUserIds: number[] = []) {
   }
   if (payload.broadcast) {
     ioRef.emit('gift_broadcast', payload);
+  }
+}
+
+/**
+ * هدايا الحظ — the two events behind the two bars the client asked for.
+ *
+ *  `lucky_win`       → the room (or the sender alone when there is no room):
+ *                      the centred "كسب ×N" banner. Sent for every roll,
+ *                      including a loss (multiplier 0), so the sender's own
+ *                      screen can say "حظ أوفر" — other clients ignore 0.
+ *  `lucky_broadcast` → everyone in the app, wins ≥ the admin's threshold:
+ *                      the bottom ticker. Tapping it opens the winner's card.
+ */
+export async function emitLuckyRoll(ev: {
+  rollId: number;
+  senderId: number;
+  sender: { id: number; name: string | null; avatarUrl: string | null } | null;
+  recipientId: number;
+  recipientName: string | null;
+  roomId: number | null;
+  gift: { id: string; name: string; nameAr: string | null; iconUrl: string };
+  giftCoins: number;
+  lucky: LuckyRollResult;
+}) {
+  if (!ioRef) return;
+  const payload = {
+    rollId: ev.rollId,
+    senderId: ev.senderId,
+    senderName: ev.sender?.name ?? null,
+    senderAvatarUrl: ev.sender?.avatarUrl ?? null,
+    recipientId: ev.recipientId,
+    recipientName: ev.recipientName,
+    roomId: ev.roomId,
+    gift: ev.gift,
+    giftCoins: ev.giftCoins,
+    hostCoins: ev.lucky.hostCoins,
+    multiplier: ev.lucky.multiplier,
+    payoutCoins: ev.lucky.payoutCoins,
+    ts: Date.now(),
+  };
+  const targets = new Set<string>([ev.senderId.toString()]);
+  if (ev.roomId != null) targets.add(`room:${ev.roomId}`);
+  ioRef.to([...targets]).emit('lucky_win', payload);
+
+  if (ev.lucky.multiplier > 0) {
+    const { broadcastMin } = await getLuckySettings();
+    if (ev.lucky.multiplier >= broadcastMin) ioRef.emit('lucky_broadcast', payload);
   }
 }
 
@@ -88,6 +136,7 @@ export async function listCatalog(_req: Request, res: Response) {
         isComboEligible: g.isComboEligible,
         broadcastGlobal: g.broadcastGlobal,
         category: g.category,
+        isLucky: g.isLucky,
         sortOrder: g.sortOrder,
         createdAt: g.createdAt,
       });
@@ -146,10 +195,27 @@ export async function send(req: Request, res: Response) {
       sender,
       recipient: recipientUser,
       gift: result.gift,
+      lucky: result.lucky
+        ? { multiplier: result.lucky.multiplier, payoutCoins: result.lucky.payoutCoins, hostCoins: result.lucky.hostCoins }
+        : null,
       ts: Date.now(),
     };
 
     emitGiftSent(payload);
+
+    if (result.lucky) {
+      await emitLuckyRoll({
+        rollId: result.lucky.rollId,
+        senderId,
+        sender,
+        recipientId: recipient,
+        recipientName: recipientUser?.name ?? null,
+        roomId: payload.roomId,
+        gift: { id: result.gift.id, name: result.gift.name, nameAr: result.gift.nameAr, iconUrl: result.gift.iconUrl },
+        giftCoins: result.totalCoins,
+        lucky: result.lucky,
+      });
+    }
 
     // A22 - the centred announcement bar ("<sender> اهدى <gift> الى <recipient>").
     // Emitted for ordinary single sends too, so the bar is not a fan-out-only
@@ -185,6 +251,15 @@ export async function send(req: Request, res: Response) {
       senderBalance: result.senderBalance,
       comboCount: result.comboCount,
       broadcast: result.broadcast,
+      lucky: result.lucky
+        ? {
+            rollId: result.lucky.rollId,
+            multiplier: result.lucky.multiplier,
+            payoutCoins: result.lucky.payoutCoins,
+            hostCoins: result.lucky.hostCoins,
+            serverSeedHash: result.lucky.serverSeedHash,
+          }
+        : null,
     });
   } catch (err) {
     if (err instanceof GiftSendError) {
@@ -518,8 +593,25 @@ export async function sendBatch(req: Request, res: Response) {
           recipient: recipientById.get(rid) ?? null,
           gift: result.gift,
           batchSize: ids.length,
+          lucky: result.lucky
+            ? { multiplier: result.lucky.multiplier, payoutCoins: result.lucky.payoutCoins, hostCoins: result.lucky.hostCoins }
+            : null,
           ts: Date.now(),
         });
+
+        if (result.lucky) {
+          await emitLuckyRoll({
+            rollId: result.lucky.rollId,
+            senderId,
+            sender: { id: sender.id, name: sender.name, avatarUrl: sender.avatarUrl },
+            recipientId: rid,
+            recipientName: recipientById.get(rid)?.name ?? null,
+            roomId: roomId != null ? Number(roomId) : null,
+            gift: { id: result.gift.id, name: result.gift.name, nameAr: result.gift.nameAr, iconUrl: result.gift.iconUrl },
+            giftCoins: result.totalCoins,
+            lucky: result.lucky,
+          });
+        }
 
         maybeCreateRelationRequestFromRing({ senderId, receiverId: rid, giftId }).catch((e) =>
           console.error('[gifts.sendBatch] relation ring hook failed', e),
@@ -599,5 +691,63 @@ export async function claimSupporterRewardHandler(req: Request, res: Response) {
   } catch (err) {
     console.error('[gifts.claimSupporterReward]', err);
     return res.status(500).json({ success: false, message: 'Failed to claim reward' });
+  }
+}
+
+// GET /gifts/lucky/rolls/:id — the proof behind one roll. Public: the whole
+// point is that anyone can check it.
+export async function luckyRollProof(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: 'id' });
+    const roll = await prisma.luckyRoll.findUnique({
+      where: { id },
+      select: {
+        id: true, senderId: true, recipientId: true, roomId: true, giftCoins: true, hostCoins: true,
+        multiplier: true, payoutCoins: true, serverSeed: true, serverSeedHash: true, tiersSnapshot: true, createdAt: true,
+      },
+    });
+    if (!roll) return res.status(404).json({ success: false, message: 'not found' });
+    return res.json({ success: true, roll, verification: verifyRoll(roll) });
+  } catch (err) {
+    console.error('[gifts.luckyRollProof]', err);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+}
+
+// GET /gifts/lucky/recent — the last wins, for the ticker's cold start (a
+// phone that just opened the app has no socket history).
+export async function luckyRecent(_req: Request, res: Response) {
+  try {
+    const { broadcastMin } = await getLuckySettings();
+    const rolls = await prisma.luckyRoll.findMany({
+      where: { multiplier: { gte: Math.max(1, broadcastMin) } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, senderId: true, recipientId: true, roomId: true, giftCoins: true, hostCoins: true, multiplier: true, payoutCoins: true, createdAt: true },
+    });
+    const userIds = [...new Set(rolls.flatMap((r) => [r.senderId, r.recipientId]))];
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, avatarUrl: true } });
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return res.json({
+      success: true,
+      items: rolls.map((r) => ({
+        rollId: r.id,
+        senderId: r.senderId,
+        senderName: byId.get(r.senderId)?.name ?? null,
+        senderAvatarUrl: byId.get(r.senderId)?.avatarUrl ?? null,
+        recipientId: r.recipientId,
+        recipientName: byId.get(r.recipientId)?.name ?? null,
+        roomId: r.roomId,
+        giftCoins: r.giftCoins,
+        hostCoins: r.hostCoins,
+        multiplier: r.multiplier,
+        payoutCoins: r.payoutCoins,
+        ts: r.createdAt.getTime(),
+      })),
+    });
+  } catch (err) {
+    console.error('[gifts.luckyRecent]', err);
+    return res.status(500).json({ success: false, message: 'Failed' });
   }
 }

@@ -6,6 +6,9 @@ import * as ctrl from './controller';
 const router = Router();
 
 router.get('/', ctrl.listCatalog);
+// هدايا الحظ — public proof of a roll, and the recent wins for the ticker.
+router.get('/lucky/recent', ctrl.luckyRecent);
+router.get('/lucky/rolls/:id', ctrl.luckyRollProof);
 router.get('/transactions', authMiddleware, ctrl.transactions);
 router.get('/received-summary/:userId', ctrl.receivedSummary);
 // كأس الدعم: app-wide board, and the same board scoped to one room.

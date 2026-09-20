@@ -49,6 +49,7 @@ const Map<String, String> _kCategoryLabels = {
 /// The gift list that carries CP gifts. Matches the `cp` key seeded into
 /// gift_categories, which is also what the dashboard's CP list uses.
 const String _kCpCategoryKey = 'cp';
+const String _kLuckyCategoryKey = 'lucky';
 
 /// ترتيب التبويبات الثابت.
 const List<String> _kKnownCategories = [
@@ -196,12 +197,20 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   List<Gift> _giftsForTab(GiftCatalog catalog, String key) {
     final all = catalog.all;
     if (key == 'all') return all;
-    return all.where((g) => (g.category ?? '') == key).toList();
+    // هدايا الحظ live in the "محظوظ" tab whatever list the dashboard filed
+    // them under — the flag is what makes a gift lucky, not the category.
+    if (key == _kLuckyCategoryKey) {
+      return all.where((g) => g.isLucky || (g.category ?? '') == key).toList();
+    }
+    return all.where((g) => (g.category ?? '') == key && !g.isLucky).toList();
   }
 
   void _ensureTabController(GiftCatalog catalog) {
     final fromData =
         catalog.all.map((g) => g.category ?? '').where((c) => c.isNotEmpty).toSet();
+    // A lucky gift guarantees its tab exists even before the dashboard has a
+    // list called "lucky".
+    if (catalog.all.any((g) => g.isLucky)) fromData.add(_kLuckyCategoryKey);
 
     late final List<String> ordered;
     if (catalog.categories.isNotEmpty) {
@@ -284,7 +293,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                       return const Center(
                           child: Text('لا توجد هدايا بعد', style: TextStyle(color: Colors.white60)));
                     }
-                    return GridView.builder(
+                    final grid = GridView.builder(
                       padding: const EdgeInsets.all(12),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 4,
@@ -294,6 +303,27 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                       ),
                       itemCount: gifts.length,
                       itemBuilder: (_, i) => _giftCell(gifts[i]),
+                    );
+                    if (key != _kLuckyCategoryKey) return grid;
+                    // The rule, stated once where the choice is made.
+                    return Column(
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFB300).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFFB300).withOpacity(0.5)),
+                          ),
+                          child: const Text(
+                            '🎲 هدية الحظ: 10% للمضيف، وإنت بترمي على مضاعف من ×5 لحد ×500 — المكسب يرجع لرصيدك فوراً',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white, fontSize: 11, height: 1.4),
+                          ),
+                        ),
+                        Expanded(child: grid),
+                      ],
                     );
                   }).toList(),
                 );
@@ -550,6 +580,12 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 ),
               ],
             ),
+            if (gift.isLucky)
+              const Positioned(
+                top: 4,
+                right: 4,
+                child: Text('🎲', style: TextStyle(fontSize: 12)),
+              ),
             if (_isNew(gift))
               Positioned(
                 top: 4,
@@ -763,7 +799,14 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       if (!mounted) return;
       setState(() => _balance = result.senderBalance);
       widget.onBalanceChanged(result.senderBalance);
-      _toast('تم إرسال الهدية!');
+      final lucky = result.lucky;
+      if (lucky == null) {
+        _toast('تم إرسال الهدية!');
+      } else if (lucky.won) {
+        _toast('🎉 كسبت ×${lucky.multiplier} — ${lucky.payoutCoins} كوينز رجعت لرصيدك');
+      } else {
+        _toast('🎲 حظ أوفر المرة الجاية — ${lucky.hostCoins} كوينز راحت للمضيف', warning: true);
+      }
     } on GiftRepositoryException catch (e) {
       if (!mounted) return;
       setState(() => _balance = prevBalance);

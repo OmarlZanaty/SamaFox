@@ -85,6 +85,8 @@ class Gift {
   final bool isComboEligible;
   final bool broadcastGlobal;
   final String? category;
+  /// هدايا الحظ — the host keeps 10%, the sender rolls for a multiple of it.
+  final bool isLucky;
   final int sortOrder;
   final DateTime? createdAt;
 
@@ -105,6 +107,7 @@ class Gift {
     this.isComboEligible = true,
     this.broadcastGlobal = false,
     this.category,
+    this.isLucky = false,
     this.sortOrder = 0,
     this.createdAt,
   });
@@ -139,6 +142,7 @@ class Gift {
       isComboEligible: json['isComboEligible'] as bool? ?? true,
       broadcastGlobal: json['broadcastGlobal'] as bool? ?? false,
       category: json['category'] as String?,
+      isLucky: json['isLucky'] as bool? ?? false,
       sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
       createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'] as String) : null,
     );
@@ -293,4 +297,67 @@ class SmallGiftItem {
     this.sender,
     required this.addedAt,
   });
+}
+
+/// هدايا الحظ — one roll, as the server announces it (`lucky_win` to the
+/// room, `lucky_broadcast` to everyone) and as `/gifts/lucky/recent` lists it.
+@immutable
+class LuckyRollEvent {
+  final int rollId;
+  final int senderId;
+  final String? senderName;
+  final String? senderAvatarUrl;
+  final int recipientId;
+  final String? recipientName;
+  final int? roomId;
+  final String? giftName;
+  final String? giftIconUrl;
+  final int giftCoins;
+  final int hostCoins;
+  /// 0 = lost. Only the sender's own screen shows a loss.
+  final int multiplier;
+  final int payoutCoins;
+  final DateTime ts;
+
+  const LuckyRollEvent({
+    required this.rollId,
+    required this.senderId,
+    this.senderName,
+    this.senderAvatarUrl,
+    required this.recipientId,
+    this.recipientName,
+    this.roomId,
+    this.giftName,
+    this.giftIconUrl,
+    required this.giftCoins,
+    required this.hostCoins,
+    required this.multiplier,
+    required this.payoutCoins,
+    required this.ts,
+  });
+
+  bool get won => multiplier > 0;
+
+  factory LuckyRollEvent.fromJson(Map<String, dynamic> json) {
+    final gift = json['gift'] is Map ? Map<String, dynamic>.from(json['gift'] as Map) : const <String, dynamic>{};
+    final tsRaw = json['ts'];
+    return LuckyRollEvent(
+      rollId: (json['rollId'] as num?)?.toInt() ?? 0,
+      senderId: (json['senderId'] as num?)?.toInt() ?? 0,
+      senderName: json['senderName'] as String?,
+      senderAvatarUrl: _absoluteUrl(json['senderAvatarUrl'] as String?),
+      recipientId: (json['recipientId'] as num?)?.toInt() ?? 0,
+      recipientName: json['recipientName'] as String?,
+      roomId: (json['roomId'] as num?)?.toInt(),
+      giftName: (gift['nameAr'] ?? gift['name']) as String?,
+      giftIconUrl: _absoluteUrl(gift['iconUrl'] as String?),
+      giftCoins: (json['giftCoins'] as num?)?.toInt() ?? 0,
+      hostCoins: (json['hostCoins'] as num?)?.toInt() ?? 0,
+      multiplier: (json['multiplier'] as num?)?.toInt() ?? 0,
+      payoutCoins: (json['payoutCoins'] as num?)?.toInt() ?? 0,
+      ts: tsRaw is num
+          ? DateTime.fromMillisecondsSinceEpoch(tsRaw.toInt())
+          : DateTime.now(),
+    );
+  }
 }

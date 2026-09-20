@@ -261,6 +261,7 @@ function renderEditor() {
           <label class="toggle"><input type="checkbox" id="f-isActive" ${d.isActive?'checked':''}> Active</label>
           <label class="toggle"><input type="checkbox" id="f-isComboEligible" ${d.isComboEligible?'checked':''}> Combo eligible</label>
           <label class="toggle"><input type="checkbox" id="f-broadcastGlobal" ${d.broadcastGlobal?'checked':''}> Broadcast globally</label>
+          <label class="toggle" title="هدية حظ: المضيف ياخد 10% والداعم يرمي على مضاعف (5× … 500×) من صندوق الحظ"><input type="checkbox" id="f-isLucky" ${d.isLucky?'checked':''}> 🎲 هدية حظ (محظوظ)</label>
         </div>
 
         ${d.format === 'SVG_CSS' ? `
@@ -332,6 +333,7 @@ function bindFieldEvents() {
   bind('f-isActive', 'isActive');
   bind('f-isComboEligible', 'isComboEligible');
   bind('f-broadcastGlobal', 'broadcastGlobal');
+  bind('f-isLucky', 'isLucky');
   bind('f-animationHtml', 'animationHtml');
   bind('f-animationUrl', 'animationUrl');
   bind('f-videoHasAlpha', 'videoHasAlpha');

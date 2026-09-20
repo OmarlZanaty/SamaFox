@@ -1232,6 +1232,10 @@ model Gift {
   sortOrder        Int        @default(0)
   category         String?
   cpEligible       Boolean    @default(false) // counts toward account power (CP) when sent
+  // هدايا الحظ — the host keeps 10% and the sender rolls for a multiple of that
+  // 10%, paid out of the lucky pool (see LuckyPool). The tab in the app's gift
+  // sheet is built from this flag, not from `category`.
+  isLucky          Boolean    @default(false)
   createdBy        Int?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -1272,10 +1276,18 @@ model GiftTransaction {
   roomId      Int?
   giftId      String
   quantity    Int      @default(1)
+  /// What the RECIPIENT's side of the ledger sees (target, room cup,
+  /// leaderboards). Equal to what the sender paid for an ordinary gift; for a
+  /// lucky gift it is the host's 10% only — the other 90% went to the pool.
   totalCoins  Int
+  /// What the sender actually paid. Backfilled to totalCoins for rows that
+  /// predate lucky gifts.
+  paidCoins   Int      @default(0)
   comboKey    String?
   comboCount  Int      @default(1)
   createdAt   DateTime @default(now())
+
+  luckyRoll LuckyRoll?
 
   sender    User  @relation("GiftSender", fields: [senderId], references: [id])
   recipient User  @relation("GiftRecipient", fields: [recipientId], references: [id])
@@ -1286,6 +1298,68 @@ model GiftTransaction {
   @@index([senderId, createdAt])
   @@index([recipientId, createdAt])
   @@map("gift_transactions")
+}
+
+// ============================================
+// هدايا الحظ — LUCKY GIFTS
+// ============================================
+// A sender throws a lucky gift worth V at a host. The host gets 10% (H). The
+// sender rolls for a multiplier m ∈ {0, 5, 10, 20, 50, 100, 200, 300, 500} and
+// receives m × H. Every payout comes out of the POOL, which is fed by the 90%
+// of every lucky gift that did not go to the host — the platform never pays a
+// coin of its own. The pool cannot go negative: a multiplier the pool cannot
+// cover simply does not enter the draw.
+
+/// The one shared pool. A single row, id = 1.
+model LuckyPool {
+  id        Int      @id @default(1)
+  balance   BigInt   @default(0)
+  totalIn   BigInt   @default(0)
+  totalOut  BigInt   @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("lucky_pool")
+}
+
+/// One draw tier. weightBp is the chance in basis points (4000 = 40%); the
+/// remainder up to 10000 is the losing outcome. minPoolCoins keeps the big
+/// multipliers out of the draw until the pool is fat enough that paying one
+/// out leaves it healthy.
+model LuckyTier {
+  id           Int     @id @default(autoincrement())
+  multiplier   Int     @unique
+  weightBp     Int
+  minPoolCoins BigInt  @default(0)
+  isActive     Boolean @default(true)
+
+  @@map("lucky_tiers")
+}
+
+/// Every roll, win or lose — the audit trail behind the pool balance, and what
+/// the verification endpoint recomputes.
+model LuckyRoll {
+  id             Int      @id @default(autoincrement())
+  giftTxId       String   @unique
+  senderId       Int
+  recipientId    Int
+  roomId         Int?
+  giftCoins      Int      // V — what the sender paid
+  hostCoins      Int      // H — the host's 10%
+  multiplier     Int      // 0 = lost
+  payoutCoins    Int      // multiplier × H, after the pool cap
+  poolBefore     BigInt
+  poolAfter      BigInt
+  serverSeed     String
+  serverSeedHash String
+  tiersSnapshot  Json     // the draw table used, so the roll can be re-derived
+  createdAt      DateTime @default(now())
+
+  giftTx GiftTransaction @relation(fields: [giftTxId], references: [id], onDelete: Cascade)
+
+  @@index([senderId, createdAt])
+  @@index([createdAt])
+  @@index([multiplier, createdAt])
+  @@map("lucky_rolls")
 }
 
 model GiftBroadcast {

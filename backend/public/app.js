@@ -32,6 +32,7 @@ const sections   = document.querySelectorAll(".section");
 const pageTitle  = document.getElementById("pageTitle");
 
 const sectionTitles = {
+  lucky:     "هدايا الحظ",
   overview:  "نظرة عامة",
   users:     "المستخدمين",
   rooms:     "الغرف",
@@ -64,6 +65,7 @@ function navigate(sec) {
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
   if (sec === "games") loadGamesConfig().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "lucky") loadLucky().catch(e => showToast("خطأ: " + e.message));
   if (sec === "moderation") loadModeration().catch(e => showToast("خطأ: " + e.message));
   if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} }
 }
@@ -3162,8 +3164,118 @@ async function loadUserCharges() {
     `${escapeHtml(d.user?.name ?? "")} — ${num(d.count)} شحنة بإجمالي ${num(d.totalCoins)} كوينز`;
 }
 
+// ============================================================
+// هدايا الحظ — pool, tiers, rolls
+// ============================================================
+
+const LUCKY_MULTIPLIERS = [5, 10, 20, 50, 100, 200, 300, 500];
+
+async function loadLucky() {
+  const res = await apiFetch("/admin-dashboard/lucky");
+  const d = res?.data;
+  if (!d) return;
+
+  const winRate = d.stats.rolls ? Math.round((100 * d.stats.wins) / d.stats.rolls) : 0;
+  document.getElementById("luckyStats").innerHTML = [
+    ["رصيد الصندوق", num(d.pool.balance)],
+    ["دخل الصندوق", num(d.pool.totalIn)],
+    ["خرج من الصندوق", num(d.pool.totalOut)],
+    ["رميات", num(d.stats.rolls)],
+    ["نسبة الكسب", winRate + "%"],
+    ["للمضيفين", num(d.stats.hostCoins)],
+  ].map(([k, v]) => `<div class="stat-card"><div class="stat-label">${k}</div><div class="stat-value">${v}</div></div>`).join("");
+
+  const byMult = new Map((d.tiers || []).map(t => [t.multiplier, t]));
+  document.querySelector("#luckyTiersTable tbody").innerHTML = LUCKY_MULTIPLIERS.map(m => {
+    const t = byMult.get(m) || { multiplier: m, weightBp: 0, minPoolCoins: 0, isActive: false };
+    return `<tr data-mult="${m}">
+      <td><strong>×${m}</strong></td>
+      <td><input type="number" min="0" max="10000" class="form-input lk-w" value="${t.weightBp}" style="width:110px"></td>
+      <td class="lk-pct">${(t.weightBp / 100).toFixed(2)}%</td>
+      <td><input type="number" min="0" class="form-input lk-min" value="${t.minPoolCoins}" style="width:140px"></td>
+      <td><input type="checkbox" class="lk-on" ${t.isActive ? "checked" : ""}></td>
+    </tr>`;
+  }).join("");
+  document.querySelectorAll("#luckyTiersTable .lk-w").forEach(el => el.addEventListener("input", () => {
+    el.closest("tr").querySelector(".lk-pct").textContent = (Number(el.value || 0) / 100).toFixed(2) + "%";
+    renderLuckyAnalysis();
+  }));
+  document.querySelectorAll("#luckyTiersTable .lk-on").forEach(el => el.addEventListener("change", renderLuckyAnalysis));
+
+  document.getElementById("lucky_host_bp").value  = d.settings.hostShareBp;
+  document.getElementById("lucky_bcast_min").value = d.settings.broadcastMin;
+  document.getElementById("lucky_host_bp").addEventListener("input", renderLuckyAnalysis);
+  renderLuckyAnalysis();
+
+  document.querySelector("#luckyWinnersTable tbody").innerHTML = (d.topWinners || []).map(w =>
+    `<tr><td>${w.name ?? "—"} <span class="muted">#${w.displayId ?? w.userId}</span></td><td>${num(w.rolls)}</td><td>${num(w.spent)}</td><td>${num(w.won)}</td><td>${num(w.won - w.spent)}</td></tr>`
+  ).join("") || `<tr><td colspan="5" class="muted">لا يوجد بعد</td></tr>`;
+
+  document.querySelector("#luckyRollsTable tbody").innerHTML = (d.recent || []).map(r =>
+    `<tr><td>${r.id}</td><td>${new Date(r.createdAt).toLocaleString("ar-EG")}</td><td>${r.senderName ?? r.senderId}</td><td>${r.recipientName ?? r.recipientId}</td><td>${num(r.giftCoins)}</td><td>${num(r.hostCoins)}</td><td>${r.multiplier ? "×" + r.multiplier : "خسر"}</td><td>${num(r.payoutCoins)}</td><td>${num(r.poolAfter)}</td></tr>`
+  ).join("") || `<tr><td colspan="9" class="muted">لا رميات بعد</td></tr>`;
+}
+
+function readLuckyTiers() {
+  return [...document.querySelectorAll("#luckyTiersTable tr[data-mult]")].map(tr => ({
+    multiplier: Number(tr.dataset.mult),
+    weightBp: Number(tr.querySelector(".lk-w").value || 0),
+    minPoolCoins: Number(tr.querySelector(".lk-min").value || 0),
+    isActive: tr.querySelector(".lk-on").checked,
+  }));
+}
+
+// Same arithmetic as analyzeTiers on the server, so the admin sees the verdict
+// before saving — the server still has the final say.
+function renderLuckyAnalysis() {
+  const tiers = readLuckyTiers().filter(t => t.isActive);
+  const share = Number(document.getElementById("lucky_host_bp").value || 1000) / 10000;
+  const total = tiers.reduce((a, t) => a + t.weightBp, 0);
+  const em = tiers.reduce((a, t) => a + (t.multiplier * t.weightBp) / 10000, 0);
+  const back = em * share, intake = 1 - share - back;
+  const el = document.getElementById("luckyAnalysis");
+  const ok = total <= 10000 && intake >= 0;
+  el.style.color = ok ? "#16a34a" : "#dc2626";
+  el.textContent = ok
+    ? `نسبة الكسب ${(total / 100).toFixed(1)}% · متوسط المضاعف ${em.toFixed(2)} · يرجع للداعم ${(back * 100).toFixed(1)}% · للمضيف ${(share * 100).toFixed(0)}% · يبقى في الصندوق ${(intake * 100).toFixed(1)}% ✔`
+    : (total > 10000 ? "مجموع الاحتمالات أكبر من 100%" : `الجدول ده يدفع ${(-intake * 100).toFixed(1)}% أكتر مما يدخل — البرنامج هيمول المكاسب ✖`);
+  return ok;
+}
+
+async function saveLuckyTiers() {
+  if (!renderLuckyAnalysis()) return showToast("❌ الجدول غير صالح — راجع التحليل تحت الجدول");
+  const body = {
+    tiers: readLuckyTiers(),
+    hostShareBp: Number(document.getElementById("lucky_host_bp").value || 1000),
+    broadcastMinMultiplier: Number(document.getElementById("lucky_bcast_min").value || 10),
+  };
+  try {
+    await apiFetch("/admin-dashboard/lucky/tiers", "POST", body);
+  } catch (e) {
+    return showToast("❌ " + (e?.message || "فشل الحفظ"));
+  }
+  showToast("✅ تم حفظ جدول المضاعفات");
+  loadLucky().catch(() => {});
+}
+
+async function luckyTopUp() {
+  const amount = Number(document.getElementById("lucky_topup").value);
+  if (!(amount > 0)) return showToast("❌ أدخل كمية أكبر من صفر");
+  if (!confirm(`إضافة ${num(amount)} كوينز لصندوق الحظ؟ (لا يمكن سحبها بعد كده)`)) return;
+  let res;
+  try {
+    res = await apiFetch("/admin-dashboard/lucky/topup", "POST", { amountCoins: amount });
+  } catch (e) {
+    return showToast("❌ " + (e?.message || "فشل"));
+  }
+  document.getElementById("lucky_topup").value = "";
+  showToast(`✅ الصندوق الآن ${num(res?.data?.balance)}`);
+  loadLucky().catch(() => {});
+}
+
 // Exposed for the inline onclick handlers in admin-dashboard.html.
 Object.assign(window, {
+  loadLucky, saveLuckyTiers, luckyTopUp,
   loadRewards, saveRoomSupportWindow,
   saveRoomCupReward, deleteRoomCupReward,
   saveSupporterReward, deleteSupporterReward,

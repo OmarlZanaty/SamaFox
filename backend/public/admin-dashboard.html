@@ -61,6 +61,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
       المكافآت
     </a>
+    <a href="#" class="nav-item" data-section="lucky">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.2"/><circle cx="16" cy="8" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="8" cy="16" r="1.2"/><circle cx="16" cy="16" r="1.2"/></svg>
+      هدايا الحظ
+    </a>
     <a href="#" class="nav-item" data-section="games">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="15" y1="13" x2="15.01" y2="13"/><line x1="18" y1="11" x2="18.01" y2="11"/><rect x="2" y="6" width="20" height="12" rx="2"/></svg>
       الألعاب
@@ -817,6 +821,70 @@
         <div class="table-wrap">
           <table id="gamesTable">
             <thead><tr><th>اللعبة</th><th>الحالة</th><th>أقل رهان</th><th>أعلى رهان</th><th>حفظ</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============= هدايا الحظ ============= -->
+    <section class="section" id="section-lucky">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">هدايا الحظ (المحظوظ)</h2>
+          <p class="section-sub">المضيف ياخد نسبته، والداعم يرمي على مضاعف يتدفع من صندوق الحظ — البرنامج لا يدفع ولا يأخذ</p>
+        </div>
+        <div class="section-actions">
+          <button class="btn btn-outline" onclick="loadLucky()">تحديث</button>
+        </div>
+      </div>
+
+      <div class="stats-grid" id="luckyStats"></div>
+
+      <div class="form-card">
+        <div class="form-card-title">&#127922; جدول المضاعفات</div>
+        <p class="section-sub">
+          الوزن بالنقطة الأساس (10000 = 100%). الباقي حتى 10000 هو احتمال الخسارة. "أقل صندوق" يمنع المضاعف من الدخول في السحب
+          لحد ما الصندوق يوصل للرقم ده — كده المضاعفات الكبيرة بتظهر لما فلوس الخاسرين تكون اتجمعت، مش من جيب البرنامج.
+        </p>
+        <div class="table-wrap">
+          <table id="luckyTiersTable">
+            <thead><tr><th>المضاعف</th><th>الوزن (bp)</th><th>%</th><th>أقل صندوق (كوينز)</th><th>مفعّل</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="form-row" style="margin-top:10px">
+          <input id="lucky_host_bp" type="number" min="100" max="5000" class="form-input" placeholder="نسبة المضيف (bp) — 1000 = 10%" />
+          <input id="lucky_bcast_min" type="number" min="0" max="500" class="form-input" placeholder="أقل مضاعف يظهر في الشريط العام" />
+          <button class="btn btn-primary" onclick="saveLuckyTiers()">حفظ الجدول</button>
+        </div>
+        <p class="section-sub" id="luckyAnalysis" style="margin-top:8px"></p>
+      </div>
+
+      <div class="form-card">
+        <div class="form-card-title">&#128176; صندوق الحظ</div>
+        <p class="section-sub">إضافة فقط (ترويج). مفيش سحب من الصندوق — دي فلوس اللاعبين.</p>
+        <div class="form-row">
+          <input id="lucky_topup" type="number" min="1" class="form-input" placeholder="كوينز تضاف للصندوق" />
+          <button class="btn btn-primary" onclick="luckyTopUp()">إضافة</button>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <div class="form-card-title">&#127942; أعلى الكسبانين</div>
+        <div class="table-wrap">
+          <table id="luckyWinnersTable">
+            <thead><tr><th>المستخدم</th><th>رميات</th><th>أنفق</th><th>كسب</th><th>صافي</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <div class="form-card-title">&#128203; آخر 50 رمية</div>
+        <div class="table-wrap">
+          <table id="luckyRollsTable">
+            <thead><tr><th>#</th><th>الوقت</th><th>الداعم</th><th>المضيف</th><th>الهدية</th><th>للمضيف</th><th>المضاعف</th><th>المكسب</th><th>الصندوق بعدها</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>

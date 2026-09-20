@@ -39,6 +39,8 @@ interface GiftWriteInput {
   isActive?: boolean;
   sortOrder?: number;
   category?: string | null;
+  /** هدايا الحظ — host keeps 10%, sender rolls for a multiple (lucky.service). */
+  isLucky?: boolean;
 }
 
 const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.m4v', '.ogv'];
@@ -66,6 +68,7 @@ function normalize(input: GiftWriteInput, existing?: any) {
   if (input.animationMs !== undefined) out.animationMs = Math.max(500, Math.floor(Number(input.animationMs)));
   if (input.isComboEligible !== undefined) out.isComboEligible = !!input.isComboEligible;
   if (input.broadcastGlobal !== undefined) out.broadcastGlobal = !!input.broadcastGlobal;
+  if (input.isLucky !== undefined) out.isLucky = !!input.isLucky;
   if (input.isActive !== undefined) out.isActive = !!input.isActive;
   if (input.sortOrder !== undefined) out.sortOrder = Math.floor(Number(input.sortOrder)) || 0;
   if (input.category !== undefined) out.category = input.category ? String(input.category).trim() : null;

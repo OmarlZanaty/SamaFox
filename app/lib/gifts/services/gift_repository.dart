@@ -115,9 +115,25 @@ class GiftRepository {
         senderBalance: (body['senderBalance'] as num?)?.toInt() ?? 0,
         comboCount: (body['comboCount'] as num?)?.toInt() ?? 1,
         broadcast: body['broadcast'] as bool? ?? false,
+        lucky: LuckyOutcome.fromJson(body['lucky']),
       );
     } on DioException catch (e) {
       throw _translateDioError(e, fallback: 'فشل إرسال الهدية');
+    }
+  }
+
+  /// هدايا الحظ — the last announced wins, so the ticker has something to
+  /// show the moment a room opens instead of waiting for the next win.
+  Future<List<LuckyRollEvent>> luckyRecent() async {
+    try {
+      final res = await _dio.get('/gifts/lucky/recent');
+      final items = (res.data is Map ? res.data['items'] : null) as List? ?? const [];
+      return items
+          .whereType<Map>()
+          .map((m) => LuckyRollEvent.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -259,12 +275,39 @@ class GiftSendResult {
   final int senderBalance;
   final int comboCount;
   final bool broadcast;
+  /// هدايا الحظ — what the sender rolled; null for an ordinary gift.
+  final LuckyOutcome? lucky;
   const GiftSendResult({
     required this.transactionId,
     required this.senderBalance,
     required this.comboCount,
     required this.broadcast,
+    this.lucky,
   });
+}
+
+class LuckyOutcome {
+  final int rollId;
+  final int multiplier; // 0 = lost
+  final int payoutCoins;
+  final int hostCoins;
+  const LuckyOutcome({
+    required this.rollId,
+    required this.multiplier,
+    required this.payoutCoins,
+    required this.hostCoins,
+  });
+  bool get won => multiplier > 0;
+
+  static LuckyOutcome? fromJson(dynamic raw) {
+    if (raw is! Map) return null;
+    return LuckyOutcome(
+      rollId: (raw['rollId'] as num?)?.toInt() ?? 0,
+      multiplier: (raw['multiplier'] as num?)?.toInt() ?? 0,
+      payoutCoins: (raw['payoutCoins'] as num?)?.toInt() ?? 0,
+      hostCoins: (raw['hostCoins'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
 class GiftTransaction {

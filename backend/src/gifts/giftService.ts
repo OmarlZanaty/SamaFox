@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma';
+import { getLuckySettings, luckyHostCoins, rollLucky, type LuckyRollResult } from './lucky.service';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
 import { getCpConfig } from '../controllers/settings.controller';
@@ -21,6 +22,8 @@ export interface SendGiftResult {
   recipientCoinsDelta: number;
   comboCount: number;
   broadcast: boolean;
+  /** Present only for a lucky gift: what the sender rolled. */
+  lucky: LuckyRollResult | null;
   gift: {
     id: string;
     name: string;
@@ -36,6 +39,7 @@ export interface SendGiftResult {
     fireworksColors: unknown;
     coinCost: number;
     broadcastGlobal: boolean;
+    isLucky: boolean;
   };
 }
 
@@ -71,6 +75,17 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   const totalCoins = gift.coinCost * quantity;
   if (totalCoins <= 0 || !Number.isSafeInteger(totalCoins)) {
     throw new GiftSendError('INVALID_AMOUNT', 'Total cost out of range');
+  }
+
+  // هدايا الحظ: the sender pays V (totalCoins) but the recipient's side of the
+  // ledger — target, commission, room cup, leaderboards — only ever sees the
+  // host's 10%. Everything below that credits or counts "the gift" for the
+  // recipient uses `recipientCoins`; everything on the sender's side (the
+  // debit, XP, CP) keeps using `totalCoins`.
+  const luckySettings = gift.isLucky ? await getLuckySettings() : null;
+  const recipientCoins = luckySettings ? luckyHostCoins(totalCoins, luckySettings.hostShareBp) : totalCoins;
+  if (gift.isLucky && recipientCoins <= 0) {
+    throw new GiftSendError('INVALID_AMOUNT', 'Lucky gift too small for a host share');
   }
 
   let comboCount = 1;
@@ -159,7 +174,12 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
             select: { id: true },
           });
 
-      recipientCredit = hostMembership || chargingMembership ? 0 : Math.floor(totalCoins / 2);
+      // Lucky gifts: the host's share is already only 10% of the gift, and the
+      // 90% burn happened into the pool — halving it again would leave an
+      // ordinary host with 5% of what the client said they get.
+      recipientCredit = hostMembership || chargingMembership
+        ? 0
+        : gift.isLucky ? recipientCoins : Math.floor(totalCoins / 2);
 
       // #4: agency owner's 20% commission on a host's gift earnings, cut from
       // every gift a hosting-agency member receives.
@@ -188,7 +208,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
           select: { id: true, userId: true },
         });
         if (owner) {
-          const amount = Math.floor(totalCoins * COMMISSION_RATE);
+          const amount = Math.floor(recipientCoins * COMMISSION_RATE);
           if (amount > 0) {
             if (owner.id === hostMembership.id) {
               // The recipient IS the وكيل: both sides of the ledger are the
@@ -269,11 +289,26 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
           roomId: input.roomId ?? null,
           giftId: gift.id,
           quantity,
-          totalCoins,
+          totalCoins: recipientCoins,
+          paidCoins: totalCoins,
           comboKey: input.comboKey ?? null,
           comboCount,
         },
       });
+
+      // The roll, inside the same transaction: pool funded, drawn, paid.
+      let lucky: LuckyRollResult | null = null;
+      if (gift.isLucky) {
+        lucky = await rollLucky(tx, {
+          giftTxId: txRow.id,
+          senderId: input.senderId,
+          recipientId: input.recipientId,
+          roomId: input.roomId ?? null,
+          giftCoins: totalCoins,
+          hostCoins: recipientCoins,
+          isSelfGift,
+        });
+      }
 
       // Any gift worth more than 5,000 coins is broadcast globally.
       const broadcast = gift.broadcastGlobal || gift.tier === 'LEGENDARY' || totalCoins > 5000;
@@ -288,14 +323,25 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         });
       }
 
+      let senderBalance = sender?.coinsBalance ?? 0;
+      if (lucky && lucky.payoutCoins > 0) {
+        // The balance above was read before the payout landed.
+        const after = await tx.user.findUnique({
+          where: { id: input.senderId },
+          select: { coinsBalance: true },
+        });
+        senderBalance = after?.coinsBalance ?? senderBalance + lucky.payoutCoins;
+      }
+
       return {
         transactionId: txRow.id,
-        senderBalance: sender?.coinsBalance ?? 0,
+        senderBalance,
         recipientBalance,
         recipientCredit,
         broadcast,
         commission,
         levelUp,
+        lucky,
       };
     },
     { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
@@ -387,6 +433,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     recipientCoinsDelta: result.recipientCredit,
     comboCount,
     broadcast: result.broadcast,
+    lucky: result.lucky,
     gift: {
       id: gift.id,
       name: gift.name,
@@ -402,6 +449,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       fireworksColors: gift.fireworksColors,
       coinCost: gift.coinCost,
       broadcastGlobal: gift.broadcastGlobal,
+      isLucky: gift.isLucky,
     },
   };
 }

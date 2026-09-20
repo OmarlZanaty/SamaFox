@@ -18,12 +18,18 @@ class GiftSocketService {
   // carries only who/what/to-whom, and one event covers a whole fan-out so a
   // gift to 20 people shows ONE bar instead of 20 stacked ones.
   final StreamController<GiftAnnouncement> _announcements = StreamController.broadcast();
+  // هدايا الحظ — `lucky_win` reaches the room (and the sender wherever they
+  // are); `lucky_broadcast` reaches the whole app for the bottom ticker.
+  final StreamController<LuckyRollEvent> _luckyWins = StreamController.broadcast();
+  final StreamController<LuckyRollEvent> _luckyBroadcasts = StreamController.broadcast();
   bool _bound = false;
 
   Stream<GiftSendEvent> get sentStream => _sent.stream;
   Stream<GiftSendEvent> get legendaryIncomingStream => _legendaryIncoming.stream;
   Stream<GiftSendEvent> get broadcastStream => _broadcast.stream;
   Stream<GiftAnnouncement> get announcementStream => _announcements.stream;
+  Stream<LuckyRollEvent> get luckyWinStream => _luckyWins.stream;
+  Stream<LuckyRollEvent> get luckyBroadcastStream => _luckyBroadcasts.stream;
 
   /// Exactly the handlers this instance registered, so [unbind] can remove its
   /// own and nothing else.
@@ -47,6 +53,17 @@ class GiftSocketService {
     listen('gift_legendary_incoming', (data) => _dispatch(data, _legendaryIncoming));
     listen('gift_broadcast', (data) => _dispatch(data, _broadcast));
     listen('gift_announcement', _dispatchAnnouncement);
+    listen('lucky_win', (data) => _dispatchLucky(data, _luckyWins));
+    listen('lucky_broadcast', (data) => _dispatchLucky(data, _luckyBroadcasts));
+  }
+
+  void _dispatchLucky(dynamic data, StreamController<LuckyRollEvent> controller) {
+    if (data is! Map) return;
+    try {
+      controller.add(LuckyRollEvent.fromJson(Map<String, dynamic>.from(data)));
+    } catch (e) {
+      debugPrint('[GiftSocketService] lucky parse failed: $e raw=$data');
+    }
   }
 
   void unbind() {
@@ -82,6 +99,8 @@ class GiftSocketService {
     await _legendaryIncoming.close();
     await _broadcast.close();
     await _announcements.close();
+    await _luckyWins.close();
+    await _luckyBroadcasts.close();
   }
 }
 

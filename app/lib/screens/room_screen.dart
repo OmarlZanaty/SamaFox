@@ -35,6 +35,8 @@ import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
 import '../gifts/widgets/gift_announcement_bar.dart';
+import '../gifts/widgets/lucky_ticker.dart';
+import '../gifts/widgets/lucky_win_banner.dart';
 import '../widgets/room/entrance_banner_layer.dart';
 import '../widgets/room/mic_queue_panel.dart';
 import '../widgets/room/music_library_sheet.dart';
@@ -5065,6 +5067,30 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               socket: _giftSocket,
               roomId: widget.roomId,
               myUserId: userId,
+            ),
+
+            // ===== هدايا الحظ: "كسب ×N" in the middle of the screen, one at a
+            // time, for every win in this room (and the sender's own loss).
+            LuckyWinBanner(
+              socket: _giftSocket,
+              roomId: widget.roomId,
+              myUserId: userId,
+            ),
+
+            // ===== هدايا الحظ: the app-wide winners ticker, just above the
+            // bottom bar. Tap → the winner's card (متابعة / رسالة / مسار).
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: bottomBarH + 12,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: LuckyTicker(
+                  socket: _giftSocket,
+                  repository: _giftRepository,
+                  myUserId: userId,
+                ),
+              ),
             ),
 
             // ===== Music control bar — draggable, only for owner/admins, and

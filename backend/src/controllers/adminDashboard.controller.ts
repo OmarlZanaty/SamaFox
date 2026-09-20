@@ -2868,3 +2868,178 @@ export const adminSetGameConfig = async (req: AdminReq, res: Response) => {
     return fail(res, 500, 'Server error');
   }
 };
+
+// ============================================================
+// هدايا الحظ — LUCKY GIFTS (pool, tiers, rolls)
+// ============================================================
+// The pool is the players' money: the admin can read it, tune the odds
+// (within the rule that the house never funds a payout), and ADD to it as a
+// promotion. There is deliberately no way to take from it.
+
+export const adminLuckySummary = async (_req: AdminReq, res: Response) => {
+  try {
+    const { getLuckySettings, analyzeTiers } = await import('../gifts/lucky.service');
+    const [pool, tiers, settings, recent, agg, topWinners, wins] = await Promise.all([
+      prisma.luckyPool.findUnique({ where: { id: 1 } }),
+      prisma.luckyTier.findMany({ orderBy: { multiplier: 'asc' } }),
+      getLuckySettings(),
+      prisma.luckyRoll.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true, senderId: true, recipientId: true, roomId: true, giftCoins: true, hostCoins: true,
+          multiplier: true, payoutCoins: true, poolAfter: true, createdAt: true,
+        },
+      }),
+      prisma.luckyRoll.aggregate({
+        _count: { _all: true },
+        _sum: { giftCoins: true, hostCoins: true, payoutCoins: true },
+      }),
+      prisma.luckyRoll.groupBy({
+        by: ['senderId'],
+        _sum: { payoutCoins: true, giftCoins: true },
+        _count: { _all: true },
+        orderBy: { _sum: { payoutCoins: 'desc' } },
+        take: 10,
+      }),
+      prisma.luckyRoll.count({ where: { multiplier: { gt: 0 } } }),
+    ]);
+    const userIds = [...new Set([...recent.flatMap((r) => [r.senderId, r.recipientId]), ...topWinners.map((w) => w.senderId)])];
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, displayId: true } });
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const activeTiers = tiers.filter((t) => t.isActive).map((t) => ({ multiplier: t.multiplier, weightBp: t.weightBp }));
+    return ok(res, {
+      data: {
+        pool: {
+          balance: Number(pool?.balance ?? 0),
+          totalIn: Number(pool?.totalIn ?? 0),
+          totalOut: Number(pool?.totalOut ?? 0),
+        },
+        settings,
+        tiers: tiers.map((t) => ({ ...t, minPoolCoins: Number(t.minPoolCoins) })),
+        analysis: analyzeTiers(activeTiers, settings.hostShareBp),
+        stats: {
+          rolls: agg._count._all,
+          wins,
+          giftCoins: agg._sum.giftCoins ?? 0,
+          hostCoins: agg._sum.hostCoins ?? 0,
+          payoutCoins: agg._sum.payoutCoins ?? 0,
+        },
+        recent: recent.map((r) => ({
+          ...r,
+          poolAfter: Number(r.poolAfter),
+          senderName: byId.get(r.senderId)?.name ?? null,
+          senderDisplayId: byId.get(r.senderId)?.displayId ?? null,
+          recipientName: byId.get(r.recipientId)?.name ?? null,
+        })),
+        topWinners: topWinners.map((w) => ({
+          userId: w.senderId,
+          name: byId.get(w.senderId)?.name ?? null,
+          displayId: byId.get(w.senderId)?.displayId ?? null,
+          rolls: w._count._all,
+          spent: w._sum.giftCoins ?? 0,
+          won: w._sum.payoutCoins ?? 0,
+        })),
+      },
+    });
+  } catch (e) {
+    console.error('adminLuckySummary error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * Replace the tier table. Body: { hostShareBp?, broadcastMinMultiplier?,
+ * tiers: [{multiplier, weightBp, minPoolCoins, isActive}] }. Rejected when the
+ * table would, on average, pay out more than it takes in — that is the one
+ * configuration that turns "الكل يحس إنه كسبان" into "الكل بيخسر".
+ */
+export const adminLuckySaveTiers = async (req: AdminReq, res: Response) => {
+  try {
+    const {
+      analyzeTiers, invalidateLuckyCache, LUCKY_MULTIPLIERS,
+      LUCKY_HOST_SHARE_KEY, LUCKY_BROADCAST_MIN_KEY, LUCKY_HOST_SHARE_DEFAULT_BP,
+    } = await import('../gifts/lucky.service');
+    const body = (req.body ?? {}) as any;
+    const hostShareBp = body.hostShareBp != null ? Math.floor(Number(body.hostShareBp)) : null;
+    if (hostShareBp != null && !(hostShareBp >= 100 && hostShareBp <= 5000)) {
+      return fail(res, 400, 'hostShareBp must be between 100 (1%) and 5000 (50%)');
+    }
+    const broadcastMin = body.broadcastMinMultiplier != null ? Math.floor(Number(body.broadcastMinMultiplier)) : null;
+    if (broadcastMin != null && !(broadcastMin >= 0 && broadcastMin <= 500)) {
+      return fail(res, 400, 'broadcastMinMultiplier must be 0..500');
+    }
+    const rawTiers = Array.isArray(body.tiers) ? body.tiers : [];
+    const tiers = rawTiers.map((t: any) => ({
+      multiplier: Math.floor(Number(t.multiplier)),
+      weightBp: Math.max(0, Math.floor(Number(t.weightBp) || 0)),
+      minPoolCoins: BigInt(Math.max(0, Math.floor(Number(t.minPoolCoins) || 0))),
+      isActive: t.isActive !== false,
+    }));
+    for (const t of tiers) {
+      if (!(LUCKY_MULTIPLIERS as readonly number[]).includes(t.multiplier)) {
+        return fail(res, 400, 'multiplier ' + t.multiplier + ' is not one of ' + LUCKY_MULTIPLIERS.join(', '));
+      }
+    }
+    const share = hostShareBp ?? Number((await prisma.appSetting.findUnique({ where: { key: LUCKY_HOST_SHARE_KEY } }))?.value ?? LUCKY_HOST_SHARE_DEFAULT_BP);
+    const analysis = analyzeTiers(tiers.filter((t: any) => t.isActive), share);
+    if (!analysis.valid) {
+      return res.status(400).json({
+        success: false,
+        message: analysis.totalWeightBp > 10_000
+          ? 'مجموع الاحتمالات أكبر من 100%'
+          : 'الجدول ده يدفع أكتر مما يدخل الصندوق — البرنامج هيمول المكاسب. قلّل الأوزان أو المضاعفات.',
+        analysis,
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const t of tiers) {
+        await tx.luckyTier.upsert({
+          where: { multiplier: t.multiplier },
+          update: { weightBp: t.weightBp, minPoolCoins: t.minPoolCoins, isActive: t.isActive },
+          create: { multiplier: t.multiplier, weightBp: t.weightBp, minPoolCoins: t.minPoolCoins, isActive: t.isActive },
+        });
+      }
+      if (hostShareBp != null) {
+        await tx.appSetting.upsert({
+          where: { key: LUCKY_HOST_SHARE_KEY },
+          update: { value: String(hostShareBp) },
+          create: { key: LUCKY_HOST_SHARE_KEY, value: String(hostShareBp) },
+        });
+      }
+      if (broadcastMin != null) {
+        await tx.appSetting.upsert({
+          where: { key: LUCKY_BROADCAST_MIN_KEY },
+          update: { value: String(broadcastMin) },
+          create: { key: LUCKY_BROADCAST_MIN_KEY, value: String(broadcastMin) },
+        });
+      }
+    });
+    invalidateLuckyCache();
+    return ok(res, { data: { analysis } });
+  } catch (e) {
+    console.error('adminLuckySaveTiers error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/** Add coins to the pool (a promotion). Positive only — see the header. */
+export const adminLuckyTopUp = async (req: AdminReq, res: Response) => {
+  try {
+    const amount = Math.floor(Number((req.body as any)?.amountCoins));
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
+      return fail(res, 400, 'amountCoins must be a positive number');
+    }
+    const pool = await prisma.luckyPool.upsert({
+      where: { id: 1 },
+      update: { balance: { increment: BigInt(amount) }, totalIn: { increment: BigInt(amount) } },
+      create: { id: 1, balance: BigInt(amount), totalIn: BigInt(amount) },
+    });
+    console.log('[lucky] admin topped up the pool by ' + amount);
+    return ok(res, { data: { balance: Number(pool.balance) } });
+  } catch (e) {
+    console.error('adminLuckyTopUp error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
