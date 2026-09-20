@@ -38,6 +38,15 @@ export const CP_DEFAULTS: Record<string, string> = {
   // stays `mesh` regardless of the flag, so a half-configured server cannot
   // strand anyone.
   livekit_url: '',
+  // Per-room overrides of `voice_engine`, comma-separated room ids. The two
+  // engines cannot hear each other, so a room is moved as a whole: put its
+  // id in `livekit_rooms` while the default is still `mesh`, and the phones
+  // entering THAT room use the SFU while every other room stays on the mesh.
+  // Once the default is flipped to `livekit`, `mesh_rooms` is the exception
+  // list the other way. Read by the app at launch, on resume and on every
+  // room entry, so a change reaches the next person to enter the room.
+  livekit_rooms: '',
+  mesh_rooms: '',
 
   // ── TURN (mesh engine) ────────────────────────────────────────────────────
   // Where the mesh relays audio for phones behind carrier-grade NAT. Until
@@ -51,6 +60,25 @@ export const CP_DEFAULTS: Record<string, string> = {
   turn_username: '',
   turn_credential: '',
 };
+
+/** "1, 2,x,3" → [1, 2, 3]. Tolerant of whatever the dashboard sends. */
+export function parseRoomIds(raw: string | undefined): number[] {
+  return String(raw ?? '')
+    .split(/[,\s]+/)
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+
+/**
+ * The engine a given room uses right now — the one place this rule lives, so
+ * the token endpoint and the settings payload cannot disagree.
+ */
+export function voiceEngineForRoom(s: Record<string, string>, roomId: number): 'mesh' | 'livekit' {
+  if (!s.livekit_url) return 'mesh';
+  if (parseRoomIds(s.livekit_rooms).includes(roomId)) return 'livekit';
+  if (parseRoomIds(s.mesh_rooms).includes(roomId)) return 'mesh';
+  return s.voice_engine === 'livekit' ? 'livekit' : 'mesh';
+}
 
 /** Read all app settings merged over the defaults. */
 export async function readSettings(): Promise<Record<string, string>> {
@@ -93,6 +121,8 @@ export async function getSettings(_req: Request, res: Response) {
         // short-lived token from /voice/token instead.
         voiceEngine: s.livekit_url ? s.voice_engine : 'mesh',
         livekitUrl: s.livekit_url,
+        livekitRooms: parseRoomIds(s.livekit_rooms),
+        meshRooms: parseRoomIds(s.mesh_rooms),
         // TURN for the mesh engine (see CP_DEFAULTS). Public by design: the
         // same values sit in every installed APK.
         turnUrls: s.turn_urls,

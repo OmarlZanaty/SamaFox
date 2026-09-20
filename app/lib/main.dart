@@ -323,6 +323,9 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     _applyWakelock(state == AppLifecycleState.resumed);
+    // Which engine each room is on can change while the app sits in the
+    // background; pick up the current answer before the next room is entered.
+    if (state == AppLifecycleState.resumed) unawaited(VoiceEngineConfig.refresh());
 
     // `detached` is the app going away on purpose. Clearing the session marker
     // here is what makes its survival meaningful: if it is still on disk at the

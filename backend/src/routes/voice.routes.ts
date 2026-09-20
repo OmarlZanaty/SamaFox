@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { AccessToken } from 'livekit-server-sdk';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import prisma from '../utils/prisma';
-import { readSettings } from '../controllers/settings.controller';
+import { readSettings, voiceEngineForRoom } from '../controllers/settings.controller';
 
 /**
  * Voice engine access — the SFU side of the room's audio.
@@ -32,7 +32,7 @@ async function livekitConfig() {
   const apiKey = (process.env.LIVEKIT_API_KEY ?? '').trim();
   const apiSecret = (process.env.LIVEKIT_API_SECRET ?? '').trim();
   if (!url || !apiKey || !apiSecret) return null;
-  return { url, apiKey, apiSecret, engine: settings.voice_engine };
+  return { url, apiKey, apiSecret, settings };
 }
 
 // POST /voice/token  { roomId }  →  { url, token, room }
@@ -54,6 +54,13 @@ router.post('/token', authMiddleware, async (req, res) => {
       // The app falls back to the mesh engine on this; it is not an error on
       // the device's side, only "not available here".
       return res.status(503).json({ success: false, message: 'voice engine not configured' });
+    }
+
+    // A token for a room that is on the mesh would put this phone on the SFU
+    // alone, hearing nobody. The app checks the same rule before asking; this
+    // is the backstop for a phone whose settings cache is stale.
+    if (voiceEngineForRoom(cfg.settings, roomId) !== 'livekit') {
+      return res.status(409).json({ success: false, message: 'room is on the mesh engine', engine: 'mesh' });
     }
 
     const [room, user] = await Promise.all([

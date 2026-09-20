@@ -99,7 +99,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   bool _openingMic = false;
   /// WebRTC audio service for voice chat
   /// Mesh or SFU — whichever the server selected. See VoiceEngine.
-  late final VoiceEngine _audioService;
+  late VoiceEngine _audioService;
   /// Track current seat and mute state to detect changes
   int? _currentSeatNumber;
   bool _currentSeatMuted = true;
@@ -2657,6 +2657,43 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// Leave this room because the user is entering a different one.
   ///
+
+  /// Every callback the room hangs on its voice engine. Called once when the
+  /// screen is created and again if the engine is swapped before the room is
+  /// joined (a settings refresh moved this room to the other engine).
+  void _wireVoiceCallbacks() {
+    final roomId = widget.roomId;
+    // The voice engine has stopped chasing a peer it cannot reach. Said once:
+    // the cause is the same for every peer on that network, and one line is
+    // information while five are noise.
+    _audioService.onPeerUnreachable = (userId) {
+      if (!mounted || _unreachableWarned) return;
+      _unreachableWarned = true;
+      _showRoomSnack(
+        'تعذّر الاتصال الصوتي مع بعض الموجودين — شبكتك تمنع الاتصال المباشر',
+        error: true,
+      );
+    };
+
+    // These callbacks live on the engine SINGLETON, which outlives this screen
+    // (the PiP bubble keeps it running). A callback that reaches for `ref`
+    // after dispose throws — the "Cannot use ref after the widget was
+    // disposed" the phones reported, once per VAD tick, forever.
+    _audioService.onVoiceActivityChanged = (isSpeaking) {
+      if (!mounted) return;
+      final userId = ref.read(authStateProvider).user?.id;
+      if (userId == null) return;
+      ref.read(roomControllerProvider(widget.roomId).notifier)
+          .broadcastMySpeaking(userId, isSpeaking);
+    };
+
+    _audioService.onVoiceUsersUpdated = (users) {
+      debugPrint("🔥 UPDATE UI USERS: $users");
+      if (!mounted) return;
+      ref.read(roomControllerProvider(roomId).notifier).setVoiceUsers(users);
+    };
+  }
+
   /// "مع دخولي اي غرفه اخرج تلقائي من الغرفه اللي كنت فيها": everything that
   /// kept the user present here is ended — the voice session (which releases
   /// the microphone and tells the other room's peers we are gone), the seat and
@@ -2719,7 +2756,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     AudioController.instance.initialize();
     AudioRoute.instance.register(_audioPlayer);
 
-    _audioService = VoiceEngine.instance;
+    // The engine is per ROOM (the server can put one room on the SFU while
+    // the rest stay on the mesh), chosen once here from the settings cache.
+    // The cache is refreshed again below, before the room is joined.
+    _audioService = VoiceEngine.forRoom(widget.roomId);
 
     _loadActiveItems(); // 🔥 ADD THIS
 
@@ -2760,50 +2800,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     WidgetsBinding.instance.addObserver(this);
 
-    final roomId = widget.roomId;
-
     // من المتحدث: the audio service reports my own mic transitions; the
     // controller paints my ring and tells the rest of the room.
     //
     // This used to re-`initialize()` the whole audio service on every
     // transition — a full WebRTC setup several times a second once the
     // detector actually started firing.
-    // The voice engine has stopped chasing a peer it cannot reach. Said once:
-    // the cause is the same for every peer on that network, and one line is
-    // information while five are noise.
-    _audioService.onPeerUnreachable = (userId) {
-      if (!mounted || _unreachableWarned) return;
-      _unreachableWarned = true;
-      _showRoomSnack(
-        'تعذّر الاتصال الصوتي مع بعض الموجودين — شبكتك تمنع الاتصال المباشر',
-        error: true,
-      );
-    };
-
-    // These callbacks live on the engine SINGLETON, which outlives this screen
-    // (the PiP bubble keeps it running). A callback that reaches for `ref`
-    // after dispose throws — the "Cannot use ref after the widget was
-    // disposed" the phones reported, once per VAD tick, forever.
-    _audioService.onVoiceActivityChanged = (isSpeaking) {
-      if (!mounted) return;
-      final userId = ref.read(authStateProvider).user?.id;
-      if (userId == null) return;
-      ref.read(roomControllerProvider(widget.roomId).notifier)
-          .broadcastMySpeaking(userId, isSpeaking);
-    };
-
-    final state = ref.read(roomControllerProvider(widget.roomId));
-    debugPrint("🧪 seats before speaking update: ${state.seats}");
-
-    // ✅ ADD THIS BLOCK
-    VoiceEngine.instance.onVoiceUsersUpdated = (users) {
-      debugPrint("🔥 UPDATE UI USERS: $users");
-      if (!mounted) return;
-
-      ref
-          .read(roomControllerProvider(roomId).notifier)
-          .setVoiceUsers(users);
-    };
+    _wireVoiceCallbacks();
 
     _topChatFocus.addListener(() {
       if (!_topChatFocus.hasFocus && _showChatPanel) {
@@ -2850,6 +2853,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _myUserId = ref.read(authStateProvider).user?.id;
       await ActiveRoom.instance.enter(widget.roomId, _closeForRoomSwitch);
       if (!mounted) return;
+
+      // Fresh word from the server on which engine THIS room is on. The two
+      // engines cannot hear each other, so entering on a stale cached choice
+      // would put this phone alone in a silent room. Bounded wait; on failure
+      // the cached choice stands.
+      await VoiceEngineConfig.refresh();
+      if (!mounted) return;
+      final fresh = VoiceEngine.forRoom(widget.roomId);
+      if (!identical(fresh, _audioService)) {
+        debugPrint('🎚️ engine changed before join — rewiring');
+        _audioService = fresh;
+        _wireVoiceCallbacks();
+        unawaited(_audioService.restorePreferences());
+      }
 
       // Re-assert it AFTER the old room's teardown: leaving a room stops the
       // mic foreground service, and initState started it for this one before
