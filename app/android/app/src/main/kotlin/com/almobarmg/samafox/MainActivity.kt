@@ -39,7 +39,11 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "start" -> {
-                        RoomAudioService.start(this, call.argument<String>("roomName"))
+                        RoomAudioService.start(
+                            this,
+                            call.argument<String>("roomName"),
+                            call.argument<Boolean>("onMic") ?: false,
+                        )
                         result.success(true)
                     }
                     "stop" -> {

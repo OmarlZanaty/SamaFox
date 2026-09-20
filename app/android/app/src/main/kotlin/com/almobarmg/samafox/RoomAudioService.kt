@@ -49,14 +49,16 @@ class RoomAudioService : Service() {
     companion object {
         const val ACTION_STOP = "com.almobarmg.samafox.action.STOP_ROOM_AUDIO"
         const val EXTRA_ROOM_NAME = "roomName"
+        const val EXTRA_ON_MIC = "onMic"
 
         private const val TAG = "RoomAudioService"
         private const val CHANNEL_ID = "samafox_room_audio"
         private const val NOTIFICATION_ID = 4201
 
-        fun start(context: Context, roomName: String?) {
+        fun start(context: Context, roomName: String?, onMic: Boolean = false) {
             val intent = Intent(context, RoomAudioService::class.java).apply {
                 putExtra(EXTRA_ROOM_NAME, roomName)
+                putExtra(EXTRA_ON_MIC, onMic)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -79,7 +81,12 @@ class RoomAudioService : Service() {
         }
 
         createChannel()
-        startAsForeground(buildNotification(intent?.getStringExtra(EXTRA_ROOM_NAME)))
+        startAsForeground(
+            buildNotification(
+                intent?.getStringExtra(EXTRA_ROOM_NAME),
+                intent?.getBooleanExtra(EXTRA_ON_MIC, false) ?: false,
+            ),
+        )
 
         // Deliberately NOT sticky: if the process dies the WebRTC session dies
         // with it, and a restarted bare service would show an "on mic"
@@ -131,7 +138,7 @@ class RoomAudioService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(roomName: String?): Notification {
+    private fun buildNotification(roomName: String?, onMic: Boolean): Notification {
         // Tapping the notification returns to the running app rather than
         // launching a second copy of it.
         val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
@@ -153,11 +160,17 @@ class RoomAudioService : Service() {
             Notification.Builder(this).setPriority(Notification.PRIORITY_LOW)
         }
 
+        // A listener is in the room; only a speaker is on the mic. Telling
+        // everyone "المايك مفتوح" was read as the app listening while muted.
+        val title = if (onMic) "أنت على المايك" else "أنت في الغرفة"
+        val text = when {
+            roomName.isNullOrBlank() -> if (onMic) "المايك مفتوح" else "الصوت شغّال في الخلفية"
+            onMic -> "المايك مفتوح في $roomName"
+            else -> "تسمع $roomName في الخلفية"
+        }
         return builder
-            .setContentTitle("المايك مفتوح")
-            .setContentText(
-                if (roomName.isNullOrBlank()) "أنت على المايك" else "أنت على المايك في $roomName",
-            )
+            .setContentTitle(title)
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_CALL)

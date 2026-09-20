@@ -5,7 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 Future<void> main(List<String> args) async {
   final url = args.first;
   final s = io.io(url, io.OptionBuilder()
-      .setTransports(['websocket', 'polling'])
+      .setTransports(args.length > 1 ? args[1].split(',') : ['websocket', 'polling'])
       .disableAutoConnect()
       .disableReconnection()
       .setAuth({'token': 'probe'})

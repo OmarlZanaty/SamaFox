@@ -250,6 +250,39 @@ const io = new Server(httpServer, {
   }
 });
 
+// Every handshake engine.io refuses, with the request that was refused. A
+// phone that gets a 400 here has no socket at all — no room, no voice, no
+// gifts — and until this line existed the only trace was a bare "400" in the
+// nginx access log. Logged once per distinct (code, ip) per minute.
+const handshakeRejects = new Map<string, number>();
+io.engine.on('connection_error', (err: any) => {
+  try {
+    const req = err?.req ?? {};
+    const ip = String(req.headers?.['x-real-ip'] ?? req.socket?.remoteAddress ?? '?');
+    const key = `${err?.code}:${ip}`;
+    const now = Date.now();
+    if ((handshakeRejects.get(key) ?? 0) > now - 60_000) return;
+    handshakeRejects.set(key, now);
+    console.warn('[socket handshake rejected]', {
+      code: err?.code,
+      message: err?.message,
+      context: err?.context,
+      ip,
+      url: req.url,
+      headers: {
+        upgrade: req.headers?.upgrade,
+        connection: req.headers?.connection,
+        origin: req.headers?.origin,
+        host: req.headers?.host,
+        ua: req.headers?.['user-agent'],
+        xff: req.headers?.['x-forwarded-for'],
+      },
+    });
+  } catch {
+    // diagnostics must never throw
+  }
+});
+
 initializeSocketHandlers(io);
 setGiftIo(io);
 startSkillDiceEngine(io);

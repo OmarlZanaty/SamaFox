@@ -40,7 +40,10 @@ class RoomAudioKeepAlive {
   /// backgrounded the app had no foreground service at all: the process was
   /// freezable, the socket went with it, and they came back to a room that had
   /// stopped receiving. Everyone in the room gets the service now.
-  Future<void> start({String? roomName}) async {
+  /// [onMic] picks the notification text: a listener is told they are IN the
+  /// room, a speaker that they are ON the mic. It used to say "المايك مفتوح"
+  /// to everyone, including people with no microphone open at all.
+  Future<void> start({String? roomName, bool onMic = false}) async {
     if (!_supported) return;
 
     // A1 — Android 13+ will not SHOW a foreground service's notification
@@ -74,7 +77,7 @@ class RoomAudioKeepAlive {
     }
 
     try {
-      await _channel.invokeMethod<bool>('start', {'roomName': roomName});
+      await _channel.invokeMethod<bool>('start', {'roomName': roomName, 'onMic': onMic});
       _running = true;
     } on PlatformException catch (e) {
       // A device that refuses the service (notifications denied, OEM policy)
