@@ -94,9 +94,21 @@ class VoiceEngineConfig {
 
   static const String _kEngine = 'voice_engine';
   static const String _kUrl = 'voice_livekit_url';
+  static const String _kTurnUrls = 'voice_turn_urls';
+  static const String _kTurnUser = 'voice_turn_username';
+  static const String _kTurnCred = 'voice_turn_credential';
 
   static String engine = 'mesh';
   static String livekitUrl = '';
+
+  /// TURN for the mesh engine, as published by the server. Empty = use the
+  /// values compiled into this build ([AppConfig.turnUrls]). Exists so that
+  /// moving coturn to another box is a settings row, not an app release: the
+  /// 2026-09-19 server move left every installed phone relaying through a
+  /// coturn that no longer existed.
+  static String turnUrls = '';
+  static String turnUsername = '';
+  static String turnCredential = '';
 
   static bool get useLiveKit => engine == 'livekit' && livekitUrl.isNotEmpty;
 
@@ -107,6 +119,9 @@ class VoiceEngineConfig {
       final prefs = await SharedPreferences.getInstance();
       engine = prefs.getString(_kEngine) ?? engine;
       livekitUrl = prefs.getString(_kUrl) ?? livekitUrl;
+      turnUrls = prefs.getString(_kTurnUrls) ?? turnUrls;
+      turnUsername = prefs.getString(_kTurnUser) ?? turnUsername;
+      turnCredential = prefs.getString(_kTurnCred) ?? turnCredential;
     } catch (_) {}
     _refresh(); // not awaited — see the class doc
   }
@@ -122,10 +137,22 @@ class VoiceEngineConfig {
       // is pinned for the process (see VoiceEngine.instance).
       engine = e;
       livekitUrl = u;
+      final tu = (data['turnUrls'] ?? '').toString().trim();
+      final tn = (data['turnUsername'] ?? '').toString().trim();
+      final tc = (data['turnCredential'] ?? '').toString().trim();
+      // TURN is read per peer connection, so unlike the engine it takes
+      // effect on the next connection built, even inside the current room.
+      turnUrls = tu;
+      turnUsername = tn;
+      turnCredential = tc;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kEngine, e);
       await prefs.setString(_kUrl, u);
-      debugPrint('🎚️ voice engine setting: $e ${u.isEmpty ? '' : u}');
+      await prefs.setString(_kTurnUrls, tu);
+      await prefs.setString(_kTurnUser, tn);
+      await prefs.setString(_kTurnCred, tc);
+      debugPrint('🎚️ voice engine setting: $e ${u.isEmpty ? '' : u}'
+          '${tu.isEmpty ? '' : ' turn=$tu'}');
     } catch (e) {
       debugPrint('[VoiceEngineConfig] refresh skipped: $e');
     }

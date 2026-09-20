@@ -38,6 +38,18 @@ export const CP_DEFAULTS: Record<string, string> = {
   // stays `mesh` regardless of the flag, so a half-configured server cannot
   // strand anyone.
   livekit_url: '',
+
+  // ── TURN (mesh engine) ────────────────────────────────────────────────────
+  // Where the mesh relays audio for phones behind carrier-grade NAT. Until
+  // build 2033 this was compiled into the app (--dart-define=TURN_URLS), so
+  // moving coturn to a new box meant every phone kept relaying through the
+  // old one until it updated — the 2026-09-19 move to Hetzner did exactly
+  // that, and voice fell from 77% to 45% of peers connected. Now the app reads
+  // these at launch and prefers them over its compiled-in values.
+  // Comma-separated; empty = keep whatever the build carries.
+  turn_urls: '',
+  turn_username: '',
+  turn_credential: '',
 };
 
 /** Read all app settings merged over the defaults. */
@@ -81,6 +93,11 @@ export async function getSettings(_req: Request, res: Response) {
         // short-lived token from /voice/token instead.
         voiceEngine: s.livekit_url ? s.voice_engine : 'mesh',
         livekitUrl: s.livekit_url,
+        // TURN for the mesh engine (see CP_DEFAULTS). Public by design: the
+        // same values sit in every installed APK.
+        turnUrls: s.turn_urls,
+        turnUsername: s.turn_username,
+        turnCredential: s.turn_credential,
       },
     });
   } catch (e) {

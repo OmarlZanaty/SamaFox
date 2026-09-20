@@ -40,6 +40,17 @@ class WebRTCAudioService implements VoiceEngine {
   // Local stream and peer connections
   MediaStream? _localStream;
   final Map<int, RTCPeerConnection> _peerConnections = {};
+
+  /// One build in flight per peer. `_createPeerConnection` is reached from
+  /// four places within milliseconds of a (re)connect — the voice-user list,
+  /// `user_joined_voice`, an incoming offer and the socket-reconnect sweep —
+  /// and every one of them checked `_peerConnections[id]`, found nothing
+  /// (the first build was still inside `await createPeerConnection`), and
+  /// built its own. The device log showed it plainly: five `peer +26 (live=1)`
+  /// crumbs inside 60 ms. Four native connections were then overwritten in
+  /// the map and never closed, and RSS went from 300 MB to 1.3 GB within a
+  /// minute of entering the room, until Android killed the process.
+  final Map<int, Future<RTCPeerConnection>> _peerBuilds = {};
   final Map<int, MediaStream> _remoteStreams = {};
   final Map<int, RTCVideoRenderer> _remoteRenderers = {};
 
@@ -314,7 +325,15 @@ class WebRTCAudioService implements VoiceEngine {
       {'urls': 'stun:stun4.l.google.com:19302'},
     ];
 
-    final turnUrls = AppConfig.turnUrls
+    // The server's TURN wins over the one compiled into this build, so the
+    // relay can move without an app release (see VoiceEngineConfig.turnUrls).
+    final fromServer = VoiceEngineConfig.turnUrls.isNotEmpty;
+    final rawUrls = fromServer ? VoiceEngineConfig.turnUrls : AppConfig.turnUrls;
+    final username =
+        fromServer ? VoiceEngineConfig.turnUsername : AppConfig.turnUsername;
+    final credential =
+        fromServer ? VoiceEngineConfig.turnCredential : AppConfig.turnCredential;
+    final turnUrls = rawUrls
         .split(',')
         .map((u) => u.trim())
         .where((u) => u.isNotEmpty)
@@ -322,9 +341,8 @@ class WebRTCAudioService implements VoiceEngine {
     if (turnUrls.isNotEmpty) {
       servers.add(<String, dynamic>{
         'urls': turnUrls,
-        if (AppConfig.turnUsername.isNotEmpty) 'username': AppConfig.turnUsername,
-        if (AppConfig.turnCredential.isNotEmpty)
-          'credential': AppConfig.turnCredential,
+        if (username.isNotEmpty) 'username': username,
+        if (credential.isNotEmpty) 'credential': credential,
       });
     }
     return servers;
@@ -525,7 +543,10 @@ class WebRTCAudioService implements VoiceEngine {
       // Swap the new track into every live sender. `replaceTrack` does this in
       // place, so the peers keep their transceivers and no renegotiation
       // round-trip (and no audible gap) is needed.
-      for (final entry in _peerConnections.entries) {
+      // Snapshot: every await here yields, and a peer can be disposed by an ICE
+      // event in the gap — "Concurrent modification during iteration" was the
+      // uncaught error the phones reported.
+      for (final entry in _peerConnections.entries.toList()) {
         try {
           final senders = await entry.value.getSenders();
           for (final sender in senders) {
@@ -638,6 +659,8 @@ class WebRTCAudioService implements VoiceEngine {
     _micRecoveryExhausted = false;
     _micWatchdog = Timer.periodic(_micWatchdogInterval, (_) async {
       if (!_initialized || _listenOnly) return;
+      // Muted = the capture is deliberately released. Nothing to watch.
+      if (_isMicMuted) return;
       if (_recoveringMic || _micRetryTimer != null) return;
       if (!_recoveryAllowedNow) return;
 
@@ -770,6 +793,34 @@ class WebRTCAudioService implements VoiceEngine {
 
   }
 
+  /// The sender that carries (or carried) OUR microphone on [pc].
+  ///
+  /// After [_releaseLocalMic] the sender is still there but its track is null,
+  /// so `track?.kind == 'audio'` no longer finds it. Looking only at the track
+  /// meant every mute/unmute added a brand-new transceiver to every peer — a
+  /// new m-line, a renegotiation and a leaked sender per cycle. The transceiver
+  /// still knows what its m-line is for; a sending one with no track is ours.
+  Future<RTCRtpSender?> _findAudioSender(RTCPeerConnection pc) async {
+    final senders = await pc.getSenders();
+    for (final s in senders) {
+      if (s.track?.kind == 'audio') return s;
+    }
+    try {
+      for (final t in await pc.getTransceivers()) {
+        if (t.sender.track != null) continue;
+        if (t.receiver.track?.kind != 'audio') continue;
+        final dir = await t.getDirection();
+        if (dir == TransceiverDirection.SendRecv ||
+            dir == TransceiverDirection.SendOnly) {
+          return t.sender;
+        }
+      }
+    } catch (e) {
+      _log('⚠️ transceiver lookup failed: $e');
+    }
+    return null;
+  }
+
   Future<void> _attachLocalTrackToAllPeers() async {
     if (_localStream == null) return;
 
@@ -779,16 +830,21 @@ class WebRTCAudioService implements VoiceEngine {
             : null);
     if (track == null) return;
 
-    for (final pc in _peerConnections.values) {
-      final senders = await pc.getSenders();
-      final alreadyHasAudio = senders.any((s) => s.track?.kind == 'audio');
-      if (alreadyHasAudio) continue;
-
+    for (final entry in _peerConnections.entries.toList()) {
+      final pc = entry.value;
       try {
-        await pc.addTrack(track, _localStream!);
-        _log('🎙️ Added mic track to existing PC');
+        final sender = await _findAudioSender(pc);
+        if (sender == null) {
+          await pc.addTrack(track, _localStream!);
+          _log('🎙️ Added mic track to peer ${entry.key}');
+        } else if (sender.track?.id != track.id) {
+          // Our own sender, emptied by mute: put the new track back in place.
+          // No renegotiation needed, so the room hears no gap.
+          await sender.replaceTrack(track);
+          _log('🔁 Restored mic track on peer ${entry.key}');
+        }
       } catch (e) {
-        _log('⚠️ addTrack to existing PC failed: $e');
+        _log('⚠️ attaching mic to peer ${entry.key} failed: $e');
       }
     }
   }
@@ -1123,13 +1179,25 @@ class WebRTCAudioService implements VoiceEngine {
 
   Timer? _statsTimer;
 
+  /// Ticks of the 2-second stats poll between telemetry events (~16s).
+  int _statsTick = 0;
+  static const int _statsReportEvery = 8;
+
   void startMicStats() {
     _statsTimer?.cancel();
 
     _statsTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
       if (_peerConnections.isEmpty) return;
 
-      for (final entry in _peerConnections.entries) {
+      // The log lines below stay on the phone. What the SERVER needs is a
+      // compact picture every ~16s: per peer, is the link up and are audio
+      // bytes actually moving in each direction. "I can't hear anyone" is
+      // undiagnosable without it — a connected peer with rx=0 and a peer that
+      // never connected are different bugs with the same symptom.
+      final report = (++_statsTick % _statsReportEvery == 0);
+      final peersOut = <Map<String, dynamic>>[];
+
+      for (final entry in _peerConnections.entries.toList()) {
         final otherUserId = entry.key;
         final pc = entry.value;
 
@@ -1147,7 +1215,24 @@ class WebRTCAudioService implements VoiceEngine {
 
           final stats = await pc.getStats();
           var sawCandidatePair = false;
+          int? tx, rx;
+          String? path;
           for (final r in stats) {
+            if (report) {
+              if (r.type == 'outbound-rtp' &&
+                  (r.values['kind'] == 'audio' || r.values['mediaType'] == 'audio')) {
+                tx = int.tryParse('${r.values['bytesSent']}');
+              }
+              if (r.type == 'inbound-rtp' &&
+                  (r.values['kind'] == 'audio' || r.values['mediaType'] == 'audio')) {
+                rx = int.tryParse('${r.values['bytesReceived']}');
+              }
+              if (r.type == 'candidate-pair' &&
+                  r.values['state'] == 'succeeded' &&
+                  r.values['nominated'] == true) {
+                path = '${r.values['localCandidateType'] ?? '?'}/${r.values['remoteCandidateType'] ?? '?'}';
+              }
+            }
             // Which path ICE actually chose — host, srflx (STUN) or relay
             // (TURN). If nothing is ever nominated, the two ends never found a
             // route to each other and no amount of microphone work will help.
@@ -1180,9 +1265,30 @@ class WebRTCAudioService implements VoiceEngine {
           if (!sawCandidatePair) {
             _log('PATH to=$otherUserId — no succeeded candidate pair yet');
           }
+          if (report) {
+            peersOut.add({
+              'id': otherUserId,
+              'conn': '${pc.connectionState}'.split('.').last.replaceFirst('RTCPeerConnectionState', ''),
+              'ice': '${pc.iceConnectionState}'.split('.').last.replaceFirst('RTCIceConnectionState', ''),
+              'tx': tx,
+              'rx': rx,
+              if (path != null) 'path': path,
+            });
+          }
         } catch (_) {
           // ignore stats errors for some connections
         }
+      }
+
+      if (report && peersOut.isNotEmpty) {
+        final up = peersOut.where((p) => p['conn'] == 'Connected').length;
+        final rxing = peersOut.where((p) => (p['rx'] ?? 0) > 0).length;
+        CrashReporter.event(
+          'voice',
+          'stats peers=${peersOut.length} up=$up rx>0=$rxing '
+              'mic=${_listenOnly ? 'none' : (_isMicMuted ? 'muted' : 'live')}',
+          data: {'peers': peersOut, 'speaker': AudioRoute.instance.speakerOn},
+        );
       }
     });
   }
@@ -1484,6 +1590,27 @@ class WebRTCAudioService implements VoiceEngine {
   Future<RTCPeerConnection> _createPeerConnection(
       int otherUserId, {
         required bool isInitiator,
+      }) {
+    // Every caller that arrives while a build for this peer is running gets
+    // that build's result. The first caller's `isInitiator` wins; a rebuild
+    // decided later goes through `_recoverPeer`, which disposes first.
+    final inFlight = _peerBuilds[otherUserId];
+    if (inFlight != null) {
+      debugPrint('⏳ Peer build already in flight for user $otherUserId');
+      return inFlight;
+    }
+    final build = _buildPeerConnection(otherUserId, isInitiator: isInitiator);
+    _peerBuilds[otherUserId] = build;
+    return build.whenComplete(() {
+      if (identical(_peerBuilds[otherUserId], build)) {
+        _peerBuilds.remove(otherUserId);
+      }
+    });
+  }
+
+  Future<RTCPeerConnection> _buildPeerConnection(
+      int otherUserId, {
+        required bool isInitiator,
       }) async {
     try {
       // Reuse a LIVE connection only. Handing back a closed or failed one is
@@ -1524,6 +1651,14 @@ class WebRTCAudioService implements VoiceEngine {
 
       // Create peer connection
       final pc = await createPeerConnection(configuration);
+
+      // The room may have been left while the native object was being made.
+      // Storing it now would leave one live connection nobody will ever close.
+      if (!_initialized || _currentRoomId == null) {
+        _log('🚪 room left during peer build with $otherUserId — discarding');
+        await _releasePeerConnection(pc, otherUserId);
+        throw StateError('voice left during peer build');
+      }
 
       // Add local audio tracks once (if we have mic). Otherwise RecvOnly.
       if (_localStream != null) {
@@ -1643,6 +1778,13 @@ class WebRTCAudioService implements VoiceEngine {
         }
       };
 
+      // Never overwrite a live connection silently: whatever was there is
+      // closed AND freed first, or it lives on in native memory forever.
+      final stray = _peerConnections[otherUserId];
+      if (stray != null && !identical(stray, pc)) {
+        _log('♻️ Replacing stray peer connection with $otherUserId');
+        unawaited(_releasePeerConnection(stray, otherUserId));
+      }
       _peerConnections[otherUserId] = pc;
       // The count is the point: this is a full mesh, and "how many native peer
       // connections did this phone hold when it died" is the first question any
@@ -1668,18 +1810,26 @@ class WebRTCAudioService implements VoiceEngine {
 
 
   /// Mute microphone
+  /// Mute = RELEASE the microphone, not just disable the track.
+  ///
+  /// Disabling the track kept the capture (the AudioRecord) open, so Android's
+  /// green microphone indicator stayed lit while the seat and the bottom bar
+  /// both said "muted" — the client's screenshot, and a fair privacy complaint:
+  /// an app that says it is not listening must not be holding the microphone.
+  /// Unmute re-captures (~200ms), which is the right trade.
+  ///
+  /// The seat is kept (`_listenOnly` stays false) so the watchdog knows the
+  /// user is still a speaker; it simply expects no capture while muted.
   Future<void> muteAudio() async {
     try {
+      _isMicMuted = true;
+      _stopMicWatchdog();
       if (_localStream != null) {
-        for (var track in _localStream!.getAudioTracks()) {
-          track.enabled = false;
-        }
-        _isMicMuted = true;
-        debugPrint('🔇 Microphone muted');
-
-        // ✅ listening mode => speaker ON
-        await _applyEchoSafeMode(talking: false);
+        await _releaseLocalMic();
+        debugPrint('🔇 Microphone muted (capture released)');
       }
+      // ✅ listening mode => speaker ON
+      await _applyEchoSafeMode(talking: false);
     } catch (e) {
       debugPrint('❌ Error muting audio: $e');
       onError?.call('Error muting audio: $e');
@@ -1698,13 +1848,16 @@ class WebRTCAudioService implements VoiceEngine {
   /// whose own UI showed a closed microphone. The seat decides.
   Future<void> goLive({bool muted = false}) async {
     if (!_initialized) return;
-    await _ensureSpeakingStream();
+    _listenOnly = false;
     if (muted) {
-      await muteAudio();
+      // A muted seat holds no capture at all (see muteAudio); the microphone
+      // opens on the first unmute.
+      _isMicMuted = true;
+      await _applyEchoSafeMode(talking: false);
     } else {
       await unmuteAudio();
     }
-    _log('goLive -> ${muted ? 'muted' : 'speaking'}');
+    _log('goLive -> ${muted ? 'muted (no capture)' : 'speaking'}');
   }
 
   /// A2 — stop transmitting, keep listening. Called when the user leaves a seat.
@@ -1737,7 +1890,7 @@ class WebRTCAudioService implements VoiceEngine {
   /// keeps the m-line alive and publishing silence, which is indistinguishable
   /// from a working microphone at the far end.
   Future<void> _releaseLocalMic() async {
-    for (final entry in _peerConnections.entries) {
+    for (final entry in _peerConnections.entries.toList()) {
       try {
         for (final sender in await entry.value.getSenders()) {
           if (sender.track?.kind == 'audio') {
@@ -1775,20 +1928,21 @@ class WebRTCAudioService implements VoiceEngine {
       // check it here rather than let them talk into nothing: a seat taken while
       // muted holds an open-but-disabled capture, and the platform reclaims
       // those (an incoming call, another app recording) without telling us.
-      if (_initialized && !_listenOnly && !micHealthy) {
-        await _recoverLocalMic();
-      }
+      if (!_initialized || _listenOnly) return; // no seat: nothing to open
 
-      if (_localStream != null) {
-        for (var track in _localStream!.getAudioTracks()) {
-          track.enabled = true;
-        }
-        _isMicMuted = false;
+      _isMicMuted = false;
+      if (_localStream == null || _localAudioTrack == null) {
+        // Mute released the capture (see muteAudio); open it again and put it
+        // on every peer. This is also the recovery path after an interruption.
+        await _ensureSpeakingStream();
+      }
+      final track = _localAudioTrack;
+      if (track != null) {
+        track.enabled = true;
         debugPrint('🔊 Microphone unmuted');
-
-        // ✅ talking mode => speaker OFF (earpiece) to kill echo
-        await _applyEchoSafeMode(talking: true);
       }
+      // ✅ talking mode => speaker OFF (earpiece) to kill echo
+      await _applyEchoSafeMode(talking: true);
     } catch (e) {
       debugPrint('❌ Error unmuting audio: $e');
       onError?.call('Error unmuting audio: $e');
@@ -1827,7 +1981,7 @@ class WebRTCAudioService implements VoiceEngine {
   /// [volume] is 0..1. Zero is a hard mute, not merely a quiet setting.
   Future<void> setRemoteVolume(double volume) async {
     _remoteVolume = volume.clamp(0.0, 1.0);
-    for (final stream in _remoteStreams.values) {
+    for (final stream in _remoteStreams.values.toList()) {
       await _applyVolumeToStream(stream);
     }
     _log('setRemoteVolume(${_remoteVolume.toStringAsFixed(2)}) '
@@ -1895,14 +2049,7 @@ class WebRTCAudioService implements VoiceEngine {
     if (track == null) return;
 
     try {
-      final senders = await pc.getSenders();
-      RTCRtpSender? audioSender;
-      for (final s in senders) {
-        if (s.track?.kind == 'audio') {
-          audioSender = s;
-          break;
-        }
-      }
+      final audioSender = await _findAudioSender(pc);
 
       if (audioSender == null) {
         // No sender at all — this peer was built listen-only. Adding a track
@@ -2174,7 +2321,7 @@ class WebRTCAudioService implements VoiceEngine {
   /// comes back: every connection negotiated over the old one is unrecoverable,
   /// because the signalling path that could have repaired it is gone.
   Future<void> _teardownAllPeers() async {
-    for (final t in _recoveryTimers.values) {
+    for (final t in _recoveryTimers.values.toList()) {
       t.cancel();
     }
     _recoveryTimers.clear();
@@ -2228,7 +2375,7 @@ class WebRTCAudioService implements VoiceEngine {
       await _reconnectSub?.cancel();
       _reconnectSub = null;
 
-      for (final t in _iceFailTimers.values) {
+      for (final t in _iceFailTimers.values.toList()) {
         t.cancel();
       }
       _iceFailTimers.clear();
@@ -2237,7 +2384,7 @@ class WebRTCAudioService implements VoiceEngine {
       _makingOffer.clear();
       _restarting.clear();
       _recoveryAttempts.clear();
-      for (final t in _recoveryTimers.values) {
+      for (final t in _recoveryTimers.values.toList()) {
         t.cancel();
       }
       _recoveryTimers.clear();

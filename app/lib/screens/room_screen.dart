@@ -115,6 +115,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   final TextEditingController _roomImageCtrl = TextEditingController();
   final TextEditingController _bgImageCtrl = TextEditingController();
   StreamSubscription<String>? _socketErrSub;
+  // Was the one socket stream this screen subscribed to without keeping the
+  // subscription: every room visit left a dead RoomScreen listening, and each
+  // join/leave in ANY room then threw `Cannot use "ref" after the widget was
+  // disposed` from it — 518 reports in one day, and the screens it kept alive
+  // counted towards the memory that got the app killed.
+  StreamSubscription<SocketUserEvent>? _userEventSub;
   StreamSubscription<Map<String, dynamic>>? _joinDeniedSub;
   bool _pinDialogOpen = false; // guards against stacking PIN dialogs
   final TextEditingController _chatController = TextEditingController();  // Text controller for input
@@ -216,6 +222,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _rawSocketHandlers.clear();
     _socketErrSub?.cancel();
     _socketErrSub = null;
+    _userEventSub?.cancel();
+    _userEventSub = null;
     _joinDeniedSub?.cancel();
     _joinDeniedSub = null;
     _seatEffectSub?.cancel();
@@ -2772,7 +2780,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       );
     };
 
+    // These callbacks live on the engine SINGLETON, which outlives this screen
+    // (the PiP bubble keeps it running). A callback that reaches for `ref`
+    // after dispose throws — the "Cannot use ref after the widget was
+    // disposed" the phones reported, once per VAD tick, forever.
     _audioService.onVoiceActivityChanged = (isSpeaking) {
+      if (!mounted) return;
       final userId = ref.read(authStateProvider).user?.id;
       if (userId == null) return;
       ref.read(roomControllerProvider(widget.roomId).notifier)
@@ -2785,6 +2798,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // ✅ ADD THIS BLOCK
     VoiceEngine.instance.onVoiceUsersUpdated = (users) {
       debugPrint("🔥 UPDATE UI USERS: $users");
+      if (!mounted) return;
 
       ref
           .read(roomControllerProvider(roomId).notifier)
@@ -3024,7 +3038,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
     });
 
-    SocketService().userEventStream.listen((event) {
+    _userEventSub?.cancel();
+    _userEventSub = SocketService().userEventStream.listen((event) {
+      if (!mounted) return;
       // Some backends omit roomId on user join/leave. Treat 0 as "current room".
       if (event.roomId != 0 && event.roomId != widget.roomId) return;
       final notifier = ref.read(roomControllerProvider(widget.roomId).notifier);
@@ -5106,6 +5122,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         // الروم إطلاقاً".
         unawaited(RoomAudioKeepAlive.instance.start(
           roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+          onMic: true,
         ));
 
         // A2 — now, and only now, capture the microphone and start sending.
@@ -5132,8 +5149,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       await _audioService.goListenOnly();
       // No mic, no ring, no detector.
       _audioService.disableVAD();
-      // The ongoing notification must not outlive the mic that justified it.
-      unawaited(RoomAudioKeepAlive.instance.stop());
+      // Still in the room (A1 keeps the service for every member), just not on
+      // a mic any more: the notification must stop saying so.
+      unawaited(RoomAudioKeepAlive.instance.start(
+        roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+      ));
       return;
     }
 
