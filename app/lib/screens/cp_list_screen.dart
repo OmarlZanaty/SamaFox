@@ -42,7 +42,7 @@ class _CpListScreenState extends State<CpListScreen> {
 
   /// Loads the list and takes the featured partner from the server's flag.
   Future<List<CpPartner>> _load() async {
-    final list = await _repo.partners(userId: widget.userId);
+    final list = _isMine ? await _repo.myPartnersSynced() : await _repo.partners(userId: widget.userId);
     final shown = list.where((p) => p.featured == true);
     if (shown.isNotEmpty && mounted) setState(() => _featured = shown.first.userId);
     return list;
@@ -55,8 +55,8 @@ class _CpListScreenState extends State<CpListScreen> {
     final previous = _featured;
     setState(() => _featured = p.userId);
     try {
+      // Saved on the server only — that is what every visitor reads.
       await _repo.setFeatured(p.userId);
-      await CpFeatured.set(p.userId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${p.name} يظهر الآن في صفحتك')),

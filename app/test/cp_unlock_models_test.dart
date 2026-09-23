@@ -76,6 +76,30 @@ void main() {
     });
   });
 
+  group('CpSendResult (هدايا CP)', () {
+    test('a CP gift to a partner carries the points, the level and the balance', () {
+      final r = CpSendResult.fromJson({
+        'kind': 'partner_gift',
+        'pointsAdded': 500,
+        'cpValue': 1500,
+        'level': 3,
+        'levelName': 'حب كبير',
+        'leveledUp': true,
+        'balance': 900,
+      });
+      expect(r.isPartnerGift, isTrue);
+      expect(r.pointsAdded, 500);
+      expect(r.level, 3);
+      expect(r.leveledUp, isTrue);
+      expect(r.balance, 900);
+    });
+
+    test('an invitation (or an older server with no kind) is not a partner gift', () {
+      expect(CpSendResult.fromJson({'kind': 'invitation', 'id': 7}).isPartnerGift, isFalse);
+      expect(CpSendResult.fromJson({'id': 7}).isPartnerGift, isFalse);
+    });
+  });
+
   group('CpFeatured.pick', () {
     CpPartner p(int id, {bool? featured}) => CpPartner(pairId: id, userId: id, name: 'u$id', featured: featured);
 

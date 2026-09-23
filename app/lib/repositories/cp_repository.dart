@@ -21,19 +21,38 @@ class CpRepository {
 
   final Dio _dio;
 
-  /// Sends the CP invitation. Throws [CpException] with an Arabic message.
-  Future<void> sendRequest({
+  /// Sends a CP gift. Throws [CpException] with an Arabic message.
+  ///
+  /// Not yet partners → an invitation (charges nothing until answered).
+  /// Already partners → the gift is sent now and raises the pair's CP level;
+  /// the result carries the points added and the new level (2026-09-24).
+  /// [requestKey] must be the same for retries of ONE tap, so a resend is
+  /// recognised by the server and never charged or counted twice.
+  Future<CpSendResult> sendRequest({
     required int recipientId,
     required String giftId,
     int quantity = 1,
     int? roomId,
+    String? requestKey,
   }) async {
-    await _post('cp/requests', {
+    final body = await _post('cp/requests', {
       'recipientId': recipientId,
       'giftId': giftId,
       'quantity': quantity,
       if (roomId != null) 'roomId': roomId,
+      if (requestKey != null) 'requestKey': requestKey,
     });
+    return CpSendResult.fromJson(Map<String, dynamic>.from((body['data'] as Map?) ?? const {}));
+  }
+
+  /// My partners, after uploading once a featured choice that an older app
+  /// build kept only on this phone. Use for the OWNER's own views.
+  Future<List<CpPartner>> myPartnersSynced({int? userId}) async {
+    final list = await partners(userId: userId);
+    if (await CpFeatured.uploadLocalChoice(this, list)) {
+      return partners(userId: userId);
+    }
+    return list;
   }
 
   /// Invitations still waiting on me.
@@ -188,6 +207,49 @@ class CpException implements Exception {
   String toString() => 'CpException(${code ?? '?'}: $message)';
 }
 
+/// What `POST /cp/requests` did.
+class CpSendResult {
+  /// `invitation` or `partner_gift`.
+  final String kind;
+
+  /// partner_gift only: CP value this gift added, and the pair's state after.
+  final int pointsAdded;
+  final int? cpValue;
+  final int? level;
+  final String? levelName;
+  final bool leveledUp;
+
+  /// partner_gift only: the sender's balance after the charge.
+  final int? balance;
+
+  /// A resend of a request already completed — nothing new was charged.
+  final bool duplicate;
+
+  const CpSendResult({
+    required this.kind,
+    this.pointsAdded = 0,
+    this.cpValue,
+    this.level,
+    this.levelName,
+    this.leveledUp = false,
+    this.balance,
+    this.duplicate = false,
+  });
+
+  bool get isPartnerGift => kind == 'partner_gift';
+
+  factory CpSendResult.fromJson(Map<String, dynamic> json) => CpSendResult(
+        kind: json['kind']?.toString() ?? 'invitation',
+        pointsAdded: (json['pointsAdded'] as num?)?.toInt() ?? 0,
+        cpValue: (json['cpValue'] as num?)?.toInt(),
+        level: (json['level'] as num?)?.toInt(),
+        levelName: json['levelName']?.toString(),
+        leveledUp: json['leveledUp'] == true,
+        balance: (json['balance'] as num?)?.toInt(),
+        duplicate: json['duplicate'] == true,
+      );
+}
+
 /// `GET /cp/unlock/status`.
 class CpUnlockStatus {
   final bool unlocked;
@@ -312,6 +374,38 @@ class CpFeatured {
     } catch (_) {
       // A preference that will not save is not worth failing the tap over.
     }
+  }
+
+  static Future<void> clear() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (_) {}
+  }
+
+  /// One-time move of a choice an older build stored on this phone up to the
+  /// server, so the owner's pick is what VISITORS see. Afterwards the device
+  /// copy is deleted and the server is the only source. Returns true when the
+  /// server's choice was changed (the caller should re-fetch the list).
+  static Future<bool> uploadLocalChoice(CpRepository repo, List<CpPartner> partners) async {
+    final local = await get();
+    if (local == null) return false;
+    // A server without the `featured` flag: the device copy is still in use.
+    if (partners.isEmpty || partners.every((p) => p.featured == null)) return false;
+    final stillPaired = partners.any((p) => p.userId == local);
+    final shown = partners.where((p) => p.featured == true);
+    final int? serverShows = shown.isEmpty ? null : shown.first.userId;
+    var changed = false;
+    if (stillPaired && serverShows != local) {
+      try {
+        await repo.setFeatured(local);
+        changed = true;
+      } on CpException {
+        return false; // keep the device copy and try again next time
+      }
+    }
+    await clear();
+    return changed;
   }
 
   /// The pair to show: the server's choice, else the locally chosen one if it

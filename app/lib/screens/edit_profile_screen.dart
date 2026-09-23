@@ -10,6 +10,7 @@ import '../models/user.dart';
 import '../services/dio_client.dart';
 import '../services/level_catalog_service.dart';
 import '../widgets/app_network_image.dart';
+import 'my_backgrounds_screen.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -368,6 +369,16 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               ],
             ],
           ),
+        const SizedBox(height: 8),
+        // The backgrounds this user owns from the store (bought or granted).
+        OutlinedButton.icon(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const MyBackgroundsScreen()),
+          ),
+          icon: const Icon(Icons.wallpaper, size: 18),
+          label: const Text('خلفيات خاصتي'),
+        ),
       ],
     );
   }

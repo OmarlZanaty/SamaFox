@@ -887,7 +887,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 _buildTab("شارات", "badge"),
                 // B2/B3 — without these two the user could buy a profile
                 // background or a page-decoration frame and never equip it.
-                _buildTab("خلفية الصفحة", "profile_background"),
+                // «خلفيات خاصتي»: only what this user owns (bought or granted),
+                // read from the server — never the store's catalogue.
+                _buildTab("خلفيات خاصتي", "profile_background"),
                 _buildTab("تزيين الصفحة", "profile_decor"),
               ],
             ),
@@ -896,10 +898,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           if (loading)
             const Center(child: CircularProgressIndicator())
           else if (filtered.isEmpty)
-            const Center(
+            Center(
               child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text("No items", style: TextStyle(color: Colors.white)),
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  selectedType == "profile_background"
+                      ? "لا تملك خلفيات بعد — الخلفيات اللي تشتريها أو تتمنح لك هتظهر هنا"
+                      : "لا توجد عناصر",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white),
+                ),
               ),
             )
           else
@@ -2348,14 +2356,14 @@ class _CpRelationshipSectionState extends State<_CpRelationshipSection> {
   @override
   void initState() {
     super.initState();
-    _future = CpRepository().partners(userId: widget.userId);
+    _future = (widget.isOwnProfile ? CpRepository().myPartnersSynced(userId: widget.userId) : CpRepository().partners(userId: widget.userId));
   }
 
   @override
   void didUpdateWidget(covariant _CpRelationshipSection old) {
     super.didUpdateWidget(old);
     if (old.userId != widget.userId) {
-      _future = CpRepository().partners(userId: widget.userId);
+      _future = (widget.isOwnProfile ? CpRepository().myPartnersSynced(userId: widget.userId) : CpRepository().partners(userId: widget.userId));
     }
   }
 
@@ -2386,7 +2394,7 @@ class _CpRelationshipSectionState extends State<_CpRelationshipSection> {
                   // card must re-fetch to show a change made in the list.
                   if (mounted) {
                     setState(() {
-                      _future = CpRepository().partners(userId: widget.userId);
+                      _future = (widget.isOwnProfile ? CpRepository().myPartnersSynced(userId: widget.userId) : CpRepository().partners(userId: widget.userId));
                     });
                   }
                 },
@@ -2420,7 +2428,7 @@ class _CpProfileCardState extends State<_CpProfileCard> {
   @override
   void initState() {
     super.initState();
-    _future = CpRepository().partners(userId: widget.userId);
+    _future = (widget.isOwnProfile ? CpRepository().myPartnersSynced(userId: widget.userId) : CpRepository().partners(userId: widget.userId));
   }
 
   @override
@@ -2428,7 +2436,7 @@ class _CpProfileCardState extends State<_CpProfileCard> {
     super.didUpdateWidget(oldWidget);
     // Navigating from one profile to another reuses this State object.
     if (oldWidget.userId != widget.userId) {
-      _future = CpRepository().partners(userId: widget.userId);
+      _future = (widget.isOwnProfile ? CpRepository().myPartnersSynced(userId: widget.userId) : CpRepository().partners(userId: widget.userId));
     }
   }
 
@@ -2467,7 +2475,7 @@ class _CpProfileCardState extends State<_CpProfileCard> {
               );
               if (mounted) {
                 setState(() {
-                  _future = CpRepository().partners(userId: widget.userId);
+                  _future = (widget.isOwnProfile ? CpRepository().myPartnersSynced(userId: widget.userId) : CpRepository().partners(userId: widget.userId));
                 });
               }
             },
