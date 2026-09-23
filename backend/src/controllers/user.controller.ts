@@ -6,6 +6,7 @@ import { firstStr } from '../utils/http';
 import { getAgencyRole } from '../agencies/agency.controller';
 import { getUserCurrentRoomId } from '../services/socket.service';
 import { invalidateBanCache } from '../utils/banGuard';
+import { canUseProfileBackground } from '../services/cpAdmin.service';
 interface UpdateProfileRequest {
   name?: string;
   bio?: string;
@@ -195,24 +196,8 @@ export const updateProfile = async (req: Request, res: Response) => {
       // for a picture the user uploaded himself. If the URL is the asset of a
       // store background, he must OWN it (an unexpired user_items row);
       // otherwise any client could paint a paid background for free.
-      if (url.length) {
-        const storeItem = await prisma.item.findFirst({
-          where: { assetUrl: url, type: 'PROFILE_BACKGROUND' },
-          select: { id: true },
-        });
-        if (storeItem) {
-          const owned = await prisma.userItem.findFirst({
-            where: {
-              userId,
-              itemId: storeItem.id,
-              OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-            },
-            select: { id: true },
-          });
-          if (!owned) {
-            return res.status(403).json({ success: false, code: 'BACKGROUND_NOT_OWNED', message: 'هذه الخلفية غير مملوكة لك — اشترِها من المتجر أولاً' });
-          }
-        }
+      if (!(await canUseProfileBackground(userId, url))) {
+        return res.status(403).json({ success: false, code: 'BACKGROUND_NOT_OWNED', message: 'هذه الخلفية غير مملوكة لك — اشترِها من المتجر أولاً' });
       }
       data.profileBgUrl = url.length ? url : null;
       // Trust an explicit type; otherwise read it off the extension so an older

@@ -645,6 +645,29 @@ export async function revokeBackground(itemId: string, targetUserId: number, ctx
   });
 }
 
+/**
+ * "منع تعديل ملكية الخلفيات من التطبيق" — may this user paint `url` on his
+ * page via PUT /users/me? A picture he uploaded himself (not a store asset)
+ * is always fine; a store background needs an unexpired user_items row.
+ */
+export async function canUseProfileBackground(userId: number, url: string, db: any = prisma): Promise<boolean> {
+  if (!url) return true;
+  const storeItem = await db.item.findFirst({
+    where: { assetUrl: url, type: PROFILE_BACKGROUND_TYPE },
+    select: { id: true },
+  });
+  if (!storeItem) return true;
+  const owned = await db.userItem.findFirst({
+    where: {
+      userId,
+      itemId: storeItem.id,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    select: { id: true },
+  });
+  return !!owned;
+}
+
 /** "عرض قائمة الخلفيات المملوكة لكل مستخدم". */
 export async function listUserBackgrounds(targetUserId: number, db: any = prisma) {
   const [user, rows] = await Promise.all([
