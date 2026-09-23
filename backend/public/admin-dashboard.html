@@ -57,6 +57,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
       CP — العلاقة
     </a>
+    <a href="#" class="nav-item" data-section="backgrounds">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      الخلفيات
+    </a>
     <a href="#" class="nav-item" data-section="admins">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       المشرفون
@@ -844,6 +848,95 @@
         </div>
         <div class="form-row" style="margin-top:8px">
           <button class="btn btn-outline" id="cpAuditMore" style="display:none" onclick="loadCpAudit(true)">تحميل المزيد</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== BACKGROUNDS (خلفية الصفحة الشخصية) SECTION ======================== -->
+    <section class="section" id="section-backgrounds">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">الخلفيات</h2>
+          <p class="section-sub">خلفيات الصفحة الشخصية: إضافة، تعديل، حذف، منح وسحب لمستخدم معيّن. كل عملية بتتسجّل في سجل العمليات.</p>
+        </div>
+        <div class="section-actions">
+          <button class="btn btn-outline" onclick="openBgAudit()">سجل العمليات</button>
+          <button class="btn btn-outline" onclick="loadBackgrounds()">تحديث</button>
+        </div>
+      </div>
+
+      <!-- 1. Add -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          إضافة خلفية
+        </div>
+        <div class="form-row">
+          <label class="file-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span id="bgFileLabel">اختر ملف (صورة أو فيديو mp4/webm)</span>
+            <input id="bgFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" style="display:none"
+                   onchange="document.getElementById('bgFileLabel').textContent = this.files[0]?.name || 'اختر ملف (صورة أو فيديو mp4/webm)'" />
+          </label>
+          <input id="bgName" class="form-input" placeholder="اسم الخلفية" />
+        </div>
+        <div class="form-row">
+          <label class="modal-sub"><input id="bgFree" type="checkbox" onchange="bgSyncFree()" /> مجانية</label>
+          <input id="bgPrice" type="number" min="0" class="form-input form-input--sm" placeholder="السعر (كوينز)" />
+          <input id="bgDuration" type="number" min="1" class="form-input form-input--sm" placeholder="المدة بالأيام — فارغ = أبدي" />
+          <label class="modal-sub" title="مش هتظهر في المتجر — بتتمنح من هنا بس"><input id="bgPrivate" type="checkbox" /> خاصة (خارج المتجر)</label>
+          <button class="btn btn-primary" onclick="addBackground()">رفع</button>
+        </div>
+      </div>
+
+      <!-- 2. Catalogue -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          كل الخلفيات
+        </div>
+        <div class="table-wrap">
+          <table id="bgTable">
+            <thead><tr><th></th><th>الاسم</th><th>مجانية</th><th>السعر</th><th>في المتجر</th><th>المدة (أيام)</th><th>الملّاك</th><th>إجراءات</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3. Grant / revoke -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+          منح / سحب خلفية لمستخدم
+        </div>
+        <p class="settings-hint" style="margin:0 0 12px">المنح مش بيخصم كوينز. لو الخلفية بمدة والمستخدم عنده منها، المدة بتتمد. السحب بيشيلها من المستخدم ده بس، ولو كانت مركّبة على صفحته بتتشال.</p>
+        <div class="form-row">
+          <select id="bgGrantItem" class="form-select"></select>
+          <input id="bgGrantUser" class="form-input form-input--sm" placeholder="رقم المستخدم (Display ID)" />
+          <input id="bgRevokeReason" class="form-input" placeholder="سبب السحب (اختياري)" />
+          <button class="btn btn-ok" onclick="grantBackgroundToUser()">منح</button>
+          <button class="btn btn-bad" onclick="revokeBackgroundFromUser()">سحب</button>
+        </div>
+      </div>
+
+      <!-- 4. One user's backgrounds -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          خلفيات مستخدم
+        </div>
+        <div class="form-row">
+          <input id="bgUserQuery" class="form-input form-input--sm" placeholder="رقم المستخدم (Display ID)" onkeydown="if(event.key==='Enter')loadUserBackgrounds()" />
+          <button class="btn btn-primary" onclick="loadUserBackgrounds()">عرض</button>
+        </div>
+        <div id="bgUserBox" style="display:none;margin-top:12px">
+          <div class="table-meta" id="bgUserMeta" style="margin-bottom:8px"></div>
+          <div class="table-wrap">
+            <table id="bgUserTable">
+              <thead><tr><th></th><th>الخلفية</th><th>اتملكت</th><th>تنتهي</th><th>الحالة</th><th>إجراء</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>

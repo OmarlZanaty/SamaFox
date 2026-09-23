@@ -41,6 +41,7 @@ const sectionTitles = {
   vip:       "مستويات VIP",
   levels:    "مستويات LV",
   cp:        "CP — العلاقة",
+  backgrounds: "الخلفيات",
   admins:    "المشرفون",
   rewards:   "المكافآت",
   games:     "الألعاب",
@@ -63,6 +64,7 @@ function navigate(sec) {
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "levels") loadLvLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "cp") loadCpPanel().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "backgrounds") loadBackgrounds().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
   if (sec === "games") loadGamesConfig().catch(e => showToast("خطأ: " + e.message));
@@ -3520,4 +3522,218 @@ Object.assign(window, {
   cpSyncGrantFee, grantCpPermission, revokeCpPermission,
   loadCpUser, cpAdminUnlock, cpAdminLock, cpSetFeatured, cpClearFeatured,
   saveCpPair, deleteCpPair, loadCpAudit,
+});
+
+// ============================================================
+// الخلفيات (profile backgrounds) panel — /admin-dashboard/backgrounds/*
+// Item ids are strings, so row buttons use data-* + delegation, not inline args.
+// ============================================================
+let bgCatalogue = [];           // last GET /backgrounds, for the grant dropdown and confirms
+let bgCurrentUserId = null;     // row id of the user shown in "خلفيات مستخدم"
+
+const bgIsVideo = (url) => /\.(mp4|webm)(\?|$)/i.test(String(url || ""));
+
+function bgThumb(item) {
+  const preview = normalizeGiftImageUrl(item.previewUrl);
+  const asset = normalizeGiftImageUrl(item.assetUrl);
+  const style = "width:54px;height:72px;object-fit:cover;border-radius:6px;background:#0002";
+  if (preview) return `<img src="${escapeHtml(preview)}" alt="" style="${style}" />`;
+  if (asset && bgIsVideo(asset)) return `<video src="${escapeHtml(asset)}" muted preload="metadata" style="${style}"></video>`;
+  if (asset) return `<img src="${escapeHtml(asset)}" alt="" style="${style}" />`;
+  return "";
+}
+
+function bgSyncFree() {
+  const price = document.getElementById("bgPrice");
+  price.disabled = document.getElementById("bgFree").checked;
+  if (price.disabled) price.value = "";
+}
+
+async function loadBackgrounds() {
+  bgCatalogue = (await apiFetch("/admin-dashboard/backgrounds"))?.data ?? [];
+  document.querySelector("#bgTable tbody").innerHTML = bgCatalogue.length
+    ? bgCatalogue.map((b) => {
+      const k = escapeHtml(String(b.id));
+      return `
+      <tr>
+        <td>${bgThumb(b)}</td>
+        <td><input data-bg="${k}" data-f="name" class="form-input form-input--sm" style="width:150px" value="${escapeHtml(b.name || "")}" /></td>
+        <td><input data-bg="${k}" data-f="isFree" type="checkbox" ${b.isFree ? "checked" : ""} /></td>
+        <td><input data-bg="${k}" data-f="priceCoins" type="number" min="0" class="form-input form-input--sm" style="width:100px" value="${Number(b.priceCoins) || 0}" /></td>
+        <td><input data-bg="${k}" data-f="isPurchasable" type="checkbox" ${b.isPurchasable ? "checked" : ""} /></td>
+        <td><input data-bg="${k}" data-f="durationDays" type="number" min="1" class="form-input form-input--sm" style="width:90px" placeholder="أبدي" value="${b.durationDays == null ? "" : Number(b.durationDays)}" /></td>
+        <td>${num(b.ownerCount)}</td>
+        <td class="td-actions">
+          <button class="btn btn-sm btn-primary" data-bg-action="save" data-bg-id="${k}">حفظ</button>
+          <button class="btn btn-sm btn-bad" data-bg-action="delete" data-bg-id="${k}">حذف</button>
+        </td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="8" class="cell-muted">لا توجد خلفيات</td></tr>`;
+
+  const sel = document.getElementById("bgGrantItem");
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">— اختر خلفية —</option>` + bgCatalogue
+    .map((b) => `<option value="${escapeHtml(String(b.id))}">${escapeHtml(b.name || "")} — ${b.isFree ? "مجانية" : `${num(b.priceCoins)} كوينز`}${b.durationDays ? ` · ${num(b.durationDays)} يوم` : ""}</option>`)
+    .join("");
+  if (bgCatalogue.some((b) => String(b.id) === keep)) sel.value = keep;
+}
+
+async function addBackground() {
+  const file = document.getElementById("bgFile").files[0];
+  const name = cpVal("bgName");
+  const isFree = document.getElementById("bgFree").checked;
+  const price = Number(cpVal("bgPrice") || 0);
+  const duration = cpVal("bgDuration");
+  if (!file) return showToast("اختر ملف الخلفية");
+  if (!name) return showToast("اكتب اسم الخلفية");
+  if (!isFree && !(price > 0)) return showToast("حدد السعر أو علّم «مجانية»");
+  if (duration !== "" && !(Number(duration) >= 1)) return showToast("المدة لازم تكون يوم أو أكتر، أو فاضية = أبدي");
+  const fd = new FormData();
+  fd.append("name", name);
+  fd.append("is_free", isFree ? "true" : "false");
+  fd.append("price_coins", isFree ? "0" : String(price));
+  fd.append("duration_days", duration);
+  fd.append("is_private", document.getElementById("bgPrivate").checked ? "true" : "false");
+  fd.append("file", file);
+  try {
+    await apiFetch("/admin-dashboard/backgrounds", { method: "POST", body: fd });
+    showToast("✓ تم رفع الخلفية");
+    ["bgName", "bgPrice", "bgDuration"].forEach((id) => { document.getElementById(id).value = ""; });
+    document.getElementById("bgFile").value = "";
+    document.getElementById("bgFileLabel").textContent = "اختر ملف (صورة أو فيديو mp4/webm)";
+    await loadBackgrounds();
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+document.getElementById("bgTable")?.addEventListener("click", async (e) => {
+  const btn = e.target?.closest?.("[data-bg-action]");
+  if (!btn) return;
+  const id = btn.getAttribute("data-bg-id");
+  const bg = bgCatalogue.find((b) => String(b.id) === id);
+  if (btn.getAttribute("data-bg-action") === "delete") {
+    const owners = Number(bg?.ownerCount || 0);
+    const msg = owners
+      ? `«${bg?.name ?? ""}» هتتحذف نهائيًا، و${num(owners)} مستخدم بيملكها هيفقدها (ولو مركّبة على صفحته هتتشال). متأكد؟`
+      : `«${bg?.name ?? ""}» هتتحذف نهائيًا. متأكد؟`;
+    if (!(await cpConfirm("حذف خلفية", msg))) return;
+    try {
+      await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(id)}`, "DELETE");
+      showToast("✓ تم حذف الخلفية");
+      await loadBackgrounds();
+      if (bgCurrentUserId) await loadUserBackgrounds(bgCurrentUserId);
+    } catch (err) { showToast("خطأ: " + err.message); }
+    return;
+  }
+  const field = (f) => [...document.querySelectorAll("#bgTable [data-bg]")]
+    .find((el) => el.getAttribute("data-bg") === id && el.dataset.f === f);
+  const isFree = Boolean(field("isFree")?.checked);
+  const price = Number(field("priceCoins")?.value || 0);
+  const duration = field("durationDays")?.value.trim() ?? "";
+  if (!isFree && !(price > 0)) return showToast("حدد السعر أو علّم «مجانية»");
+  if (duration !== "" && !(Number(duration) >= 1)) return showToast("المدة لازم تكون يوم أو أكتر، أو فاضية = أبدي");
+  try {
+    await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(id)}`, "PATCH", {
+      name: field("name")?.value.trim() || undefined,
+      isFree,
+      priceCoins: isFree ? 0 : price,
+      isPurchasable: Boolean(field("isPurchasable")?.checked),
+      durationDays: duration === "" ? null : Number(duration),
+    });
+    showToast("✓ تم حفظ الخلفية");
+    await loadBackgrounds();
+  } catch (err) { showToast("خطأ: " + err.message); }
+});
+
+async function grantBackgroundToUser() {
+  const itemId = document.getElementById("bgGrantItem").value;
+  const displayId = cpVal("bgGrantUser");
+  if (!itemId) return showToast("اختر خلفية");
+  if (!displayId) return showToast("اكتب رقم المستخدم");
+  try {
+    const d = (await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(itemId)}/grant`, "POST", { displayId }))?.data;
+    const exp = d?.userItem?.expiresAt ? ` — تنتهي ${fmtDate(d.userItem.expiresAt).slice(0, 10)}` : "";
+    showToast(`✓ تم منح الخلفية لـ ${d?.user?.name ?? displayId}${exp}`);
+    await loadBackgrounds();
+    if (d?.user?.id && d.user.id === bgCurrentUserId) await loadUserBackgrounds(bgCurrentUserId);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function bgRevoke(itemId, body, label) {
+  if (!(await cpConfirm("سحب خلفية", `هتتسحب «${label}» من المستخدم ده بس، ولو مركّبة على صفحته هتتشال. متأكد؟`))) return false;
+  try {
+    const d = (await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(itemId)}/revoke`, "POST", body))?.data;
+    showToast(`✓ تم سحب الخلفية من ${d?.user?.name ?? ""}`);
+    document.getElementById("bgRevokeReason").value = "";
+    await loadBackgrounds();
+    if (bgCurrentUserId && (d?.user?.id === bgCurrentUserId)) await loadUserBackgrounds(bgCurrentUserId);
+    return true;
+  } catch (e) { showToast("خطأ: " + e.message); return false; }
+}
+
+async function revokeBackgroundFromUser() {
+  const itemId = document.getElementById("bgGrantItem").value;
+  const displayId = cpVal("bgGrantUser");
+  if (!itemId) return showToast("اختر خلفية");
+  if (!displayId) return showToast("اكتب رقم المستخدم");
+  const bg = bgCatalogue.find((b) => String(b.id) === itemId);
+  await bgRevoke(itemId, { displayId, reason: cpVal("bgRevokeReason") || undefined }, bg?.name ?? "");
+}
+
+// `rowId` when refreshing from code (internal id); otherwise the typed Display ID.
+async function loadUserBackgrounds(rowId) {
+  const byRow = Number.isFinite(rowId) && rowId > 0;
+  const q = byRow ? String(rowId) : cpVal("bgUserQuery");
+  if (!q) return showToast("اكتب رقم المستخدم");
+  const clear = () => { bgCurrentUserId = null; document.getElementById("bgUserBox").style.display = "none"; };
+  let d;
+  try {
+    d = (await apiFetch(`/admin-dashboard/backgrounds/users/${encodeURIComponent(q)}${byRow ? "?by=id" : ""}`))?.data;
+  } catch (e) { clear(); return showToast("خطأ: " + e.message); }
+  if (!d?.user) { clear(); return showToast("المستخدم غير موجود"); }
+  bgCurrentUserId = d.user.id;
+  document.getElementById("bgUserQuery").value = d.user.displayId ?? d.user.id;
+  document.getElementById("bgUserBox").style.display = "";
+  const rows = d.backgrounds || [];
+  document.getElementById("bgUserMeta").innerHTML = `${cpUserLabel(d.user)} — ${num(rows.length)} خلفية`;
+  const now = Date.now();
+  document.querySelector("#bgUserTable tbody").innerHTML = rows.length
+    ? rows.map((r) => {
+      const expired = r.expiresAt && new Date(r.expiresAt).getTime() < now;
+      const status = [
+        r.equipped ? '<span class="badge badge-approved">مركّبة</span>' : "",
+        expired ? '<span class="badge badge-rejected">منتهية</span>' : "",
+      ].join(" ") || '<span class="cell-muted">—</span>';
+      return `
+      <tr>
+        <td>${bgThumb(r.item)}</td>
+        <td>${escapeHtml(r.item?.name || "")}</td>
+        <td>${fmtDate(r.acquiredAt)}</td>
+        <td>${r.expiresAt ? fmtDate(r.expiresAt) : "أبدي"}</td>
+        <td>${status}</td>
+        <td><button class="btn btn-sm btn-bad" data-bg-revoke="${escapeHtml(String(r.item?.id ?? ""))}">سحب</button></td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="6" class="cell-muted">المستخدم ده مش بيملك أي خلفية</td></tr>`;
+}
+
+document.getElementById("bgUserTable")?.addEventListener("click", async (e) => {
+  const itemId = e.target?.closest?.("[data-bg-revoke]")?.getAttribute("data-bg-revoke");
+  if (!itemId || !bgCurrentUserId) return;
+  const bg = bgCatalogue.find((b) => String(b.id) === itemId);
+  await bgRevoke(itemId, { userId: bgCurrentUserId, reason: cpVal("bgRevokeReason") || undefined }, bg?.name ?? "");
+});
+
+// The audit log lives in the CP tab; open it filtered to background actions.
+// The filter is set before navigate() so the tab's own load already asks for BG.
+function openBgAudit() {
+  document.getElementById("cpAuditAction").value = "BG";
+  document.getElementById("cpAuditUser").value = "";
+  navigate("cp");
+  setTimeout(() => document.getElementById("cpAuditTable")?.closest(".form-card")?.scrollIntoView({ block: "start" }), 300);
+}
+
+Object.assign(window, {
+  loadBackgrounds, bgSyncFree, addBackground,
+  grantBackgroundToUser, revokeBackgroundFromUser, loadUserBackgrounds, openBgAudit,
 });
