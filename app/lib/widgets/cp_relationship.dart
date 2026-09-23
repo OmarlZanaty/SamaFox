@@ -47,6 +47,10 @@ class CpTier {
     }
     return hit;
   }
+
+  /// The colours for a server-computed level. The admin can set more than
+  /// five levels, so anything past the table keeps the top tier's look.
+  static CpTier forLevel(int level) => all[(level.clamp(1, all.length)) - 1];
 }
 
 /// The commissioned set. Every one of these is original artwork made for this
@@ -231,8 +235,12 @@ class CpRelationshipCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final days = _daysSince(partner.since);
-    final tier = CpTier.forDays(days);
+    // Level, name and days come from the server now (the admin can tune how
+    // levels grow or pin one); the days ladder is only for an older server.
+    final days = partner.cpDays ?? _daysSince(partner.since);
+    final tier = partner.cpLevel != null ? CpTier.forLevel(partner.cpLevel!) : CpTier.forDays(days);
+    final level = partner.cpLevel ?? tier.level;
+    final levelName = (partner.cpLevelName ?? '').isNotEmpty ? partner.cpLevelName! : tier.name;
     final animation = _abs(partner.giftAnimationUrl);
     final icon = _abs(partner.giftIconUrl);
 
@@ -369,7 +377,7 @@ class CpRelationshipCard extends StatelessWidget {
                           border: Border.all(color: const Color(0xFFE3B84A), width: 1),
                         ),
                         child: Text(
-                          '${tier.name}  LV.${tier.level}',
+                          '$levelName  LV.$level',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 13,

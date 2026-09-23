@@ -2373,14 +2373,23 @@ class _CpRelationshipSectionState extends State<_CpRelationshipSection> {
               return CpRelationshipCard(
                 myAvatarUrl: widget.ownerAvatarUrl,
                 partner: p,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CpListScreen(
-                      userId: widget.isOwnProfile ? null : widget.userId,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CpListScreen(
+                        userId: widget.isOwnProfile ? null : widget.userId,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  // The featured partner is chosen on the server now, so the
+                  // card must re-fetch to show a change made in the list.
+                  if (mounted) {
+                    setState(() {
+                      _future = CpRepository().partners(userId: widget.userId);
+                    });
+                  }
+                },
               );
             },
           );
