@@ -3,6 +3,15 @@ import { createNotification } from './notification.service';
 import { sendGiftAtomic } from '../gifts/giftService';
 import { emitGiftSent, emitGiftAnnouncement } from '../gifts/controller';
 import { CpError, assertCpUnlocked, computeCpLevel, readCpSettings } from './cpUnlock.service';
+import {
+  cpPointsFor,
+  isCpGift,
+  pinFeaturedIfUnset,
+  reassignFeaturedAfterRemoval,
+  recordCpGiftValue,
+  releaseCpGiftEvent,
+  reserveCpGiftEvent,
+} from './cpGift.service';
 
 // CpError moved to cpUnlock.service so the unlock layer can raise the same
 // shape; re-exported so every existing import of it keeps working.
@@ -42,9 +51,18 @@ export interface CreateCpRequestInput {
   giftId: string;
   quantity?: number;
   roomId?: number | null;
+  /** One per tap in the app; a resend with the same key is not charged again. */
+  requestKey?: string | null;
 }
 
-/** Sends the CP invitation. Charges nothing yet — see the note above. */
+/**
+ * Sends the CP invitation. Charges nothing yet — see the note above.
+ *
+ * هدايا CP (2026-09-24): if the two are ALREADY partners there is nothing to
+ * accept — the CP gift is sent right away and raises their CP level by the
+ * gift's configured amount ([sendCpGiftToPartner]). The response says which
+ * of the two happened (`kind`).
+ */
 export async function createCpRequest(input: CreateCpRequestInput) {
   const quantity = Math.max(1, Math.min(MAX_QUANTITY, Math.floor(input.quantity ?? 1)));
   if (input.senderId === input.recipientId) {
@@ -60,6 +78,8 @@ export async function createCpRequest(input: CreateCpRequestInput) {
     prisma.user.findUnique({ where: { id: input.recipientId }, select: { id: true, name: true } }),
   ]);
   if (!gift || !gift.isActive) throw new CpError('INVALID_GIFT', 'الهدية غير متاحة', 404);
+  // Only the gifts enabled in the dashboard's CP list make or raise a CP.
+  if (!isCpGift(gift)) throw new CpError('NOT_CP_GIFT', 'هذه الهدية ليست من هدايا CP');
   if (!recipient) throw new CpError('INVALID_RECIPIENT', 'المستخدم غير موجود', 404);
 
   const totalCoins = gift.coinCost * quantity;
@@ -82,14 +102,16 @@ export async function createCpRequest(input: CreateCpRequestInput) {
   const already = await prisma.cpPair.findUnique({
     where: { userAId_userBId: { userAId: aId, userBId: bId } },
   });
-  if (already) throw new CpError('ALREADY_PAIRED', 'لديكما ارتباط CP بالفعل');
+  if (already) {
+    return sendCpGiftToPartner(input, already.id, gift, quantity);
+  }
 
   // One live invitation per direction; re-sending just returns the open one so
   // a double-tap cannot queue two charges against the same person.
   const open = await prisma.cpRequest.findFirst({
     where: { senderId: input.senderId, recipientId: input.recipientId, status: 'pending' },
   });
-  if (open) return open;
+  if (open) return { ...open, kind: 'invitation' as const };
 
   const request = await prisma.cpRequest.create({
     data: {
@@ -120,7 +142,163 @@ export async function createCpRequest(input: CreateCpRequestInput) {
     },
   }).catch((e) => console.warn('[cp] request notification failed:', e));
 
-  return request;
+  return { ...request, kind: 'invitation' as const };
+}
+
+/** The level a pair shows for a given value, under the current settings. */
+async function levelOf(pairId: number) {
+  const [pair, settings] = await Promise.all([prisma.cpPair.findUnique({ where: { id: pairId } }), readCpSettings()]);
+  if (!pair) return null;
+  return computeCpLevel({ cpValue: pair.cpValue, createdAt: pair.createdAt, levelOverride: pair.levelOverride }, settings);
+}
+
+/**
+ * هدايا CP — a CP gift from one partner to the other. Charged in full right
+ * away (same crediting as any gift), then the pair's CP value rises by the
+ * gift's "مقدار رفع مستوى CP" × quantity, logged in cp_value_events. A resend
+ * with the same `requestKey` returns the first result and charges nothing.
+ */
+async function sendCpGiftToPartner(
+  input: CreateCpRequestInput,
+  pairId: number,
+  gift: { id: string; coinCost: number; cpLevelPoints?: number | null; name: string; nameAr: string | null },
+  quantity: number,
+) {
+  const eventInput = {
+    pairId,
+    senderId: input.senderId,
+    recipientId: input.recipientId,
+    giftId: gift.id,
+    quantity,
+    source: 'partner_gift' as const,
+    requestKey: input.requestKey ?? null,
+  };
+  const before = await levelOf(pairId);
+  const { event, duplicate } = await reserveCpGiftEvent(eventInput);
+  if (duplicate) {
+    const now = await levelOf(pairId);
+    return {
+      kind: 'partner_gift' as const,
+      duplicate: true,
+      pairId,
+      pointsAdded: Number(duplicate.points),
+      cpValue: now?.cpValue ?? Number(duplicate.cpValueAfter ?? 0),
+      level: now?.level ?? null,
+      levelName: now?.levelName ?? null,
+      previousLevel: now?.level ?? null,
+      leveledUp: false,
+      balance: null,
+      transactionId: duplicate.giftTransactionId,
+    };
+  }
+
+  let giftResult;
+  try {
+    giftResult = await sendGiftAtomic({
+      senderId: input.senderId,
+      recipientId: input.recipientId,
+      roomId: input.roomId ?? null,
+      giftId: gift.id,
+      quantity,
+    });
+  } catch (e) {
+    await releaseCpGiftEvent(event?.id).catch(() => undefined);
+    throw e;
+  }
+
+  const points = cpPointsFor(gift, quantity);
+  const recorded = await recordCpGiftValue({
+    ...eventInput,
+    points,
+    giftTransactionId: giftResult.transactionId,
+    eventId: event?.id ?? null,
+  });
+  const after = await levelOf(pairId);
+
+  const [sender, recipient] = await Promise.all([
+    prisma.user.findUnique({ where: { id: input.senderId }, select: { id: true, name: true, avatarUrl: true } }),
+    prisma.user.findUnique({ where: { id: input.recipientId }, select: { id: true, name: true, avatarUrl: true } }),
+  ]);
+  emitCpGift(
+    { senderId: input.senderId, recipientId: input.recipientId, roomId: input.roomId ?? null, quantity },
+    giftResult,
+    sender,
+    recipient,
+  );
+  const leveledUp = !!before && !!after && after.level > before.level;
+  await createNotification({
+    userId: input.recipientId,
+    actorId: input.senderId,
+    type: 'cp_gift',
+    title: leveledUp ? `ارتفع مستوى الـ CP إلى LV.${after!.level} 💞` : 'هدية CP 💞',
+    body: `${sender?.name ?? 'شريكك'} أرسل لك ${gift.nameAr ?? gift.name} — +${points} CP`,
+    data: { pairId, giftId: gift.id, points, cpValue: recorded.cpValue, level: after?.level ?? null },
+  }).catch((e) => console.warn('[cp] partner gift notification failed:', e));
+
+  return {
+    kind: 'partner_gift' as const,
+    duplicate: false,
+    pairId,
+    pointsAdded: recorded.counted ? points : 0,
+    cpValue: recorded.cpValue,
+    level: after?.level ?? null,
+    levelName: after?.levelName ?? null,
+    previousLevel: before?.level ?? null,
+    leveledUp,
+    balance: giftResult.senderBalance,
+    transactionId: giftResult.transactionId,
+  };
+}
+
+/**
+ * The gift animation / announcement for a CP gift. `sendGiftAtomic` records
+ * the transaction but emits nothing — the socket events live in the HTTP send
+ * controller, which the CP flows never go through. Same payload shape as an
+ * ordinary send so the overlay, activity feed and announcement bar need no
+ * special case.
+ */
+function emitCpGift(
+  req: { senderId: number; recipientId: number; roomId: number | null; quantity: number },
+  giftResult: Awaited<ReturnType<typeof sendGiftAtomic>>,
+  sender: { id: number; name: string | null; avatarUrl: string | null } | null,
+  recipient: { id: number; name: string | null; avatarUrl: string | null } | null,
+) {
+  emitGiftSent(
+    {
+      transactionId: giftResult.transactionId,
+      senderId: req.senderId,
+      recipientId: req.recipientId,
+      roomId: req.roomId,
+      quantity: req.quantity,
+      totalCoins: giftResult.totalCoins,
+      comboKey: null,
+      comboCount: giftResult.comboCount,
+      broadcast: giftResult.broadcast,
+      sender,
+      recipient,
+      gift: giftResult.gift,
+      isCp: true,
+      ts: Date.now(),
+    },
+    [req.senderId, req.recipientId],
+  );
+  emitGiftAnnouncement({
+    senderId: req.senderId,
+    senderName: sender?.name ?? null,
+    senderAvatarUrl: sender?.avatarUrl ?? null,
+    gift: {
+      id: giftResult.gift.id,
+      name: giftResult.gift.name,
+      nameAr: giftResult.gift.nameAr,
+      iconUrl: giftResult.gift.iconUrl,
+    },
+    quantity: req.quantity,
+    recipientCount: 1,
+    recipientName: recipient?.name ?? null,
+    roomId: req.roomId,
+    totalCoins: giftResult.totalCoins,
+    ts: Date.now(),
+  });
 }
 
 /** Loads a pending request and asserts `userId` is the one being asked. */
@@ -139,23 +317,54 @@ async function loadPending(requestId: number, recipientId: number) {
 export async function acceptCpRequest(requestId: number, recipientId: number) {
   const request = await loadPending(requestId, recipientId);
 
-  const giftResult = await sendGiftAtomic({
-    senderId: request.senderId,
-    recipientId: request.recipientId,
-    roomId: request.roomId,
-    giftId: request.giftId,
-    quantity: request.quantity,
-    skipCpValue: true,
+  // Claim the invitation BEFORE any coins move: of two taps (or an accept
+  // racing a reject/cancel) exactly one gets here, so the gift can never be
+  // charged or counted twice.
+  const claimed = await prisma.cpRequest.updateMany({
+    where: { id: request.id, status: 'pending' },
+    data: { status: 'accepting' },
   });
+  if (claimed.count === 0) throw new CpError('ALREADY_RESOLVED', 'تم الرد على هذا الطلب بالفعل');
+
+  let giftResult;
+  try {
+    giftResult = await sendGiftAtomic({
+      senderId: request.senderId,
+      recipientId: request.recipientId,
+      roomId: request.roomId,
+      giftId: request.giftId,
+      quantity: request.quantity,
+    });
+  } catch (e) {
+    // Nothing was charged (sendGiftAtomic is one transaction): back to pending.
+    await prisma.cpRequest.updateMany({ where: { id: request.id, status: 'accepting' }, data: { status: 'pending' } });
+    throw e;
+  }
 
   const [aId, bId] = orderPair(request.senderId, request.recipientId);
-  // The accepting gift is the first coins of the pair's CP value; a re-pair
-  // between the same two people adds to what they already built up.
+  // A re-pair between the same two people keeps what they already built up.
   const pair = await prisma.cpPair.upsert({
     where: { userAId_userBId: { userAId: aId, userBId: bId } },
-    update: { giftId: request.giftId, cpValue: { increment: giftResult.totalCoins } },
-    create: { userAId: aId, userBId: bId, giftId: request.giftId, cpValue: giftResult.totalCoins },
+    update: { giftId: request.giftId },
+    create: { userAId: aId, userBId: bId, giftId: request.giftId, cpValue: 0 },
   });
+
+  // The accepting gift is the pair's first CP value — by the gift's configured
+  // "مقدار رفع مستوى CP", logged once per gift transaction.
+  const gift = await prisma.gift.findUnique({ where: { id: request.giftId } });
+  await recordCpGiftValue({
+    pairId: pair.id,
+    senderId: request.senderId,
+    recipientId: request.recipientId,
+    giftId: request.giftId,
+    quantity: request.quantity,
+    source: 'accept',
+    points: gift ? cpPointsFor(gift, request.quantity) : giftResult.totalCoins,
+    giftTransactionId: giftResult.transactionId,
+  });
+
+  // "مستخدم CP الظاهر": only someone with no choice yet gets this partner.
+  await pinFeaturedIfUnset(request.senderId, request.recipientId);
 
   await prisma.cpRequest.update({
     where: { id: request.id },
@@ -174,45 +383,12 @@ export async function acceptCpRequest(requestId: number, recipientId: number) {
   ]);
 
   // The gift only actually moves NOW, so this is where the animation belongs.
-  // `sendGiftAtomic` records the transaction but emits nothing — the socket
-  // events live in the HTTP send controller, which a CP acceptance never goes
-  // through. Without this the CP gift was charged and paired but no one ever
-  // saw it fly. Same payload shape as an ordinary send so the overlay, the
-  // activity feed and the announcement bar need no special case.
-  const payload = {
-    transactionId: giftResult.transactionId,
-    senderId: request.senderId,
-    recipientId: request.recipientId,
-    roomId: request.roomId,
-    quantity: request.quantity,
-    totalCoins: giftResult.totalCoins,
-    comboKey: null,
-    comboCount: giftResult.comboCount,
-    broadcast: giftResult.broadcast,
+  emitCpGift(
+    { senderId: request.senderId, recipientId: request.recipientId, roomId: request.roomId, quantity: request.quantity },
+    giftResult,
     sender,
     recipient,
-    gift: giftResult.gift,
-    isCp: true,
-    ts: Date.now(),
-  };
-  emitGiftSent(payload, [request.senderId, request.recipientId]);
-  emitGiftAnnouncement({
-    senderId: request.senderId,
-    senderName: sender?.name ?? null,
-    senderAvatarUrl: sender?.avatarUrl ?? null,
-    gift: {
-      id: giftResult.gift.id,
-      name: giftResult.gift.name,
-      nameAr: giftResult.gift.nameAr,
-      iconUrl: giftResult.gift.iconUrl,
-    },
-    quantity: request.quantity,
-    recipientCount: 1,
-    recipientName: recipient?.name ?? null,
-    roomId: request.roomId,
-    totalCoins: giftResult.totalCoins,
-    ts: Date.now(),
-  });
+  );
 
   await createNotification({
     userId: request.senderId,
@@ -236,6 +412,13 @@ export async function rejectCpRequest(requestId: number, recipientId: number) {
   const fee = Math.floor(request.totalCoins * CP_REJECT_FEE_RATE);
 
   const charged = await prisma.$transaction(async (tx) => {
+    // Resolve it first, conditionally: a second tap (or a racing accept /
+    // cancel) finds it no longer pending and the fee is never taken twice.
+    const resolved = await tx.cpRequest.updateMany({
+      where: { id: request.id, status: 'pending' },
+      data: { status: 'rejected', resolvedAt: new Date() },
+    });
+    if (resolved.count === 0) throw new CpError('ALREADY_RESOLVED', 'تم الرد على هذا الطلب بالفعل');
     let taken = 0;
     if (fee > 0) {
       // Guarded decrement: if the sender has since spent the coins we take what
@@ -256,10 +439,6 @@ export async function rejectCpRequest(requestId: number, recipientId: number) {
         });
       }
     }
-    await tx.cpRequest.update({
-      where: { id: request.id },
-      data: { status: 'rejected', resolvedAt: new Date() },
-    });
     return taken;
   });
 
@@ -285,10 +464,13 @@ export async function cancelCpRequest(requestId: number, senderId: number) {
   if (!request) throw new CpError('NOT_FOUND', 'الطلب غير موجود', 404);
   if (request.senderId !== senderId) throw new CpError('FORBIDDEN', 'غير مصرح', 403);
   if (request.status !== 'pending') throw new CpError('ALREADY_RESOLVED', 'تم الرد على هذا الطلب بالفعل');
-  return prisma.cpRequest.update({
-    where: { id: request.id },
+  // Conditional, so a cancel can never overwrite an accept already in flight.
+  const done = await prisma.cpRequest.updateMany({
+    where: { id: request.id, status: 'pending' },
     data: { status: 'cancelled', resolvedAt: new Date() },
   });
+  if (done.count === 0) throw new CpError('ALREADY_RESOLVED', 'تم الرد على هذا الطلب بالفعل');
+  return { ...request, status: 'cancelled' };
 }
 
 /**
@@ -377,24 +559,6 @@ export async function setFeaturedPartner(userId: number, partnerId: number | nul
 }
 
 /**
- * Called by sendGiftAtomic after a gift commits: coins gifted between two
- * partners raise their pair's CP value. No-op when they are not paired.
- * Best-effort — a failure here must never undo a gift that went through.
- */
-export async function addCpValueForGift(senderId: number, recipientId: number, totalCoins: number, db: any = prisma) {
-  if (!Number.isFinite(totalCoins) || totalCoins <= 0 || senderId === recipientId) return;
-  const [aId, bId] = orderPair(senderId, recipientId);
-  try {
-    await db.cpPair.updateMany({
-      where: { userAId: aId, userBId: bId },
-      data: { cpValue: { increment: Math.floor(totalCoins) } },
-    });
-  } catch (e) {
-    console.warn('[cp] cpValue increment failed:', (e as Error).message);
-  }
-}
-
-/**
  * "الغاء CP مع فلان؟ نعم / لا" — nothing is refunded, the pairing simply ends
  * and "لا تظهر له مره اخري الا لو عمل CP تاني".
  */
@@ -405,6 +569,8 @@ export async function removeCpPair(userId: number, partnerId: number) {
   });
   if (!pair) throw new CpError('NOT_FOUND', 'لا يوجد ارتباط CP مع هذا المستخدم', 404);
   await prisma.cpPair.delete({ where: { id: pair.id } });
+  // Whoever showed the other now shows his next partner (or nobody).
+  await reassignFeaturedAfterRemoval(aId, bId);
 
   await createNotification({
     userId: partnerId,

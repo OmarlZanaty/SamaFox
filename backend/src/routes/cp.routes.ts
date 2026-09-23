@@ -15,7 +15,8 @@ import { confirmCpUnlock, getCpUnlockStatus } from '../services/cpUnlock.service
 
 /**
  * A15 / #20 / #44 — نظام الـ CP.
- *   POST   /cp/requests            send a CP gift invitation (charges nothing yet)
+ *   POST   /cp/requests            send a CP gift: an invitation (charges nothing yet), or —
+ *                                  to an existing partner — sent now, raising the CP level
  *   GET    /cp/requests/pending    invitations waiting on me
  *   POST   /cp/requests/:id/accept full price charged, pair created
  *   POST   /cp/requests/:id/reject no gift, 30% of the price charged
@@ -28,8 +29,9 @@ import { confirmCpUnlock, getCpUnlockStatus } from '../services/cpUnlock.service
  *   POST   /cp/unlock/confirm      the user confirmed: deduct the fee (if any) and open CP
  *   PATCH  /cp/featured            "مستخدم CP الظاهر" — which partner shows beside my photo
  *
- * Nothing here can change coins, ownership or CP values directly: the only
- * debit is the quoted unlock fee, taken server-side in confirmCpUnlock.
+ * Nothing here takes coins, ownership or CP values from the client: every
+ * price, fee and CP amount is read from the database server-side (gift price
+ * and "مقدار رفع مستوى CP", the unlock quote, the 30% reject rule).
  */
 const router = Router();
 
@@ -55,16 +57,19 @@ router.post('/requests', authMiddleware, async (req, res) => {
   try {
     const senderId = requireUserId(req);
     if (!senderId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
-    const { recipientId, giftId, quantity, roomId } = req.body ?? {};
+    const { recipientId, giftId, quantity, roomId, requestKey } = req.body ?? {};
     if (!giftId || typeof giftId !== 'string') {
       return res.status(400).json({ success: false, message: 'giftId is required' });
     }
+    // Already partners → the CP gift is sent now and raises the level
+    // (data.kind = 'partner_gift'); otherwise an invitation (kind = 'invitation').
     const request = await createCpRequest({
       senderId,
       recipientId: Number(recipientId),
       giftId,
       quantity: quantity != null ? Number(quantity) : 1,
       roomId: roomId != null ? Number(roomId) : null,
+      requestKey: typeof requestKey === 'string' ? requestKey : null,
     });
     return res.json({ success: true, data: request });
   } catch (e) {

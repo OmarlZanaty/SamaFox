@@ -81,6 +81,29 @@ CREATE INDEX IF NOT EXISTS "admin_audit_logs_adminId_createdAt_idx" ON "admin_au
 CREATE INDEX IF NOT EXISTS "admin_audit_logs_targetUserId_createdAt_idx" ON "admin_audit_logs"("targetUserId", "createdAt");
 CREATE INDEX IF NOT EXISTS "admin_audit_logs_action_createdAt_idx" ON "admin_audit_logs"("action", "createdAt");
 
+-- هدايا CP ← مستوى CP (2026-09-24): per-gift level amount + the send log.
+ALTER TABLE "gifts" ADD COLUMN IF NOT EXISTS "cpLevelPoints" INTEGER;
+
+CREATE TABLE IF NOT EXISTS "cp_value_events" (
+  "id"                SERIAL NOT NULL,
+  "pairId"            INTEGER NOT NULL,
+  "senderId"          INTEGER NOT NULL,
+  "recipientId"       INTEGER NOT NULL,
+  "giftId"            TEXT NOT NULL,
+  "quantity"          INTEGER NOT NULL DEFAULT 1,
+  "points"            INTEGER NOT NULL DEFAULT 0,
+  "cpValueAfter"      INTEGER,
+  "source"            TEXT NOT NULL,
+  "giftTransactionId" TEXT,
+  "requestKey"        TEXT,
+  "createdAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "cp_value_events_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "cp_value_events_giftTransactionId_key" ON "cp_value_events"("giftTransactionId");
+CREATE UNIQUE INDEX IF NOT EXISTS "cp_value_events_senderId_requestKey_key" ON "cp_value_events"("senderId", "requestKey");
+CREATE INDEX IF NOT EXISTS "cp_value_events_pairId_createdAt_idx" ON "cp_value_events"("pairId", "createdAt");
+CREATE INDEX IF NOT EXISTS "cp_value_events_recipientId_createdAt_idx" ON "cp_value_events"("recipientId", "createdAt");
+
 DO $$ BEGIN
   ALTER TABLE "cp_unlock_grants" ADD CONSTRAINT "cp_unlock_grants_userId_fkey"
     FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -119,6 +142,23 @@ FROM "users" u
 WHERE EXISTS (SELECT 1 FROM "cp_pairs" p WHERE p."userAId" = u.id OR p."userBId" = u.id)
    OR EXISTS (SELECT 1 FROM "cp_requests" r WHERE r."senderId" = u.id AND r."status" = 'accepted')
 ON CONFLICT ("userId") DO NOTHING;
+
+-- 2b. "مستخدم CP الظاهر": pin, for everyone who has a pair and no stored
+--     choice, the partner visitors see TODAY (the newest pair). From here on
+--     a new pair never takes the spot — only the owner (or an admin) changes
+--     it. A choice the owner made on his phone is uploaded by the app once.
+UPDATE "users" u
+SET "cpFeaturedPartnerId" = x.partner
+FROM (
+  SELECT DISTINCT ON (me) me, partner
+  FROM (
+    SELECT "userAId" AS me, "userBId" AS partner, "createdAt", "id" FROM "cp_pairs"
+    UNION ALL
+    SELECT "userBId" AS me, "userAId" AS partner, "createdAt", "id" FROM "cp_pairs"
+  ) s
+  ORDER BY me, "createdAt" DESC, "id" DESC
+) x
+WHERE u."id" = x.me AND u."cpFeaturedPartnerId" IS NULL;
 
 -- 3. System policy rows, only if absent: free (today's behaviour), 0 coins,
 --    days-based level ladder.

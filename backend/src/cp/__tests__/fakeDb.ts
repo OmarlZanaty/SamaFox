@@ -7,7 +7,8 @@
  * Semantics that matter for the tests and are reproduced faithfully:
  *   • `updateMany` with `{ coinsBalance: { gte } }` guard — the atomic debit
  *   • `$transaction(fn)` rolls back every table when `fn` throws
- *   • unique (userId) on cp_unlocks / cp_unlock_grants, (userId,itemId) on user_items
+ *   • unique (userId) on cp_unlocks / cp_unlock_grants, (userId,itemId) on user_items,
+ *     giftTransactionId and (senderId,requestKey) on cp_value_events — NULLs never collide
  */
 
 type Row = Record<string, any>;
@@ -126,6 +127,8 @@ export class FakeDb {
     }
     if (!('createdAt' in row)) row.createdAt = new Date();
     for (const u of spec.uniques ?? []) {
+      // Like PostgreSQL: a NULL in a unique key never collides.
+      if (u.some((c) => row[c] == null)) continue;
       const dup = this.tables[table]!.find((r) => u.every((c) => r[c] === row[c]));
       if (dup) {
         const err: any = new Error(`Unique constraint failed on ${u.join(',')}`);
@@ -302,5 +305,6 @@ export function makeDb() {
     gift: { idType: 'cuid' },
     item: { idType: 'cuid' },
     userItem: { idType: 'cuid', uniques: [['userId', 'itemId']] },
+    cpValueEvent: { uniques: [['giftTransactionId'], ['senderId', 'requestKey']] },
   }) as FakeDb & Record<string, any>;
 }

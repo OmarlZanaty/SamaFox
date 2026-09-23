@@ -1241,6 +1241,9 @@ model Gift {
   sortOrder        Int        @default(0)
   category         String?
   cpEligible       Boolean    @default(false) // counts toward account power (CP) when sent
+  // "مقدار رفع مستوى CP" for a gift in the `cp` list: the CP value one unit
+  // adds to the pair (2026-09-24). Null = the gift's coin price.
+  cpLevelPoints    Int?
   createdBy        Int?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -1404,12 +1407,13 @@ model CpPair {
   giftId    String?
   createdAt DateTime @default(now())
 
-  // CP level (2026-09-22). `cpValue` is the coins the two partners have
-  // gifted EACH OTHER since pairing (the accepting gift included), kept by
-  // sendGiftAtomic. The level is computed from it server-side with the
-  // dashboard's "قيمة رفع مستوى CP" (cp_level_step_coins); while that is 0
-  // the old days-based ladder applies, so nobody's level moved on deploy.
-  // `levelOverride` pins the level from the dashboard regardless of value.
+  // CP level (2026-09-22, rules 2026-09-24). `cpValue` grows ONLY from active
+  // gifts in the `cp` list sent between the two (the accepting gift
+  // included), by each gift's `cpLevelPoints` — see cpGift.service; every
+  // increase is logged in cp_value_events. The level is computed from it
+  // server-side with the dashboard's "قيمة رفع مستوى CP" (cp_level_step_coins);
+  // while that is 0 the old days-based ladder applies, so nobody's level moved
+  // on deploy. `levelOverride` pins the level from the dashboard.
   cpValue       Int      @default(0)
   levelOverride Int?
   updatedAt     DateTime @default(now()) @updatedAt
@@ -1418,6 +1422,30 @@ model CpPair {
   @@index([userAId])
   @@index([userBId])
   @@map("cp_pairs")
+}
+
+// هدايا CP ← مستوى CP: one row per CP gift that raised a pair's value.
+// `giftTransactionId` unique → a gift is never counted twice;
+// `(senderId, requestKey)` unique → a resent request is caught before it is
+// charged. A row with no giftTransactionId is an in-flight claim.
+model CpValueEvent {
+  id                Int      @id @default(autoincrement())
+  pairId            Int
+  senderId          Int
+  recipientId       Int
+  giftId            String
+  quantity          Int      @default(1)
+  points            Int      @default(0)
+  cpValueAfter      Int?
+  source            String // accept | partner_gift
+  giftTransactionId String?  @unique
+  requestKey        String?
+  createdAt         DateTime @default(now())
+
+  @@unique([senderId, requestKey])
+  @@index([pairId, createdAt])
+  @@index([recipientId, createdAt])
+  @@map("cp_value_events")
 }
 
 // ============================================================

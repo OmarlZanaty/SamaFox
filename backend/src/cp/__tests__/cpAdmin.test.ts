@@ -398,13 +398,14 @@ describe('app side: the /cp API surface', () => {
 
   test('no handler reads a coin amount, a CP value, a level or an owner from the request', () => {
     // The only client inputs are the invitation (recipient, gift, quantity,
-    // room) and the featured partner id. Prices and fees come from the DB.
+    // room, the per-tap requestKey) and the featured partner id. Prices, fees
+    // and CP amounts come from the DB.
     const bodyFields = [...src.matchAll(/const \{([^}]*)\} = req\.body/g)]
       .flatMap((m) => (m[1] ?? '').split(','))
       .map((s) => s.trim())
       .filter(Boolean);
-    assert.deepEqual(bodyFields.sort(), ['giftId', 'quantity', 'recipientId', 'roomId']);
-    for (const forbidden of ['cpValue', 'levelOverride', 'coinsBalance', 'feeCoins', 'userItem', 'priceCoins']) {
+    assert.deepEqual(bodyFields.sort(), ['giftId', 'quantity', 'recipientId', 'requestKey', 'roomId']);
+    for (const forbidden of ['cpValue', 'cpLevelPoints', 'points', 'levelOverride', 'coinsBalance', 'feeCoins', 'userItem', 'priceCoins']) {
       assert.ok(!new RegExp(`req\\.body[^\\n]*${forbidden}`).test(src), `cp.routes must not read ${forbidden} from the body`);
     }
   });

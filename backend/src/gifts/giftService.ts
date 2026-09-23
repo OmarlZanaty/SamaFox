@@ -12,8 +12,6 @@ export interface SendGiftInput {
   giftId: string;
   quantity?: number;
   comboKey?: string | null;
-  /** Set by acceptCpRequest: the pair it creates already carries this gift's coins. */
-  skipCpValue?: boolean;
 }
 
 export interface SendGiftResult {
@@ -380,18 +378,9 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     console.warn('achievement check failed:', e);
   }
 
-  // CP level (2026-09-22): coins gifted between two CP partners raise their
-  // pair's value. Dynamic import — cp.service imports this file. Skipped for
-  // the accepting gift itself: acceptCpRequest credits that one on the pair
-  // it creates, and counting it here too would double it.
-  if (input.recipientId !== input.senderId && !input.skipCpValue) {
-    try {
-      const { addCpValueForGift } = await import('../services/cp.service');
-      await addCpValueForGift(input.senderId, input.recipientId, totalCoins);
-    } catch (e) {
-      console.warn('cp value increment failed:', e);
-    }
-  }
+  // CP level: NOT raised here. Only CP gifts raise it, and they go through
+  // cp.service (invitation accept / CP gift to a partner), which counts each
+  // gift transaction exactly once — see cpGift.service.
 
   return {
     transactionId: result.transactionId,

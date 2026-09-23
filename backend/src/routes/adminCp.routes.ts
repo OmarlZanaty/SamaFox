@@ -220,7 +220,11 @@ adminCpRouter.patch('/gifts/:id', async (req, res) => {
     const b = req.body ?? {};
     return res.json({
       success: true,
-      data: await updateCpGift(String(req.params.id), { coinCost: b.coinCost, isActive: b.isActive, sortOrder: b.sortOrder, nameAr: b.nameAr }, ctxOf(req)),
+      data: await updateCpGift(
+        String(req.params.id),
+        { coinCost: b.coinCost, cpLevelPoints: b.cpLevelPoints, isActive: b.isActive, sortOrder: b.sortOrder, nameAr: b.nameAr },
+        ctxOf(req),
+      ),
     });
   } catch (e) {
     return fail(res, e);

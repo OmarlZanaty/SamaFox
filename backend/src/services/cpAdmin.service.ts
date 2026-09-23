@@ -7,6 +7,7 @@ import {
   readCpSettings,
   resolveCpUnlockPolicy,
 } from './cpUnlock.service';
+import { reassignFeaturedAfterRemoval } from './cpGift.service';
 
 /**
  * إدارة نظام CP والخلفيات — the business logic behind the dashboard panel.
@@ -238,7 +239,7 @@ export async function adminLockCp(targetUserId: number, ctx: AdminCtx, db: any =
 // ---------------------------------------------------------------------------
 
 export async function getUserCpOverview(targetUserId: number, db: any = prisma) {
-  const [user, unlock, policy, settings, pairs, pending, history] = await Promise.all([
+  const [user, unlock, policy, settings, pairs, pending, history, cpEvents] = await Promise.all([
     db.user.findUnique({ where: { id: targetUserId }, select: { ...USER_SELECT, cpFeaturedPartnerId: true } }),
     db.cpUnlock.findUnique({ where: { userId: targetUserId } }),
     resolveCpUnlockPolicy(targetUserId, db),
@@ -257,8 +258,36 @@ export async function getUserCpOverview(targetUserId: number, db: any = prisma) 
       take: 50,
     }),
     db.cpUnlockGrantHistory.findMany({ where: { userId: targetUserId }, orderBy: { createdAt: 'desc' }, take: 50 }),
+    // سجل هدايا CP — every CP gift that raised one of his pairs, and the value it produced.
+    db.cpValueEvent.findMany({
+      where: { OR: [{ senderId: targetUserId }, { recipientId: targetUserId }] },
+      orderBy: { createdAt: 'desc' },
+      take: 60,
+    }),
   ]);
   if (!user) throw new CpError('USER_NOT_FOUND', 'المستخدم غير موجود', 404);
+  // Rows without a transaction are in-flight claims, not sends.
+  const sent = cpEvents.filter((e: any) => e.giftTransactionId).slice(0, 50);
+  const giftIds = [...new Set(sent.map((e: any) => e.giftId))];
+  const peopleIds = [...new Set(sent.flatMap((e: any) => [e.senderId, e.recipientId]))];
+  const [logGifts, logUsers] = await Promise.all([
+    giftIds.length ? db.gift.findMany({ where: { id: { in: giftIds } }, select: { id: true, name: true, nameAr: true } }) : [],
+    peopleIds.length ? db.user.findMany({ where: { id: { in: peopleIds } }, select: { id: true, name: true, displayId: true } }) : [],
+  ]);
+  const giftById = new Map(logGifts.map((g: any) => [g.id, g]));
+  const userById = new Map(logUsers.map((u: any) => [u.id, u]));
+  const cpGiftLog = sent.map((e: any) => ({
+    id: e.id,
+    createdAt: e.createdAt,
+    source: e.source,
+    pairId: e.pairId,
+    sender: userById.get(e.senderId) ?? { id: e.senderId },
+    recipient: userById.get(e.recipientId) ?? { id: e.recipientId },
+    gift: giftById.get(e.giftId) ?? { id: e.giftId },
+    quantity: e.quantity,
+    points: e.points,
+    cpValueAfter: e.cpValueAfter,
+  }));
   const pairRows = pairs.map((p: any) => {
     const partner = p.userAId === targetUserId ? p.userB : p.userA;
     const lvl = computeCpLevel({ cpValue: p.cpValue, createdAt: p.createdAt, levelOverride: p.levelOverride }, settings);
@@ -284,6 +313,7 @@ export async function getUserCpOverview(targetUserId: number, db: any = prisma) 
     pairs: pairRows,
     pendingRequests: pending,
     grantHistory: history,
+    cpGiftLog,
   };
 }
 
@@ -360,6 +390,7 @@ export async function adminDeletePair(pairId: number, ctx: AdminCtx, db: any = p
   const before = await db.cpPair.findUnique({ where: { id: pairId } });
   if (!before) throw new CpError('NOT_FOUND', 'الارتباط غير موجود', 404);
   await db.cpPair.delete({ where: { id: pairId } });
+  await reassignFeaturedAfterRemoval(before.userAId, before.userBId, db);
   await recordAdminAudit(
     {
       adminId: ctx.adminId,
@@ -384,12 +415,25 @@ export async function listCpGifts(db: any = prisma) {
   return db.gift.findMany({
     where: { category: 'cp' },
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    select: { id: true, name: true, nameAr: true, iconUrl: true, coinCost: true, isActive: true, sortOrder: true, tier: true, category: true },
+    select: {
+      id: true,
+      name: true,
+      nameAr: true,
+      iconUrl: true,
+      coinCost: true,
+      cpLevelPoints: true,
+      isActive: true,
+      sortOrder: true,
+      tier: true,
+      category: true,
+    },
   });
 }
 
 export interface CpGiftPatch {
   coinCost?: number;
+  /** "مقدار رفع مستوى CP" per unit; null/'' = the gift's coin price. */
+  cpLevelPoints?: number | string | null;
   isActive?: boolean;
   sortOrder?: number;
   nameAr?: string;
@@ -398,11 +442,21 @@ export interface CpGiftPatch {
 export async function updateCpGift(giftId: string, patch: CpGiftPatch, ctx: AdminCtx, db: any = prisma) {
   const before = await db.gift.findUnique({ where: { id: giftId } });
   if (!before) throw new CpError('NOT_FOUND', 'الهدية غير موجودة', 404);
+  // This editor is for the CP list only; other gifts keep their own admin.
+  if (String(before.category ?? '').toLowerCase() !== 'cp') throw new CpError('NOT_FOUND', 'الهدية ليست من هدايا CP', 404);
   const data: any = {};
   if (patch.coinCost !== undefined) {
     const c = Math.floor(Number(patch.coinCost));
     if (!Number.isFinite(c) || c <= 0) throw new CpError('INVALID_VALUE', 'قيمة الهدية غير صالحة');
     data.coinCost = c;
+  }
+  if (patch.cpLevelPoints !== undefined) {
+    if (patch.cpLevelPoints === null || String(patch.cpLevelPoints).trim() === '') data.cpLevelPoints = null;
+    else {
+      const p = Math.floor(Number(patch.cpLevelPoints));
+      if (!Number.isFinite(p) || p < 0) throw new CpError('INVALID_VALUE', 'مقدار رفع مستوى CP غير صالح');
+      data.cpLevelPoints = p;
+    }
   }
   if (patch.isActive !== undefined) data.isActive = Boolean(patch.isActive);
   if (patch.sortOrder !== undefined) {
@@ -418,8 +472,20 @@ export async function updateCpGift(giftId: string, patch: CpGiftPatch, ctx: Admi
       action: AUDIT_ACTIONS.CP_GIFT_UPDATE,
       targetType: 'gift',
       targetId: giftId,
-      before: { coinCost: before.coinCost, isActive: before.isActive, sortOrder: before.sortOrder, nameAr: before.nameAr },
-      after: { coinCost: after.coinCost, isActive: after.isActive, sortOrder: after.sortOrder, nameAr: after.nameAr },
+      before: {
+        coinCost: before.coinCost,
+        cpLevelPoints: before.cpLevelPoints ?? null,
+        isActive: before.isActive,
+        sortOrder: before.sortOrder,
+        nameAr: before.nameAr,
+      },
+      after: {
+        coinCost: after.coinCost,
+        cpLevelPoints: after.cpLevelPoints ?? null,
+        isActive: after.isActive,
+        sortOrder: after.sortOrder,
+        nameAr: after.nameAr,
+      },
       ip: ctx.ip,
     },
     db,
