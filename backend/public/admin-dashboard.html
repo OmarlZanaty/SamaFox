@@ -807,6 +807,13 @@
             </table>
           </div>
           <div class="table-meta" id="cpUserMeta"></div>
+          <div class="settings-hint" style="margin:14px 0 6px;font-weight:bold">سجل هدايا CP</div>
+          <div class="table-wrap">
+            <table id="cpGiftLogTable">
+              <thead><tr><th>الوقت</th><th>من</th><th>إلى</th><th>الهدية</th><th>العدد</th><th>+ CP</th><th>القيمة بعدها</th><th>النوع</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -816,10 +823,15 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/></svg>
           هدايا CP
         </div>
-        <p class="settings-hint" style="margin:0 0 12px">الهدايا اللي في قائمة CP (الهدية اللي بتتقبل بتعمل الارتباط). سعر الهدية بيتخصم من المرسل ويتضاف لقيمة CP للزوج.</p>
+        <p class="settings-hint" style="margin:0 0 12px">
+          الهدايا المفعّلة هنا بس هي اللي بتعمل ارتباط CP وبترفع مستواه. أول هدية (لما الطرف التاني يقبل) بتعمل الارتباط،
+          وأي هدية CP بعد كده بين الشريكين بتتبعت على طول وبتزوّد «قيمة CP» للزوج بمقدار «رفع مستوى CP» × العدد
+          (فاضي = نفس سعر الهدية). المستوى بيتحسب من القيمة دي حسب «قيمة رفع مستوى CP» في سياسة الفتح فوق.
+          التعديل بيطبّق فورًا من غير تحديث التطبيق.
+        </p>
         <div class="table-wrap">
           <table id="cpGiftsTable">
-            <thead><tr><th></th><th>الاسم</th><th>الاسم بالعربي</th><th>السعر (كوينز)</th><th>الترتيب</th><th>مفعّلة</th><th>إجراء</th></tr></thead>
+            <thead><tr><th></th><th>الاسم</th><th>الاسم بالعربي</th><th>السعر (كوينز)</th><th title="قيمة CP اللي بتضيفها الهدية الواحدة للزوج">رفع مستوى CP</th><th>الترتيب</th><th>مفعّلة</th><th>إجراء</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>

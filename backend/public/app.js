@@ -3384,6 +3384,21 @@ async function loadCpUser(rowId) {
       </tr>`).join("")
     : `<tr><td colspan="7" class="cell-muted">لا يوجد ارتباط CP لهذا المستخدم</td></tr>`;
 
+  const log = d.cpGiftLog || [];
+  document.querySelector("#cpGiftLogTable tbody").innerHTML = log.length
+    ? log.map((e) => `
+      <tr>
+        <td>${fmtDate(e.createdAt)}</td>
+        <td>${cpUserLabel(e.sender)}</td>
+        <td>${cpUserLabel(e.recipient)}</td>
+        <td>${escapeHtml(e.gift?.nameAr || e.gift?.name || e.gift?.id || "")}</td>
+        <td>${num(e.quantity)}</td>
+        <td><strong>+${num(e.points)}</strong></td>
+        <td>${e.cpValueAfter == null ? "—" : num(e.cpValueAfter)}</td>
+        <td class="cell-muted">${e.source === "accept" ? "قبول دعوة" : "هدية لشريك"}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="8" class="cell-muted">لا توجد هدايا CP مسجّلة</td></tr>`;
+
   const hist = d.grantHistory || [];
   document.getElementById("cpUserMeta").textContent = hist.length
     ? `تاريخ الصلاحيات: ${hist.map((h) => `${fmtDate(h.createdAt).slice(0, 10)} ${h.action} ${h.mode}${h.mode === "FEE" ? ` ${h.feeCoins}` : ""}`).join(" · ")}`
@@ -3455,12 +3470,13 @@ async function loadCpGifts() {
         <td>${escapeHtml(g.name || "")}</td>
         <td><input data-cp-gift="${k}" data-f="nameAr" class="form-input form-input--sm" style="width:140px" value="${escapeHtml(g.nameAr || "")}" /></td>
         <td><input data-cp-gift="${k}" data-f="coinCost" type="number" min="1" class="form-input form-input--sm" style="width:110px" value="${Number(g.coinCost) || 0}" /></td>
+        <td><input data-cp-gift="${k}" data-f="cpLevelPoints" type="number" min="0" class="form-input form-input--sm" style="width:110px" placeholder="= السعر" value="${g.cpLevelPoints == null ? "" : Number(g.cpLevelPoints)}" /></td>
         <td><input data-cp-gift="${k}" data-f="sortOrder" type="number" class="form-input form-input--sm" style="width:80px" value="${Number(g.sortOrder) || 0}" /></td>
         <td><input data-cp-gift="${k}" data-f="isActive" type="checkbox" ${g.isActive ? "checked" : ""} /></td>
         <td><button class="btn btn-sm btn-primary" data-cp-gift-save="${k}">حفظ</button></td>
       </tr>`;
     }).join("")
-    : `<tr><td colspan="7" class="cell-muted">لا توجد هدايا في قائمة CP</td></tr>`;
+    : `<tr><td colspan="8" class="cell-muted">لا توجد هدايا في قائمة CP</td></tr>`;
 }
 
 // Gift ids are strings — handled by delegation rather than inlined into onclick.
@@ -3471,9 +3487,12 @@ document.getElementById("cpGiftsTable")?.addEventListener("click", async (e) => 
     .find((el) => el.getAttribute("data-cp-gift") === id && el.dataset.f === f);
   const coinCost = Number(field("coinCost")?.value || 0);
   if (!(coinCost > 0)) return showToast("سعر الهدية لازم يكون أكبر من صفر");
+  const pointsRaw = field("cpLevelPoints")?.value.trim() ?? "";
+  if (pointsRaw !== "" && !(Number(pointsRaw) >= 0)) return showToast("رفع مستوى CP لازم يكون صفر أو أكتر، أو فاضي = نفس السعر");
   try {
     await apiFetch(`/admin-dashboard/cp/gifts/${encodeURIComponent(id)}`, "PATCH", {
       coinCost,
+      cpLevelPoints: pointsRaw === "" ? null : Number(pointsRaw),
       sortOrder: Number(field("sortOrder")?.value || 0),
       isActive: Boolean(field("isActive")?.checked),
       nameAr: field("nameAr")?.value.trim() || undefined,
