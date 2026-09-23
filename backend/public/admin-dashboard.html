@@ -53,6 +53,10 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 20 9 20 9 11 4 11"/><polyline points="10 20 15 20 15 4 10 4"/><polyline points="16 20 21 20 21 14 16 14"/></svg>
       مستويات LV
     </a>
+    <a href="#" class="nav-item" data-section="cp">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+      CP — العلاقة
+    </a>
     <a href="#" class="nav-item" data-section="admins">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       المشرفون
@@ -696,6 +700,151 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- ======================== CP (العلاقة) SECTION ======================== -->
+    <!-- CP here = couple pairing (العلاقة), NOT the old "قوة الحساب" cp_per_coin in الإعدادات. -->
+    <section class="section" id="section-cp">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">CP — العلاقة</h2>
+          <p class="section-sub">صلاحيات فتح CP، بيانات المستخدمين والأزواج، هدايا CP، وسجل العمليات. كل تعديل هنا بيتسجّل في سجل العمليات.</p>
+        </div>
+        <div class="section-actions">
+          <button class="btn btn-outline" onclick="loadCpPanel()">تحديث</button>
+        </div>
+      </div>
+
+      <!-- 1. System policy -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          سياسة فتح CP (لكل المستخدمين)
+        </div>
+        <p class="settings-hint" style="margin:0 0 12px">
+          «مجاني» هو السلوك الحالي. لو اخترت «برسوم»، أي مستخدم لسه ما فتحش CP هيدفع الرسوم مرة واحدة قبل أول دعوة.
+          اللي عندهم CP بالفعل مش هيتأثروا. صلاحية المستخدم الفردية (تحت) بتغلب السياسة دي.
+        </p>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">طريقة الفتح</label>
+          <select id="cpPolicyMode" class="form-select" onchange="cpSyncPolicyFee()">
+            <option value="free">مجاني</option>
+            <option value="fee">برسوم</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">رسوم الفتح (كوينز)</label>
+          <input id="cpPolicyFee" type="number" min="0" class="form-input" placeholder="0" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">قيمة رفع مستوى CP (كوينز لكل مستوى)</label>
+          <input id="cpPolicyStep" type="number" min="0" class="form-input" placeholder="0 = المستوى بعدد الأيام (السلّم الحالي)" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">أقصى مستوى</label>
+          <input id="cpPolicyMax" type="number" min="1" class="form-input" placeholder="5" />
+        </div>
+        <div class="form-row">
+          <label class="settings-hint" style="min-width:220px">أسماء المستويات (مفصولة بفاصلة)</label>
+          <input id="cpPolicyNames" type="text" class="form-input" placeholder="بداية حب, حب حلو, حب كبير, حب خالد, روح واحدة" />
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" onclick="saveCpPolicy()">حفظ السياسة</button>
+        </div>
+      </div>
+
+      <!-- 2. Per-user grants -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+          صلاحية مستخدم معيّن
+        </div>
+        <p class="settings-hint" style="margin:0 0 12px">«فتح CP مجانًا» أو «فتح CP برسوم» لمستخدم واحد — بتغلب سياسة النظام. المنح مش بيخصم كوينز؛ المستخدم بيدفع (لو برسوم) لما يأكد من التطبيق.</p>
+        <div class="form-row">
+          <input id="cpGrantUser" class="form-input form-input--sm" placeholder="رقم المستخدم (Display ID)" />
+          <select id="cpGrantMode" class="form-select" onchange="cpSyncGrantFee()">
+            <option value="FREE">فتح CP مجانًا</option>
+            <option value="FEE">فتح CP برسوم</option>
+          </select>
+          <input id="cpGrantFee" type="number" min="0" class="form-input form-input--sm" placeholder="الرسوم (كوينز)" disabled />
+          <input id="cpGrantNote" class="form-input" placeholder="ملاحظة (اختياري)" />
+          <button class="btn btn-primary" onclick="grantCpPermission()">منح</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="cpGrantsTable">
+            <thead><tr><th>المستخدم</th><th>الصلاحية</th><th>الرسوم</th><th>ملاحظة</th><th>بواسطة</th><th>التاريخ</th><th>إجراء</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3. One user's CP data -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          بيانات CP لمستخدم
+        </div>
+        <div class="form-row">
+          <input id="cpUserQuery" class="form-input form-input--sm" placeholder="رقم المستخدم (Display ID)" onkeydown="if(event.key==='Enter')loadCpUser()" />
+          <button class="btn btn-primary" onclick="loadCpUser()">عرض</button>
+        </div>
+        <div id="cpUserBox" style="display:none;margin-top:12px">
+          <div id="cpUserSummary" class="chip-row" style="flex-wrap:wrap;gap:8px"></div>
+          <div class="form-row" style="margin-top:10px">
+            <button class="btn btn-ok" id="cpUnlockBtn" onclick="cpAdminUnlock()">فتح CP له مجانًا الآن</button>
+            <button class="btn btn-bad" id="cpLockBtn" onclick="cpAdminLock()">قفل CP</button>
+            <button class="btn btn-outline" onclick="cpClearFeatured()">إلغاء المستخدم الظاهر</button>
+          </div>
+          <div class="table-wrap" style="margin-top:10px">
+            <table id="cpPairsTable">
+              <thead><tr><th>الشريك</th><th>منذ</th><th>المستوى</th><th>قيمة CP</th><th>تثبيت المستوى</th><th>الظاهر</th><th>إجراءات</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="table-meta" id="cpUserMeta"></div>
+        </div>
+      </div>
+
+      <!-- 4. CP gifts -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/></svg>
+          هدايا CP
+        </div>
+        <p class="settings-hint" style="margin:0 0 12px">الهدايا اللي في قائمة CP (الهدية اللي بتتقبل بتعمل الارتباط). سعر الهدية بيتخصم من المرسل ويتضاف لقيمة CP للزوج.</p>
+        <div class="table-wrap">
+          <table id="cpGiftsTable">
+            <thead><tr><th></th><th>الاسم</th><th>الاسم بالعربي</th><th>السعر (كوينز)</th><th>الترتيب</th><th>مفعّلة</th><th>إجراء</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 5. Audit log -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          سجل العمليات
+        </div>
+        <div class="form-row">
+          <input id="cpAuditUser" class="form-input form-input--sm" placeholder="رقم المستخدم (اختياري)" />
+          <select id="cpAuditAction" class="form-select">
+            <option value="CP">كل عمليات CP</option>
+            <option value="BG">كل عمليات الخلفيات</option>
+            <option value="">الكل</option>
+          </select>
+          <button class="btn btn-primary" onclick="loadCpAudit()">عرض</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="cpAuditTable">
+            <thead><tr><th>الوقت</th><th>المسؤول</th><th>العملية</th><th>المستخدم</th><th>قبل</th><th>بعد</th><th>IP</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+          <button class="btn btn-outline" id="cpAuditMore" style="display:none" onclick="loadCpAudit(true)">تحميل المزيد</button>
+        </div>
       </div>
     </section>
 

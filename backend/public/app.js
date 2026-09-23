@@ -40,6 +40,7 @@ const sectionTitles = {
   store:     "إدارة المتجر",
   vip:       "مستويات VIP",
   levels:    "مستويات LV",
+  cp:        "CP — العلاقة",
   admins:    "المشرفون",
   rewards:   "المكافآت",
   games:     "الألعاب",
@@ -61,6 +62,7 @@ function navigate(sec) {
   pageTitle.textContent = sectionTitles[sec] || sec;
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "levels") loadLvLevels().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "cp") loadCpPanel().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
   if (sec === "games") loadGamesConfig().catch(e => showToast("خطأ: " + e.message));
@@ -3171,4 +3173,351 @@ Object.assign(window, {
   loadModeration, sendAdminMessage,
   createDeviceBan, deleteDeviceBan,
   saveGates, adjustUserTarget, loadUserCharges,
+});
+
+// ============================================================
+// CP — العلاقة (couple pairing) panel — /admin-dashboard/cp/*
+// Not the old "قوة الحساب" cp_per_coin setting in الإعدادات.
+// ============================================================
+let cpCurrentUserId = null;     // row id of the user shown in "بيانات CP لمستخدم"
+let cpAuditLastId = null;       // pagination cursor for سجل العمليات
+
+const CP_UNLOCK_SOURCE_LABELS = {
+  legacy:      "قديم (كان عنده CP قبل النظام)",
+  free_policy: "مجاني (سياسة النظام)",
+  fee_policy:  "دفع رسوم (سياسة النظام)",
+  grant_free:  "صلاحية مجانية",
+  grant_fee:   "صلاحية برسوم",
+  admin:       "فتحه مسؤول",
+};
+
+const CP_LEVEL_BASIS_LABELS = { days: "بالأيام", coins: "بالكوينز", override: "مثبّت" };
+
+const AUDIT_ACTION_LABELS = {
+  CP_POLICY_UPDATE: "تعديل سياسة CP",
+  CP_GRANT_FREE:    "منح فتح CP مجانًا",
+  CP_GRANT_FEE:     "منح فتح CP برسوم",
+  CP_GRANT_REVOKE:  "سحب صلاحية CP",
+  CP_UNLOCK_ADMIN:  "فتح CP بواسطة مسؤول",
+  CP_LOCK_ADMIN:    "قفل CP",
+  CP_FEATURED_SET:  "تغيير المستخدم الظاهر",
+  CP_PAIR_UPDATE:   "تعديل زوج CP",
+  CP_PAIR_DELETE:   "فك زوج CP",
+  CP_GIFT_UPDATE:   "تعديل هدية CP",
+  BG_CREATE:        "إضافة خلفية",
+  BG_UPDATE:        "تعديل خلفية",
+  BG_DELETE:        "حذف خلفية",
+  BG_GRANT:         "منح خلفية",
+  BG_REVOKE:        "سحب خلفية",
+};
+
+const cpUserLabel = (u) => u
+  ? `${escapeHtml(u.name || "")} <span class="cell-muted">#${escapeHtml(u.displayId ?? u.id)}</span>`
+  : "—";
+
+const cpVal = (id) => document.getElementById(id)?.value.trim() ?? "";
+
+// openConfirmModal as a promise: true on "yes", false when the modal closes any other way.
+function cpConfirm(title, text) {
+  return new Promise((resolve) => {
+    let done = false;
+    openConfirmModal(title, text, () => { done = true; resolve(true); });
+    const modal = document.getElementById("confirmModal");
+    const obs = new MutationObserver(() => {
+      if (modal.classList.contains("hidden")) { obs.disconnect(); if (!done) resolve(false); }
+    });
+    obs.observe(modal, { attributes: true, attributeFilter: ["class"] });
+  });
+}
+
+async function loadCpPanel() {
+  await Promise.all([loadCpPolicy(), loadCpGrants(), loadCpGifts(), loadCpAudit()]);
+  if (cpCurrentUserId) await loadCpUser(cpCurrentUserId);
+}
+
+// ---- 1. System policy ----
+async function loadCpPolicy() {
+  const p = (await apiFetch("/admin-dashboard/cp/policy"))?.data ?? {};
+  document.getElementById("cpPolicyMode").value = p.unlockMode === "fee" ? "fee" : "free";
+  document.getElementById("cpPolicyFee").value = p.unlockFeeCoins ?? 0;
+  document.getElementById("cpPolicyStep").value = p.levelStepCoins ?? 0;
+  document.getElementById("cpPolicyMax").value = p.levelMax ?? 5;
+  document.getElementById("cpPolicyNames").value = (p.levelNames || []).join(", ");
+  cpSyncPolicyFee();
+}
+
+function cpSyncPolicyFee() {
+  document.getElementById("cpPolicyFee").disabled = document.getElementById("cpPolicyMode").value !== "fee";
+}
+
+async function saveCpPolicy() {
+  const unlockMode = document.getElementById("cpPolicyMode").value;
+  const unlockFeeCoins = Number(cpVal("cpPolicyFee") || 0);
+  if (unlockMode === "fee" && !(unlockFeeCoins > 0)) return showToast("حدد رسوم الفتح (أكبر من صفر)");
+  const body = {
+    unlockMode,
+    unlockFeeCoins,
+    levelStepCoins: Number(cpVal("cpPolicyStep") || 0),
+    levelMax: Number(cpVal("cpPolicyMax") || 5),
+    levelNames: cpVal("cpPolicyNames"),
+  };
+  const msg = unlockMode === "fee"
+    ? `أي مستخدم لسه ما فتحش CP هيدفع ${num(unlockFeeCoins)} كوينز قبل أول دعوة. متأكد؟`
+    : "فتح CP هيبقى مجاني لكل المستخدمين (إلا اللي ليهم صلاحية خاصة). متأكد؟";
+  if (!(await cpConfirm("حفظ سياسة CP", msg))) return;
+  try {
+    await apiFetch("/admin-dashboard/cp/policy", "PATCH", body);
+    showToast("✓ تم حفظ السياسة");
+    await Promise.all([loadCpPolicy(), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+// ---- 2. Per-user grants ----
+function cpSyncGrantFee() {
+  const fee = document.getElementById("cpGrantFee");
+  fee.disabled = document.getElementById("cpGrantMode").value !== "FEE";
+  if (fee.disabled) fee.value = "";
+}
+
+async function loadCpGrants() {
+  const rows = (await apiFetch("/admin-dashboard/cp/grants"))?.data ?? [];
+  const body = document.querySelector("#cpGrantsTable tbody");
+  body.innerHTML = rows.length
+    ? rows.map((g) => `
+      <tr>
+        <td>${cpUserLabel(g.user)}</td>
+        <td>${g.mode === "FEE" ? '<span class="badge badge-pending">برسوم</span>' : '<span class="badge badge-approved">مجاني</span>'}</td>
+        <td>${g.mode === "FEE" ? num(g.feeCoins) : "—"}</td>
+        <td>${escapeHtml(g.note || "") || "—"}</td>
+        <td>${cpUserLabel(g.grantedBy)}</td>
+        <td>${fmtDate(g.grantedAt)}</td>
+        <td class="td-actions">
+          <button class="btn btn-sm btn-outline" onclick="loadCpUser(${Number(g.userId)})">عرض</button>
+          <button class="btn btn-sm btn-bad" onclick="revokeCpPermission(${Number(g.userId)})">سحب</button>
+        </td>
+      </tr>`).join("")
+    : `<tr><td colspan="7" class="cell-muted">لا توجد صلاحيات خاصة — الكل على سياسة النظام</td></tr>`;
+}
+
+async function grantCpPermission() {
+  const displayId = cpVal("cpGrantUser");
+  const mode = document.getElementById("cpGrantMode").value;
+  const feeCoins = Number(cpVal("cpGrantFee") || 0);
+  if (!displayId) return showToast("اكتب رقم المستخدم");
+  if (mode === "FEE" && !(feeCoins > 0)) return showToast("حدد الرسوم (أكبر من صفر)");
+  try {
+    const d = (await apiFetch("/admin-dashboard/cp/grants", "POST", {
+      displayId, mode, feeCoins: mode === "FEE" ? feeCoins : undefined, note: cpVal("cpGrantNote") || undefined,
+    }))?.data;
+    showToast(`✓ تم منح الصلاحية لـ ${d?.user?.name ?? displayId}`);
+    document.getElementById("cpGrantUser").value = "";
+    document.getElementById("cpGrantNote").value = "";
+    await Promise.all([loadCpGrants(), loadCpAudit()]);
+    if (d?.user?.id && d.user.id === cpCurrentUserId) await loadCpUser(cpCurrentUserId);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function revokeCpPermission(userId) {
+  if (!(await cpConfirm("سحب الصلاحية", "المستخدم هيرجع لسياسة النظام. لو كان فتح CP بالفعل هيفضل مفتوح. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/grants/${userId}?by=id`, "DELETE");
+    showToast("✓ تم سحب الصلاحية");
+    await Promise.all([loadCpGrants(), loadCpAudit()]);
+    if (userId === cpCurrentUserId) await loadCpUser(cpCurrentUserId);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+// ---- 3. One user's CP data ----
+// `rowId` is passed when coming from a table (internal id); otherwise the
+// admin typed a Display ID into the search box.
+async function loadCpUser(rowId) {
+  const byRow = Number.isFinite(rowId) && rowId > 0;
+  const q = byRow ? String(rowId) : cpVal("cpUserQuery");
+  if (!q) return showToast("اكتب رقم المستخدم");
+  // Hide the previous user's panel on failure so its buttons can't act on the wrong person.
+  const clear = () => { cpCurrentUserId = null; document.getElementById("cpUserBox").style.display = "none"; };
+  let d;
+  try {
+    d = (await apiFetch(`/admin-dashboard/cp/users/${encodeURIComponent(q)}${byRow ? "?by=id" : ""}`))?.data;
+  } catch (e) { clear(); return showToast("خطأ: " + e.message); }
+  if (!d?.user) { clear(); return showToast("المستخدم غير موجود"); }
+  cpCurrentUserId = d.user.id;
+  document.getElementById("cpUserQuery").value = d.user.displayId ?? d.user.id;
+  document.getElementById("cpUserBox").style.display = "";
+
+  const u = d.unlock;
+  const pol = d.policy || {};
+  const polText = pol.mode === "fee" ? `برسوم ${num(pol.feeCoins)} كوينز` : "مجاني";
+  const polSrc = pol.policySource === "grant" ? "صلاحية خاصة" : "سياسة النظام";
+  const featured = (d.pairs || []).find((p) => p.featured);
+  document.getElementById("cpUserSummary").innerHTML = [
+    `<span class="badge badge-admin">${cpUserLabel(d.user)}</span>`,
+    `<span class="badge">الرصيد: ${num(d.user.coinsBalance)} كوينز</span>`,
+    u
+      ? `<span class="badge badge-approved">CP مفتوح — ${escapeHtml(CP_UNLOCK_SOURCE_LABELS[u.source] || u.source)}${u.paidCoins ? ` · دفع ${num(u.paidCoins)}` : ""} · ${fmtDate(u.createdAt)}</span>`
+      : `<span class="badge badge-rejected">CP مقفول</span>`,
+    `<span class="badge">الفتح: ${polText} (${polSrc})</span>`,
+    `<span class="badge">الظاهر: ${featured ? cpUserLabel(featured.partner) : "—"}</span>`,
+    `<span class="badge">دعوات معلّقة: ${num((d.pendingRequests || []).length)}</span>`,
+  ].join(" ");
+  document.getElementById("cpUnlockBtn").style.display = u ? "none" : "";
+  document.getElementById("cpLockBtn").style.display = u ? "" : "none";
+
+  const pairs = d.pairs || [];
+  document.querySelector("#cpPairsTable tbody").innerHTML = pairs.length
+    ? pairs.map((p) => `
+      <tr>
+        <td>${cpUserLabel(p.partner)}</td>
+        <td>${fmtDate(p.createdAt).slice(0, 10)} <span class="cell-muted">(${num(p.days)} يوم)</span></td>
+        <td><strong>LV.${num(p.level)}</strong> ${escapeHtml(p.levelName || "")} <span class="cell-muted">${CP_LEVEL_BASIS_LABELS[p.levelBasis] || ""}</span></td>
+        <td><input id="cpPairValue_${Number(p.pairId)}" type="number" min="0" class="form-input form-input--sm" style="width:110px" value="${Number(p.cpValue) || 0}" /></td>
+        <td><input id="cpPairLevel_${Number(p.pairId)}" type="number" min="1" class="form-input form-input--sm" style="width:90px" placeholder="تلقائي" value="${p.levelOverride == null ? "" : Number(p.levelOverride)}" /></td>
+        <td>${p.featured
+          ? '<span class="badge badge-approved">الظاهر</span>'
+          : `<button class="btn btn-sm btn-outline" onclick="cpSetFeatured(${Number(p.partner.id)})">اجعله الظاهر</button>`}</td>
+        <td class="td-actions">
+          <button class="btn btn-sm btn-primary" onclick="saveCpPair(${Number(p.pairId)})">حفظ</button>
+          <button class="btn btn-sm btn-bad" onclick="deleteCpPair(${Number(p.pairId)})">فك الارتباط</button>
+        </td>
+      </tr>`).join("")
+    : `<tr><td colspan="7" class="cell-muted">لا يوجد ارتباط CP لهذا المستخدم</td></tr>`;
+
+  const hist = d.grantHistory || [];
+  document.getElementById("cpUserMeta").textContent = hist.length
+    ? `تاريخ الصلاحيات: ${hist.map((h) => `${fmtDate(h.createdAt).slice(0, 10)} ${h.action} ${h.mode}${h.mode === "FEE" ? ` ${h.feeCoins}` : ""}`).join(" · ")}`
+    : "";
+}
+
+async function cpAdminUnlock() {
+  if (!cpCurrentUserId) return;
+  if (!(await cpConfirm("فتح CP", "هيتفتح CP للمستخدم دلوقتي من غير أي خصم. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/users/${cpCurrentUserId}/unlock?by=id`, "POST");
+    showToast("✓ تم فتح CP");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function cpAdminLock() {
+  if (!cpCurrentUserId) return;
+  if (!(await cpConfirm("قفل CP", "المستخدم مش هيقدر يبعت دعوات CP جديدة. الارتباطات الحالية هتفضل، ومفيش استرجاع لأي رسوم اتدفعت. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/users/${cpCurrentUserId}/unlock?by=id`, "DELETE");
+    showToast("✓ تم قفل CP");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function cpSetFeatured(partnerId) {
+  if (!cpCurrentUserId) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/users/${cpCurrentUserId}/featured?by=id`, "PATCH", { partnerId });
+    showToast(partnerId ? "✓ تم تغيير المستخدم الظاهر" : "✓ تم إلغاء المستخدم الظاهر");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+const cpClearFeatured = () => cpSetFeatured(null);
+
+async function saveCpPair(pairId) {
+  const value = cpVal(`cpPairValue_${pairId}`);
+  const level = cpVal(`cpPairLevel_${pairId}`);
+  if (value === "" || !(Number(value) >= 0)) return showToast("قيمة CP غير صالحة");
+  if (level !== "" && !(Number(level) >= 1)) return showToast("المستوى لازم يكون 1 أو أكتر، أو فاضي = تلقائي");
+  try {
+    await apiFetch(`/admin-dashboard/cp/pairs/${pairId}`, "PATCH", { cpValue: Number(value), levelOverride: level });
+    showToast("✓ تم حفظ الزوج");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function deleteCpPair(pairId) {
+  if (!(await cpConfirm("فك الارتباط", "الارتباط هيتحذف نهائيًا من الطرفين ومستواه وقيمته هيضيعوا. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/pairs/${pairId}`, "DELETE");
+    showToast("✓ تم فك الارتباط");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+// ---- 4. CP gifts ----
+async function loadCpGifts() {
+  const rows = (await apiFetch("/admin-dashboard/cp/gifts"))?.data ?? [];
+  document.querySelector("#cpGiftsTable tbody").innerHTML = rows.length
+    ? rows.map((g) => {
+      const icon = normalizeGiftImageUrl(g.iconUrl);
+      const k = escapeHtml(String(g.id));
+      return `
+      <tr>
+        <td>${icon ? `<img src="${escapeHtml(icon)}" alt="" style="width:36px;height:36px;object-fit:contain" />` : ""}</td>
+        <td>${escapeHtml(g.name || "")}</td>
+        <td><input data-cp-gift="${k}" data-f="nameAr" class="form-input form-input--sm" style="width:140px" value="${escapeHtml(g.nameAr || "")}" /></td>
+        <td><input data-cp-gift="${k}" data-f="coinCost" type="number" min="1" class="form-input form-input--sm" style="width:110px" value="${Number(g.coinCost) || 0}" /></td>
+        <td><input data-cp-gift="${k}" data-f="sortOrder" type="number" class="form-input form-input--sm" style="width:80px" value="${Number(g.sortOrder) || 0}" /></td>
+        <td><input data-cp-gift="${k}" data-f="isActive" type="checkbox" ${g.isActive ? "checked" : ""} /></td>
+        <td><button class="btn btn-sm btn-primary" data-cp-gift-save="${k}">حفظ</button></td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="7" class="cell-muted">لا توجد هدايا في قائمة CP</td></tr>`;
+}
+
+// Gift ids are strings — handled by delegation rather than inlined into onclick.
+document.getElementById("cpGiftsTable")?.addEventListener("click", async (e) => {
+  const id = e.target?.closest?.("[data-cp-gift-save]")?.getAttribute("data-cp-gift-save");
+  if (!id) return;
+  const field = (f) => [...document.querySelectorAll("#cpGiftsTable [data-cp-gift]")]
+    .find((el) => el.getAttribute("data-cp-gift") === id && el.dataset.f === f);
+  const coinCost = Number(field("coinCost")?.value || 0);
+  if (!(coinCost > 0)) return showToast("سعر الهدية لازم يكون أكبر من صفر");
+  try {
+    await apiFetch(`/admin-dashboard/cp/gifts/${encodeURIComponent(id)}`, "PATCH", {
+      coinCost,
+      sortOrder: Number(field("sortOrder")?.value || 0),
+      isActive: Boolean(field("isActive")?.checked),
+      nameAr: field("nameAr")?.value.trim() || undefined,
+    });
+    showToast("✓ تم حفظ الهدية");
+    await Promise.all([loadCpGifts(), loadCpAudit()]);
+  } catch (err) { showToast("خطأ: " + err.message); }
+});
+
+// ---- 5. Audit log ----
+function cpAuditJson(v) {
+  if (v == null) return "—";
+  const s = typeof v === "string" ? v : JSON.stringify(v);
+  const short = s.length > 90 ? s.slice(0, 90) + "…" : s;
+  return `<code title="${escapeHtml(s)}" style="font-size:11px;word-break:break-all">${escapeHtml(short)}</code>`;
+}
+
+async function loadCpAudit(more = false) {
+  if (!more) cpAuditLastId = null;
+  const params = new URLSearchParams({ limit: "50" });
+  const action = document.getElementById("cpAuditAction")?.value ?? "CP";
+  const user = cpVal("cpAuditUser");
+  if (action) params.set("action", action);
+  if (user) params.set("userId", user);
+  if (more && cpAuditLastId) params.set("before", String(cpAuditLastId));
+  const rows = (await apiFetch(`/admin-dashboard/cp/audit?${params}`))?.data ?? [];
+  const html = rows.map((r) => `
+    <tr>
+      <td>${fmtDate(r.createdAt)}</td>
+      <td>${cpUserLabel(r.admin)}</td>
+      <td>${escapeHtml(AUDIT_ACTION_LABELS[r.action] || r.action)}</td>
+      <td>${r.targetUser ? cpUserLabel(r.targetUser) : `<span class="cell-muted">${escapeHtml(r.targetType || "")} ${escapeHtml(r.targetId ?? "")}</span>`}</td>
+      <td>${cpAuditJson(r.before)}</td>
+      <td>${cpAuditJson(r.after)}</td>
+      <td class="cell-muted">${escapeHtml(r.ip || "")}</td>
+    </tr>`).join("");
+  const body = document.querySelector("#cpAuditTable tbody");
+  if (more) body.insertAdjacentHTML("beforeend", html);
+  else body.innerHTML = html || `<tr><td colspan="7" class="cell-muted">لا توجد عمليات</td></tr>`;
+  if (rows.length) cpAuditLastId = rows[rows.length - 1].id;
+  document.getElementById("cpAuditMore").style.display = rows.length === 50 ? "" : "none";
+}
+
+Object.assign(window, {
+  loadCpPanel, cpSyncPolicyFee, saveCpPolicy,
+  cpSyncGrantFee, grantCpPermission, revokeCpPermission,
+  loadCpUser, cpAdminUnlock, cpAdminLock, cpSetFeatured, cpClearFeatured,
+  saveCpPair, deleteCpPair, loadCpAudit,
 });
