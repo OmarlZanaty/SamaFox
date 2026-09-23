@@ -11,7 +11,7 @@ import { extractPosterFrame } from "../gifts/videoValidate";
  * still product) or ffmpeg could not produce one. Never throws: a missing
  * poster costs a placeholder tile, and must not cost the upload.
  */
-async function buildPosterUrl(
+export async function buildPosterUrl(
   file: any,
   isVideo: boolean,
   baseUrl: string,
@@ -67,6 +67,16 @@ function parseLayoutMeta(body: any): any | null | undefined {
   return Object.keys(out).length ? out : null;
 }
 
+/** Where uploads are reachable from: BASE_URL, else the request's own origin. */
+export function publicBaseUrl(req: Request): string {
+  const configuredBaseUrl = String(process.env.BASE_URL || "").trim().replace(/\/+$/, "");
+  const forwardedProto = (String(req.headers["x-forwarded-proto"] || "").split(",")[0] || "").trim();
+  const protocol = forwardedProto || req.protocol || "http";
+  const host = req.get("host") || "";
+  const requestBaseUrl = host ? `${protocol}://${host}` : "";
+  return configuredBaseUrl || requestBaseUrl || `http://localhost:${process.env.PORT || 3000}`;
+}
+
 export const createProduct = async (req: Request, res: Response) => {
   try {
     const { name, type, price_coins } = req.body;
@@ -89,12 +99,7 @@ export const createProduct = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "يجب رفع صورة أو فيديو" });
     }
 
-    const configuredBaseUrl = String(process.env.BASE_URL || "").trim().replace(/\/+$/, "");
-    const forwardedProto = (String(req.headers["x-forwarded-proto"] || "").split(",")[0] || "").trim();
-    const protocol = forwardedProto || req.protocol || "http";
-    const host = req.get("host") || "";
-    const requestBaseUrl = host ? `${protocol}://${host}` : "";
-    const baseUrl = configuredBaseUrl || requestBaseUrl || `http://localhost:${process.env.PORT || 3000}`;
+    const baseUrl = publicBaseUrl(req);
     const assetUrl = `${baseUrl}/uploads/${file.filename}`;
 
     const mappedType =

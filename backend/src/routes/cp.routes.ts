@@ -9,7 +9,9 @@ import {
   listPendingCpRequests,
   rejectCpRequest,
   removeCpPair,
+  setFeaturedPartner,
 } from '../services/cp.service';
+import { confirmCpUnlock, getCpUnlockStatus } from '../services/cpUnlock.service';
 
 /**
  * A15 / #20 / #44 — نظام الـ CP.
@@ -20,12 +22,22 @@ import {
  *   DELETE /cp/requests/:id        sender withdraws his own invitation
  *   GET    /cp/partners            "الاشخاص اللي عامل معاهم CP" (+ :userId for a profile)
  *   DELETE /cp/partners/:userId    "الغاء CP مع فلان؟"
+ *
+ * صلاحيات فتح CP (2026-09-22):
+ *   GET    /cp/unlock/status       am I unlocked? if not, the fee — shown before confirming
+ *   POST   /cp/unlock/confirm      the user confirmed: deduct the fee (if any) and open CP
+ *   PATCH  /cp/featured            "مستخدم CP الظاهر" — which partner shows beside my photo
+ *
+ * Nothing here can change coins, ownership or CP values directly: the only
+ * debit is the quoted unlock fee, taken server-side in confirmCpUnlock.
  */
 const router = Router();
 
 const fail = (res: any, err: unknown) => {
   if (err instanceof CpError) {
-    return res.status(err.status).json({ success: false, code: err.code, message: err.message });
+    // `data` carries the quoted fee / shortfall on CP_LOCKED and
+    // INSUFFICIENT_COINS so the app can show the numbers without a second call.
+    return res.status(err.status).json({ success: false, code: err.code, message: err.message, ...(err.data ?? {}) });
   }
   // sendGiftAtomic throws GiftSendError, which carries the same shape but is a
   // different class; forward its status instead of flattening it to a 500.
@@ -101,6 +113,44 @@ router.delete('/requests/:id', authMiddleware, async (req, res) => {
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
     await cancelCpRequest(Number(req.params.id), userId);
     return res.json({ success: true });
+  } catch (e) {
+    return fail(res, e);
+  }
+});
+
+// ── صلاحيات فتح CP ──────────────────────────────────────────────────────
+router.get('/unlock/status', authMiddleware, async (req, res) => {
+  try {
+    const userId = requireUserId(req);
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+    return res.json({ success: true, data: await getCpUnlockStatus(userId) });
+  } catch (e) {
+    return fail(res, e);
+  }
+});
+
+router.post('/unlock/confirm', authMiddleware, async (req, res) => {
+  try {
+    const userId = requireUserId(req);
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+    const result = await confirmCpUnlock(userId);
+    return res.json({ success: true, data: result });
+  } catch (e) {
+    return fail(res, e);
+  }
+});
+
+// "مستخدم CP الظاهر" — body { partnerId: number | null }.
+router.patch('/featured', authMiddleware, async (req, res) => {
+  try {
+    const userId = requireUserId(req);
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+    const raw = (req.body ?? {}).partnerId;
+    const partnerId = raw == null || raw === '' ? null : Number(raw);
+    if (partnerId != null && (!Number.isFinite(partnerId) || partnerId <= 0)) {
+      return res.status(400).json({ success: false, message: 'partnerId غير صالح' });
+    }
+    return res.json({ success: true, data: await setFeaturedPartner(userId, partnerId) });
   } catch (e) {
     return fail(res, e);
   }

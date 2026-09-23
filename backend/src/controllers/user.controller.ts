@@ -191,6 +191,29 @@ export const updateProfile = async (req: Request, res: Response) => {
     }
     if (profileBgUrl !== undefined) {
       const url = String(profileBgUrl).trim();
+      // 2026-09-22 — "منع تعديل ملكية الخلفيات من التطبيق". This field exists
+      // for a picture the user uploaded himself. If the URL is the asset of a
+      // store background, he must OWN it (an unexpired user_items row);
+      // otherwise any client could paint a paid background for free.
+      if (url.length) {
+        const storeItem = await prisma.item.findFirst({
+          where: { assetUrl: url, type: 'PROFILE_BACKGROUND' },
+          select: { id: true },
+        });
+        if (storeItem) {
+          const owned = await prisma.userItem.findFirst({
+            where: {
+              userId,
+              itemId: storeItem.id,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            },
+            select: { id: true },
+          });
+          if (!owned) {
+            return res.status(403).json({ success: false, code: 'BACKGROUND_NOT_OWNED', message: 'هذه الخلفية غير مملوكة لك — اشترِها من المتجر أولاً' });
+          }
+        }
+      }
       data.profileBgUrl = url.length ? url : null;
       // Trust an explicit type; otherwise read it off the extension so an older
       // client that only sends the url still gets a clip played as a clip.

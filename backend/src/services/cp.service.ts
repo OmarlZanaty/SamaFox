@@ -2,6 +2,11 @@ import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
 import { sendGiftAtomic } from '../gifts/giftService';
 import { emitGiftSent, emitGiftAnnouncement } from '../gifts/controller';
+import { CpError, assertCpUnlocked, computeCpLevel, readCpSettings } from './cpUnlock.service';
+
+// CpError moved to cpUnlock.service so the unlock layer can raise the same
+// shape; re-exported so every existing import of it keeps working.
+export { CpError };
 
 /**
  * A15 / #44 — نظام الـ CP.
@@ -22,12 +27,6 @@ import { emitGiftSent, emitGiftAnnouncement } from '../gifts/controller';
  *     second set of rules: a hosting/charging-agency member already receives
  *     0 wallet coins and the full value as target on every normal gift.
  */
-
-export class CpError extends Error {
-  constructor(public code: string, message: string, public status = 400) {
-    super(message);
-  }
-}
 
 /** Rejection fee, as a fraction of the gift's full price. Client-specified. */
 export const CP_REJECT_FEE_RATE = Number(process.env.CP_REJECT_FEE_RATE ?? 0.3);
@@ -51,6 +50,10 @@ export async function createCpRequest(input: CreateCpRequestInput) {
   if (input.senderId === input.recipientId) {
     throw new CpError('SELF_CP', 'لا يمكنك إرسال هدية CP لنفسك');
   }
+
+  // صلاحيات فتح CP — the server-side gate. A locked account gets 403
+  // CP_LOCKED with the quoted fee, whatever the app claims.
+  await assertCpUnlocked(input.senderId);
 
   const [gift, recipient] = await Promise.all([
     prisma.gift.findUnique({ where: { id: input.giftId } }),
@@ -142,13 +145,16 @@ export async function acceptCpRequest(requestId: number, recipientId: number) {
     roomId: request.roomId,
     giftId: request.giftId,
     quantity: request.quantity,
+    skipCpValue: true,
   });
 
   const [aId, bId] = orderPair(request.senderId, request.recipientId);
+  // The accepting gift is the first coins of the pair's CP value; a re-pair
+  // between the same two people adds to what they already built up.
   const pair = await prisma.cpPair.upsert({
     where: { userAId_userBId: { userAId: aId, userBId: bId } },
-    update: { giftId: request.giftId },
-    create: { userAId: aId, userBId: bId, giftId: request.giftId },
+    update: { giftId: request.giftId, cpValue: { increment: giftResult.totalCoins } },
+    create: { userAId: aId, userBId: bId, giftId: request.giftId, cpValue: giftResult.totalCoins },
   });
 
   await prisma.cpRequest.update({
@@ -290,14 +296,19 @@ export async function cancelCpRequest(requestId: number, senderId: number) {
  * Returns the partner on the other side of each pair, whichever column he is in.
  */
 export async function listCpPartners(userId: number) {
-  const pairs = await prisma.cpPair.findMany({
-    where: { OR: [{ userAId: userId }, { userBId: userId }] },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      userA: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true } },
-      userB: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true } },
-    },
-  });
+  const [pairs, owner, cpSettings] = await Promise.all([
+    prisma.cpPair.findMany({
+      where: { OR: [{ userAId: userId }, { userBId: userId }] },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        userA: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true } },
+        userB: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, level: true } },
+      },
+    }),
+    prisma.user.findUnique({ where: { id: userId }, select: { cpFeaturedPartnerId: true } }),
+    readCpSettings(),
+  ]);
+  const featuredId = owner?.cpFeaturedPartnerId ?? null;
 
   const giftIds = [...new Set(pairs.map((p) => p.giftId).filter((g): g is string => !!g))];
   const gifts = giftIds.length
@@ -317,12 +328,70 @@ export async function listCpPartners(userId: number) {
     : [];
   const giftById = new Map(gifts.map((g) => [g.id, g]));
 
-  return pairs.map((p) => ({
-    pairId: p.id,
-    partner: p.userAId === userId ? p.userB : p.userA,
-    gift: p.giftId ? giftById.get(p.giftId) ?? null : null,
-    createdAt: p.createdAt,
-  }));
+  const rows = pairs.map((p) => {
+    const partner = p.userAId === userId ? p.userB : p.userA;
+    const lvl = computeCpLevel(
+      { cpValue: p.cpValue, createdAt: p.createdAt, levelOverride: p.levelOverride },
+      cpSettings,
+    );
+    return {
+      pairId: p.id,
+      partner,
+      gift: p.giftId ? giftById.get(p.giftId) ?? null : null,
+      createdAt: p.createdAt,
+      // Server-side level (2026-09-22). The app used to derive LV from days on
+      // the device; it now prefers these and only falls back when absent.
+      level: lvl.level,
+      levelName: lvl.levelName,
+      cpValue: lvl.cpValue,
+      days: lvl.days,
+      nextLevelAt: lvl.nextLevelAt,
+      levelBasis: lvl.basis,
+      // "مستخدم CP الظاهر" — the OWNER's choice, so a visitor sees the same
+      // pair the owner sees. Falls back to the newest pair when unset.
+      featured: featuredId != null && partner.id === featuredId,
+    };
+  });
+  if (rows.length && !rows.some((r) => r.featured)) rows[0]!.featured = true;
+  // Featured first: every client that just takes the first row shows the
+  // right pair without knowing about the flag.
+  rows.sort((a, b) => Number(b.featured) - Number(a.featured));
+  return rows;
+}
+
+/**
+ * "لو انا معايا اكتر من سي بي مين يظهر معايا فوق — خليني احدده من القايمه".
+ * Server-side now. `partnerId` null clears the choice (newest pair shows).
+ * The partner must currently be paired with the user, so the app cannot pin
+ * an arbitrary account on someone's profile.
+ */
+export async function setFeaturedPartner(userId: number, partnerId: number | null, db: any = prisma) {
+  if (partnerId != null) {
+    if (partnerId === userId) throw new CpError('SELF_CP', 'لا يمكن اختيار نفسك');
+    const [aId, bId] = orderPair(userId, partnerId);
+    const pair = await db.cpPair.findUnique({ where: { userAId_userBId: { userAId: aId, userBId: bId } } });
+    if (!pair) throw new CpError('NOT_FOUND', 'لا يوجد ارتباط CP مع هذا المستخدم', 404);
+  }
+  await db.user.update({ where: { id: userId }, data: { cpFeaturedPartnerId: partnerId } });
+  return { featuredPartnerId: partnerId };
+}
+
+/**
+ * Called by sendGiftAtomic after a gift commits: coins gifted between two
+ * partners raise their pair's CP value. No-op when they are not paired.
+ * Best-effort — a failure here must never undo a gift that went through.
+ */
+export async function addCpValueForGift(senderId: number, recipientId: number, totalCoins: number, db: any = prisma) {
+  if (!Number.isFinite(totalCoins) || totalCoins <= 0 || senderId === recipientId) return;
+  const [aId, bId] = orderPair(senderId, recipientId);
+  try {
+    await db.cpPair.updateMany({
+      where: { userAId: aId, userBId: bId },
+      data: { cpValue: { increment: Math.floor(totalCoins) } },
+    });
+  } catch (e) {
+    console.warn('[cp] cpValue increment failed:', (e as Error).message);
+  }
 }
 
 /**
