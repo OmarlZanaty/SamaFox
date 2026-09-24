@@ -6,6 +6,8 @@ import 'dart:math';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -302,6 +304,42 @@ class CrashReporter {
   }
 
   /// Resident memory in MB, or null where the platform will not say.
+  static String _imageCacheSummary() {
+    try {
+      final c = PaintingBinding.instance.imageCache;
+      final mb = (c.currentSizeBytes / (1024 * 1024)).round();
+      return 'img=${mb}MB/${c.currentSize} live=${c.liveImageCount}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Where the resident memory is, from the OS (Android only): Java heap,
+  /// native heap, graphics, code, in MB. The mesh-vs-LiveKit test of 2026-09-21
+  /// showed ~1 GB either way with the image cache at 98 MB, so the answer is
+  /// not in anything Dart can measure — this asks `dumpsys meminfo`'s source.
+  static const MethodChannel _memChannel = MethodChannel('samafox/memory');
+
+  static Future<String> _memBreakdown() async {
+    if (kIsWeb || !Platform.isAndroid) return '';
+    try {
+      final raw = await _memChannel
+          .invokeMethod<Map<Object?, Object?>>('breakdown')
+          .timeout(const Duration(seconds: 2));
+      if (raw == null) return '';
+      String mb(String k) {
+        final kb = raw[k];
+        return kb is int ? '${(kb / 1024).round()}' : '?';
+      }
+      return 'pss=${mb('total-pss')} java=${mb('java-heap')} '
+          'native=${mb('native-heap')} gfx=${mb('graphics')} '
+          'code=${mb('code')} other=${mb('private-other')} '
+          'sys=${mb('system')}';
+    } catch (_) {
+      return '';
+    }
+  }
+
   static int? _rssMb() {
     if (kIsWeb) return null;
     try {
@@ -320,15 +358,29 @@ class CrashReporter {
   /// anything, so the last high-water mark is the evidence.
   static void _startRssSampling() {
     _rssTimer?.cancel();
+    var ticks = 0;
     void sample() {
       final mb = _rssMb();
       if (mb == null) return;
+      var milestone = false;
       if (mb > _peakRssMb) {
         _peakRssMb = mb;
         _peakRssAt = DateTime.now().toIso8601String();
         // Only the milestones, or this becomes the noisiest breadcrumb there is.
-        if (mb % 100 < 15) breadcrumb('rss ~${mb}MB');
+        // The image cache is the one big allocator Dart can see, so it rides
+        // along: if it stays small while rss climbs, the growth is native
+        // (video, webrtc), not decoded pictures.
+        milestone = mb % 100 < 15;
+        if (milestone) breadcrumb('rss ~${mb}MB ${_imageCacheSummary()}');
       }
+      // The OS breakdown rides along with every milestone, and every 5 minutes
+      // regardless — a leak that has already plateaued still needs naming.
+      if (milestone || ticks % 20 == 0) {
+        unawaited(_memBreakdown().then((s) {
+          if (s.isNotEmpty) breadcrumb('mem rss=${mb}MB $s');
+        }));
+      }
+      ticks++;
     }
 
     sample();

@@ -128,6 +128,15 @@
             android:name="com.yalantis.ucrop.UCropActivity"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+        <!-- Render with Skia, not Impeller. On Android 13+ phones (realme
+             RMX3760, Samsung A53/A54, Xiaomi) the app sat at 700MB within
+             seconds of entering a room and climbed to 1-1.6GB until the OS
+             killed it; Android 10-12 phones in the same rooms stayed at
+             200-500MB. Impeller's Vulkan allocations are mapped into the
+             process and counted against it, Skia's are not. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

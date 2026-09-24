@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samafox/utils/permission_gate.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audio_route.dart';
@@ -300,7 +301,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
   Future<bool> _ensureMicPermission() async {
     final status = await Permission.microphone.status;
     if (status.isGranted) return true;
-    final res = await Permission.microphone.request();
+    final res = await PermissionGate.request(Permission.microphone);
     return res.isGranted;
   }
 

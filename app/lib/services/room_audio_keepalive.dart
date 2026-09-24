@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samafox/utils/permission_gate.dart';
 
 /// A23 — keeps the room's voice alive while the app is in the background.
 ///
@@ -55,7 +56,7 @@ class RoomAudioKeepAlive {
     // did before.
     try {
       if (await Permission.notification.isDenied) {
-        await Permission.notification.request();
+        await PermissionGate.request(Permission.notification);
       }
     } catch (e) {
       debugPrint('[RoomAudioKeepAlive] notification permission check failed: $e');

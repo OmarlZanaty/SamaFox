@@ -141,11 +141,11 @@ class FramedAvatar extends StatelessWidget {
           Positioned.fill(
             child: IgnorePointer(
               child: hole != null
-                  ? _frameChild()
+                  ? _frameChild(context)
                   : _AutoFitFrame(
                       url: _measurableFrameUrl(),
                       size: size,
-                      child: _frameChild(),
+                      child: _frameChild(context),
                     ),
             ),
           ),
@@ -167,7 +167,7 @@ class FramedAvatar extends StatelessWidget {
     return url;
   }
 
-  Widget _frameChild() {
+  Widget _frameChild(BuildContext context) {
     if (frame == null) return const SizedBox.shrink();
 
     final remoteUrl = frame!.url;
@@ -182,9 +182,15 @@ class FramedAvatar extends StatelessWidget {
       if (isProductVideoUrl(url)) {
         return ProductVideoLayer(url: url, fit: BoxFit.contain);
       }
+      // Decoded at the seat's size, not the artwork's. A frame GIF used to
+      // be decoded at its full 420×746 for EVERY frame, on every seat that
+      // wore one — the biggest single texture consumer in the room. The
+      // auto-fit wrapper may scale this up by a little, so leave headroom.
+      final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 2.0;
       return AppNetworkImage(
         url,
         fit: BoxFit.contain,
+        cacheWidth: (size * dpr * 1.5).round(),
         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
       );
     }

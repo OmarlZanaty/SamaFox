@@ -17,6 +17,7 @@ import 'profile_screen.dart';
 import 'package:characters/characters.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samafox/utils/permission_gate.dart';
 import 'package:path_provider/path_provider.dart';
 import '../widgets/app_network_image.dart';
 import 'package:image_picker/image_picker.dart';
@@ -45,6 +46,7 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _controller = TextEditingController();
   final _scroll = ScrollController();
+  StreamSubscription? _messageSub;
   final _focus = FocusNode();
   bool _didListen = false;
   // “Near bottom” threshold to decide if we auto-scroll
@@ -66,8 +68,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.initState();
     _scroll.addListener(_onScroll);
 
-    // ✅ ADD THIS
-    SocketService().messageStream.listen((event) {
+    // Stored so dispose can cancel it — every chat opened used to leave a
+    // listener behind for the lifetime of the app.
+    _messageSub = SocketService().messageStream.listen((event) {
       if (!mounted) return;
 
       final partnerId = widget.partnerId;
@@ -85,7 +88,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _initRecorder() async {
     await _recorder.openRecorder();
-    await Permission.microphone.request();
+    await PermissionGate.request(Permission.microphone);
   }
 
   void _cancelRecordingUI() {
@@ -150,6 +153,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    _messageSub?.cancel();
     _recorder.closeRecorder();
     _controller.dispose();
     _scroll.removeListener(_onScroll);

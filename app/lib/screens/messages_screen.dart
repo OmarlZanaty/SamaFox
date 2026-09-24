@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -31,10 +33,12 @@ class MessagesScreen extends ConsumerStatefulWidget {
 
 class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   final _searchCtrl = TextEditingController();
+  StreamSubscription? _messageSub;
   String _q = '';
 
   @override
   void dispose() {
+    _messageSub?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -43,7 +47,11 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   void initState() {
     super.initState();
 
-    SocketService().messageStream.listen((_) {
+    // Kept and cancelled in dispose: this subscription used to leak, and the
+    // next incoming message after leaving the screen hit `ref` on a disposed
+    // widget (the "Cannot use ref after the widget was disposed" crash).
+    _messageSub = SocketService().messageStream.listen((_) {
+      if (!mounted) return;
       ref.read(conversationsControllerProvider.notifier).load();
     });
   }

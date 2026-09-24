@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samafox/utils/permission_gate.dart';
 
 import '../config/app_config.dart';
 import 'socket_service.dart';
@@ -783,7 +784,7 @@ class WebRTCAudioService implements VoiceEngine {
     _log('Mic permission: $status');
 
     if (!status.isGranted) {
-      final res = await Permission.microphone.request();
+      final res = await PermissionGate.request(Permission.microphone);
       _log('Mic permission request result: $res');
     }
 

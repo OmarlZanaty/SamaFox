@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/widgets.dart';
 
 /// Intrinsic pixel size of a network image, cached per URL.
@@ -49,7 +50,8 @@ class ImageIntrinsicSize {
 
   static Future<Size?> _resolve(String url) {
     final completer = Completer<Size?>();
-    final stream = NetworkImage(url).resolve(ImageConfiguration.empty);
+    // Same provider the bubble is drawn with: one download, one decode.
+    final stream = CachedNetworkImageProvider(url).resolve(ImageConfiguration.empty);
 
     late final ImageStreamListener listener;
     void finish(Size? size) {

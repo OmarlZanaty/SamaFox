@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -169,7 +170,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
       return BoxDecoration(
         borderRadius: BorderRadius.circular(22),
         image: DecorationImage(
-          image: NetworkImage(url),
+          image: CachedNetworkImageProvider(url),
           // No slice configured → previous behaviour, so an un-migrated
           // product keeps rendering exactly as it did.
           centerSlice: slice,

@@ -44,6 +44,7 @@ import '../widgets/room/music_player_bar.dart';
 import '../providers/music_provider.dart';
 import '../widgets/room/room_chat_panel.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samafox/utils/permission_gate.dart';
 import '../gifts/services/gift_repository.dart';
 import '../gifts/services/gift_socket_service.dart';
 import '../gifts/models/gift.dart' show GiftSendEvent;
@@ -366,16 +367,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _showSeatVideo = true;
     });
   }
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    precacheImage(const AssetImage("assets/mega/dragon.png"), context);
-    precacheImage(const AssetImage("assets/mega/rocket.png"), context);
-    precacheImage(const AssetImage("assets/mega/castle.png"), context);
-    precacheImage(const AssetImage("assets/mega/explosion.gif"), context);
-  }
-
   Offset _getSeatPosition(int seatNumber) {
     final key = _seatKeys[seatNumber];
 
@@ -425,7 +416,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   Future<bool> _ensureMicPermission() async {
-    final status = await Permission.microphone.request();
+    final status = await PermissionGate.request(Permission.microphone);
     return status.isGranted;
   }
 
@@ -4456,11 +4447,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             // ===== Background image =====
             if ((state.roomBackgroundUrl ?? '').trim().isNotEmpty)
               Positioned.fill(
-                child: AppNetworkImage(
-                  state.roomBackgroundUrl!.trim(),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                ),
+                child: Builder(builder: (context) {
+                  // Full-screen, so decode at screen width and no more — an
+                  // uploaded 1080p (or larger) background, animated or not,
+                  // otherwise becomes screen-size textures per frame anyway
+                  // but the decode itself was at the source size.
+                  final mq = MediaQuery.of(context);
+                  final w = (mq.size.width * mq.devicePixelRatio).round();
+                  return AppNetworkImage(
+                    state.roomBackgroundUrl!.trim(),
+                    fit: BoxFit.cover,
+                    cacheWidth: w.clamp(360, 1080),
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  );
+                }),
               ),
 
             if (_showGlow)

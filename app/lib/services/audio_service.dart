@@ -1,6 +1,7 @@
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samafox/utils/permission_gate.dart';
 
 /// Fixed Audio Service for microphone and speaker control
 /// Handles basic audio operations with proper initialization
@@ -29,7 +30,7 @@ class AudioService {
       debugPrint('🎤 Initializing audio...');
 
       // Request microphone permission
-      final status = await Permission.microphone.request();
+      final status = await PermissionGate.request(Permission.microphone);
 
       if (!status.isGranted) {
         debugPrint('❌ Microphone permission not granted: $status');

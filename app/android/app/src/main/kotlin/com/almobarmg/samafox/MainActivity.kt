@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.os.Debug
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -26,6 +27,7 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val CHANNEL = "samafox/room_audio"
         const val RECORD_CHANNEL = "samafox/screen_record"
+        const val MEM_CHANNEL = "samafox/memory"
         const val REQ_PROJECTION = 7311
     }
 
@@ -84,6 +86,31 @@ class MainActivity : FlutterActivity() {
                         result.success(ScreenRecordService.lastOutputPath)
                     }
 
+                    else -> result.notImplemented()
+                }
+            }
+
+        // Where the resident memory actually is. `ProcessInfo.currentRss` on the
+        // Dart side says HOW MUCH; only the OS can say WHAT — Java heap, native
+        // heap (video decoders, webrtc, Dart's own heap), graphics (GPU textures
+        // and surfaces) or code. This is `dumpsys meminfo` for a phone nobody can
+        // plug into a computer.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MEM_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "breakdown" -> {
+                        val info = Debug.MemoryInfo()
+                        Debug.getMemoryInfo(info)
+                        val stats = info.memoryStats
+                        // Values are KB strings; keep only the summary rows.
+                        val out = HashMap<String, Int>()
+                        for ((k, v) in stats) {
+                            if (k.startsWith("summary.")) {
+                                out[k.removePrefix("summary.")] = v.toIntOrNull() ?: 0
+                            }
+                        }
+                        result.success(out)
+                    }
                     else -> result.notImplemented()
                 }
             }

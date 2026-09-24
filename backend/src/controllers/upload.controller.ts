@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { optimizeUpload } from '../utils/mediaOptimize';
+import { optimizeUpload, GIF_POLICY, GifRole } from '../utils/mediaOptimize';
 import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -63,7 +63,19 @@ export const uploadImage = async (req: Request, res: Response) => {
     // Shrink before anyone downloads it: chat pictures and room backgrounds
     // are capped at 1600px and re-encoded as WebP; a GIF keeps its size and
     // gets a real palette. Whatever fails leaves the original in place.
-    const opt = await optimizeUpload(file.path, { resizeTo: 1600 });
+    // A GIF is also brought within the role policy (pixels + frames); the
+    // dashboard passes ?gifRole= for product art, everything else is treated
+    // as a background (the largest allowance). Beyond the hard ceiling the
+    // file is refused with the reason instead of shipped to every phone.
+    const roleParam = String(req.query.gifRole ?? '').trim() as GifRole;
+    const gifRole: GifRole = (roleParam in GIF_POLICY) ? roleParam : 'bg';
+    let opt;
+    try {
+      opt = await optimizeUpload(file.path, { resizeTo: 1600, gifRole });
+    } catch (e) {
+      await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });
+    }
     const storedName = path.basename(opt.path);
 
     const baseUrl = getPublicBaseUrl(req);
@@ -275,7 +287,13 @@ if (!userId) {
 
     const baseUrl = getPublicBaseUrl(req);
     // An avatar is never shown above 512px; a 4 MB photo is 40 KB after this.
-    const optAvatar = await optimizeUpload(file.path, { resizeTo: 512, gifMaxSide: 512 });
+    let optAvatar;
+    try {
+      optAvatar = await optimizeUpload(file.path, { resizeTo: 512, gifMaxSide: 512, gifRole: 'frame' });
+    } catch (e) {
+      await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });
+    }
     const avatarUrl = `${baseUrl}/uploads/${path.basename(optAvatar.path)}`;
 
     // Update user's avatar URL in database

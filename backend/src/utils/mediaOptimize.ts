@@ -109,6 +109,132 @@ export async function optimizeGif(file: string, opts: { maxSide?: number; fps?: 
   }
 }
 
+// ── Animated GIF policy ───────────────────────────────────────────────────
+//
+// What matters to a PHONE is not the bytes on disk but width × height × frames:
+// every frame becomes a full RGBA texture. The catalogue held avatar frames of
+// 420×746 × 111 frames (≈130 MB decoded each) and chat bubbles animated on
+// every message; a room with a few of them sat at 1–1.5 GB and Android killed
+// the app ("التطبيق بيفصل ويطلعني"). Pixel size and frame count are capped
+// here per role, at upload time, and the 2026-09-21 bulk job applied the same
+// numbers to everything already on the box.
+export type GifRole = 'frame' | 'badge' | 'bubble' | 'banner' | 'icon' | 'bg' | 'default';
+
+export const GIF_POLICY: Record<GifRole, { maxSide: number; maxFps: number; maxFrames: number }> = {
+  frame:   { maxSide: 360, maxFps: 12, maxFrames: 48 },
+  badge:   { maxSide: 256, maxFps: 12, maxFrames: 48 },
+  bubble:  { maxSide: 480, maxFps: 10, maxFrames: 40 },
+  banner:  { maxSide: 640, maxFps: 12, maxFrames: 48 },
+  icon:    { maxSide: 256, maxFps: 12, maxFrames: 48 },
+  bg:      { maxSide: 540, maxFps: 10, maxFrames: 60 },
+  default: { maxSide: 360, maxFps: 12, maxFrames: 48 },
+};
+
+/** Hard ceiling after normalisation — anything still above this is refused. */
+export const GIF_MAX_BYTES = 3 * 1024 * 1024;
+export const GIF_MAX_DECODED_MB = 60;
+
+export interface GifProbe { width: number; height: number; frames: number; durationS: number }
+
+const ffprobePath = () => process.env.FFPROBE_PATH?.trim() || 'ffprobe';
+
+function runOut(bin: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(bin, args);
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    proc.stdout.on('data', (b: Buffer) => out.push(b));
+    proc.stderr.on('data', (b: Buffer) => err.push(b));
+    proc.on('error', reject);
+    proc.on('close', (code) =>
+      code === 0
+        ? resolve(Buffer.concat(out).toString('utf8'))
+        : reject(new Error(`${bin} exited ${code}: ${Buffer.concat(err).toString('utf8').slice(0, 400)}`)),
+    );
+  });
+}
+
+/** Exact frame count and size of a GIF (frames are counted, not estimated). */
+export async function probeGif(file: string): Promise<GifProbe> {
+  const raw = await runOut(ffprobePath(), [
+    '-v', 'error', '-select_streams', 'v:0', '-count_frames',
+    '-show_entries', 'stream=width,height,nb_read_frames,avg_frame_rate:format=duration',
+    '-of', 'json', file,
+  ]);
+  const j = JSON.parse(raw);
+  const st = j.streams?.[0] ?? {};
+  const width = Number(st.width) || 0;
+  const height = Number(st.height) || 0;
+  const frames = Number(st.nb_read_frames) || 0;
+  let durationS = Number(j.format?.duration) || 0;
+  if (durationS <= 0 && frames > 0) {
+    const [n = 10, d = 1] = String(st.avg_frame_rate || '10/1').split('/').map(Number);
+    const fps = d ? n / d : 10;
+    durationS = fps ? frames / fps : 0;
+  }
+  return { width, height, frames, durationS };
+}
+
+export const gifDecodedMb = (p: GifProbe) => (p.width * p.height * 4 * Math.max(p.frames, 1)) / 1048576;
+
+/**
+ * Bring a GIF within [GIF_POLICY] for its role: downscale, cap the frame rate
+ * and the frame count (the rate drops further for long clips so the total
+ * stays under `maxFrames`). Replaces the file in place. Returns the probe of
+ * whatever is on disk afterwards, and throws only if the result is still
+ * beyond the hard ceiling — the caller then deletes the upload and tells the
+ * dashboard why.
+ */
+export async function normalizeGif(file: string, role: GifRole = 'default'): Promise<{ probe: GifProbe; changed: boolean }> {
+  if (path.extname(file).toLowerCase() !== '.gif') {
+    return { probe: { width: 0, height: 0, frames: 0, durationS: 0 }, changed: false };
+  }
+  const pol = GIF_POLICY[role] ?? GIF_POLICY.default;
+  const before = await probeGif(file);
+  const tooBig = Math.max(before.width, before.height) > pol.maxSide;
+  const tooMany = before.frames > pol.maxFrames;
+  const tooFast = before.durationS > 0 && before.frames / before.durationS > pol.maxFps + 0.5;
+  let probe = before;
+  let changed = false;
+  if (tooBig || tooMany || tooFast) {
+    let fps = pol.maxFps;
+    if (before.durationS > 0 && before.durationS * fps > pol.maxFrames) {
+      fps = Math.max(4, pol.maxFrames / before.durationS);
+    }
+    const scale = tooBig
+      ? `scale='if(gt(iw,ih),${pol.maxSide},-2)':'if(gt(iw,ih),-2,${pol.maxSide})':flags=lanczos,`
+      : '';
+    const filters =
+      `fps=${fps.toFixed(3)},${scale}split[a][b];` +
+      `[a]palettegen=stats_mode=diff:reserve_transparent=1[p];` +
+      `[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle:alpha_threshold=128`;
+    const out = `${file}.norm.gif`;
+    try {
+      await run(ffmpegPath(), ['-y', '-loglevel', 'error', '-i', file, '-filter_complex', filters, '-loop', '0', out]);
+      const after = await probeGif(out);
+      if (after.frames > 0 && gifDecodedMb(after) <= gifDecodedMb(before)) {
+        await fs.rename(out, file);
+        probe = after;
+        changed = true;
+      } else {
+        await fs.unlink(out).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('[mediaOptimize] gif normalise skipped:', (e as Error).message);
+      await fs.unlink(out).catch(() => {});
+    }
+  }
+  const bytes = await sizeOf(file);
+  const decoded = gifDecodedMb(probe);
+  if (bytes > GIF_MAX_BYTES || decoded > GIF_MAX_DECODED_MB) {
+    throw new Error(
+      `الصورة المتحركة أثقل من المسموح (${probe.width}×${probe.height}، ${probe.frames} إطار، ` +
+      `${(bytes / 1048576).toFixed(1)} ميجابايت). الحد: ${pol.maxSide}px، ${pol.maxFrames} إطار، ${GIF_MAX_BYTES / 1048576} ميجابايت.`,
+    );
+  }
+  return { probe, changed };
+}
+
 /**
  * MP4/WebM → H.264 ≤ 720p, crf 26, faststart. Skipped for clips with an
  * alpha channel (their whole point is the transparency, and yuv420p has
@@ -135,9 +261,17 @@ export async function shrinkVideo(file: string, opts: { maxHeight?: number; crf?
 }
 
 /** Route by extension. `resizeTo` applies to still images only. */
-export async function optimizeUpload(file: string, opts: { resizeTo?: number; gifMaxSide?: number } = {}): Promise<OptimizeResult> {
+export async function optimizeUpload(file: string, opts: { resizeTo?: number; gifMaxSide?: number; gifRole?: GifRole } = {}): Promise<OptimizeResult> {
   const ext = path.extname(file).toLowerCase();
-  if (ext === '.gif') return optimizeGif(file, { maxSide: opts.gifMaxSide });
+  if (ext === '.gif') {
+    // Role policy first (pixels + frames), then the palette pass for bytes.
+    // normalizeGif throws when the clip is beyond the hard ceiling; that
+    // propagates so the upload is refused with the reason.
+    const before = await sizeOf(file);
+    await normalizeGif(file, opts.gifRole ?? 'default');
+    const pal = await optimizeGif(file, { maxSide: opts.gifMaxSide });
+    return { path: file, changed: true, before, after: pal.after };
+  }
   if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return optimizeImage(file, { maxSide: opts.resizeTo });
   if (['.mp4', '.mov', '.m4v', '.webm'].includes(ext)) return shrinkVideo(file);
   return { path: file, changed: false, before: await sizeOf(file), after: await sizeOf(file) };

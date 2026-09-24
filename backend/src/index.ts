@@ -168,6 +168,13 @@ app.get(['/client-logs', '/client-logs.html'], (_req, res) => {
 // ✅ static
 app.use('/public', express.static(publicDir));
 app.use(express.static(publicDir));
+// `/uploads/v2/<file>` is the SAME directory under a second path. The phones
+// cache an image by URL for 7 days (flutter_cache_manager's default when
+// max-age is 0), so a file rewritten in place — the 2026-09-21 GIF shrink —
+// would keep showing its heavy old self for a week. Pointing the database at
+// /v2/ made every installed app fetch the new bytes at once; the path keeps
+// its extension so nothing that switches on `.gif` notices.
+app.use('/uploads/v2', express.static(path.join(process.cwd(), 'uploads')));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.get('/public/admin-dashboard.html', (_req, res) => {
