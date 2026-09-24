@@ -1,6 +1,10 @@
 import { Server } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
+import { getGameSettings } from './gameConfig.service';
+
+/** This game's id in لوحة التحكم → الألعاب (gameConfig KNOWN_GAMES). */
+const GAME_CONFIG_KEY = 'greedy-cat';
 
 // ============================================================
 // القط الجشع — GREEDY CAT JACKPOT (8-symbol live food wheel)
@@ -446,6 +450,37 @@ function splitCategory(target: CategoryKey, amount: number): Record<string, numb
   return out;
 }
 
+/** This player's total stake in the current round, all symbols. */
+function roundStakeOf(userId: number): number {
+  const bets = round?.players.get(userId)?.bets ?? {};
+  return Object.values(bets).reduce((a, b) => a + b, 0);
+}
+
+/**
+ * Stakes charged but not yet written into the round. The balance charge is an
+ * await, so two bets sent at once both passed a check that only counted what
+ * was already on the table — this counts them before the await.
+ */
+const stakeInFlight = new Map<number, number>();
+
+/**
+ * "أقصى رهان" from لوحة التحكم, applied to the player's TOTAL for the round.
+ * The route guard only ever saw one request's amount, so the same limit could
+ * be stacked on one symbol, and "تكرار الرهان" (no amount in the body) was
+ * never checked at all. Null = no round limit set.
+ */
+async function roundLimit(): Promise<number | null> {
+  try {
+    return (await getGameSettings(GAME_CONFIG_KEY)).maxBet;
+  } catch (e) {
+    console.warn('[greedyCat] could not read the bet limit:', (e as Error).message);
+    return null;
+  }
+}
+
+const roundLimitMessage = (limit: number, used: number) =>
+  `الحد الأقصى لرهاناتك في الجولة ${limit} كوينز — المتبقي لك ${Math.max(0, limit - used)}`;
+
 export async function placeBet(userId: number, target: string, amount: number) {
   if (!round || round.phase !== 'betting') {
     return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' };
@@ -472,6 +507,13 @@ export async function placeBet(userId: number, target: string, amount: number) {
     ? splitCategory(target as CategoryKey, amount)
     : { [target]: amount };
 
+  const limit = await roundLimit();
+  // Everything from here to the reservation is synchronous, so no other bet
+  // from this player can slip in between the check and the reserve.
+  if (!round || round.phase !== 'betting') {
+    return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' };
+  }
+
   const existing = round.players.get(userId)?.bets ?? {};
   for (const [key, add] of Object.entries(additions)) {
     if ((existing[key] ?? 0) + add > MAX_BET_PER_SYMBOL) {
@@ -479,17 +521,36 @@ export async function placeBet(userId: number, target: string, amount: number) {
     }
   }
 
-  const charged = await prisma.user.updateMany({
-    where: { id: userId, coinsBalance: { gte: amount } },
-    data: { coinsBalance: { decrement: amount } },
-  });
+  const committed = roundStakeOf(userId) + (stakeInFlight.get(userId) ?? 0);
+  if (limit != null && committed + amount > limit) {
+    return { ok: false as const, code: 'BET_TOO_HIGH', message: roundLimitMessage(limit, committed) };
+  }
+  stakeInFlight.set(userId, (stakeInFlight.get(userId) ?? 0) + amount);
+  const release = () => {
+    const left = (stakeInFlight.get(userId) ?? 0) - amount;
+    if (left > 0) stakeInFlight.set(userId, left);
+    else stakeInFlight.delete(userId);
+  };
+
+  let charged;
+  try {
+    charged = await prisma.user.updateMany({
+      where: { id: userId, coinsBalance: { gte: amount } },
+      data: { coinsBalance: { decrement: amount } },
+    });
+  } catch (e) {
+    release();
+    throw e;
+  }
   if (charged.count === 0) {
+    release();
     return { ok: false as const, code: 'INSUFFICIENT_COINS', message: 'رصيدك لا يكفي' };
   }
 
   // Betting can close while the charge is in flight — refund rather than
   // silently keeping the coins.
   if (!round || round.phase !== 'betting') {
+    release();
     await prisma.user.update({
       where: { id: userId },
       data: { coinsBalance: { increment: amount } },
@@ -499,10 +560,15 @@ export async function placeBet(userId: number, target: string, amount: number) {
 
   let player = round.players.get(userId);
   if (!player) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true, avatarUrl: true, countryCode: true },
-    });
+    // Display fields only. The coins are already taken at this point, so a
+    // failed lookup must not abort the bet (it used to throw here, keeping the
+    // stake and placing nothing).
+    const user = await prisma.user
+      .findUnique({
+        where: { id: userId },
+        select: { name: true, avatarUrl: true, countryCode: true },
+      })
+      .catch(() => null);
     player = {
       userId,
       name: user?.name ?? 'لاعب',
@@ -519,6 +585,8 @@ export async function placeBet(userId: number, target: string, amount: number) {
   for (const [key, add] of Object.entries(additions)) {
     player.bets[key] = (player.bets[key] ?? 0) + add;
   }
+  // On the table now, so roundStakeOf() counts it; drop the reservation.
+  release();
   if (isCategory) {
     player.categories[target] = (player.categories[target] ?? 0) + amount;
   }
@@ -628,6 +696,14 @@ export async function repeatBets(userId: number) {
   const previous = lastBets.get(userId);
   if (!previous || Object.keys(previous).length === 0) {
     return { ok: false as const, code: 'NO_PREVIOUS', message: 'لا يوجد رهان سابق' };
+  }
+  // All or nothing against the round limit: replaying bet by bet would place
+  // part of the previous round and then stop, leaving the player half-bet.
+  const replayTotal = Object.values(previous).reduce((a, b) => a + (b > 0 ? b : 0), 0);
+  const limit = await roundLimit();
+  const committed = roundStakeOf(userId) + (stakeInFlight.get(userId) ?? 0);
+  if (limit != null && committed + replayTotal > limit) {
+    return { ok: false as const, code: 'BET_TOO_HIGH', message: roundLimitMessage(limit, committed) };
   }
   // Replayed as symbol stakes, never as categories — the split already happened
   // last round, and re-splitting would quadruple the stake.
