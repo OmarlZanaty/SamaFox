@@ -1672,3 +1672,22 @@ model ProfileVisit {
   @@index([viewerId])
   @@map("profile_visits")
 }
+
+// الألعاب الحلال — every stake (the price of the XP it buys) and every prize
+// (paid from the platform's prize fund), one row each. `day` is the Cairo date
+// the daily prize budget and per-player cap are counted against.
+model GameLedger {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  game      String
+  kind      String // 'stake' | 'prize'
+  amount    Int
+  xp        Int      @default(0)
+  ref       String?
+  day       String
+  createdAt DateTime @default(now())
+
+  @@index([day, kind])
+  @@index([userId, day])
+  @@map("game_ledger")
+}

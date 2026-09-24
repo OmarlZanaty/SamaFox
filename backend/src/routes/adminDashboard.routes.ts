@@ -76,6 +76,8 @@ import {
   adminSetGates,
   adminListGameConfig,
   adminSetGameConfig,
+  adminGetHalalGames,
+  adminSetHalalGames,
   adminListTopSupporters,
   adminResetSupporterCounter,
   adminDashboardMe,
@@ -207,6 +209,8 @@ router.post('/gates', adminSetGates);
 // ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────
 router.get('/games', adminListGameConfig);
 router.post('/games/:game', adminSetGameConfig);
+router.get('/games-halal', adminGetHalalGames);
+router.post('/games-halal', adminSetHalalGames);
 
 // ── Client logs (what the app is doing on users' phones) ─────────────────────
 //

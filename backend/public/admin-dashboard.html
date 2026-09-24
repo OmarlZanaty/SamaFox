@@ -825,6 +825,23 @@
           </table>
         </div>
       </div>
+      <div class="form-card">
+        <h3 class="section-title">الألعاب الحلال — صندوق الجوائز</h3>
+        <p class="section-sub">
+          المبلغ اللي بيدفعه اللاعب بيشتري XP فوراً بنفس سعر الهدايا (ده العِوَض). المكسب جائزة من صندوق المنصة،
+          بحد يومي كلي وحد يومي لكل لاعب. لو الصندوق مش مغطي أكبر جائزة ممكنة، اللعبة بترفض قبل ما تخصم أي كوينز.
+        </p>
+        <div id="halalToday" class="cell-muted" style="margin-bottom:12px"></div>
+        <div class="form-row">
+          <label>ميزانية الجوائز اليومية (كل الألعاب)
+            <input id="halal_budget" type="number" min="0" class="form-input" /></label>
+          <label>أقصى جوائز للاعب الواحد في اليوم
+            <input id="halal_cap" type="number" min="0" class="form-input" /></label>
+          <label>XP لكل كوينز
+            <input id="halal_xp" type="number" min="0" step="0.1" class="form-input" /></label>
+        </div>
+        <button class="btn btn-primary" onclick="saveHalalGames()">حفظ</button>
+      </div>
     </section>
 
     <!-- ============= هدايا الحظ ============= -->

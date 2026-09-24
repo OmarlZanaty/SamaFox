@@ -3063,6 +3063,31 @@ async function loadGamesConfig() {
                  value="${g.maxBet == null ? "" : g.maxBet}" placeholder="الأصلي" /></td>
       <td><button class="btn btn-primary btn-sm" onclick="saveGameConfig('${g.game}')">حفظ</button></td>
     </tr>`).join("");
+  loadHalalGames().catch(e => showToast("خطأ: " + e.message));
+}
+
+async function loadHalalGames() {
+  const res = await apiFetch("/admin-dashboard/games-halal");
+  const s = res?.data?.settings ?? {};
+  const t = res?.data?.today ?? {};
+  document.getElementById("halal_budget").value = s.dailyPrizeBudget ?? "";
+  document.getElementById("halal_cap").value = s.perUserDailyPrizeCap ?? "";
+  document.getElementById("halal_xp").value = s.xpPerCoin ?? "";
+  const n = (v) => Number(v || 0).toLocaleString("en-US");
+  document.getElementById("halalToday").innerHTML =
+    `النهارده (${escapeHtml(t.day || "")}): مدفوع كمقابل XP <strong>${n(t.stakes)}</strong> كوينز (${n(t.stakeCount)} مرة) · ` +
+    `جوائز اتصرفت <strong>${n(t.prizesPaid)}</strong> من <strong>${n(s.dailyPrizeBudget)}</strong> · ` +
+    `محجوز لجولات شغالة ${n(t.reservedNow)}`;
+}
+
+async function saveHalalGames() {
+  await apiFetch("/admin-dashboard/games-halal", "POST", {
+    dailyPrizeBudget: document.getElementById("halal_budget").value,
+    perUserDailyPrizeCap: document.getElementById("halal_cap").value,
+    xpPerCoin: document.getElementById("halal_xp").value,
+  });
+  showToast("✅ تم الحفظ");
+  loadHalalGames().catch(() => {});
 }
 
 async function saveGameConfig(game) {
@@ -3314,7 +3339,7 @@ Object.assign(window, {
   loadRewards, saveRoomSupportWindow,
   saveRoomCupReward, deleteRoomCupReward,
   saveSupporterReward, deleteSupporterReward,
-  loadGamesConfig, saveGameConfig,
+  loadGamesConfig, saveGameConfig, loadHalalGames, saveHalalGames,
   loadModeration, sendAdminMessage,
   createDeviceBan, deleteDeviceBan,
   saveGates, adjustUserTarget, loadUserCharges,
