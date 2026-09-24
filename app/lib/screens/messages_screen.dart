@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -33,8 +35,17 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   final _searchCtrl = TextEditingController();
   String _q = '';
 
+  /// The socket's message stream outlives this screen. The subscription used
+  /// to be dropped on the floor, so every message after the screen closed ran
+  /// `ref.read` on a disposed widget — "Cannot use ref after the widget was
+  /// disposed", the #1 error in سجل العملاء (587 times, 11 users, 2026-09-24).
+  /// It also stacked one more live listener each time the screen was opened.
+  StreamSubscription<dynamic>? _messageSub;
+
   @override
   void dispose() {
+    _messageSub?.cancel();
+    _messageSub = null;
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -43,7 +54,8 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   void initState() {
     super.initState();
 
-    SocketService().messageStream.listen((_) {
+    _messageSub = SocketService().messageStream.listen((_) {
+      if (!mounted) return;
       ref.read(conversationsControllerProvider.notifier).load();
     });
   }

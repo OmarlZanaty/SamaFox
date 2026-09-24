@@ -209,6 +209,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   StreamSubscription? _seatInviteSub;
   StreamSubscription? _seatInviteResultSub;
 
+  /// Join/leave of other users. Was the only listener here not kept, so it
+  /// outlived the room: the next join or leave anywhere ran `ref.read` on this
+  /// disposed screen — the "Cannot use ref after the widget was disposed"
+  /// crash in سجل العملاء — and each visit stacked another one.
+  StreamSubscription? _userEventSub;
+
   /// Guards against stacking invite dialogs if two invites land together.
   bool _seatInviteDialogOpen = false;
 
@@ -2897,7 +2903,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
     });
 
-    SocketService().userEventStream.listen((event) {
+    _userEventSub?.cancel();
+    _userEventSub = SocketService().userEventStream.listen((event) {
+      if (!mounted) return;
       // Some backends omit roomId on user join/leave. Treat 0 as "current room".
       if (event.roomId != 0 && event.roomId != widget.roomId) return;
       final notifier = ref.read(roomControllerProvider(widget.roomId).notifier);
@@ -3055,6 +3063,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _seatEffectSub?.cancel();
     _seatInviteSub?.cancel();
     _seatInviteResultSub?.cancel();
+    _userEventSub?.cancel();
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
 
@@ -4992,8 +5001,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       await _audioService.goListenOnly();
       // No mic, no ring, no detector.
       _audioService.disableVAD();
-      // The ongoing notification must not outlive the mic that justified it.
-      unawaited(RoomAudioKeepAlive.instance.stop());
+      // The keep-alive service is NOT stopped here. It is started on ENTERING
+      // the room for everyone (A1) — a listener needs it too, or Android
+      // freezes the backgrounded process and the room goes dead. Stopping it
+      // on leaving a seat left every ex-speaker without it. It stops when the
+      // room is left (dispose).
       return;
     }
 

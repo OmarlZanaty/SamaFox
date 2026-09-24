@@ -49,6 +49,25 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
   VideoPlayerController? _controller;
   bool _ready = false;
 
+  /// Decoders held right now by ALL product videos (frames, bubbles, banners).
+  ///
+  /// Each one is a separate player with its own hardware decoder, and nothing
+  /// limited how many a room could open: every video frame on a seat, every
+  /// video chat bubble on screen. سجل العملاء (2026-09-24) showed the app at
+  /// 700 MB – 1.2 GB on mid-range phones and 26 sessions killed by the OS. Past
+  /// the cap a decoration simply does not play — the same "no decoration" look
+  /// as a clip that fails to load — until a slot frees up.
+  static const int _maxActive = 6;
+  static int _active = 0;
+  bool _holdsSlot = false;
+
+  void _releaseSlot() {
+    if (_holdsSlot) {
+      _holdsSlot = false;
+      _active--;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -63,12 +82,19 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
     if (old.url != widget.url) {
       _controller?.dispose();
       _controller = null;
+      _releaseSlot();
       _ready = false;
       _open();
     }
   }
 
   Future<void> _open() async {
+    if (_active >= _maxActive) {
+      debugPrint('🎞️ [ProductVideoLayer] cap of $_maxActive reached — ${widget.url} not played');
+      return;
+    }
+    _active++;
+    _holdsSlot = true;
     final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     _controller = controller;
     try {
@@ -80,14 +106,21 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
       await controller.play();
     } catch (e) {
       // Decoration must never break the screen it decorates. Leave `_ready`
-      // false so this renders as empty, exactly like a missing image.
+      // false so this renders as empty, exactly like a missing image — and
+      // hand the decoder slot back, since a failed player plays nothing.
       debugPrint('🎞️ [ProductVideoLayer] ${widget.url} failed: $e');
+      if (identical(_controller, controller)) {
+        _controller = null;
+        await controller.dispose();
+        _releaseSlot();
+      }
     }
   }
 
   @override
   void dispose() {
     _controller?.dispose();
+    _releaseSlot();
     super.dispose();
   }
 

@@ -60,13 +60,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _recorder = FlutterSoundRecorder();
   String? _voicePath;
 
+  /// Kept so dispose() can cancel it: the socket stream outlives this screen,
+  /// and an uncancelled listener piled up one more per chat opened.
+  StreamSubscription<dynamic>? _messageSub;
+
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
 
-    // ✅ ADD THIS
-    SocketService().messageStream.listen((event) {
+    _messageSub = SocketService().messageStream.listen((event) {
       if (!mounted) return;
 
       final partnerId = widget.partnerId;
@@ -149,6 +152,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    _messageSub?.cancel();
     _recorder.closeRecorder();
     _controller.dispose();
     _scroll.removeListener(_onScroll);
