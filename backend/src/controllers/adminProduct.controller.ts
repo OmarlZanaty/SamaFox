@@ -1,4 +1,6 @@
+import fs from 'fs';
 import path from "path";
+import { optimizeUpload, GifRole } from '../utils/mediaOptimize';
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
 import { extractPosterFrame } from "../gifts/videoValidate";
@@ -95,7 +97,25 @@ export const createProduct = async (req: Request, res: Response) => {
     const host = req.get("host") || "";
     const requestBaseUrl = host ? `${protocol}://${host}` : "";
     const baseUrl = configuredBaseUrl || requestBaseUrl || `http://localhost:${process.env.PORT || 3000}`;
-    const assetUrl = `${baseUrl}/uploads/${file.filename}`;
+    // Product artwork keeps its pixel size (9-slice guides are in pixels);
+    // GIFs get a palette, clips go to ≤720p H.264, PNG/JPG become WebP.
+    // GIF artwork is also capped in pixels and frames per role — see
+    // GIF_POLICY. The 9-slice guides are fractions, so a downscale is safe.
+    const gifRole: GifRole =
+      type === 'avatar_frame' || type === 'frame' ? 'frame'
+      : type === 'badge' || type === 'chat_top_banner' ? 'badge'
+      : type === 'chat_bubble' ? 'bubble'
+      : type === 'entrance' ? 'banner'
+      : type === 'profile_background' || type === 'background' ? 'bg'
+      : 'default';
+    let optProduct;
+    try {
+      optProduct = await optimizeUpload(file.path, { gifRole });
+    } catch (e) {
+      await fs.promises.unlink(file.path).catch(() => {});
+      return res.status(400).json({ message: (e as Error).message });
+    }
+    const assetUrl = `${baseUrl}/uploads/${path.basename(optProduct.path)}`;
 
     const mappedType =
       type === "seat_effect"

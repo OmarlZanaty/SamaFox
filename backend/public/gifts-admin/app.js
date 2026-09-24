@@ -1,3 +1,27 @@
+// Progress for uploads — fetch has none, and the server now compresses what
+// it receives, so a big clip sits at "100%" for a few seconds while it works.
+function xhrUpload(url, fd) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.withCredentials = true;
+    let bar = document.getElementById('xhrUploadBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'xhrUploadBar';
+      bar.style.cssText = 'display:none;position:fixed;left:16px;right:16px;bottom:16px;z-index:9999;background:#111827;color:#fff;border-radius:12px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.35)';
+      bar.innerHTML = '<div class="l" style="margin-bottom:6px"></div><div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div class="f" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>';
+      document.body.appendChild(bar);
+    }
+    const show = (pct, text) => { bar.style.display = 'block'; bar.querySelector('.f').style.width = pct + '%'; bar.querySelector('.l').textContent = text; };
+    show(0, 'جارٍ الرفع…');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) { const p = Math.round(100 * e.loaded / e.total); show(p, p >= 100 ? 'جارٍ المعالجة على السيرفر…' : 'جارٍ الرفع ' + p + '%'); } };
+    xhr.onerror = () => { bar.style.display = 'none'; reject(new Error('network')); };
+    xhr.onload = () => { bar.style.display = 'none'; try { resolve(JSON.parse(xhr.responseText)); } catch (e) { reject(e); } };
+    xhr.send(fd);
+  });
+}
+
 /* eslint-disable */
 const API = {
   list: () => fetch('/api/v2/admin/gifts', { credentials: 'include' }).then(r => r.json()),
@@ -11,8 +35,8 @@ const API = {
   exportAll: () => '/api/v2/admin/gifts/export',
   audit: () => fetch('/api/v2/admin/gifts/audit-log', { credentials: 'include' }).then(r => r.json()),
   bulkImport: (body) => fetch('/api/v2/admin/gifts/bulk-import', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
-  uploadVideo: (file) => { const fd = new FormData(); fd.append('file', file); return fetch('/api/v2/admin/gifts/upload-video', { method: 'POST', credentials: 'include', body: fd }).then(r => r.json()); },
-  uploadIcon: (file) => { const fd = new FormData(); fd.append('file', file); return fetch('/api/v2/admin/gifts/upload-icon', { method: 'POST', credentials: 'include', body: fd }).then(r => r.json()); },
+  uploadVideo: (file) => { const fd = new FormData(); fd.append('file', file); return xhrUpload('/api/v2/admin/gifts/upload-video', fd); },
+  uploadIcon: (file) => { const fd = new FormData(); fd.append('file', file); return xhrUpload('/api/v2/admin/gifts/upload-icon', fd); },
   me: () => fetch('/api/v1/admin-dashboard-auth/status', { credentials: 'include' }).then(r => r.json()).catch(() => ({ success: false })),
   // B4/B5/B6 - gift lists (قوائم الهدايا).
   listCategories: () => fetch('/api/v2/admin/gifts/categories?includeInactive=1', { credentials: 'include' }).then(r => r.json()),
@@ -80,7 +104,7 @@ function renderList() {
   }
   root.innerHTML = state.filtered.map((g) => `
     <div class="gift-row ${g.id === state.currentId ? 'active' : ''} ${g.isActive ? '' : 'inactive'}" data-id="${g.id}">
-      <div class="icon">${g.iconUrl ? `<img src="${escapeHtml(g.iconUrl)}" onerror="this.style.display='none'">` : ''}</div>
+      <div class="icon">${g.iconUrl ? `<img loading="lazy" decoding="async" src="${escapeHtml(g.iconUrl)}" onerror="this.style.display='none'">` : ''}</div>
       <div class="meta">
         <div class="name">${escapeHtml(g.name)}</div>
         <div class="sub">
@@ -261,6 +285,7 @@ function renderEditor() {
           <label class="toggle"><input type="checkbox" id="f-isActive" ${d.isActive?'checked':''}> Active</label>
           <label class="toggle"><input type="checkbox" id="f-isComboEligible" ${d.isComboEligible?'checked':''}> Combo eligible</label>
           <label class="toggle"><input type="checkbox" id="f-broadcastGlobal" ${d.broadcastGlobal?'checked':''}> Broadcast globally</label>
+          <label class="toggle" title="هدية حظ: المضيف ياخد 10% والداعم يرمي على مضاعف (5× … 500×) من صندوق الحظ"><input type="checkbox" id="f-isLucky" ${d.isLucky?'checked':''}> 🎲 هدية حظ (محظوظ)</label>
         </div>
 
         ${d.format === 'SVG_CSS' ? `
@@ -332,6 +357,7 @@ function bindFieldEvents() {
   bind('f-isActive', 'isActive');
   bind('f-isComboEligible', 'isComboEligible');
   bind('f-broadcastGlobal', 'broadcastGlobal');
+  bind('f-isLucky', 'isLucky');
   bind('f-animationHtml', 'animationHtml');
   bind('f-animationUrl', 'animationUrl');
   bind('f-videoHasAlpha', 'videoHasAlpha');

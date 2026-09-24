@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { optimizeUpload, GIF_POLICY, GifRole } from '../utils/mediaOptimize';
 import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -59,18 +60,36 @@ export const uploadImage = async (req: Request, res: Response) => {
       }
     }
 
-    const baseUrl = getPublicBaseUrl(req);
-    const imageUrl = `${baseUrl}/uploads/${file.filename}`;
+    // Shrink before anyone downloads it: chat pictures and room backgrounds
+    // are capped at 1600px and re-encoded as WebP; a GIF keeps its size and
+    // gets a real palette. Whatever fails leaves the original in place.
+    // A GIF is also brought within the role policy (pixels + frames); the
+    // dashboard passes ?gifRole= for product art, everything else is treated
+    // as a background (the largest allowance). Beyond the hard ceiling the
+    // file is refused with the reason instead of shipped to every phone.
+    const roleParam = String(req.query.gifRole ?? '').trim() as GifRole;
+    const gifRole: GifRole = (roleParam in GIF_POLICY) ? roleParam : 'bg';
+    let opt;
+    try {
+      opt = await optimizeUpload(file.path, { resizeTo: 1600, gifRole });
+    } catch (e) {
+      await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });
+    }
+    const storedName = path.basename(opt.path);
 
-    console.log(`✅ Image uploaded successfully: ${file.filename}`);
+    const baseUrl = getPublicBaseUrl(req);
+    const imageUrl = `${baseUrl}/uploads/${storedName}`;
+
+    console.log(`✅ Image uploaded: ${storedName} (${opt.before}→${opt.after} bytes)`);
 
     return res.status(200).json({
       success: true,
       message: 'Image uploaded successfully',
       url: imageUrl,              // Primary field
       imageUrl: imageUrl,         // Backward compatibility
-      filename: file.filename,
-      size: file.size,
+      filename: storedName,
+      size: opt.after,
       mimetype: file.mimetype
     });
 
@@ -126,6 +145,13 @@ export const uploadVideoAsset = async (req: Request, res: Response) => {
           message: `صيغة الفيديو (${probe.codec}) غير مدعومة وتعذّر تحويلها`,
         });
       }
+    }
+
+    // Big or tall clips are brought to ≤720p / crf 26 — a 16 MB upload is
+    // ~2 MB on the phone. Alpha clips are left alone (yuv420p has no alpha).
+    if (!probe.hasAlpha && (file.size > 6 * 1024 * 1024 || probe.height > 720)) {
+      const shrunk = await optimizeUpload(file.path);
+      if (shrunk.changed) console.log(`✅ Gift video shrunk ${shrunk.before}→${shrunk.after} bytes`);
     }
 
     const baseUrl = getPublicBaseUrl(req);
@@ -260,7 +286,15 @@ if (!userId) {
     }
 
     const baseUrl = getPublicBaseUrl(req);
-    const avatarUrl = `${baseUrl}/uploads/${file.filename}`;
+    // An avatar is never shown above 512px; a 4 MB photo is 40 KB after this.
+    let optAvatar;
+    try {
+      optAvatar = await optimizeUpload(file.path, { resizeTo: 512, gifMaxSide: 512, gifRole: 'frame' });
+    } catch (e) {
+      await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });
+    }
+    const avatarUrl = `${baseUrl}/uploads/${path.basename(optAvatar.path)}`;
 
     // Update user's avatar URL in database
     const updatedUser = await prisma.user.update({
