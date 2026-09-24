@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:samafox/utils/permission_gate.dart';
 
@@ -46,6 +47,18 @@ class RoomAudioKeepAlive {
   /// to everyone, including people with no microphone open at all.
   Future<void> start({String? roomName, bool onMic = false}) async {
     if (!_supported) return;
+
+    // Only from the foreground. Android 12+ refuses a foreground service
+    // started from the background, and on 14+ the refusal lands inside the
+    // service, whose fallback (stopSelf before startForeground) makes the OS
+    // kill the whole app — e.g. an admin putting a backgrounded user on a
+    // mic. The service started on room entry is still running in that case;
+    // this call would only have refreshed its notification text.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+      debugPrint('[RoomAudioKeepAlive] app not in foreground ($lifecycle); not starting');
+      return;
+    }
 
     // A1 — Android 13+ will not SHOW a foreground service's notification
     // without this, and several OEM builds then treat the service as

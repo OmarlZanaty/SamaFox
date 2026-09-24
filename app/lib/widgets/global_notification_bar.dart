@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../main.dart' show navigatorKey;
 import '../services/global_notification_service.dart';
 
 class GlobalNotificationBar extends StatefulWidget {
@@ -18,6 +19,7 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
   void initState() {
     super.initState();
     _sub = GlobalNotificationService.instance.stream.listen((event) {
+      if (!mounted) return;
       setState(() => _current = event);
       _hideTimer?.cancel();
       // A21 — the dwell time now comes from the event. It used to be a flat
@@ -60,9 +62,15 @@ class _GlobalNotificationBarState extends State<GlobalNotificationBar> {
                 child: GestureDetector(
                       onTap: () {
                         final route = event.routeName;
-                        if (route != null && route.isNotEmpty) {
-                          Navigator.pushNamed(context, route);
-                        }
+                        if (route == null || route.isEmpty) return;
+                        // This bar is mounted ABOVE the app's Navigator (in
+                        // main.dart's builder), so `Navigator.of(context)`
+                        // found none and threw "Null check operator used on a
+                        // null value" on every tap — 62 crashes in سجل العملاء.
+                        // Go through the app's navigator key instead.
+                        _hideTimer?.cancel();
+                        setState(() => _current = null);
+                        navigatorKey.currentState?.pushNamed(route);
                       },
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 760),

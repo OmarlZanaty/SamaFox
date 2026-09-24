@@ -197,12 +197,13 @@ class NeonStrings {
           'Plinko and Aetherfall. You can change your seed, reveal the server seed and '
           'verify any past spin.';
   String get rtpBody => ar
-      ? 'نسبة العائد للاعب مقاسة على 600 ألف لفة: 97.03% على المدى الطويل (حافة البيت '
-          '2.97%)، منها 3.5% تذهب إلى الجوائز التراكمية. الرقم مقاس بمحاكاة مرفقة بالكود، '
-          'وليس تقديرًا.'
-      : 'Return to player, measured over 1.2 million spins: 97.06% long-run (house edge '
-          '2.94%), of which 3.5% goes to the progressive jackpots. That figure is measured '
-          'by a simulator committed alongside the code, not estimated.';
+      ? 'المبلغ اللي بتدفعه في كل لفة بيشتري XP لمستواك فورًا بنفس سعر الهدايا، والمكسب جائزة من '
+          'صندوق جوائز المنصة. متوسط الجوائز مقاس على 300 ألف لفة: 79.2% من المبلغ على المدى الطويل، '
+          'منها 3.5% للجوائز التراكمية. الرقم مقاس بمحاكاة مرفقة بالكود، وليس تقديرًا.'
+      : 'Every coin you spend on a spin buys XP for your level straight away, at the gift rate, and a '
+          'win is a prize from the platform prize fund. Average prizes, measured over 300,000 spins: '
+          '79.2% of spend long-run, of which 3.5% goes to the progressive jackpots. That figure is '
+          'measured by a simulator committed alongside the code, not estimated.';
 
   String get coinsHeading => ar ? 'عن العملات' : 'About the coins';
   String get coinsBody => ar
