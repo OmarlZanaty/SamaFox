@@ -33,13 +33,42 @@ class _CpListScreenState extends State<CpListScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _repo.partners(userId: widget.userId);
+    _future = _load();
+    // Only used when the server does not send `featured` (older build).
     CpFeatured.get().then((v) {
-      if (mounted) setState(() => _featured = v);
+      if (mounted && _featured == null) setState(() => _featured = v);
     });
   }
 
-  void _reload() => setState(() => _future = _repo.partners(userId: widget.userId));
+  /// Loads the list and takes the featured partner from the server's flag.
+  Future<List<CpPartner>> _load() async {
+    final list = _isMine ? await _repo.myPartnersSynced() : await _repo.partners(userId: widget.userId);
+    final shown = list.where((p) => p.featured == true);
+    if (shown.isNotEmpty && mounted) setState(() => _featured = shown.first.userId);
+    return list;
+  }
+
+  void _reload() => setState(() => _future = _load());
+
+  Future<void> _setFeatured(CpPartner p) async {
+    if (_featured == p.userId) return;
+    final previous = _featured;
+    setState(() => _featured = p.userId);
+    try {
+      // Saved on the server only — that is what every visitor reads.
+      await _repo.setFeatured(p.userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${p.name} يظهر الآن في صفحتك')),
+      );
+    } on CpException catch (e) {
+      if (!mounted) return;
+      setState(() => _featured = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Colors.red[700]),
+      );
+    }
+  }
 
   String? _resolveAvatar(String? raw) {
     if (raw == null || raw.isEmpty) return null;
@@ -126,7 +155,7 @@ class _CpListScreenState extends State<CpListScreen> {
             }
             return RefreshIndicator(
               onRefresh: () async {
-                final f = _repo.partners(userId: widget.userId);
+                final f = _load();
                 setState(() => _future = f);
                 await f;
               },
@@ -192,6 +221,17 @@ class _CpListScreenState extends State<CpListScreen> {
           children: [
             if (p.displayId != null)
               Text('ID ${p.displayId}', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+            if (p.cpLevel != null) ...[
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  'LV.${p.cpLevel}${(p.cpLevelName ?? '').isNotEmpty ? ' ${p.cpLevelName}' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _kGold, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
             if (p.giftIconUrl != null && p.giftIconUrl!.isNotEmpty) ...[
               const SizedBox(width: 8),
               ClipRRect(
@@ -222,14 +262,7 @@ class _CpListScreenState extends State<CpListScreen> {
                           : Colors.white38,
                     ),
                     tooltip: 'إظهاره في صفحتي',
-                    onPressed: () async {
-                      await CpFeatured.set(p.userId);
-                      if (!mounted) return;
-                      setState(() => _featured = p.userId);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('${p.name} يظهر الآن في صفحتك')),
-                      );
-                    },
+                    onPressed: () => _setFeatured(p),
                   ),
                   IconButton(
                     icon: const Icon(Icons.heart_broken, color: Colors.white38),

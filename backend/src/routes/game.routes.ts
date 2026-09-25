@@ -201,6 +201,17 @@ const crashChatLimiter = rateLimit({
   message: { success: false, message: 'مهلاً، رسائل كثيرة' },
 });
 
+// الألعاب الحلال — what every stake buys, in words the rules screens can show.
+router.get('/halal-terms', authenticate, async (_req: any, res: any) => {
+  try {
+    const { describeHalalTerms } = await import('../services/halalGames.service');
+    res.json({ success: true, data: await describeHalalTerms() });
+  } catch (e) {
+    console.error('halal-terms error:', e);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 router.get('/crash/state', authenticate, getCrashState);
 router.post('/crash/bet', authenticate, crashLimiter, gameGuard('crash'), placeCrashBetHandler);
 router.post('/crash/cancel', authenticate, crashLimiter, cancelCrashBetHandler);

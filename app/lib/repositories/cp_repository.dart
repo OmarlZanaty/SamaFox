@@ -21,19 +21,38 @@ class CpRepository {
 
   final Dio _dio;
 
-  /// Sends the CP invitation. Throws [CpException] with an Arabic message.
-  Future<void> sendRequest({
+  /// Sends a CP gift. Throws [CpException] with an Arabic message.
+  ///
+  /// Not yet partners → an invitation (charges nothing until answered).
+  /// Already partners → the gift is sent now and raises the pair's CP level;
+  /// the result carries the points added and the new level (2026-09-24).
+  /// [requestKey] must be the same for retries of ONE tap, so a resend is
+  /// recognised by the server and never charged or counted twice.
+  Future<CpSendResult> sendRequest({
     required int recipientId,
     required String giftId,
     int quantity = 1,
     int? roomId,
+    String? requestKey,
   }) async {
-    await _post('cp/requests', {
+    final body = await _post('cp/requests', {
       'recipientId': recipientId,
       'giftId': giftId,
       'quantity': quantity,
       if (roomId != null) 'roomId': roomId,
+      if (requestKey != null) 'requestKey': requestKey,
     });
+    return CpSendResult.fromJson(Map<String, dynamic>.from((body['data'] as Map?) ?? const {}));
+  }
+
+  /// My partners, after uploading once a featured choice that an older app
+  /// build kept only on this phone. Use for the OWNER's own views.
+  Future<List<CpPartner>> myPartnersSynced({int? userId}) async {
+    final list = await partners(userId: userId);
+    if (await CpFeatured.uploadLocalChoice(this, list)) {
+      return partners(userId: userId);
+    }
+    return list;
   }
 
   /// Invitations still waiting on me.
@@ -64,6 +83,31 @@ class CpRepository {
   /// "الغاء CP مع فلان؟ نعم / لا" — ends the pairing, refunds nothing.
   Future<void> removePartner(int partnerId) => _delete('cp/partners/$partnerId');
 
+  // ---- صلاحيات فتح CP (2026-09-22) -------------------------------------
+  //
+  // Opening CP can cost coins now (admin policy or a per-user grant). The
+  // server is the only one that decides and the only one that charges: the
+  // app asks for the quote, shows it, and on "موافق" asks the server to take
+  // exactly that. Under the default policy (free) nothing here costs anything.
+
+  /// Am I unlocked, and if not, what would it cost? Shown BEFORE confirming.
+  Future<CpUnlockStatus> unlockStatus() async {
+    final body = await _get('cp/unlock/status');
+    return CpUnlockStatus.fromJson(Map<String, dynamic>.from((body['data'] as Map?) ?? const {}));
+  }
+
+  /// The user agreed to the quoted fee. Throws [CpException] with code
+  /// `INSUFFICIENT_COINS` (and [CpException.shortfall]) when the balance is
+  /// short — nothing is deducted in that case. Safe to call twice.
+  Future<CpUnlockResult> confirmUnlock() async {
+    final body = await _post('cp/unlock/confirm', const {});
+    return CpUnlockResult.fromJson(Map<String, dynamic>.from((body['data'] as Map?) ?? const {}));
+  }
+
+  /// "مستخدم CP الظاهر" — which partner shows beside my photo, for everyone
+  /// who opens my profile. `null` goes back to the newest pair.
+  Future<void> setFeatured(int? partnerId) => _patch('cp/featured', {'partnerId': partnerId});
+
   // ---- transport -------------------------------------------------------
 
   Future<Map<String, dynamic>> _get(String path) async {
@@ -78,6 +122,15 @@ class CpRepository {
   Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> data) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(path, data: data);
+      return _unwrap(res.data);
+    } on DioException catch (e) {
+      throw _translate(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> _patch(String path, Map<String, dynamic> data) async {
+    try {
+      final res = await _dio.patch<Map<String, dynamic>>(path, data: data);
       return _unwrap(res.data);
     } on DioException catch (e) {
       throw _translate(e);
@@ -99,6 +152,7 @@ class CpRepository {
       throw CpException(
         data['message']?.toString() ?? 'تعذر إتمام العملية',
         code: data['code']?.toString(),
+        data: data,
       );
     }
     return data;
@@ -116,10 +170,15 @@ class CpRepository {
       'ALREADY_PAIRED': 'لديكما ارتباط CP بالفعل',
       'SELF_CP': 'لا يمكنك إرسال هدية CP لنفسك',
       'ALREADY_RESOLVED': 'تم الرد على هذا الطلب بالفعل',
+      'CP_LOCKED': 'يجب فتح الـ CP أولاً',
     };
     return CpException(
       serverMessage ?? fallbacks[code] ?? 'تعذر إتمام العملية',
       code: code,
+      status: e.response?.statusCode,
+      // CP_LOCKED / INSUFFICIENT_COINS carry feeCoins, balance and shortfall
+      // at the top level of the body.
+      data: data is Map ? Map<String, dynamic>.from(data) : null,
     );
   }
 }
@@ -127,9 +186,118 @@ class CpRepository {
 class CpException implements Exception {
   final String message;
   final String? code;
-  CpException(this.message, {this.code});
+  final int? status;
+
+  /// The raw error body, for the numbers the server attaches to it.
+  final Map<String, dynamic>? data;
+
+  CpException(this.message, {this.code, this.status, this.data});
+
+  int? _int(String key) => (data?[key] as num?)?.toInt();
+
+  /// The fee quoted on `CP_LOCKED` / `INSUFFICIENT_COINS`.
+  int? get feeCoins => _int('feeCoins');
+
+  /// Coins missing to pay [feeCoins]. Present on `INSUFFICIENT_COINS`.
+  int? get shortfall => _int('shortfall');
+
+  int? get balance => _int('balance');
+
   @override
   String toString() => 'CpException(${code ?? '?'}: $message)';
+}
+
+/// What `POST /cp/requests` did.
+class CpSendResult {
+  /// `invitation` or `partner_gift`.
+  final String kind;
+
+  /// partner_gift only: CP value this gift added, and the pair's state after.
+  final int pointsAdded;
+  final int? cpValue;
+  final int? level;
+  final String? levelName;
+  final bool leveledUp;
+
+  /// partner_gift only: the sender's balance after the charge.
+  final int? balance;
+
+  /// A resend of a request already completed — nothing new was charged.
+  final bool duplicate;
+
+  const CpSendResult({
+    required this.kind,
+    this.pointsAdded = 0,
+    this.cpValue,
+    this.level,
+    this.levelName,
+    this.leveledUp = false,
+    this.balance,
+    this.duplicate = false,
+  });
+
+  bool get isPartnerGift => kind == 'partner_gift';
+
+  factory CpSendResult.fromJson(Map<String, dynamic> json) => CpSendResult(
+        kind: json['kind']?.toString() ?? 'invitation',
+        pointsAdded: (json['pointsAdded'] as num?)?.toInt() ?? 0,
+        cpValue: (json['cpValue'] as num?)?.toInt(),
+        level: (json['level'] as num?)?.toInt(),
+        levelName: json['levelName']?.toString(),
+        leveledUp: json['leveledUp'] == true,
+        balance: (json['balance'] as num?)?.toInt(),
+        duplicate: json['duplicate'] == true,
+      );
+}
+
+/// `GET /cp/unlock/status`.
+class CpUnlockStatus {
+  final bool unlocked;
+
+  /// `free` or `fee` — the policy that applies to this user.
+  final String mode;
+
+  /// What confirming would cost right now. 0 when already unlocked or free.
+  final int feeCoins;
+  final int balance;
+
+  /// Coins missing to pay [feeCoins]; 0 when affordable.
+  final int shortfall;
+
+  const CpUnlockStatus({
+    required this.unlocked,
+    required this.mode,
+    required this.feeCoins,
+    required this.balance,
+    required this.shortfall,
+  });
+
+  bool get needsPayment => !unlocked && feeCoins > 0;
+
+  factory CpUnlockStatus.fromJson(Map<String, dynamic> json) => CpUnlockStatus(
+        unlocked: json['unlocked'] == true,
+        mode: json['mode']?.toString() ?? 'free',
+        feeCoins: (json['feeCoins'] as num?)?.toInt() ?? 0,
+        balance: (json['balance'] as num?)?.toInt() ?? 0,
+        shortfall: (json['shortfall'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// `POST /cp/unlock/confirm`.
+class CpUnlockResult {
+  final bool alreadyUnlocked;
+  final int paidCoins;
+
+  /// The balance after the deduction — authoritative, use it to refresh the UI.
+  final int balance;
+
+  const CpUnlockResult({required this.alreadyUnlocked, required this.paidCoins, required this.balance});
+
+  factory CpUnlockResult.fromJson(Map<String, dynamic> json) => CpUnlockResult(
+        alreadyUnlocked: json['alreadyUnlocked'] == true,
+        paidCoins: (json['paidCoins'] as num?)?.toInt() ?? 0,
+        balance: (json['balance'] as num?)?.toInt() ?? 0,
+      );
 }
 
 /// A pending invitation shown to the recipient.
@@ -179,11 +347,11 @@ class CpRequest {
 /// One person you are CP'd with.
 /// "لو انا معايا اكتر من سي بي مين يظهر معايا فوق — خليني احدده من القايمه".
 ///
-/// Which pair is shown beside the photo. Stored on the device rather than the
-/// server: it is a display preference for the owner's own page, nobody else
-/// needs to agree on it, and it must not cost a round trip on every profile
-/// open. Falls back to the newest pair when nothing has been chosen or the
-/// chosen partner is no longer a CP.
+/// Which pair is shown beside the photo. Since 2026-09-22 this lives on the
+/// SERVER (`User.cpFeaturedPartnerId`, set with [CpRepository.setFeatured]):
+/// a visitor must see the owner's choice, and the admin can change it. The
+/// partners list carries it as [CpPartner.featured]. The device copy below is
+/// only a fallback for a server that predates the flag.
 class CpFeatured {
   CpFeatured._();
 
@@ -208,9 +376,45 @@ class CpFeatured {
     }
   }
 
-  /// The pair to show: the chosen one if it still exists, newest otherwise.
+  static Future<void> clear() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (_) {}
+  }
+
+  /// One-time move of a choice an older build stored on this phone up to the
+  /// server, so the owner's pick is what VISITORS see. Afterwards the device
+  /// copy is deleted and the server is the only source. Returns true when the
+  /// server's choice was changed (the caller should re-fetch the list).
+  static Future<bool> uploadLocalChoice(CpRepository repo, List<CpPartner> partners) async {
+    final local = await get();
+    if (local == null) return false;
+    // A server without the `featured` flag: the device copy is still in use.
+    if (partners.isEmpty || partners.every((p) => p.featured == null)) return false;
+    final stillPaired = partners.any((p) => p.userId == local);
+    final shown = partners.where((p) => p.featured == true);
+    final int? serverShows = shown.isEmpty ? null : shown.first.userId;
+    var changed = false;
+    if (stillPaired && serverShows != local) {
+      try {
+        await repo.setFeatured(local);
+        changed = true;
+      } on CpException {
+        return false; // keep the device copy and try again next time
+      }
+    }
+    await clear();
+    return changed;
+  }
+
+  /// The pair to show: the server's choice, else the locally chosen one if it
+  /// still exists, else the newest.
   static CpPartner? pick(List<CpPartner> partners, int? chosenUserId) {
     if (partners.isEmpty) return null;
+    for (final p in partners) {
+      if (p.featured == true) return p;
+    }
     if (chosenUserId != null) {
       for (final p in partners) {
         if (p.userId == chosenUserId) return p;
@@ -238,6 +442,17 @@ class CpPartner {
   final String? giftAnimationUrl;
   final DateTime? since;
 
+  // The PAIR's CP level, computed by the server (2026-09-22). Not to be
+  // confused with [level], which is the partner's own user LV. Null when the
+  // server predates it — callers then fall back to the days ladder.
+  final int? cpLevel;
+  final String? cpLevelName;
+  final int? cpValue;
+  final int? cpDays;
+
+  /// The owner's "مستخدم CP الظاهر". Null on an older server.
+  final bool? featured;
+
   const CpPartner({
     required this.pairId,
     required this.userId,
@@ -250,6 +465,11 @@ class CpPartner {
     this.giftIconUrl,
     this.giftAnimationUrl,
     this.since,
+    this.cpLevel,
+    this.cpLevelName,
+    this.cpValue,
+    this.cpDays,
+    this.featured,
   });
 
   factory CpPartner.fromJson(Map<String, dynamic> json) {
@@ -267,6 +487,11 @@ class CpPartner {
       giftIconUrl: gift?['iconUrl']?.toString(),
       giftAnimationUrl: gift?['animationUrl']?.toString(),
       since: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
+      cpLevel: (json['level'] as num?)?.toInt(),
+      cpLevelName: json['levelName']?.toString(),
+      cpValue: (json['cpValue'] as num?)?.toInt(),
+      cpDays: (json['days'] as num?)?.toInt(),
+      featured: json['featured'] is bool ? json['featured'] as bool : null,
     );
   }
 }

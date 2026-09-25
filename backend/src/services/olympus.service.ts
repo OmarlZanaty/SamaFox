@@ -6,6 +6,13 @@ import {
   rotateServerSeed as fairRotateServerSeed,
   setClientSeed as fairSetClientSeed,
 } from './fairSeeds';
+import {
+  grantStakeValue,
+  releasePrize,
+  reservePrize,
+  scalePaytable,
+  settlePrize,
+} from './halalGames.service';
 
 const GAME = 'olympus' as const;
 
@@ -142,7 +149,7 @@ const WEIGHTS_BONUS: Record<Cell, number> = {
 // RTP by the same factor while leaving hit rate, bonus frequency and the shape
 // of the game exactly where they were. That makes it the safest lever, and it
 // is the one the simulator's tuning note recommends.
-export const PAYTABLE: Record<StandardSymbol, [number, number, number]> = {
+const BASE_PAYTABLE: Record<StandardSymbol, [number, number, number]> = {
   GEM_BLUE: [0.22, 0.56, 1.55],
   GEM_GREEN: [0.27, 0.67, 1.85],
   GEM_YELLOW: [0.33, 0.82, 2.25],
@@ -153,6 +160,23 @@ export const PAYTABLE: Record<StandardSymbol, [number, number, number]> = {
   HOURGLASS: [1.95, 5.0, 14.5],
   CROWN: [3.7, 9.25, 25.5],
 };
+
+/**
+ * الصعوبة (2026-09-24): every entry above scaled by PRIZE_SCALE and rounded
+ * down to what the paytable screen prints. Every payout is linear in this
+ * table, so the return drops from ~96.1% to ~80% while hit rate, feature
+ * frequency and the shape of the game stay where they were. This scaled table
+ * is the one sent to the client, so the screen always shows what pays.
+ */
+export const PRIZE_SCALE = Number(process.env.OLYMPUS_PRIZE_SCALE ?? 0.83);
+export const PAYTABLE: Record<StandardSymbol, [number, number, number]> = scalePaytable(BASE_PAYTABLE, PRIZE_SCALE);
+
+/**
+ * What a spin reserves from the prize fund before the stake is taken: a
+ * practical ceiling (1,000× bet). A rarer, bigger result is
+ * still paid in full — the reservation guards the fund, it never shorts a win.
+ */
+const PRIZE_RESERVE_MULTIPLE = 1_000;
 
 function bandOf(count: number): 0 | 1 | 2 {
   if (count >= 12) return 2;
@@ -674,18 +698,34 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
 
   // Charge first, atomically, same guard as بلينكو so parallel spins can never
   // overdraw a balance.
+  // Promise the prize this spin could bring before the stake is taken.
+  const reserved = await reservePrize(userId, GAME, bet * PRIZE_RESERVE_MULTIPLE);
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   const charged = await prisma.user.updateMany({
     where: { id: userId, coinsBalance: { gte: bet } },
     data: { coinsBalance: { decrement: bet } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT', message: 'رصيدك لا يكفي' };
   }
 
   // Reserved from the database, so two spins racing cannot draw the same nonce
   // and a restart cannot hand one out twice.
-  const s = await reserveNonce(userId, GAME);
+  let s: Awaited<ReturnType<typeof reserveNonce>>;
+  try {
+    s = await reserveNonce(userId, GAME);
+  } catch (err) {
+    releasePrize(reserved.token);
+    await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: bet } } });
+    console.error('[olympus] nonce reservation failed, bet refunded', { userId, bet, err });
+    return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
+  }
   const nonce = s.nonce;
+
+  // The stake is final: deliver the XP it bought before the reels are dealt.
+  await grantStakeValue(userId, GAME, bet, `${userId}:${nonce}`);
 
   let spin: SpinResult;
   try {
@@ -703,9 +743,13 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
       where: { id: userId },
       data: { coinsBalance: { increment: bet } },
     });
+    releasePrize(reserved.token);
     console.error('[olympus] spin failed, bet refunded', { userId, bet, err });
     return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
   }
+
+  // Whatever the spin paid is a prize from the fund.
+  settlePrize(reserved.token, userId, GAME, spin.grandTotal, `${userId}:${nonce}`);
 
   remember(userId, {
     nonce,

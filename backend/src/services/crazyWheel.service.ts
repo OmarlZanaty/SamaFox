@@ -1,17 +1,22 @@
 import { Server } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
+import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
 
 // ============================================================
 // عجلة الحظ — CRAZY WHEEL (54-segment live wheel, Crazy Time format)
 // ============================================================
-// NOTE ON THE HOUSE RULE: every other game in this project follows the halal
-// model (fixed entry price, guaranteed return, no wager on an outcome — see
-// skillWheel.service.ts). This game does NOT: it is the classic bet-on-a-
-// segment format the client asked for, built to spec, with the halal economy
-// layer to be applied across all five games afterwards. Everything that decides
-// money lives in this file, so that conversion is a change to the payout
-// helpers only — the wheel, the top slot and the bonus games stay as they are.
+// الألعاب الحلال (halalGames.service): a stake is the price of XP, delivered
+// when the wheel starts spinning (the last moment it could still be cleared).
+// A win is a prize from the platform's prize fund, reserved when the stake is
+// placed — never paid from other players' stakes.
+//
+// الصعوبة (2026-09-24): the old economy paid far more than it took — the top
+// slot boosted a spot EVERY round (≈×2.6 on average) and the bonus value lists
+// averaged well above their share of the wheel, so a bet on "1" returned about
+// 205% of stake. The top slot now usually lands on ×1, the bonus lists were
+// recalibrated, and a single win is capped at MAX_WIN_MULTIPLIER. Every spot
+// returns roughly 69–84%, measured over 1M simulated spins (docs/halal-games.md).
 //
 // Round shape:
 //   betting (20s) → spinning (9s) → [bonus pick (10s) → bonus reveal (8s)]
@@ -106,7 +111,17 @@ function pick<T>(arr: readonly T[]): T {
 }
 
 // ── Top slot ────────────────────────────────────────────────
-const TOP_SLOT_MULTIPLIERS = [2, 3, 4, 5, 7, 10, 15, 20, 25, 50];
+/**
+ * [multiplier, weight out of 10,000]. ×1 means "no boost this round" and is
+ * shown as ×1 in the top-slot window, so what the player sees is what applies.
+ */
+export const TOP_SLOT_TABLE: [number, number][] = [
+  [1, 9200], [2, 400], [3, 200], [5, 120], [10, 60], [25, 15], [50, 5],
+];
+const TOP_SLOT_TOTAL = TOP_SLOT_TABLE.reduce((s, [, w]) => s + w, 0);
+
+/** The biggest prize multiplier a single winning bet can reach. */
+export const MAX_WIN_MULTIPLIER = Number(process.env.CRAZY_MAX_WIN_MULTIPLIER ?? 500);
 
 interface TopSlot {
   spot: SegmentKey;
@@ -114,11 +129,22 @@ interface TopSlot {
 }
 
 function rollTopSlot(): TopSlot {
-  return { spot: pick(BET_SPOTS), multiplier: pick(TOP_SLOT_MULTIPLIERS) };
+  let roll = randInt(TOP_SLOT_TOTAL);
+  let multiplier = 1;
+  for (const [m, w] of TOP_SLOT_TABLE) {
+    if (roll < w) {
+      multiplier = m;
+      break;
+    }
+    roll -= w;
+  }
+  return { spot: pick(BET_SPOTS), multiplier };
 }
 
 // ── Bonus games ─────────────────────────────────────────────
 export type BonusKind = 'coinflip' | 'cashhunt' | 'pachinko' | 'crazytime';
+
+export const COINFLIP_VALUES = [2, 2, 3, 3, 4, 4, 5, 5, 7, 10, 15, 20, 25, 40];
 
 /** Coin Flip: two multipliers, a coin decides which one pays. */
 interface CoinFlipResult {
@@ -130,7 +156,7 @@ interface CoinFlipResult {
 }
 
 function rollCoinFlip(): CoinFlipResult {
-  const values = [2, 3, 4, 5, 7, 10, 15, 20, 25, 30, 40, 50, 75, 100];
+  const values = COINFLIP_VALUES;
   const red = pick(values);
   const blue = pick(values);
   const winner = randInt(2) === 0 ? 'red' : 'blue';
@@ -209,11 +235,15 @@ function rollPachinko(): PachinkoResult {
   return { kind: 'pachinko', drops, multiplier: 10 };
 }
 
+export const PACHINKO_BASE = [3, 4, 5, 6, 8, 10, 15, 20, 0, 20, 15, 10, 8, 6, 5, 4, 3];
+
 /** Slot labels: small at the edges, DOUBLE (0) in the middle. */
 function buildPachinkoSlots(scale: number): number[] {
-  const base = [8, 10, 12, 15, 20, 25, 40, 50, 0, 50, 40, 25, 20, 15, 12, 10, 8];
+  const base = PACHINKO_BASE;
   return base.map((v) => (v === 0 ? 0 : v * scale));
 }
+
+export const CRAZY_VALUES = [5, 5, 6, 7, 8, 10, 10, 12, 15, 15, 20, 25, 30, 40, 50, 100, 200];
 
 /** Crazy Time: 64-segment virtual wheel, three flappers, DOUBLE/TRIPLE. */
 interface CrazyTimeResult {
@@ -227,7 +257,7 @@ interface CrazyTimeResult {
 }
 
 function buildCrazyRing(): (number | 'x2' | 'x3')[] {
-  const values = [25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 120, 150, 200, 300, 500, 1000];
+  const values = CRAZY_VALUES;
   const ring: (number | 'x2' | 'x3')[] = [];
   for (let i = 0; i < 64; i++) {
     if (i % 16 === 5) ring.push('x2');
@@ -260,7 +290,7 @@ function rollCrazyTime(): CrazyTimeResult {
     }
   }
   // Anything still doubling after six spins is settled at the current scale.
-  for (const colour of pending) multipliers[colour] = 100 * scale[colour];
+  for (const colour of pending) multipliers[colour] = 25 * scale[colour];
 
   return { kind: 'crazytime', spins, multipliers };
 }
@@ -285,6 +315,8 @@ interface PlayerBets {
   pick: number | string | null;
   payout: number;
   multiplier: number;
+  /** Prize-fund reservations, one per stake placed this round. */
+  prizeTokens: string[];
 }
 
 interface Round {
@@ -408,17 +440,24 @@ export async function placeBet(userId: number, segment: string, amount: number) 
     return { ok: false as const, code: 'MAX_BET', message: 'تجاوزت الحد الأقصى للرهان' };
   }
 
+  // Promise the biggest prize this stake could bring before taking it.
+  const roundId = round.id;
+  const reserved = await reservePrize(userId, 'crazy-wheel', amount * maxMultiplierFor(segment as SegmentKey));
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   const charged = await prisma.user.updateMany({
     where: { id: userId, coinsBalance: { gte: amount } },
     data: { coinsBalance: { decrement: amount } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT_COINS', message: 'رصيدك لا يكفي' };
   }
 
   // Betting can close while the charge is in flight — refund rather than
   // silently keeping the coins.
-  if (!round || round.phase !== 'betting') {
+  if (!round || round.phase !== 'betting' || round.id !== roundId) {
+    releasePrize(reserved.token);
     await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: amount } } });
     return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الرهان' };
   }
@@ -437,10 +476,12 @@ export async function placeBet(userId: number, segment: string, amount: number) 
       pick: null,
       payout: 0,
       multiplier: 0,
+      prizeTokens: [],
     };
     round.players.set(userId, player);
   }
   player.bets[segment] = (player.bets[segment] ?? 0) + amount;
+  player.prizeTokens.push(reserved.token);
 
   const balance = await balanceOf(userId);
   broadcast();
@@ -457,6 +498,8 @@ export async function clearBets(userId: number) {
 
   const total = Object.values(player.bets).reduce((a, b) => a + b, 0);
   player.bets = {};
+  for (const t of player.prizeTokens) releasePrize(t);
+  player.prizeTokens = [];
   if (total > 0) {
     await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: total } } });
   }
@@ -513,13 +556,22 @@ async function balanceOf(userId: number): Promise<number> {
   return u?.coinsBalance ?? 0;
 }
 
+/** The most one coin on `spot` can win, cap included — what gets reserved. */
+function maxMultiplierFor(spot: SegmentKey): number {
+  const topMax = Math.max(...TOP_SLOT_TABLE.map(([m]) => m));
+  if (!isBonus(spot)) return Math.min(MAX_WIN_MULTIPLIER, (BASE_PAYOUT[spot] + 1) * topMax);
+  return MAX_WIN_MULTIPLIER;
+}
+
 // ── Settlement ──────────────────────────────────────────────
 /**
  * The whole money model lives here. A winning bet returns
  *   stake * (basePayout + 1) * topSlotMultiplier   for number segments
  *   stake * bonusMultiplier * topSlotMultiplier    for bonus segments
  * and the top-slot multiplier only applies when the top slot landed on the same
- * spot the wheel did. Every other bet on the round is lost.
+ * spot the wheel did. Every other bet on the round wins nothing. The result is
+ * capped at MAX_WIN_MULTIPLIER, and the capped figure is what the player's
+ * result card shows.
  */
 function multiplierFor(player: PlayerBets, r: Round): number {
   const segment = r.resultSegment!;
@@ -550,19 +602,30 @@ async function settle(r: Round) {
   for (const player of r.players.values()) {
     const staked = player.bets[r.resultSegment!] ?? 0;
     lastBets.set(player.userId, { ...player.bets });
-    if (staked <= 0) continue;
+    // One reservation carries the prize to the ledger; the rest are freed.
+    const [prizeToken, ...spare] = player.prizeTokens;
+    player.prizeTokens = [];
+    for (const t of spare) releasePrize(t);
+    if (staked <= 0) {
+      releasePrize(prizeToken);
+      continue;
+    }
 
-    const multiplier = multiplierFor(player, r);
+    const multiplier = Math.min(MAX_WIN_MULTIPLIER, multiplierFor(player, r));
     const payout = Math.floor(staked * multiplier);
     player.multiplier = multiplier;
     player.payout = payout;
-    if (payout <= 0) continue;
+    if (payout <= 0) {
+      releasePrize(prizeToken);
+      continue;
+    }
 
     try {
       await prisma.user.update({
         where: { id: player.userId },
         data: { coinsBalance: { increment: payout } },
       });
+      settlePrize(prizeToken, player.userId, 'crazy-wheel', payout, `round:${r.id}`);
       winners.push({
         userId: player.userId,
         name: player.name,
@@ -571,6 +634,7 @@ async function settle(r: Round) {
         multiplier,
       });
     } catch (err) {
+      releasePrize(prizeToken);
       console.error('[crazyWheel] payout failed', { userId: player.userId, payout, err });
     }
   }
@@ -615,6 +679,14 @@ function advance() {
     if (r.players.size === 0) {
       startRound();
       return;
+    }
+    // Bets are final: deliver the XP each stake bought, before the spin.
+    for (const player of r.players.values()) {
+      const staked = Object.values(player.bets).reduce((a, b) => a + b, 0);
+      if (staked <= 0) continue;
+      grantStakeValue(player.userId, 'crazy-wheel', staked, `round:${r.id}`).catch((err) =>
+        console.error('[crazyWheel] stake value grant failed', { userId: player.userId, err }),
+      );
     }
     r.resultIndex = randInt(WHEEL.length);
     r.resultSegment = WHEEL[r.resultIndex]!;
@@ -710,8 +782,15 @@ export function getWheelLayout() {
     payouts: BASE_PAYOUT,
     betSpots: BET_SPOTS,
     chipTiers: CHIP_TIERS,
+    maxWinMultiplier: MAX_WIN_MULTIPLIER,
+    topSlotOdds: TOP_SLOT_TABLE.map(([multiplier, w]) => ({ multiplier, chance: w / TOP_SLOT_TOTAL })),
   };
 }
+
+/** Simulation hooks (scripts / tests only). */
+export const __crazyMath = {
+  rollTopSlot, rollCoinFlip, rollCashHunt, rollPachinko, rollCrazyTime, WHEEL, BASE_PAYOUT,
+};
 
 export function getHistory() {
   return history.slice(-50);

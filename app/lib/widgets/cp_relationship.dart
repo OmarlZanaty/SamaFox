@@ -49,6 +49,10 @@ class CpTier {
     }
     return hit;
   }
+
+  /// The colours for a server-computed level. The admin can set more than
+  /// five levels, so anything past the table keeps the top tier's look.
+  static CpTier forLevel(int level) => all[(level.clamp(1, all.length)) - 1];
 }
 
 /// Blue for men, pink for women — the two halves of the couple card. Unknown
@@ -623,8 +627,15 @@ class _LinkHeart extends StatelessWidget {
 }
 
 class _TierPill extends StatelessWidget {
-  const _TierPill({required this.tier, required this.days, required this.height});
-  final CpTier tier;
+  const _TierPill({
+    required this.level,
+    required this.levelName,
+    required this.days,
+    required this.height,
+  });
+  // From the server (the admin can tune or pin a level); see CpRelationshipCard.
+  final int level;
+  final String levelName;
   final int days;
   final double height;
 
@@ -641,7 +652,7 @@ class _TierPill extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${tier.name}  LV.${tier.level}',
+              '$levelName  LV.$level',
               style: TextStyle(
                 color: _goldLight,
                 fontSize: height * 0.46,
@@ -728,8 +739,12 @@ class CpRelationshipCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final days = _daysSince(partner.since);
-    final tier = CpTier.forDays(days);
+    // Level, name and days come from the server now (the admin can tune how
+    // levels grow or pin one); the days ladder is only for an older server.
+    final days = partner.cpDays ?? _daysSince(partner.since);
+    final tier = partner.cpLevel != null ? CpTier.forLevel(partner.cpLevel!) : CpTier.forDays(days);
+    final level = partner.cpLevel ?? tier.level;
+    final levelName = (partner.cpLevelName ?? '').isNotEmpty ? partner.cpLevelName! : tier.name;
     final animation = _abs(partner.giftAnimationUrl);
 
     // The owner sits on the LEFT. With no genders known the composition stays
@@ -878,7 +893,7 @@ class CpRelationshipCard extends StatelessWidget {
                             ),
                             SizedBox(height: w * 0.025),
                             // ── Tier + how long the pair has lasted ──
-                            _TierPill(tier: tier, days: days, height: w * 0.065),
+                            _TierPill(level: level, levelName: levelName, days: days, height: w * 0.065),
                             if (!compact) ...[
                               SizedBox(height: w * 0.01),
                               // ── The heart podium ──
@@ -947,17 +962,23 @@ class CpCoupleSection extends StatefulWidget {
 class _CpCoupleSectionState extends State<CpCoupleSection> {
   late Future<List<CpPartner>> _future;
 
+  // On your own profile the featured partner is chosen on the server, so the
+  // synced read also brings the local choice up to date.
+  Future<List<CpPartner>> _load() => widget.isOwnProfile
+      ? CpRepository().myPartnersSynced(userId: widget.userId)
+      : CpRepository().partners(userId: widget.userId);
+
   @override
   void initState() {
     super.initState();
-    _future = CpRepository().partners(userId: widget.userId);
+    _future = _load();
   }
 
   @override
   void didUpdateWidget(covariant CpCoupleSection old) {
     super.didUpdateWidget(old);
     if (old.userId != widget.userId) {
-      _future = CpRepository().partners(userId: widget.userId);
+      _future = _load();
     }
   }
 
@@ -980,14 +1001,19 @@ class _CpCoupleSectionState extends State<CpCoupleSection> {
                 compact: widget.compact,
                 showTitle: widget.showTitle,
                 onTap: widget.onTap ??
-                    () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => CpListScreen(
-                              userId: widget.isOwnProfile ? null : widget.userId,
-                            ),
+                    () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CpListScreen(
+                            userId: widget.isOwnProfile ? null : widget.userId,
                           ),
                         ),
+                      );
+                      // A new featured partner picked in the list lives on the
+                      // server; re-read so the card shows it.
+                      if (mounted) setState(() => _future = _load());
+                    },
               );
             },
           );

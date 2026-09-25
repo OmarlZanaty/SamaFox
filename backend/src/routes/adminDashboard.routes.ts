@@ -79,6 +79,8 @@ import {
   adminSetGates,
   adminListGameConfig,
   adminSetGameConfig,
+  adminGetHalalGames,
+  adminSetHalalGames,
   adminListTopSupporters,
   adminResetSupporterCounter,
   adminDashboardMe,
@@ -87,11 +89,18 @@ import {
   adminRevokeAdmin,
   adminSetSuperAdmin,
 } from '../controllers/adminDashboard.controller';
+import { adminBackgroundsRouter, adminCpRouter } from './adminCp.routes';
 
 const router = express.Router();
 
 router.use(authenticate);
 router.use(requireAdminDashboard);
+
+// ── 2026-09-22: صلاحيات فتح CP + إدارة نظام CP والخلفيات ──────────────────
+// Sub-routers, so they inherit the two gates above (JWT + isAdmin on the row)
+// and every action inside writes admin_audit_logs.
+router.use('/cp', adminCpRouter);
+router.use('/backgrounds', adminBackgroundsRouter);
 
 router.get('/overview', adminDashboardOverview);
 
@@ -215,6 +224,8 @@ router.post('/gates', adminSetGates);
 // ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────
 router.get('/games', adminListGameConfig);
 router.post('/games/:game', adminSetGameConfig);
+router.get('/games-halal', adminGetHalalGames);
+router.post('/games-halal', adminSetHalalGames);
 
 // ── Client logs (what the app is doing on users' phones) ─────────────────────
 //

@@ -6,6 +6,13 @@ import {
   rotateServerSeed as fairRotateServerSeed,
   setClientSeed as fairSetClientSeed,
 } from './fairSeeds';
+import {
+  grantStakeValue,
+  releasePrize,
+  reservePrize,
+  scalePaytable,
+  settlePrize,
+} from './halalGames.service';
 
 const GAME = 'aetherfall' as const;
 
@@ -80,7 +87,7 @@ const WEIGHTS_BONUS: Record<Cell, number> = {
 // in it, so scaling the whole table scales total RTP by the same factor. That
 // makes it the safest lever: hit rate, bonus frequency and the shape of the game
 // all stay exactly where they were.
-export const PAYTABLE: Record<StandardSymbol, [number, number, number]> = {
+const BASE_PAYTABLE: Record<StandardSymbol, [number, number, number]> = {
   L1: [0.95, 2.3, 5.5],
   L2: [1.15, 2.85, 6.5],
   L3: [1.3, 3.2, 7.6],
@@ -90,6 +97,23 @@ export const PAYTABLE: Record<StandardSymbol, [number, number, number]> = {
   H3: [9, 22, 72],
   H4: [18, 45, 135],
 };
+
+/**
+ * الصعوبة (2026-09-24): every entry above scaled by PRIZE_SCALE and rounded
+ * down to what the paytable screen prints. Every payout is linear in this
+ * table, so the return drops from ~97.3% to ~80% while hit rate, feature
+ * frequency and the shape of the game stay where they were. This scaled table
+ * is the one sent to the client, so the screen always shows what pays.
+ */
+export const PRIZE_SCALE = Number(process.env.AETHERFALL_PRIZE_SCALE ?? 0.82);
+export const PAYTABLE: Record<StandardSymbol, [number, number, number]> = scalePaytable(BASE_PAYTABLE, PRIZE_SCALE);
+
+/**
+ * What a spin reserves from the prize fund before the stake is taken: a
+ * practical ceiling (1,000× bet). A rarer, bigger result is
+ * still paid in full — the reservation guards the fund, it never shorts a win.
+ */
+const PRIZE_RESERVE_MULTIPLE = 1_000;
 
 function bandOf(count: number): 0 | 1 | 2 {
   if (count >= 15) return 2;
@@ -595,18 +619,34 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
 
   // Charge first, atomically, same guard pattern as بلينكو so parallel spins
   // can never overdraw a balance.
+  // Promise the prize this spin could bring before the stake is taken.
+  const reserved = await reservePrize(userId, GAME, bet * PRIZE_RESERVE_MULTIPLE);
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   const charged = await prisma.user.updateMany({
     where: { id: userId, coinsBalance: { gte: bet } },
     data: { coinsBalance: { decrement: bet } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT', message: 'رصيدك لا يكفي' };
   }
 
   // Reserved from the database, so two spins racing cannot draw the same nonce
   // and a restart cannot hand one out twice.
-  const s = await reserveNonce(userId, GAME);
+  let s: Awaited<ReturnType<typeof reserveNonce>>;
+  try {
+    s = await reserveNonce(userId, GAME);
+  } catch (err) {
+    releasePrize(reserved.token);
+    await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: bet } } });
+    console.error('[aetherfall] nonce reservation failed, bet refunded', { userId, bet, err });
+    return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
+  }
   const nonce = s.nonce;
+
+  // The stake is final: deliver the XP it bought before the reels are dealt.
+  await grantStakeValue(userId, GAME, bet, `${userId}:${nonce}`);
 
   let spin: SpinResult;
   try {
@@ -624,9 +664,13 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
       where: { id: userId },
       data: { coinsBalance: { increment: bet } },
     });
+    releasePrize(reserved.token);
     console.error('[aetherfall] spin failed, bet refunded', { userId, bet, err });
     return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
   }
+
+  // Whatever the spin paid is a prize from the fund.
+  settlePrize(reserved.token, userId, GAME, spin.grandTotal, `${userId}:${nonce}`);
 
   remember(userId, {
     nonce,

@@ -1,0 +1,40 @@
+# Postgres and Redis for SamaFox. On the old box these were system packages;
+# here they are containers so they match the other stacks and get picked up by
+# /usr/local/bin/backup-apps.sh. Both are loopback-only on ports that the other
+# stacks' containers are not already using.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: samafox-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${SF_DB_USER}
+      POSTGRES_PASSWORD: ${SF_DB_PASS}
+      POSTGRES_DB: ${SF_DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SF_DB_USER} -d ${SF_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: samafox-redis
+    restart: always
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -2876,6 +2876,39 @@ export const adminSetGameConfig = async (req: AdminReq, res: Response) => {
   }
 };
 
+// ── الألعاب الحلال: صندوق الجوائز ───────────────────────────────
+export const adminGetHalalGames = async (_req: AdminReq, res: Response) => {
+  try {
+    const { getHalalSettings, getHalalToday } = await import('../services/halalGames.service');
+    const [settings, todayStats] = await Promise.all([getHalalSettings(), getHalalToday()]);
+    return ok(res, { data: { settings, today: todayStats } });
+  } catch (e) {
+    console.error('adminGetHalalGames error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+export const adminSetHalalGames = async (req: AdminReq, res: Response) => {
+  try {
+    const body = req.body as any;
+    const patch: Record<string, number> = {};
+    for (const field of ['dailyPrizeBudget', 'perUserDailyPrizeCap', 'xpPerCoin'] as const) {
+      if (body?.[field] === undefined || body[field] === '') continue;
+      const n = Number(body[field]);
+      if (!Number.isFinite(n) || n < 0) return fail(res, 400, `${field} must be >= 0`);
+      patch[field] = field === 'xpPerCoin' ? n : Math.floor(n);
+    }
+    if (Object.keys(patch).length === 0) return fail(res, 400, 'nothing to update');
+
+    const { setHalalSettings } = await import('../services/halalGames.service');
+    const settings = await setHalalSettings(patch);
+    return ok(res, { data: { settings } });
+  } catch (e) {
+    console.error('adminSetHalalGames error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 // ============================================================
 // هدايا الحظ — LUCKY GIFTS (pool, tiers, rolls)
 // ============================================================

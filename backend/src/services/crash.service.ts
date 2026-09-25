@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Server } from 'socket.io';
 import prisma from '../utils/prisma';
+import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
 
 // ============================================================
 // طيّار — CRASH (Aviator-style), real coins
@@ -17,20 +18,26 @@ import prisma from '../utils/prisma';
 // point from (serverSeed, clientSeeds, nonce) and check it against what they
 // saw. See `verifyCrashPoint` — the client runs the same formula.
 //
-// NOTE: this is a wagering game — a stake on a random outcome, with total loss
-// if you do not cash out. It deliberately breaks the "no قمار" rule the rest of
-// the games follow (see skillDice / skillWheel / boxing); the client asked for
-// the original Aviator mechanics first, to be de-gambled in a later pass.
+// الألعاب الحلال (halalGames.service): the stake is the price of XP, delivered
+// at takeoff — the moment it can no longer be cancelled — so the player has
+// full value for it whatever happens next. A cash-out is a prize from the
+// platform's prize fund, reserved before the stake is taken, never paid out of
+// other players' stakes.
 // ============================================================
 
 // ── Economy ─────────────────────────────────────────────────
 export const CRASH_MIN_BET = Number(process.env.CRASH_MIN_BET ?? 100);
 export const CRASH_MAX_BET = Number(process.env.CRASH_MAX_BET ?? 500_000);
 export const CRASH_SLOTS = 2; // two independent bet panels, as in Aviator
-export const CRASH_MAX_MULTIPLIER = 1000;
+export const CRASH_MAX_MULTIPLIER = Number(process.env.CRASH_MAX_MULTIPLIER ?? 100);
 
-/** 1-in-N rounds bust instantly at 1.00x. N = 33 gives a 3% house edge (97% RTP). */
-const HOUSE_EDGE_DIVISOR = Number(process.env.CRASH_EDGE_DIVISOR ?? 33);
+/**
+ * 1-in-N rounds bust instantly at 1.00x; the rest follow P(point ≥ x) = 1/x,
+ * so the prize return is (1 − 1/N). N = 5 → 80% (it was 33 → 97%). This is the
+ * difficulty dial: a cash-out still pays exactly the multiplier on screen —
+ * only how often the plane leaves early changes.
+ */
+const HOUSE_EDGE_DIVISOR = Number(process.env.CRASH_EDGE_DIVISOR ?? 5);
 
 /**
  * Multiplier growth per millisecond of flight: m(t) = e^(GROWTH * t).
@@ -60,7 +67,7 @@ export const roundHashInput = (serverSeed: string, clientSeeds: string[], nonce:
  * and the client all derive the point the exact same way.
  */
 export function crashPointFromHash(hash: string): number {
-  // 1-in-33 instant bust — this is where the whole house edge lives.
+  // 1-in-N instant bust — this is where the whole difficulty lives.
   const seedInt = BigInt('0x' + hash);
   if (seedInt % BigInt(HOUSE_EDGE_DIVISOR) === BigInt(0)) return 1.0;
 
@@ -91,6 +98,8 @@ interface Bet {
   status: 'pending' | 'win' | 'loss' | 'cancelled';
   betTime: number;
   cashOutTime: number | null;
+  /** Prize-fund reservation covering the largest cash-out this bet can make. */
+  prizeToken: string | null;
 }
 
 interface Round {
@@ -249,11 +258,16 @@ export async function placeCrashBet(
     return { ok: false as const, code: 'ALREADY_BET', message: 'لديك رهان على هذه اللوحة' };
   }
 
+  // The largest prize this bet can win is promised before its coins are taken.
+  const reserved = await reservePrize(userId, 'crash', amount * (autoCashOut ?? CRASH_MAX_MULTIPLIER));
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   const charged = await prisma.user.updateMany({
     where: { id: userId, coinsBalance: { gte: amount } },
     data: { coinsBalance: { decrement: amount } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT_COINS', message: 'رصيدك لا يكفي' };
   }
 
@@ -265,8 +279,16 @@ export async function placeCrashBet(
   // The betting window can close while the charge is in flight — refund rather
   // than silently keeping the money.
   if (!round || round.phase !== 'betting') {
+    releasePrize(reserved.token);
     await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: amount } } });
     return { ok: false as const, code: 'BETTING_CLOSED', message: 'انتهى وقت الرهان' };
+  }
+  // Two taps racing on the same panel both pass the check above; the second
+  // would overwrite the first and its stake would vanish. Give it back.
+  if (round.bets.has(key(userId, slot))) {
+    releasePrize(reserved.token);
+    await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: amount } } });
+    return { ok: false as const, code: 'ALREADY_BET', message: 'لديك رهان على هذه اللوحة' };
   }
 
   const seed = getClientSeed(userId);
@@ -285,6 +307,7 @@ export async function placeCrashBet(
     status: 'pending',
     betTime: Date.now(),
     cashOutTime: null,
+    prizeToken: reserved.token,
   });
   broadcastBets();
 
@@ -308,6 +331,7 @@ export async function cancelCrashBet(userId: number, slot: number) {
 
   bet.status = 'cancelled';
   round.bets.delete(key(userId, slot));
+  releasePrize(bet.prizeToken);
   const user = await prisma.user.update({
     where: { id: userId },
     data: { coinsBalance: { increment: bet.amount } },
@@ -324,6 +348,7 @@ async function payOut(bet: Bet, multiplier: number) {
   bet.payout = Math.floor(bet.amount * m);
   bet.status = 'win';
   bet.cashOutTime = Date.now();
+  settlePrize(bet.prizeToken, bet.userId, 'crash', bet.payout, bet.betId);
 
   let balance = 0;
   try {
@@ -402,6 +427,7 @@ async function settleCrash(r: Round) {
     if (bet.status === 'pending') {
       bet.status = 'loss';
       bet.payout = 0;
+      releasePrize(bet.prizeToken);
     }
   }
 
@@ -441,6 +467,14 @@ function advance() {
   if (r.phase === 'betting') {
     r.phase = 'flying';
     r.startTime = Date.now();
+    // Bets can no longer be cancelled: each stake is final, so deliver the XP it
+    // bought now — before anyone knows where the plane will go.
+    for (const bet of r.bets.values()) {
+      if (bet.status !== 'pending') continue;
+      grantStakeValue(bet.userId, 'crash', bet.amount, bet.betId).catch((err) =>
+        console.error('[crash] stake value grant failed', { userId: bet.userId, err }),
+      );
+    }
     io?.to(CRASH_ROOM).emit('crash_takeoff', {
       roundId: r.id,
       startTime: r.startTime,
