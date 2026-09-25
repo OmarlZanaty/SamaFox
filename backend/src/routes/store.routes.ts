@@ -286,8 +286,14 @@ router.post('/activate', async (req: any, res) => {
     // entrance banner and a chat bubble can all be active at once.
     try {
       await prisma.$transaction(async (tx) => {
+        // An expired rental is not owned any more, even before the sweep
+        // deletes its row — same rule as GET /inventory.
         const target = await tx.userItem.findFirst({
-          where: { id: String(inventoryId), userId },
+          where: {
+            id: String(inventoryId),
+            userId,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          } as any,
           include: { item: { select: { type: true, assetUrl: true } } },
         });
         if (!target) throw new Error('NOT_FOUND');

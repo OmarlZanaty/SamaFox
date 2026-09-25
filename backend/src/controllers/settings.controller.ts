@@ -59,6 +59,16 @@ export const CP_DEFAULTS: Record<string, string> = {
   turn_urls: '',
   turn_username: '',
   turn_credential: '',
+  // ── صلاحيات فتح CP (2026-09-22) ──────────────────────────────────────────
+  // The system policy for opening CP (couple pairing). `free` is exactly the
+  // behaviour that existed before the permission system, so nothing changes
+  // for anyone until an admin switches it. Edited from the CP panel; the
+  // authoritative reader is cpUnlock.service.readCpSettings.
+  cp_unlock_mode: 'free', // free | fee
+  cp_unlock_fee_coins: '0',
+  cp_level_step_coins: '0', // "قيمة رفع مستوى CP": 0 = days-based ladder
+  cp_level_max: '5',
+  cp_level_names: '',
 };
 
 /** "1, 2,x,3" → [1, 2, 3]. Tolerant of whatever the dashboard sends. */

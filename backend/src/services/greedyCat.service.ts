@@ -1,15 +1,19 @@
 import { Server } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
+import { getGameSettings } from './gameConfig.service';
+import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
+
+/** This game's id in لوحة التحكم → الألعاب (gameConfig KNOWN_GAMES). */
+const GAME_CONFIG_KEY = 'greedy-cat';
 
 // ============================================================
 // القط الجشع — GREEDY CAT JACKPOT (8-symbol live food wheel)
 // ============================================================
-// NOTE ON THE HOUSE RULE: this game follows عجلة الحظ (crazyWheel.service.ts)
-// rather than the halal model used by skillWheel/skillDice — it is a
-// bet-on-an-outcome format, built to the client's spec. Everything that moves
-// coins lives in this file, so the halal conversion planned across the wager
-// games stays a change to the payout helpers here and nowhere else.
+// الألعاب الحلال (halalGames.service): a stake is the price of XP, delivered
+// when betting closes — the last moment it could still be taken back. A win is
+// a prize from the platform's prize fund, reserved as each stake is placed; no
+// player is ever paid from another player's stake.
 //
 // Round shape:
 //   betting (30s) → closing (5s) → spinning (6s) → result (6s) → next round
@@ -22,12 +26,13 @@ import prisma from '../utils/prisma';
 // Symbol weights are proportional to 1/multiplier, so EVERY symbol carries the
 // identical expected return and no bet on the table is better than any other:
 //
-//   1/45 : 1/25 : 1/15 : 1/10 : 1/5   ×450   →   10 : 18 : 30 : 45 : 90
+//   1/45 : 1/25 : 1/15 : 1/8 : 1/4   ×1800   →   40 : 72 : 120 : 225 : 450
 //
-// Total weight 463, so a winning bet returns stake × multiplier with
-// probability weight/463, and the RTP on every symbol is
-//   450 / 463 = 97.19%
-// leaving the house a flat 2.81% edge no matter what the player backs.
+// Total weight 2257, so a winning bet returns stake × multiplier with
+// probability weight/2257, and the prize return on every symbol is
+//   1800 / 2257 = 79.75%
+// the same no matter what the player backs. (Raised difficulty, 2026-09-24:
+// it was 450/463 = 97.19% with shrimp 10× and the salads 5×.)
 // Changing a multiplier WITHOUT changing its weight breaks that guarantee, so
 // `assertBalancedTable()` fails loudly at boot if the two ever drift apart.
 // ============================================================
@@ -51,7 +56,7 @@ interface SymbolDef {
   category: CategoryKey;
   /** Gross return per coin staked, stake included. */
   multiplier: number;
-  /** Share of the 463-weight ring. Must stay proportional to 1/multiplier. */
+  /** Share of the 2257-weight ring. Must stay proportional to 1/multiplier. */
   weight: number;
   nameAr: string;
 }
@@ -63,14 +68,14 @@ interface SymbolDef {
  * client rotates to whichever index carries it.
  */
 export const SYMBOLS: SymbolDef[] = [
-  { key: 'chicken', category: 'pizza', multiplier: 45, weight: 10, nameAr: 'دجاجة' },
-  { key: 'tomato',  category: 'salad', multiplier: 5,  weight: 90, nameAr: 'طماطم' },
-  { key: 'goat',    category: 'pizza', multiplier: 15, weight: 30, nameAr: 'ماعز' },
-  { key: 'pepper',  category: 'salad', multiplier: 5,  weight: 90, nameAr: 'فلفل' },
-  { key: 'fish',    category: 'pizza', multiplier: 25, weight: 18, nameAr: 'سمكة' },
-  { key: 'carrot',  category: 'salad', multiplier: 5,  weight: 90, nameAr: 'جزرة' },
-  { key: 'shrimp',  category: 'pizza', multiplier: 10, weight: 45, nameAr: 'روبيان' },
-  { key: 'corn',    category: 'salad', multiplier: 5,  weight: 90, nameAr: 'ذرة' },
+  { key: 'chicken', category: 'pizza', multiplier: 45, weight: 40,  nameAr: 'دجاجة' },
+  { key: 'tomato',  category: 'salad', multiplier: 4,  weight: 450, nameAr: 'طماطم' },
+  { key: 'goat',    category: 'pizza', multiplier: 15, weight: 120, nameAr: 'ماعز' },
+  { key: 'pepper',  category: 'salad', multiplier: 4,  weight: 450, nameAr: 'فلفل' },
+  { key: 'fish',    category: 'pizza', multiplier: 25, weight: 72,  nameAr: 'سمكة' },
+  { key: 'carrot',  category: 'salad', multiplier: 4,  weight: 450, nameAr: 'جزرة' },
+  { key: 'shrimp',  category: 'pizza', multiplier: 8,  weight: 225, nameAr: 'روبيان' },
+  { key: 'corn',    category: 'salad', multiplier: 4,  weight: 450, nameAr: 'ذرة' },
 ];
 
 const SYMBOL_KEYS: SymbolKey[] = SYMBOLS.map((s) => s.key);
@@ -88,9 +93,9 @@ export const CATEGORIES: Record<CategoryKey, SymbolKey[]> = {
  * symbol bets.
  *
  * The spec asked for a flat 2× on a category. That cannot ship: salad covers
- * 360/463 of the ring, so a flat 2× would return 0.7775 × 2 = 155% of stake —
+ * 1800/2257 of the ring, so a flat 2× would return 0.7975 × 2 = 160% of stake —
  * an unbounded money printer. Splitting keeps a category bet at the same
- * 97.19% RTP as everything else, and is what the reference screen already
+ * return as everything else, and is what the reference screen already
  * shows visually ("distribute the wager to the four associated cards").
  */
 export const CATEGORY_SPLIT = 4;
@@ -118,7 +123,7 @@ export const RTP = (SYMBOLS[0]!.weight * SYMBOLS[0]!.multiplier) / TOTAL_WEIGHT;
  * `seedHash` commits to the outcome BEFORE any bet is placed, and the revealed
  * seed lets a player recompute it afterwards:
  *
- *   roll  = sha256(seed + ':' + roundId) → first 52 bits → mod 463
+ *   roll  = sha256(seed + ':' + roundId) → first 52 bits → mod TOTAL_WEIGHT
  *   index = the symbol whose cumulative weight window contains `roll`
  */
 export function rollFromSeed(seed: string, roundId: number): number {
@@ -203,6 +208,19 @@ let timer: NodeJS.Timeout | null = null;
 let nextRoundId = 1;
 const history: HistoryEntry[] = [];
 const lastBets = new Map<number, Record<string, number>>();
+
+/**
+ * Prize-fund reservations per `${roundId}:${userId}`. Each stake reserves the
+ * most it alone could win (its largest symbol × multiplier); the sum always
+ * covers the player's real maximum, since a round pays one symbol only.
+ */
+const prizeTokens = new Map<string, string[]>();
+const tokenKey = (roundId: number, userId: number) => `${roundId}:${userId}`;
+
+function releaseRoundPrizes(roundId: number, userId: number) {
+  for (const t of prizeTokens.get(tokenKey(roundId, userId)) ?? []) releasePrize(t);
+  prizeTokens.delete(tokenKey(roundId, userId));
+}
 
 // ── Daily leaderboard ───────────────────────────────────────
 /**
@@ -446,6 +464,37 @@ function splitCategory(target: CategoryKey, amount: number): Record<string, numb
   return out;
 }
 
+/** This player's total stake in the current round, all symbols. */
+function roundStakeOf(userId: number): number {
+  const bets = round?.players.get(userId)?.bets ?? {};
+  return Object.values(bets).reduce((a, b) => a + b, 0);
+}
+
+/**
+ * Stakes charged but not yet written into the round. The balance charge is an
+ * await, so two bets sent at once both passed a check that only counted what
+ * was already on the table — this counts them before the await.
+ */
+const stakeInFlight = new Map<number, number>();
+
+/**
+ * "أقصى رهان" from لوحة التحكم, applied to the player's TOTAL for the round.
+ * The route guard only ever saw one request's amount, so the same limit could
+ * be stacked on one symbol, and "تكرار الرهان" (no amount in the body) was
+ * never checked at all. Null = no round limit set.
+ */
+async function roundLimit(): Promise<number | null> {
+  try {
+    return (await getGameSettings(GAME_CONFIG_KEY)).maxBet;
+  } catch (e) {
+    console.warn('[greedyCat] could not read the bet limit:', (e as Error).message);
+    return null;
+  }
+}
+
+const roundLimitMessage = (limit: number, used: number) =>
+  `الحد الأقصى لرهاناتك في الجولة ${limit} كوينز — المتبقي لك ${Math.max(0, limit - used)}`;
+
 export async function placeBet(userId: number, target: string, amount: number) {
   if (!round || round.phase !== 'betting') {
     return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' };
@@ -472,6 +521,13 @@ export async function placeBet(userId: number, target: string, amount: number) {
     ? splitCategory(target as CategoryKey, amount)
     : { [target]: amount };
 
+  const limit = await roundLimit();
+  // Everything from here to the reservation is synchronous, so no other bet
+  // from this player can slip in between the check and the reserve.
+  if (!round || round.phase !== 'betting') {
+    return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' };
+  }
+
   const existing = round.players.get(userId)?.bets ?? {};
   for (const [key, add] of Object.entries(additions)) {
     if ((existing[key] ?? 0) + add > MAX_BET_PER_SYMBOL) {
@@ -479,17 +535,51 @@ export async function placeBet(userId: number, target: string, amount: number) {
     }
   }
 
-  const charged = await prisma.user.updateMany({
-    where: { id: userId, coinsBalance: { gte: amount } },
-    data: { coinsBalance: { decrement: amount } },
-  });
+  const committed = roundStakeOf(userId) + (stakeInFlight.get(userId) ?? 0);
+  if (limit != null && committed + amount > limit) {
+    return { ok: false as const, code: 'BET_TOO_HIGH', message: roundLimitMessage(limit, committed) };
+  }
+  stakeInFlight.set(userId, (stakeInFlight.get(userId) ?? 0) + amount);
+  const roundId = round.id;
+  const release = () => {
+    const left = (stakeInFlight.get(userId) ?? 0) - amount;
+    if (left > 0) stakeInFlight.set(userId, left);
+    else stakeInFlight.delete(userId);
+  };
+
+  // Promise the biggest prize this stake could bring before taking it.
+  const maxPrize = Math.max(
+    ...Object.entries(additions).map(([key, add]) => add * BY_KEY.get(key as SymbolKey)!.multiplier),
+  );
+  const reserved = await reservePrize(userId, GAME_CONFIG_KEY, maxPrize);
+  if (!reserved.ok) {
+    release();
+    return { ok: false as const, code: reserved.code, message: reserved.message };
+  }
+  const prizeToken = reserved.token;
+
+  let charged;
+  try {
+    charged = await prisma.user.updateMany({
+      where: { id: userId, coinsBalance: { gte: amount } },
+      data: { coinsBalance: { decrement: amount } },
+    });
+  } catch (e) {
+    release();
+    releasePrize(prizeToken);
+    throw e;
+  }
   if (charged.count === 0) {
+    release();
+    releasePrize(prizeToken);
     return { ok: false as const, code: 'INSUFFICIENT_COINS', message: 'رصيدك لا يكفي' };
   }
 
   // Betting can close while the charge is in flight — refund rather than
   // silently keeping the coins.
-  if (!round || round.phase !== 'betting') {
+  if (!round || round.phase !== 'betting' || round.id !== roundId) {
+    release();
+    releasePrize(prizeToken);
     await prisma.user.update({
       where: { id: userId },
       data: { coinsBalance: { increment: amount } },
@@ -499,10 +589,15 @@ export async function placeBet(userId: number, target: string, amount: number) {
 
   let player = round.players.get(userId);
   if (!player) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true, avatarUrl: true, countryCode: true },
-    });
+    // Display fields only. The coins are already taken at this point, so a
+    // failed lookup must not abort the bet (it used to throw here, keeping the
+    // stake and placing nothing).
+    const user = await prisma.user
+      .findUnique({
+        where: { id: userId },
+        select: { name: true, avatarUrl: true, countryCode: true },
+      })
+      .catch(() => null);
     player = {
       userId,
       name: user?.name ?? 'لاعب',
@@ -519,6 +614,11 @@ export async function placeBet(userId: number, target: string, amount: number) {
   for (const [key, add] of Object.entries(additions)) {
     player.bets[key] = (player.bets[key] ?? 0) + add;
   }
+  const tokens = prizeTokens.get(tokenKey(roundId, userId)) ?? [];
+  tokens.push(prizeToken);
+  prizeTokens.set(tokenKey(roundId, userId), tokens);
+  // On the table now, so roundStakeOf() counts it; drop the reservation.
+  release();
   if (isCategory) {
     player.categories[target] = (player.categories[target] ?? 0) + amount;
   }
@@ -552,6 +652,7 @@ export async function clearBets(userId: number) {
   const total = Object.values(player.bets).reduce((a, b) => a + b, 0);
   player.bets = {};
   player.categories = {};
+  releaseRoundPrizes(round.id, userId);
   if (total > 0) {
     await prisma.user.update({
       where: { id: userId },
@@ -629,6 +730,14 @@ export async function repeatBets(userId: number) {
   if (!previous || Object.keys(previous).length === 0) {
     return { ok: false as const, code: 'NO_PREVIOUS', message: 'لا يوجد رهان سابق' };
   }
+  // All or nothing against the round limit: replaying bet by bet would place
+  // part of the previous round and then stop, leaving the player half-bet.
+  const replayTotal = Object.values(previous).reduce((a, b) => a + (b > 0 ? b : 0), 0);
+  const limit = await roundLimit();
+  const committed = roundStakeOf(userId) + (stakeInFlight.get(userId) ?? 0);
+  if (limit != null && committed + replayTotal > limit) {
+    return { ok: false as const, code: 'BET_TOO_HIGH', message: roundLimitMessage(limit, committed) };
+  }
   // Replayed as symbol stakes, never as categories — the split already happened
   // last round, and re-splitting would quadruple the stake.
   for (const [key, amount] of Object.entries(previous)) {
@@ -692,6 +801,12 @@ async function settle(r: Round) {
     player.payout = payout;
     player.multiplier = onWinner > 0 ? def.multiplier : 0;
 
+    // One reservation carries the prize to the ledger; the rest are freed.
+    const tokens = prizeTokens.get(tokenKey(r.id, player.userId)) ?? [];
+    prizeTokens.delete(tokenKey(r.id, player.userId));
+    for (const t of tokens.slice(1)) releasePrize(t);
+    if (payout <= 0) releasePrize(tokens[0]);
+
     const row = cacheRow(player);
     // `wagered` was already added at bet time, so the daily net only needs the
     // return side here.
@@ -704,6 +819,7 @@ async function settle(r: Round) {
           where: { id: player.userId },
           data: { coinsBalance: { increment: payout } },
         });
+        settlePrize(tokens[0], player.userId, GAME_CONFIG_KEY, payout, `round:${r.id}`);
         winners.push({
           userId: player.userId,
           name: player.name,
@@ -712,6 +828,7 @@ async function settle(r: Round) {
           profit: payout - staked,
         });
       } catch (err) {
+        releasePrize(tokens[0]);
         console.error('[greedyCat] payout failed', { userId: player.userId, payout, err });
         // The coins never landed, so do not let the leaderboard claim they did.
         row.net -= payout;
@@ -760,6 +877,18 @@ function advance() {
     }
     r.phase = 'closing';
     r.endsAt = Date.now() + CLOSING_MS;
+    // Stakes can no longer be cleared or reduced: deliver the XP each one
+    // bought, before the wheel is rolled.
+    for (const player of r.players.values()) {
+      const staked = Object.values(player.bets).reduce((a, b) => a + b, 0);
+      if (staked <= 0) {
+        releaseRoundPrizes(r.id, player.userId);
+        continue;
+      }
+      grantStakeValue(player.userId, GAME_CONFIG_KEY, staked, `round:${r.id}`).catch((err) =>
+        console.error('[greedyCat] stake value grant failed', { userId: player.userId, err }),
+      );
+    }
     broadcast();
     timer = setTimeout(advance, CLOSING_MS);
     return;

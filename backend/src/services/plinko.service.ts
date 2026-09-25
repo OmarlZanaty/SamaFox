@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
+import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
 import {
   getFairness as fairGetFairness,
   reserveNonce,
@@ -33,9 +34,10 @@ const HISTORY_LIMIT = 30;
 
 // ── Multiplier tables ────────────────────────────────────────────────────────
 // One row per board size (8..16 rows → 9..17 slots). Every table is symmetric
-// and is weighted by the binomial distribution so the house keeps ~1%: the
-// middle slots pay under 1x and are overwhelmingly the most likely landing
-// spots, which is what funds the rare edge hits.
+// and weighted by the binomial distribution. These are the ORIGINAL ~99%
+// tables; what is actually played is `scaledTable` below, which brings each
+// one down to TARGET_RTP. The client draws the board from getLayout(), so the
+// numbers a player sees are always exactly the numbers that pay.
 
 const LOW: Record<number, number[]> = {
   8: [5.6, 2.1, 1.1, 1, 0.5, 1, 1.1, 2.1, 5.6],
@@ -73,11 +75,62 @@ const HIGH: Record<number, number[]> = {
   16: [1000, 130, 26, 9, 4, 2, 0.2, 0.2, 0.2, 0.2, 0.2, 2, 4, 9, 26, 130, 1000],
 };
 
-const TABLES: Record<RiskLevel, Record<number, number[]>> = {
+const BASE_TABLES: Record<RiskLevel, Record<number, number[]>> = {
   low: LOW,
   medium: MEDIUM,
   high: HIGH,
 };
+
+/**
+ * الصعوبة — the prize return each table is scaled to (was ~99%). Scaling every
+ * slot by one factor keeps the board's shape; the player simply wins less.
+ */
+export const TARGET_RTP = Number(process.env.PLINKO_TARGET_RTP ?? 0.8);
+
+/** P(landing in slot k) on an n-row board: C(n,k) / 2^n. */
+export function slotOdds(rows: number): number[] {
+  const out: number[] = [];
+  let c = 1;
+  for (let k = 0; k <= rows; k++) {
+    out.push(c / 2 ** rows);
+    c = (c * (rows - k)) / (k + 1);
+  }
+  return out;
+}
+
+export const tableRtp = (table: number[]) => {
+  const odds = slotOdds(table.length - 1);
+  return table.reduce((sum, m, k) => sum + m * odds[k]!, 0);
+};
+
+/**
+ * Round DOWN to what the app can show: one decimal under 10x, whole numbers
+ * from 10x (plinko_screen.dart `_fmt`). Anything else would put a figure on
+ * the board that is not the figure paid. Never below 0.1x.
+ */
+const displayable = (v: number) =>
+  v >= 10 ? Math.floor(v + 1e-9) : Math.max(0.1, Math.floor(v * 10 + 1e-9) / 10);
+
+/** The largest single scale factor whose rounded table stays within target. */
+function scaledTable(base: number[]): number[] {
+  const apply = (f: number) => base.map((m) => displayable(m * f));
+  let lo = 0;
+  let hi = 1;
+  if (tableRtp(apply(1)) <= TARGET_RTP) return apply(1);
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (tableRtp(apply(mid)) <= TARGET_RTP) lo = mid;
+    else hi = mid;
+  }
+  return apply(lo);
+}
+
+const TABLES: Record<RiskLevel, Record<number, number[]>> = { low: {}, medium: {}, high: {} };
+for (const risk of ['low', 'medium', 'high'] as RiskLevel[]) {
+  for (const [rows, table] of Object.entries(BASE_TABLES[risk])) {
+    TABLES[risk][Number(rows)] = scaledTable(table);
+  }
+}
 
 export function multipliersFor(risk: RiskLevel, rows: number): number[] {
   return TABLES[risk][rows] ?? TABLES[risk][MAX_ROWS]!;
@@ -201,6 +254,11 @@ export async function dropBall(userId: number, rawRisk: unknown, rawRows: unknow
     };
   }
 
+  // The biggest prize this board can pay is promised before the coins move.
+  const table = multipliersFor(risk, rows);
+  const reserved = await reservePrize(userId, GAME, bet * Math.max(...table));
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   // Charge first, and only if the balance actually covers it — updateMany with a
   // gte guard makes the debit atomic, so parallel drops cannot overdraw.
   const charged = await prisma.user.updateMany({
@@ -208,13 +266,25 @@ export async function dropBall(userId: number, rawRisk: unknown, rawRows: unknow
     data: { coinsBalance: { decrement: bet } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT', message: 'رصيدك لا يكفي' };
   }
 
   // Reserved from the database, so two plays racing cannot draw the same nonce
   // and a restart cannot hand one out twice.
-  const s = await reserveNonce(userId, GAME);
+  let s: Awaited<ReturnType<typeof reserveNonce>>;
+  try {
+    s = await reserveNonce(userId, GAME);
+  } catch (err) {
+    releasePrize(reserved.token);
+    await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: bet } } });
+    console.error('[plinko] nonce reservation failed, bet refunded', { userId, bet, err });
+    return { ok: false as const, code: 'DROP_FAILED', message: 'تعذر إسقاط الكرة' };
+  }
   const nonce = s.nonce;
+
+  // The stake is final: deliver the XP it bought before the ball is dropped.
+  await grantStakeValue(userId, GAME, bet, `${userId}:${nonce}`);
 
   let slot: number;
   let directions: number[];
@@ -223,7 +293,7 @@ export async function dropBall(userId: number, rawRisk: unknown, rawRows: unknow
 
   try {
     ({ directions, slot } = derivePath(s.serverSeed, s.clientSeed, nonce, rows));
-    multiplier = multipliersFor(risk, rows)[slot]!;
+    multiplier = table[slot]!;
     payout = Math.floor(bet * multiplier);
 
     if (payout > 0) {
@@ -238,9 +308,13 @@ export async function dropBall(userId: number, rawRisk: unknown, rawRows: unknow
       where: { id: userId },
       data: { coinsBalance: { increment: bet } },
     });
+    releasePrize(reserved.token);
     console.error('[plinko] drop failed, bet refunded', { userId, bet, err });
     return { ok: false as const, code: 'DROP_FAILED', message: 'تعذر إسقاط الكرة' };
   }
+
+  // The landing slot's multiplier is a prize from the fund.
+  settlePrize(reserved.token, userId, GAME, payout, `${userId}:${nonce}`);
 
   const record: DropRecord = {
     nonce,

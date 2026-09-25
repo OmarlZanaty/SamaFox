@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import prisma from '../utils/prisma';
+import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
 
 // ============================================================
 // عجلة المهارة — SKILL WHEEL (real coins, NOT a roulette table)
@@ -71,16 +72,29 @@ export function scoreStop(target: number, landed: number): number {
 // Reward = entry * multiplier for the highest tier whose `minScore` is met.
 // Ordered high -> low. Last entry (minScore 0) is the guaranteed floor: a
 // player who never even stops the wheel still gets it back.
+// الصعوبة (2026-09-24): every tier lowered (was 1.2 / 0.9 / 0.65 / 0.45 / 0.3).
+// The best play now returns less than the entry price, so a tampered client
+// that claims a perfect play every round can no longer farm coins.
 const REWARD_TIERS: { minScore: number; multiplier: number }[] = [
-  { minScore: 100, multiplier: Number(process.env.SKILL_WHEEL_EXACT_RETURN ?? 1.2) },
-  { minScore: 72, multiplier: 0.9 },
-  { minScore: 48, multiplier: 0.65 },
-  { minScore: 28, multiplier: 0.45 },
-  { minScore: 0, multiplier: Number(process.env.SKILL_WHEEL_MIN_RETURN ?? 0.3) },
+  { minScore: 100, multiplier: Number(process.env.SKILL_WHEEL_EXACT_RETURN ?? 0.95) },
+  { minScore: 72, multiplier: 0.7 },
+  { minScore: 48, multiplier: 0.5 },
+  { minScore: 28, multiplier: 0.35 },
+  { minScore: 0, multiplier: Number(process.env.SKILL_WHEEL_MIN_RETURN ?? 0.2) },
 ];
 
+// الألعاب الحلال: the entry buys XP (delivered on joining) and the reward is a
+// prize from the platform's prize fund, reserved when the player joins.
+const prizeTokens = new Map<string, string>();
+const tokenKey = (roundId: number, userId: number) => `${roundId}:${userId}`;
+function takeToken(roundId: number, userId: number): string | undefined {
+  const t = prizeTokens.get(tokenKey(roundId, userId));
+  prizeTokens.delete(tokenKey(roundId, userId));
+  return t;
+}
+
 function rewardFor(entry: number, score: number): number {
-  const multiplier = REWARD_TIERS.find((t) => score >= t.minScore)?.multiplier ?? 0.3;
+  const multiplier = REWARD_TIERS.find((t) => score >= t.minScore)?.multiplier ?? 0.2;
   return Math.floor(entry * multiplier);
 }
 
@@ -170,11 +184,17 @@ export async function joinWheelRound(userId: number, entry: number) {
     return { ok: false as const, code: 'ALREADY_JOINED', message: 'أنت مشترك في هذه الجولة' };
   }
 
+  // The best reward this entry can earn is promised before the coins move.
+  const joinRoundId = round.id;
+  const reserved = await reservePrize(userId, 'wheel', rewardFor(entry, 100));
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   const charged = await prisma.user.updateMany({
     where: { id: userId, coinsBalance: { gte: entry } },
     data: { coinsBalance: { decrement: entry } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT_COINS', message: 'رصيدك لا يكفي' };
   }
 
@@ -185,7 +205,8 @@ export async function joinWheelRound(userId: number, entry: number) {
 
   // The join window can close while the charge is in flight — refund rather
   // than silently keeping the money.
-  if (!round || round.phase !== 'join') {
+  if (!round || round.phase !== 'join' || round.id !== joinRoundId) {
+    releasePrize(reserved.token);
     await prisma.user.update({
       where: { id: userId },
       data: { coinsBalance: { increment: entry } },
@@ -202,11 +223,15 @@ export async function joinWheelRound(userId: number, entry: number) {
     score: 0,
     reward: 0,
   });
+  prizeTokens.set(tokenKey(round.id, userId), reserved.token);
   broadcastState();
+
+  // The entry is final: deliver the XP it bought before the round is played.
+  await grantStakeValue(userId, 'wheel', entry, `round:${round.id}`);
 
   return {
     ok: true as const,
-    roundId: round.id,
+    roundId: joinRoundId,
     balance: user?.coinsBalance ?? 0,
     minReward: rewardFor(entry, 0),
     maxReward: rewardFor(entry, 100),
@@ -266,13 +291,19 @@ async function settleRound(r: Round) {
   }
 
   for (const e of entrants) {
-    if (e.reward <= 0) continue;
+    const prizeToken = takeToken(r.id, e.userId);
+    if (e.reward <= 0) {
+      releasePrize(prizeToken);
+      continue;
+    }
     try {
       await prisma.user.update({
         where: { id: e.userId },
         data: { coinsBalance: { increment: e.reward } },
       });
+      settlePrize(prizeToken, e.userId, 'wheel', e.reward, `round:${r.id}`);
     } catch (err) {
+      releasePrize(prizeToken);
       console.error('[skillWheel] payout failed', { userId: e.userId, reward: e.reward, err });
     }
   }

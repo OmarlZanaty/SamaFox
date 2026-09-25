@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import prisma from '../utils/prisma';
+import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
 
 // ============================================================
 // حلبة الأسد والنمر — LION & TIGER ARENA (real coins, NOT a betting game)
@@ -39,13 +40,26 @@ export type BoxingCorner = (typeof BOXING_CORNERS)[number];
 // Reward = entry * multiplier for the highest tier whose `minScore` is met.
 // Ordered high -> low. The last entry (minScore 0) is the guaranteed floor: a
 // player who never throws a punch still gets it back.
+// الصعوبة (2026-09-24): every tier lowered (was 1.2 / 0.9 / 0.65 / 0.45 / 0.3).
+// The best play now returns less than the entry price, so a tampered client
+// that claims a perfect play every round can no longer farm coins.
 const REWARD_TIERS: { minScore: number; multiplier: number }[] = [
-  { minScore: 100, multiplier: Number(process.env.BOXING_TOP_RETURN ?? 1.2) },
-  { minScore: 80, multiplier: 0.9 },
-  { minScore: 55, multiplier: 0.65 },
-  { minScore: 30, multiplier: 0.45 },
-  { minScore: 0, multiplier: Number(process.env.BOXING_MIN_RETURN ?? 0.3) },
+  { minScore: 100, multiplier: Number(process.env.BOXING_TOP_RETURN ?? 0.95) },
+  { minScore: 80, multiplier: 0.7 },
+  { minScore: 55, multiplier: 0.5 },
+  { minScore: 30, multiplier: 0.35 },
+  { minScore: 0, multiplier: Number(process.env.BOXING_MIN_RETURN ?? 0.2) },
 ];
+
+// الألعاب الحلال: the entry buys XP (delivered on joining) and the reward is a
+// prize from the platform's prize fund, reserved when the player joins.
+const prizeTokens = new Map<string, string>();
+const tokenKey = (roundId: number, userId: number) => `${roundId}:${userId}`;
+function takeToken(roundId: number, userId: number): string | undefined {
+  const t = prizeTokens.get(tokenKey(roundId, userId));
+  prizeTokens.delete(tokenKey(roundId, userId));
+  return t;
+}
 
 const JOIN_MS = 12_000;
 const PLAY_MS = 15_000;
@@ -117,7 +131,7 @@ export function scoreMission(mission: Mission, punches: number[]): number {
 }
 
 function rewardFor(entry: number, score: number): number {
-  const multiplier = REWARD_TIERS.find((t) => score >= t.minScore)?.multiplier ?? 0.3;
+  const multiplier = REWARD_TIERS.find((t) => score >= t.minScore)?.multiplier ?? 0.2;
   return Math.floor(entry * multiplier);
 }
 
@@ -188,11 +202,17 @@ export async function joinRound(userId: number, entry: number, corner: string) {
     return { ok: false as const, code: 'ALREADY_JOINED', message: 'أنت مشترك في هذه الجولة' };
   }
 
+  // The best reward this entry can earn is promised before the coins move.
+  const joinRoundId = round.id;
+  const reserved = await reservePrize(userId, 'boxing', rewardFor(entry, 100));
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   const charged = await prisma.user.updateMany({
     where: { id: userId, coinsBalance: { gte: entry } },
     data: { coinsBalance: { decrement: entry } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT_COINS', message: 'رصيدك لا يكفي' };
   }
 
@@ -203,7 +223,8 @@ export async function joinRound(userId: number, entry: number, corner: string) {
 
   // The join window can close while the charge is in flight — refund rather
   // than silently keeping the money.
-  if (!round || round.phase !== 'join') {
+  if (!round || round.phase !== 'join' || round.id !== joinRoundId) {
+    releasePrize(reserved.token);
     await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: entry } } });
     return { ok: false as const, code: 'ROUND_CLOSED', message: 'انتهى وقت الدخول للجولة' };
   }
@@ -218,11 +239,15 @@ export async function joinRound(userId: number, entry: number, corner: string) {
     score: 0,
     reward: 0,
   });
+  prizeTokens.set(tokenKey(round.id, userId), reserved.token);
   broadcastState();
+
+  // The entry is final: deliver the XP it bought before the round is played.
+  await grantStakeValue(userId, 'boxing', entry, `round:${round.id}`);
 
   return {
     ok: true as const,
-    roundId: round.id,
+    roundId: joinRoundId,
     balance: user?.coinsBalance ?? 0,
     minReward: rewardFor(entry, 0),
     maxReward: rewardFor(entry, 100),
@@ -280,13 +305,19 @@ async function settleRound(r: Round) {
   }
 
   for (const f of fighters) {
-    if (f.reward <= 0) continue;
+    const prizeToken = takeToken(r.id, f.userId);
+    if (f.reward <= 0) {
+      releasePrize(prizeToken);
+      continue;
+    }
     try {
       await prisma.user.update({
         where: { id: f.userId },
         data: { coinsBalance: { increment: f.reward } },
       });
+      settlePrize(prizeToken, f.userId, 'boxing', f.reward, `round:${r.id}`);
     } catch (err) {
+      releasePrize(prizeToken);
       console.error('[boxing] payout failed', { userId: f.userId, reward: f.reward, err });
     }
   }

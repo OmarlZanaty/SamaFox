@@ -6,6 +6,13 @@ import {
   rotateServerSeed as fairRotateServerSeed,
   setClientSeed as fairSetClientSeed,
 } from './fairSeeds';
+import {
+  grantStakeValue,
+  releasePrize,
+  reservePrize,
+  scalePaytable,
+  settlePrize,
+} from './halalGames.service';
 
 const GAME = 'neon_fortune' as const;
 
@@ -56,7 +63,7 @@ export const PAY_SYMBOLS: PaySymbol[] = [
 // paytable screen mean "this much of your stake" without a mental division by 20.
 // Measured, not claimed: `npm run sim:neon-fortune` replays this exact math and
 // fails the run if the return creeps toward 100%.
-export const PAYTABLE: Record<PaySymbol, [number, number, number]> = {
+const BASE_PAYTABLE: Record<PaySymbol, [number, number, number]> = {
   TIGER:   [6.5, 30, 140],
   PANTHER: [5, 18, 85],
   CRANE:   [3.75, 12, 57],
@@ -69,6 +76,23 @@ export const PAYTABLE: Record<PaySymbol, [number, number, number]> = {
   J:       [0.9, 2.4, 11],
   TEN:     [0.65, 1.8, 8],
 };
+
+/**
+ * الصعوبة (2026-09-24): every entry above scaled by PRIZE_SCALE and rounded
+ * down to what the paytable screen prints. Every payout is linear in this
+ * table, so the return drops from ~97.1% to ~80% while hit rate, feature
+ * frequency and the shape of the game stay where they were. This scaled table
+ * is the one sent to the client, so the screen always shows what pays.
+ */
+export const PRIZE_SCALE = Number(process.env.NEON_FORTUNE_PRIZE_SCALE ?? 0.815);
+export const PAYTABLE: Record<PaySymbol, [number, number, number]> = scalePaytable(BASE_PAYTABLE, PRIZE_SCALE);
+
+/**
+ * What a spin reserves from the prize fund before the stake is taken: a
+ * practical ceiling (1,000× bet, plus the largest live jackpot pool). A rarer, bigger result is
+ * still paid in full — the reservation guards the fund, it never shorts a win.
+ */
+const PRIZE_RESERVE_MULTIPLE = 1_000;
 
 // ── Reel weights ─────────────────────────────────────────────────────────────
 // Per reel, so the specials sit where the rules say they sit: WILD only on the
@@ -945,18 +969,34 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
 
   // Charge first, atomically, same guard as بلينكو and أثيرفول so parallel spins
   // can never overdraw a balance.
+  // Promise the prize this spin could bring before the stake is taken.
+  const reserved = await reservePrize(userId, GAME, bet * PRIZE_RESERVE_MULTIPLE + Math.max(...Object.values(poolValues())));
+  if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
+
   const charged = await prisma.user.updateMany({
     where: { id: userId, coinsBalance: { gte: bet } },
     data: { coinsBalance: { decrement: bet } },
   });
   if (charged.count === 0) {
+    releasePrize(reserved.token);
     return { ok: false as const, code: 'INSUFFICIENT', message: 'رصيدك لا يكفي' };
   }
 
   // Reserved from the database, so two plays racing cannot draw the same nonce
   // and a restart cannot hand one out twice.
-  const s = await reserveNonce(userId, GAME);
+  let s: Awaited<ReturnType<typeof reserveNonce>>;
+  try {
+    s = await reserveNonce(userId, GAME);
+  } catch (err) {
+    releasePrize(reserved.token);
+    await prisma.user.update({ where: { id: userId }, data: { coinsBalance: { increment: bet } } });
+    console.error('[neon-fortune] nonce reservation failed, bet refunded', { userId, bet, err });
+    return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
+  }
   const nonce = s.nonce;
+
+  // The stake is final: deliver the XP it bought before the reels are dealt.
+  await grantStakeValue(userId, GAME, bet, `${userId}:${nonce}`);
 
   let spin: SpinResult;
   try {
@@ -977,9 +1017,13 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
       where: { id: userId },
       data: { coinsBalance: { increment: bet } },
     });
+    releasePrize(reserved.token);
     console.error('[neon-fortune] spin failed, bet refunded', { userId, bet, err });
     return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
   }
+
+  // Whatever the spin paid is a prize from the fund.
+  settlePrize(reserved.token, userId, GAME, spin.grandTotal, `${userId}:${nonce}`);
 
   const wonTier = spin.vault?.wonTier ?? null;
   await persistPools(wonTier !== null);

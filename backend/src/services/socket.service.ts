@@ -629,18 +629,27 @@ async function hasLiveRoomSocket(io: Server, uid: number): Promise<boolean> {
  * Release a user from every room they still hold state in: voice, mic queue
  * and seats. Runs when the grace window expires without them reconnecting.
  */
-function releaseUserFromRooms(io: Server, uid: number) {
-  const lastRoom = userCurrentRoom.get(uid) ?? null;
-  userCurrentRoom.delete(uid); // #25/#31: no longer in any room
-  const notifiedRooms = new Set<number>();
-
-  // voice cleanup
+/**
+ * Take a user out of every room's voice mesh and tell each room, so the other
+ * phones close their connection to him. Seats and room membership are NOT
+ * touched — that is [releaseUserFromRooms], after the grace window.
+ */
+function dropUserFromVoice(io: Server, uid: number) {
   for (const [rid, set] of voiceUsers.entries()) {
     if (set.delete(uid)) {
       io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
       emitVoiceUsers(io, rid).catch(console.error);
     }
   }
+}
+
+function releaseUserFromRooms(io: Server, uid: number) {
+  const lastRoom = userCurrentRoom.get(uid) ?? null;
+  userCurrentRoom.delete(uid); // #25/#31: no longer in any room
+  const notifiedRooms = new Set<number>();
+
+  // voice cleanup
+  dropUserFromVoice(io, uid);
 
   // remove from all queues
   roomMicQueue.forEach((q, rid) => {
@@ -2328,21 +2337,21 @@ await emitRoomState(io, rid);
 socket.on('webrtc_offer', ({ to, offer }: any) => {
   if (to == null) return;
   const target = String(to);
-  console.log('[webrtc_offer]', { from: socket.userId, to: target });
+  // No per-message log: in a mesh room these fire hundreds of times a minute
+  // (every candidate of every pair), which filled the pm2 logs and cost the
+  // event loop time the voice signalling needs.
   io.to(target).emit('webrtc_offer', { from: socket.userId, offer });
 });
 
 socket.on('webrtc_answer', ({ to, answer }: any) => {
   if (to == null) return;
   const target = String(to);
-  console.log('[webrtc_answer]', { from: socket.userId, to: target });
   io.to(target).emit('webrtc_answer', { from: socket.userId, answer });
 });
 
 socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
   if (to == null) return;
   const target = String(to);
-  console.log('[webrtc_ice]', { from: socket.userId, to: target });
   io.to(target).emit('webrtc_ice_candidate', { from: socket.userId, candidate });
 });
 
@@ -2363,6 +2372,14 @@ socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
 
       // Presence: announce only when the user's last socket goes away.
       io.emit('presence:update', { userId: uid, online: false });
+
+      // Voice: out NOW, not after the grace window. A dead socket cannot
+      // signal, so every other phone in the room was left retrying a
+      // connection to a "ghost" for up to 12 hours (ROOM_DISCONNECT_GRACE_MS)
+      // — the silent seat and the churn behind "المايك بيقع". The seat is still
+      // held below; on reconnect the app re-announces with user_joined_voice
+      // (resume) and rejoins the mesh, having already torn its own peers down.
+      dropUserFromVoice(io, uid);
 
       // Seat / room membership are NOT released here — a screen lock or an
       // app switch kills the socket, and the user must stay in the room as if
