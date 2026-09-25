@@ -6,6 +6,7 @@ import '../../screens/store_screen.dart';
 import '../models/gift.dart';
 import '../services/gift_repository.dart';
 import '../../widgets/app_network_image.dart';
+import '../../widgets/cp_unlock_gate.dart';
 
 /// A recipient candidate for the gift picker.
 class GiftRecipient {
@@ -754,7 +755,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     }
   }
 
-  /// A15 — a CP gift is an invitation, not a transfer.
+  /// A15 — a CP gift to someone you are not paired with is an invitation, not
+  /// a transfer.
   ///
   /// Nothing is charged here: the recipient decides, and the server takes the
   /// full price on accept or 30% of it on reject. So the optimistic deduction
@@ -762,30 +764,73 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   /// the other person has not answered would be wrong twice over (they may
   /// reject, in which case only 30% goes).
   ///
+  /// هدايا CP (2026-09-24): to an existing partner the server sends it right
+  /// away and raises the CP level; the balance then comes from its reply.
+  ///
   /// A CP pairing is between two people, so this deliberately does not fan out:
   /// if a bulk scope was selected, only the first recipient is invited.
+  ///
+  /// 2026-09-22 — opening CP may cost coins ([CpUnlockGate]): the fee is shown
+  /// and confirmed before the invitation, and the server re-checks it on the
+  /// send (403 CP_LOCKED), in which case the gate runs once more.
   Future<void> _sendCp(String giftId, List<int> recipients, int prevBalance) async {
     setState(() => _balance = prevBalance);
     widget.onBalanceChanged(prevBalance);
 
     final recipientId = recipients.first;
-    try {
-      await _cpRepository.sendRequest(
-        recipientId: recipientId,
-        giftId: giftId,
-        quantity: _quantity,
-        roomId: widget.roomId,
-      );
-      if (!mounted) return;
-      _toast(
-        recipients.length > 1
-            ? 'تم إرسال طلب الـ CP لأول شخص محدد — في انتظار الرد'
-            : 'تم إرسال هدية الـ CP — في انتظار الرد',
-      );
-    } on CpException catch (e) {
-      if (!mounted) return;
-      _toast(e.message, error: true);
+    // One key per tap: a retry of THIS send is recognised by the server and
+    // never charged or counted twice.
+    final requestKey = '${DateTime.now().microsecondsSinceEpoch}-$recipientId-$giftId';
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (!await _passCpGate()) return;
+      try {
+        final result = await _cpRepository.sendRequest(
+          recipientId: recipientId,
+          giftId: giftId,
+          quantity: _quantity,
+          roomId: widget.roomId,
+          requestKey: requestKey,
+        );
+        if (!mounted) return;
+        if (result.isPartnerGift) {
+          // Already partners: the gift went through now and raised the level.
+          if (result.balance != null) {
+            setState(() => _balance = result.balance!);
+            widget.onBalanceChanged(result.balance!);
+          }
+          _toast(
+            result.leveledUp && result.level != null
+                ? '💞 ارتفع مستوى الـ CP إلى LV.${result.level}${(result.levelName ?? '').isNotEmpty ? ' — ${result.levelName}' : ''}'
+                : '💞 تم إرسال هدية الـ CP — +${result.pointsAdded} CP',
+          );
+          return;
+        }
+        _toast(
+          recipients.length > 1
+              ? 'تم إرسال طلب الـ CP لأول شخص محدد — في انتظار الرد'
+              : 'تم إرسال هدية الـ CP — في انتظار الرد',
+        );
+        return;
+      } on CpException catch (e) {
+        if (!mounted) return;
+        // The policy changed between the quote and the send: quote again.
+        if (e.code == 'CP_LOCKED' && attempt == 0) continue;
+        _toast(e.message, error: true);
+        return;
+      }
     }
+  }
+
+  /// Runs [CpUnlockGate]; true when the invitation may go out.
+  Future<bool> _passCpGate() async {
+    final gate = await CpUnlockGate.ensure(context, repository: _cpRepository);
+    if (!mounted) return false;
+    if (gate.balance != null) {
+      setState(() => _balance = gate.balance!);
+      widget.onBalanceChanged(gate.balance!);
+    }
+    if (gate.message != null) _toast(gate.message!, error: gate.error);
+    return gate.proceed;
   }
 
   Future<void> _sendSingle(String giftId, int recipientId, int prevBalance) async {
