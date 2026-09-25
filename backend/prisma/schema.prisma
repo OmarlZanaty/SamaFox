@@ -135,6 +135,15 @@ model User {
   cpRequestsSent     CpRequest[] @relation("CpRequestSender")
   cpRequestsReceived CpRequest[] @relation("CpRequestRecipient")
 
+  // CP permissions & admin (2026-09-22). "مستخدم CP الظاهر" — which partner
+  // is shown beside the photo. Used to live in SharedPreferences on the
+  // device, so an admin could not set it and a visitor saw his OWN choice on
+  // other people's pages. null = newest pair. Plain scalar on purpose: a
+  // partner that is no longer paired is simply ignored on read.
+  cpFeaturedPartnerId Int?
+  cpUnlock            CpUnlock?
+  cpUnlockGrant       CpUnlockGrant?
+
   gameFairSeeds GameFairSeed[]
 
   // A15 / C16
@@ -1251,6 +1260,9 @@ model Gift {
   // 10%, paid out of the lucky pool (see LuckyPool). The tab in the app's gift
   // sheet is built from this flag, not from `category`.
   isLucky          Boolean    @default(false)
+  // "مقدار رفع مستوى CP" for a gift in the `cp` list: the CP value one unit
+  // adds to the pair (2026-09-24). Null = the gift's coin price.
+  cpLevelPoints    Int?
   createdBy        Int?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -1484,10 +1496,122 @@ model CpPair {
   giftId    String?
   createdAt DateTime @default(now())
 
+  // CP level (2026-09-22, rules 2026-09-24). `cpValue` grows ONLY from active
+  // gifts in the `cp` list sent between the two (the accepting gift
+  // included), by each gift's `cpLevelPoints` — see cpGift.service; every
+  // increase is logged in cp_value_events. The level is computed from it
+  // server-side with the dashboard's "قيمة رفع مستوى CP" (cp_level_step_coins);
+  // while that is 0 the old days-based ladder applies, so nobody's level moved
+  // on deploy. `levelOverride` pins the level from the dashboard.
+  cpValue       Int      @default(0)
+  levelOverride Int?
+  updatedAt     DateTime @default(now()) @updatedAt
+
   @@unique([userAId, userBId])
   @@index([userAId])
   @@index([userBId])
   @@map("cp_pairs")
+}
+
+// هدايا CP ← مستوى CP: one row per CP gift that raised a pair's value.
+// `giftTransactionId` unique → a gift is never counted twice;
+// `(senderId, requestKey)` unique → a resent request is caught before it is
+// charged. A row with no giftTransactionId is an in-flight claim.
+model CpValueEvent {
+  id                Int      @id @default(autoincrement())
+  pairId            Int
+  senderId          Int
+  recipientId       Int
+  giftId            String
+  quantity          Int      @default(1)
+  points            Int      @default(0)
+  cpValueAfter      Int?
+  source            String // accept | partner_gift
+  giftTransactionId String?  @unique
+  requestKey        String?
+  createdAt         DateTime @default(now())
+
+  @@unique([senderId, requestKey])
+  @@index([pairId, createdAt])
+  @@index([recipientId, createdAt])
+  @@map("cp_value_events")
+}
+
+// ============================================================
+// CP permissions & admin (2026-09-22) — "صلاحيات فتح CP"
+// ============================================================
+//
+// Opening CP (the right to send a CP invitation) is gated server-side:
+//   1. a per-user CpUnlockGrant wins (FREE, or FEE with its own price);
+//   2. else the system policy in app_settings (cp_unlock_mode / cp_unlock_fee_coins).
+// Once the user has opened CP a CpUnlock row exists; the fee (if any) was
+// taken in the same transaction that wrote it, and a Transaction row of type
+// CP_UNLOCK_FEE explains where the coins went.
+
+model CpUnlockGrant {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique // one live grant per user; history is below
+  user        User     @relation(fields: [userId], references: [id])
+  mode        String // FREE | FEE
+  feeCoins    Int      @default(0)
+  note        String?
+  grantedById Int
+  grantedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([grantedById])
+  @@map("cp_unlock_grants")
+}
+
+/// Every grant / change / revoke, never deleted — "يجب تسجيل تاريخ منح
+/// الصلاحية وسحبها" and "يجب تحديد المسؤول الذي قام بالتعديل".
+model CpUnlockGrantHistory {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  action    String // GRANT | UPDATE | REVOKE
+  mode      String // FREE | FEE
+  feeCoins  Int      @default(0)
+  note      String?
+  adminId   Int
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("cp_unlock_grant_history")
+}
+
+model CpUnlock {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @unique
+  user          User     @relation(fields: [userId], references: [id])
+  paidCoins     Int      @default(0)
+  // free_policy | fee_policy | grant_free | grant_fee | admin | legacy
+  source        String
+  transactionId Int?
+  grantedById   Int?
+  createdAt     DateTime @default(now())
+
+  @@map("cp_unlocks")
+}
+
+/// Generic admin audit log — who did what to whom, with before/after values.
+/// GiftAdminAudit predates it and stays; everything added on the CP/backgrounds
+/// panel writes here through recordAdminAudit(), which never throws.
+model AdminAuditLog {
+  id           Int      @id @default(autoincrement())
+  adminId      Int
+  action       String
+  targetUserId Int?
+  targetType   String? // user | cp_pair | gift | item | setting
+  targetId     String?
+  before       Json?
+  after        Json?
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("admin_audit_logs")
 }
 
 model CpRequest {

@@ -378,6 +378,10 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     console.warn('achievement check failed:', e);
   }
 
+  // CP level: NOT raised here. Only CP gifts raise it, and they go through
+  // cp.service (invitation accept / CP gift to a partner), which counts each
+  // gift transaction exactly once — see cpGift.service.
+
   return {
     transactionId: result.transactionId,
     totalCoins,

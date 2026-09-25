@@ -38,6 +38,16 @@ export const CP_DEFAULTS: Record<string, string> = {
   // stays `mesh` regardless of the flag, so a half-configured server cannot
   // strand anyone.
   livekit_url: '',
+  // ── صلاحيات فتح CP (2026-09-22) ──────────────────────────────────────────
+  // The system policy for opening CP (couple pairing). `free` is exactly the
+  // behaviour that existed before the permission system, so nothing changes
+  // for anyone until an admin switches it. Edited from the CP panel; the
+  // authoritative reader is cpUnlock.service.readCpSettings.
+  cp_unlock_mode: 'free', // free | fee
+  cp_unlock_fee_coins: '0',
+  cp_level_step_coins: '0', // "قيمة رفع مستوى CP": 0 = days-based ladder
+  cp_level_max: '5',
+  cp_level_names: '',
 };
 
 /** Read all app settings merged over the defaults. */

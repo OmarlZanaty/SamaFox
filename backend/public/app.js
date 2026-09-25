@@ -41,6 +41,8 @@ const sectionTitles = {
   store:     "إدارة المتجر",
   vip:       "مستويات VIP",
   levels:    "مستويات LV",
+  cp:        "CP — العلاقة",
+  backgrounds: "الخلفيات",
   admins:    "المشرفون",
   rewards:   "المكافآت",
   games:     "الألعاب",
@@ -62,6 +64,8 @@ function navigate(sec) {
   pageTitle.textContent = sectionTitles[sec] || sec;
   if (sec === "vip") loadVipLevels().catch(e => showToast("خطأ: " + e.message));
   if (sec === "levels") loadLvLevels().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "cp") loadCpPanel().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "backgrounds") loadBackgrounds().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
   if (sec === "games") loadGamesConfig().catch(e => showToast("خطأ: " + e.message));
@@ -3343,4 +3347,584 @@ Object.assign(window, {
   loadModeration, sendAdminMessage,
   createDeviceBan, deleteDeviceBan,
   saveGates, adjustUserTarget, loadUserCharges,
+});
+
+// ============================================================
+// CP — العلاقة (couple pairing) panel — /admin-dashboard/cp/*
+// Not the old "قوة الحساب" cp_per_coin setting in الإعدادات.
+// ============================================================
+let cpCurrentUserId = null;     // row id of the user shown in "بيانات CP لمستخدم"
+let cpAuditLastId = null;       // pagination cursor for سجل العمليات
+
+const CP_UNLOCK_SOURCE_LABELS = {
+  legacy:      "قديم (كان عنده CP قبل النظام)",
+  free_policy: "مجاني (سياسة النظام)",
+  fee_policy:  "دفع رسوم (سياسة النظام)",
+  grant_free:  "صلاحية مجانية",
+  grant_fee:   "صلاحية برسوم",
+  admin:       "فتحه مسؤول",
+};
+
+const CP_LEVEL_BASIS_LABELS = { days: "بالأيام", coins: "بالكوينز", override: "مثبّت" };
+
+const AUDIT_ACTION_LABELS = {
+  CP_POLICY_UPDATE: "تعديل سياسة CP",
+  CP_GRANT_FREE:    "منح فتح CP مجانًا",
+  CP_GRANT_FEE:     "منح فتح CP برسوم",
+  CP_GRANT_REVOKE:  "سحب صلاحية CP",
+  CP_UNLOCK_ADMIN:  "فتح CP بواسطة مسؤول",
+  CP_LOCK_ADMIN:    "قفل CP",
+  CP_FEATURED_SET:  "تغيير المستخدم الظاهر",
+  CP_PAIR_UPDATE:   "تعديل زوج CP",
+  CP_PAIR_DELETE:   "فك زوج CP",
+  CP_GIFT_UPDATE:   "تعديل هدية CP",
+  BG_CREATE:        "إضافة خلفية",
+  BG_UPDATE:        "تعديل خلفية",
+  BG_DELETE:        "حذف خلفية",
+  BG_GRANT:         "منح خلفية",
+  BG_REVOKE:        "سحب خلفية",
+};
+
+const cpUserLabel = (u) => u
+  ? `${escapeHtml(u.name || "")} <span class="cell-muted">#${escapeHtml(u.displayId ?? u.id)}</span>`
+  : "—";
+
+const cpVal = (id) => document.getElementById(id)?.value.trim() ?? "";
+
+// openConfirmModal as a promise: true on "yes", false when the modal closes any other way.
+function cpConfirm(title, text) {
+  return new Promise((resolve) => {
+    let done = false;
+    openConfirmModal(title, text, () => { done = true; resolve(true); });
+    const modal = document.getElementById("confirmModal");
+    const obs = new MutationObserver(() => {
+      if (modal.classList.contains("hidden")) { obs.disconnect(); if (!done) resolve(false); }
+    });
+    obs.observe(modal, { attributes: true, attributeFilter: ["class"] });
+  });
+}
+
+async function loadCpPanel() {
+  await Promise.all([loadCpPolicy(), loadCpGrants(), loadCpGifts(), loadCpAudit()]);
+  if (cpCurrentUserId) await loadCpUser(cpCurrentUserId);
+}
+
+// ---- 1. System policy ----
+async function loadCpPolicy() {
+  const p = (await apiFetch("/admin-dashboard/cp/policy"))?.data ?? {};
+  document.getElementById("cpPolicyMode").value = p.unlockMode === "fee" ? "fee" : "free";
+  document.getElementById("cpPolicyFee").value = p.unlockFeeCoins ?? 0;
+  document.getElementById("cpPolicyStep").value = p.levelStepCoins ?? 0;
+  document.getElementById("cpPolicyMax").value = p.levelMax ?? 5;
+  document.getElementById("cpPolicyNames").value = (p.levelNames || []).join(", ");
+  cpSyncPolicyFee();
+}
+
+function cpSyncPolicyFee() {
+  document.getElementById("cpPolicyFee").disabled = document.getElementById("cpPolicyMode").value !== "fee";
+}
+
+async function saveCpPolicy() {
+  const unlockMode = document.getElementById("cpPolicyMode").value;
+  const unlockFeeCoins = Number(cpVal("cpPolicyFee") || 0);
+  if (unlockMode === "fee" && !(unlockFeeCoins > 0)) return showToast("حدد رسوم الفتح (أكبر من صفر)");
+  const body = {
+    unlockMode,
+    unlockFeeCoins,
+    levelStepCoins: Number(cpVal("cpPolicyStep") || 0),
+    levelMax: Number(cpVal("cpPolicyMax") || 5),
+    levelNames: cpVal("cpPolicyNames"),
+  };
+  const msg = unlockMode === "fee"
+    ? `أي مستخدم لسه ما فتحش CP هيدفع ${num(unlockFeeCoins)} كوينز قبل أول دعوة. متأكد؟`
+    : "فتح CP هيبقى مجاني لكل المستخدمين (إلا اللي ليهم صلاحية خاصة). متأكد؟";
+  if (!(await cpConfirm("حفظ سياسة CP", msg))) return;
+  try {
+    await apiFetch("/admin-dashboard/cp/policy", "PATCH", body);
+    showToast("✓ تم حفظ السياسة");
+    await Promise.all([loadCpPolicy(), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+// ---- 2. Per-user grants ----
+function cpSyncGrantFee() {
+  const fee = document.getElementById("cpGrantFee");
+  fee.disabled = document.getElementById("cpGrantMode").value !== "FEE";
+  if (fee.disabled) fee.value = "";
+}
+
+async function loadCpGrants() {
+  const rows = (await apiFetch("/admin-dashboard/cp/grants"))?.data ?? [];
+  const body = document.querySelector("#cpGrantsTable tbody");
+  body.innerHTML = rows.length
+    ? rows.map((g) => `
+      <tr>
+        <td>${cpUserLabel(g.user)}</td>
+        <td>${g.mode === "FEE" ? '<span class="badge badge-pending">برسوم</span>' : '<span class="badge badge-approved">مجاني</span>'}</td>
+        <td>${g.mode === "FEE" ? num(g.feeCoins) : "—"}</td>
+        <td>${escapeHtml(g.note || "") || "—"}</td>
+        <td>${cpUserLabel(g.grantedBy)}</td>
+        <td>${fmtDate(g.grantedAt)}</td>
+        <td class="td-actions">
+          <button class="btn btn-sm btn-outline" onclick="loadCpUser(${Number(g.userId)})">عرض</button>
+          <button class="btn btn-sm btn-bad" onclick="revokeCpPermission(${Number(g.userId)})">سحب</button>
+        </td>
+      </tr>`).join("")
+    : `<tr><td colspan="7" class="cell-muted">لا توجد صلاحيات خاصة — الكل على سياسة النظام</td></tr>`;
+}
+
+async function grantCpPermission() {
+  const displayId = cpVal("cpGrantUser");
+  const mode = document.getElementById("cpGrantMode").value;
+  const feeCoins = Number(cpVal("cpGrantFee") || 0);
+  if (!displayId) return showToast("اكتب رقم المستخدم");
+  if (mode === "FEE" && !(feeCoins > 0)) return showToast("حدد الرسوم (أكبر من صفر)");
+  try {
+    const d = (await apiFetch("/admin-dashboard/cp/grants", "POST", {
+      displayId, mode, feeCoins: mode === "FEE" ? feeCoins : undefined, note: cpVal("cpGrantNote") || undefined,
+    }))?.data;
+    showToast(`✓ تم منح الصلاحية لـ ${d?.user?.name ?? displayId}`);
+    document.getElementById("cpGrantUser").value = "";
+    document.getElementById("cpGrantNote").value = "";
+    await Promise.all([loadCpGrants(), loadCpAudit()]);
+    if (d?.user?.id && d.user.id === cpCurrentUserId) await loadCpUser(cpCurrentUserId);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function revokeCpPermission(userId) {
+  if (!(await cpConfirm("سحب الصلاحية", "المستخدم هيرجع لسياسة النظام. لو كان فتح CP بالفعل هيفضل مفتوح. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/grants/${userId}?by=id`, "DELETE");
+    showToast("✓ تم سحب الصلاحية");
+    await Promise.all([loadCpGrants(), loadCpAudit()]);
+    if (userId === cpCurrentUserId) await loadCpUser(cpCurrentUserId);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+// ---- 3. One user's CP data ----
+// `rowId` is passed when coming from a table (internal id); otherwise the
+// admin typed a Display ID into the search box.
+async function loadCpUser(rowId) {
+  const byRow = Number.isFinite(rowId) && rowId > 0;
+  const q = byRow ? String(rowId) : cpVal("cpUserQuery");
+  if (!q) return showToast("اكتب رقم المستخدم");
+  // Hide the previous user's panel on failure so its buttons can't act on the wrong person.
+  const clear = () => { cpCurrentUserId = null; document.getElementById("cpUserBox").style.display = "none"; };
+  let d;
+  try {
+    d = (await apiFetch(`/admin-dashboard/cp/users/${encodeURIComponent(q)}${byRow ? "?by=id" : ""}`))?.data;
+  } catch (e) { clear(); return showToast("خطأ: " + e.message); }
+  if (!d?.user) { clear(); return showToast("المستخدم غير موجود"); }
+  cpCurrentUserId = d.user.id;
+  document.getElementById("cpUserQuery").value = d.user.displayId ?? d.user.id;
+  document.getElementById("cpUserBox").style.display = "";
+
+  const u = d.unlock;
+  const pol = d.policy || {};
+  const polText = pol.mode === "fee" ? `برسوم ${num(pol.feeCoins)} كوينز` : "مجاني";
+  const polSrc = pol.policySource === "grant" ? "صلاحية خاصة" : "سياسة النظام";
+  const featured = (d.pairs || []).find((p) => p.featured);
+  document.getElementById("cpUserSummary").innerHTML = [
+    `<span class="badge badge-admin">${cpUserLabel(d.user)}</span>`,
+    `<span class="badge">الرصيد: ${num(d.user.coinsBalance)} كوينز</span>`,
+    u
+      ? `<span class="badge badge-approved">CP مفتوح — ${escapeHtml(CP_UNLOCK_SOURCE_LABELS[u.source] || u.source)}${u.paidCoins ? ` · دفع ${num(u.paidCoins)}` : ""} · ${fmtDate(u.createdAt)}</span>`
+      : `<span class="badge badge-rejected">CP مقفول</span>`,
+    `<span class="badge">الفتح: ${polText} (${polSrc})</span>`,
+    `<span class="badge">الظاهر: ${featured ? cpUserLabel(featured.partner) : "—"}</span>`,
+    `<span class="badge">دعوات معلّقة: ${num((d.pendingRequests || []).length)}</span>`,
+  ].join(" ");
+  document.getElementById("cpUnlockBtn").style.display = u ? "none" : "";
+  document.getElementById("cpLockBtn").style.display = u ? "" : "none";
+
+  const pairs = d.pairs || [];
+  document.querySelector("#cpPairsTable tbody").innerHTML = pairs.length
+    ? pairs.map((p) => `
+      <tr>
+        <td>${cpUserLabel(p.partner)}</td>
+        <td>${fmtDate(p.createdAt).slice(0, 10)} <span class="cell-muted">(${num(p.days)} يوم)</span></td>
+        <td><strong>LV.${num(p.level)}</strong> ${escapeHtml(p.levelName || "")} <span class="cell-muted">${CP_LEVEL_BASIS_LABELS[p.levelBasis] || ""}</span></td>
+        <td><input id="cpPairValue_${Number(p.pairId)}" type="number" min="0" class="form-input form-input--sm" style="width:110px" value="${Number(p.cpValue) || 0}" /></td>
+        <td><input id="cpPairLevel_${Number(p.pairId)}" type="number" min="1" class="form-input form-input--sm" style="width:90px" placeholder="تلقائي" value="${p.levelOverride == null ? "" : Number(p.levelOverride)}" /></td>
+        <td>${p.featured
+          ? '<span class="badge badge-approved">الظاهر</span>'
+          : `<button class="btn btn-sm btn-outline" onclick="cpSetFeatured(${Number(p.partner.id)})">اجعله الظاهر</button>`}</td>
+        <td class="td-actions">
+          <button class="btn btn-sm btn-primary" onclick="saveCpPair(${Number(p.pairId)})">حفظ</button>
+          <button class="btn btn-sm btn-bad" onclick="deleteCpPair(${Number(p.pairId)})">فك الارتباط</button>
+        </td>
+      </tr>`).join("")
+    : `<tr><td colspan="7" class="cell-muted">لا يوجد ارتباط CP لهذا المستخدم</td></tr>`;
+
+  const log = d.cpGiftLog || [];
+  document.querySelector("#cpGiftLogTable tbody").innerHTML = log.length
+    ? log.map((e) => `
+      <tr>
+        <td>${fmtDate(e.createdAt)}</td>
+        <td>${cpUserLabel(e.sender)}</td>
+        <td>${cpUserLabel(e.recipient)}</td>
+        <td>${escapeHtml(e.gift?.nameAr || e.gift?.name || e.gift?.id || "")}</td>
+        <td>${num(e.quantity)}</td>
+        <td><strong>+${num(e.points)}</strong></td>
+        <td>${e.cpValueAfter == null ? "—" : num(e.cpValueAfter)}</td>
+        <td class="cell-muted">${e.source === "accept" ? "قبول دعوة" : "هدية لشريك"}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="8" class="cell-muted">لا توجد هدايا CP مسجّلة</td></tr>`;
+
+  const hist = d.grantHistory || [];
+  document.getElementById("cpUserMeta").textContent = hist.length
+    ? `تاريخ الصلاحيات: ${hist.map((h) => `${fmtDate(h.createdAt).slice(0, 10)} ${h.action} ${h.mode}${h.mode === "FEE" ? ` ${h.feeCoins}` : ""}`).join(" · ")}`
+    : "";
+}
+
+async function cpAdminUnlock() {
+  if (!cpCurrentUserId) return;
+  if (!(await cpConfirm("فتح CP", "هيتفتح CP للمستخدم دلوقتي من غير أي خصم. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/users/${cpCurrentUserId}/unlock?by=id`, "POST");
+    showToast("✓ تم فتح CP");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function cpAdminLock() {
+  if (!cpCurrentUserId) return;
+  if (!(await cpConfirm("قفل CP", "المستخدم مش هيقدر يبعت دعوات CP جديدة. الارتباطات الحالية هتفضل، ومفيش استرجاع لأي رسوم اتدفعت. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/users/${cpCurrentUserId}/unlock?by=id`, "DELETE");
+    showToast("✓ تم قفل CP");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function cpSetFeatured(partnerId) {
+  if (!cpCurrentUserId) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/users/${cpCurrentUserId}/featured?by=id`, "PATCH", { partnerId });
+    showToast(partnerId ? "✓ تم تغيير المستخدم الظاهر" : "✓ تم إلغاء المستخدم الظاهر");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+const cpClearFeatured = () => cpSetFeatured(null);
+
+async function saveCpPair(pairId) {
+  const value = cpVal(`cpPairValue_${pairId}`);
+  const level = cpVal(`cpPairLevel_${pairId}`);
+  if (value === "" || !(Number(value) >= 0)) return showToast("قيمة CP غير صالحة");
+  if (level !== "" && !(Number(level) >= 1)) return showToast("المستوى لازم يكون 1 أو أكتر، أو فاضي = تلقائي");
+  try {
+    await apiFetch(`/admin-dashboard/cp/pairs/${pairId}`, "PATCH", { cpValue: Number(value), levelOverride: level });
+    showToast("✓ تم حفظ الزوج");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function deleteCpPair(pairId) {
+  if (!(await cpConfirm("فك الارتباط", "الارتباط هيتحذف نهائيًا من الطرفين ومستواه وقيمته هيضيعوا. متأكد؟"))) return;
+  try {
+    await apiFetch(`/admin-dashboard/cp/pairs/${pairId}`, "DELETE");
+    showToast("✓ تم فك الارتباط");
+    await Promise.all([loadCpUser(cpCurrentUserId), loadCpAudit()]);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+// ---- 4. CP gifts ----
+async function loadCpGifts() {
+  const rows = (await apiFetch("/admin-dashboard/cp/gifts"))?.data ?? [];
+  document.querySelector("#cpGiftsTable tbody").innerHTML = rows.length
+    ? rows.map((g) => {
+      const icon = normalizeGiftImageUrl(g.iconUrl);
+      const k = escapeHtml(String(g.id));
+      return `
+      <tr>
+        <td>${icon ? `<img src="${escapeHtml(icon)}" alt="" style="width:36px;height:36px;object-fit:contain" />` : ""}</td>
+        <td>${escapeHtml(g.name || "")}</td>
+        <td><input data-cp-gift="${k}" data-f="nameAr" class="form-input form-input--sm" style="width:140px" value="${escapeHtml(g.nameAr || "")}" /></td>
+        <td><input data-cp-gift="${k}" data-f="coinCost" type="number" min="1" class="form-input form-input--sm" style="width:110px" value="${Number(g.coinCost) || 0}" /></td>
+        <td><input data-cp-gift="${k}" data-f="cpLevelPoints" type="number" min="0" class="form-input form-input--sm" style="width:110px" placeholder="= السعر" value="${g.cpLevelPoints == null ? "" : Number(g.cpLevelPoints)}" /></td>
+        <td><input data-cp-gift="${k}" data-f="sortOrder" type="number" class="form-input form-input--sm" style="width:80px" value="${Number(g.sortOrder) || 0}" /></td>
+        <td><input data-cp-gift="${k}" data-f="isActive" type="checkbox" ${g.isActive ? "checked" : ""} /></td>
+        <td><button class="btn btn-sm btn-primary" data-cp-gift-save="${k}">حفظ</button></td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="8" class="cell-muted">لا توجد هدايا في قائمة CP</td></tr>`;
+}
+
+// Gift ids are strings — handled by delegation rather than inlined into onclick.
+document.getElementById("cpGiftsTable")?.addEventListener("click", async (e) => {
+  const id = e.target?.closest?.("[data-cp-gift-save]")?.getAttribute("data-cp-gift-save");
+  if (!id) return;
+  const field = (f) => [...document.querySelectorAll("#cpGiftsTable [data-cp-gift]")]
+    .find((el) => el.getAttribute("data-cp-gift") === id && el.dataset.f === f);
+  const coinCost = Number(field("coinCost")?.value || 0);
+  if (!(coinCost > 0)) return showToast("سعر الهدية لازم يكون أكبر من صفر");
+  const pointsRaw = field("cpLevelPoints")?.value.trim() ?? "";
+  if (pointsRaw !== "" && !(Number(pointsRaw) >= 0)) return showToast("رفع مستوى CP لازم يكون صفر أو أكتر، أو فاضي = نفس السعر");
+  try {
+    await apiFetch(`/admin-dashboard/cp/gifts/${encodeURIComponent(id)}`, "PATCH", {
+      coinCost,
+      cpLevelPoints: pointsRaw === "" ? null : Number(pointsRaw),
+      sortOrder: Number(field("sortOrder")?.value || 0),
+      isActive: Boolean(field("isActive")?.checked),
+      nameAr: field("nameAr")?.value.trim() || undefined,
+    });
+    showToast("✓ تم حفظ الهدية");
+    await Promise.all([loadCpGifts(), loadCpAudit()]);
+  } catch (err) { showToast("خطأ: " + err.message); }
+});
+
+// ---- 5. Audit log ----
+function cpAuditJson(v) {
+  if (v == null) return "—";
+  const s = typeof v === "string" ? v : JSON.stringify(v);
+  const short = s.length > 90 ? s.slice(0, 90) + "…" : s;
+  return `<code title="${escapeHtml(s)}" style="font-size:11px;word-break:break-all">${escapeHtml(short)}</code>`;
+}
+
+async function loadCpAudit(more = false) {
+  if (!more) cpAuditLastId = null;
+  const params = new URLSearchParams({ limit: "50" });
+  const action = document.getElementById("cpAuditAction")?.value ?? "CP";
+  const user = cpVal("cpAuditUser");
+  if (action) params.set("action", action);
+  if (user) params.set("userId", user);
+  if (more && cpAuditLastId) params.set("before", String(cpAuditLastId));
+  const rows = (await apiFetch(`/admin-dashboard/cp/audit?${params}`))?.data ?? [];
+  const html = rows.map((r) => `
+    <tr>
+      <td>${fmtDate(r.createdAt)}</td>
+      <td>${cpUserLabel(r.admin)}</td>
+      <td>${escapeHtml(AUDIT_ACTION_LABELS[r.action] || r.action)}</td>
+      <td>${r.targetUser ? cpUserLabel(r.targetUser) : `<span class="cell-muted">${escapeHtml(r.targetType || "")} ${escapeHtml(r.targetId ?? "")}</span>`}</td>
+      <td>${cpAuditJson(r.before)}</td>
+      <td>${cpAuditJson(r.after)}</td>
+      <td class="cell-muted">${escapeHtml(r.ip || "")}</td>
+    </tr>`).join("");
+  const body = document.querySelector("#cpAuditTable tbody");
+  if (more) body.insertAdjacentHTML("beforeend", html);
+  else body.innerHTML = html || `<tr><td colspan="7" class="cell-muted">لا توجد عمليات</td></tr>`;
+  if (rows.length) cpAuditLastId = rows[rows.length - 1].id;
+  document.getElementById("cpAuditMore").style.display = rows.length === 50 ? "" : "none";
+}
+
+Object.assign(window, {
+  loadCpPanel, cpSyncPolicyFee, saveCpPolicy,
+  cpSyncGrantFee, grantCpPermission, revokeCpPermission,
+  loadCpUser, cpAdminUnlock, cpAdminLock, cpSetFeatured, cpClearFeatured,
+  saveCpPair, deleteCpPair, loadCpAudit,
+});
+
+// ============================================================
+// الخلفيات (profile backgrounds) panel — /admin-dashboard/backgrounds/*
+// Item ids are strings, so row buttons use data-* + delegation, not inline args.
+// ============================================================
+let bgCatalogue = [];           // last GET /backgrounds, for the grant dropdown and confirms
+let bgCurrentUserId = null;     // row id of the user shown in "خلفيات مستخدم"
+
+const bgIsVideo = (url) => /\.(mp4|webm)(\?|$)/i.test(String(url || ""));
+
+function bgThumb(item) {
+  const preview = normalizeGiftImageUrl(item.previewUrl);
+  const asset = normalizeGiftImageUrl(item.assetUrl);
+  const style = "width:54px;height:72px;object-fit:cover;border-radius:6px;background:#0002";
+  if (preview) return `<img src="${escapeHtml(preview)}" alt="" style="${style}" />`;
+  if (asset && bgIsVideo(asset)) return `<video src="${escapeHtml(asset)}" muted preload="metadata" style="${style}"></video>`;
+  if (asset) return `<img src="${escapeHtml(asset)}" alt="" style="${style}" />`;
+  return "";
+}
+
+function bgSyncFree() {
+  const price = document.getElementById("bgPrice");
+  price.disabled = document.getElementById("bgFree").checked;
+  if (price.disabled) price.value = "";
+}
+
+async function loadBackgrounds() {
+  bgCatalogue = (await apiFetch("/admin-dashboard/backgrounds"))?.data ?? [];
+  document.querySelector("#bgTable tbody").innerHTML = bgCatalogue.length
+    ? bgCatalogue.map((b) => {
+      const k = escapeHtml(String(b.id));
+      return `
+      <tr>
+        <td>${bgThumb(b)}</td>
+        <td><input data-bg="${k}" data-f="name" class="form-input form-input--sm" style="width:150px" value="${escapeHtml(b.name || "")}" /></td>
+        <td><input data-bg="${k}" data-f="isFree" type="checkbox" ${b.isFree ? "checked" : ""} /></td>
+        <td><input data-bg="${k}" data-f="priceCoins" type="number" min="0" class="form-input form-input--sm" style="width:100px" value="${Number(b.priceCoins) || 0}" /></td>
+        <td><input data-bg="${k}" data-f="isPurchasable" type="checkbox" ${b.isPurchasable ? "checked" : ""} /></td>
+        <td><input data-bg="${k}" data-f="durationDays" type="number" min="1" class="form-input form-input--sm" style="width:90px" placeholder="أبدي" value="${b.durationDays == null ? "" : Number(b.durationDays)}" /></td>
+        <td>${num(b.ownerCount)}</td>
+        <td class="td-actions">
+          <button class="btn btn-sm btn-primary" data-bg-action="save" data-bg-id="${k}">حفظ</button>
+          <button class="btn btn-sm btn-bad" data-bg-action="delete" data-bg-id="${k}">حذف</button>
+        </td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="8" class="cell-muted">لا توجد خلفيات</td></tr>`;
+
+  const sel = document.getElementById("bgGrantItem");
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">— اختر خلفية —</option>` + bgCatalogue
+    .map((b) => `<option value="${escapeHtml(String(b.id))}">${escapeHtml(b.name || "")} — ${b.isFree ? "مجانية" : `${num(b.priceCoins)} كوينز`}${b.durationDays ? ` · ${num(b.durationDays)} يوم` : ""}</option>`)
+    .join("");
+  if (bgCatalogue.some((b) => String(b.id) === keep)) sel.value = keep;
+}
+
+async function addBackground() {
+  const file = document.getElementById("bgFile").files[0];
+  const name = cpVal("bgName");
+  const isFree = document.getElementById("bgFree").checked;
+  const price = Number(cpVal("bgPrice") || 0);
+  const duration = cpVal("bgDuration");
+  if (!file) return showToast("اختر ملف الخلفية");
+  if (!name) return showToast("اكتب اسم الخلفية");
+  if (!isFree && !(price > 0)) return showToast("حدد السعر أو علّم «مجانية»");
+  if (duration !== "" && !(Number(duration) >= 1)) return showToast("المدة لازم تكون يوم أو أكتر، أو فاضية = أبدي");
+  const fd = new FormData();
+  fd.append("name", name);
+  fd.append("is_free", isFree ? "true" : "false");
+  fd.append("price_coins", isFree ? "0" : String(price));
+  fd.append("duration_days", duration);
+  fd.append("is_private", document.getElementById("bgPrivate").checked ? "true" : "false");
+  fd.append("file", file);
+  try {
+    await apiFetch("/admin-dashboard/backgrounds", { method: "POST", body: fd });
+    showToast("✓ تم رفع الخلفية");
+    ["bgName", "bgPrice", "bgDuration"].forEach((id) => { document.getElementById(id).value = ""; });
+    document.getElementById("bgFile").value = "";
+    document.getElementById("bgFileLabel").textContent = "اختر ملف (صورة أو فيديو mp4/webm)";
+    await loadBackgrounds();
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+document.getElementById("bgTable")?.addEventListener("click", async (e) => {
+  const btn = e.target?.closest?.("[data-bg-action]");
+  if (!btn) return;
+  const id = btn.getAttribute("data-bg-id");
+  const bg = bgCatalogue.find((b) => String(b.id) === id);
+  if (btn.getAttribute("data-bg-action") === "delete") {
+    const owners = Number(bg?.ownerCount || 0);
+    const msg = owners
+      ? `«${bg?.name ?? ""}» هتتحذف نهائيًا، و${num(owners)} مستخدم بيملكها هيفقدها (ولو مركّبة على صفحته هتتشال). متأكد؟`
+      : `«${bg?.name ?? ""}» هتتحذف نهائيًا. متأكد؟`;
+    if (!(await cpConfirm("حذف خلفية", msg))) return;
+    try {
+      await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(id)}`, "DELETE");
+      showToast("✓ تم حذف الخلفية");
+      await loadBackgrounds();
+      if (bgCurrentUserId) await loadUserBackgrounds(bgCurrentUserId);
+    } catch (err) { showToast("خطأ: " + err.message); }
+    return;
+  }
+  const field = (f) => [...document.querySelectorAll("#bgTable [data-bg]")]
+    .find((el) => el.getAttribute("data-bg") === id && el.dataset.f === f);
+  const isFree = Boolean(field("isFree")?.checked);
+  const price = Number(field("priceCoins")?.value || 0);
+  const duration = field("durationDays")?.value.trim() ?? "";
+  if (!isFree && !(price > 0)) return showToast("حدد السعر أو علّم «مجانية»");
+  if (duration !== "" && !(Number(duration) >= 1)) return showToast("المدة لازم تكون يوم أو أكتر، أو فاضية = أبدي");
+  try {
+    await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(id)}`, "PATCH", {
+      name: field("name")?.value.trim() || undefined,
+      isFree,
+      priceCoins: isFree ? 0 : price,
+      isPurchasable: Boolean(field("isPurchasable")?.checked),
+      durationDays: duration === "" ? null : Number(duration),
+    });
+    showToast("✓ تم حفظ الخلفية");
+    await loadBackgrounds();
+  } catch (err) { showToast("خطأ: " + err.message); }
+});
+
+async function grantBackgroundToUser() {
+  const itemId = document.getElementById("bgGrantItem").value;
+  const displayId = cpVal("bgGrantUser");
+  if (!itemId) return showToast("اختر خلفية");
+  if (!displayId) return showToast("اكتب رقم المستخدم");
+  try {
+    const d = (await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(itemId)}/grant`, "POST", { displayId }))?.data;
+    const exp = d?.userItem?.expiresAt ? ` — تنتهي ${fmtDate(d.userItem.expiresAt).slice(0, 10)}` : "";
+    showToast(`✓ تم منح الخلفية لـ ${d?.user?.name ?? displayId}${exp}`);
+    await loadBackgrounds();
+    if (d?.user?.id && d.user.id === bgCurrentUserId) await loadUserBackgrounds(bgCurrentUserId);
+  } catch (e) { showToast("خطأ: " + e.message); }
+}
+
+async function bgRevoke(itemId, body, label) {
+  if (!(await cpConfirm("سحب خلفية", `هتتسحب «${label}» من المستخدم ده بس، ولو مركّبة على صفحته هتتشال. متأكد؟`))) return false;
+  try {
+    const d = (await apiFetch(`/admin-dashboard/backgrounds/${encodeURIComponent(itemId)}/revoke`, "POST", body))?.data;
+    showToast(`✓ تم سحب الخلفية من ${d?.user?.name ?? ""}`);
+    document.getElementById("bgRevokeReason").value = "";
+    await loadBackgrounds();
+    if (bgCurrentUserId && (d?.user?.id === bgCurrentUserId)) await loadUserBackgrounds(bgCurrentUserId);
+    return true;
+  } catch (e) { showToast("خطأ: " + e.message); return false; }
+}
+
+async function revokeBackgroundFromUser() {
+  const itemId = document.getElementById("bgGrantItem").value;
+  const displayId = cpVal("bgGrantUser");
+  if (!itemId) return showToast("اختر خلفية");
+  if (!displayId) return showToast("اكتب رقم المستخدم");
+  const bg = bgCatalogue.find((b) => String(b.id) === itemId);
+  await bgRevoke(itemId, { displayId, reason: cpVal("bgRevokeReason") || undefined }, bg?.name ?? "");
+}
+
+// `rowId` when refreshing from code (internal id); otherwise the typed Display ID.
+async function loadUserBackgrounds(rowId) {
+  const byRow = Number.isFinite(rowId) && rowId > 0;
+  const q = byRow ? String(rowId) : cpVal("bgUserQuery");
+  if (!q) return showToast("اكتب رقم المستخدم");
+  const clear = () => { bgCurrentUserId = null; document.getElementById("bgUserBox").style.display = "none"; };
+  let d;
+  try {
+    d = (await apiFetch(`/admin-dashboard/backgrounds/users/${encodeURIComponent(q)}${byRow ? "?by=id" : ""}`))?.data;
+  } catch (e) { clear(); return showToast("خطأ: " + e.message); }
+  if (!d?.user) { clear(); return showToast("المستخدم غير موجود"); }
+  bgCurrentUserId = d.user.id;
+  document.getElementById("bgUserQuery").value = d.user.displayId ?? d.user.id;
+  document.getElementById("bgUserBox").style.display = "";
+  const rows = d.backgrounds || [];
+  document.getElementById("bgUserMeta").innerHTML = `${cpUserLabel(d.user)} — ${num(rows.length)} خلفية`;
+  const now = Date.now();
+  document.querySelector("#bgUserTable tbody").innerHTML = rows.length
+    ? rows.map((r) => {
+      const expired = r.expiresAt && new Date(r.expiresAt).getTime() < now;
+      const status = [
+        r.equipped ? '<span class="badge badge-approved">مركّبة</span>' : "",
+        expired ? '<span class="badge badge-rejected">منتهية</span>' : "",
+      ].join(" ") || '<span class="cell-muted">—</span>';
+      return `
+      <tr>
+        <td>${bgThumb(r.item)}</td>
+        <td>${escapeHtml(r.item?.name || "")}</td>
+        <td>${fmtDate(r.acquiredAt)}</td>
+        <td>${r.expiresAt ? fmtDate(r.expiresAt) : "أبدي"}</td>
+        <td>${status}</td>
+        <td><button class="btn btn-sm btn-bad" data-bg-revoke="${escapeHtml(String(r.item?.id ?? ""))}">سحب</button></td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="6" class="cell-muted">المستخدم ده مش بيملك أي خلفية</td></tr>`;
+}
+
+document.getElementById("bgUserTable")?.addEventListener("click", async (e) => {
+  const itemId = e.target?.closest?.("[data-bg-revoke]")?.getAttribute("data-bg-revoke");
+  if (!itemId || !bgCurrentUserId) return;
+  const bg = bgCatalogue.find((b) => String(b.id) === itemId);
+  await bgRevoke(itemId, { userId: bgCurrentUserId, reason: cpVal("bgRevokeReason") || undefined }, bg?.name ?? "");
+});
+
+// The audit log lives in the CP tab; open it filtered to background actions.
+// The filter is set before navigate() so the tab's own load already asks for BG.
+function openBgAudit() {
+  document.getElementById("cpAuditAction").value = "BG";
+  document.getElementById("cpAuditUser").value = "";
+  navigate("cp");
+  setTimeout(() => document.getElementById("cpAuditTable")?.closest(".form-card")?.scrollIntoView({ block: "start" }), 300);
+}
+
+Object.assign(window, {
+  loadBackgrounds, bgSyncFree, addBackground,
+  grantBackgroundToUser, revokeBackgroundFromUser, loadUserBackgrounds, openBgAudit,
 });
