@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
 import { getGameSettings } from './gameConfig.service';
-import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
+import { grantStakeValue, payPrize, releasePrize, reservePrize } from './halalGames.service';
 
 /** This game's id in لوحة التحكم → الألعاب (gameConfig KNOWN_GAMES). */
 const GAME_CONFIG_KEY = 'greedy-cat';
@@ -551,7 +551,7 @@ export async function placeBet(userId: number, target: string, amount: number) {
   const maxPrize = Math.max(
     ...Object.entries(additions).map(([key, add]) => add * BY_KEY.get(key as SymbolKey)!.multiplier),
   );
-  const reserved = await reservePrize(userId, GAME_CONFIG_KEY, maxPrize);
+  const reserved = await reservePrize(userId, GAME_CONFIG_KEY, maxPrize, amount);
   if (!reserved.ok) {
     release();
     return { ok: false as const, code: reserved.code, message: reserved.message };
@@ -801,11 +801,10 @@ async function settle(r: Round) {
     player.payout = payout;
     player.multiplier = onWinner > 0 ? def.multiplier : 0;
 
-    // One reservation carries the prize to the ledger; the rest are freed.
+    // Every reservation this player made this round backs the one prize.
     const tokens = prizeTokens.get(tokenKey(r.id, player.userId)) ?? [];
     prizeTokens.delete(tokenKey(r.id, player.userId));
-    for (const t of tokens.slice(1)) releasePrize(t);
-    if (payout <= 0) releasePrize(tokens[0]);
+    if (payout <= 0) for (const t of tokens) releasePrize(t);
 
     const row = cacheRow(player);
     // `wagered` was already added at bet time, so the daily net only needs the
@@ -815,20 +814,21 @@ async function settle(r: Round) {
 
     if (payout > 0) {
       try {
-        await prisma.user.update({
-          where: { id: player.userId },
-          data: { coinsBalance: { increment: payout } },
-        });
-        settlePrize(tokens[0], player.userId, GAME_CONFIG_KEY, payout, `round:${r.id}`);
+        // Paid from the game's pool in one transaction, cut only by the caps.
+        const paid = await payPrize(tokens, player.userId, GAME_CONFIG_KEY, payout, `round:${r.id}`, staked);
+        if (paid.paid !== payout) {
+          row.net -= payout - paid.paid;
+          player.payout = paid.paid;
+        }
         winners.push({
           userId: player.userId,
           name: player.name,
           avatarUrl: player.avatarUrl,
-          payout,
-          profit: payout - staked,
+          payout: paid.paid,
+          profit: paid.paid - staked,
         });
       } catch (err) {
-        releasePrize(tokens[0]);
+        for (const t of tokens) releasePrize(t);
         console.error('[greedyCat] payout failed', { userId: player.userId, payout, err });
         // The coins never landed, so do not let the leaderboard claim they did.
         row.net -= payout;

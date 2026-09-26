@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
 import { broadcastRoomClosed } from '../services/socket.service';
+import { hasFeature, isFeatureOn } from '../services/features.service';
 
 /**
  * A16 — غرفة الإدارة. Pinned to the top of the room list and drawn as the large
@@ -104,6 +105,8 @@ export const getRooms = async (req: Request, res: Response) => {
         maxSeats: room.maxSeats,
         ownerId: room.ownerId,
         isLocked: room.isLocked,
+        roomType: (room as any).roomType ?? 'USER',
+        isOfficial: (room as any).roomType === 'OFFICIAL_ROOM',
         owner: room.owner,
         membersCount: room._count.members,
 members: room.members.map(m => ({
@@ -380,6 +383,11 @@ export const deleteRoom = async (req: Request, res: Response) => {
     const room = await prisma.room.findUnique({ where: { id: roomIdNum } });
     if (!room) return res.status(404).json({ error: 'Room not found' });
     if (room.ownerId !== userId) return res.status(403).json({ error: 'Only room owner can delete the room' });
+    // غرف البرنامج: never closed from the app by their owner — only from
+    // لوحة التحكم or by an admin holding OFFICIAL_ROOM_MANAGE.
+    if ((room as any).roomType === 'OFFICIAL_ROOM' && !(await hasFeature(userId, 'OFFICIAL_ROOM_MANAGE'))) {
+      return res.status(403).json({ code: 'OFFICIAL_ROOM', error: 'هذه غرفة رسمية ولا تُغلق إلا من الإدارة' });
+    }
 
     await prisma.room.update({
       where: { id: roomIdNum },
@@ -411,6 +419,20 @@ export const joinRoom = async (req: Request, res: Response) => {
 
     if (!room) return res.status(404).json({ error: 'Room not found' });
     if (!room.isActive) return res.status(400).json({ error: 'Room is not active' });
+
+    // The same locked-room rule the socket join enforces (2026-09-26): only
+    // the owner enters without the PIN, unless a server-checked grant applies.
+    if (room.isLocked && room.accessCode && room.ownerId !== userId) {
+      const provided = String((req.body as any)?.code ?? '').trim();
+      const hiddenOk =
+        (req.body as any)?.hiddenBypass === true &&
+        (room as any).allowHiddenEntry &&
+        (await isFeatureOn(userId, 'HIDDEN_MODE'));
+      const permOk = await hasFeature(userId, 'ROOM_LOCK_BYPASS');
+      if (provided !== room.accessCode && !hiddenOk && !permOk) {
+        return res.status(403).json({ code: 'ROOM_LOCKED', error: 'الغرفة مغلقة بكلمة مرور' });
+      }
+    }
 
     const existing = await prisma.roomMember.findUnique({
       where: { userId_roomId: { userId, roomId: roomIdNum } },

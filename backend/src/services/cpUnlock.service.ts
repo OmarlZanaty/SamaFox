@@ -46,12 +46,24 @@ export const CP_UNLOCK_SETTING_DEFAULTS: Record<string, string> = {
   cp_level_names: '', // JSON array or "a,b,c"; empty = built-in Arabic names
 };
 
+export interface CpLevelRow {
+  level: number;
+  requiredCoins: number;
+  name: string | null;
+  badgeUrl: string | null;
+  frameUrl: string | null;
+  effectKey: string | null;
+}
+
 export interface CpUnlockSettings {
   unlockMode: CpUnlockMode;
   unlockFeeCoins: number;
   levelStepCoins: number;
   levelMax: number;
   levelNames: string[];
+  /** «CP Level Management» (2026-09-26): enabled rows, ascending. When
+   *  present they decide the level; the step/days rules are the fallback. */
+  levelTable?: CpLevelRow[];
 }
 
 export const CP_LEVEL_NAMES_DEFAULT = ['بداية حب', 'حب حلو', 'حب كبير', 'حب خالد', 'روح واحدة'];
@@ -92,7 +104,27 @@ export async function readCpSettings(db: any = prisma): Promise<CpUnlockSettings
     levelStepCoins: clampInt(merged.cp_level_step_coins, 0, 2_000_000_000, 0),
     levelMax: clampInt(merged.cp_level_max, 1, 999, 5),
     levelNames: parseLevelNames(merged.cp_level_names),
+    levelTable: await readCpLevelTable(db),
   };
+}
+
+/** Enabled CP levels, ascending. Empty when the admin has not set any up. */
+export async function readCpLevelTable(db: any = prisma): Promise<CpLevelRow[]> {
+  if (!db?.cpLevel?.findMany) return [];
+  try {
+    const rows = await db.cpLevel.findMany({ where: { enabled: true }, orderBy: { level: 'asc' } });
+    return rows.map((r: any) => ({
+      level: Number(r.level),
+      requiredCoins: Number(r.requiredCoins),
+      name: r.name ?? null,
+      badgeUrl: r.badgeUrl ?? null,
+      frameUrl: r.frameUrl ?? null,
+      effectKey: r.effectKey ?? null,
+    }));
+  } catch (e) {
+    console.warn('[cp] level table read failed, using the step/days rules:', (e as Error).message);
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -112,8 +144,12 @@ export interface CpLevelResult {
   days: number;
   /** cpValue needed for the next level; null when maxed or days-based. */
   nextLevelAt: number | null;
-  /** 'override' | 'coins' | 'days' */
-  basis: 'override' | 'coins' | 'days';
+  /** 'override' | 'table' | 'coins' | 'days' */
+  basis: 'override' | 'table' | 'coins' | 'days';
+  /** From the level table, when it decided the level. */
+  badgeUrl?: string | null;
+  frameUrl?: string | null;
+  effectKey?: string | null;
 }
 
 export function daysSince(d: Date | string, now = Date.now()): number {
@@ -134,9 +170,41 @@ export function computeCpLevel(pair: CpLevelInput, cfg: CpUnlockSettings, now = 
   const max = Math.max(1, cfg.levelMax);
   const nameFor = (lvl: number) => cfg.levelNames[Math.min(cfg.levelNames.length, lvl) - 1] ?? `LV.${lvl}`;
 
+  const table = cfg.levelTable ?? [];
   if (pair.levelOverride != null && Number.isFinite(Number(pair.levelOverride))) {
-    const level = clampInt(pair.levelOverride, 1, max, 1);
-    return { level, levelName: nameFor(level), cpValue, days, nextLevelAt: null, basis: 'override' };
+    const cap = table.length ? Math.max(...table.map((t) => t.level)) : max;
+    const level = clampInt(pair.levelOverride, table.length ? 0 : 1, cap, 1);
+    const row = table.find((t) => t.level === level);
+    return {
+      level,
+      levelName: row?.name ?? nameFor(level),
+      cpValue,
+      days,
+      nextLevelAt: null,
+      basis: 'override',
+      badgeUrl: row?.badgeUrl ?? null,
+      frameUrl: row?.frameUrl ?? null,
+      effectKey: row?.effectKey ?? null,
+    };
+  }
+  if (table.length) {
+    // «CP Level Management»: the highest level whose requirement is met. Only
+    // CP-list gifts ever raise cpValue (cpGift.service), so nothing else —
+    // top-ups, games, ordinary gifts, rewards — can move it.
+    let row: CpLevelRow | null = null;
+    for (const t of table) if (cpValue >= t.requiredCoins) row = t;
+    const next = table.find((t) => t.requiredCoins > cpValue) ?? null;
+    return {
+      level: row?.level ?? 0,
+      levelName: row ? row.name ?? nameFor(row.level) : 'بدون مستوى',
+      cpValue,
+      days,
+      nextLevelAt: next ? next.requiredCoins : null,
+      basis: 'table',
+      badgeUrl: row?.badgeUrl ?? null,
+      frameUrl: row?.frameUrl ?? null,
+      effectKey: row?.effectKey ?? null,
+    };
   }
   if (cfg.levelStepCoins > 0) {
     const level = Math.min(max, 1 + Math.floor(cpValue / cfg.levelStepCoins));

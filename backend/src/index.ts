@@ -56,7 +56,9 @@ import { startBetaSyncWatchdog } from './services/betaWatchdog.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import appDownloadRoutes from './routes/appDownload.routes';
-import { setGiftIo } from './gifts/controller';
+import { setGiftIo, emitLuckyRoundsClosed } from './gifts/controller';
+import { startLuckyRoundSweeper } from './gifts/lucky.service';
+import { purgeOldIdempotencyKeys } from './middlewares/idempotency.middleware';
 
 import helmet from 'helmet';
 
@@ -321,6 +323,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // Notice when the operator's beta-sync PC goes dark and fall back to the
   // email invite, so a signup never just spins. Every minute.
   startBetaSyncWatchdog();
+  // هدايا الحظ: close rounds whose window passed without enough players.
+  startLuckyRoundSweeper(emitLuckyRoundsClosed);
+  // Idempotency keys only matter for retries; three days is plenty.
+  setInterval(() => {
+    purgeOldIdempotencyKeys().catch((e) => console.warn('[idempotency] purge failed:', e?.message));
+  }, 6 * 60 * 60 * 1000).unref?.();
 });
 
 export { io };

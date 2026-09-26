@@ -6,6 +6,8 @@ import { startBroadcast, endBroadcast } from './broadcast.service';
 import { isBlockedBetween } from '../utils/blockGuard';
 import { checkDmAccess } from './dmAccess.service';
 import { createNotification } from './notification.service';
+import { hasFeature, isFeatureOn } from './features.service';
+import { cpSeatLinks } from './cpEffect.service';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
 import { CRAZY_ROOM, getPublicState as getCrazyWheelState } from './crazyWheel.service';
@@ -183,16 +185,59 @@ const getVoiceSet = (roomId: number) => {
 // The "live" badge on follow lists / other-user profiles must jump here, not
 // to a room they own but aren't currently in.
 const userCurrentRoom = new Map<number, number>();
+
+// الدخول المخفي (2026-09-26): users who entered a room with HIDDEN_MODE on.
+// Nobody in the room is told they came in or left, they are left out of the
+// roster, and their "live in room" badge is not shown to others. The server
+// still knows exactly where they are: every such entry is in room_entry_logs,
+// which the dashboard reads.
+const hiddenInRoom = new Map<number, Set<number>>();
+const getHiddenSet = (roomId: number) => {
+  if (!hiddenInRoom.has(roomId)) hiddenInRoom.set(roomId, new Set<number>());
+  return hiddenInRoom.get(roomId)!;
+};
+export function isHiddenInRoom(userId: number, roomId: number): boolean {
+  return hiddenInRoom.get(roomId)?.has(userId) ?? false;
+}
+/** Open room_entry_logs rows, closed (exitedAt) when the user leaves. */
+const openEntryLogs = new Map<string, number>();
+
+async function openEntryLog(uid: number, rid: number, hidden: boolean, lockBypass: string | null) {
+  try {
+    const row = await (prisma as any).roomEntryLog.create({ data: { userId: uid, roomId: rid, hidden, lockBypass } });
+    openEntryLogs.set(`${rid}:${uid}`, row.id);
+  } catch (e) {
+    console.warn('[entry-log] write failed', { uid, rid, e: (e as Error).message });
+  }
+}
+
+function closeEntryLog(uid: number, rid: number) {
+  const k = `${rid}:${uid}`;
+  const id = openEntryLogs.get(k);
+  if (id == null) return;
+  openEntryLogs.delete(k);
+  (prisma as any).roomEntryLog
+    .update({ where: { id }, data: { exitedAt: new Date() } })
+    .catch((e: Error) => console.warn('[entry-log] close failed', { uid, rid, e: e.message }));
+}
+
+/** Where a user is, as OTHER users may know it: hidden entries are not shown. */
 export function getUserCurrentRoomId(userId: number): number | null {
-  return userCurrentRoom.get(userId) ?? null;
+  const rid = userCurrentRoom.get(userId) ?? null;
+  if (rid != null && isHiddenInRoom(userId, rid)) return null;
+  return rid;
 }
 export function getUserCurrentRoomIds(userIds: number[]): Map<number, number> {
   const out = new Map<number, number>();
   for (const id of userIds) {
     const rid = userCurrentRoom.get(id);
-    if (rid) out.set(id, rid);
+    if (rid && !isHiddenInRoom(id, rid)) out.set(id, rid);
   }
   return out;
+}
+/** For guards that must know the truth (locked-room reads). */
+export function isUserInRoom(userId: number, roomId: number): boolean {
+  return userCurrentRoom.get(userId) === roomId;
 }
 
 /**
@@ -458,6 +503,11 @@ await Promise.all(
 
   const adminList = Array.from(adminsSet);
 
+  // CP partners on the mics and the effect their level earns (item 11). The
+  // app draws it only for neighbouring seats; a snapshot without the link is
+  // what removes it.
+  const cpLinks = await cpSeatLinks(seatsMap).catch(() => []);
+
   io.to(`room:${rid}`).emit('room_seats_state', {
     roomId: rid,
     ownerId: room?.ownerId ?? 0,
@@ -467,6 +517,7 @@ await Promise.all(
     lockedSeats: Array.from(locked.values()),
     mutedSeats: Array.from(getAdminMutedSeats(rid).values()),
     seats: seatDetails,
+    cpLinks,
   });
 
   // Every seat change lands here, and a seat change IS a voice-topology change
@@ -509,13 +560,15 @@ async function emitVoiceUsers(io: Server, rid: number) {
  * saw `user_joined` for people arriving after them — so lists like the
  * "دعوة إلى المقعد" picker showed nothing but the viewer themselves.
  */
-async function buildRoomUsers(io: Server, rid: number) {
+async function buildRoomUsers(io: Server, rid: number, viewerId?: number) {
   const sockets = await io.in(`room:${rid}`).fetchSockets();
+  const hidden = hiddenInRoom.get(rid);
   const ids = Array.from(
     new Set(
       sockets
         .map((s) => Number((s.data as any)?.userId))
-        .filter((n) => Number.isFinite(n) && n > 0),
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .filter((n) => n === viewerId || !hidden?.has(n)),
     ),
   );
   if (ids.length === 0) return [];
@@ -682,10 +735,15 @@ function releaseUserFromRooms(io: Server, uid: number) {
     }
   });
 
-  // A listener (no seat) still has to disappear from the room's member list.
-  if (lastRoom && !notifiedRooms.has(lastRoom)) {
-    io.to(`room:${lastRoom}`).emit('user_left', { userId: uid, roomId: lastRoom });
-    cleanupRoomStateIfEmpty(lastRoom);
+  // A listener (no seat) still has to disappear from the room's member list —
+  // unless nobody ever saw them arrive (hidden entry).
+  if (lastRoom) {
+    const wasHidden = hiddenInRoom.get(lastRoom)?.delete(uid) ?? false;
+    closeEntryLog(uid, lastRoom);
+    if (!notifiedRooms.has(lastRoom)) {
+      if (!wasHidden) io.to(`room:${lastRoom}`).emit('user_left', { userId: uid, roomId: lastRoom });
+      cleanupRoomStateIfEmpty(lastRoom);
+    }
   }
 
   // They really are gone now — a rejoin is a fresh entrance again.
@@ -782,7 +840,7 @@ socket.on('get_room_users', async ({ roomId }: any) => {
   const rid = toInt(roomId);
   if (!rid) return;
   try {
-    socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid) });
+    socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid, socket.userId) });
   } catch (e) {
     console.warn('[get_room_users] failed:', e);
   }
@@ -1396,30 +1454,57 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
     // ----------------------------
     // Join room (chat/seats)
     // ----------------------------
-    socket.on('join_room', async ({ roomId, code }) => {
+    socket.on('join_room', async ({ roomId, code, hiddenBypass }: any) => {
       try {
       const uid = socket.userId;
       const rid = toInt(roomId);
       if (!uid || !rid) return;
 
-      // ── Locked-room gate: a 5-digit PIN is required to enter when the room
-      // is locked *and* a PIN is set. The owner and room admins always bypass.
-      // (Rooms with isLocked=true but no accessCode are legacy boolean locks —
-      // treat them as open so nobody is permanently locked out.) ──
       const roomRow = await prisma.room.findUnique({
         where: { id: rid },
-        select: { isLocked: true, accessCode: true, ownerId: true, isActive: true },
+        select: { isLocked: true, accessCode: true, ownerId: true, isActive: true, allowHiddenEntry: true },
       });
       if (!roomRow?.isActive) {
         socket.emit('join_denied', { roomId: rid, reason: 'closed' });
         return;
       }
-      if (roomRow?.isLocked && roomRow.accessCode) {
-        await populateAdmins(rid);
-        const privileged = roomRow.ownerId === uid || getAdmins(rid).has(uid);
+
+      // Already admitted and just re-syncing after a reconnect: the gate was
+      // passed on the way in, so do not ask for the password again.
+      const alreadyInside = userCurrentRoom.get(uid) === rid;
+      const hiddenOn = await isFeatureOn(uid, 'HIDDEN_MODE').catch(() => false);
+
+      // ── Locked-room gate (2026-09-26): a locked room with a PIN admits ONLY
+      // its owner without the PIN. Room admins, supervisors and platform super
+      // admins no longer bypass it — an exceptional entry needs one of two
+      // explicit, server-checked grants:
+      //   • HIDDEN_MODE holders who answered "نعم" to "الغرفة مغلقة، هل تريد
+      //     الدخول بدون كلمة مرور؟" (the app sends hiddenBypass: true), when
+      //     the room allows it;
+      //   • the ROOM_LOCK_BYPASS permission from «منح المميزات».
+      // Every such entry is logged. (isLocked with no PIN is a legacy boolean
+      // lock and stays open, so nobody is locked out for good.) ──
+      let lockBypass: string | null = null;
+      if (roomRow.isLocked && roomRow.accessCode && !alreadyInside) {
         const provided = code != null ? String(code).trim() : '';
-        if (!privileged && provided !== roomRow.accessCode) {
-          socket.emit('join_denied', { roomId: rid, reason: 'locked' });
+        const canHidden = hiddenOn && roomRow.allowHiddenEntry;
+        if (roomRow.ownerId === uid) {
+          lockBypass = 'OWNER';
+        } else if (provided && provided === roomRow.accessCode) {
+          lockBypass = null;
+        } else if (hiddenBypass === true && canHidden) {
+          lockBypass = 'HIDDEN_MODE';
+        } else if (await hasFeature(uid, 'ROOM_LOCK_BYPASS').catch(() => false)) {
+          lockBypass = 'ROOM_LOCK_BYPASS';
+        } else {
+          socket.emit('join_denied', {
+            roomId: rid,
+            reason: 'locked',
+            // Lets a new app offer the hidden-entry question instead of the
+            // PIN box. The server decides again when the answer comes back.
+            canHiddenBypass: canHidden,
+            wrongCode: provided.length > 0,
+          });
           socket.leave(`room:${rid}`);
           return;
         }
@@ -1467,6 +1552,17 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
       await populateAdmins(rid);
 
+      // Hidden entry: decided once per entrance. A re-sync keeps whatever the
+      // entrance decided.
+      const hiddenEntry = alreadyInside ? isHiddenInRoom(uid, rid) : hiddenOn;
+      if (!alreadyInside) {
+        if (hiddenEntry) getHiddenSet(rid).add(uid);
+        else hiddenInRoom.get(rid)?.delete(uid);
+        if (hiddenEntry || (lockBypass && lockBypass !== 'OWNER')) {
+          await openEntryLog(uid, rid, hiddenEntry, lockBypass);
+        }
+      }
+
       const admins = getAdmins(rid);
       const seatsMap = getSeats(rid);
       const mutedMap = getMuted(rid);
@@ -1489,7 +1585,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       const lastEntry = recentRoomEntries.get(entryKey) ?? 0;
       // `isResync`: they never left (grace window / still-open session), so the
       // room must not see them "enter" again, however long they were away.
-      if (!isResync && Date.now() - lastEntry > ENTRANCE_DEBOUNCE_MS) {
+      if (!isResync && !hiddenEntry && Date.now() - lastEntry > ENTRANCE_DEBOUNCE_MS) {
         recentRoomEntries.set(entryKey, Date.now());
         try {
           const [entrant, activeBanner, activeEffect, entrantBadges] = await Promise.all([
@@ -1578,7 +1674,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
           where: { id: uid },
           select: { id: true, name: true, avatarUrl: true, displayId: true, level: true, vipLevel: true },
         });
-        io.to(`room:${rid}`).emit('user_joined', {
+        const joinedPayload = {
           userId: uid,
           roomId: rid,
           username: joiner?.name ?? (joiner?.displayId ? `#${joiner.displayId}` : 'مستخدم'),
@@ -1586,8 +1682,12 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
           displayId: joiner?.displayId ?? null,
           level: joiner?.level ?? 1,
           vipLevel: joiner?.vipLevel ?? 0,
-        });
-        socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid) });
+        };
+        // A hidden entrant is told about himself only.
+        if (hiddenEntry) socket.emit('user_joined', joinedPayload);
+        else io.to(`room:${rid}`).emit('user_joined', joinedPayload);
+        socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid, uid) });
+        socket.emit('room_entry_mode', { roomId: rid, hidden: hiddenEntry, lockBypass });
       } catch (e) {
         console.warn('[join_room] roster emit failed:', e);
       }
@@ -1630,7 +1730,9 @@ async function performLeaveRoom(
   // entrance and must play for the whole room, however fast they return.
   // Reconnects never send leave_room, so they stay debounced.
   recentRoomEntries.delete(`${rid}:${uid}`);
-  console.log('[leave_room]', { uid, rid });
+  const wasHidden = hiddenInRoom.get(rid)?.delete(uid) ?? false;
+  closeEntryLog(uid, rid);
+  console.log('[leave_room]', { uid, rid, hidden: wasHidden });
 
   // Voice membership is NOT tied to a seat: every member joins voice, listeners
   // included (the room is joined listen-only and upgraded on taking a seat).
@@ -1668,10 +1770,12 @@ async function performLeaveRoom(
 
   io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
 
-  io.to(`room:${rid}`).emit('user_left', {
-  userId: uid,
-  roomId: rid
-});
+  if (!wasHidden) {
+    io.to(`room:${rid}`).emit('user_left', {
+      userId: uid,
+      roomId: rid,
+    });
+  }
 
   // Last one out turns the music off.
   await clearMusicIfRoomEmpty(io, rid);

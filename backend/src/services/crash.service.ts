@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { Server } from 'socket.io';
 import prisma from '../utils/prisma';
-import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
+import { grantStakeValue, payPrize, releasePrize, reservePrize } from './halalGames.service';
 
 // ============================================================
 // طيّار — CRASH (Aviator-style), real coins
@@ -259,7 +259,7 @@ export async function placeCrashBet(
   }
 
   // The largest prize this bet can win is promised before its coins are taken.
-  const reserved = await reservePrize(userId, 'crash', amount * (autoCashOut ?? CRASH_MAX_MULTIPLIER));
+  const reserved = await reservePrize(userId, 'crash', amount * (autoCashOut ?? CRASH_MAX_MULTIPLIER), amount);
   if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
 
   const charged = await prisma.user.updateMany({
@@ -315,6 +315,8 @@ export async function placeCrashBet(
     ok: true as const,
     roundId: round.id,
     balance: user?.coinsBalance ?? 0,
+    // The most this bet can win after the game's caps — known before takeoff.
+    maxWin: reserved.cap,
     serverSeedHash: round.serverSeedHash,
     clientSeed: seed,
   };
@@ -345,21 +347,26 @@ export async function cancelCrashBet(userId: number, slot: number) {
 async function payOut(bet: Bet, multiplier: number) {
   const m = Math.floor(multiplier * 100) / 100; // never round in the player's favour
   bet.cashOutMultiplier = m;
-  bet.payout = Math.floor(bet.amount * m);
+  const requested = Math.floor(bet.amount * m);
+  bet.payout = requested;
   bet.status = 'win';
   bet.cashOutTime = Date.now();
-  settlePrize(bet.prizeToken, bet.userId, 'crash', bet.payout, bet.betId);
 
+  // Paid from طيّار's pool: debit, credit and ledger row in one transaction.
+  // One retry on a database blip — the money has not moved if it threw.
   let balance = 0;
-  try {
-    const user = await prisma.user.update({
-      where: { id: bet.userId },
-      data: { coinsBalance: { increment: bet.payout } },
-      select: { coinsBalance: true },
-    });
-    balance = user.coinsBalance;
-  } catch (err) {
-    console.error('[crash] payout failed', { userId: bet.userId, payout: bet.payout, err });
+  const token = bet.prizeToken;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const paid = await payPrize(attempt === 1 ? token : null, bet.userId, 'crash', requested, bet.betId, bet.amount);
+      bet.payout = paid.paid;
+      balance = paid.balance ?? 0;
+      break;
+    } catch (err) {
+      console.error('[crash] payout failed', { userId: bet.userId, payout: requested, attempt, err });
+      if (attempt === 2) bet.payout = 0;
+      else await new Promise((r) => setTimeout(r, 300));
+    }
   }
 
   io?.to(CRASH_ROOM).emit('crash_cashout', {
@@ -592,13 +599,15 @@ export async function claimCrashRain(userId: number) {
 
   rain.claimed.add(userId);
   rain.claimsLeft -= 1;
-  const amount = rain.amount;
 
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data: { coinsBalance: { increment: amount } },
-    select: { coinsBalance: true },
-  });
+  // 2026-09-26: the rain is paid from طيّار's prize pool, never minted. An
+  // empty pool means no share for this claimer.
+  const paid = await payPrize(null, userId, 'crash', rain.amount, `rain:${rain.id}:${userId}`);
+  if (paid.paid <= 0) {
+    return { ok: false as const, code: 'PRIZE_POOL_LOW', message: 'صندوق الجوائز فارغ حالياً' };
+  }
+  const amount = paid.paid;
+  const user = { coinsBalance: paid.balance ?? 0 };
 
   io?.to(CRASH_ROOM).emit('crash_rain_claimed', {
     id: rain.id,

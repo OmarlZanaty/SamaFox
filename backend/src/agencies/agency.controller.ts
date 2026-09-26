@@ -5,6 +5,7 @@ import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
+import { getHostTargetView, setHostTarget } from '../services/hostTarget.service';
 
 const db = prisma as any;
 
@@ -322,6 +323,41 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
   }
 };
 
+// ── وكالة المضيفين: دعوات (2026-09-26, item 15) ─────────────────────────
+// PENDING → ACCEPTED | REJECTED | EXPIRED. Stored lower-case (the value older
+// app builds compare against) and returned upper-case as `state` too.
+//
+// Two bugs this fixes:
+//  • "الوكيل لا يستطيع إرسال دعوة": the table is unique on (agency, invitee),
+//    so re-inviting anyone who had once rejected, accepted-then-left, or let an
+//    invite lapse hit the unique index and returned a bare 500. A re-invite now
+//    REOPENS that row.
+//  • "المضيف يقبل ولا ينضم": accepting flipped the status and upserted the
+//    membership with no checks, so a host already in another hosting agency, or
+//    accepting an invite into an agency no longer approved, "joined" into a
+//    state no screen shows. Acceptance is now one transaction that checks
+//    everything and only reports success after the commit.
+const INVITE_TTL_MS = 7 * 86_400_000;
+
+const inviteState = (inv: any) => {
+  const st = String(inv?.status ?? '').toLowerCase();
+  if (st === 'pending' && inv?.expiresAt && new Date(inv.expiresAt) <= new Date()) return 'EXPIRED';
+  return st.toUpperCase();
+};
+
+class InviteError extends Error {
+  constructor(public status: number, public code: string, message: string) {
+    super(message);
+  }
+}
+
+/** The approved HOSTING agency a user already belongs to, other than `exceptAgencyId`. */
+const otherHostingMembership = async (tx: any, userId: number, exceptAgencyId: number) =>
+  tx.agencyMember.findFirst({
+    where: { userId, agencyId: { not: exceptAgencyId }, agency: { type: 'HOSTING', status: 'approved' } },
+    include: { agency: { select: { id: true, agencyName: true } } },
+  });
+
 // POST /agencies/invite/:userId
 export const inviteMember = async (req: AuthReq, res: Response) => {
   try {
@@ -330,6 +366,7 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
 
     const inviteeId = Number(req.params.userId);
     if (!inviteeId) return fail(res, 400, 'Invalid userId');
+    if (inviteeId === ownerId) return fail(res, 400, 'لا يمكنك دعوة نفسك');
 
     // Same type filter the roster uses. Without it an agent who owns BOTH a
     // HOSTING and a CHARGING agency (#8) invites into whichever they joined
@@ -340,15 +377,37 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
     const m = await findManagerMembership(ownerId, inviteType);
     if (!m) return fail(res, 403, 'Not an agency owner or branch');
 
-    const existing = await db.agencyInvite.findFirst({
-      where: { agencyId: m.agencyId, inviteeId, status: 'pending' },
-    });
-    if (existing) return fail(res, 400, 'Already invited');
+    const invitee = await db.user.findUnique({ where: { id: inviteeId }, select: { id: true } });
+    if (!invitee) return fail(res, 404, 'المستخدم غير موجود');
 
-    const invite = await db.agencyInvite.create({
-      data: { agencyId: m.agencyId, inviterId: ownerId, inviteeId },
-      include: { agency: { select: { agencyName: true } } },
+    const alreadyMember = await db.agencyMember.findFirst({ where: { agencyId: m.agencyId, userId: inviteeId } });
+    if (alreadyMember) return fail(res, 400, 'المستخدم عضو في وكالتك بالفعل');
+
+    if (m.agency?.type === 'HOSTING') {
+      const other = await otherHostingMembership(db, inviteeId, m.agencyId);
+      if (other) return fail(res, 409, `المستخدم مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId})`);
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + INVITE_TTL_MS);
+    const existing = await db.agencyInvite.findUnique({
+      where: { agencyId_inviteeId: { agencyId: m.agencyId, inviteeId } },
     });
+    if (existing && inviteState(existing) === 'PENDING') {
+      return fail(res, 400, 'Already invited');
+    }
+
+    // One row per (agency, invitee): reopen it rather than insert a second.
+    const invite = existing
+      ? await db.agencyInvite.update({
+          where: { id: existing.id },
+          data: { status: 'pending', inviterId: ownerId, expiresAt, respondedAt: null, updatedAt: now },
+          include: { agency: { select: { agencyName: true } } },
+        })
+      : await db.agencyInvite.create({
+          data: { agencyId: m.agencyId, inviterId: ownerId, inviteeId, expiresAt },
+          include: { agency: { select: { agencyName: true } } },
+        });
 
     // The invitee learns about it from notifications/messages.
     try {
@@ -364,7 +423,7 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
       console.warn('agency invite notification failed:', e);
     }
 
-    return res.status(201).json({ success: true, data: invite });
+    return res.status(201).json({ success: true, data: { ...invite, state: inviteState(invite) } });
   } catch (e) {
     // Was a blind `catch {}` that hid the real cause behind a generic 500 —
     // that opacity was #35 "invite shows an error with no detail". Log it.
@@ -384,40 +443,108 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
 
     if (!['accept', 'reject'].includes(String(action))) return fail(res, 400, 'action must be accept or reject');
 
-    const invite = await db.agencyInvite.findUnique({ where: { id: inviteId } });
-    if (!invite || invite.inviteeId !== userId) return fail(res, 403, 'Not your invite');
-    if (invite.status !== 'pending') return fail(res, 400, 'Already processed');
-
-    await db.$transaction(async (tx: any) => {
-      await tx.agencyInvite.update({
-        where: { id: inviteId },
-        data: { status: action === 'accept' ? 'accepted' : 'rejected' },
-      });
-
-      if (action === 'accept') {
-        await tx.agencyMember.upsert({
-          where: { agencyId_userId: { agencyId: invite.agencyId, userId } },
-          update: { role: 'MEMBER' },
-          create: { agencyId: invite.agencyId, userId, role: 'MEMBER' },
-        });
+    // A lapsed invite is marked EXPIRED for good — outside the transaction
+    // below, whose rollback would otherwise undo the mark.
+    const pre = await db.agencyInvite.findUnique({ where: { id: inviteId } });
+    if (pre && pre.inviteeId === userId && inviteState(pre) === 'EXPIRED') {
+      if (pre.status === 'pending') {
+        await db.agencyInvite.updateMany({ where: { id: inviteId, status: 'pending' }, data: { status: 'expired', updatedAt: new Date() } });
       }
-    });
-
-    try {
-      await createNotification({
-        userId: invite.inviterId,
-        actorId: userId,
-        type: 'AGENCY_INVITE_RESPONSE',
-        title: action === 'accept' ? 'انضمام مضيف جديد' : 'تم رفض الدعوة',
-        body: action === 'accept' ? 'قبل المستخدم دعوة الانضمام إلى وكالتك' : 'رفض المستخدم دعوة الانضمام إلى وكالتك',
-        data: { inviteId, agencyId: invite.agencyId },
-      });
-    } catch (e) {
-      console.warn('agency invite response notification failed:', e);
+      return res.status(410).json({ success: false, code: 'EXPIRED', message: 'انتهت صلاحية الدعوة' });
     }
 
-    return res.json({ success: true });
-  } catch {
+    const result = await db.$transaction(
+      async (tx: any) => {
+        // 1. The invite exists and is this user's.
+        const invite = await tx.agencyInvite.findUnique({
+          where: { id: inviteId },
+          include: { agency: { select: { id: true, agencyName: true, type: true, status: true } } },
+        });
+        if (!invite || invite.inviteeId !== userId) throw new InviteError(403, 'NOT_YOURS', 'Not your invite');
+
+        const state = inviteState(invite);
+        if (state === 'ACCEPTED') {
+          // Accepting twice is not an error — as long as the membership is there.
+          const member = await tx.agencyMember.findFirst({ where: { agencyId: invite.agencyId, userId } });
+          if (action === 'accept' && member) return { invite, member, alreadyDone: true };
+          throw new InviteError(400, 'ALREADY_PROCESSED', 'Already processed');
+        }
+        // 2. Not expired.
+        if (state === 'EXPIRED') {
+          if (invite.status === 'pending') {
+            await tx.agencyInvite.update({ where: { id: inviteId }, data: { status: 'expired', updatedAt: new Date() } });
+          }
+          throw new InviteError(410, 'EXPIRED', 'انتهت صلاحية الدعوة');
+        }
+        if (state !== 'PENDING') throw new InviteError(400, 'ALREADY_PROCESSED', 'Already processed');
+
+        if (action === 'reject') {
+          const r = await tx.agencyInvite.updateMany({
+            where: { id: inviteId, status: 'pending' },
+            data: { status: 'rejected', respondedAt: new Date(), updatedAt: new Date() },
+          });
+          if (r.count !== 1) throw new InviteError(409, 'ALREADY_PROCESSED', 'Already processed');
+          return { invite, member: null, alreadyDone: false };
+        }
+
+        // The agency must still be operating.
+        if (invite.agency?.status !== 'approved') throw new InviteError(409, 'AGENCY_INACTIVE', 'الوكالة غير مفعلة حالياً');
+
+        // 3. One hosting agency at a time.
+        if (invite.agency?.type === 'HOSTING') {
+          const other = await otherHostingMembership(tx, userId, invite.agencyId);
+          if (other) {
+            throw new InviteError(409, 'ALREADY_IN_AGENCY', `أنت مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId}) — غادرها أولاً`);
+          }
+        }
+
+        // 6 first, conditionally: whoever flips pending→accepted owns the join.
+        const flipped = await tx.agencyInvite.updateMany({
+          where: { id: inviteId, status: 'pending' },
+          data: { status: 'accepted', respondedAt: new Date(), updatedAt: new Date() },
+        });
+        if (flipped.count !== 1) throw new InviteError(409, 'ALREADY_PROCESSED', 'Already processed');
+
+        // 4–5. The membership — the host's agency link.
+        const member = await tx.agencyMember.upsert({
+          where: { agencyId_userId: { agencyId: invite.agencyId, userId } },
+          update: {},
+          create: { agencyId: invite.agencyId, userId, role: 'MEMBER' },
+        });
+        return { invite, member, alreadyDone: false };
+      },
+      { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
+    );
+    // 7. Committed — only now is "تم الانضمام" true.
+
+    if (!result.alreadyDone) {
+      try {
+        await createNotification({
+          userId: result.invite.inviterId,
+          actorId: userId,
+          type: 'AGENCY_INVITE_RESPONSE',
+          title: action === 'accept' ? 'انضمام مضيف جديد' : 'تم رفض الدعوة',
+          body: action === 'accept' ? 'قبل المستخدم دعوة الانضمام إلى وكالتك' : 'رفض المستخدم دعوة الانضمام إلى وكالتك',
+          data: { inviteId, agencyId: result.invite.agencyId },
+        });
+      } catch (e) {
+        console.warn('agency invite response notification failed:', e);
+      }
+    }
+
+    return res.json({
+      success: true,
+      state: action === 'accept' ? 'ACCEPTED' : 'REJECTED',
+      joined: action === 'accept',
+      agency: action === 'accept' ? { id: result.invite.agencyId, name: result.invite.agency?.agencyName ?? null } : null,
+      membershipId: result.member?.id ?? null,
+    });
+  } catch (e: any) {
+    if (e instanceof InviteError) {
+      return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+    }
+    if (e?.code === 'P2034') return fail(res, 409, 'حاول مرة أخرى');
+    console.error('[agency.respondInvite] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -442,19 +569,29 @@ export const requestJoinHostingAgency = async (req: AuthReq, res: Response) => {
 
     const alreadyMember = await db.agencyMember.findFirst({ where: { agencyId, userId } });
     if (alreadyMember) return fail(res, 400, 'Already a member');
+    const other = await otherHostingMembership(db, userId, agencyId);
+    if (other) return fail(res, 409, `أنت مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId}) — غادرها أولاً`);
 
-    const existing = await db.agencyInvite.findFirst({
-      where: { agencyId, inviteeId: userId, status: 'pending' },
-      select: { id: true },
+    const existing = await db.agencyInvite.findUnique({
+      where: { agencyId_inviteeId: { agencyId, inviteeId: userId } },
     });
-    if (existing) return fail(res, 400, 'Request already pending');
+    if (existing && inviteState(existing) === 'PENDING') return fail(res, 400, 'Request already pending');
 
-    const invite = await db.agencyInvite.create({
-      data: { agencyId, inviterId: agency.userId, inviteeId: userId, status: 'pending' },
-    });
+    // Same (agency, user) row as an invite would use: reopen it, never insert
+    // a duplicate (that is what used to 500).
+    const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+    const invite = existing
+      ? await db.agencyInvite.update({
+          where: { id: existing.id },
+          data: { status: 'pending', inviterId: agency.userId, expiresAt, respondedAt: null, updatedAt: new Date() },
+        })
+      : await db.agencyInvite.create({
+          data: { agencyId, inviterId: agency.userId, inviteeId: userId, status: 'pending', expiresAt },
+        });
 
-    return res.status(201).json({ success: true, data: invite });
-  } catch {
+    return res.status(201).json({ success: true, data: { ...invite, state: inviteState(invite) } });
+  } catch (e) {
+    console.error('[agency.requestJoinHostingAgency] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -514,6 +651,10 @@ export const reviewJoinRequest = async (req: AuthReq, res: Response) => {
 
     const invite = await db.agencyInvite.findUnique({ where: { id: inviteId } });
     if (!invite || invite.status !== 'pending') return fail(res, 404, 'Pending request not found');
+    if (inviteState(invite) === 'EXPIRED') {
+      await db.agencyInvite.update({ where: { id: inviteId }, data: { status: 'expired', updatedAt: new Date() } });
+      return fail(res, 410, 'انتهت صلاحية الطلب');
+    }
 
     const ownerMembership = await db.agencyMember.findFirst({
       where: { userId, agencyId: invite.agencyId, role: { in: ['OWNER', 'BRANCH'] } },
@@ -521,22 +662,32 @@ export const reviewJoinRequest = async (req: AuthReq, res: Response) => {
     });
     if (!ownerMembership || ownerMembership.agency.type !== 'HOSTING') return fail(res, 403, 'Not allowed');
 
-    await db.$transaction(async (tx: any) => {
-      await tx.agencyInvite.update({
-        where: { id: inviteId },
-        data: { status: action === 'accept' ? 'accepted' : 'rejected' },
-      });
-      if (action === 'accept') {
-        await tx.agencyMember.upsert({
-          where: { agencyId_userId: { agencyId: invite.agencyId, userId: invite.inviteeId } },
-          update: { role: 'MEMBER' },
-          create: { agencyId: invite.agencyId, userId: invite.inviteeId, role: 'MEMBER' },
+    await db.$transaction(
+      async (tx: any) => {
+        if (action === 'accept') {
+          const other = await otherHostingMembership(tx, invite.inviteeId, invite.agencyId);
+          if (other) throw new InviteError(409, 'ALREADY_IN_AGENCY', 'المستخدم مرتبط بوكالة أخرى');
+        }
+        const flipped = await tx.agencyInvite.updateMany({
+          where: { id: inviteId, status: 'pending' },
+          data: { status: action === 'accept' ? 'accepted' : 'rejected', respondedAt: new Date(), updatedAt: new Date() },
         });
-      }
-    });
+        if (flipped.count !== 1) throw new InviteError(409, 'ALREADY_PROCESSED', 'Already processed');
+        if (action === 'accept') {
+          await tx.agencyMember.upsert({
+            where: { agencyId_userId: { agencyId: invite.agencyId, userId: invite.inviteeId } },
+            update: {},
+            create: { agencyId: invite.agencyId, userId: invite.inviteeId, role: 'MEMBER' },
+          });
+        }
+      },
+      { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
+    );
 
-    return res.json({ success: true });
-  } catch {
+    return res.json({ success: true, state: action === 'accept' ? 'ACCEPTED' : 'REJECTED' });
+  } catch (e: any) {
+    if (e instanceof InviteError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+    console.error('[agency.reviewJoinRequest] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -548,7 +699,11 @@ export const getMyInvites = async (req: AuthReq, res: Response) => {
     if (!userId) return fail(res, 401, 'Unauthorized');
 
     const invites = await db.agencyInvite.findMany({
-      where: { inviteeId: userId, status: 'pending' },
+      where: {
+        inviteeId: userId,
+        status: 'pending',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       include: { agency: { select: { id: true, agencyName: true, logoUrl: true, type: true } } },
     });
 
@@ -1586,10 +1741,24 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
     // sellable pool is per item (`convertibleCoins`).
     const canSell = items.some((i) => i.convertibleCoins > 0);
 
+    // Target المضيف — the single source (host_targets). When a target is set
+    // there it is THE goal: every item shows it, so an installed app that only
+    // knows `targetGoalCoins` displays the same number as the dashboard.
+    const hostTarget = await getHostTargetView(userId);
+    if (hostTarget) {
+      for (const it of items) {
+        it.targetGoalCoins = hostTarget.targetCoins;
+        it.remainingCoins = hostTarget.remainingCoins;
+      }
+    }
+
+    // Never serve a stale target from an intermediate cache.
+    res.setHeader('Cache-Control', 'no-store');
     const totalDollars = await coinsToDollars(totalEarned);
     return res.json({
       success: true,
       data: {
+        hostTarget,
         totalEarned,
         totalDollars,
         totalGifts: Number(totalGifts._sum.quantity ?? 0),
@@ -1604,8 +1773,8 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
         // Only a hosting-agency member (مضيف) or an agency owner (وكيل) has a
         // target at all — everyone else gets no card. `hasGoal` says whether
         // there is an agency-set goal to show progress against.
-        hasTarget: items.length > 0 || agentTargets.length > 0,
-        hasGoal: items.length > 0,
+        hasTarget: items.length > 0 || agentTargets.length > 0 || hostTarget != null,
+        hasGoal: items.length > 0 || hostTarget != null,
         items,
       },
     });
@@ -2005,6 +2174,18 @@ export const setMemberTarget = async (req: AuthReq, res: Response) => {
     await db.agencyMember.update({
       where: { id: member.id },
       data: { targetGoalCoins: BigInt(Math.floor(goal)) },
+    });
+    // Mirror into the single source (host_targets). An ADMIN target, if one is
+    // active, still outranks this.
+    const now = new Date();
+    await setHostTarget({
+      hostId: targetId,
+      targetCoins: Math.floor(goal),
+      periodStart: now,
+      periodEnd: new Date(now.getTime() + 30 * 86_400_000),
+      source: 'AGENCY',
+      agencyId: owner.agencyId,
+      actorId: ownerId,
     });
 
     try {

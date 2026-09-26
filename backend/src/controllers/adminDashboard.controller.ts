@@ -867,6 +867,17 @@ export const adminDashboardForceCloseRoom = async (req: Request, res: Response) 
     if (!id || !reason) return fail(res, 400, 'Invalid payload');
 
     const room = await prisma.room.update({ where: { id }, data: { isActive: false } });
+    const { recordAdminAudit, auditContext, AUDIT_ACTIONS } = await import('../services/adminAudit.service');
+    await recordAdminAudit({
+      adminId: Number((req as any).userId),
+      action: AUDIT_ACTIONS.ROOM_CLOSE,
+      targetType: 'room',
+      targetId: id,
+      before: { isActive: true },
+      after: { isActive: false, roomType: (room as any).roomType },
+      ...auditContext(req),
+      reason,
+    });
     const { io } = await import('../index');
     io.to(`room:${id}`).emit('room_force_closed', { roomId: id, reason });
 

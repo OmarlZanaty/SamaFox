@@ -209,6 +209,13 @@ model Room {
   muteGiftSounds      Boolean   @default(false)
   muteEntranceSounds  Boolean   @default(false)
   contributionResetAt DateTime? // #4: admin reset point for per-user room coin counters
+  // 'USER' | 'OFFICIAL_ROOM'. An official room is never closed or deleted by
+  // anything automatic, nor by its owner — only from the dashboard or by an
+  // admin holding OFFICIAL_ROOM_MANAGE.
+  roomType            String    @default("USER")
+  // Whether a HIDDEN_MODE holder may enter this room while it is locked
+  // without the password (they are asked first, and the server re-checks).
+  allowHiddenEntry    Boolean   @default(true)
   createdAt           DateTime  @default(now())
 
   owner           User              @relation("RoomOwner", fields: [ownerId], references: [id])
@@ -1138,8 +1145,13 @@ model AgencyInvite {
   agency    ChargingAgency @relation(fields: [agencyId], references: [id])
   inviterId Int
   inviteeId Int
-  status    String         @default("pending")
-  createdAt DateTime       @default(now())
+  // pending | accepted | rejected | expired (the API also returns it upper-case
+  // as `state`). One row per (agency, invitee): a re-invite REOPENS the row.
+  status      String         @default("pending")
+  createdAt   DateTime       @default(now())
+  expiresAt   DateTime?
+  respondedAt DateTime?
+  updatedAt   DateTime       @default(now())
 
   @@unique([agencyId, inviteeId])
 }
@@ -1379,6 +1391,14 @@ model LuckyRoll {
   serverSeed     String
   serverSeedHash String
   tiersSnapshot  Json     // the draw table used, so the roll can be re-derived
+  // Rounds (2026-09-26): the entry joins its room's open round and is only
+  // settled once the round has enough distinct players. The seed is committed
+  // (hash published) at entry and the draw happens at settlement.
+  roundId        Int?
+  programCoins   Int      @default(0) // program share of V, net of the host's H
+  poolCoins      Int      @default(0) // prize-pool share of V
+  status         String   @default("SETTLED") // PENDING | SETTLED | NO_COMPETITION
+  settledAt      DateTime?
   createdAt      DateTime @default(now())
 
   giftTx GiftTransaction @relation(fields: [giftTxId], references: [id], onDelete: Cascade)
@@ -1386,6 +1406,8 @@ model LuckyRoll {
   @@index([senderId, createdAt])
   @@index([createdAt])
   @@index([multiplier, createdAt])
+  @@index([roundId])
+  @@index([roomId, createdAt])
   @@map("lucky_rolls")
 }
 
@@ -1606,6 +1628,9 @@ model AdminAuditLog {
   before       Json?
   after        Json?
   ip           String?
+  reason       String?
+  sessionId    String?
+  userAgent    String?
   createdAt    DateTime @default(now())
 
   @@index([adminId, createdAt])
@@ -1809,9 +1834,214 @@ model GameLedger {
   xp        Int      @default(0)
   ref       String?
   day       String
+  // 2026-09-26 economy: a stake row carries its split, a prize row what the
+  // engine asked for before the caps and whether a cap cut it.
+  programShare Int?
+  poolShare    Int?
+  requested    Int?
+  capped       Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  @@index([game, kind, createdAt])
   @@index([day, kind])
   @@index([userId, day])
   @@map("game_ledger")
+}
+
+// ============================================================
+// 2026-09-26 — economy, CP, rooms, features, targets
+// ============================================================
+
+/// One row per (user, Idempotency-Key). The first request inserts it as
+/// 'processing'; its response is stored, and every retry with the same key gets
+/// that response back instead of running the operation again.
+model IdempotencyKey {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  key            String
+  scope          String
+  requestHash    String
+  status         String    @default("processing") // processing | done
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  @@unique([userId, key])
+  @@index([createdAt])
+  @@map("idempotency_keys")
+}
+
+/// Features and permissions granted per user from «منح المميزات».
+/// `enabled` is the admin's grant; `userOn` is the user's own switch for
+/// features that have one (HIDDEN_MODE).
+model UserFeature {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  featureKey String
+  enabled    Boolean   @default(true)
+  userOn     Boolean   @default(false)
+  grantedBy  Int?
+  grantedAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  note       String?
+  updatedAt  DateTime  @default(now()) @updatedAt
+
+  @@unique([userId, featureKey])
+  @@index([featureKey])
+  @@map("user_features")
+}
+
+/// Room entries the admins must be able to see even when the room could not:
+/// hidden-mode entries and every locked-room entry that skipped the password.
+model RoomEntryLog {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  roomId     Int
+  hidden     Boolean   @default(false)
+  lockBypass String?   // OWNER | HIDDEN_MODE | ROOM_LOCK_BYPASS
+  enteredAt  DateTime  @default(now())
+  exitedAt   DateTime?
+
+  @@index([roomId, enteredAt])
+  @@index([userId, enteredAt])
+  @@index([hidden, enteredAt])
+  @@map("room_entry_logs")
+}
+
+/// The one source of a host's target (التارجت). The app reads it from the
+/// API; the dashboard writes it. `version` increments on every change so a
+/// cached copy can be told it is stale.
+model HostTarget {
+  id          Int      @id @default(autoincrement())
+  hostId      Int
+  agencyId    Int?
+  targetCoins BigInt
+  targetUsd   Decimal  @default(0) @db.Decimal(12, 2)
+  periodStart DateTime
+  periodEnd   DateTime
+  status      String   @default("ACTIVE") // ACTIVE | CANCELLED
+  source      String   @default("ADMIN")  // ADMIN | AGENCY
+  note        String?
+  version     Int      @default(1)
+  updatedBy   Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([hostId, status, periodStart])
+  @@map("host_targets")
+}
+
+/// Bookkeeping accounts that are not a user: 'PROGRAM' (the platform's share)
+/// and 'GAME_POOL:<game>' (each game's prize pool). The lucky pool keeps its
+/// own table (lucky_pool).
+model EconomyAccount {
+  key       String   @id
+  balance   BigInt   @default(0)
+  totalIn   BigInt   @default(0)
+  totalOut  BigInt   @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("economy_accounts")
+}
+
+model EconomyLedger {
+  id           Int      @id @default(autoincrement())
+  account      String
+  delta        BigInt
+  balanceAfter BigInt
+  kind         String   // GAME_STAKE_PROGRAM | GAME_STAKE_POOL | GAME_PRIZE | LUCKY_PROGRAM | CP_BREAK_FEE | POOL_FUNDING
+  refType      String?
+  refId        String?
+  userId       Int?
+  createdAt    DateTime @default(now())
+
+  @@index([account, createdAt])
+  @@index([kind, createdAt])
+  @@index([refType, refId])
+  @@map("economy_ledger")
+}
+
+/// Lucky rounds: per room, a time window. Entries are settled only once the
+/// round has `minPlayers` distinct players.
+model LuckyRound {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique
+  roomId       Int?
+  status       String    @default("OPEN") // OPEN | SETTLED | NOT_COMPETITIVE
+  startedAt    DateTime  @default(now())
+  endsAt       DateTime
+  closedAt     DateTime?
+  playerCount  Int       @default(0)
+  entryCount   Int       @default(0)
+  totalEntry   BigInt    @default(0)
+  hostShare    BigInt    @default(0)
+  programShare BigInt    @default(0)
+  prizePool    BigInt    @default(0)
+  totalWin     BigInt    @default(0)
+
+  @@index([roomId, status])
+  @@index([startedAt])
+  @@map("lucky_rounds")
+}
+
+/// «رسوم CP مخصصة» — overrides the global break fee for one user.
+model CpBreakCustomFee {
+  userId     Int      @id
+  programFee BigInt   @default(0)
+  partnerFee BigInt   @default(0)
+  enabled    Boolean  @default(true)
+  note       String?
+  updatedBy  Int?
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@map("cp_break_custom_fees")
+}
+
+model CpBreakLog {
+  id            Int       @id @default(autoincrement())
+  pairId        Int
+  requesterId   Int
+  partnerId     Int
+  programFee    BigInt
+  partnerFee    BigInt
+  feeSource     String    // GLOBAL | CUSTOM | FREE
+  cpValue       Int       @default(0)
+  pairCreatedAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([requesterId, createdAt])
+  @@index([partnerId, createdAt])
+  @@map("cp_break_logs")
+}
+
+/// «CP Level Management». When at least one enabled row exists the CP level is
+/// read from this table (cpValue ≥ requiredCoins); otherwise the older
+/// step/days rules keep applying.
+model CpLevel {
+  level         Int      @id
+  requiredCoins BigInt
+  name          String?
+  badgeUrl      String?
+  frameUrl      String?
+  effectKey     String?
+  enabled       Boolean  @default(true)
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  @@map("cp_levels")
+}
+
+/// The effect drawn between two CP partners on neighbouring mics.
+model CpEffect {
+  id             Int      @id @default(autoincrement())
+  effectKey      String   @unique
+  name           String?
+  requiredLevel  Int      @default(1)
+  enabled        Boolean  @default(false)
+  durationSec    Int      @default(0) // 0 = for as long as the condition holds
+  animationSpeed Float    @default(1)
+  priority       Int      @default(0)
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  @@map("cp_effects")
 }

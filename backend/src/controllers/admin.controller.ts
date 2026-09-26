@@ -214,6 +214,15 @@ const requireSuper = async (req: Request): Promise<boolean> => {
   return Boolean(u?.isSuperAdmin);
 };
 
+/** An OFFICIAL_ROOM may only be closed in-app by a holder of OFFICIAL_ROOM_MANAGE. */
+async function officialRoomBlocked(roomId: number, userId: number | undefined): Promise<boolean> {
+  const room = await prisma.room.findUnique({ where: { id: roomId }, select: { roomType: true } });
+  if (room?.roomType !== 'OFFICIAL_ROOM') return false;
+  if (!userId) return true;
+  const { hasFeature } = await import('../services/features.service');
+  return !(await hasFeature(userId, 'OFFICIAL_ROOM_MANAGE'));
+}
+
 export const deleteRoom = async (req: Request, res: Response) => {
   try {
     if (!(await requireSuper(req))) {
@@ -221,6 +230,9 @@ export const deleteRoom = async (req: Request, res: Response) => {
     }
     const roomIdNum = intParam(req.params.roomId);
     if (!roomIdNum) return res.status(400).json({ message: 'Invalid roomId' });
+    if (await officialRoomBlocked(roomIdNum, (req as any).userId)) {
+      return res.status(403).json({ code: 'OFFICIAL_ROOM', message: 'غرفة رسمية: تحتاج صلاحية إدارة الغرف الرسمية' });
+    }
     await prisma.room.delete({ where: { id: roomIdNum } });
     return res.json({ message: 'Room deleted successfully' });
   } catch (error) {
@@ -239,6 +251,9 @@ export const setRoomActive = async (req: Request, res: Response) => {
     const roomIdNum = intParam(req.params.roomId);
     if (!roomIdNum) return res.status(400).json({ message: 'Invalid roomId' });
     const isActive = Boolean(req.body?.isActive);
+    if (!isActive && (await officialRoomBlocked(roomIdNum, (req as any).userId))) {
+      return res.status(403).json({ code: 'OFFICIAL_ROOM', message: 'غرفة رسمية: تحتاج صلاحية إدارة الغرف الرسمية' });
+    }
 
     const room = await prisma.room.update({ where: { id: roomIdNum }, data: { isActive } });
 

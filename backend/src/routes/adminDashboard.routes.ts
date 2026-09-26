@@ -74,8 +74,6 @@ import {
   adminUserChargeHistory,
   adminGetGates,
   adminLuckySummary,
-  adminLuckySaveTiers,
-  adminLuckyTopUp,
   adminSetGates,
   adminListGameConfig,
   adminSetGameConfig,
@@ -90,17 +88,52 @@ import {
   adminSetSuperAdmin,
 } from '../controllers/adminDashboard.controller';
 import { adminBackgroundsRouter, adminCpRouter } from './adminCp.routes';
+import { adminEconomyRouter } from './adminEconomy.routes';
+import { auditContext, recordAdminAudit } from '../services/adminAudit.service';
 
 const router = express.Router();
 
 router.use(authenticate);
 router.use(requireAdminDashboard);
 
+// Item 20 — every administrative change is in admin_audit_logs. The pages that
+// write their own detailed rows (before/after, reason) are skipped here; every
+// OTHER mutating dashboard call — agency approvals, target adjustments, bans,
+// store edits… — gets a generic row with the path, the body and the result.
+const SELF_AUDITED = /^\/(cp|backgrounds|games-economy|lucky-mgmt|cp-economy|features|host-targets|rooms-mgmt)(\/|$)/;
+router.use((req: any, res: any, next: any) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || SELF_AUDITED.test(req.path)) return next();
+  res.on('finish', () => {
+    let body: unknown = null;
+    try {
+      // Secrets never reach the log.
+      const raw = JSON.stringify(req.body ?? null, (k, v) => (/pass|token|secret|pin|accesscode/i.test(k) ? '***' : v));
+      body = raw && raw.length > 4000 ? { truncated: raw.slice(0, 4000) } : JSON.parse(raw ?? 'null');
+    } catch {
+      body = null;
+    }
+    const idMatch = /\/(?:users|agencies|agency-members|rooms)\/(\d+)/.exec(req.path);
+    recordAdminAudit({
+      adminId: Number(req.userId),
+      action: `DASHBOARD_${req.method}`,
+      targetType: req.path.split('/')[1] || null,
+      targetId: req.path,
+      targetUserId: /\/users\/(\d+)/.test(req.path) && idMatch ? Number(idMatch[1]) : null,
+      before: null,
+      after: { body, status: res.statusCode },
+      ...auditContext(req),
+    }).catch(() => undefined);
+  });
+  return next();
+});
+
 // ── 2026-09-22: صلاحيات فتح CP + إدارة نظام CP والخلفيات ──────────────────
 // Sub-routers, so they inherit the two gates above (JWT + isAdmin on the row)
 // and every action inside writes admin_audit_logs.
 router.use('/cp', adminCpRouter);
 router.use('/backgrounds', adminBackgroundsRouter);
+// ── 2026-09-26: اقتصاد الألعاب، المحظوظ، CP، منح المميزات، التارجت، سجل المراجعة ──
+router.use(adminEconomyRouter);
 
 router.get('/overview', adminDashboardOverview);
 
@@ -217,8 +250,12 @@ router.get('/gates', adminGetGates);
 
 // ── هدايا الحظ: الصندوق، جدول المضاعفات، آخر الرميات ─────────────────────────
 router.get('/lucky', adminLuckySummary);
-router.post('/lucky/tiers', adminLuckySaveTiers);
-router.post('/lucky/topup', adminLuckyTopUp);
+// 2026-09-26: superseded by /lucky-mgmt/* (validated against the 30/70 split
+// and the RTP target, super-admin only, with a reason in the audit log).
+const retiredLucky = (_req: any, res: any) =>
+  res.status(410).json({ success: false, message: 'استخدم صفحة الألعاب ← إدارة المحظوظ' });
+router.post('/lucky/tiers', retiredLucky);
+router.post('/lucky/topup', retiredLucky);
 router.post('/gates', adminSetGates);
 
 // ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────

@@ -11,7 +11,8 @@ import {
   releasePrize,
   reservePrize,
   scalePaytable,
-  settlePrize,
+  payPrize,
+  revokeStakeValue,
 } from './halalGames.service';
 
 const GAME = 'aetherfall' as const;
@@ -620,7 +621,7 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
   // Charge first, atomically, same guard pattern as بلينكو so parallel spins
   // can never overdraw a balance.
   // Promise the prize this spin could bring before the stake is taken.
-  const reserved = await reservePrize(userId, GAME, bet * PRIZE_RESERVE_MULTIPLE);
+  const reserved = await reservePrize(userId, GAME, bet * PRIZE_RESERVE_MULTIPLE, bet);
   if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
 
   const charged = await prisma.user.updateMany({
@@ -652,11 +653,11 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
   try {
     const rng = new RngStream(s.serverSeed, s.clientSeed, nonce);
     spin = computeSpin(rng, bet);
-    if (spin.grandTotal > 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { coinsBalance: { increment: spin.grandTotal } },
-      });
+    // Whatever the spin paid is a prize from this game's pool: debited,
+    // credited and booked in one transaction, cut only by the game's caps.
+    const paid = await payPrize(reserved.token, userId, GAME, spin.grandTotal, `${userId}:${nonce}`, bet);
+    if (paid.capped) {
+      spin = { ...spin, grandTotal: paid.paid, capped: true, requestedTotal: paid.requested } as SpinResult;
     }
   } catch (err) {
     // Never keep the stake if the spin failed to resolve.
@@ -664,13 +665,12 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
       where: { id: userId },
       data: { coinsBalance: { increment: bet } },
     });
+    await revokeStakeValue(userId, GAME, bet, `${userId}:${nonce}`);
     releasePrize(reserved.token);
     console.error('[aetherfall] spin failed, bet refunded', { userId, bet, err });
     return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
   }
 
-  // Whatever the spin paid is a prize from the fund.
-  settlePrize(reserved.token, userId, GAME, spin.grandTotal, `${userId}:${nonce}`);
 
   remember(userId, {
     nonce,
