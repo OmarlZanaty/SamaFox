@@ -112,6 +112,9 @@ class LiveKitVoiceEngine implements VoiceEngine {
       return;
     }
 
+    // Keep the phone in call mode for the whole session (see AudioRoute).
+    await AudioRoute.instance.setVoiceLive(true);
+
     _currentRoomId = roomId;
     _currentUserId = userId;
     _listenOnly = listenOnly;
@@ -288,6 +291,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
     _currentRoomId = null;
     _currentUserId = null;
     CrashReporter.breadcrumb('voice left (livekit)');
+    await AudioRoute.instance.setVoiceLive(false);
   }
 
   @override

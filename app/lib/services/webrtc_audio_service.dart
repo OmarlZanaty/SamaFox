@@ -1071,6 +1071,10 @@ class WebRTCAudioService implements VoiceEngine {
       await leaveVoice();
     }
 
+    // Before anything opens audio (and after leaving an old room, which clears
+    // it): keep the phone in call mode, where the echo canceller works.
+    await AudioRoute.instance.setVoiceLive(true);
+
     _currentRoomId = roomId;        // ✅ REQUIRED
     _currentUserId = userId;        // ✅ REQUIRED
 
@@ -1194,6 +1198,7 @@ class WebRTCAudioService implements VoiceEngine {
       _currentRoomId = null;
       _currentUserId = null;
     } catch (_) {}
+    await AudioRoute.instance.setVoiceLive(false);
   }
 
 
@@ -2558,6 +2563,7 @@ class WebRTCAudioService implements VoiceEngine {
     } catch (e) {
       debugPrint('❌ Error disposing WebRTC: $e');
     }
+    await AudioRoute.instance.setVoiceLive(false);
   }
 
   /// Enable Voice Activity Detection (VAD). Safe to call repeatedly.
