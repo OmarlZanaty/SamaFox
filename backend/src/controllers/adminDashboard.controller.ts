@@ -936,9 +936,11 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
 
     if (type === 'coins') {
       const data = await prisma.$queryRawUnsafe<Array<{ id: number; name: string; avatarUrl: string | null; coinsBalance: string }>>(
-        `SELECT id, name, avatarUrl, CAST(coinsBalance AS TEXT) as coinsBalance
+        // Quoted: PostgreSQL folds unquoted identifiers to lower case, so the
+        // camelCase columns were "not found" and this always returned 500.
+        `SELECT id, name, "avatarUrl", CAST("coinsBalance" AS TEXT) AS "coinsBalance"
          FROM users
-         ORDER BY coinsBalance DESC
+         ORDER BY "coinsBalance" DESC
          LIMIT 20`,
       );
       return ok(res, { data });

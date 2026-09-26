@@ -706,6 +706,7 @@ tr:hover td { background: rgba(255,255,255,.02); }
 }
 
 .modal-overlay.hidden { display: none; }
+.modal.hidden { display: none; }
 
 .modal-box {
   background: var(--card-bg);

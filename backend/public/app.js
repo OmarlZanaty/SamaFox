@@ -32,7 +32,10 @@ const sections   = document.querySelectorAll(".section");
 const pageTitle  = document.getElementById("pageTitle");
 
 const sectionTitles = {
-  lucky:     "هدايا الحظ",
+  lucky:     "إدارة المحظوظ",
+  features:  "منح المميزات",
+  targets:   "Target المضيف",
+  audit:     "سجل المراجعة",
   overview:  "نظرة عامة",
   users:     "المستخدمين",
   rooms:     "الغرف",
@@ -45,7 +48,7 @@ const sectionTitles = {
   backgrounds: "الخلفيات",
   admins:    "المشرفون",
   rewards:   "المكافآت",
-  games:     "الألعاب",
+  games:     "إدارة اقتصاد الألعاب",
   moderation: "الرسائل والحظر",
   settings:  "الإعدادات",
 };
@@ -68,8 +71,12 @@ function navigate(sec) {
   if (sec === "backgrounds") loadBackgrounds().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
-  if (sec === "games") loadGamesConfig().catch(e => showToast("خطأ: " + e.message));
-  if (sec === "lucky") loadLucky().catch(e => showToast("خطأ: " + e.message));
+  // 2026-09-26 pages live in economy-admin.js.
+  if (sec === "games") window.econLoadGames?.().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "lucky") window.lkLoad?.().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "cp") window.cpEconLoad?.().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "features") window.ftInit?.();
+  if (sec === "audit") window.auLoad?.(1).catch(e => showToast("خطأ: " + e.message));
   if (sec === "moderation") loadModeration().catch(e => showToast("خطأ: " + e.message));
   if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} }
 }
