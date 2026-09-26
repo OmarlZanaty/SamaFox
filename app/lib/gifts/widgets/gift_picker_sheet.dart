@@ -847,6 +847,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       final lucky = result.lucky;
       if (lucky == null) {
         _toast('تم إرسال الهدية!');
+      } else if (lucky.pending) {
+        _toast('🎲 هديتك دخلت الجولة — بانتظار لاعب آخر لتبدأ المنافسة');
       } else if (lucky.won) {
         _toast('🎉 كسبت ×${lucky.multiplier} — ${lucky.payoutCoins} كوينز رجعت لرصيدك');
       } else {

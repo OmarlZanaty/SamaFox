@@ -58,6 +58,71 @@ final _targetActionsProvider = FutureProvider.autoDispose<_TargetActions>((ref) 
   }
 });
 
+/// «منح المميزات» — what the admin granted this account. Only granted
+/// features get a row; the server re-checks every one of them where it is used.
+final _myFeaturesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  try {
+    final res = await DioClient.dio.get('/users/me/features');
+    final list = ((res.data as Map)['data'] as List?) ?? const [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  } catch (_) {
+    return const [];
+  }
+});
+
+/// الدخول المخفي — ON: entering a room shows nobody an entrance notice. The
+/// switch only records the choice; the server applies it on every entry.
+class _HiddenModeSwitch extends StatefulWidget {
+  const _HiddenModeSwitch({required this.initial});
+  final bool initial;
+  @override
+  State<_HiddenModeSwitch> createState() => _HiddenModeSwitchState();
+}
+
+class _HiddenModeSwitchState extends State<_HiddenModeSwitch> {
+  late bool _on = widget.initial;
+  bool _busy = false;
+
+  Future<void> _set(bool v) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _on = v;
+    });
+    try {
+      final res = await DioClient.dio.put('/users/me/features/HIDDEN_MODE', data: {'on': v});
+      final on = ((res.data as Map)['data'] as Map?)?['on'] == true;
+      if (mounted) setState(() => _on = on);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _on = !v);
+      final msg = e is DioException ? (e.error?.toString() ?? 'تعذر الحفظ') : 'تعذر الحفظ';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return ListTile(
+      leading: Icon(Icons.visibility_off_outlined, color: isDark ? const Color(0xFFFFD700) : const Color(0xFF00A3FF)),
+      title: Text('الدخول المخفي', style: TextStyle(color: theme.textTheme.bodyLarge?.color, fontWeight: FontWeight.w500)),
+      subtitle: Text(
+        _on ? 'ON — لا يظهر دخولك للمستخدمين' : 'OFF',
+        style: TextStyle(color: theme.textTheme.bodySmall?.color, fontSize: 12),
+      ),
+      trailing: Switch(
+        value: _on,
+        onChanged: _busy ? null : _set,
+        activeColor: isDark ? const Color(0xFFFFD700) : const Color(0xFF00A3FF),
+      ),
+    );
+  }
+}
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -66,6 +131,8 @@ class SettingsScreen extends ConsumerWidget {
     final strings = ref.watch(stringsProvider);
     final targetActions =
         ref.watch(_targetActionsProvider).valueOrNull ?? const _TargetActions.none();
+    final features = ref.watch(_myFeaturesProvider).valueOrNull ?? const [];
+    final hiddenMode = features.where((f) => f['key'] == 'HIDDEN_MODE').firstOrNull;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentLocale = ref.watch(localeProvider);
@@ -309,6 +376,10 @@ class SettingsScreen extends ConsumerWidget {
             theme: theme,
             isDark: isDark,
             children: [
+              if (hiddenMode != null) ...[
+                _HiddenModeSwitch(initial: hiddenMode['on'] == true),
+                _buildDivider(isDark),
+              ],
               _buildSettingsTile(
                 icon: Icons.privacy_tip_outlined,
                 title: strings.privacyPolicy,

@@ -11,6 +11,7 @@ import 'package:samafox/services/socket_service.dart';
 import '../config/app_config.dart';
 import '../utils/storage_service.dart';
 import 'token_refresher.dart';
+import 'idempotency_interceptor.dart';
 
 class DioClient {
   static Dio? _dio;
@@ -40,6 +41,11 @@ class DioClient {
 
     // ✅ Always attach token (fix 401 on sendGift, etc.)
     _dio!.interceptors.add(AuthInterceptor());
+
+    // ✅ Money-moving calls carry an Idempotency-Key and are retried with the
+    // SAME key after a network failure, so a weak connection can never pay,
+    // charge or roll twice.
+    _dio!.interceptors.add(IdempotencyInterceptor(_dio!));
 
     // ✅ Nice logs only in debug
     if (kDebugMode) {

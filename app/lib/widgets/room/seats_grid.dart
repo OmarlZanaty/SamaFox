@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/socket_service.dart';
 import 'seat_card.dart';
+import 'cp_seat_effect.dart';
 
 /// The mic grid.
 ///
@@ -40,6 +41,10 @@ class SeatsGrid extends StatelessWidget {
   /// userId -> coins received in this room (last 24h)
   final Map<int, int> seatEarnings;
 
+  /// CP partners on the mics (from the server). Only pairs sitting on
+  /// NEIGHBOURING seats of the same row get the effect.
+  final List<CpSeatLink> cpLinks;
+
   const SeatsGrid({
     super.key,
     required this.seats,
@@ -54,6 +59,7 @@ class SeatsGrid extends StatelessWidget {
     this.mutedSeats = const {},
     this.seatEarnings = const {},
     this.scrollable = true,
+    this.cpLinks = const [],
   });
 
   /// Rooms can be configured up to 30 mics.
@@ -155,13 +161,48 @@ class SeatsGrid extends StatelessWidget {
           ),
         );
 
-        if (!scrollable || !overflows) return grid;
+        // CP effect: drawn BEHIND the seats, so it can never cover a face, a
+        // mic, a name or the coins line.
+        final seatOfUser = <int, int>{};
+        seats.forEach((n, s) {
+          if (s.userId != null && n <= safeCount) seatOfUser[s.userId!] = n;
+        });
+        final neighbourLinks = <CpEffectPair>[];
+        for (final l in cpLinks) {
+          final a = seatOfUser[l.userA];
+          final b = seatOfUser[l.userB];
+          if (a == null || b == null) continue;
+          final sameRow = (a - 1) ~/ solved.columns == (b - 1) ~/ solved.columns;
+          if (sameRow && (a - b).abs() == 1) {
+            neighbourLinks.add(CpEffectPair(link: l, seatA: a, seatB: b));
+          }
+        }
+        neighbourLinks.sort((x, y) => y.link.priority.compareTo(x.link.priority));
+        final withEffect = neighbourLinks.isEmpty
+            ? grid
+            : Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CpSeatEffectLayer(
+                        pairs: neighbourLinks,
+                        seatKeys: seatKeys,
+                        seatSize: solved.seatSize,
+                      ),
+                    ),
+                  ),
+                  grid,
+                ],
+              );
+
+        if (!scrollable || !overflows) return withEffect;
 
         // BouncingScrollPhysics so the scroll is discoverable: a grid that
         // merely clipped gave no hint there were more seats below.
         return SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          child: grid,
+          child: withEffect,
         );
       },
     );

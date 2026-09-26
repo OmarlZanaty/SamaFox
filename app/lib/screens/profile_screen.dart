@@ -528,6 +528,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _refreshCoins();
+      // The target is set from لوحة التحكم at any time; never show an old one.
+      _loadMyTarget();
     }
   }
 
@@ -1791,7 +1793,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   Widget _buildTargetCard(BuildContext context) {
     final t = _myTarget!;
     final items = (t['items'] as List?) ?? const [];
-    final int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
+    int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
     final double earnedDollars = (t['totalDollars'] as num?)?.toDouble() ?? 0.0;
     int goal = 0;
     for (final e in items) {
@@ -1801,6 +1803,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     // `items` alone left every agent at 0.
     for (final e in ((t['agentTargets'] as List?) ?? const [])) {
       if (e is Map) goal += (e['goalCoins'] as num?)?.toInt() ?? 0;
+    }
+    // Target المضيف — the single server-side source (host_targets). When it is
+    // set it IS the goal and the progress; nothing is summed or cached here.
+    final ht = t['hostTarget'];
+    if (ht is Map) {
+      goal = (ht['targetCoins'] as num?)?.toInt() ?? goal;
+      earned = (ht['earnedCoins'] as num?)?.toInt() ?? earned;
     }
     final double progress =
         goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
@@ -1882,6 +1891,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   }
 
   void _showTargetDetailsSheet(BuildContext context) {
+    unawaited(_loadMyTarget()); // opening the sheet always shows the latest target
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1900,7 +1910,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   Widget _buildTargetDetails() {
     final t = _myTarget!;
     final items = (t['items'] as List?) ?? const [];
-    final int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
+    int earned = (t['totalEarned'] as num?)?.toInt() ?? 0;
     final double earnedDollars = (t['totalDollars'] as num?)?.toDouble() ?? 0.0;
     final int totalGifts = (t['totalGifts'] as num?)?.toInt() ?? 0;
     // Sum goals/remaining across memberships (usually just one).
@@ -1911,6 +1921,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         goal += (e['targetGoalCoins'] as num?)?.toInt() ?? 0;
         remaining += (e['remainingCoins'] as num?)?.toInt() ?? 0;
       }
+    }
+    // The single server-side target, when one is set (see _buildTargetCard).
+    final ht = t['hostTarget'];
+    if (ht is Map) {
+      goal = (ht['targetCoins'] as num?)?.toInt() ?? goal;
+      remaining = (ht['remainingCoins'] as num?)?.toInt() ?? remaining;
+      earned = (ht['earnedCoins'] as num?)?.toInt() ?? earned;
     }
     final double progress =
         goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;

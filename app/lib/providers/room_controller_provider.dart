@@ -35,6 +35,7 @@ class RoomControllerState {
   final Map<int, User> onlineUsers;
   final Map<int, int> seatEarnings24h; // userId -> coins received in room (24h)
   final EntranceEvent? lastEntrance; // group 12: animated entrance banner feed
+  final List<CpSeatLink> cpLinks; // CP partners on mics + the effect they earn
 
   const RoomControllerState({
     required this.roomId,
@@ -55,6 +56,7 @@ class RoomControllerState {
     this.onlineUsers = const {},
     this.seatEarnings24h = const {},
     this.lastEntrance,
+    this.cpLinks = const [],
   });
 
 
@@ -77,6 +79,7 @@ class RoomControllerState {
     Map<int, User>? onlineUsers,
     Map<int, int>? seatEarnings24h,
     EntranceEvent? lastEntrance,
+    List<CpSeatLink>? cpLinks,
   }) {
     return RoomControllerState(
       roomId: roomId,
@@ -97,6 +100,7 @@ class RoomControllerState {
       onlineUsers: onlineUsers ?? this.onlineUsers,
       seatEarnings24h: seatEarnings24h ?? this.seatEarnings24h,
       lastEntrance: lastEntrance ?? this.lastEntrance,
+      cpLinks: cpLinks ?? this.cpLinks,
     );
   }
 }
@@ -136,6 +140,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   /// Cached 5-digit PIN for a locked room, so reconnects re-join silently.
   String? _accessCode;
+  bool _hiddenBypass = false;
 
   /// Group 12: monotonically increasing id for entrance-banner events.
   int _entranceSeq = 0;
@@ -429,7 +434,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
       if (!_socket.isConnected) return;
 
-      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
+      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode, hiddenBypass: _hiddenBypass);
       _socket.getVoiceUsers(roomId: roomId); // ✅ request voice users snapshot
 
       _bindStreams();
@@ -445,6 +450,18 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     } finally {
       _opening = false;
     }
+  }
+
+  /// Re-attempt joining a locked room WITHOUT the PIN, as a HIDDEN_MODE holder
+  /// who answered "نعم". Remembered for reconnects, like the PIN.
+  Future<void> rejoinHidden() async {
+    final user = ref.read(authStateProvider).user;
+    if (user == null) return;
+    _hiddenBypass = true;
+    await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
+    if (!_socket.isConnected) return;
+    _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, hiddenBypass: true);
+    _socket.getVoiceUsers(roomId: roomId);
   }
 
   /// Re-attempt joining a locked room with the supplied 5-digit PIN.
@@ -477,7 +494,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     }
 
     debugPrint('▶️ foreground -> resync room=$roomId (reconnected=$wasDisconnected)');
-    _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
+    _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode, hiddenBypass: _hiddenBypass);
     // The one snapshot request the server answers (the two names that used
     // to be here were never handled).
     _socket.emit('init_room_seats', {'roomId': roomId});
@@ -771,6 +788,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         seatCount: ensureSeatsUpTo,
         lockedSeats: lockedFromSnapshot,
         mutedSeats: mutedFromSnapshot ?? state.mutedSeats,
+        // Every snapshot replaces the links: a pair that left the mic (or the
+        // room) is simply absent from the next one, which removes the effect.
+        cpLinks: s.cpLinks,
       );
 
       debugPrint('📦 [room_seats_state] room=$roomId owner=${s.ownerId} admins=${s.adminIds} seats=${nextSeats.length}');
@@ -874,7 +894,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       // and re-binding afterwards raced it: the reply could land before any
       // handler existed and the seat map was simply dropped.
       _bindStreams();
-      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode);
+      _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode, hiddenBypass: _hiddenBypass);
       _socket.getVoiceUsers(roomId: roomId);
     });
 

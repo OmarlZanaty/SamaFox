@@ -136,10 +136,12 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       await _load();
     } catch (e) {
       if (mounted) {
+        final msg = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('فشل الرد على الدعوة')),
+          SnackBar(content: Text(msg.isEmpty ? 'فشل الرد على الدعوة' : msg)),
         );
       }
+      await _load();
     }
   }
 

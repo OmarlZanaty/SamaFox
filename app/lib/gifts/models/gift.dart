@@ -307,6 +307,10 @@ class LuckyRollEvent {
   final int senderId;
   final String? senderName;
   final String? senderAvatarUrl;
+  /// The ID shown on the profile card — read on the server, never from a phone.
+  final int? senderDisplayId;
+  final String? roomName;
+  final String? roundCode;
   final int recipientId;
   final String? recipientName;
   final int? roomId;
@@ -324,6 +328,9 @@ class LuckyRollEvent {
     required this.senderId,
     this.senderName,
     this.senderAvatarUrl,
+    this.senderDisplayId,
+    this.roomName,
+    this.roundCode,
     required this.recipientId,
     this.recipientName,
     this.roomId,
@@ -346,6 +353,9 @@ class LuckyRollEvent {
       senderId: (json['senderId'] as num?)?.toInt() ?? 0,
       senderName: json['senderName'] as String?,
       senderAvatarUrl: _absoluteUrl(json['senderAvatarUrl'] as String?),
+      senderDisplayId: (json['senderDisplayId'] as num?)?.toInt(),
+      roomName: json['roomName'] as String?,
+      roundCode: json['roundCode'] as String?,
       recipientId: (json['recipientId'] as num?)?.toInt() ?? 0,
       recipientName: json['recipientName'] as String?,
       roomId: (json['roomId'] as num?)?.toInt(),
