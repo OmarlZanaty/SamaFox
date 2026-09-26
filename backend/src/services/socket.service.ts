@@ -235,6 +235,34 @@ export function getUserCurrentRoomIds(userIds: number[]): Map<number, number> {
   }
   return out;
 }
+/**
+ * How many people are really in each room right now, for the room list.
+ *
+ * The list used to show `_count.members` — RoomMember rows, which outlive the
+ * visit (the seat/room hold after a dropped socket lasts up to 12h), so rooms
+ * nobody was in still showed people and visitors walked into empty rooms. This
+ * counts users admitted to the room who still have a live socket; hidden
+ * entries are left out, exactly as they are left out of the roster.
+ */
+export function getLiveRoomCounts(): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const [uid, rid] of userCurrentRoom) {
+    if (!onlineSockets.has(uid)) continue;
+    if (isHiddenInRoom(uid, rid)) continue;
+    out.set(rid, (out.get(rid) ?? 0) + 1);
+  }
+  return out;
+}
+
+/** The visible users live in a room (for the avatars on a room card). */
+export function getLiveRoomUserIds(roomId: number): number[] {
+  const out: number[] = [];
+  for (const [uid, rid] of userCurrentRoom) {
+    if (rid === roomId && onlineSockets.has(uid) && !isHiddenInRoom(uid, rid)) out.push(uid);
+  }
+  return out;
+}
+
 /** For guards that must know the truth (locked-room reads). */
 export function isUserInRoom(userId: number, roomId: number): boolean {
   return userCurrentRoom.get(userId) === roomId;

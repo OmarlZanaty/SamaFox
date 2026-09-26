@@ -577,6 +577,60 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
     assert.ok(page.body.data.total >= 2);
   });
 
+  test('room list: real people now (not member rows), pinned IDs first in order, then most people', async () => {
+    const mkRoom = (owner: number, name: string) => db.room.create({ data: { name, ownerId: owner } });
+    const r1 = await mkRoom(U.e, 'pinned-empty');
+    const r2 = await mkRoom(U.f, 'two-inside');
+    const r3 = await mkRoom(U.g, 'one-inside');
+    // A stale member row must not count: g was "in" r1 long ago.
+    await db.roomMember.create({ data: { roomId: r1.id, userId: U.g } });
+
+    const s1 = await sock(U.a);
+    const s2 = await sock(U.b);
+    const s3 = await sock(U.c);
+    assert.equal((await joinRoom(s1, r2.id)).admitted, true);
+    assert.equal((await joinRoom(s2, r2.id)).admitted, true);
+    assert.equal((await joinRoom(s3, r3.id)).admitted, true);
+
+    const list = async () => (await api('GET', '/rooms?limit=50', U.j)).body.rooms as any[];
+    let rooms = await list();
+    const pos = (id: number) => rooms.findIndex((x) => x.id === id);
+    const count = (id: number) => rooms.find((x) => x.id === id)?.membersCount;
+    assert.equal(rooms[0].id, officialRoomId, 'الإدارة stays the first (big) card');
+    assert.equal(count(r2.id), 2);
+    assert.equal(count(r3.id), 1);
+    assert.equal(count(r1.id), 0, 'a member row is not a person in the room');
+    assert.ok(pos(r2.id) < pos(r3.id) && pos(r3.id) < pos(r1.id), 'most people first');
+
+    // Pin e's room (by the ID people see) above everything but الإدارة.
+    const eDisplay = (await db.user.findUnique({ where: { id: U.e } })).displayId;
+    assert.equal((await api('PUT', '/admin-dashboard/room-order', U.admin, { pins: [eDisplay] })).status, 400, 'reason required');
+    const typo = await api('PUT', '/admin-dashboard/room-order', U.admin, { pins: [eDisplay, 987654321], reason: 'e2e' });
+    assert.equal(typo.status, 400);
+    assert.equal(typo.body.code, 'ROOM_NOT_FOUND');
+    const saved = await api('PUT', '/admin-dashboard/room-order', U.admin, { pins: [eDisplay, r3.id], reason: 'e2e' });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.data.pins[0].room.id, r1.id);
+    assert.equal(saved.body.data.pins[1].room.id, r3.id, 'a room id works too');
+    rooms = await list();
+    assert.deepEqual(rooms.slice(0, 4).map((x) => x.id), [officialRoomId, r1.id, r3.id, r2.id]);
+    assert.equal(rooms[1].pinRank, 1);
+    const audit = await db.adminAuditLog.findFirst({ where: { action: 'ROOM_ORDER_UPDATE' } });
+    assert.ok(audit && audit.reason === 'e2e' && audit.adminId === U.admin);
+
+    // Someone closes the app → gone from the count.
+    s1.close();
+    await sleep(400);
+    rooms = await list();
+    assert.equal(count(r2.id), 1);
+
+    // Clear the pins → back to most people first.
+    await api('PUT', '/admin-dashboard/room-order', U.admin, { pins: [], reason: 'e2e' });
+    rooms = await list();
+    assert.ok(pos(r3.id) < pos(r1.id));
+    for (const s of [s2, s3]) s.close();
+  });
+
   test('non-admins cannot reach the new dashboard endpoints; admins without super cannot change money settings', async () => {
     assert.equal((await api('GET', '/admin-dashboard/games-economy', U.a)).status, 403);
     await db.user.update({ where: { id: U.o1 }, data: { isAdmin: true } });

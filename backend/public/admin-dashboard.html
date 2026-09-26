@@ -299,6 +299,29 @@
         </table>
       </div>
 
+      <div class="form-card" id="roomOrderCard">
+        <div class="form-card-title">ترتيب الغرف في التطبيق</div>
+        <p class="section-sub">اكتب الـ ID (رقم صاحب الغرفة الظاهر في التطبيق، أو رقم الغرفة) بالترتيب: الأول يظهر أول غرفة، والثاني بعده… وبعد الغرف المثبتة تأتي باقي الغرف حسب عدد الموجودين فيها الآن. غرفة الإدارة تبقى الكارت الكبير في الأعلى.</p>
+        <div class="form-row">
+          <input id="ro_add" class="form-input" placeholder="ID" inputmode="numeric" />
+          <button class="btn btn-outline" onclick="roAdd()">إضافة للقائمة</button>
+          <button class="btn btn-outline" onclick="roLoad()">تحديث</button>
+        </div>
+        <table class="data-table" id="roPinsTable" style="margin-top:8px">
+          <thead><tr><th>الترتيب</th><th>ID</th><th>الغرفة</th><th>الموجودون الآن</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="form-row" style="margin-top:8px">
+          <input id="ro_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="roSave()">حفظ الترتيب</button>
+        </div>
+        <div class="form-card-title" style="margin-top:14px">كما يظهر الآن في التطبيق (أول 30)</div>
+        <table class="data-table" id="roPreviewTable">
+          <thead><tr><th>#</th><th>الغرفة</th><th>ID صاحبها</th><th>الموجودون الآن</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
       <div class="form-card">
         <div class="form-card-title">نوع الغرفة والدخول المخفي</div>
         <p class="section-sub">OFFICIAL_ROOM لا تُغلق تلقائياً ولا يغلقها مالكها — الإغلاق من هنا فقط أو بصلاحية «إدارة الغرف الرسمية».</p>

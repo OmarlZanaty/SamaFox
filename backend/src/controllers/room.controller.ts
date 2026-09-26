@@ -2,7 +2,8 @@ import prisma from '../utils/prisma';
 import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
-import { broadcastRoomClosed } from '../services/socket.service';
+import { broadcastRoomClosed, getLiveRoomUserIds } from '../services/socket.service';
+import { rankedRoomIds } from '../services/roomRanking.service';
 import { hasFeature, isFeatureOn } from '../services/features.service';
 
 /**
@@ -24,20 +25,6 @@ const roomListInclude = {
       vipLevel: true,
     },
   },
-  members: {
-    take: 3,
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          avatarUrl: true,
-          avatarFrameUrl: true,
-        },
-      },
-    },
-  },
-  _count: { select: { members: true } },
 } as const;
 
 
@@ -61,36 +48,32 @@ export const getRooms = async (req: Request, res: Response) => {
       ...(type && { type: String(type) })
     };
 
-    const rooms = await prisma.room.findMany({
-      where,
+    // ترتيب الغرف: الإدارة, then the dashboard's pinned IDs, then most people
+    // in the room right now. The order is computed over every matching room
+    // (a light query) and only the page is loaded in full.
+    const { ids, live, pinRanks } = await rankedRoomIds(where, FEATURED_ROOM_ID);
+    const total = ids.length;
+    const pageIds = ids.slice(skip, skip + safeLimit);
+    const pageRows = await prisma.room.findMany({
+      where: { id: { in: pageIds } },
       include: roomListInclude,
-      skip,
-      take: safeLimit,
-      orderBy: {
-        createdAt: 'desc'
-      }
     });
+    const byId = new Map(pageRows.map((r: any) => [r.id, r]));
+    const ordered = pageIds.map((id) => byId.get(id)).filter(Boolean) as typeof pageRows;
 
-    const total = await prisma.room.count({ where });
-
-    // A16 — الإدارة room pinned first and drawn large ("تكون اول غرفه وبحجم
-    // كبير في العرض"). Ordering cannot express this: room ids run 1,2,3… so
-    // sorting by id would bury 100000 at the very end, and sorting by date only
-    // holds until someone makes a newer room. So it is hoisted explicitly, and
-    // fetched separately on page 1 in case it falls outside the page window.
-    let ordered = rooms;
-    if (safePage === 1) {
-      const alreadyThere = rooms.find((r: any) => r.id === FEATURED_ROOM_ID);
-      const featured =
-        alreadyThere ??
-        (await prisma.room.findFirst({
-          where: { ...where, id: FEATURED_ROOM_ID },
-          include: roomListInclude,
-        }));
-      if (featured) {
-        ordered = [featured, ...rooms.filter((r: any) => r.id !== FEATURED_ROOM_ID)];
-      }
+    // The avatars on a card are people in the room now, not old member rows.
+    const liveIdsByRoom = new Map<number, number[]>();
+    for (const r of ordered) {
+      if ((live.get(r.id) ?? 0) > 0) liveIdsByRoom.set(r.id, getLiveRoomUserIds(r.id).slice(0, 3));
     }
+    const wanted = Array.from(new Set(Array.from(liveIdsByRoom.values()).flat()));
+    const liveUsers = wanted.length
+      ? await prisma.user.findMany({
+          where: { id: { in: wanted } },
+          select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true },
+        })
+      : [];
+    const userById = new Map(liveUsers.map((u) => [u.id, u]));
 
     res.json({
       rooms: ordered.map(room => ({
@@ -108,14 +91,14 @@ export const getRooms = async (req: Request, res: Response) => {
         roomType: (room as any).roomType ?? 'USER',
         isOfficial: (room as any).roomType === 'OFFICIAL_ROOM',
         owner: room.owner,
-        membersCount: room._count.members,
-members: room.members.map(m => ({
-  userId: m.userId,
-  role: m.role,
-  isMuted: m.isMuted,
-  joinedAt: m.joinedAt,
-  user: m.user
-})),
+        // Real people in the room now (was the RoomMember row count).
+        membersCount: live.get(room.id) ?? 0,
+        liveCount: live.get(room.id) ?? 0,
+        pinRank: pinRanks.has(room.id) ? pinRanks.get(room.id)! + 1 : null,
+        members: (liveIdsByRoom.get(room.id) ?? [])
+          .map((uid) => userById.get(uid))
+          .filter(Boolean)
+          .map((u: any) => ({ userId: u.id, role: 'MEMBER', isMuted: false, joinedAt: null, user: u })),
 
         createdAt: room.createdAt
       })),
@@ -232,7 +215,7 @@ export const getRoomById = async (req: Request, res: Response) => {
       isLocked: room.isLocked,
       owner: room.owner,
       ownerFrameImageUrl: room.owner.activeFrame?.assetUrl ?? null,
-      membersCount: room._count.members,
+      membersCount: getLiveRoomUserIds(room.id).length,
       members: room.members.map(m => ({
         userId: m.userId,
         role: m.role,

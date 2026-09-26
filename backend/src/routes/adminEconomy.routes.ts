@@ -19,6 +19,8 @@ import { invalidateCpEffectsCache } from '../services/cpEffect.service';
 import { computeCpLevel, readCpSettings } from '../services/cpUnlock.service';
 import { FEATURE_CATALOG, FeatureError, grantFeature, isFeatureKey, listUserFeaturesAdmin, revokeFeature } from '../services/features.service';
 import { TargetError, cancelHostTarget, getHostTargetView, listHostTargets, setHostTarget } from '../services/hostTarget.service';
+import { MAX_ROOM_PINS, ROOM_PIN_KEY, getRoomPins, invalidateRoomPins, parsePins, rankedRoomIds, resolvePinRanks } from '../services/roomRanking.service';
+import { FEATURED_ROOM_ID } from '../controllers/room.controller';
 
 const db = prisma as any;
 
@@ -35,6 +37,7 @@ const db = prisma as any;
  *   /features                 «منح المميزات»: user lookup, grant / revoke, hidden entries
  *   /host-targets             the one source of Target المضيف
  *   /rooms-mgmt               room type (OFFICIAL_ROOM) and hidden-entry allowance
+ *   /room-order               ترتيب الغرف: pinned IDs first, then most people now
  *   /audit-log                every admin action, filterable
  */
 export const adminEconomyRouter = Router();
@@ -745,6 +748,77 @@ r.patch('/rooms-mgmt/:id', requireSuperAdmin, async (req, res) => {
     return ok(res, room);
   } catch (e) {
     console.error('[admin.rooms-mgmt.patch]', e);
+    return bad(res, 500, 'Server error');
+  }
+});
+
+// ════════════════════════ ترتيب الغرف ════════════════════════
+// Pinned rooms first in the given order, then the rest by people in the room
+// now. See roomRanking.service.
+
+async function describeRoomOrder() {
+  const pins = await getRoomPins();
+  const where = { isActive: true };
+  const { ids, live, pinRanks } = await rankedRoomIds(where, FEATURED_ROOM_ID);
+  const top = ids.slice(0, 30);
+  const rooms = await db.room.findMany({
+    where: { id: { in: Array.from(new Set([...top, ...pinRanks.keys()])) } },
+    select: { id: true, name: true, ownerId: true, owner: { select: { name: true, displayId: true } } },
+  });
+  const byId = new Map<number, any>(rooms.map((x: any) => [x.id, x]));
+  const card = (id: number) => {
+    const x = byId.get(id);
+    return x
+      ? { id, name: x.name, ownerName: x.owner?.name ?? null, ownerDisplayId: x.owner?.displayId ?? null, liveCount: live.get(id) ?? 0 }
+      : null;
+  };
+  const roomByRank = new Map<number, number>();
+  for (const [roomId, rank] of pinRanks) roomByRank.set(rank, roomId);
+  return {
+    pins: pins.map((pin, i) => ({ pin, rank: i + 1, room: roomByRank.has(i) ? card(roomByRank.get(i)!) : null })),
+    preview: top.map((id, i) => ({ position: i + 1, pinned: pinRanks.has(id), featured: id === FEATURED_ROOM_ID, ...card(id) })),
+  };
+}
+
+r.get('/room-order', async (_req, res) => {
+  try {
+    return ok(res, await describeRoomOrder());
+  } catch (e) {
+    console.error('[admin.room-order.get]', e);
+    return bad(res, 500, 'Server error');
+  }
+});
+
+r.put('/room-order', requireSuperAdmin, async (req, res) => {
+  try {
+    const reason = needReason(req, res);
+    if (!reason) return;
+    if (!Array.isArray(req.body?.pins)) return bad(res, 400, 'pins: قائمة الـ ID بالترتيب');
+    const pins = parsePins(req.body.pins);
+    if (pins.length > MAX_ROOM_PINS) return bad(res, 400, `الحد الأقصى ${MAX_ROOM_PINS} غرفة`);
+    // Every pin must point at an active room — a typo must not be saved silently.
+    const rows = await db.room.findMany({
+      where: { isActive: true },
+      select: { id: true, ownerId: true, createdAt: true, owner: { select: { displayId: true } } },
+    });
+    const ranks = resolvePinRanks(pins, rows);
+    const found = new Set(ranks.values());
+    const missing = pins.filter((_p, i) => !found.has(i));
+    if (missing.length) return bad(res, 400, `لا توجد غرفة نشطة لهذا الـ ID: ${missing.join(', ')}`, 'ROOM_NOT_FOUND');
+
+    const before = await getRoomPins();
+    await db.$transaction(async (tx: any) => {
+      const value = JSON.stringify(pins);
+      await tx.appSetting.upsert({ where: { key: ROOM_PIN_KEY }, update: { value }, create: { key: ROOM_PIN_KEY, value } });
+      await recordAdminAudit(
+        { adminId: adminId(req), action: AUDIT_ACTIONS.ROOM_ORDER_UPDATE, targetType: 'room_order', before, after: pins, ...auditContext(req), reason },
+        tx,
+      );
+    });
+    invalidateRoomPins();
+    return ok(res, await describeRoomOrder());
+  } catch (e) {
+    console.error('[admin.room-order.put]', e);
     return bad(res, 500, 'Server error');
   }
 });

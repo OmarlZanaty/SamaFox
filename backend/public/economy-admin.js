@@ -1,7 +1,7 @@
 // ============================================================
 // لوحة التحكم — صفحات 2026-09-26
 //   اقتصاد الألعاب · إدارة المحظوظ · CP (رسوم الفك، المستويات، التأثيرات)
-//   منح المميزات · Target المضيف · سجل المراجعة · نوع الغرفة
+//   منح المميزات · Target المضيف · سجل المراجعة · نوع الغرفة · ترتيب الغرف
 // Uses apiFetch / showToast / escapeHtml from app.js. Every write sends a
 // `reason`, which the server stores in admin_audit_logs.
 // ============================================================
@@ -633,6 +633,66 @@
     rmLoad().catch(() => {});
   }
 
+  // ═══════════════════ ترتيب الغرف ═══════════════════
+  // The list is edited locally (add / move / remove) and saved in one PUT.
+  let roPins = []; // [{ pin, room }]
+  function roRender() {
+    const rows = roPins.map((p, i) => {
+      const r = p.room;
+      const room = r ? `${esc(r.name)}<div class="cell-muted">${esc(r.ownerName || "")}</div>` : '<span class="cell-muted">— تُحفظ بعد التحقق —</span>';
+      return `<tr><td>${i + 1}</td><td>${esc(p.pin)}</td><td>${room}</td><td>${r ? n(r.liveCount) : "—"}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-outline btn-sm" onclick="roMove(${i},-1)" ${i === 0 ? "disabled" : ""}>▲</button>
+          <button class="btn btn-outline btn-sm" onclick="roMove(${i},1)" ${i === roPins.length - 1 ? "disabled" : ""}>▼</button>
+          <button class="btn btn-outline btn-sm" onclick="roRemove(${i})">حذف</button></td></tr>`;
+    });
+    document.querySelector("#roPinsTable tbody").innerHTML =
+      rows.join("") || '<tr><td colspan="5" class="cell-muted">لا توجد غرف مثبتة — الترتيب حسب عدد الموجودين فقط</td></tr>';
+  }
+  function roRenderPreview(list) {
+    document.querySelector("#roPreviewTable tbody").innerHTML = (list || []).map((r) => `
+      <tr><td>${r.position}</td><td>${esc(r.name || "")}</td><td>${esc(r.ownerDisplayId ?? "")}</td><td>${n(r.liveCount)}</td>
+        <td>${r.featured ? '<span class="badge badge-approved">الإدارة</span>' : r.pinned ? '<span class="badge badge-pending">مثبتة</span>' : ""}</td></tr>`).join("");
+  }
+  async function roLoad() {
+    const res = await call("/admin-dashboard/room-order");
+    roPins = (res?.data?.pins || []).map((p) => ({ pin: p.pin, room: p.room }));
+    roRender();
+    roRenderPreview(res?.data?.preview);
+  }
+  function roAdd() {
+    const id = intOrEmpty("ro_add");
+    if (!id || id <= 0) return toast("اكتب ID صحيح");
+    if (roPins.some((p) => p.pin === id)) return toast("موجود في القائمة بالفعل");
+    roPins.push({ pin: id, room: null });
+    $("ro_add").value = "";
+    roRender();
+  }
+  function roMove(i, d) {
+    const j = i + d;
+    if (j < 0 || j >= roPins.length) return;
+    [roPins[i], roPins[j]] = [roPins[j], roPins[i]];
+    roRender();
+  }
+  function roRemove(i) {
+    roPins.splice(i, 1);
+    roRender();
+  }
+  async function roSave() {
+    const reason = reasonFrom("ro_reason");
+    if (!reason) return;
+    const res = await call("/admin-dashboard/room-order", "PUT", { pins: roPins.map((p) => p.pin), reason });
+    $("ro_reason").value = "";
+    toast("✅ تم حفظ الترتيب");
+    roPins = (res?.data?.pins || []).map((p) => ({ pin: p.pin, room: p.room }));
+    roRender();
+    roRenderPreview(res?.data?.preview);
+  }
+  document.addEventListener("click", (e) => {
+    const nav = e.target?.closest?.('.nav-item[data-section="rooms"]');
+    if (nav) roLoad().catch(() => {});
+  });
+
   document.addEventListener("input", (e) => {
     if (e.target && (e.target.id === "cpb_program" || e.target.id === "cpb_partner")) cpbTotal();
     if (e.target && (e.target.id === "lk_hostShare" || e.target.id === "lk_rtp")) lkAnalyze();
@@ -646,5 +706,6 @@
     tgSearch, tgSave, tgCancel,
     auLoad,
     rmLoad, rmSave,
+    roLoad, roAdd, roMove, roRemove, roSave,
   });
 })();
