@@ -142,6 +142,31 @@ class WebRTCAudioService implements VoiceEngine {
     Duration(seconds: 20),
   ];
 
+  /// Negotiation watchdog.
+  ///
+  /// Everything above recovers a link that came up and then broke: it is driven
+  /// by ICE/connection state changes. A link whose offer or answer never made it
+  /// across (lost on a socket blip, sent to a phone that was mid-reconnect, or a
+  /// pair whose two ends disagreed for a moment about whether the link should
+  /// exist) produces NO state change at all, so nothing ever looked at it again.
+  /// The server's voice telemetry showed exactly that on 1.0.29: ~40% of peers
+  /// reported `conn=null ice=null` for the whole session — a seat everyone could
+  /// see and nobody could hear.
+  ///
+  /// So each new peer gets a deadline to at least start ICE. Missing it, EITHER
+  /// side re-offers (perfect negotiation already settles a collision), then the
+  /// peer is rebuilt once, then given up on through the normal path — which a
+  /// re-announce or a socket reconnect re-arms.
+  final Map<int, Timer> _negotiationTimers = {};
+  final Map<int, int> _negotiationNudges = {};
+  static const List<Duration> _negotiationDeadlines = [
+    Duration(seconds: 8),
+    Duration(seconds: 12),
+    Duration(seconds: 20),
+    Duration(seconds: 12),
+    Duration(seconds: 20),
+  ];
+
   /// Called once per session when a peer is given up on, so the room can tell
   /// the user their network is blocking direct voice instead of leaving them
   /// wondering why one person is silent.
@@ -1760,6 +1785,7 @@ class WebRTCAudioService implements VoiceEngine {
             state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
           _iceFailTimers.remove(otherUserId)?.cancel();
           _recoveryAttempts.remove(otherUserId);
+          _negotiationNudges.remove(otherUserId);
         }
       };
 
@@ -1776,6 +1802,7 @@ class WebRTCAudioService implements VoiceEngine {
             RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
           _iceFailTimers.remove(otherUserId)?.cancel();
           _recoveryAttempts.remove(otherUserId);
+          _negotiationNudges.remove(otherUserId);
         }
       };
 
@@ -1799,6 +1826,7 @@ class WebRTCAudioService implements VoiceEngine {
         await _sendOffer(otherUserId);
       }
 
+      _armNegotiationWatchdog(otherUserId, pc);
       startMicStats();
       return pc;
     } catch (e) {
@@ -2186,6 +2214,66 @@ class WebRTCAudioService implements VoiceEngine {
     }
   }
 
+  /// Start (or restart) the deadline for [pc] to show any sign of negotiation.
+  void _armNegotiationWatchdog(int otherUserId, RTCPeerConnection pc) {
+    _negotiationTimers.remove(otherUserId)?.cancel();
+    final n = _negotiationNudges[otherUserId] ?? 0;
+    // Past the last step the same deadline repeats once more, and the check it
+    // fires gives up.
+    final step = n.clamp(0, _negotiationDeadlines.length - 1);
+    _negotiationTimers[otherUserId] = Timer(
+      _negotiationDeadlines[step],
+      () => unawaited(_checkNegotiation(otherUserId, pc)),
+    );
+  }
+
+  /// ICE has at least started: an offer and an answer crossed. From here on a
+  /// failure shows up as a state change and [_recoverPeer] owns it.
+  bool _hasNegotiated(RTCPeerConnection pc) {
+    final ice = pc.iceConnectionState;
+    return ice != null && ice != RTCIceConnectionState.RTCIceConnectionStateNew;
+  }
+
+  Future<void> _checkNegotiation(int otherUserId, RTCPeerConnection pc) async {
+    _negotiationTimers.remove(otherUserId);
+    if (_currentRoomId == null || !_initialized) return;
+    // Replaced or released since the deadline was set: the new one has its own.
+    if (!identical(_peerConnections[otherUserId], pc)) return;
+    if (_unreachablePeers.contains(otherUserId)) return;
+    if (_hasNegotiated(pc)) {
+      _negotiationNudges.remove(otherUserId);
+      return;
+    }
+
+    final n = (_negotiationNudges[otherUserId] ?? 0) + 1;
+    _negotiationNudges[otherUserId] = n;
+    CrashReporter.breadcrumb('peer $otherUserId never negotiated — nudge #$n');
+
+    if (n > _negotiationDeadlines.length) {
+      _giveUpOnPeer(otherUserId);
+      return;
+    }
+
+    if (n == 3) {
+      // Two offers went unanswered. The native object may be wedged; start
+      // from a clean connection, driven from this side.
+      _log('🧱 $otherUserId never negotiated — rebuilding');
+      try {
+        await _disposePeer(otherUserId);
+        await _createPeerConnection(otherUserId, isInitiator: true);
+      } catch (e) {
+        _log('❌ negotiation rebuild of $otherUserId failed: $e');
+      }
+      return; // the new connection armed its own deadline
+    }
+
+    // Either end may offer. If the other side's offer is also in flight the
+    // collision rules in the offer handler settle it.
+    _log('⏰ $otherUserId never negotiated — re-offering (#$n)');
+    await _sendOffer(otherUserId);
+    _armNegotiationWatchdog(otherUserId, pc);
+  }
+
   /// Stop chasing a peer that will not connect, and free what it was holding.
   ///
   /// This is not a failure to hide: with no TURN server two users on mobile data
@@ -2197,6 +2285,7 @@ class WebRTCAudioService implements VoiceEngine {
     _recoveryTimers.remove(otherUserId)?.cancel();
     _iceFailTimers.remove(otherUserId)?.cancel();
     _recoveryAttempts.remove(otherUserId);
+    _negotiationTimers.remove(otherUserId)?.cancel();
     _log('⛔ giving up on $otherUserId after $_maxRecoveryAttempts attempts');
     CrashReporter.breadcrumb('peer $otherUserId unreachable — gave up');
     unawaited(_disposePeer(otherUserId, notify: true));
@@ -2212,6 +2301,7 @@ class WebRTCAudioService implements VoiceEngine {
     }
     _recoveryAttempts.remove(otherUserId);
     _recoveryTimers.remove(otherUserId)?.cancel();
+    _negotiationNudges.remove(otherUserId);
   }
 
   /// Close one peer and forget every piece of state that belongs to it.
@@ -2219,6 +2309,7 @@ class WebRTCAudioService implements VoiceEngine {
   /// previous one's candidates and negotiation flags.
   Future<void> _disposePeer(int otherUserId, {bool notify = false}) async {
     _iceFailTimers.remove(otherUserId)?.cancel();
+    _negotiationTimers.remove(otherUserId)?.cancel();
     _makingOffer.remove(otherUserId);
     _remoteDescriptionSet.remove(otherUserId);
     _pendingCandidates.remove(otherUserId);
@@ -2330,6 +2421,7 @@ class WebRTCAudioService implements VoiceEngine {
       await _disposePeer(otherUserId, notify: true);
     }
     _recoveryAttempts.clear();
+    _negotiationNudges.clear();
     _restarting.clear();
     // The transport is new, so every previous verdict is void: a peer that had
     // no path over the old connection may well have one now.
@@ -2389,6 +2481,11 @@ class WebRTCAudioService implements VoiceEngine {
         t.cancel();
       }
       _recoveryTimers.clear();
+      for (final t in _negotiationTimers.values.toList()) {
+        t.cancel();
+      }
+      _negotiationTimers.clear();
+      _negotiationNudges.clear();
       _unreachablePeers.clear();
       _speakers = null;
       _listenOnly = false;
