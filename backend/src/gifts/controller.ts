@@ -262,6 +262,9 @@ export async function send(req: Request, res: Response) {
       roomId: roomId != null ? Number(roomId) : null,
       quantity: quantity != null ? Number(quantity) : 1,
       totalCoins: result.totalCoins,
+      // The recipient's side of it (a lucky gift's host share), for the
+      // under-mic total — so a live update matches the server's own total.
+      recipientCoins: result.recipientCoins,
       comboKey: comboKey ?? null,
       comboCount: result.comboCount,
       broadcast: result.broadcast,
@@ -641,6 +644,7 @@ export async function sendBatch(req: Request, res: Response) {
           roomId: roomId != null ? Number(roomId) : null,
           quantity: qty,
           totalCoins: result.totalCoins,
+          recipientCoins: result.recipientCoins,
           comboKey: comboKey ?? null,
           comboCount: result.comboCount,
           broadcast: result.broadcast,

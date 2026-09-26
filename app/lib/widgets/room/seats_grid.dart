@@ -181,6 +181,9 @@ class SeatsGrid extends StatelessWidget {
         final withEffect = neighbourLinks.isEmpty
             ? grid
             : Stack(
+                // Passthrough: the grid must get exactly the constraints it
+                // gets without the effect, or it collapses to the top.
+                fit: StackFit.passthrough,
                 clipBehavior: Clip.none,
                 children: [
                   Positioned.fill(

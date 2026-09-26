@@ -241,6 +241,33 @@ export function isUserInRoom(userId: number, roomId: number): boolean {
 }
 
 /**
+ * May this user receive a room's audio and events? Found while testing on two
+ * devices (2026-09-26): `user_joined_voice` and `init_room_seats` put the
+ * socket in the room without asking, so someone the locked-room gate had just
+ * refused still joined the voice mesh and heard everyone.
+ *
+ * Admitted by `join_room` → yes. Otherwise wait briefly, because the app sends
+ * `join_room` and then `user_joined_voice` back to back and the gate is async;
+ * still not admitted → only if the room is not PIN-locked (or is theirs).
+ */
+/** Voice joins refused because the user was not admitted yet (`rid:uid`).
+ *  Completed by `join_room` once the PIN / hidden entry lets them in — the app
+ *  announces voice once, before the PIN prompt, and never again. */
+const deferredVoice = new Set<string>();
+
+async function mayListen(uid: number, rid: number): Promise<boolean> {
+  for (let i = 0; i < 40 && userCurrentRoom.get(uid) !== rid; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (userCurrentRoom.get(uid) === rid) return true;
+  const room = await prisma.room
+    .findUnique({ where: { id: rid }, select: { isLocked: true, accessCode: true, ownerId: true, isActive: true } })
+    .catch(() => null);
+  if (!room?.isActive) return false;
+  return !(room.isLocked && room.accessCode) || room.ownerId === uid;
+}
+
+/**
  * Tell a just-banned user and drop their live connections.
  *
  * The ban controllers used to `io.emit('user_banned', …)` — a broadcast to
@@ -739,6 +766,7 @@ function releaseUserFromRooms(io: Server, uid: number) {
   // unless nobody ever saw them arrive (hidden entry).
   if (lastRoom) {
     const wasHidden = hiddenInRoom.get(lastRoom)?.delete(uid) ?? false;
+    deferredVoice.delete(`${lastRoom}:${uid}`);
     closeEntryLog(uid, lastRoom);
     if (!notifiedRooms.has(lastRoom)) {
       if (!wasHidden) io.to(`room:${lastRoom}`).emit('user_left', { userId: uid, roomId: lastRoom });
@@ -1297,6 +1325,8 @@ socket.on('take_seat', async ({ roomId, seatNumber }: any) => {
   const sn = toInt(seatNumber);
   const uid = socket.userId;
   if (!rid || !sn || !uid) return;
+  // Only someone the room admitted can sit on its mics.
+  if (!(await mayListen(uid, rid))) return;
 
   // make sure socket is in the room so it receives updates too
   socket.join(`room:${rid}`);
@@ -1443,6 +1473,7 @@ try {
 socket.on('init_room_seats', async ({ roomId }: any) => {
   const rid = toInt(roomId);
   if (!rid) return;
+  if (!socket.userId || !(await mayListen(socket.userId, rid))) return;
 
   // make sure socket is in the room so it receives updates
   socket.join(`room:${rid}`);
@@ -1547,17 +1578,27 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         await performLeaveRoom(io, socket, uid, previousRoom);
       }
 
+      // Hidden entry: decided once per entrance (a re-sync keeps whatever the
+      // entrance decided) and marked BEFORE the socket joins the room — a
+      // roster request landing in between must already leave them out.
+      const hiddenEntry = alreadyInside ? isHiddenInRoom(uid, rid) : hiddenOn;
+      if (!alreadyInside) {
+        if (hiddenEntry) getHiddenSet(rid).add(uid);
+        else hiddenInRoom.get(rid)?.delete(uid);
+      }
+
       cancelPendingRelease(uid); // back in time — keep whatever they still hold
       socket.join(`room:${rid}`);
       userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
       await populateAdmins(rid);
 
-      // Hidden entry: decided once per entrance. A re-sync keeps whatever the
-      // entrance decided.
-      const hiddenEntry = alreadyInside ? isHiddenInRoom(uid, rid) : hiddenOn;
+      // Their voice join was held back until the gate let them in: complete it.
+      if (deferredVoice.delete(`${rid}:${uid}`)) {
+        getVoiceSet(rid).add(uid);
+        await emitVoiceUsers(io, rid);
+      }
+
       if (!alreadyInside) {
-        if (hiddenEntry) getHiddenSet(rid).add(uid);
-        else hiddenInRoom.get(rid)?.delete(uid);
         if (hiddenEntry || (lockBypass && lockBypass !== 'OWNER')) {
           await openEntryLog(uid, rid, hiddenEntry, lockBypass);
         }
@@ -1731,6 +1772,7 @@ async function performLeaveRoom(
   // Reconnects never send leave_room, so they stay debounced.
   recentRoomEntries.delete(`${rid}:${uid}`);
   const wasHidden = hiddenInRoom.get(rid)?.delete(uid) ?? false;
+  deferredVoice.delete(`${rid}:${uid}`);
   closeEntryLog(uid, rid);
   console.log('[leave_room]', { uid, rid, hidden: wasHidden });
 
@@ -2392,6 +2434,13 @@ await emitRoomState(io, rid);
       // ✅ FIX: always use socket.userId — never trust client-provided userId (was IDOR)
       const uid = socket.userId;
       if (!rid || !uid) return;
+
+      // Only someone the room let in joins its voice.
+      if (!(await mayListen(uid, rid))) {
+        console.log('🚫 user_joined_voice deferred (not admitted yet)', { rid, uid });
+        deferredVoice.add(`${rid}:${uid}`);
+        return;
+      }
 
       // ✅ ensure membership in room to broadcast reliably (race safe)
       socket.join(`room:${rid}`);

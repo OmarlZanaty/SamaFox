@@ -66,6 +66,11 @@ String _categoryLabel(String key) => _kCategoryLabels[key] ?? key;
 /// Bottom-sheet gift picker: recipient-scope selector, category tabs, gift
 /// grid, quantity dropdown and coin balance/recharge footer.
 class GiftPickerSheet extends StatefulWidget {
+  /// A balance that changed while the sheet is open for a reason the sheet did
+  /// not cause — a lucky entry made earlier and paid out now, when another
+  /// player completed its round. The room sets it; an open sheet follows it.
+  static final ValueNotifier<int?> liveBalance = ValueNotifier<int?>(null);
+
   const GiftPickerSheet({
     super.key,
     required this.repository,
@@ -156,6 +161,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   void initState() {
     super.initState();
     _balance = widget.balance;
+    GiftPickerSheet.liveBalance.addListener(_onLiveBalance);
     _catalog = widget.repository.fetchCatalog();
     _selectedRecipientIds = {
       ...widget.initialRecipientIds.where(
@@ -169,8 +175,16 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
 
   @override
   void dispose() {
+    GiftPickerSheet.liveBalance.removeListener(_onLiveBalance);
     _tab?.dispose();
     super.dispose();
+  }
+
+  void _onLiveBalance() {
+    final v = GiftPickerSheet.liveBalance.value;
+    if (v == null || !mounted) return;
+    setState(() => _balance = v);
+    widget.onBalanceChanged(v);
   }
 
   List<GiftRecipient> get _scopedRecipients => _scope == _RecipientScope.micOnly

@@ -21,11 +21,17 @@ class LuckyWinBanner extends StatefulWidget {
     required this.socket,
     required this.roomId,
     required this.myUserId,
+    this.onMyWin,
   });
 
   final GiftSocketService socket;
   final int roomId;
   final int? myUserId;
+
+  /// My entry paid out — possibly an entry made earlier that was only drawn
+  /// now, when another player completed the round. The balance on screen was
+  /// read before that, so the room refreshes it.
+  final VoidCallback? onMyWin;
 
   @override
   State<LuckyWinBanner> createState() => _LuckyWinBannerState();
@@ -73,6 +79,7 @@ class _LuckyWinBannerState extends State<LuckyWinBanner>
 
   void _onEvent(LuckyRollEvent e) {
     if (!mounted) return;
+    if (e.won && e.senderId == widget.myUserId) widget.onMyWin?.call();
     if (e.roomId != null && e.roomId != widget.roomId) return;
     // A loss is the sender's business only.
     if (!e.won && e.senderId != widget.myUserId) return;

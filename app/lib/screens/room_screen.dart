@@ -2847,7 +2847,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (event.roomId != null && event.roomId != widget.roomId) return;
       ref.read(roomControllerProvider(widget.roomId).notifier).applyGiftEarning(
             recipientId: event.recipientId,
-            coins: event.totalCoins,
+            // A lucky gift counts only its host share for the recipient.
+            coins: event.recipientCoins,
           );
     });
 
@@ -5157,6 +5158,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               socket: _giftSocket,
               roomId: widget.roomId,
               myUserId: userId,
+              onMyWin: () async {
+                await ref.read(authStateProvider.notifier).refreshUser();
+                final u = ref.read(authStateProvider).user;
+                final coins = u?.coinsBalance ?? u?.coins;
+                if (coins != null) GiftPickerSheet.liveBalance.value = coins;
+              },
             ),
 
             // ===== هدايا الحظ: the app-wide winners ticker, just above the

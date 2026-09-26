@@ -18,6 +18,9 @@ export interface SendGiftInput {
 export interface SendGiftResult {
   transactionId: string;
   totalCoins: number;
+  /** What counts for the recipient (target, seat total): the full value, or a
+   *  lucky gift's host share. */
+  recipientCoins: number;
   senderBalance: number;
   recipientCoinsDelta: number;
   comboCount: number;
@@ -453,6 +456,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   return {
     transactionId: result.transactionId,
     totalCoins,
+    recipientCoins,
     senderBalance: result.senderBalance,
     // Actual coins that landed in the recipient's spendable balance (0 for
     // agency hosts / self-gifts, 50% for non-members). Not always == totalCoins.

@@ -171,6 +171,8 @@ class GiftSendEvent {
   final int? roomId;
   final int quantity;
   final int totalCoins;
+  /// The recipient's side (a lucky gift's host share); = totalCoins on older servers.
+  final int recipientCoins;
   final String? comboKey;
   final int comboCount;
   final bool broadcast;
@@ -186,6 +188,7 @@ class GiftSendEvent {
     this.roomId,
     required this.quantity,
     required this.totalCoins,
+    int? recipientCoins,
     this.comboKey,
     required this.comboCount,
     required this.broadcast,
@@ -193,7 +196,7 @@ class GiftSendEvent {
     this.recipient,
     required this.gift,
     required this.ts,
-  });
+  }) : recipientCoins = recipientCoins ?? totalCoins;
 
   factory GiftSendEvent.fromJson(Map<String, dynamic> json) {
     // Socket.IO delivers nested objects as Map<dynamic, dynamic> — normalize them.
@@ -210,6 +213,7 @@ class GiftSendEvent {
       roomId: (json['roomId'] as num?)?.toInt(),
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       totalCoins: (json['totalCoins'] as num?)?.toInt() ?? 0,
+      recipientCoins: (json['recipientCoins'] as num?)?.toInt(),
       comboKey: json['comboKey'] as String?,
       comboCount: (json['comboCount'] as num?)?.toInt() ?? 1,
       broadcast: json['broadcast'] as bool? ?? false,
