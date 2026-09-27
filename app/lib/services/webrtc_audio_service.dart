@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
@@ -135,6 +136,53 @@ class WebRTCAudioService implements VoiceEngine {
   /// 2 ICE restarts, then at most 3 rebuilds.
   static const int _maxRecoveryAttempts = 5;
 
+  /// A budget on native builds per peer that NOTHING resets.
+  ///
+  /// The attempt counter above is wiped when the link connects for a moment,
+  /// when the other side sends an offer, and when they re-announce — and a
+  /// flapping peer does all three, each end re-arming the other. The logs of
+  /// 27/09 show it: peer 472 rebuilt ~10 times in 8 minutes, peer 302 the same,
+  /// native memory climbing with every turn until Android killed the app
+  /// ("البرنامج بيطير"). So every native build is timestamped, and a peer that
+  /// needs a 5th inside the window is parked: disposed, not answered, not
+  /// rebuilt, until the park runs out.
+  final Map<int, List<DateTime>> _peerBuildTimes = {};
+  final Map<int, DateTime> _parkedUntil = {};
+  static const int _maxBuildsPerWindow = 4;
+  static const Duration _buildWindow = Duration(minutes: 3);
+  static const Duration _parkFor = Duration(minutes: 2);
+
+  bool _isParked(int otherUserId) {
+    final until = _parkedUntil[otherUserId];
+    if (until == null) return false;
+    if (DateTime.now().isAfter(until)) {
+      _parkedUntil.remove(otherUserId);
+      _peerBuildTimes.remove(otherUserId);
+      return false;
+    }
+    return true;
+  }
+
+  /// True when one more build would exceed the budget — and in that case the
+  /// peer is parked here, so every caller only has to stop.
+  bool _parkIfOverBudget(int otherUserId) {
+    if (_isParked(otherUserId)) return true;
+    final now = DateTime.now();
+    final times = _peerBuildTimes[otherUserId];
+    if (times == null) return false;
+    times.removeWhere((t) => now.difference(t) > _buildWindow);
+    if (times.length < _maxBuildsPerWindow) return false;
+
+    _parkedUntil[otherUserId] = now.add(_parkFor);
+    _log('🅿️ parking $otherUserId for ${_parkFor.inMinutes}m '
+        '(${times.length} builds in ${_buildWindow.inMinutes}m)');
+    CrashReporter.breadcrumb(
+      'peer $otherUserId parked (${times.length} builds/${_buildWindow.inMinutes}m)',
+    );
+    _giveUpOnPeer(otherUserId);
+    return true;
+  }
+
   /// Delay before each rebuild attempt (attempt 3, 4, 5).
   static const List<Duration> _rebuildBackoff = [
     Duration(seconds: 4),
@@ -257,6 +305,70 @@ class WebRTCAudioService implements VoiceEngine {
     WidgetsBinding.instance.removeObserver(watcher);
     _lifecycleWatcher = null;
     _appForeground = true;
+  }
+
+  /// Handing the microphone to another app that starts recording.
+  ///
+  /// "فويس الواتس مش بيشتغل وانا على المايك": while we capture in
+  /// communication mode Android gives US the microphone, even over the app on
+  /// screen, so a WhatsApp voice note recorded silence — and the mic retry
+  /// above took it straight back if they had won it. The native side reports
+  /// when any other app is recording; we release the capture and the call
+  /// mode, and take both back when their recording ends. The seat and the
+  /// user's mute choice are untouched: to the room this is a short silence.
+  static const MethodChannel _micShare = MethodChannel('samafox/mic_share');
+  bool _micYielded = false;
+  bool _micShareWatched = false;
+
+  void _watchMicShare() {
+    if (_micShareWatched || kIsWeb || !Platform.isAndroid) return;
+    _micShareWatched = true;
+    _micShare.setMethodCallHandler((call) async {
+      if (call.method == 'othersRecording') {
+        await _onOthersRecording(call.arguments == true);
+      }
+      return null;
+    });
+    unawaited(_micShare.invokeMethod('watch').catchError((_) => null));
+  }
+
+  void _unwatchMicShare() {
+    if (!_micShareWatched) return;
+    _micShareWatched = false;
+    _micShare.setMethodCallHandler(null);
+    unawaited(_micShare.invokeMethod('unwatch').catchError((_) => null));
+    if (_micYielded) {
+      _micYielded = false;
+      unawaited(_micShare.invokeMethod('restoreCommunication').catchError((_) => null));
+    }
+  }
+
+  Future<void> _onOthersRecording(bool others) async {
+    if (!_initialized) return;
+    if (others) {
+      // Only a live, unmuted speaker holds the mic; nobody else has one to give.
+      if (_micYielded || _listenOnly || _isMicMuted || _localStream == null) return;
+      _micYielded = true;
+      _log('🎙️ another app is recording — handing the microphone over');
+      CrashReporter.breadcrumb('mic yielded to another app');
+      _stopMicWatchdog();
+      await _releaseLocalMic();
+      // _releaseLocalMic marks the mic muted; the USER did not mute it, and
+      // that is what decides whether it comes back.
+      _isMicMuted = false;
+      try {
+        await _micShare.invokeMethod('yieldCommunication');
+      } catch (_) {}
+    } else {
+      if (!_micYielded) return;
+      _micYielded = false;
+      _log('🎙️ other recording ended — taking the microphone back');
+      CrashReporter.breadcrumb('mic taken back');
+      try {
+        await _micShare.invokeMethod('restoreCommunication');
+      } catch (_) {}
+      if (!_listenOnly && !_isMicMuted) await unmuteAudio();
+    }
   }
 
   void setAppForeground(bool foreground) {
@@ -506,6 +618,7 @@ class WebRTCAudioService implements VoiceEngine {
   /// Returns true once a live track is publishing again.
   Future<bool> _recoverLocalMic() async {
     if (_recoveringMic || _listenOnly || !_initialized) return false;
+    if (_micYielded) return false; // another app is recording; see _onOthersRecording
 
     // Hard limits, independent of WHO asked for the recovery. The trigger that
     // looped was a misread `muted` flag, but any trigger that fires repeatedly
@@ -619,7 +732,7 @@ class WebRTCAudioService implements VoiceEngine {
   /// voice note (or any other recorder) working: we ask, Android says no, and
   /// nothing is taken away from the app in the foreground.
   void _scheduleMicRetry() {
-    if (_listenOnly || !_initialized) return;
+    if (_listenOnly || !_initialized || _micYielded) return;
     if (_micRetryTimer != null) return;
 
     const delays = <Duration>[
@@ -661,7 +774,7 @@ class WebRTCAudioService implements VoiceEngine {
   /// interruption, where the cheapest correct thing is to check rather than to
   /// assume. A healthy microphone makes this a no-op.
   Future<void> ensureMicAlive() async {
-    if (!_initialized || _listenOnly) return;
+    if (!_initialized || _listenOnly || _micYielded) return;
     if (micHealthy) {
       // Alive — but the route may still be whatever the interruption left.
       await _applyEchoSafeMode(talking: !_isMicMuted);
@@ -1101,6 +1214,7 @@ class WebRTCAudioService implements VoiceEngine {
     _initialized = true;
     _listenOnly = listenOnly;
     _watchAppLifecycle();
+    _watchMicShare();
     CrashReporter.breadcrumb(
       'voice init room=$roomId listenOnly=$listenOnly',
     );
@@ -1354,7 +1468,7 @@ class WebRTCAudioService implements VoiceEngine {
           debugPrint('👤 User $oid joined voice chat (initiator=$isInitiator)');
           // A fresh announcement is a new session for them — possibly on a
           // different network — so a peer we had given up on gets another go.
-          _rearmPeer(oid);
+          if (!_rearmPeer(oid)) return; // parked — flapping, leave it be
           await _createPeerConnection(oid, isInitiator: isInitiator);
         }
 
@@ -1413,7 +1527,7 @@ class WebRTCAudioService implements VoiceEngine {
           // again after something changes on their side, and when it does their
           // client re-announces (`user_joined_voice`) or offers — both of which
           // re-arm them above.
-          if (_unreachablePeers.contains(otherUserId)) {
+          if (_unreachablePeers.contains(otherUserId) || _isParked(otherUserId)) {
             _log('skipping unreachable $otherUserId in voice_users snapshot');
             continue;
           }
@@ -1437,7 +1551,12 @@ class WebRTCAudioService implements VoiceEngine {
         }
         // They are trying again from their side. Whatever we concluded before,
         // answer it — refusing would leave them silent to us for good.
-        _rearmPeer(fromUserId);
+        // Except a parked peer: answering is exactly the rebuild the park is
+        // there to stop.
+        if (!_rearmPeer(fromUserId)) {
+          _log('🅿️ ignoring offer from parked $fromUserId');
+          return;
+        }
         final offer = Map<String, dynamic>.from(map['offer'] as Map);
 
         debugPrint('📨 Received offer from user $fromUserId');
@@ -1677,11 +1796,15 @@ class WebRTCAudioService implements VoiceEngine {
         'sdpSemantics': 'unified-plan',
         'bundlePolicy': 'max-bundle',
         'rtcpMuxPolicy': 'require',
-        'iceCandidatePoolSize': 10,
+        // Was 10: ten pre-gathered candidate sessions per peer — ten sets of
+        // sockets and, with TURN, ten relay allocations — of which bundle uses
+        // one. In a mesh that is multiplied by every peer, in native memory.
+        'iceCandidatePoolSize': 1,
       };
 
       // Create peer connection
       final pc = await createPeerConnection(configuration);
+      (_peerBuildTimes[otherUserId] ??= <DateTime>[]).add(DateTime.now());
 
       // The room may have been left while the native object was being made.
       // Storing it now would leave one live connection nobody will ever close.
@@ -1965,6 +2088,9 @@ class WebRTCAudioService implements VoiceEngine {
       if (!_initialized || _listenOnly) return; // no seat: nothing to open
 
       _isMicMuted = false;
+      // Another app has the mic right now; it comes back, unmuted, the moment
+      // their recording ends (see _onOthersRecording).
+      if (_micYielded) return;
       if (_localStream == null || _localAudioTrack == null) {
         // Mute released the capture (see muteAudio); open it again and put it
         // on every peer. This is also the recovery path after an interruption.
@@ -2202,6 +2328,7 @@ class WebRTCAudioService implements VoiceEngine {
           _recoveryAttempts.remove(otherUserId);
           return;
         }
+        if (_parkIfOverBudget(otherUserId)) return;
         _restarting.add(otherUserId);
         try {
           await _disposePeer(otherUserId);
@@ -2262,6 +2389,7 @@ class WebRTCAudioService implements VoiceEngine {
     if (n == 3) {
       // Two offers went unanswered. The native object may be wedged; start
       // from a clean connection, driven from this side.
+      if (_parkIfOverBudget(otherUserId)) return;
       _log('🧱 $otherUserId never negotiated — rebuilding');
       try {
         await _disposePeer(otherUserId);
@@ -2300,13 +2428,18 @@ class WebRTCAudioService implements VoiceEngine {
   /// Let a peer be retried again, because something that could change the
   /// outcome has happened: the socket came back, or that user re-announced
   /// themselves in voice (a new session, possibly on a different network).
-  void _rearmPeer(int otherUserId) {
+  ///
+  /// Returns false while the peer is parked (or has just been): the caller must
+  /// then leave it alone — no answer, no build.
+  bool _rearmPeer(int otherUserId) {
+    if (_parkIfOverBudget(otherUserId)) return false;
     if (_unreachablePeers.remove(otherUserId)) {
       _log('♻️ re-arming previously unreachable peer $otherUserId');
     }
     _recoveryAttempts.remove(otherUserId);
     _recoveryTimers.remove(otherUserId)?.cancel();
     _negotiationNudges.remove(otherUserId);
+    return true;
   }
 
   /// Close one peer and forget every piece of state that belongs to it.
@@ -2492,6 +2625,11 @@ class WebRTCAudioService implements VoiceEngine {
       _negotiationTimers.clear();
       _negotiationNudges.clear();
       _unreachablePeers.clear();
+      // A park is per room session; the next room starts with a clean slate.
+      // (Kept across a socket reconnect on purpose: a flapping peer flaps just
+      // the same over the new transport.)
+      _parkedUntil.clear();
+      _peerBuildTimes.clear();
       _speakers = null;
       _listenOnly = false;
 
@@ -2499,6 +2637,7 @@ class WebRTCAudioService implements VoiceEngine {
       _statsTimer = null;
       _stopMicWatchdog();
       _unwatchAppLifecycle();
+      _unwatchMicShare();
 
       // Stop VAD timer
       _vadEnabled = false;

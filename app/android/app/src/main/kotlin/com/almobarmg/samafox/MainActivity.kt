@@ -4,9 +4,14 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.media.AudioRecordingConfiguration
+import android.media.MediaRecorder
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Debug
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -32,6 +37,7 @@ class MainActivity : FlutterActivity() {
         const val RECORD_CHANNEL = "samafox/screen_record"
         const val MEM_CHANNEL = "samafox/memory"
         const val DEVICE_CHANNEL = "samafox/device"
+        const val MIC_SHARE_CHANNEL = "samafox/mic_share"
         const val REQ_PROJECTION = 7311
     }
 
@@ -108,6 +114,37 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Sharing the microphone with other apps ("فويس الواتس مش بيشتغل وانا
+        // على المايك"). While we hold the phone in communication mode Android
+        // gives US the microphone, even over the app on screen: a WhatsApp voice
+        // note recorded silence. So we watch for anyone else recording — any
+        // source other than VOICE_COMMUNICATION, which is ours (WebRTC and the
+        // screen recorder both use it) — and tell Dart, which hands the mic
+        // over; [yieldCommunication] drops the call mode that gives us priority.
+        val micShare = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MIC_SHARE_CHANNEL)
+        micShareChannel = micShare
+        micShare.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "watch" -> { watchRecordings(); result.success(true) }
+                "unwatch" -> { unwatchRecordings(); result.success(true) }
+                "yieldCommunication" -> {
+                    val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    if (savedAudioMode == null && am.mode != AudioManager.MODE_NORMAL) {
+                        savedAudioMode = am.mode
+                        am.mode = AudioManager.MODE_NORMAL
+                    }
+                    result.success(true)
+                }
+                "restoreCommunication" -> {
+                    val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    savedAudioMode?.let { am.mode = it }
+                    savedAudioMode = null
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         // Where the resident memory actually is. `ProcessInfo.currentRss` on the
         // Dart side says HOW MUCH; only the OS can say WHAT — Java heap, native
         // heap (video decoders, webrtc, Dart's own heap), graphics (GPU textures
@@ -133,6 +170,43 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private var micShareChannel: MethodChannel? = null
+    private var recordingCallback: AudioManager.AudioRecordingCallback? = null
+    private var othersRecording = false
+    /** The mode we left when handing the mic over, restored when taking it back. */
+    private var savedAudioMode: Int? = null
+
+    private fun watchRecordings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || recordingCallback != null) return
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val cb = object : AudioManager.AudioRecordingCallback() {
+            override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>?) {
+                val others = configs.orEmpty().any {
+                    it.clientAudioSource != MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                }
+                if (others == othersRecording) return
+                othersRecording = others
+                micShareChannel?.invokeMethod("othersRecording", others)
+            }
+        }
+        am.registerAudioRecordingCallback(cb, Handler(Looper.getMainLooper()))
+        recordingCallback = cb
+    }
+
+    private fun unwatchRecordings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+        val cb = recordingCallback ?: return
+        (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioRecordingCallback(cb)
+        recordingCallback = null
+        othersRecording = false
+    }
+
+    override fun onDestroy() {
+        unwatchRecordings()
+        micShareChannel = null
+        super.onDestroy()
     }
 
     /**
