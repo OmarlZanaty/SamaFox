@@ -1,9 +1,11 @@
 package com.almobarmg.samafox
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Debug
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -127,9 +129,69 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(out)
                     }
+                    "lastExit" -> result.success(lastExitInfo())
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * Why the PREVIOUS process died, as Android recorded it (API 30+). The Dart
+     * side only knows "the session marker was left behind", which lumps a
+     * low-memory kill, a native crash in libwebrtc and the user swiping the app
+     * away into one "processKilled". This tells them apart, and `importance`
+     * says whether the app was on screen or in the background at the time.
+     */
+    private fun lastExitInfo(): Map<String, Any?>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val me = android.os.Process.myPid()
+            val info = am.getHistoricalProcessExitReasons(null, 0, 5)
+                .firstOrNull { it.pid != me } ?: return null
+            mapOf(
+                "reason" to exitReasonName(info.reason),
+                "importance" to importanceName(info.importance),
+                "status" to info.status,
+                "description" to info.description,
+                "pssMb" to (info.pss / 1024).toInt(),
+                "rssMb" to (info.rss / 1024).toInt(),
+                "at" to info.timestamp,
+            )
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    // Literal codes rather than the constants: several were added after API 30
+    // and this must compile and run on every level the app supports.
+    private fun exitReasonName(reason: Int): String = when (reason) {
+        1 -> "EXIT_SELF"
+        2 -> "SIGNALED"
+        3 -> "LOW_MEMORY"
+        4 -> "CRASH"
+        5 -> "CRASH_NATIVE"
+        6 -> "ANR"
+        7 -> "INITIALIZATION_FAILURE"
+        8 -> "PERMISSION_CHANGE"
+        9 -> "EXCESSIVE_RESOURCE_USAGE"
+        10 -> "USER_REQUESTED"
+        11 -> "USER_STOPPED"
+        12 -> "DEPENDENCY_DIED"
+        13 -> "OTHER"
+        14 -> "FREEZER"
+        15 -> "PACKAGE_STATE_CHANGE"
+        16 -> "PACKAGE_UPDATED"
+        else -> "UNKNOWN($reason)"
+    }
+
+    private fun importanceName(importance: Int): String = when {
+        importance <= 100 -> "foreground"
+        importance <= 125 -> "foreground-service"
+        importance <= 230 -> "visible"
+        importance <= 325 -> "service"
+        importance < 1000 -> "background"
+        else -> "gone"
     }
 
     // startActivityForResult is the only API that raises the screen-capture

@@ -340,6 +340,25 @@ class CrashReporter {
     }
   }
 
+  /// Android's record of why the previous process died, e.g.
+  /// "exit LOW_MEMORY while background pss=612MB rss=780MB (lmk)".
+  /// Null below Android 11, or when the OS kept no record.
+  static Future<String?> _lastExit() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      final raw = await _memChannel
+          .invokeMethod<Map<Object?, Object?>>('lastExit')
+          .timeout(const Duration(seconds: 2));
+      if (raw == null) return null;
+      final desc = raw['description']?.toString() ?? '';
+      return 'exit ${raw['reason']} while ${raw['importance']} '
+          'pss=${raw['pssMb']}MB rss=${raw['rssMb']}MB status=${raw['status']}'
+          '${desc.isEmpty ? '' : ' ($desc)'}';
+    } catch (_) {
+      return null;
+    }
+  }
+
   static int? _rssMb() {
     if (kIsWeb) return null;
     try {
@@ -455,9 +474,12 @@ class CrashReporter {
         await f.delete();
         final data = jsonDecode(raw);
         if (data is Map) {
+          final exit = await _lastExit();
           final report = <String, dynamic>{
             'kind': 'processKilled',
-            'message':
+            // The OS's own verdict leads the message: it is the one field the
+            // server keeps verbatim, and the one the log viewer searches.
+            'message': exit ??
                 'previous session ended without a clean shutdown (OS kill or native crash)',
             'at': DateTime.now().toIso8601String(),
             'previousSession': data,
