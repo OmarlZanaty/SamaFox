@@ -158,36 +158,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
 
-  Future<void> _handleFacebookSignIn() async {
-    await ref.read(authStateProvider.notifier).signInWithFacebook();
-
-    if (!mounted) return;
-
-    final authState = ref.read(authStateProvider);
-    if (authState.isAuthenticated) {
-      Navigator.of(context).pushReplacementNamed('/home');
-    } else if (authState.error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(authState.error!)),
-      );
-    }
-  }
-
-  Future<void> _handleSnapchatSignIn() async {
-    await ref.read(authStateProvider.notifier).signInWithSnapchat();
-
-    if (!mounted) return;
-
-    final authState = ref.read(authStateProvider);
-    if (authState.isAuthenticated) {
-      Navigator.of(context).pushReplacementNamed('/home');
-    } else if (authState.error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(authState.error!)),
-      );
-    }
-  }
-
 
   Future<void> printKeyHash() async {
     if (!kIsWeb && Platform.isAndroid) {
@@ -271,28 +241,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       height: 18,
                     ),
                     onPressed: authState.isLoading ? null : _handleGoogleSignIn,
-                  ),
-                  const SizedBox(height: 18),
-                  _authButton(
-                    text: 'Facebook',
-                    icon: SvgPicture.asset(
-                      'assets/images/facebook_icon.svg',
-                      width: 18,
-                      height: 18,
-                    ),
-                    onPressed:
-                        authState.isLoading ? null : _handleFacebookSignIn,
-                  ),
-                  const SizedBox(height: 18),
-                  _authButton(
-                    text: 'Snapchat',
-                    icon: SvgPicture.asset(
-                      'assets/images/snapchat_icon.svg',
-                      width: 18,
-                      height: 18,
-                    ),
-                    onPressed:
-                        authState.isLoading ? null : _handleSnapchatSignIn,
                   ),
                   const SizedBox(height: 18),
                   _authButton(
