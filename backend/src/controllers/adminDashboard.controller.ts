@@ -6,7 +6,7 @@ import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned } 
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
-import { isSharedBuildId } from '../middlewares/deviceBan.middleware';
+import { isProtectedIp, isSharedBuildId } from '../middlewares/deviceBan.middleware';
 import {
   grantVipRewardsForRange,
   evaluateVip,
@@ -2676,6 +2676,9 @@ export const adminCreateDeviceBan = async (req: AdminReq, res: Response) => {
     const days = Number((req.body as any)?.days);
 
     if (!deviceId && !ipAddress) return fail(res, 400, 'أدخل معرّف جهاز أو عنوان IP');
+    if (ipAddress && isProtectedIp(ipAddress)) {
+      return fail(res, 400, 'هذا عنوان خادم التطبيق نفسه — حظره يمنع كل المستخدمين الذين يمرّون عبره. استخدم حظر الحساب.');
+    }
     if (deviceId && isSharedBuildId(deviceId)) {
       return fail(
         res,

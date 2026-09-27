@@ -3165,10 +3165,22 @@ async function banDeviceOf(deviceId, ipAddress) {
   await loadModeration().catch(() => {});
   const dev = document.getElementById("db_device");
   const ip  = document.getElementById("db_ip");
-  if (dev) dev.value = deviceId || "";
-  if (ip)  ip.value  = ipAddress || "";
+  // A dotted id is Android's firmware build id (apps up to 1.0.34), shared by
+  // every phone of that model — the server refuses it, so do not offer it.
+  const realId = deviceId && !deviceId.includes(".") ? deviceId : "";
+  if (dev) dev.value = realId;
+  // The IP is never prefilled: a mobile network puts many users behind one IP,
+  // so an IP ban is only ever typed in on purpose. It is shown as a hint.
+  if (ip) {
+    ip.value = "";
+    ip.placeholder = ipAddress
+      ? `عنوان IP (آخر IP: ${ipAddress} — يحظر كل من على نفس الشبكة)`
+      : "عنوان IP";
+  }
   (document.getElementById("db_reason") || {}).focus?.();
-  showToast("تم ملء بيانات الجهاز — أكمل السبب والمدة");
+  showToast(realId
+    ? "تم ملء معرّف الجهاز — أكمل السبب والمدة"
+    : "⚠️ هذا المستخدم على نسخة قديمة بلا معرّف جهاز حقيقي — استخدم حظر الحساب");
 }
 
 async function createDeviceBan() {

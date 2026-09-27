@@ -17,6 +17,24 @@ const db = prisma as any;
  * well: defeating both takes a new device AND a new network.
  */
 
+/**
+ * IPs that are OUR servers, not a user: the old AWS box still relays every
+ * request from apps built against it (47 users showed it as their IP), plus the
+ * Hetzner box and loopback. Banning one would lock out everyone behind it, so
+ * they can never be banned and never match a ban.
+ */
+const PROTECTED_IPS = new Set([
+  '63.179.163.62',
+  '46.224.129.250',
+  '127.0.0.1',
+  '::1',
+  '::ffff:127.0.0.1',
+]);
+
+export function isProtectedIp(ip: string): boolean {
+  return PROTECTED_IPS.has(ip.trim());
+}
+
 /** Best-effort client IP, honouring the proxy header AWS/nginx sets. */
 export function clientIp(req: Request): string | null {
   const fwd = req.headers['x-forwarded-for'];
@@ -84,7 +102,8 @@ export const deviceBanMiddleware: RequestHandler = async (
   res: Response,
   next: NextFunction,
 ) => {
-  const state = await checkDeviceBan(clientDeviceId(req), clientIp(req));
+  const ip = clientIp(req);
+  const state = await checkDeviceBan(clientDeviceId(req), ip && !isProtectedIp(ip) ? ip : null);
   if (!state.banned) return next();
 
   return res.status(403).json({
