@@ -6,6 +6,7 @@ import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned } 
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
+import { isSharedBuildId } from '../middlewares/deviceBan.middleware';
 import {
   grantVipRewardsForRange,
   evaluateVip,
@@ -2675,6 +2676,13 @@ export const adminCreateDeviceBan = async (req: AdminReq, res: Response) => {
     const days = Number((req.body as any)?.days);
 
     if (!deviceId && !ipAddress) return fail(res, 400, 'أدخل معرّف جهاز أو عنوان IP');
+    if (deviceId && isSharedBuildId(deviceId)) {
+      return fail(
+        res,
+        400,
+        'هذا ليس معرّف جهاز حقيقي — هو رقم إصدار النظام ويشترك فيه كل الأجهزة من نفس الموديل. اطلب من المستخدم تحديث التطبيق، أو احظر الـIP.',
+      );
+    }
 
     const expiresAt =
       Number.isFinite(days) && days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;

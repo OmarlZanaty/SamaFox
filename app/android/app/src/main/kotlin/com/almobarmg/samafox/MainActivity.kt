@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Debug
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -28,6 +29,7 @@ class MainActivity : FlutterActivity() {
         const val CHANNEL = "samafox/room_audio"
         const val RECORD_CHANNEL = "samafox/screen_record"
         const val MEM_CHANNEL = "samafox/memory"
+        const val DEVICE_CHANNEL = "samafox/device"
         const val REQ_PROJECTION = 7311
     }
 
@@ -86,6 +88,20 @@ class MainActivity : FlutterActivity() {
                         result.success(ScreenRecordService.lastOutputPath)
                     }
 
+                    else -> result.notImplemented()
+                }
+            }
+
+        // F4 — the id a device ban sticks to. device_info_plus's `androidInfo.id`
+        // is Build.ID, the FIRMWARE build ("AP3A.240905.015.A2"), shared by every
+        // phone of that model and update — banning it banned all of them.
+        // ANDROID_ID is per device (and per signing key), and survives reinstall.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "androidId" -> result.success(
+                        Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                    )
                     else -> result.notImplemented()
                 }
             }
