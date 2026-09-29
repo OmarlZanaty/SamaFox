@@ -283,11 +283,50 @@ export function isUserInRoom(userId: number, roomId: number): boolean {
  *  announces voice once, before the PIN prompt, and never again. */
 const deferredVoice = new Set<string>();
 
+/**
+ * Where to relay a WebRTC offer/answer/candidate, or null to drop it.
+ *
+ * Signalling used to be relayed to any user id, whatever room either side was
+ * in. Someone who left room A for room B still had A's mics offering to them
+ * (their links to him were recovering), his phone answered, and A's voice
+ * played in B: "الناس اللي بتخرج من الروم وتدخل روم تاني بيسمعوا كلام الروم
+ * اللي كانوا فيه" (29/09). Both ends must now be inside the room the message
+ * is for. Every client build sends `roomId` with these.
+ */
+const droppedRelays = { count: 0, lastLog: 0 };
+function voiceRelayTarget(from: number | undefined, to: any, roomId: any): string | null {
+  if (to == null || !from) return null;
+  const rid = toInt(roomId);
+  const target = toInt(to);
+  if (rid && target && userCurrentRoom.get(from) === rid && userCurrentRoom.get(target) === rid) {
+    return String(to);
+  }
+  droppedRelays.count++;
+  const now = Date.now();
+  if (now - droppedRelays.lastLog > 60_000) {
+    console.log('[voice relay] dropped cross-room signalling', {
+      count: droppedRelays.count, from, to, rid,
+      fromRoom: userCurrentRoom.get(from) ?? null,
+      toRoom: target ? userCurrentRoom.get(target) ?? null : null,
+    });
+    droppedRelays.lastLog = now;
+    droppedRelays.count = 0;
+  }
+  return null;
+}
+
 async function mayListen(uid: number, rid: number): Promise<boolean> {
   for (let i = 0; i < 40 && userCurrentRoom.get(uid) !== rid; i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
-  if (userCurrentRoom.get(uid) === rid) return true;
+  const current = userCurrentRoom.get(uid);
+  if (current === rid) return true;
+  // In ANOTHER room now: this is a late request for a room they already left
+  // (a voice join still waiting above while they switched rooms). Letting it
+  // through put the socket back into the old room and its voice set, and the
+  // phone peered with the old room's mics — "بيسمعوا كلام الروم اللي كانوا
+  // فيه وخرجوا" (29/09).
+  if (current != null) return false;
   const room = await prisma.room
     .findUnique({ where: { id: rid }, select: { isLocked: true, accessCode: true, ownerId: true, isActive: true } })
     .catch(() => null);
@@ -2472,6 +2511,11 @@ await emitRoomState(io, rid);
 
       // ✅ ensure membership in room to broadcast reliably (race safe)
       socket.join(`room:${rid}`);
+      // Signalling is relayed only between users placed in the same room
+      // (voiceRelayTarget). A phone that re-announced voice without a
+      // join_room — e.g. after a server restart emptied these maps while its
+      // room screen sat in the PiP bubble — is placed here.
+      if (!userCurrentRoom.has(uid)) userCurrentRoom.set(uid, rid);
 
       console.log('🎤 user_joined_voice', { rid, uid });
 
@@ -2515,25 +2559,25 @@ await emitRoomState(io, rid);
     // ----------------------------
     // WebRTC signaling (direct by userId room)
     // ----------------------------
-socket.on('webrtc_offer', ({ to, offer }: any) => {
-  if (to == null) return;
-  const target = String(to);
+socket.on('webrtc_offer', ({ to, offer, roomId }: any) => {
+  const target = voiceRelayTarget(socket.userId, to, roomId);
+  if (!target) return;
   // No per-message log: in a mesh room these fire hundreds of times a minute
   // (every candidate of every pair), which filled the pm2 logs and cost the
   // event loop time the voice signalling needs.
-  io.to(target).emit('webrtc_offer', { from: socket.userId, offer });
+  io.to(target).emit('webrtc_offer', { from: socket.userId, offer, roomId: toInt(roomId) });
 });
 
-socket.on('webrtc_answer', ({ to, answer }: any) => {
-  if (to == null) return;
-  const target = String(to);
-  io.to(target).emit('webrtc_answer', { from: socket.userId, answer });
+socket.on('webrtc_answer', ({ to, answer, roomId }: any) => {
+  const target = voiceRelayTarget(socket.userId, to, roomId);
+  if (!target) return;
+  io.to(target).emit('webrtc_answer', { from: socket.userId, answer, roomId: toInt(roomId) });
 });
 
-socket.on('webrtc_ice_candidate', ({ to, candidate }: any) => {
-  if (to == null) return;
-  const target = String(to);
-  io.to(target).emit('webrtc_ice_candidate', { from: socket.userId, candidate });
+socket.on('webrtc_ice_candidate', ({ to, candidate, roomId }: any) => {
+  const target = voiceRelayTarget(socket.userId, to, roomId);
+  if (!target) return;
+  io.to(target).emit('webrtc_ice_candidate', { from: socket.userId, candidate, roomId: toInt(roomId) });
 });
 
 
