@@ -1,6 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
+import { readSettings, voiceEngineForRoom } from '../controllers/settings.controller';
 import { getBanState } from '../utils/banGuard';
 import { startBroadcast, endBroadcast } from './broadcast.service';
 import { isBlockedBetween } from '../utils/blockGuard';
@@ -298,6 +299,11 @@ function voiceRelayTarget(from: number | undefined, to: any, roomId: any): strin
   if (to == null || !from) return null;
   const rid = toInt(roomId);
   const target = toInt(to);
+  // Mesh signalling for a LiveKit room is a leftover mesh engine on the phone
+  // (29/09, after every room moved): it built direct links beside LiveKit —
+  // the room heard twice, a user who had left still heard it, and the rebuild
+  // loops that precede the native crashes. The room's audio is LiveKit's.
+  if (rid && isLiveKitRoom(rid)) return null;
   if (rid && target && userCurrentRoom.get(from) === rid && userCurrentRoom.get(target) === rid) {
     return String(to);
   }
@@ -640,8 +646,30 @@ function voiceSnapshot(rid: number) {
   return {
     roomId: rid,
     users: Array.from(getVoiceSet(rid).values()),
-    speakers: Array.from(new Set(getSeats(rid).values())),
+    // A room on LiveKit has no mesh: nobody is a mesh "speaker", so a mesh
+    // engine still alive on a phone (every build up to 1.0.37 keeps its
+    // handlers after the room moved) builds no links and drops the ones it
+    // has. The LiveKit engine and the room UI read `users` only.
+    speakers: isLiveKitRoom(rid) ? [] : Array.from(new Set(getSeats(rid).values())),
   };
+}
+
+/**
+ * Which rooms are on LiveKit, cached: asked for every relayed ICE candidate,
+ * so it must not hit the database. Refreshed every 10 s — the same delay the
+ * admin's switch (scripts/voice-engine.sh) already has on the phones.
+ */
+let voiceSettingsCache: Record<string, string> | null = null;
+let voiceSettingsAt = 0;
+function isLiveKitRoom(rid: number): boolean {
+  const now = Date.now();
+  if (now - voiceSettingsAt > 10_000) {
+    voiceSettingsAt = now;
+    readSettings()
+      .then((s) => { voiceSettingsCache = s; })
+      .catch((e) => console.warn('[voice] settings refresh failed:', (e as Error).message));
+  }
+  return !!voiceSettingsCache && voiceEngineForRoom(voiceSettingsCache, rid) === 'livekit';
 }
 
 async function emitVoiceUsers(io: Server, rid: number) {
