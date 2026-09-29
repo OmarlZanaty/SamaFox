@@ -343,17 +343,23 @@ class CrashReporter {
   /// Android's record of why the previous process died, e.g.
   /// "exit LOW_MEMORY while background pss=612MB rss=780MB (lmk)".
   /// Null below Android 11, or when the OS kept no record.
-  static Future<String?> _lastExit() async {
+  ///
+  /// For a native crash, `trace` is the crashing thread's backtrace decoded
+  /// from the tombstone (Android 12+), sent as the report's stack.
+  static Future<({String message, String? trace})?> _lastExit() async {
     if (kIsWeb || !Platform.isAndroid) return null;
     try {
       final raw = await _memChannel
           .invokeMethod<Map<Object?, Object?>>('lastExit')
-          .timeout(const Duration(seconds: 2));
+          .timeout(const Duration(seconds: 5));
       if (raw == null) return null;
       final desc = raw['description']?.toString() ?? '';
-      return 'exit ${raw['reason']} while ${raw['importance']} '
-          'pss=${raw['pssMb']}MB rss=${raw['rssMb']}MB status=${raw['status']}'
-          '${desc.isEmpty ? '' : ' ($desc)'}';
+      return (
+        message: 'exit ${raw['reason']} while ${raw['importance']} '
+            'pss=${raw['pssMb']}MB rss=${raw['rssMb']}MB status=${raw['status']}'
+            '${desc.isEmpty ? '' : ' ($desc)'}',
+        trace: raw['trace']?.toString(),
+      );
     } catch (_) {
       return null;
     }
@@ -479,8 +485,9 @@ class CrashReporter {
             'kind': 'processKilled',
             // The OS's own verdict leads the message: it is the one field the
             // server keeps verbatim, and the one the log viewer searches.
-            'message': exit ??
+            'message': exit?.message ??
                 'previous session ended without a clean shutdown (OS kill or native crash)',
+            if (exit?.trace != null) 'stack': exit!.trace,
             'at': DateTime.now().toIso8601String(),
             'previousSession': data,
           };

@@ -4819,6 +4819,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   height: MediaQuery.of(context).size.height * 0.30,
                   child: RoomChatPanel(
                     roomId: widget.roomId,
+                    // هدايا الحظ: the app-wide winners ticker lives with the
+                    // messages. Tap → the winner's card (متابعة / رسالة / مسار).
+                    header: LuckyTicker(
+                      socket: _giftSocket,
+                      repository: _giftRepository,
+                      myUserId: ref.read(authStateProvider).user?.id,
+                    ),
                     // Tapping a writer's name opens the room's own profile
                     // card, not a separate screen.
                     onUserTap: (uid, name, {level, vipLevel, displayId, avatarUrl}) =>
@@ -5164,22 +5171,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 final coins = u?.coinsBalance ?? u?.coins;
                 if (coins != null) GiftPickerSheet.liveBalance.value = coins;
               },
-            ),
-
-            // ===== هدايا الحظ: the app-wide winners ticker, just above the
-            // bottom bar. Tap → the winner's card (متابعة / رسالة / مسار).
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: bottomBarH + 12,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: LuckyTicker(
-                  socket: _giftSocket,
-                  repository: _giftRepository,
-                  myUserId: userId,
-                ),
-              ),
             ),
 
             // ===== Music control bar — draggable, only for owner/admins, and

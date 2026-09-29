@@ -1184,6 +1184,14 @@ class WebRTCAudioService implements VoiceEngine {
       await leaveVoice();
     }
 
+    // A fresh session starts with no peers. Anything still here belongs to a
+    // room that was left — built by a late offer or snapshot from it — and
+    // would keep playing that room inside this one.
+    if (!_initialized && _peerConnections.isNotEmpty) {
+      _log('🧹 dropping ${_peerConnections.length} leftover peer(s) before joining $roomId');
+      await _teardownAllPeers();
+    }
+
     // Before anything opens audio (and after leaving an old room, which clears
     // it): keep the phone in call mode, where the echo canceller works.
     await AudioRoute.instance.setVoiceLive(true);
@@ -1283,6 +1291,11 @@ class WebRTCAudioService implements VoiceEngine {
           'userId': _currentUserId,
         });
       }
+
+      // Forget the room first, so nothing arriving during the teardown below
+      // is accepted for it (see _notForThisRoom).
+      _currentRoomId = null;
+      _currentUserId = null;
 
       // stop local mic track
       _initialized = false; // before stopping, so the watchdog stays quiet
@@ -1440,6 +1453,22 @@ class WebRTCAudioService implements VoiceEngine {
 
 
   /// Setup WebRTC signaling via Socket.IO
+  /// Is this signalling message for a room other than the one we are in?
+  ///
+  /// These handlers stay registered on the socket singleton after the room is
+  /// left. Offers from the old room's mics (their links to us recovering) and
+  /// its `voice_users` snapshots were still answered: the phone re-peered with
+  /// the room it had left and played it inside the next one — "الناس اللي
+  /// بتخرج من الروم وتدخل روم تاني بيسمعوا كلام الروم اللي كانوا فيه" (29/09).
+  /// No room = nothing to accept. A message without `roomId` (older server) is
+  /// judged by the first rule alone.
+  bool _notForThisRoom(Map map) {
+    final current = _currentRoomId;
+    if (current == null) return true;
+    final rid = int.tryParse('${map['roomId'] ?? ''}');
+    return rid != null && rid != current;
+  }
+
   void _setupSignaling() {
     _socketService.off('user_joined_voice');
     _socketService.off('user_left_voice');
@@ -1454,6 +1483,7 @@ class WebRTCAudioService implements VoiceEngine {
 
       try {
         final map = Map<String, dynamic>.from(data as Map);
+        if (_notForThisRoom(map)) return;
 
         final otherUserId = (map['userId'] ?? map['from'] ?? map['id']);
         final int? oid = otherUserId is int ? otherUserId : int.tryParse('$otherUserId');
@@ -1483,6 +1513,10 @@ class WebRTCAudioService implements VoiceEngine {
     _socketService.on('voice_users', (data) async {
       try {
         final map = Map<String, dynamic>.from(data ?? {});
+        if (_notForThisRoom(map)) {
+          _log('ignoring voice_users for room ${map['roomId']} (in $_currentRoomId)');
+          return;
+        }
         final rawUsers = (map['users'] as List?) ?? const [];
 
         final users = rawUsers
@@ -1547,6 +1581,10 @@ class WebRTCAudioService implements VoiceEngine {
         final fromUserId = _asUserId(map['from']);
         if (fromUserId == null) {
           debugPrint('⚠️ webrtc_offer without a usable sender: $map');
+          return;
+        }
+        if (_notForThisRoom(map)) {
+          _log('🚫 ignoring offer from $fromUserId for room ${map['roomId']} (in $_currentRoomId)');
           return;
         }
         // They are trying again from their side. Whatever we concluded before,
@@ -1639,6 +1677,7 @@ class WebRTCAudioService implements VoiceEngine {
           debugPrint('⚠️ webrtc_answer without a usable sender: $map');
           return;
         }
+        if (_notForThisRoom(map)) return;
         final answer = Map<String, dynamic>.from(map['answer'] as Map);
 
         debugPrint('📨 Received answer from user $fromUserId');
@@ -1671,6 +1710,7 @@ class WebRTCAudioService implements VoiceEngine {
         final map = Map<String, dynamic>.from(data as Map);
         final fromUserId = _asUserId(map['from']);
         if (fromUserId == null) return;
+        if (_notForThisRoom(map)) return;
         final raw = Map<String, dynamic>.from(map['candidate'] as Map);
 
         final candidate = RTCIceCandidate(
@@ -2513,15 +2553,27 @@ class WebRTCAudioService implements VoiceEngine {
     } catch (e) {
       _log('⚠️ closing peer $otherUserId: $e');
     }
-    try {
-      await pc.dispose();
-    } catch (e) {
-      _log('⚠️ freeing peer $otherUserId: $e');
-    }
+    // Closed now (no more audio, no more callbacks), FREED later. A stats poll,
+    // an offer or a candidate may still be inside libwebrtc on this connection
+    // — the 2-second stats loop works from a snapshot, the offer handler awaits
+    // between steps — and freeing the native object under it aborted the app:
+    // sixteen CRASH_NATIVE status=6 on 29/09, every one seconds after a peer was
+    // rebuilt ("never negotiated" → freed → new). A closed connection is safe
+    // to call into; a disposed one is not.
+    Timer(_disposeGrace, () async {
+      try {
+        await pc.dispose();
+      } catch (e) {
+        _log('⚠️ freeing peer $otherUserId: $e');
+      }
+    });
     CrashReporter.breadcrumb(
       'peer -$otherUserId freed (live=${_peerConnections.length})',
     );
   }
+
+  /// How long a closed connection is kept before its native object is freed.
+  static const Duration _disposeGrace = Duration(seconds: 5);
 
   /// Hand back the remote stream a peer was delivering.
   ///
@@ -2602,6 +2654,17 @@ class WebRTCAudioService implements VoiceEngine {
       debugPrint('🧹 Disposing WebRTC service...');
 
       _initialized = false;
+
+      // Out of the room before the slow teardown below, and forget it: until
+      // `_currentRoomId` is null the signalling handlers keep accepting the
+      // old room's offers and rebuilding the links this is closing.
+      final leftRoom = _currentRoomId;
+      final me = _currentUserId;
+      _currentRoomId = null;
+      _currentUserId = null;
+      if (leftRoom != null && me != null) {
+        _socketService.emit('user_left_voice', {'roomId': leftRoom, 'userId': me});
+      }
 
       await _reconnectSub?.cancel();
       _reconnectSub = null;
@@ -2692,11 +2755,6 @@ class WebRTCAudioService implements VoiceEngine {
           debugPrint('⚠️ freeing local stream: $e');
         }
       }
-
-      _socketService.emit('user_left_voice', {
-        'roomId': _currentRoomId,
-        'userId': _currentUserId,
-      });
 
       debugPrint('✅ WebRTC service disposed');
     } catch (e) {

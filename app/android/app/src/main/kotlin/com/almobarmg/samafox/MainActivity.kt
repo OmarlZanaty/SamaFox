@@ -166,7 +166,12 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(out)
                     }
-                    "lastExit" -> result.success(lastExitInfo())
+                    // Off the main thread: a native crash's tombstone is read
+                    // and decoded here, and it can run to a few hundred KB.
+                    "lastExit" -> Thread {
+                        val info = lastExitInfo()
+                        Handler(Looper.getMainLooper()).post { result.success(info) }
+                    }.start()
                     else -> result.notImplemented()
                 }
             }
@@ -231,9 +236,38 @@ class MainActivity : FlutterActivity() {
                 "pssMb" to (info.pss / 1024).toInt(),
                 "rssMb" to (info.rss / 1024).toInt(),
                 "at" to info.timestamp,
+                "trace" to if (info.reason == 5) nativeCrashSummary(info) else null,
             )
         } catch (e: Throwable) {
             null
+        }
+    }
+
+    /**
+     * The crashing thread's backtrace from a native crash's tombstone (API 31+).
+     *
+     * The exit reason alone said "CRASH_NATIVE status=6" for sixteen crashes on
+     * 29/09, all during WebRTC peer churn, with nothing to say which call
+     * aborted. Android keeps the tombstone for us as a protobuf; this decodes
+     * the handful of fields that answer that: signal, abort message, the
+     * crashing thread's frames, and the last error lines it logged.
+     */
+    private fun nativeCrashSummary(info: android.app.ApplicationExitInfo): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        return try {
+            val bytes = info.traceInputStream?.use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(16 * 1024)
+                while (out.size() < 8 * 1024 * 1024) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                }
+                out.toByteArray()
+            } ?: return null
+            Tombstone.summarize(bytes)
+        } catch (e: Throwable) {
+            "tombstone unreadable: ${e.javaClass.simpleName} ${e.message}"
         }
     }
 
@@ -287,5 +321,101 @@ class MainActivity : FlutterActivity() {
             // Declined, or dismissed. Not an error — the user said no.
             result?.success(false)
         }
+    }
+}
+
+/**
+ * Just enough protobuf to read Android's tombstone.proto (system/core/debuggerd/
+ * proto/tombstone.proto). Field numbers from there: Tombstone 5 pid, 6 tid,
+ * 10 signal_info, 14 abort_message, 16 threads (map<uint32, Thread>),
+ * 18 log_buffers. Thread 1 id, 2 name, 4 current_backtrace. BacktraceFrame
+ * 1 rel_pc, 4 function_name, 5 function_offset, 6 file_name. Signal 2 name,
+ * 4 code_name. LogBuffer 2 logs; LogMessage 3 tid, 4 priority, 5 tag, 6 message.
+ */
+private object Tombstone {
+    private class Field(val number: Int, val varint: Long, val bytes: ByteArray?)
+
+    private fun parse(data: ByteArray): List<Field> {
+        val out = ArrayList<Field>()
+        var i = 0
+        fun varint(): Long {
+            var shift = 0
+            var result = 0L
+            while (i < data.size) {
+                val b = data[i++].toInt() and 0xff
+                result = result or ((b and 0x7f).toLong() shl shift)
+                if (b and 0x80 == 0) break
+                shift += 7
+            }
+            return result
+        }
+        while (i < data.size) {
+            val key = varint()
+            val number = (key ushr 3).toInt()
+            when ((key and 7).toInt()) {
+                0 -> out.add(Field(number, varint(), null))
+                1 -> i += 8
+                2 -> {
+                    val len = varint().toInt()
+                    if (len < 0 || i + len > data.size) return out
+                    out.add(Field(number, 0, data.copyOfRange(i, i + len)))
+                    i += len
+                }
+                5 -> i += 4
+                else -> return out // not protobuf we understand; keep what we have
+            }
+        }
+        return out
+    }
+
+    private fun str(fields: List<Field>, n: Int) =
+        fields.firstOrNull { it.number == n }?.bytes?.let { String(it, Charsets.UTF_8) }
+
+    private fun num(fields: List<Field>, n: Int) =
+        fields.firstOrNull { it.number == n }?.varint
+
+    fun summarize(data: ByteArray): String {
+        val top = parse(data)
+        val sb = StringBuilder()
+        val tid = num(top, 6)
+        top.firstOrNull { it.number == 10 }?.bytes?.let { sig ->
+            val f = parse(sig)
+            sb.appendLine("signal ${str(f, 2)} ${str(f, 4) ?: ""}")
+        }
+        str(top, 14)?.takeIf { it.isNotBlank() }?.let { sb.appendLine("abort: ${it.take(1500)}") }
+
+        // The crashing thread, else the first one listed.
+        val threads = top.filter { it.number == 16 }.mapNotNull { e ->
+            val entry = parse(e.bytes ?: return@mapNotNull null)
+            val key = num(entry, 1)
+            val value = entry.firstOrNull { it.number == 2 }?.bytes ?: return@mapNotNull null
+            key to parse(value)
+        }
+        val crashing = threads.firstOrNull { it.first == tid }?.second ?: threads.firstOrNull()?.second
+        if (crashing != null) {
+            sb.appendLine("thread ${str(crashing, 2)} tid=$tid")
+            crashing.filter { it.number == 4 }.take(40).forEachIndexed { idx, fr ->
+                val f = parse(fr.bytes ?: return@forEachIndexed)
+                val fn = str(f, 4)?.takeIf { it.isNotEmpty() } ?: "?"
+                val off = num(f, 5) ?: 0
+                val file = str(f, 6)?.substringAfterLast('/') ?: "?"
+                val pc = java.lang.Long.toHexString(num(f, 1) ?: 0)
+                sb.appendLine("#$idx $file pc $pc $fn+$off")
+            }
+        }
+
+        // Last error/fatal log lines of the crashing thread — an RTC_CHECK
+        // prints its "Check failed" here before aborting.
+        val lines = ArrayList<String>()
+        top.filter { it.number == 18 }.forEach { buf ->
+            parse(buf.bytes ?: return@forEach).filter { it.number == 2 }.forEach { m ->
+                val f = parse(m.bytes ?: return@forEach)
+                if ((num(f, 4) ?: 0) >= 6 && (tid == null || num(f, 3) == tid)) {
+                    lines.add("${str(f, 5)}: ${str(f, 6)?.take(300)}")
+                }
+            }
+        }
+        lines.takeLast(12).forEach { sb.appendLine("log $it") }
+        return sb.toString().take(7800)
     }
 }
