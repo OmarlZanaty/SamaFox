@@ -157,9 +157,24 @@ class LiveKitVoiceEngine implements VoiceEngine {
       ),
     );
     final listener = room.createListener();
-    _wireEvents(listener);
+    _wireEvents(listener, room);
 
-    await room.connect(url, token);
+    try {
+      await room.connect(url, token);
+    } catch (e) {
+      // A connect that timed out on the app side keeps going inside the SDK
+      // and can still join later. Left alone, it and the retry below both
+      // joined as the same user and LiveKit kept kicking one for the other
+      // (DUPLICATE_IDENTITY, 24 times in 8 minutes for one phone, 29/09).
+      // A failed attempt is shut down completely before anything retries.
+      await _disposeRoom(listener, room);
+      rethrow;
+    }
+    if (!_initialized && _currentRoomId != roomId) {
+      // The user left while this was connecting.
+      await _disposeRoom(listener, room);
+      return;
+    }
     _room = room;
     _listener = listener;
     _log('connected to $url as $_currentUserId (${room.remoteParticipants.length} others)');
@@ -174,7 +189,19 @@ class LiveKitVoiceEngine implements VoiceEngine {
     }
   }
 
-  void _wireEvents(EventsListener<RoomEvent> listener) {
+  Future<void> _disposeRoom(EventsListener<RoomEvent> listener, Room room) async {
+    try {
+      await listener.dispose();
+    } catch (_) {}
+    try {
+      await room.disconnect();
+    } catch (_) {}
+    try {
+      await room.dispose();
+    } catch (_) {}
+  }
+
+  void _wireEvents(EventsListener<RoomEvent> listener, Room room) {
     listener
       ..on<TrackSubscribedEvent>((e) {
         _log('subscribed to ${e.participant.identity}');
@@ -203,7 +230,13 @@ class LiveKitVoiceEngine implements VoiceEngine {
       ..on<RoomDisconnectedEvent>((e) {
         _log('disconnected: ${e.reason}');
         CrashReporter.breadcrumb('lk disconnected ${e.reason}');
+        // Only the live session decides anything. An old or failed attempt
+        // disconnecting must not start another reconnect — that is how two
+        // sessions ended up evicting each other.
+        if (!identical(_room, room)) return;
         _emitSpeaking(false);
+        // Replaced by a newer session of ours: reconnecting would evict it.
+        if (e.reason == DisconnectReason.duplicateIdentity) return;
         // A disconnect the SDK could not recover from, while we still believe
         // we are in the room: reconnect from scratch, with a fresh token.
         if (_initialized && _currentRoomId != null) {
@@ -315,8 +348,29 @@ class LiveKitVoiceEngine implements VoiceEngine {
         autoGainControl: true,
       );
 
+  /// One goLive at a time: two overlapping calls (entering on a seat while the
+  /// seat state arrives) each published a microphone, and the room carried
+  /// two tracks for one user, one of them muted (29/09).
+  Future<void>? _goLiveInFlight;
+
   @override
   Future<void> goLive({bool muted = false}) async {
+    final pending = _goLiveInFlight;
+    if (pending != null) {
+      try {
+        await pending;
+      } catch (_) {}
+    }
+    final run = _goLiveInner(muted: muted);
+    _goLiveInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (identical(_goLiveInFlight, run)) _goLiveInFlight = null;
+    }
+  }
+
+  Future<void> _goLiveInner({bool muted = false}) async {
     final lp = _room?.localParticipant;
     if (lp == null) {
       _log('goLive: not connected');
