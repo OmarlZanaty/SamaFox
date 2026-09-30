@@ -6,7 +6,7 @@ import { createNotification } from '../services/notification.service';
 import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
 import { getHostTargetView, setHostTarget } from '../services/hostTarget.service';
-import { targetBalance } from './targetMath';
+import { giftWindow, targetBalance } from './targetMath';
 
 const db = prisma as any;
 
@@ -1455,10 +1455,25 @@ export const removeBranch = async (req: AuthReq, res: Response) => {
  * callers that deal with owner rows, since it is role-specific.
  */
 export const memberTargetEarnedRaw = async (m: {
+  id: number;
   userId: number;
   joinedAt: Date;
   targetAdjustmentCoins?: bigint | number | null;
 }): Promise<number> => {
+  // Gifts count on ONE seat per user (see giftWindow): a row outside the
+  // user's target seats, or fully shadowed by a higher-priority one, carries
+  // only its بيع/تبديل/admin movements.
+  const seats = await db.agencyMember.findMany({
+    where: targetMembershipWhere(m.userId),
+    select: { id: true, joinedAt: true, agency: { select: { type: true } } },
+  });
+  const window = giftWindow(
+    seats.map((s: any) => ({ id: s.id, joinedAt: s.joinedAt, hosting: s.agency?.type === 'HOSTING' })),
+    m.id,
+  );
+  const adjustment = Number(m.targetAdjustmentCoins ?? 0);
+  if (!window) return adjustment;
+
   // SELF-GIFTS COUNT (client rule, 2026-08: "لما يرمي على نفسه يتخصم سعر الهدية
   // كامل من محفظته وأيضاً يذهب إلى التارجيت سعر الهدية كامل").
   //
@@ -1471,11 +1486,11 @@ export const memberTargetEarnedRaw = async (m: {
   const agg = await db.giftTransaction.aggregate({
     where: {
       recipientId: m.userId,
-      createdAt: { gte: m.joinedAt },
+      createdAt: window.to ? { gte: window.from, lt: window.to } : { gte: window.from },
     },
     _sum: { totalCoins: true },
   });
-  return Number(agg._sum.totalCoins ?? 0) + Number(m.targetAdjustmentCoins ?? 0);
+  return Number(agg._sum.totalCoins ?? 0) + adjustment;
 };
 
 /**
@@ -1489,6 +1504,7 @@ export const memberTargetEarnedRaw = async (m: {
  * stop working for agents.
  */
 export const memberTargetEarned = async (m: {
+  id: number;
   userId: number;
   joinedAt: Date;
   targetAdjustmentCoins?: bigint | number | null;
@@ -1506,6 +1522,7 @@ export const memberTargetEarned = async (m: {
  * (2026-09-30). Same arithmetic getMyTarget and convertTarget already use.
  */
 export const memberTargetTotal = async (m: {
+  id: number;
   userId: number;
   joinedAt: Date;
   targetAdjustmentCoins?: bigint | number | null;
@@ -1516,7 +1533,7 @@ export const memberTargetTotal = async (m: {
 export const computeAgencyEarnedCoins = async (agencyId: number): Promise<number> => {
   const members = await db.agencyMember.findMany({
     where: { agencyId },
-    select: { userId: true, joinedAt: true, targetAdjustmentCoins: true },
+    select: { id: true, userId: true, joinedAt: true, targetAdjustmentCoins: true },
   });
   if (members.length === 0) return 0;
 
@@ -1609,6 +1626,7 @@ export const computeCommissionSplit = async (owner: {
   const sources = await db.agencyMember.findMany({
     where: { agencyId: owner.agencyId, commissionGeneratedCoins: { gt: 0 } },
     select: {
+      id: true,
       userId: true,
       joinedAt: true,
       targetGoalCoins: true,
@@ -2133,6 +2151,7 @@ export const sellTarget = async (req: AuthReq, res: Response) => {
 
     const sellerTargetNow = Math.max(0, earnedCoins - amount);
     const buyerTargetNow = await memberTargetTotal({
+      id: buyerMembership.id,
       userId: buyer.id,
       joinedAt: buyerMembership.joinedAt,
       targetAdjustmentCoins: Number(buyerMembership.targetAdjustmentCoins ?? 0n) + amount,

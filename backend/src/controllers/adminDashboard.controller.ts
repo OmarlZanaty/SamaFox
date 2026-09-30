@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
-import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetTotal } from '../agencies/agency.controller';
+import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned, memberTargetTotal } from '../agencies/agency.controller';
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
@@ -1052,20 +1052,20 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
 };
 
 /**
- * The target a charging agency has actually built: every OWNER/BRANCH seat's
- * running total, which is where sendCoinsToUser and transferCoins book a sale
- * and where بيع/تبديل take it back out again. Read straight off the same
- * column those writes use, so the dashboard cannot drift from the app.
+ * The target a charging agency holds: the sum of its OWNER/BRANCH seats'
+ * رصيد التارجت — sales booked by sendCoinsToUser/transferCoins and target
+ * bought, minus بيع/تبديل, PLUS the gifts each seat owns (giftWindow). It
+ * used to read the adjustment column alone, so a وكيل شحن's gifts showed in
+ * the app but never here. Same function as the app's card; no commission,
+ * as on a charging agency in getMyTarget.
  */
 const computeChargingAgencyTarget = async (agencyId: number): Promise<number> => {
   const seats = await db.agencyMember.findMany({
     where: { agencyId, role: { in: ['OWNER', 'BRANCH'] } },
-    select: { targetAdjustmentCoins: true },
+    select: { id: true, userId: true, joinedAt: true, targetAdjustmentCoins: true },
   });
-  return seats.reduce(
-    (sum: number, m: any) => sum + Math.max(0, Number(m.targetAdjustmentCoins ?? 0)),
-    0,
-  );
+  const totals = await Promise.all(seats.map((m: any) => memberTargetEarned(m)));
+  return totals.reduce((sum: number, v: number) => sum + v, 0);
 };
 
 // PATCH /admin-dashboard/agencies/:id — edit agency name + lock renaming (group 7)
