@@ -543,11 +543,26 @@
     const d = res?.data;
     tgHostId = d?.user?.id ?? null;
     $("tgUserCard").innerHTML = userCardHtml(d?.user);
+    // رصيد التارجت — the balance the host can still swap/sell and the dollars
+    // on it. Same computation as the app's card; this is the figure to pay on.
+    // The period goal below counts gifts in the period and never goes down
+    // after تبديل/بيع, so it must not be read as money.
+    const b = d?.balance;
+    const items = b?.items || [];
+    $("tgBalance").innerHTML = !b || !items.length
+      ? `<div class="cell-muted">رصيد التارجت: غير عضو في وكالة — لا يوجد رصيد.</div>`
+      : `<div>رصيد التارجت: <strong>${n(b.totalEarned)}</strong> كوينز = <strong style="color:#2ecc71">$${Number(b.totalDollars).toFixed(2)}</strong></div>` +
+        items.map((i) =>
+          `<div class="cell-muted">${esc(i.agencyName || "")}: ${n(i.earnedCoins)} كوينز ($${Number(i.earnedDollars).toFixed(2)})` +
+          ` · متاح للتبديل ${n(i.convertibleCoins)}` +
+          (i.commissionCoins ? ` · منها عمولة ${n(i.commissionCoins)}${i.commissionLockedCoins ? ` (معلّق ${n(i.commissionLockedCoins)})` : ""}` : "") +
+          ` · إجمالي ما تم تبديله ${n(i.convertedTargetCoins)}</div>`).join("");
     const a = d?.active;
     $("tgActive").innerHTML = a
-      ? `التارجت الحالي: <strong>${n(a.targetCoins)}</strong> كوينز / <strong>$${Number(a.targetUsd).toFixed(2)}</strong> · ` +
-        `من ${dayStr(a.periodStart)} إلى ${dayStr(a.periodEnd)} · تم تحقيق ${n(a.earnedCoins)} (${(a.progress * 100).toFixed(1)}%) · المتبقي ${n(a.remainingCoins)} · Version ${a.version}`
-      : "لا يوجد تارجت فعّال الآن.";
+      ? `هدف الفترة: <strong>${n(a.targetCoins)}</strong> كوينز / <strong>$${Number(a.targetUsd).toFixed(2)}</strong> · ` +
+        `من ${dayStr(a.periodStart)} إلى ${dayStr(a.periodEnd)} · هدايا الفترة ${n(a.earnedCoins)} (${(a.progress * 100).toFixed(1)}%) · المتبقي ${n(a.remainingCoins)} · Version ${a.version}` +
+        `<div>هدايا الفترة لا تقل عند التبديل أو البيع — للدفع استخدم رصيد التارجت أعلاه.</div>`
+      : "لا يوجد هدف فترة فعّال الآن.";
     const today = new Date();
     if (!val("tg_start")) $("tg_start").value = dayStr(today);
     if (!val("tg_end")) $("tg_end").value = dayStr(new Date(today.getTime() + 30 * 86_400_000));

@@ -1804,19 +1804,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     for (final e in ((t['agentTargets'] as List?) ?? const [])) {
       if (e is Map) goal += (e['goalCoins'] as num?)?.toInt() ?? 0;
     }
-    // Target المضيف — the single server-side source (host_targets). When it is
-    // set it IS the goal and the progress; nothing is summed or cached here.
+    // The number under "Target" is ALWAYS رصيد التارجت (`totalEarned`) — the
+    // same balance the dollars, تبديل and بيع use. A period goal
+    // (host_targets) only drives the bar: its progress counts gifts in the
+    // period and never drops after a swap, so printing it here showed hosts
+    // coins they had already cashed out (2026-09-30, "الناس بتشوف الوهم").
     final ht = t['hostTarget'];
-    if (ht is Map) {
-      goal = (ht['targetCoins'] as num?)?.toInt() ?? goal;
-      earned = (ht['earnedCoins'] as num?)?.toInt() ?? earned;
-    }
-    final double progress =
+    double progress =
         goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
-    // Under the word Target goes the TARGET ITSELF — the coins earned — with
-    // the goal after it when one is set. It used to print `goal` alone, so a
-    // وكيل or مضيف with no admin-set goal saw a bare 0 next to his dollars.
-    final String targetLabel = goal > 0 ? '$earned / $goal' : '$earned';
+    String targetLabel = goal > 0 ? '$earned / $goal' : '$earned';
+    if (ht is Map) {
+      progress = ((ht['progress'] as num?)?.toDouble() ?? 0.0).clamp(0.0, 1.0);
+      targetLabel = '$earned';
+    }
     final String dollars = earnedDollars == earnedDollars.roundToDouble()
         ? earnedDollars.toStringAsFixed(0)
         : earnedDollars.toStringAsFixed(2);
@@ -1922,15 +1922,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         remaining += (e['remainingCoins'] as num?)?.toInt() ?? 0;
       }
     }
-    // The single server-side target, when one is set (see _buildTargetCard).
-    final ht = t['hostTarget'];
-    if (ht is Map) {
+    // A period goal (host_targets) is shown as its OWN block below. `earned`
+    // stays رصيد التارجت — see _buildTargetCard for why they must not mix.
+    final ht = t['hostTarget'] is Map ? t['hostTarget'] as Map : null;
+    int periodGifts = 0;
+    DateTime? periodStart;
+    DateTime? periodEnd;
+    if (ht != null) {
       goal = (ht['targetCoins'] as num?)?.toInt() ?? goal;
       remaining = (ht['remainingCoins'] as num?)?.toInt() ?? remaining;
-      earned = (ht['earnedCoins'] as num?)?.toInt() ?? earned;
+      periodGifts = (ht['earnedCoins'] as num?)?.toInt() ?? 0;
+      periodStart = DateTime.tryParse('${ht['periodStart']}')?.toLocal();
+      periodEnd = DateTime.tryParse('${ht['periodEnd']}')?.toLocal();
     }
+    final int progressOf = ht != null ? periodGifts : earned;
     final double progress =
-        goal > 0 ? (earned / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+        goal > 0 ? (progressOf / goal).clamp(0.0, 1.0).toDouble() : 0.0;
+    String day(DateTime? d) => d == null
+        ? '—'
+        : '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -1959,7 +1969,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               ),
               const Spacer(),
               Text(
-                goal > 0 ? '$earned / $goal' : '$earned',
+                goal > 0 && ht == null ? '$earned / $goal' : '$earned',
                 style: const TextStyle(
                   color: Color(0xFF4ECDC4),
                   fontSize: 16,
@@ -1993,6 +2003,48 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               ],
             ),
           ),
+          const SizedBox(height: 6),
+          Text(
+            'رصيد التارجت — المتاح للتبديل والبيع',
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: 12,
+            ),
+          ),
+          if (ht != null) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Text(
+                  'هدف الفترة',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '$periodGifts / $goal',
+                  style: const TextStyle(
+                    color: Color(0xFF4ECDC4),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'من ${day(periodStart)} إلى ${day(periodEnd)} — هدايا الفترة لا تقل عند التبديل أو البيع',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 11,
+              ),
+            ),
+          ],
           if (goal > 0) ...[
             const SizedBox(height: 12),
             ClipRRect(
@@ -2014,16 +2066,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               style: TextStyle(
                 color: Colors.white.withOpacity(0.75),
                 fontSize: 13,
-              ),
-            ),
-          ] else ...[
-            const SizedBox(height: 8),
-            Text(
-              'إجمالي الكوينزات من الهدايا المستلمة',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.6),
-                fontSize: 12,
               ),
             ),
           ],

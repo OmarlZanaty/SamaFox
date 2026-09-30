@@ -1665,72 +1665,82 @@ const targetMembershipWhere = (userId: number) => ({
   ],
 });
 
+/**
+ * رصيد التارجت per membership — what the target card, تبديل and بيع all
+ * spend from. Shared by the app (getMyTarget) and the dashboard's Target
+ * المضيف page, so both print the same coins and dollars.
+ */
+export const buildTargetBalance = async (userId: number) => {
+  // Hosting memberships. Owners are included too: an agent earns gifts like
+  // any host and has their own convertedTargetCoins row, so excluding them
+  // left تبديل الكوينزات permanently empty for every وكيل.
+  //
+  // 2026-08-23 — a وكيل شحن and his فروع hold target as well
+  // ("وكيل الشحن ملوش تارجيت ... المطلوب هينزله تارجيت لانه وكيل لكن بدون
+  // نسبه"). They are OWNER/BRANCH rows on a CHARGING agency: gifts they
+  // receive and target they BUY from others land here, while the 20%
+  // commission stays hosting-only because their cut was already taken at
+  // charge time.
+  const memberships = await db.agencyMember.findMany({
+    where: targetMembershipWhere(userId),
+    include: { agency: { select: { id: true, agencyName: true, type: true } } },
+    orderBy: { joinedAt: 'asc' },
+  });
+
+  const items = await Promise.all(
+    memberships.map(async (mm: any) => {
+      const earnedBase = await memberTargetEarnedRaw(mm);
+      // Owner rows carry their accumulated agency commission (#4) as target,
+      // so it shows in التارجت and is convertible at the same 50% rate.
+      // The commission is always COUNTED here; the part whose source member
+      // hasn't completed their target yet is held out of `convertibleCoins`
+      // only (see computeCommissionSplit).
+      // No commission on a charging agency — "بدون نسبه لان نسبته اخذها
+      // وقت الشحن".
+      const commission = mm.agency?.type === 'CHARGING'
+          ? { accrued: 0, locked: 0, released: 0 }
+          : await computeCommissionSplit({
+              agencyId: mm.agencyId,
+              userId,
+              commissionTargetCoins: mm.commissionTargetCoins,
+            });
+      const earnedCoins = Math.max(0, earnedBase + commission.accrued);
+      const goal = Number(mm.targetGoalCoins ?? 0n);
+      const converted = Number(mm.convertedTargetCoins ?? 0n);
+      return {
+        agencyId: mm.agency.id,
+        agencyName: mm.agency.agencyName,
+        joinedAt: mm.joinedAt,
+        earnedCoins,
+        targetGoalCoins: goal,
+        remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
+        earnedDollars: await coinsToDollars(earnedCoins),
+        convertedTargetCoins: converted,
+        convertibleCoins: Math.max(0, earnedCoins - commission.locked),
+        // Commission breakdown, so the panel can show "محسوبة" vs "معلقة"
+        // instead of silently offering less than the target implies.
+        commissionCoins: commission.accrued,
+        commissionLockedCoins: commission.locked,
+        commissionReleasedCoins: commission.released,
+      };
+    }),
+  );
+
+  const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
+  return { items, totalEarned, totalDollars: await coinsToDollars(totalEarned) };
+};
+
 export const getMyTarget = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
-
-    // Hosting memberships. Owners are included too: an agent earns gifts like
-    // any host and has their own convertedTargetCoins row, so excluding them
-    // left تبديل الكوينزات permanently empty for every وكيل.
-    //
-    // 2026-08-23 — a وكيل شحن and his فروع hold target as well
-    // ("وكيل الشحن ملوش تارجيت ... المطلوب هينزله تارجيت لانه وكيل لكن بدون
-    // نسبه"). They are OWNER/BRANCH rows on a CHARGING agency: gifts they
-    // receive and target they BUY from others land here, while the 20%
-    // commission stays hosting-only because their cut was already taken at
-    // charge time.
-    const memberships = await db.agencyMember.findMany({
-      where: targetMembershipWhere(userId),
-      include: { agency: { select: { id: true, agencyName: true, type: true } } },
-      orderBy: { joinedAt: 'asc' },
-    });
-
-    const items = await Promise.all(
-      memberships.map(async (mm: any) => {
-        const earnedBase = await memberTargetEarnedRaw(mm);
-        // Owner rows carry their accumulated agency commission (#4) as target,
-        // so it shows in التارجت and is convertible at the same 50% rate.
-        // The commission is always COUNTED here; the part whose source member
-        // hasn't completed their target yet is held out of `convertibleCoins`
-        // only (see computeCommissionSplit).
-        // No commission on a charging agency — "بدون نسبه لان نسبته اخذها
-        // وقت الشحن".
-        const commission = mm.agency?.type === 'CHARGING'
-            ? { accrued: 0, locked: 0, released: 0 }
-            : await computeCommissionSplit({
-                agencyId: mm.agencyId,
-                userId,
-                commissionTargetCoins: mm.commissionTargetCoins,
-              });
-        const earnedCoins = Math.max(0, earnedBase + commission.accrued);
-        const goal = Number(mm.targetGoalCoins ?? 0n);
-        const converted = Number(mm.convertedTargetCoins ?? 0n);
-        return {
-          agencyId: mm.agency.id,
-          agencyName: mm.agency.agencyName,
-          joinedAt: mm.joinedAt,
-          earnedCoins,
-          targetGoalCoins: goal,
-          remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
-          earnedDollars: await coinsToDollars(earnedCoins),
-          convertedTargetCoins: converted,
-          convertibleCoins: Math.max(0, earnedCoins - commission.locked),
-          // Commission breakdown, so the panel can show "محسوبة" vs "معلقة"
-          // instead of silently offering less than the target implies.
-          commissionCoins: commission.accrued,
-          commissionLockedCoins: commission.locked,
-          commissionReleasedCoins: commission.released,
-        };
-      }),
-    );
 
     // 2026-08-23 — the card is for وكيل and مضيف ONLY. It used to fall back to
     // "lifetime gift earnings" for anyone, which is why an unregistered user
     // saw a target he has no claim to: he already took his 5% at support time
     // ("الشخص غير المسجل (وكيل- مضيف) بيظهر له تارجيت — المطلوب لا يظهر له").
     // `hasTarget` below is what the app gates the card on.
-    const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
+    const { items, totalEarned, totalDollars } = await buildTargetBalance(userId);
 
     const totalGifts = await db.giftTransaction.aggregate({
       where: { recipientId: userId, senderId: { not: userId } },
@@ -1773,7 +1783,6 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
 
     // Never serve a stale target from an intermediate cache.
     res.setHeader('Cache-Control', 'no-store');
-    const totalDollars = await coinsToDollars(totalEarned);
     return res.json({
       success: true,
       data: {

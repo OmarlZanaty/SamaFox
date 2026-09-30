@@ -21,6 +21,7 @@ import { FEATURE_CATALOG, FeatureError, grantFeature, isFeatureKey, listUserFeat
 import { TargetError, cancelHostTarget, getHostTargetView, listHostTargets, setHostTarget } from '../services/hostTarget.service';
 import { MAX_ROOM_PINS, ROOM_PIN_KEY, getRoomPins, invalidateRoomPins, parsePins, rankedRoomIds, resolvePinRanks } from '../services/roomRanking.service';
 import { FEATURED_ROOM_ID } from '../controllers/room.controller';
+import { buildTargetBalance } from '../agencies/agency.controller';
 
 const db = prisma as any;
 
@@ -646,8 +647,16 @@ r.get('/host-targets/user/:user', async (req, res) => {
   try {
     const u = await userCard(req.params.user);
     if (!u) return bad(res, 404, 'لا يوجد مستخدم بهذا الرقم');
-    const [active, history] = await Promise.all([getHostTargetView(u.id), listHostTargets(u.id)]);
-    return ok(res, { user: u, active, history });
+    // `active` is progress toward the period goal (gifts in the period, never
+    // reduced by تبديل/بيع). `balance` is رصيد التارجت — what the host can
+    // still swap or sell, and the dollars owed on it — computed by the same
+    // function as the app's card, so the two pages cannot disagree.
+    const [active, history, balance] = await Promise.all([
+      getHostTargetView(u.id),
+      listHostTargets(u.id),
+      buildTargetBalance(u.id),
+    ]);
+    return ok(res, { user: u, active, history, balance });
   } catch (e) {
     console.error('[admin.host-targets.user]', e);
     return bad(res, 500, 'Server error');
