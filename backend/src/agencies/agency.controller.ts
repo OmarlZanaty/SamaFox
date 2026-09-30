@@ -6,6 +6,7 @@ import { createNotification } from '../services/notification.service';
 import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
 import { getHostTargetView, setHostTarget } from '../services/hostTarget.service';
+import { targetBalance } from './targetMath';
 
 const db = prisma as any;
 
@@ -859,11 +860,10 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
       members.map(async (member: any) => {
         // Target = gifts RECEIVED since joining (self-gifts excluded, #19/#21)
         // plus/minus anything بيع التارجيت moved on this row.
-        const earnedBase = await memberTargetEarned(member);
         // The owner's commission (#4) is part of HIS target, not his wallet —
-        // add it here so the agent row shows what he actually earned. 0 for
-        // every non-owner row.
-        const earnedCoins = earnedBase + Number(member.commissionTargetCoins ?? 0n);
+        // memberTargetTotal adds it (0 for every non-owner row) before
+        // clamping, so a swapped-out commission doesn't reappear here.
+        const earnedCoins = await memberTargetTotal(member);
         const goal = Number(member.targetGoalCoins ?? 0n);
         return {
           memberId: member.id,
@@ -1494,6 +1494,25 @@ export const memberTargetEarned = async (m: {
   targetAdjustmentCoins?: bigint | number | null;
 }): Promise<number> => Math.max(0, await memberTargetEarnedRaw(m));
 
+/**
+ * رصيد التارجت — the ONE figure every surface shows for a membership: gifts
+ * since joining, ± بيع/تبديل/admin adjustments, plus the owner's commission
+ * (#4), floored at zero only at the very end.
+ *
+ * The order matters. Callers used to do `memberTargetEarned(m) + commission`,
+ * which clamps the adjustment BEFORE the commission is added: a وكيل who
+ * swapped her whole $40 (a $5 gift part + $35 commission) showed $0 in the app
+ * but $35 on the dashboard — "حولت الأربعين دولار ومع ذلك فاضل خمسة وتلاتين"
+ * (2026-09-30). Same arithmetic getMyTarget and convertTarget already use.
+ */
+export const memberTargetTotal = async (m: {
+  userId: number;
+  joinedAt: Date;
+  targetAdjustmentCoins?: bigint | number | null;
+  commissionTargetCoins?: bigint | number | null;
+}): Promise<number> =>
+  targetBalance(await memberTargetEarnedRaw(m), 0, m.commissionTargetCoins);
+
 export const computeAgencyEarnedCoins = async (agencyId: number): Promise<number> => {
   const members = await db.agencyMember.findMany({
     where: { agencyId },
@@ -2104,10 +2123,11 @@ export const sellTarget = async (req: AuthReq, res: Response) => {
     }
 
     const sellerTargetNow = Math.max(0, earnedCoins - amount);
-    const buyerTargetNow = await memberTargetEarned({
+    const buyerTargetNow = await memberTargetTotal({
       userId: buyer.id,
       joinedAt: buyerMembership.joinedAt,
       targetAdjustmentCoins: Number(buyerMembership.targetAdjustmentCoins ?? 0n) + amount,
+      commissionTargetCoins: buyerMembership.commissionTargetCoins,
     });
     const buyerGoal = Number(buyerMembership.targetGoalCoins ?? 0n);
 

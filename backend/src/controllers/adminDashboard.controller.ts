@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
-import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned } from '../agencies/agency.controller';
+import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetTotal } from '../agencies/agency.controller';
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
@@ -1713,9 +1713,8 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
       members.map(async (m: any) => {
         // Owner rows also carry their agency commission (#4), which is target
         // and not wallet coins — same total the agent sees in his own panel.
-        // memberTargetEarned folds in بيع التارجيت movements.
-        const earnedCoins =
-          (await memberTargetEarned(m)) + Number(m.commissionTargetCoins ?? 0n);
+        // memberTargetTotal folds in بيع/تبديل movements before clamping.
+        const earnedCoins = await memberTargetTotal(m);
         const goal = Number(m.targetGoalCoins ?? 0n);
         // How much of that commission is still held back because the member
         // who generated it hasn't completed their target (2026-08 rule). Only
@@ -2254,8 +2253,7 @@ export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
       return fail(res, 400, `${user.name ?? 'هذا المستخدم'} ليس عضواً في أي وكالة معتمدة — لا يوجد تارجيت لتعديله`);
     }
 
-    const currentEarned =
-      (await memberTargetEarned(membership)) + Number(membership.commissionTargetCoins ?? 0n);
+    const currentEarned = await memberTargetTotal(membership);
     if (amount < 0 && currentEarned + amount < 0) {
       return fail(res, 400, `لا يمكن الخصم: التارجيت الحالي ${currentEarned} فقط`);
     }
@@ -2264,8 +2262,7 @@ export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
       where: { id: membership.id },
       data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
     });
-    const newEarned =
-      (await memberTargetEarned(updated)) + Number(updated.commissionTargetCoins ?? 0n);
+    const newEarned = await memberTargetTotal(updated);
 
     try {
       const { createNotification } = await import('../services/notification.service');
@@ -2319,8 +2316,7 @@ export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
 
     // A deduction may not push the member's target below zero — the panel is
     // an accounting tool, not a way to invent negative earnings.
-    const currentEarned =
-      (await memberTargetEarned(member)) + Number(member.commissionTargetCoins ?? 0n);
+    const currentEarned = await memberTargetTotal(member);
     if (amount < 0 && currentEarned + amount < 0) {
       return fail(res, 400, `لا يمكن الخصم: التارجيت الحالي ${currentEarned} فقط`);
     }
@@ -2330,8 +2326,7 @@ export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
       data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
     });
 
-    const newEarned =
-      (await memberTargetEarned(updated)) + Number(updated.commissionTargetCoins ?? 0n);
+    const newEarned = await memberTargetTotal(updated);
 
     try {
       const { createNotification } = await import('../services/notification.service');
