@@ -78,7 +78,7 @@ function navigate(sec) {
   if (sec === "features") window.ftInit?.();
   if (sec === "audit") window.auLoad?.(1).catch(e => showToast("خطأ: " + e.message));
   if (sec === "moderation") loadModeration().catch(e => showToast("خطأ: " + e.message));
-  if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} }
+  if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} try { window.loadCoinFreeze && window.loadCoinFreeze(); } catch (_) {} }
 }
 
 // ============================================================
@@ -2135,6 +2135,91 @@ window.unlockUserTarget = async function (id) {
     await apiFetch(`/admin-dashboard/users/${id}/target-lock?by=id`, 'PATCH', { blocked: false });
     showToast('✓ تم فك منع الحساب');
     await loadTargetSellPolicy();
+  } catch (e) {
+    showToast('❌ ' + (e?.message || 'فشل'));
+  }
+};
+
+// --- تجميد الكوينزات: platform-wide freeze + per-account freezes ---
+window.loadCoinFreeze = async function () {
+  const statusEl = document.getElementById('coinFreezeStatus');
+  try {
+    const d = await apiFetch('/admin-dashboard/coin-freeze');
+    const frozen = !!(d.data && d.data.globallyFrozen);
+
+    if (statusEl) {
+      statusEl.textContent = frozen ? 'مجمدة — لا أحد يستطيع استخدام الكوينزات' : 'غير مجمدة — الكوينزات تعمل طبيعياً';
+      statusEl.className = frozen ? 'badge badge-rejected' : 'badge badge-approved';
+    }
+    const bFreeze = document.getElementById('btnFreezeCoins');
+    const bUnfreeze = document.getElementById('btnUnfreezeCoins');
+    if (bFreeze) bFreeze.disabled = frozen;
+    if (bUnfreeze) bUnfreeze.disabled = !frozen;
+
+    const tb = document.querySelector('#coinFreezeTable tbody');
+    if (tb) {
+      tb.innerHTML = '';
+      ((d.data && d.data.frozenUsers) || []).forEach((u) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${u.id}</td>
+          <td>${escapeHtml(u.name || '')}</td>
+          <td>${escapeHtml(String(u.displayId ?? '—'))}</td>
+          <td>${escapeHtml(String(u.coinsBalance ?? '0'))}</td>
+          <td><div class="td-actions">
+            <button class="btn-outline" onclick="unfreezeUserCoins(${u.id})">فك التجميد</button>
+          </div></td>`;
+        tb.appendChild(tr);
+      });
+    }
+  } catch (e) {
+    if (statusEl) {
+      statusEl.textContent = 'تعذر التحميل';
+      statusEl.className = 'badge badge-pending';
+    }
+    showToast('❌ ' + (e?.message || 'فشل تحميل حالة تجميد الكوينزات'));
+  }
+};
+
+window.setCoinFreezeGlobal = async function (frozen) {
+  const title = frozen ? 'تجميد كوينزات كل المستخدمين' : 'فك تجميد الكوينزات';
+  const text = frozen
+    ? 'لن يستطيع أي مستخدم استخدام الكوينزات (هدايا، ألعاب، متجر…) حتى تقوم بفك التجميد. الأرصدة لن تتغير. متابعة؟'
+    : 'سيعود كل المستخدمين لاستخدام الكوينزات طبيعياً (ما عدا الحسابات المجمدة بالـ ID). متابعة؟';
+
+  await new Promise((resolve) => openConfirmModal(title, text, async () => {
+    await apiFetch('/admin-dashboard/coin-freeze', 'PATCH', { frozen });
+    resolve();
+  }));
+
+  showToast(frozen ? '✓ تم تجميد الكوينزات لكل المستخدمين' : '✓ تم فك تجميد الكوينزات');
+  await loadCoinFreeze();
+};
+
+window.setUserCoinFreeze = async function (frozen) {
+  try {
+    const input = document.getElementById('coinFreezeUserId');
+    const id = Number(input && input.value);
+    if (!Number.isFinite(id) || id <= 0) return showToast('❗ أدخل رقم مستخدم صحيح');
+
+    // The typed number is the ID shown on the profile (displayId); the server
+    // resolves it and names the account back, so a typo is visible.
+    const r = await apiFetch(`/admin-dashboard/users/${id}/coin-freeze`, 'PATCH', { frozen });
+    if (input) input.value = '';
+    const who = r && r.data ? `${r.data.name || ''} #${r.data.displayId ?? r.data.userId}`.trim() : '';
+    showToast((frozen ? '✓ تم تجميد كوينزات ' : '✓ تم فك تجميد كوينزات ') + who);
+    await loadCoinFreeze();
+  } catch (e) {
+    showToast('❌ ' + (e?.message || 'فشل'));
+  }
+};
+
+window.unfreezeUserCoins = async function (id) {
+  try {
+    // From the frozen list, which carries the real row id.
+    await apiFetch(`/admin-dashboard/users/${id}/coin-freeze?by=id`, 'PATCH', { frozen: false });
+    showToast('✓ تم فك تجميد الحساب');
+    await loadCoinFreeze();
   } catch (e) {
     showToast('❌ ' + (e?.message || 'فشل'));
   }

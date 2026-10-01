@@ -27,6 +27,7 @@ import {
   isTargetSellGloballyBlocked,
   setTargetSellGlobalBlock,
 } from '../utils/targetLock';
+import { getCoinFreezePolicy, setCoinsGloballyFrozen, setUserCoinsFrozen } from '../utils/coinFreeze';
 
 const db = prisma as any;
 
@@ -857,6 +858,85 @@ export const adminDashboardSetTargetSellPolicy = async (req: Request, res: Respo
     return ok(res, { data: { globallyBlocked: blocked } });
   } catch (e) {
     console.error('adminDashboardSetTargetSellPolicy error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+// ---------------------------------------------------------------- تجميد الكوينزات
+//
+// «اجمد كوينزات المستخدمين، محدش يعرف يستخدم الكوينزات في اي شي، افك التجميد
+// يرجع كما كان، وكمان اجمد مستخدم بالايدي لوحده» — dashboard only. Enforcement
+// lives in utils/coinFreeze.ts.
+
+async function coinFreezeUsers(ids: number[]) {
+  return ids.length
+    ? (prisma as any).user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, displayId: true, coinsBalance: true },
+      })
+    : [];
+}
+
+/** GET — the platform-wide switch plus every account frozen by id. */
+export const adminDashboardGetCoinFreeze = async (_req: Request, res: Response) => {
+  try {
+    const policy = await getCoinFreezePolicy();
+    const users = await coinFreezeUsers(policy.frozenUserIds);
+    return ok(res, {
+      data: {
+        globallyFrozen: policy.globallyFrozen,
+        frozenUsers: users.map((u: any) => ({ ...u, coinsBalance: String(u.coinsBalance ?? 0) })),
+      },
+    });
+  } catch (e) {
+    console.error('adminDashboardGetCoinFreeze error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/** PATCH { frozen: boolean } — freeze / unfreeze every account's coins. */
+export const adminDashboardSetCoinFreezeGlobal = async (req: Request, res: Response) => {
+  try {
+    if (typeof req.body?.frozen !== 'boolean') return fail(res, 400, 'frozen (boolean) is required');
+    const frozen = await setCoinsGloballyFrozen(req.body.frozen);
+    return ok(res, { data: { globallyFrozen: frozen } });
+  } catch (e) {
+    console.error('adminDashboardSetCoinFreezeGlobal error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * PATCH /users/:id/coin-freeze { frozen: boolean } — one account. The id is
+ * the one on the profile card (displayId), falling back to the row id, exactly
+ * as the target lock resolves it; `?by=id` forces the row id (the list's
+ * «فك التجميد» button holds that).
+ */
+export const adminDashboardSetUserCoinFreeze = async (req: Request, res: Response) => {
+  try {
+    const raw = Number(req.params.id);
+    if (!Number.isFinite(raw) || raw <= 0) return fail(res, 400, 'Invalid user id');
+    const frozen = Boolean(req.body?.frozen);
+    const select = { id: true, name: true, displayId: true };
+    const byInternalId = String((req.query as any)?.by ?? '') === 'id';
+    const user = byInternalId
+      ? await (prisma as any).user.findUnique({ where: { id: raw }, select })
+      : (await (prisma as any).user.findFirst({ where: { displayId: raw }, select })) ??
+        (await (prisma as any).user.findUnique({ where: { id: raw }, select }));
+    if (!user) return fail(res, 404, 'لا يوجد مستخدم بهذا الرقم');
+
+    const ids = await setUserCoinsFrozen(user.id, frozen);
+    return ok(res, {
+      data: {
+        userId: user.id,
+        displayId: user.displayId ?? null,
+        name: user.name ?? null,
+        frozen,
+        frozenUserIds: ids,
+      },
+    });
+  } catch (e) {
+    console.error('adminDashboardSetUserCoinFreeze error:', e);
     return fail(res, 500, 'Server error');
   }
 };

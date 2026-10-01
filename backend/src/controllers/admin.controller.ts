@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { intParam } from '../utils/http';
 import { isValidPositiveAmount, MAX_COINS_BALANCE } from '../utils/coins';
 import { evaluateVip } from '../services/vip.service';
@@ -118,10 +119,16 @@ export const removeCoins = async (req: Request, res: Response) => {
 
     if (toBigInt(user.coinsBalance) < amtBig) return res.status(400).json({ message: 'Insufficient coins' });
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userIdNum },
-      data: { coinsBalance: { decrement: Number(amtBig) } },
-    });
+    // An admin correction, not the user spending: allowed through any coin
+    // freeze (coinFreeze.ts).
+    // Awaited inside the callback: a Prisma query is lazy and runs where it is
+    // awaited, which must be inside the bypass.
+    const updatedUser = await runWithCoinFreezeBypass('all', async () =>
+      await prisma.user.update({
+        where: { id: userIdNum },
+        data: { coinsBalance: { decrement: Number(amtBig) } },
+      }),
+    );
 
     try {
       await prisma.transaction.create({

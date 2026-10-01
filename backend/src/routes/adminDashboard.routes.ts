@@ -13,6 +13,9 @@ import {
   adminDashboardListTargetLocks,
   adminDashboardGetTargetSellPolicy,
   adminDashboardSetTargetSellPolicy,
+  adminDashboardGetCoinFreeze,
+  adminDashboardSetCoinFreezeGlobal,
+  adminDashboardSetUserCoinFreeze,
   adminDashboardCreateQuest,
   adminDashboardDeleteQuest,
   adminDashboardForceCloseRoom,
@@ -156,6 +159,11 @@ router.patch('/users/:id/target-lock', adminDashboardSetTargetLock);
 router.get('/target-locks', adminDashboardListTargetLocks);
 router.get('/target-sell-policy', adminDashboardGetTargetSellPolicy);
 router.patch('/target-sell-policy', requireSuperAdmin, adminDashboardSetTargetSellPolicy);
+// تجميد الكوينزات (owner request, 2026-10-01). Same split as the target freeze:
+// the platform-wide switch is super-admin only, freezing one account is not.
+router.get('/coin-freeze', adminDashboardGetCoinFreeze);
+router.patch('/coin-freeze', requireSuperAdmin, adminDashboardSetCoinFreezeGlobal);
+router.patch('/users/:id/coin-freeze', adminDashboardSetUserCoinFreeze);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);

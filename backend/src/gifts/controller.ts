@@ -675,7 +675,7 @@ export async function sendBatch(req: Request, res: Response) {
           failures.push({ recipientId: rid, code: err.code, message: err.message });
           // A balance that ran out mid-fan-out will fail for everyone left, so
           // stop rather than burning through 20 doomed transactions.
-          if (err.code === 'INSUFFICIENT_COINS') break;
+          if (err.code === 'INSUFFICIENT_COINS' || err.code === 'COINS_FROZEN') break;
         } else {
           console.error('[gifts.sendBatch]', err);
           failures.push({ recipientId: rid, code: 'SEND_FAILED', message: 'فشل الإرسال' });

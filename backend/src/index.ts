@@ -59,6 +59,7 @@ import appDownloadRoutes from './routes/appDownload.routes';
 import { setGiftIo, emitLuckyRoundsClosed } from './gifts/controller';
 import { startLuckyRoundSweeper } from './gifts/lucky.service';
 import { purgeOldIdempotencyKeys } from './middlewares/idempotency.middleware';
+import { coinFreezeResponses } from './utils/coinFreeze';
 
 import helmet from 'helmet';
 
@@ -137,6 +138,10 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// تجميد الكوينزات: a spend refused by the freeze answers with the freeze's own
+// message, whatever error the route would otherwise have sent. Before routes.
+app.use(coinFreezeResponses);
 
 app.use('/api/v1/admin', adminRoutes);
 app.use("/api/v1/store", storeRoutes);

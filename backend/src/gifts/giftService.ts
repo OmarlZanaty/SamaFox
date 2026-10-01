@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma';
+import { coinFreezeReason } from '../utils/coinFreeze';
 import { getLuckyConfig, luckyHostCoins, rollLucky, type LuckyRollResult, type SettledEntry } from './lucky.service';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
@@ -102,6 +103,12 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   if (gift.isLucky && recipientCoins <= 0) {
     throw new GiftSendError('INVALID_AMOUNT', 'Lucky gift too small for a host share');
   }
+
+  // تجميد الكوينزات — checked up front so the sender is told why, in his
+  // language, rather than seeing the transaction below fail. The Prisma guard
+  // under the decrement would stop it anyway.
+  const frozen = await coinFreezeReason(input.senderId);
+  if (frozen) throw new GiftSendError('COINS_FROZEN', frozen, 403);
 
   let comboCount = 1;
   if (input.comboKey && gift.isComboEligible) {

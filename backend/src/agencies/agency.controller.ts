@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
@@ -242,10 +243,16 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
         // updateMany with a `gte` guard does the check and the debit in one
         // statement, so two concurrent charges can't both pass a read-then-write
         // check and push the agent negative.
-        const debited = await tx.user.updateMany({
-          where: { id: funderId, coinsBalance: { gte: coins } },
-          data: { coinsBalance: { decrement: coins } },
-        });
+        //
+        // A sale, not a spend: the platform-wide coin freeze does not stop it;
+        // an agent frozen by id is still stopped (coinFreeze.ts). Awaited
+        // inside the callback — a Prisma query runs where it is awaited.
+        const debited = await runWithCoinFreezeBypass('global', async () =>
+          await tx.user.updateMany({
+            where: { id: funderId, coinsBalance: { gte: coins } },
+            data: { coinsBalance: { decrement: coins } },
+          }),
+        );
         if (debited.count === 0) {
           // Carry the balance so the caller can be told how short they are.
           const wallet = await tx.user.findUnique({
