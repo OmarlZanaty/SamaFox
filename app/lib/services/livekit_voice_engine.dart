@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart'
+    show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -111,6 +113,13 @@ class LiveKitVoiceEngine implements VoiceEngine {
       _log('initialize skipped (already connected)');
       return;
     }
+    if (_initialized && _currentRoomId == roomId) {
+      // In the room but the audio is down and a rejoin owns getting it back;
+      // connecting here as well would join twice as the same identity.
+      if (!listenOnly) _listenOnly = false;
+      _rejoinIfDead('initialize');
+      return;
+    }
 
     // Keep the phone in call mode for the whole session (see AudioRoute).
     await AudioRoute.instance.setVoiceLive(true);
@@ -127,8 +136,24 @@ class LiveKitVoiceEngine implements VoiceEngine {
     _socketService.emit('get_voice_users', {'roomId': roomId});
     _bindVoiceUsers();
 
-    await _connect(roomId);
+    try {
+      await _connect(roomId);
+    } catch (e) {
+      // Nobody up the stack handled this: it surfaced as an uncaught error and
+      // a listener stayed without audio until they left and re-entered the
+      // room (29/09, "Timed out waiting for PeerConnection"). The user is in
+      // the room either way, so be in it and keep trying to get the audio.
+      final msg = e.toString();
+      CrashReporter.breadcrumb(
+        'lk first connect failed: ${msg.length > 80 ? msg.substring(0, 80) : msg}',
+      );
+      _initialized = true;
+      _watchForRecovery();
+      _scheduleRejoin(const Duration(seconds: 2), 'first connect failed');
+      return;
+    }
     _initialized = true;
+    _watchForRecovery();
     CrashReporter.breadcrumb('voice init room=$roomId listenOnly=$listenOnly engine=livekit');
 
     if (!listenOnly) {
@@ -160,7 +185,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
     _wireEvents(listener, room);
 
     try {
-      await room.connect(url, token);
+      await room.connect(url, token, connectOptions: _connectOptions);
     } catch (e) {
       // A connect that timed out on the app side keeps going inside the SDK
       // and can still join later. Left alone, it and the retry below both
@@ -188,6 +213,22 @@ class LiveKitVoiceEngine implements VoiceEngine {
       }
     }
   }
+
+  /// The SDK default gives ICE 10 s. On a slow phone that is not enough: on
+  /// 29/09 the server paired user 457's ICE after 12 s, 0.05 s after the app
+  /// had already given up ("Timed out waiting for PeerConnection"), and the
+  /// room stayed silent until the retry 15 s later. The same user on the same
+  /// network connected fine on that retry, so the fix is patience, not ports.
+  static const ConnectOptions _connectOptions = ConnectOptions(
+    timeouts: Timeouts(
+      connection: Duration(seconds: 20),
+      debounce: Duration(milliseconds: 20),
+      publish: Duration(seconds: 15),
+      subscribe: Duration(seconds: 15),
+      peerConnection: Duration(seconds: 25),
+      iceRestart: Duration(seconds: 20),
+    ),
+  );
 
   Future<void> _disposeRoom(EventsListener<RoomEvent> listener, Room room) async {
     try {
@@ -221,11 +262,16 @@ class LiveKitVoiceEngine implements VoiceEngine {
       ..on<RoomReconnectingEvent>((_) {
         _log('reconnecting…');
         CrashReporter.breadcrumb('lk reconnecting');
+        if (identical(_room, room)) _watchStuckReconnect(room);
       })
       ..on<RoomReconnectedEvent>((_) {
         _log('reconnected');
         CrashReporter.breadcrumb('lk reconnected');
-        unawaited(reapplyAudioRoute());
+        if (!identical(_room, room)) return;
+        _cancelStuckWatch();
+        // The SDK re-publishes our mic itself on a reconnect, and that can
+        // fail ("Failed to publish track", 30/09): check, and publish again.
+        unawaited(ensureMicAlive());
       })
       ..on<RoomDisconnectedEvent>((e) {
         _log('disconnected: ${e.reason}');
@@ -234,38 +280,152 @@ class LiveKitVoiceEngine implements VoiceEngine {
         // disconnecting must not start another reconnect — that is how two
         // sessions ended up evicting each other.
         if (!identical(_room, room)) return;
+        _cancelStuckWatch();
         _emitSpeaking(false);
+        final lifecycle = WidgetsBinding.instance.lifecycleState;
+        if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+          _droppedInBackground = true;
+        }
         // Replaced by a newer session of ours: reconnecting would evict it.
         if (e.reason == DisconnectReason.duplicateIdentity) return;
         // A disconnect the SDK could not recover from, while we still believe
         // we are in the room: reconnect from scratch, with a fresh token.
         if (_initialized && _currentRoomId != null) {
-          unawaited(_reconnectAfter(const Duration(seconds: 2)));
+          _scheduleRejoin(const Duration(seconds: 2), 'disconnected');
         }
       });
   }
 
-  bool _reconnecting = false;
-  Future<void> _reconnectAfter(Duration delay) async {
-    if (_reconnecting) return;
-    _reconnecting = true;
+  // ── rejoin after the SDK gives up ────────────────────────────────────────
+  //
+  // OPPO/realme cut an app's network the moment it goes to the background,
+  // foreground service or not (29/09, user 462: socket and LiveKit both dead
+  // within a second of "lifecycle paused"). The SDK then gives up, and the old
+  // loop kept retrying every 5 s blind — no network, so every try failed — and
+  // did nothing special when the user came back. One drop left the room silent
+  // for 8 minutes, 3 of them with the app open. Now a rejoin waits on a timer
+  // that backs off, but coming back to the app or the socket reconnecting
+  // (both mean "the network is back") rejoins at once, and every try is in
+  // the breadcrumbs.
+
+  bool _rejoining = false;
+  int _rejoinAttempt = 0;
+
+  /// The OS cut our audio while the app was not on screen — the phone's
+  /// battery saver, not the network. The room asks the user, once in a while,
+  /// to let the app run in the background ([takeBackgroundDrop]).
+  bool _droppedInBackground = false;
+
+  /// Whether the audio dropped in the background since the last call.
+  bool takeBackgroundDrop() {
+    final dropped = _droppedInBackground;
+    _droppedInBackground = false;
+    return dropped;
+  }
+  Timer? _rejoinTimer;
+  AppLifecycleListener? _lifecycle;
+  StreamSubscription<void>? _socketRecovered;
+
+  void _watchForRecovery() {
+    _lifecycle ??= AppLifecycleListener(onResume: () => _rejoinIfDead('resume'));
+    _socketRecovered ??=
+        _socketService.reconnectStream.listen((_) => _rejoinIfDead('socket back'));
+  }
+
+  void _stopWatchingForRecovery() {
+    _rejoinTimer?.cancel();
+    _rejoinTimer = null;
+    _rejoinAttempt = 0;
+    _lifecycle?.dispose();
+    _lifecycle = null;
+    unawaited(_socketRecovered?.cancel());
+    _socketRecovered = null;
+  }
+
+  /// True when we should be in a LiveKit room and are not, and the SDK is not
+  /// already recovering on its own.
+  bool get _audioDead {
+    if (!_initialized || _currentRoomId == null) return false;
+    final room = _room;
+    return room == null || room.connectionState == ConnectionState.disconnected;
+  }
+
+  // ── stuck in "reconnecting" ──────────────────────────────────────────────
+  //
+  // A rejoin only starts on a disconnect, but the SDK does not always get
+  // there: on 30/09 user 486's room went "reconnecting", the SDK's own mic
+  // re-publish threw "Failed to publish track", and the room then sat in
+  // "reconnecting" with no disconnect and no audio until the user left and
+  // came back. Its own retries finish well within this; past it, start over.
+
+  static const Duration _stuckReconnectAfter = Duration(seconds: 30);
+  Timer? _stuckTimer;
+
+  void _watchStuckReconnect(Room room) {
+    if (_stuckTimer != null) return; // timed from the first "reconnecting"
+    _stuckTimer = Timer(_stuckReconnectAfter, () {
+      _stuckTimer = null;
+      if (!identical(_room, room) || !_initialized) return;
+      if (room.connectionState != ConnectionState.reconnecting) return;
+      CrashReporter.breadcrumb(
+        'lk stuck reconnecting ${_stuckReconnectAfter.inSeconds}s',
+      );
+      _rejoinTimer?.cancel();
+      _rejoinTimer = null;
+      unawaited(_rejoin('stuck'));
+    });
+  }
+
+  void _cancelStuckWatch() {
+    _stuckTimer?.cancel();
+    _stuckTimer = null;
+  }
+
+  void _rejoinIfDead(String why) {
+    if (_rejoining || !_audioDead) return;
+    _rejoinTimer?.cancel();
+    _rejoinTimer = null;
+    unawaited(_rejoin(why));
+  }
+
+  void _scheduleRejoin(Duration delay, String why) {
+    if (_rejoining || !_initialized) return;
+    _rejoinTimer?.cancel();
+    _rejoinTimer = Timer(delay, () {
+      _rejoinTimer = null;
+      unawaited(_rejoin(why));
+    });
+  }
+
+  Future<void> _rejoin(String why) async {
+    final roomId = _currentRoomId;
+    if (_rejoining || !_initialized || roomId == null) return;
+    _rejoining = true;
+    _rejoinAttempt++;
+    final attempt = _rejoinAttempt;
+    CrashReporter.breadcrumb('lk rejoin #$attempt ($why)');
     try {
-      await Future<void>.delayed(delay);
-      final roomId = _currentRoomId;
-      if (!_initialized || roomId == null) return;
       final wasLive = !_listenOnly;
       await _teardownRoom();
       await _connect(roomId);
       if (wasLive) await goLive(muted: _isMicMuted);
+      _rejoinAttempt = 0;
+      CrashReporter.breadcrumb('lk rejoined after $attempt');
       _log('reconnected from scratch');
     } catch (e) {
+      final msg = e.toString();
+      CrashReporter.breadcrumb(
+        'lk rejoin #$attempt failed: ${msg.length > 80 ? msg.substring(0, 80) : msg}',
+      );
       _log('reconnect failed: $e');
-      // Try again; the SFU being briefly unreachable is the common case.
-      _reconnecting = false;
-      if (_initialized) unawaited(_reconnectAfter(const Duration(seconds: 5)));
+      _rejoining = false;
+      // The SFU being briefly unreachable is the common case; with no network
+      // at all there is no point hammering, resume/socket-back will wake us.
+      final secs = attempt < 3 ? 3 : (attempt < 6 ? 8 : 20);
+      _scheduleRejoin(Duration(seconds: secs), 'retry');
       return;
     } finally {
-      _reconnecting = false;
+      _rejoining = false;
     }
   }
 
@@ -291,6 +451,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
   }
 
   Future<void> _teardownRoom() async {
+    _cancelStuckWatch();
     final listener = _listener;
     final room = _room;
     _listener = null;
@@ -316,6 +477,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
       });
     }
     _initialized = false;
+    _stopWatchingForRecovery();
     _socketService.off('voice_users', _onVoiceUsers);
     await _teardownRoom();
     _emitSpeaking(false);
