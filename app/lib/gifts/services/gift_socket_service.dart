@@ -22,6 +22,9 @@ class GiftSocketService {
   // are); `lucky_broadcast` reaches the whole app for the bottom ticker.
   final StreamController<LuckyRollEvent> _luckyWins = StreamController.broadcast();
   final StreamController<LuckyRollEvent> _luckyBroadcasts = StreamController.broadcast();
+  // Rounds (server 2026-09-26): my entry is waiting for another player, or
+  // its round closed without one. Only ever sent to the sender.
+  final StreamController<Map<String, dynamic>> _luckyEntryState = StreamController.broadcast();
   bool _bound = false;
 
   Stream<GiftSendEvent> get sentStream => _sent.stream;
@@ -30,6 +33,8 @@ class GiftSocketService {
   Stream<GiftAnnouncement> get announcementStream => _announcements.stream;
   Stream<LuckyRollEvent> get luckyWinStream => _luckyWins.stream;
   Stream<LuckyRollEvent> get luckyBroadcastStream => _luckyBroadcasts.stream;
+  /// `{state: 'PENDING' | 'NO_COMPETITION', roomId, roundCode, rollId}`.
+  Stream<Map<String, dynamic>> get luckyEntryStateStream => _luckyEntryState.stream;
 
   /// Exactly the handlers this instance registered, so [unbind] can remove its
   /// own and nothing else.
@@ -55,6 +60,12 @@ class GiftSocketService {
     listen('gift_announcement', _dispatchAnnouncement);
     listen('lucky_win', (data) => _dispatchLucky(data, _luckyWins));
     listen('lucky_broadcast', (data) => _dispatchLucky(data, _luckyBroadcasts));
+    listen('lucky_pending', (data) {
+      if (data is Map) _luckyEntryState.add({...Map<String, dynamic>.from(data), 'state': 'PENDING'});
+    });
+    listen('lucky_entry_closed', (data) {
+      if (data is Map) _luckyEntryState.add({...Map<String, dynamic>.from(data), 'state': 'NO_COMPETITION'});
+    });
   }
 
   void _dispatchLucky(dynamic data, StreamController<LuckyRollEvent> controller) {
@@ -101,6 +112,7 @@ class GiftSocketService {
     await _announcements.close();
     await _luckyWins.close();
     await _luckyBroadcasts.close();
+    await _luckyEntryState.close();
   }
 }
 

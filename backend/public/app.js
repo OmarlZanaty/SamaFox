@@ -32,7 +32,11 @@ const sections   = document.querySelectorAll(".section");
 const pageTitle  = document.getElementById("pageTitle");
 
 const sectionTitles = {
-  lucky:     "هدايا الحظ",
+  lucky:     "إدارة المحظوظ",
+  features:  "منح المميزات",
+  targets:   "Target المضيف",
+  audit:     "سجل المراجعة",
+  targetlog: "سجل تعديلات التارجت",
   overview:  "نظرة عامة",
   users:     "المستخدمين",
   rooms:     "الغرف",
@@ -45,7 +49,7 @@ const sectionTitles = {
   backgrounds: "الخلفيات",
   admins:    "المشرفون",
   rewards:   "المكافآت",
-  games:     "الألعاب",
+  games:     "إدارة اقتصاد الألعاب",
   moderation: "الرسائل والحظر",
   settings:  "الإعدادات",
 };
@@ -68,10 +72,15 @@ function navigate(sec) {
   if (sec === "backgrounds") loadBackgrounds().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
-  if (sec === "games") loadGamesConfig().catch(e => showToast("خطأ: " + e.message));
-  if (sec === "lucky") loadLucky().catch(e => showToast("خطأ: " + e.message));
+  // 2026-09-26 pages live in economy-admin.js.
+  if (sec === "games") window.econLoadGames?.().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "lucky") window.lkLoad?.().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "cp") window.cpEconLoad?.().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "features") window.ftInit?.();
+  if (sec === "audit") window.auLoad?.(1).catch(e => showToast("خطأ: " + e.message));
+  if (sec === "targetlog") tlLoad(1).catch(e => showToast("خطأ: " + e.message));
   if (sec === "moderation") loadModeration().catch(e => showToast("خطأ: " + e.message));
-  if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} }
+  if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} try { window.loadCoinFreeze && window.loadCoinFreeze(); } catch (_) {} }
 }
 
 // ============================================================
@@ -2133,6 +2142,91 @@ window.unlockUserTarget = async function (id) {
   }
 };
 
+// --- تجميد الكوينزات: platform-wide freeze + per-account freezes ---
+window.loadCoinFreeze = async function () {
+  const statusEl = document.getElementById('coinFreezeStatus');
+  try {
+    const d = await apiFetch('/admin-dashboard/coin-freeze');
+    const frozen = !!(d.data && d.data.globallyFrozen);
+
+    if (statusEl) {
+      statusEl.textContent = frozen ? 'مجمدة — لا أحد يستطيع استخدام الكوينزات' : 'غير مجمدة — الكوينزات تعمل طبيعياً';
+      statusEl.className = frozen ? 'badge badge-rejected' : 'badge badge-approved';
+    }
+    const bFreeze = document.getElementById('btnFreezeCoins');
+    const bUnfreeze = document.getElementById('btnUnfreezeCoins');
+    if (bFreeze) bFreeze.disabled = frozen;
+    if (bUnfreeze) bUnfreeze.disabled = !frozen;
+
+    const tb = document.querySelector('#coinFreezeTable tbody');
+    if (tb) {
+      tb.innerHTML = '';
+      ((d.data && d.data.frozenUsers) || []).forEach((u) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${u.id}</td>
+          <td>${escapeHtml(u.name || '')}</td>
+          <td>${escapeHtml(String(u.displayId ?? '—'))}</td>
+          <td>${escapeHtml(String(u.coinsBalance ?? '0'))}</td>
+          <td><div class="td-actions">
+            <button class="btn-outline" onclick="unfreezeUserCoins(${u.id})">فك التجميد</button>
+          </div></td>`;
+        tb.appendChild(tr);
+      });
+    }
+  } catch (e) {
+    if (statusEl) {
+      statusEl.textContent = 'تعذر التحميل';
+      statusEl.className = 'badge badge-pending';
+    }
+    showToast('❌ ' + (e?.message || 'فشل تحميل حالة تجميد الكوينزات'));
+  }
+};
+
+window.setCoinFreezeGlobal = async function (frozen) {
+  const title = frozen ? 'تجميد كوينزات كل المستخدمين' : 'فك تجميد الكوينزات';
+  const text = frozen
+    ? 'لن يستطيع أي مستخدم استخدام الكوينزات (هدايا، ألعاب، متجر…) حتى تقوم بفك التجميد. الأرصدة لن تتغير. متابعة؟'
+    : 'سيعود كل المستخدمين لاستخدام الكوينزات طبيعياً (ما عدا الحسابات المجمدة بالـ ID). متابعة؟';
+
+  await new Promise((resolve) => openConfirmModal(title, text, async () => {
+    await apiFetch('/admin-dashboard/coin-freeze', 'PATCH', { frozen });
+    resolve();
+  }));
+
+  showToast(frozen ? '✓ تم تجميد الكوينزات لكل المستخدمين' : '✓ تم فك تجميد الكوينزات');
+  await loadCoinFreeze();
+};
+
+window.setUserCoinFreeze = async function (frozen) {
+  try {
+    const input = document.getElementById('coinFreezeUserId');
+    const id = Number(input && input.value);
+    if (!Number.isFinite(id) || id <= 0) return showToast('❗ أدخل رقم مستخدم صحيح');
+
+    // The typed number is the ID shown on the profile (displayId); the server
+    // resolves it and names the account back, so a typo is visible.
+    const r = await apiFetch(`/admin-dashboard/users/${id}/coin-freeze`, 'PATCH', { frozen });
+    if (input) input.value = '';
+    const who = r && r.data ? `${r.data.name || ''} #${r.data.displayId ?? r.data.userId}`.trim() : '';
+    showToast((frozen ? '✓ تم تجميد كوينزات ' : '✓ تم فك تجميد كوينزات ') + who);
+    await loadCoinFreeze();
+  } catch (e) {
+    showToast('❌ ' + (e?.message || 'فشل'));
+  }
+};
+
+window.unfreezeUserCoins = async function (id) {
+  try {
+    // From the frozen list, which carries the real row id.
+    await apiFetch(`/admin-dashboard/users/${id}/coin-freeze?by=id`, 'PATCH', { frozen: false });
+    showToast('✓ تم فك تجميد الحساب');
+    await loadCoinFreeze();
+  } catch (e) {
+    showToast('❌ ' + (e?.message || 'فشل'));
+  }
+};
+
 // --- Edit profile (name + gender) ---
 window.openEditProfileModal = function (userId, name, gender, nameLocked) {
   selectedUserId = userId;
@@ -2996,11 +3090,21 @@ async function saveRoomCupReward() {
   const thresholdCoins = Number(document.getElementById("rcr_threshold").value);
   const rewardCoins    = Number(document.getElementById("rcr_reward").value);
   if (!(thresholdCoins > 0) || !(rewardCoins > 0)) return showToast("❌ أدخل أرقاماً موجبة");
-  await apiFetch("/admin-dashboard/rewards/room-cup", "POST", { thresholdCoins, rewardCoins });
-  document.getElementById("rcr_threshold").value = "";
-  document.getElementById("rcr_reward").value = "";
-  showToast("✅ تمت إضافة الدرجة");
-  loadRewards().catch(() => {});
+  // Locked while saving: repeated presses created duplicate rungs that each paid.
+  const btn = document.getElementById("rcr_save");
+  if (btn?.disabled) return;
+  if (btn) btn.disabled = true;
+  try {
+    await apiFetch("/admin-dashboard/rewards/room-cup", "POST", { thresholdCoins, rewardCoins });
+    document.getElementById("rcr_threshold").value = "";
+    document.getElementById("rcr_reward").value = "";
+    showToast("✅ تمت إضافة الدرجة");
+    loadRewards().catch(() => {});
+  } catch (e) {
+    showToast("❌ " + (e?.message || "تعذر الحفظ"));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function deleteRoomCupReward(id) {
@@ -3158,10 +3262,22 @@ async function banDeviceOf(deviceId, ipAddress) {
   await loadModeration().catch(() => {});
   const dev = document.getElementById("db_device");
   const ip  = document.getElementById("db_ip");
-  if (dev) dev.value = deviceId || "";
-  if (ip)  ip.value  = ipAddress || "";
+  // A dotted id is Android's firmware build id (apps up to 1.0.34), shared by
+  // every phone of that model — the server refuses it, so do not offer it.
+  const realId = deviceId && !deviceId.includes(".") ? deviceId : "";
+  if (dev) dev.value = realId;
+  // The IP is never prefilled: a mobile network puts many users behind one IP,
+  // so an IP ban is only ever typed in on purpose. It is shown as a hint.
+  if (ip) {
+    ip.value = "";
+    ip.placeholder = ipAddress
+      ? `عنوان IP (آخر IP: ${ipAddress} — يحظر كل من على نفس الشبكة)`
+      : "عنوان IP";
+  }
   (document.getElementById("db_reason") || {}).focus?.();
-  showToast("تم ملء بيانات الجهاز — أكمل السبب والمدة");
+  showToast(realId
+    ? "تم ملء معرّف الجهاز — أكمل السبب والمدة"
+    : "⚠️ هذا المستخدم على نسخة قديمة بلا معرّف جهاز حقيقي — استخدم حظر الحساب");
 }
 
 async function createDeviceBan() {
@@ -3928,3 +4044,60 @@ Object.assign(window, {
   loadBackgrounds, bgSyncFree, addBackground,
   grantBackgroundToUser, revokeBackgroundFromUser, loadUserBackgrounds, openBgAudit,
 });
+
+
+// ============================================================
+// سجل تعديلات التارجت — who moved whose target, by how much, and when.
+// ============================================================
+const TL_KIND_AR = {
+  admin_deduct: "خصم من الإدارة",
+  admin_add: "إضافة من الإدارة",
+  sale_out: "بيع تارجت",
+  sale_in: "شراء تارجت",
+  convert: "تبديل لكوينزات",
+  charge: "شحن (تارجت الوكيل)",
+};
+
+function tlWho(p) {
+  if (!p) return "—";
+  const id = p.displayId ?? p.id;
+  return `${escapeHtml(p.name || "")}${p.isAdmin ? " (مشرف)" : ""}<div class="cell-muted">ID ${escapeHtml(String(id ?? ""))}</div>`;
+}
+
+async function tlLoad(page) {
+  const q = new URLSearchParams({ page: String(page || 1) });
+  const term = document.getElementById("tl_q").value.trim();
+  const kind = document.getElementById("tl_kind").value;
+  if (term) q.set("q", term);
+  if (kind) q.set("kind", kind);
+  const res = await apiFetch("/admin-dashboard/target-movements?" + q.toString());
+  const d = res?.data || { rows: [], total: 0, page: 1, perPage: 50, totals: [] };
+  const amt = (v) => {
+    const n = Number(v);
+    const txt = Math.abs(n).toLocaleString("en-US");
+    return n < 0
+      ? `<strong style="color:#e5484d">−${txt}</strong>`
+      : `<strong style="color:#46a758">+${txt}</strong>`;
+  };
+  document.querySelector("#tlTable tbody").innerHTML = d.rows.length
+    ? d.rows.map((r) => `
+      <tr>
+        <td>${escapeHtml(new Date(r.createdAt).toLocaleString("ar-EG"))}</td>
+        <td>${tlWho(r.user)}</td>
+        <td>${escapeHtml(r.agency?.agencyName || "#" + r.agency?.id)}<div class="cell-muted">${r.agency?.type === "HOSTING" ? "وكالة مضيفين" : r.agency?.type === "CHARGING" ? "وكالة شحن" : ""}</div></td>
+        <td>${escapeHtml(TL_KIND_AR[r.kind] || r.kind)}</td>
+        <td>${amt(r.amountCoins)}</td>
+        <td>${tlWho(r.actor)}</td>
+        <td>${tlWho(r.counterpart)}</td>
+        <td class="cell-muted">${escapeHtml(r.note || "")}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="8" class="cell-muted">لا توجد حركات</td></tr>`;
+  document.getElementById("tlTotals").innerHTML = (d.totals || [])
+    .map((t) => `${escapeHtml(TL_KIND_AR[t.kind] || t.kind)}: ${t.count} مرة · ${amt(t.amountCoins)}`)
+    .join(" &nbsp;|&nbsp; ");
+  const pages = Math.max(1, Math.ceil(d.total / d.perPage));
+  document.getElementById("tlMeta").innerHTML =
+    `${Number(d.total).toLocaleString("en-US")} حركة · صفحة ${d.page} من ${pages} ` +
+    (d.page > 1 ? `<button class="btn btn-outline btn-sm" onclick="tlLoad(${d.page - 1})">السابق</button>` : "") +
+    (d.page < pages ? `<button class="btn btn-outline btn-sm" onclick="tlLoad(${d.page + 1})">التالي</button>` : "");
+}

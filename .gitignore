@@ -16,3 +16,6 @@ logs
 # a delivered asset. Never part of the app.
 .olympus-art-backups/
 
+
+# local test APKs
+release-artifacts/

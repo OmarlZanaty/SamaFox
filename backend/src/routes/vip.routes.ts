@@ -10,6 +10,7 @@ import { getLevelThresholdOverrides, levelThresholdWithOverrides } from '../serv
 import { grantVipRewardsForRange } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { authMiddleware } from '../middlewares/auth.middleware';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 const router = Router();
 
@@ -64,7 +65,7 @@ router.get('/progress', authMiddleware, async (req, res) => {
  * configured on it. Buying a tier at or below the one already held is refused
  * rather than silently charging for nothing.
  */
-router.post('/buy', authMiddleware, async (req, res) => {
+router.post('/buy', authMiddleware, idempotent('vip_buy'), async (req, res) => {
   try {
     const userId = (req as any).userId as number;
     const level = Number((req.body as any)?.level);

@@ -774,13 +774,40 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// Shown when the server denies entry to a locked room: prompt for the PIN
   /// and re-join. Cancelling leaves the room.
-  Future<void> _promptRoomAccessCode() async {
+  Future<void> _promptRoomAccessCode({bool canHiddenBypass = false, bool wrongCode = false}) async {
     if (_pinDialogOpen) return;
     _pinDialogOpen = true;
     try {
+      // الدخول المخفي + غرفة مغلقة: the server said this user may be let in
+      // without the PIN (HIDDEN_MODE granted and on, and the room allows it).
+      // Ask first; the server checks everything again when the answer lands.
+      if (canHiddenBypass) {
+        final yes = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('غرفة مقفلة 🔒'),
+              content: const Text('الغرفة مغلقة، هل تريد الدخول بدون كلمة مرور؟'),
+              actions: [
+                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('لا')),
+                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('نعم')),
+              ],
+            ),
+          ),
+        );
+        if (!mounted) return;
+        if (yes == true) {
+          await ref.read(roomControllerProvider(widget.roomId).notifier).rejoinHidden();
+        } else {
+          Navigator.of(context).maybePop(); // "لا" → cancel the entry
+        }
+        return;
+      }
       final code = await _askFiveDigitCode(
         title: 'غرفة مقفلة 🔒',
-        hint: 'أدخل الرمز السري المكوّن من 5 أرقام للدخول',
+        hint: wrongCode ? 'الرمز غير صحيح — أدخل الرمز المكوّن من 5 أرقام' : 'أدخل الرمز السري المكوّن من 5 أرقام للدخول',
         confirmLabel: 'دخول',
       );
       if (!mounted) return;
@@ -2820,7 +2847,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (event.roomId != null && event.roomId != widget.roomId) return;
       ref.read(roomControllerProvider(widget.roomId).notifier).applyGiftEarning(
             recipientId: event.recipientId,
-            coins: event.totalCoins,
+            // A lucky gift counts only its host share for the recipient.
+            coins: event.recipientCoins,
           );
     });
 
@@ -2894,7 +2922,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           Navigator.of(context).maybePop();
           return;
         }
-        _promptRoomAccessCode();
+        _promptRoomAccessCode(
+          canHiddenBypass: data['canHiddenBypass'] == true,
+          wrongCode: data['wrongCode'] == true,
+        );
       });
 
       // Live room background change (admin set a new background).
@@ -4747,6 +4778,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ownerId: state.ownerId,
                         adminIds: state.adminIds,
                         seatEarnings: state.seatEarnings24h,
+                        cpLinks: state.cpLinks,
                           onSeatTap: (seatNumber, seat) {
                             _onSeatTap(context, seatNumber, seat, userId ?? 0, isAdmin);
                           }
@@ -4787,6 +4819,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   height: MediaQuery.of(context).size.height * 0.30,
                   child: RoomChatPanel(
                     roomId: widget.roomId,
+                    // هدايا الحظ: the app-wide winners ticker lives with the
+                    // messages. Tap → the winner's card (متابعة / رسالة / مسار).
+                    header: LuckyTicker(
+                      socket: _giftSocket,
+                      repository: _giftRepository,
+                      myUserId: ref.read(authStateProvider).user?.id,
+                    ),
                     // Tapping a writer's name opens the room's own profile
                     // card, not a separate screen.
                     onUserTap: (uid, name, {level, vipLevel, displayId, avatarUrl}) =>
@@ -5126,22 +5165,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               socket: _giftSocket,
               roomId: widget.roomId,
               myUserId: userId,
-            ),
-
-            // ===== هدايا الحظ: the app-wide winners ticker, just above the
-            // bottom bar. Tap → the winner's card (متابعة / رسالة / مسار).
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: bottomBarH + 12,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: LuckyTicker(
-                  socket: _giftSocket,
-                  repository: _giftRepository,
-                  myUserId: userId,
-                ),
-              ),
+              onMyWin: () async {
+                await ref.read(authStateProvider.notifier).refreshUser();
+                final u = ref.read(authStateProvider).user;
+                final coins = u?.coinsBalance ?? u?.coins;
+                if (coins != null) GiftPickerSheet.liveBalance.value = coins;
+              },
             ),
 
             // ===== Music control bar — draggable, only for owner/admins, and

@@ -42,6 +42,11 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Decoded images: 60 MB instead of Flutter's 100 MB. Phones in a room sat at
+  // img=100MB with ~350 MB of graphics beside it, and a realme RMX3760 died at
+  // 1.2 GB (29/09). Evicted pictures are re-decoded from the disk cache.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 60 << 20;
+
   // Before anything else can fail. The app shipped with NO error handler of any
   // kind, which is why "التطبيق يقفل بعد دقيقة" could only ever be guessed at:
   // a Dart error left nothing behind, and an OS kill for memory left even less.

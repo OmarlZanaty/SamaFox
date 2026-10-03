@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { sendGiftAtomic, GiftSendError } from './giftService';
 import { readCatalogCache, writeCatalogCache, getCatalogVersion } from './catalogCache';
 import { maybeCreateRelationRequestFromRing } from '../services/relationRing.service';
-import { getLuckySettings, verifyRoll, type LuckyRollResult } from './lucky.service';
+import { getLuckySettings, verifyRoll, type LuckyRollResult, type SettledEntry } from './lucky.service';
 import type { Server } from 'socket.io';
 
 let ioRef: Server | null = null;
@@ -41,50 +41,123 @@ export function emitGiftSent(payload: any, alsoUserIds: number[] = []) {
 }
 
 /**
- * هدايا الحظ — the two events behind the two bars the client asked for.
+ * هدايا الحظ — the events behind the lucky bars.
  *
- *  `lucky_win`       → the room (or the sender alone when there is no room):
- *                      the centred "كسب ×N" banner. Sent for every roll,
- *                      including a loss (multiplier 0), so the sender's own
- *                      screen can say "حظ أوفر" — other clients ignore 0.
- *  `lucky_broadcast` → everyone in the app, wins ≥ the admin's threshold:
- *                      the bottom ticker. Tapping it opens the winner's card.
+ *  `lucky_win`       → the room (and the sender wherever they are): every DRAWN
+ *                      entry, win or not — the centred "كسب ×N" banner, synced
+ *                      for everyone in the room. Everything on it (photo, name,
+ *                      ID, room name) is read here from the database; nothing
+ *                      comes from the phone that sent the gift.
+ *  `lucky_broadcast` → everyone in the app, wins ≥ the admin's threshold.
+ *  `lucky_pending`   → the sender only: the entry is waiting for the round to
+ *                      have enough players (new app builds show it; older ones
+ *                      ignore the event).
+ *  `lucky_entry_closed` → the sender only: the round closed without enough
+ *                      players — no win, nothing refunded, nothing minted.
  */
-export async function emitLuckyRoll(ev: {
-  rollId: number;
+export async function emitLuckyOutcome(ev: {
+  own: LuckyRollResult | null;
+  settled: SettledEntry[];
   senderId: number;
-  sender: { id: number; name: string | null; avatarUrl: string | null } | null;
-  recipientId: number;
-  recipientName: string | null;
   roomId: number | null;
-  gift: { id: string; name: string; nameAr: string | null; iconUrl: string };
-  giftCoins: number;
-  lucky: LuckyRollResult;
 }) {
   if (!ioRef) return;
-  const payload = {
-    rollId: ev.rollId,
-    senderId: ev.senderId,
-    senderName: ev.sender?.name ?? null,
-    senderAvatarUrl: ev.sender?.avatarUrl ?? null,
-    recipientId: ev.recipientId,
-    recipientName: ev.recipientName,
-    roomId: ev.roomId,
-    gift: ev.gift,
-    giftCoins: ev.giftCoins,
-    hostCoins: ev.lucky.hostCoins,
-    multiplier: ev.lucky.multiplier,
-    payoutCoins: ev.lucky.payoutCoins,
-    ts: Date.now(),
-  };
-  const targets = new Set<string>([ev.senderId.toString()]);
-  if (ev.roomId != null) targets.add(`room:${ev.roomId}`);
-  ioRef.to([...targets]).emit('lucky_win', payload);
-
-  if (ev.lucky.multiplier > 0) {
-    const { broadcastMin } = await getLuckySettings();
-    if (ev.lucky.multiplier >= broadcastMin) ioRef.emit('lucky_broadcast', payload);
+  if (ev.own && ev.own.status === 'PENDING') {
+    ioRef.to(ev.senderId.toString()).emit('lucky_pending', {
+      rollId: ev.own.rollId,
+      roundCode: ev.own.roundCode,
+      roomId: ev.roomId,
+      hostCoins: ev.own.hostCoins,
+      serverSeedHash: ev.own.serverSeedHash,
+      ts: Date.now(),
+    });
   }
+  if (!ev.settled.length) return;
+
+  const senderIds = [...new Set(ev.settled.map((e) => e.senderId))];
+  const recipientIds = [...new Set(ev.settled.map((e) => e.recipientId))];
+  const roomIds = [...new Set(ev.settled.map((e) => e.roomId).filter((r): r is number => r != null))];
+  const txIds = ev.settled.map((e) => e.giftTxId);
+  const [users, rooms, txs, { broadcastMin }] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: [...new Set([...senderIds, ...recipientIds])] } },
+      select: { id: true, name: true, avatarUrl: true, displayId: true },
+    }),
+    roomIds.length
+      ? prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, name: true } })
+      : Promise.resolve([] as { id: number; name: string }[]),
+    prisma.giftTransaction.findMany({
+      where: { id: { in: txIds } },
+      select: { id: true, gift: { select: { id: true, name: true, nameAr: true, iconUrl: true } } },
+    }),
+    getLuckySettings(),
+  ]);
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const roomById = new Map(rooms.map((r) => [r.id, r]));
+  const giftByTx = new Map(txs.map((t) => [t.id, t.gift]));
+
+  for (const e of ev.settled) {
+    const sender = userById.get(e.senderId);
+    const payload = {
+      rollId: e.rollId,
+      roundCode: e.roundCode,
+      status: 'SETTLED',
+      senderId: e.senderId,
+      senderName: sender?.name ?? null,
+      senderAvatarUrl: sender?.avatarUrl ?? null,
+      senderDisplayId: sender?.displayId ?? null,
+      recipientId: e.recipientId,
+      recipientName: userById.get(e.recipientId)?.name ?? null,
+      roomId: e.roomId,
+      roomName: e.roomId != null ? roomById.get(e.roomId)?.name ?? null : null,
+      gift: giftByTx.get(e.giftTxId) ?? null,
+      giftCoins: e.giftCoins,
+      hostCoins: e.hostCoins,
+      multiplier: e.multiplier,
+      payoutCoins: e.payoutCoins,
+      ts: Date.now(),
+    };
+    const targets = new Set<string>([e.senderId.toString()]);
+    if (e.roomId != null) targets.add(`room:${e.roomId}`);
+    ioRef.to([...targets]).emit('lucky_win', payload);
+    if (e.multiplier > 0 && e.multiplier >= broadcastMin) ioRef.emit('lucky_broadcast', payload);
+  }
+}
+
+/** Rounds the sweeper closed: tell the room, and each waiting sender. */
+export function emitLuckyRoundsClosed(
+  closed: { roundId: number; code: string; roomId: number | null; status: string; pending: { rollId: number; senderId: number }[] }[],
+) {
+  if (!ioRef) return;
+  for (const c of closed) {
+    if (c.roomId != null) {
+      ioRef.to(`room:${c.roomId}`).emit('lucky_round_closed', { roundCode: c.code, roomId: c.roomId, status: c.status });
+    }
+    for (const p of c.pending) {
+      ioRef.to(p.senderId.toString()).emit('lucky_entry_closed', {
+        rollId: p.rollId,
+        roundCode: c.code,
+        roomId: c.roomId,
+        status: 'NO_COMPETITION',
+      });
+    }
+  }
+}
+
+/** The HTTP view of the sender's own entry. `lucky` keeps its old meaning for
+ *  installed apps (a drawn result, or absent); `luckyEntry` is the full state. */
+function luckyResponse(own: LuckyRollResult | null) {
+  if (!own) return { lucky: null, luckyEntry: null };
+  const entry = {
+    rollId: own.rollId,
+    status: own.status,
+    roundCode: own.roundCode,
+    multiplier: own.multiplier,
+    payoutCoins: own.payoutCoins,
+    hostCoins: own.hostCoins,
+    serverSeedHash: own.serverSeedHash,
+  };
+  return { lucky: own.status === 'PENDING' ? null : entry, luckyEntry: entry };
 }
 
 /** A22 — the centred "فلان أهدى <هدية> إلى فلان" bar. Room-scoped only. */
@@ -189,13 +262,16 @@ export async function send(req: Request, res: Response) {
       roomId: roomId != null ? Number(roomId) : null,
       quantity: quantity != null ? Number(quantity) : 1,
       totalCoins: result.totalCoins,
+      // The recipient's side of it (a lucky gift's host share), for the
+      // under-mic total — so a live update matches the server's own total.
+      recipientCoins: result.recipientCoins,
       comboKey: comboKey ?? null,
       comboCount: result.comboCount,
       broadcast: result.broadcast,
       sender,
       recipient: recipientUser,
       gift: result.gift,
-      lucky: result.lucky
+      lucky: result.lucky && result.lucky.status !== 'PENDING'
         ? { multiplier: result.lucky.multiplier, payoutCoins: result.lucky.payoutCoins, hostCoins: result.lucky.hostCoins }
         : null,
       ts: Date.now(),
@@ -204,17 +280,7 @@ export async function send(req: Request, res: Response) {
     emitGiftSent(payload);
 
     if (result.lucky) {
-      await emitLuckyRoll({
-        rollId: result.lucky.rollId,
-        senderId,
-        sender,
-        recipientId: recipient,
-        recipientName: recipientUser?.name ?? null,
-        roomId: payload.roomId,
-        gift: { id: result.gift.id, name: result.gift.name, nameAr: result.gift.nameAr, iconUrl: result.gift.iconUrl },
-        giftCoins: result.totalCoins,
-        lucky: result.lucky,
-      });
+      await emitLuckyOutcome({ own: result.lucky, settled: result.luckySettled, senderId, roomId: payload.roomId });
     }
 
     // A22 - the centred announcement bar ("<sender> اهدى <gift> الى <recipient>").
@@ -251,15 +317,7 @@ export async function send(req: Request, res: Response) {
       senderBalance: result.senderBalance,
       comboCount: result.comboCount,
       broadcast: result.broadcast,
-      lucky: result.lucky
-        ? {
-            rollId: result.lucky.rollId,
-            multiplier: result.lucky.multiplier,
-            payoutCoins: result.lucky.payoutCoins,
-            hostCoins: result.lucky.hostCoins,
-            serverSeedHash: result.lucky.serverSeedHash,
-          }
-        : null,
+      ...luckyResponse(result.lucky),
     });
   } catch (err) {
     if (err instanceof GiftSendError) {
@@ -586,6 +644,7 @@ export async function sendBatch(req: Request, res: Response) {
           roomId: roomId != null ? Number(roomId) : null,
           quantity: qty,
           totalCoins: result.totalCoins,
+          recipientCoins: result.recipientCoins,
           comboKey: comboKey ?? null,
           comboCount: result.comboCount,
           broadcast: result.broadcast,
@@ -593,23 +652,18 @@ export async function sendBatch(req: Request, res: Response) {
           recipient: recipientById.get(rid) ?? null,
           gift: result.gift,
           batchSize: ids.length,
-          lucky: result.lucky
+          lucky: result.lucky && result.lucky.status !== 'PENDING'
             ? { multiplier: result.lucky.multiplier, payoutCoins: result.lucky.payoutCoins, hostCoins: result.lucky.hostCoins }
             : null,
           ts: Date.now(),
         });
 
         if (result.lucky) {
-          await emitLuckyRoll({
-            rollId: result.lucky.rollId,
+          await emitLuckyOutcome({
+            own: result.lucky,
+            settled: result.luckySettled,
             senderId,
-            sender: { id: sender.id, name: sender.name, avatarUrl: sender.avatarUrl },
-            recipientId: rid,
-            recipientName: recipientById.get(rid)?.name ?? null,
             roomId: roomId != null ? Number(roomId) : null,
-            gift: { id: result.gift.id, name: result.gift.name, nameAr: result.gift.nameAr, iconUrl: result.gift.iconUrl },
-            giftCoins: result.totalCoins,
-            lucky: result.lucky,
           });
         }
 
@@ -621,7 +675,7 @@ export async function sendBatch(req: Request, res: Response) {
           failures.push({ recipientId: rid, code: err.code, message: err.message });
           // A balance that ran out mid-fan-out will fail for everyone left, so
           // stop rather than burning through 20 doomed transactions.
-          if (err.code === 'INSUFFICIENT_COINS') break;
+          if (err.code === 'INSUFFICIENT_COINS' || err.code === 'COINS_FROZEN') break;
         } else {
           console.error('[gifts.sendBatch]', err);
           failures.push({ recipientId: rid, code: 'SEND_FAILED', message: 'فشل الإرسال' });
@@ -705,9 +759,15 @@ export async function luckyRollProof(req: Request, res: Response) {
       select: {
         id: true, senderId: true, recipientId: true, roomId: true, giftCoins: true, hostCoins: true,
         multiplier: true, payoutCoins: true, serverSeed: true, serverSeedHash: true, tiersSnapshot: true, createdAt: true,
+        roundId: true, giftTxId: true, status: true, settledAt: true,
       },
     });
     if (!roll) return res.status(404).json({ success: false, message: 'not found' });
+    // A pending entry's seed is its draw: it stays secret until the draw.
+    if (roll.status === 'PENDING') {
+      const { serverSeed: _hidden, ...rest } = roll;
+      return res.json({ success: true, roll: rest, verification: null });
+    }
     return res.json({ success: true, roll, verification: verifyRoll(roll) });
   } catch (err) {
     console.error('[gifts.luckyRollProof]', err);

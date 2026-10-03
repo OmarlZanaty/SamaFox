@@ -4,6 +4,7 @@ import prisma from "../utils/prisma";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { createNotification } from "../services/notification.service";
 import { expiryFromDuration } from "../services/expiry.service";
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 const router = Router();
 
@@ -16,7 +17,7 @@ const buyLimiter = rateLimit({
   message: { success: false, message: 'Too many purchase requests. Slow down.' },
 });
 
-router.post("/buy", buyLimiter, async (req: any, res) => {
+router.post("/buy", buyLimiter, idempotent("store_buy"), async (req: any, res) => {
   try {
     const userId = req.userId!;
     const { productId } = req.body;
@@ -101,7 +102,7 @@ router.post("/buy", buyLimiter, async (req: any, res) => {
 
 // Step 8: send (gift) a store product to another user. Deducts the price from
 // the sender, grants the item to the recipient, and notifies both.
-router.post("/send", buyLimiter, async (req: any, res) => {
+router.post("/send", buyLimiter, idempotent("store_send"), async (req: any, res) => {
   try {
     const senderId = req.userId!;
     const itemId = String(req.body?.productId ?? req.body?.itemId ?? "");

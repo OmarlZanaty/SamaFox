@@ -21,11 +21,17 @@ class LuckyWinBanner extends StatefulWidget {
     required this.socket,
     required this.roomId,
     required this.myUserId,
+    this.onMyWin,
   });
 
   final GiftSocketService socket;
   final int roomId;
   final int? myUserId;
+
+  /// My entry paid out — possibly an entry made earlier that was only drawn
+  /// now, when another player completed the round. The balance on screen was
+  /// read before that, so the room refreshes it.
+  final VoidCallback? onMyWin;
 
   @override
   State<LuckyWinBanner> createState() => _LuckyWinBannerState();
@@ -38,6 +44,11 @@ const Duration _kAnim = Duration(milliseconds: 320);
 class _LuckyWinBannerState extends State<LuckyWinBanner>
     with SingleTickerProviderStateMixin {
   StreamSubscription<LuckyRollEvent>? _sub;
+  StreamSubscription<Map<String, dynamic>>? _stateSub;
+  /// My own entry's round state, shown as a small chip: waiting for another
+  /// player, or closed without one.
+  String? _entryNotice;
+  Timer? _noticeTimer;
   final Queue<LuckyRollEvent> _queue = Queue<LuckyRollEvent>();
   LuckyRollEvent? _current;
   Timer? _hide;
@@ -48,10 +59,27 @@ class _LuckyWinBannerState extends State<LuckyWinBanner>
   void initState() {
     super.initState();
     _sub = widget.socket.luckyWinStream.listen(_onEvent);
+    _stateSub = widget.socket.luckyEntryStateStream.listen(_onEntryState);
+  }
+
+  void _onEntryState(Map<String, dynamic> e) {
+    if (!mounted) return;
+    final rid = (e['roomId'] as num?)?.toInt();
+    if (rid != null && rid != widget.roomId) return;
+    setState(() {
+      _entryNotice = e['state'] == 'PENDING'
+          ? 'هديتك في الجولة — بانتظار لاعب آخر لتبدأ المنافسة'
+          : 'انتهت الجولة بدون لاعب آخر — لا توجد منافسة هذه المرة';
+    });
+    _noticeTimer?.cancel();
+    _noticeTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _entryNotice = null);
+    });
   }
 
   void _onEvent(LuckyRollEvent e) {
     if (!mounted) return;
+    if (e.won && e.senderId == widget.myUserId) widget.onMyWin?.call();
     if (e.roomId != null && e.roomId != widget.roomId) return;
     // A loss is the sender's business only.
     if (!e.won && e.senderId != widget.myUserId) return;
@@ -83,6 +111,8 @@ class _LuckyWinBannerState extends State<LuckyWinBanner>
   @override
   void dispose() {
     _sub?.cancel();
+    _stateSub?.cancel();
+    _noticeTimer?.cancel();
     _hide?.cancel();
     _ctrl.dispose();
     super.dispose();
@@ -91,7 +121,16 @@ class _LuckyWinBannerState extends State<LuckyWinBanner>
   @override
   Widget build(BuildContext context) {
     final e = _current;
-    if (e == null) return const SizedBox.shrink();
+    if (e == null) {
+      final notice = _entryNotice;
+      if (notice == null) return const SizedBox.shrink();
+      return IgnorePointer(
+        child: Align(
+          alignment: const Alignment(0, -0.18),
+          child: _NoticeChip(text: notice),
+        ),
+      );
+    }
     final isMe = e.senderId == widget.myUserId;
     return IgnorePointer(
       child: Align(
@@ -160,10 +199,22 @@ class _WinCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
                   ),
+                  if (event.senderDisplayId != null)
+                    Text(
+                      'ID: ${event.senderDisplayId}',
+                      style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 10.5),
+                    ),
                   Text(
-                    'كسب ${event.payoutCoins} كوينز 🎉',
-                    style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 11),
+                    'ربح ${event.payoutCoins} كوين 🎉',
+                    style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 11.5, fontWeight: FontWeight.w600),
                   ),
+                  if ((event.roomName ?? '').isNotEmpty)
+                    Text(
+                      event.roomName!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 10),
+                    ),
                 ],
               ),
             ),
@@ -181,6 +232,29 @@ class _WinCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _NoticeChip extends StatelessWidget {
+  const _NoticeChip({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFB300).withOpacity(0.6)),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.rtl,
+        style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
       ),
     );
   }

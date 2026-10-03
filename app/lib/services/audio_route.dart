@@ -44,6 +44,24 @@ class AudioRoute {
   /// choice for all of them.
   double masterVolume = 1.0;
 
+  /// True while a voice engine holds a call (mesh or LiveKit).
+  ///
+  /// `audioplayers` writes the phone's GLOBAL audio mode on every
+  /// `setAudioContext`, not just the player's. With the loudspeaker chosen that
+  /// was `MODE_NORMAL` — and the room registers its own player on entry, so
+  /// every room session knocked WebRTC out of `MODE_IN_COMMUNICATION`, where
+  /// Android's hardware echo canceller lives. Four or five open mics on
+  /// loudspeaker then fed each other back ("تردد صوت"). During a call the mode
+  /// stays in-communication; the speaker flag alone picks the output.
+  bool _voiceLive = false;
+
+  /// Called by the voice engines when a call starts and ends.
+  Future<void> setVoiceLive(bool live) async {
+    if (_voiceLive == live) return;
+    _voiceLive = live;
+    await apply();
+  }
+
   static const String _speakerKey = 'audio_route_speaker_on';
   static const String _volumeKey = 'audio_route_master_volume';
 
@@ -115,7 +133,11 @@ class AudioRoute {
           // `inCommunication` is what actually lets Android hand a stream to
           // the earpiece. Left on the default `normal`, a sound keeps coming
           // out of the loudspeaker however the usage type is labelled.
-          audioMode: speaker ? AndroidAudioMode.normal : AndroidAudioMode.inCommunication,
+          // During a call it must stay `inCommunication` whatever the route —
+          // see [_voiceLive].
+          audioMode: speaker && !_voiceLive
+              ? AndroidAudioMode.normal
+              : AndroidAudioMode.inCommunication,
           stayAwake: false,
           contentType: AndroidContentType.sonification,
           usageType:
@@ -124,7 +146,9 @@ class AudioRoute {
           audioFocus: AndroidAudioFocus.none,
         ),
         iOS: AudioContextIOS(
-          category: speaker
+          // The session is shared with WebRTC: `playback` mid-call would drop
+          // the microphone and its voice processing.
+          category: speaker && !_voiceLive
               ? AVAudioSessionCategory.playback
               : AVAudioSessionCategory.playAndRecord,
           options: [

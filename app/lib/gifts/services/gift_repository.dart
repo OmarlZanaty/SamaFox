@@ -115,7 +115,8 @@ class GiftRepository {
         senderBalance: (body['senderBalance'] as num?)?.toInt() ?? 0,
         comboCount: (body['comboCount'] as num?)?.toInt() ?? 1,
         broadcast: body['broadcast'] as bool? ?? false,
-        lucky: LuckyOutcome.fromJson(body['lucky']),
+        // `luckyEntry` (server 2026-09-26) also reports a PENDING entry.
+        lucky: LuckyOutcome.fromJson(body['luckyEntry'] ?? body['lucky']),
       );
     } on DioException catch (e) {
       throw _translateDioError(e, fallback: 'فشل إرسال الهدية');
@@ -291,11 +292,16 @@ class LuckyOutcome {
   final int multiplier; // 0 = lost
   final int payoutCoins;
   final int hostCoins;
+  /// The round has no second player yet; the draw happens when it does.
+  final bool pending;
+  final String? roundCode;
   const LuckyOutcome({
     required this.rollId,
     required this.multiplier,
     required this.payoutCoins,
     required this.hostCoins,
+    this.pending = false,
+    this.roundCode,
   });
   bool get won => multiplier > 0;
 
@@ -306,6 +312,8 @@ class LuckyOutcome {
       multiplier: (raw['multiplier'] as num?)?.toInt() ?? 0,
       payoutCoins: (raw['payoutCoins'] as num?)?.toInt() ?? 0,
       hostCoins: (raw['hostCoins'] as num?)?.toInt() ?? 0,
+      pending: raw['status'] == 'PENDING',
+      roundCode: raw['roundCode'] as String?,
     );
   }
 }
