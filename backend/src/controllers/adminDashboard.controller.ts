@@ -2543,7 +2543,11 @@ export const adminResetSupporterCounter = async (req: AdminReq, res: Response) =
 
 export const adminListRoomCupRewards = async (_req: AdminReq, res: Response) => {
   try {
-    const rows = await db.roomCupReward.findMany({ orderBy: { thresholdCoins: 'asc' } });
+    // Switched-off rungs are kept for the payout audit trail, not shown.
+    const rows = await db.roomCupReward.findMany({
+      where: { isActive: true },
+      orderBy: { thresholdCoins: 'asc' },
+    });
     return ok(res, {
       data: rows.map((r: any) => ({
         id: r.id,
@@ -2564,6 +2568,16 @@ export const adminSaveRoomCupReward = async (req: AdminReq, res: Response) => {
     const reward = Math.floor(Number((req.body as any)?.rewardCoins));
     if (!Number.isFinite(threshold) || threshold <= 0) return fail(res, 400, 'thresholdCoins must be > 0');
     if (!Number.isFinite(reward) || reward <= 0) return fail(res, 400, 'rewardCoins must be > 0');
+
+    // One active rung per threshold. Five identical 1M → 50k rungs (a save
+    // pressed five times) paid each room 250k instead of 50k on 2026-10-02.
+    const clash = await db.roomCupReward.findFirst({
+      where: { isActive: true, thresholdCoins: BigInt(threshold) },
+      select: { id: true },
+    });
+    if (clash) {
+      return fail(res, 409, 'توجد درجة بنفس الحد بالفعل — احذفها أولاً إذا أردت تغيير المكافأة');
+    }
 
     const row = await db.roomCupReward.create({
       data: { thresholdCoins: BigInt(threshold), rewardCoins: BigInt(reward) },

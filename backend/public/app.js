@@ -3088,11 +3088,21 @@ async function saveRoomCupReward() {
   const thresholdCoins = Number(document.getElementById("rcr_threshold").value);
   const rewardCoins    = Number(document.getElementById("rcr_reward").value);
   if (!(thresholdCoins > 0) || !(rewardCoins > 0)) return showToast("❌ أدخل أرقاماً موجبة");
-  await apiFetch("/admin-dashboard/rewards/room-cup", "POST", { thresholdCoins, rewardCoins });
-  document.getElementById("rcr_threshold").value = "";
-  document.getElementById("rcr_reward").value = "";
-  showToast("✅ تمت إضافة الدرجة");
-  loadRewards().catch(() => {});
+  // Locked while saving: repeated presses created duplicate rungs that each paid.
+  const btn = document.getElementById("rcr_save");
+  if (btn?.disabled) return;
+  if (btn) btn.disabled = true;
+  try {
+    await apiFetch("/admin-dashboard/rewards/room-cup", "POST", { thresholdCoins, rewardCoins });
+    document.getElementById("rcr_threshold").value = "";
+    document.getElementById("rcr_reward").value = "";
+    showToast("✅ تمت إضافة الدرجة");
+    loadRewards().catch(() => {});
+  } catch (e) {
+    showToast("❌ " + (e?.message || "تعذر الحفظ"));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function deleteRoomCupReward(id) {
