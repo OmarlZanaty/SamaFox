@@ -4,6 +4,7 @@ import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { MAX_COINS_BALANCE } from '../utils/coins';
 import { evaluateVip } from '../services/vip.service';
+import { recordTargetMovement } from '../services/targetMovement.service';
 
 // Helper: get authed userId
 function getUserId(req: Request): number | null {
@@ -409,6 +410,18 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
           where: { id: sellerMembership.id },
           data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
         });
+        await recordTargetMovement(
+          {
+            memberId: sellerMembership.id,
+            userId: funderId,
+            agencyId: agency.id,
+            kind: 'charge',
+            amountCoins: BigInt(amount),
+            actorId: funderId,
+            counterpartId: toUserId,
+          },
+          tx,
+        );
       }
 
       const updatedUserDb = await tx.user.update({

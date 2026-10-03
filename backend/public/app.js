@@ -36,6 +36,7 @@ const sectionTitles = {
   features:  "منح المميزات",
   targets:   "Target المضيف",
   audit:     "سجل المراجعة",
+  targetlog: "سجل تعديلات التارجت",
   overview:  "نظرة عامة",
   users:     "المستخدمين",
   rooms:     "الغرف",
@@ -77,6 +78,7 @@ function navigate(sec) {
   if (sec === "cp") window.cpEconLoad?.().catch(e => showToast("خطأ: " + e.message));
   if (sec === "features") window.ftInit?.();
   if (sec === "audit") window.auLoad?.(1).catch(e => showToast("خطأ: " + e.message));
+  if (sec === "targetlog") tlLoad(1).catch(e => showToast("خطأ: " + e.message));
   if (sec === "moderation") loadModeration().catch(e => showToast("خطأ: " + e.message));
   if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} try { window.loadCoinFreeze && window.loadCoinFreeze(); } catch (_) {} }
 }
@@ -4042,3 +4044,60 @@ Object.assign(window, {
   loadBackgrounds, bgSyncFree, addBackground,
   grantBackgroundToUser, revokeBackgroundFromUser, loadUserBackgrounds, openBgAudit,
 });
+
+
+// ============================================================
+// سجل تعديلات التارجت — who moved whose target, by how much, and when.
+// ============================================================
+const TL_KIND_AR = {
+  admin_deduct: "خصم من الإدارة",
+  admin_add: "إضافة من الإدارة",
+  sale_out: "بيع تارجت",
+  sale_in: "شراء تارجت",
+  convert: "تبديل لكوينزات",
+  charge: "شحن (تارجت الوكيل)",
+};
+
+function tlWho(p) {
+  if (!p) return "—";
+  const id = p.displayId ?? p.id;
+  return `${escapeHtml(p.name || "")}${p.isAdmin ? " (مشرف)" : ""}<div class="cell-muted">ID ${escapeHtml(String(id ?? ""))}</div>`;
+}
+
+async function tlLoad(page) {
+  const q = new URLSearchParams({ page: String(page || 1) });
+  const term = document.getElementById("tl_q").value.trim();
+  const kind = document.getElementById("tl_kind").value;
+  if (term) q.set("q", term);
+  if (kind) q.set("kind", kind);
+  const res = await apiFetch("/admin-dashboard/target-movements?" + q.toString());
+  const d = res?.data || { rows: [], total: 0, page: 1, perPage: 50, totals: [] };
+  const amt = (v) => {
+    const n = Number(v);
+    const txt = Math.abs(n).toLocaleString("en-US");
+    return n < 0
+      ? `<strong style="color:#e5484d">−${txt}</strong>`
+      : `<strong style="color:#46a758">+${txt}</strong>`;
+  };
+  document.querySelector("#tlTable tbody").innerHTML = d.rows.length
+    ? d.rows.map((r) => `
+      <tr>
+        <td>${escapeHtml(new Date(r.createdAt).toLocaleString("ar-EG"))}</td>
+        <td>${tlWho(r.user)}</td>
+        <td>${escapeHtml(r.agency?.agencyName || "#" + r.agency?.id)}<div class="cell-muted">${r.agency?.type === "HOSTING" ? "وكالة مضيفين" : r.agency?.type === "CHARGING" ? "وكالة شحن" : ""}</div></td>
+        <td>${escapeHtml(TL_KIND_AR[r.kind] || r.kind)}</td>
+        <td>${amt(r.amountCoins)}</td>
+        <td>${tlWho(r.actor)}</td>
+        <td>${tlWho(r.counterpart)}</td>
+        <td class="cell-muted">${escapeHtml(r.note || "")}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="8" class="cell-muted">لا توجد حركات</td></tr>`;
+  document.getElementById("tlTotals").innerHTML = (d.totals || [])
+    .map((t) => `${escapeHtml(TL_KIND_AR[t.kind] || t.kind)}: ${t.count} مرة · ${amt(t.amountCoins)}`)
+    .join(" &nbsp;|&nbsp; ");
+  const pages = Math.max(1, Math.ceil(d.total / d.perPage));
+  document.getElementById("tlMeta").innerHTML =
+    `${Number(d.total).toLocaleString("en-US")} حركة · صفحة ${d.page} من ${pages} ` +
+    (d.page > 1 ? `<button class="btn btn-outline btn-sm" onclick="tlLoad(${d.page - 1})">السابق</button>` : "") +
+    (d.page < pages ? `<button class="btn btn-outline btn-sm" onclick="tlLoad(${d.page + 1})">التالي</button>` : "");
+}

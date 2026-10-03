@@ -21,6 +21,7 @@ import {
 } from '../services/xp.service';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { createNotification } from '../services/notification.service';
+import { recordTargetMovement } from '../services/targetMovement.service';
 import {
   setTargetSellBlocked,
   listTargetSellBlocked,
@@ -2343,6 +2344,15 @@ export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
       data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
     });
     const newEarned = await memberTargetTotal(updated);
+    await recordTargetMovement({
+      memberId: membership.id,
+      userId: user.id,
+      agencyId: membership.agencyId,
+      kind: amount > 0 ? 'admin_add' : 'admin_deduct',
+      amountCoins: amount,
+      actorId: req.userId ?? null,
+      note: `قبل ${currentEarned} ← بعد ${newEarned}`,
+    });
 
     try {
       const { createNotification } = await import('../services/notification.service');
@@ -2377,6 +2387,100 @@ export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
   }
 };
 
+/**
+ * GET /admin-dashboard/target-movements?q=&kind=&page=
+ *
+ * سجل تعديلات التارجت: who moved whose target, by how much, and when — admin
+ * additions/deductions, sales, swaps and charging credits. `q` is the user's
+ * 6-digit ID (or the internal id) or part of a name.
+ */
+export const adminListTargetMovements = async (req: AdminReq, res: Response) => {
+  try {
+    const q = String((req.query as any)?.q ?? '').trim();
+    const kind = String((req.query as any)?.kind ?? '').trim();
+    const page = Math.max(1, Math.floor(Number((req.query as any)?.page) || 1));
+    const perPage = 50;
+
+    const where: any = {};
+    if (kind) where.kind = kind;
+    if (q) {
+      const num = /^\d+$/.test(q) ? Number(q) : null;
+      const users = await db.user.findMany({
+        where: {
+          OR: [
+            ...(num !== null ? [{ displayId: num }, { id: num }] : []),
+            { name: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+        take: 200,
+      });
+      where.userId = { in: users.map((u: any) => u.id) };
+    }
+
+    const [total, rows, sums] = await Promise.all([
+      db.targetMovement.count({ where }),
+      db.targetMovement.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      db.targetMovement.groupBy({ by: ['kind'], where, _sum: { amountCoins: true }, _count: { _all: true } }),
+    ]);
+
+    const userIds = [
+      ...new Set(rows.flatMap((r: any) => [r.userId, r.actorId, r.counterpartId]).filter((x: any) => x != null)),
+    ];
+    const agencyIds = [...new Set(rows.map((r: any) => r.agencyId))];
+    const [people, agencies] = await Promise.all([
+      db.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, displayId: true, isAdmin: true },
+      }),
+      db.chargingAgency.findMany({
+        where: { id: { in: agencyIds } },
+        select: { id: true, agencyName: true, type: true },
+      }),
+    ]);
+    const person = new Map(people.map((p: any) => [p.id, p]));
+    const agency = new Map(agencies.map((a: any) => [a.id, a]));
+    const who = (id: number | null) => {
+      if (id == null) return null;
+      const p: any = person.get(id);
+      return p ? { id: p.id, name: p.name, displayId: p.displayId, isAdmin: p.isAdmin } : { id };
+    };
+
+    return ok(res, {
+      data: {
+        total,
+        page,
+        perPage,
+        totals: sums.map((s: any) => ({
+          kind: s.kind,
+          count: s._count._all,
+          amountCoins: String(s._sum.amountCoins ?? 0),
+        })),
+        rows: rows.map((r: any) => ({
+          id: r.id,
+          createdAt: r.createdAt,
+          kind: r.kind,
+          amountCoins: String(r.amountCoins),
+          note: r.note,
+          memberId: r.memberId,
+          user: who(r.userId),
+          actor: who(r.actorId),
+          counterpart: who(r.counterpartId),
+          agency: agency.get(r.agencyId) ?? { id: r.agencyId },
+        })),
+      },
+    });
+  } catch (e) {
+    console.error('adminListTargetMovements error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
   try {
     const memberId = Number(req.params.memberId);
@@ -2407,6 +2511,15 @@ export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
     });
 
     const newEarned = await memberTargetTotal(updated);
+    await recordTargetMovement({
+      memberId,
+      userId: member.userId,
+      agencyId: member.agencyId,
+      kind: amount > 0 ? 'admin_add' : 'admin_deduct',
+      amountCoins: amount,
+      actorId: req.userId ?? null,
+      note: `قبل ${currentEarned} ← بعد ${newEarned}`,
+    });
 
     try {
       const { createNotification } = await import('../services/notification.service');

@@ -1069,6 +1069,30 @@ model AgencyRequest {
   createdAt   DateTime  @default(now())
 }
 
+/// سجل تعديلات التارجت — every movement of a membership's target balance
+/// (targetAdjustmentCoins), with who caused it. Added 2026-10-03 after a 50M
+/// admin deduction nobody could explain from the dashboard.
+///   kind: admin_add | admin_deduct | sale_out | sale_in | convert | charge
+model TargetMovement {
+  id            Int      @id @default(autoincrement())
+  memberId      Int
+  userId        Int
+  agencyId      Int
+  kind          String
+  /// Signed: negative takes target away.
+  amountCoins   BigInt
+  /// Who did it: the admin for admin_*, otherwise the account itself.
+  actorId       Int?
+  /// The other side: buyer/seller of a sale, the charged user of a charge.
+  counterpartId Int?
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("target_movements")
+}
+
 model AgencyMember {
   id       Int            @id @default(autoincrement())
   agencyId Int

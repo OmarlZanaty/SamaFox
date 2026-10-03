@@ -8,6 +8,7 @@ import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
 import { getHostTargetView, setHostTarget } from '../services/hostTarget.service';
 import { giftWindow, targetBalance } from './targetMath';
+import { recordTargetMovement } from '../services/targetMovement.service';
 
 const db = prisma as any;
 
@@ -277,6 +278,18 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
           where: { id: membership.id },
           data: { targetAdjustmentCoins: { increment: BigInt(coins) } },
         });
+        await recordTargetMovement(
+          {
+            memberId: membership.id,
+            userId: funderId,
+            agencyId: membership.agencyId,
+            kind: 'charge',
+            amountCoins: coins,
+            actorId: funderId,
+            counterpartId: targetUserId,
+          },
+          tx,
+        );
 
         await tx.user.update({
           where: { id: targetUserId },
@@ -1987,6 +2000,18 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
             },
           });
           if (guard.count === 0) throw new TargetRaceError();
+          await recordTargetMovement(
+            {
+              memberId: membership.id,
+              userId,
+              agencyId: membership.agencyId,
+              kind: 'convert',
+              amountCoins: -amount,
+              actorId: userId,
+              note: `تبديل إلى ${credit} كوينز`,
+            },
+            tx,
+          );
           return tx.user.update({
             where: { id: userId },
             data: { coinsBalance: { increment: credit } },
@@ -2146,6 +2171,30 @@ export const sellTarget = async (req: AuthReq, res: Response) => {
               dollarsValue,
             },
           });
+          await recordTargetMovement(
+            {
+              memberId: sellerMembership.id,
+              userId: sellerId,
+              agencyId: sellerMembership.agencyId,
+              kind: 'sale_out',
+              amountCoins: -amount,
+              actorId: sellerId,
+              counterpartId: buyer.id,
+            },
+            tx,
+          );
+          await recordTargetMovement(
+            {
+              memberId: buyerMembership.id,
+              userId: buyer.id,
+              agencyId: buyerMembership.agencyId,
+              kind: 'sale_in',
+              amountCoins: amount,
+              actorId: sellerId,
+              counterpartId: sellerId,
+            },
+            tx,
+          );
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );

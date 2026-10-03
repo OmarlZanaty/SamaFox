@@ -62,6 +62,7 @@ import {
   adminRemoveAgencyMember,
   adminAdjustMemberTarget,
   adminAdjustUserTarget,
+  adminListTargetMovements,
   adminListRoomCupRewards,
   adminSaveRoomCupReward,
   adminDeleteRoomCupReward,
@@ -203,6 +204,7 @@ router.post('/agency-members/:memberId/target-adjust', adminAdjustMemberTarget);
 // target can be adjusted from the user search instead of only from an
 // agency's member list. `?by=id` forces the internal-id reading.
 router.post('/users/:id/target-adjust', adminAdjustUserTarget);
+router.get('/target-movements', adminListTargetMovements);
 // B9 - top supporters board + per-account counter reset.
 router.get('/top-supporters', adminListTopSupporters);
 router.post('/users/:id/reset-supporter-counter', adminResetSupporterCounter);
