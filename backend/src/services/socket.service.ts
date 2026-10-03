@@ -4,6 +4,7 @@ import prisma from '../utils/prisma';
 import { readSettings, voiceEngineForRoom } from '../controllers/settings.controller';
 import { getBanState } from '../utils/banGuard';
 import { startBroadcast, endBroadcast } from './broadcast.service';
+import { applySnapshot, buildSnapshot, takeSnapshotFile, writeSnapshotFile } from './roomStateSnapshot';
 import { isBlockedBetween } from '../utils/blockGuard';
 import { checkDmAccess } from './dmAccess.service';
 import { createNotification } from './notification.service';
@@ -811,6 +812,97 @@ function cancelPendingRelease(uid: number) {
   console.log('[disconnect grace cancelled]', { uid });
 }
 
+/** Hold a disconnected user's seat / room for the grace window. */
+function holdForReconnect(io: Server, uid: number) {
+  cancelPendingRelease(uid);
+  const timer = setTimeout(() => {
+    pendingRoomRelease.delete(uid);
+    // Safety net for the case where they reconnected but never re-joined
+    // the room (app relaunched onto the home screen): only a socket that
+    // is actually back inside the room keeps the seat. A real re-join
+    // already cancelled this timer.
+    hasLiveRoomSocket(io, uid)
+      .then((back) => {
+        if (back) return;
+        releaseUserFromRooms(io, uid);
+      })
+      .catch(() => releaseUserFromRooms(io, uid));
+  }, DISCONNECT_GRACE_MS);
+  timer.unref?.();
+  pendingRoomRelease.set(uid, timer);
+}
+
+// ── Room state across a restart ────────────────────────────────────────────
+// See roomStateSnapshot.ts. A restart is a dropped socket for every phone at
+// once, so it gets the same rule as one: the seat is held while they come
+// back. Phones that were open reconnect and re-send join_room within seconds;
+// after RESTORE_SETTLE_MS anyone online but not back in the room is released,
+// and anyone still offline gets the ordinary disconnect hold.
+const SNAPSHOT_EVERY_MS = 10_000;
+const RESTORE_SETTLE_MS = 2 * 60 * 1000;
+
+function roomStateMaps() {
+  return {
+    roomSeats,
+    roomMuted,
+    roomLockedSeats,
+    roomAdminMutedSeats,
+    roomMicQueue,
+    userCurrentRoom,
+    hiddenInRoom,
+  };
+}
+
+function saveRoomState() {
+  try {
+    writeSnapshotFile(buildSnapshot(roomStateMaps()));
+  } catch (e) {
+    console.warn('[room state] snapshot write failed:', (e as Error).message);
+  }
+}
+
+function restoreRoomState(io: Server) {
+  const restored = applySnapshot(takeSnapshotFile(), roomStateMaps());
+  if (!restored) return;
+  console.log('[room state] restored', { users: restored.users.length, seats: restored.seats });
+  const settle = setTimeout(() => {
+    let released = 0;
+    let held = 0;
+    for (const uid of restored.users) {
+      if (pendingRoomRelease.has(uid)) continue; // already handled by a disconnect
+      const rid = userCurrentRoom.get(uid);
+      if (rid == null) continue; // left, or moved through join_room
+      if (roomSocketUserIds(rid).has(uid)) continue; // back in the room
+      if (isUserOnline(uid)) {
+        releaseUserFromRooms(io, uid);
+        released++;
+      } else {
+        holdForReconnect(io, uid);
+        held++;
+      }
+    }
+    console.log('[room state] settled', { released, held });
+  }, RESTORE_SETTLE_MS);
+  settle.unref?.();
+}
+
+let roomStatePersistenceStarted = false;
+function startRoomStatePersistence(io: Server) {
+  if (roomStatePersistenceStarted) return;
+  roomStatePersistenceStarted = true;
+  restoreRoomState(io);
+  setInterval(saveRoomState, SNAPSHOT_EVERY_MS).unref?.();
+  // pm2 reload sends SIGINT. A listener replaces Node's default exit, so exit
+  // here once the state is on disk.
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(sig, () => {
+      saveRoomState();
+      console.log(`[room state] saved on ${sig}`);
+      process.exit(0);
+    });
+  }
+}
+
 /** Is the user back inside the room we're still holding for them? */
 async function hasLiveRoomSocket(io: Server, uid: number): Promise<boolean> {
   const rid = userCurrentRoom.get(uid);
@@ -913,6 +1005,7 @@ export function broadcastRoomClosed(roomId: number) {
 
 export const initializeSocketHandlers = (io: Server) => {
   _io = io;
+  startRoomStatePersistence(io);
   io.use(async (socket: AuthenticatedSocket, next) => {
   let payload: { userId: number };
   try {
@@ -2659,22 +2752,7 @@ socket.on('webrtc_ice_candidate', ({ to, candidate, roomId }: any) => {
       // back (reconnect), the timer is cancelled and nobody in the room ever
       // saw them leave.
       console.log('[disconnect]', { uid, graceMs: DISCONNECT_GRACE_MS });
-      cancelPendingRelease(uid);
-      const timer = setTimeout(() => {
-        pendingRoomRelease.delete(uid);
-        // Safety net for the case where they reconnected but never re-joined
-        // the room (app relaunched onto the home screen): only a socket that
-        // is actually back inside the room keeps the seat. A real re-join
-        // already cancelled this timer.
-        hasLiveRoomSocket(io, uid)
-          .then((back) => {
-            if (back) return;
-            releaseUserFromRooms(io, uid);
-          })
-          .catch(() => releaseUserFromRooms(io, uid));
-      }, DISCONNECT_GRACE_MS);
-      timer.unref?.();
-      pendingRoomRelease.set(uid, timer);
+      holdForReconnect(io, uid);
     });
   });
 
