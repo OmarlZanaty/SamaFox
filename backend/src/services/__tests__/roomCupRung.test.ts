@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rungDue } from '../roomReward.service';
+import { rungDue } from '../roomCupMath';
 
 const now = new Date('2026-10-03T12:00:00Z');
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3600_000);
