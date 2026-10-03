@@ -57,15 +57,33 @@ export async function roomSupportTotal(roomId: number): Promise<number> {
 }
 
 /**
+ * Whether a rung already paid at [lastPaidAt] may pay again now.
+ *
+ * The support total is a rolling window of [hours] (0 = all-time). A rung used
+ * to be payable once per room FOREVER, so after the room's first party the
+ * total reset, climbed back past the same rung, and the owner got nothing
+ * (2026-10-02: «صاحب الروم بيقول منزلش مكافأة كاس الروم»). Now a rung pays
+ * once per window: once [hours] have passed since its last payout, the rolling
+ * total holds only gifts made AFTER that payout, so nothing is counted twice.
+ */
+export function rungDue(lastPaidAt: Date | null | undefined, hours: number, now = new Date()): boolean {
+  if (!lastPaidAt) return true;
+  if (hours <= 0) return false; // all-time total: each rung pays once per room
+  return now.getTime() - lastPaidAt.getTime() >= hours * 60 * 60 * 1000;
+}
+
+/** Advisory-lock namespace for room cup payouts (one lock per room). */
+const ROOM_CUP_LOCK = 41501;
+
+/**
  * A15a — pay the room owner any كأس الروم rung this room has now crossed.
  *
  * Restricted to hosting agencies ("خاص بوكالة المضيفين فقط"), so an owner who
  * is not an approved hosting-agency member earns nothing here.
  *
  * Best-effort by design: a reward misconfiguration must never fail the gift
- * that triggered it. Idempotency comes from the unique (rewardId, roomId) index
- * — two gifts landing at once both try to insert, one loses, and nobody is paid
- * twice.
+ * that triggered it. Two gifts landing at once are serialised on a per-room
+ * advisory lock, so a rung is never paid twice for one window.
  */
 export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
   try {
@@ -88,6 +106,7 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
     });
     if (!hosting) return;
 
+    const hours = await getRoomSupportWindowHours();
     const total = await roomSupportTotal(roomId);
 
     for (const rung of rungs) {
@@ -96,20 +115,24 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
       const coins = Number(rung.rewardCoins ?? 0);
       if (coins <= 0) continue;
 
-      try {
-        // Claim the rung FIRST. If the insert loses the race, the catch below
-        // swallows it and no coins move — the ledger row is the lock.
-        await db.roomCupRewardPayout.create({
+      const paid = await db.$transaction(async (tx: any) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ROOM_CUP_LOCK}::int, ${roomId}::int)`;
+        const last = await tx.roomCupRewardPayout.findFirst({
+          where: { rewardId: rung.id, roomId },
+          orderBy: { paidAt: 'desc' },
+          select: { paidAt: true },
+        });
+        if (!rungDue(last?.paidAt, hours)) return false;
+        await tx.roomCupRewardPayout.create({
           data: { rewardId: rung.id, roomId, userId: room.ownerId, coins: BigInt(coins) },
         });
-      } catch {
-        continue; // already paid for this room
-      }
-
-      await db.user.update({
-        where: { id: room.ownerId },
-        data: { coinsBalance: { increment: coins } },
+        await tx.user.update({
+          where: { id: room.ownerId },
+          data: { coinsBalance: { increment: coins } },
+        });
+        return true;
       });
+      if (!paid) continue;
 
       createNotification({
         userId: room.ownerId,

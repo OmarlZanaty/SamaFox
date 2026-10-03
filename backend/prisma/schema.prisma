@@ -1727,7 +1727,9 @@ model RoomCupRewardPayout {
 
   reward RoomCupReward @relation(fields: [rewardId], references: [id], onDelete: Cascade)
 
-  @@unique([rewardId, roomId])
+  /// NOT unique: a rung pays again in every new support window (see
+  /// evaluateRoomCupRewards). Concurrency is handled by an advisory lock.
+  @@index([rewardId, roomId, paidAt])
   @@index([roomId])
   @@map("room_cup_reward_payouts")
 }
