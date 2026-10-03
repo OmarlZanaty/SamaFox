@@ -34,7 +34,6 @@ export const getRooms = async (req: Request, res: Response) => {
     const userId = req.userId;
     const safePage = Math.max(1, Math.floor(Number(page) || 1));
     const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 20)));
-    const skip = (safePage - 1) * safeLimit;
 
     const where = {
       ...(userId
@@ -53,7 +52,12 @@ export const getRooms = async (req: Request, res: Response) => {
     // (a light query) and only the page is loaded in full.
     const { ids, live, pinRanks } = await rankedRoomIds(where, FEATURED_ROOM_ID);
     const total = ids.length;
-    const pageIds = ids.slice(skip, skip + safeLimit);
+    // "الغرف اخرها 20 — لو حد فتح غرفه بعد ال 20 بيقفل غرفه تانية" (03/10):
+    // nothing closed them. The home screen asks for page 1 with limit=20 and
+    // never for page 2, so room #21 by live count simply fell off the list.
+    // Page 1 is now the whole list, for every build already installed; later
+    // pages are empty so a client that does page cannot see a room twice.
+    const pageIds = safePage === 1 ? ids : [];
     const pageRows = await prisma.room.findMany({
       where: { id: { in: pageIds } },
       include: roomListInclude,
@@ -104,9 +108,9 @@ export const getRooms = async (req: Request, res: Response) => {
       })),
       pagination: {
         page: safePage,
-        limit: safeLimit,
+        limit: Math.max(safeLimit, total),
         total,
-        totalPages: Math.ceil(total / safeLimit)
+        totalPages: 1
       }
     });
   } catch (error) {

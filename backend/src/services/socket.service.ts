@@ -244,12 +244,37 @@ export function getUserCurrentRoomIds(userIds: number[]): Map<number, number> {
  * nobody was in still showed people and visitors walked into empty rooms. This
  * counts users admitted to the room who still have a live socket; hidden
  * entries are left out, exactly as they are left out of the roster.
+ *
+ * "عدد الناس اللي في الغرف من بره مش العدد الحقيقي" (03/10): the card counted
+ * userCurrentRoom + any live socket, the roster inside counted the sockets in
+ * `room:<id>`, and the two drift (a socket still in an old room, a user whose
+ * only live socket is elsewhere). Both now use [isLiveInRoom], so the number
+ * outside is the list inside.
  */
+function roomSocketUserIds(rid: number): Set<number> {
+  const out = new Set<number>();
+  const sids = _io?.sockets.adapter.rooms.get(`room:${rid}`);
+  if (!sids) return out;
+  for (const sid of sids) {
+    const uid = Number(_io!.sockets.sockets.get(sid)?.data?.userId);
+    if (Number.isFinite(uid) && uid > 0) out.add(uid);
+  }
+  return out;
+}
+
+/** In the room, as everyone else counts it: admitted to it (one room at a
+ *  time), a socket in it right now, and not a hidden entry. */
+function isLiveInRoom(uid: number, rid: number, socketsInRoom: Set<number>): boolean {
+  return userCurrentRoom.get(uid) === rid && socketsInRoom.has(uid) && !isHiddenInRoom(uid, rid);
+}
+
 export function getLiveRoomCounts(): Map<number, number> {
   const out = new Map<number, number>();
+  const socketsByRoom = new Map<number, Set<number>>();
   for (const [uid, rid] of userCurrentRoom) {
-    if (!onlineSockets.has(uid)) continue;
-    if (isHiddenInRoom(uid, rid)) continue;
+    let inRoom = socketsByRoom.get(rid);
+    if (!inRoom) socketsByRoom.set(rid, (inRoom = roomSocketUserIds(rid)));
+    if (!isLiveInRoom(uid, rid, inRoom)) continue;
     out.set(rid, (out.get(rid) ?? 0) + 1);
   }
   return out;
@@ -257,11 +282,8 @@ export function getLiveRoomCounts(): Map<number, number> {
 
 /** The visible users live in a room (for the avatars on a room card). */
 export function getLiveRoomUserIds(roomId: number): number[] {
-  const out: number[] = [];
-  for (const [uid, rid] of userCurrentRoom) {
-    if (rid === roomId && onlineSockets.has(uid) && !isHiddenInRoom(uid, rid)) out.push(uid);
-  }
-  return out;
+  const inRoom = roomSocketUserIds(roomId);
+  return Array.from(inRoom).filter((uid) => isLiveInRoom(uid, roomId, inRoom));
 }
 
 /** For guards that must know the truth (locked-room reads). */
@@ -684,15 +706,12 @@ async function emitVoiceUsers(io: Server, rid: number) {
  */
 async function buildRoomUsers(io: Server, rid: number, viewerId?: number) {
   const sockets = await io.in(`room:${rid}`).fetchSockets();
-  const hidden = hiddenInRoom.get(rid);
-  const ids = Array.from(
-    new Set(
-      sockets
-        .map((s) => Number((s.data as any)?.userId))
-        .filter((n) => Number.isFinite(n) && n > 0)
-        .filter((n) => n === viewerId || !hidden?.has(n)),
-    ),
+  const inRoom = new Set(
+    sockets.map((s) => Number((s.data as any)?.userId)).filter((n) => Number.isFinite(n) && n > 0),
   );
+  // Same rule as the room card's number (getLiveRoomCounts); the viewer always
+  // sees themself.
+  const ids = Array.from(inRoom).filter((n) => n === viewerId || isLiveInRoom(n, rid, inRoom));
   if (ids.length === 0) return [];
 
   const users = await prisma.user.findMany({
