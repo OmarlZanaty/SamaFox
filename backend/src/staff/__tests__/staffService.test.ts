@@ -286,3 +286,7 @@ test('staff reward products come from the role-reward list without becoming gran
   await reject(call(1, 'allowedItems', { itemIds: ['badge'] }, { roleId: 3 }), 403);
   await reject(call(2, 'rewardItems', { itemIds: ['badge'] }, { roleId: 3 }), 403);
 });
+test('an id too large for the database is a clear 400, not a server error', async () => {
+  await reject(call(1, 'lookup', {}, {}, false, { id: '100010100010' }), 400);
+  await reject(call(1, 'vipGrant', { userId: 99999999999, level: 2 }), 400);
+});

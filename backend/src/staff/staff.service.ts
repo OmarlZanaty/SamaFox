@@ -20,7 +20,9 @@ const denied = (): never => fail(403, 'ليس لديك الصلاحية المط
 export function positiveId(value: unknown): number {
   if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) fail(400, 'معرّف غير صالح');
   const id = Number(value);
-  if (!Number.isSafeInteger(id) || id <= 0) fail(400, 'معرّف غير صالح');
+  // Ids are INT4 columns: anything above 2^31-1 is not a user, and passing it on
+  // makes Postgres fail the whole query with a 500 instead of a clear answer.
+  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) fail(400, 'معرّف غير صالح');
   return id;
 }
 const liveWhere = (now: Date) => ({ status: 'ACTIVE', OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] });
