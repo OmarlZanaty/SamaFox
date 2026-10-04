@@ -68,6 +68,9 @@ class SocketService {
   final _bannedController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get bannedStream => _bannedController.stream;
 
+  final _staffAccessChangedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get staffAccessChangedStream => _staffAccessChangedController.stream;
+
   /// A DM was refused because of a block in either direction.
   final _dmBlockedController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get dmBlockedStream => _dmBlockedController.stream;
@@ -679,6 +682,14 @@ class SocketService {
         AppLogger.error('approveMic parse error: $e');
       }
     }
+
+    // نظام الإدارة changed for this account (appointed, extended, withdrawn,
+    // expired, a permission switched). Sent only to the account's own room;
+    // staffMeProvider refetches /staff/me and open staff screens close if the
+    // access is gone.
+    _socket?.on('staff_access_changed', (data) {
+      _staffAccessChangedController.add(data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
+    });
 
     // The server only sends this to the banned account's own room, and then
     // disconnects them. The app listens so the session ends right away instead

@@ -48,6 +48,7 @@ const sectionTitles = {
   cp:        "CP — العلاقة",
   backgrounds: "الخلفيات",
   admins:    "المشرفون",
+  staff:     "👑 نظام الإدارة",
   rewards:   "المكافآت",
   games:     "إدارة اقتصاد الألعاب",
   moderation: "الرسائل والحظر",
@@ -71,6 +72,7 @@ function navigate(sec) {
   if (sec === "cp") loadCpPanel().catch(e => showToast("خطأ: " + e.message));
   if (sec === "backgrounds") loadBackgrounds().catch(e => showToast("خطأ: " + e.message));
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "staff") window.staffLoad?.().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
   // 2026-09-26 pages live in economy-admin.js.
   if (sec === "games") window.econLoadGames?.().catch(e => showToast("خطأ: " + e.message));

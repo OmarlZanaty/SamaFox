@@ -65,6 +65,7 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       المشرفون
     </a>
+    <a href="#" class="nav-item" data-section="staff">👑 نظام الإدارة</a>
     <a href="#" class="nav-item" data-section="rewards">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
       المكافآت
@@ -142,6 +143,16 @@
 
   <!-- CONTENT AREA -->
   <main class="content" id="mainContent">
+
+    <section class="section" id="section-staff" dir="rtl" aria-label="نظام الإدارة">
+      <div class="section-header">
+        <h2 class="section-title">👑 نظام الإدارة</h2>
+        <p class="section-sub">الإداريون والصلاحيات والمنتجات والسجلات</p>
+      </div>
+      <p id="staffAccessNote" class="settings-hint" role="status">جارٍ التحقق من صلاحيات لوحة التحكم…</p>
+      <button type="button" class="btn btn-outline" id="staffRefresh">تحديث قسم الإدارة</button>
+      <div id="staffPanel"></div>
+    </section>
 
     <!-- ======================== OVERVIEW SECTION ======================== -->
     <section class="section active" id="section-overview">
@@ -2082,5 +2093,6 @@
 </div>
 <script src="app.js?v=20260926-econ"></script>
 <script src="economy-admin.js?v=20260926"></script>
+<script src="staff-admin.js?v=20261004b"></script>
 </body>
 </html>

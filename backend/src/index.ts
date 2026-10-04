@@ -52,6 +52,9 @@ import levelRoutes from './routes/level.routes';
 import betaRoutes from './routes/beta.routes';
 import cpRoutes from './routes/cp.routes';
 import { startExpirySweep } from './services/expiry.service';
+import staffRoutes from './staff/staff.routes';
+import staffDashboardRoutes from './staff/staffDashboard.routes';
+import { startStaffExpiryJob } from './staff/staff.service';
 import { startBetaSyncWatchdog } from './services/betaWatchdog.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
@@ -197,6 +200,9 @@ app.use('/api/v1/admin-dashboard-auth', adminDashAuthRoutes);
 app.use('/admin-dashboard-auth', adminDashAuthRoutes); // backward-compatible path
 
 // ✅ admin dashboard routes (reads cookie)
+app.use('/api/v1/staff', staffRoutes);
+app.use('/api/v1/admin-dashboard/staff', staffDashboardRoutes);
+app.use('/admin-dashboard/staff', staffDashboardRoutes);
 app.use('/api/v1/admin-dashboard', adminDashboardRoutes);
 app.use('/admin-dashboard', adminDashboardRoutes); // backward-compatible path
 
@@ -325,6 +331,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // Retire time-limited products, lapsed VIP terms and rented room
   // backgrounds. Runs on boot and every 15 minutes.
   startExpirySweep();
+  startStaffExpiryJob();
   // Notice when the operator's beta-sync PC goes dark and fall back to the
   // email invite, so a signup never just spins. Every minute.
   startBetaSyncWatchdog();

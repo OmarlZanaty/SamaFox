@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:samafox/screens/games_hub_screen.dart';
 import '../providers/locale_provider.dart';
+import '../providers/staff_provider.dart';
 import '../providers/theme_provider.dart';
 import '../theme/app_theme.dart';
 import 'games_hub_screen.dart';
@@ -34,6 +35,8 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       const GamesHubScreen(),       // Index 2
       const ChargingAgentScreen(),  // Index 3
     ];
+    // نظام الإدارة: learn it now so Settings shows it without waiting.
+    ref.read(staffMeProvider);
   }
 
   void _onItemTapped(int index) {

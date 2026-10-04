@@ -2071,3 +2071,132 @@ model CpEffect {
 
   @@map("cp_effects")
 }
+
+// ============================================================
+// 2026-10-04 — نظام الإدارة والصلاحيات (Manager / Super Admin / Admin)
+// ============================================================
+// Operational staff, deliberately separate from User.isAdmin/isSuperAdmin:
+// those are the platform's own dashboard roles (coins, prices, charging). None
+// of these roles reaches anything financial. Every decision is made on the
+// server from these tables (src/staff).
+
+/// One appointment. A user holds at most one ACTIVE row; history is kept.
+///   role:   MANAGER | SUPER_ADMIN | ADMIN
+///   status: ACTIVE | EXPIRED | REVOKED
+model StaffRole {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  role           String
+  status         String    @default("ACTIVE")
+  /// Who made the appointment (null = the platform dashboard).
+  assignedById   Int?
+  /// The staff member this one reports to — the scope tree. A Manager
+  /// appointed from the dashboard has none.
+  parentUserId   Int?
+  startedAt      DateTime  @default(now())
+  expiresAt      DateTime
+  endedAt        DateTime?
+  endedById      Int?
+  endReason      String?
+  /// Products this staff member may grant (Item.ids), chosen by whoever
+  /// manages him. A Manager may grant anything in the dashboard's pool.
+  allowedItemIds String[]  @default([])
+  /// Extra products given to the staff member himself for the term of the
+  /// role, on top of the role's defaults (app setting staff_role_rewards).
+  rewardItemIds  String[]  @default([])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  @@index([userId, status])
+  @@index([parentUserId, status])
+  @@index([status, expiresAt])
+  @@map("staff_roles")
+}
+
+/// One permission switched on for one user. Tied to a role (staffRoleId) it
+/// ends with the role; a standalone row (staffRoleId null) is نظام الحظر
+/// granted to someone who holds no role.
+///   status: ACTIVE | REVOKED | EXPIRED
+model StaffPermission {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  staffRoleId Int?
+  permission  String
+  status      String    @default("ACTIVE")
+  grantedById Int?
+  grantedAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  endedAt     DateTime?
+  endedById   Int?
+
+  @@index([userId, status])
+  @@index([staffRoleId])
+  @@index([status, expiresAt])
+  @@map("staff_permissions")
+}
+
+/// Hosting agencies inside a staff member's scope: the ones he created
+/// (CREATED) and the ones a superior put him on (ASSIGNED).
+model StaffAgencyScope {
+  id           Int      @id @default(autoincrement())
+  staffUserId  Int
+  agencyId     Int
+  kind         String   @default("CREATED")
+  assignedById Int?
+  createdAt    DateTime @default(now())
+
+  @@unique([staffUserId, agencyId])
+  @@index([agencyId])
+  @@map("staff_agency_scopes")
+}
+
+/// A temporary grant (7 days): VIP, Level or a product. `previousValue` is
+/// what the user had before, so the grant ends by putting him back — never
+/// below what he holds in his own right.
+///   type:   VIP | LEVEL | ITEM
+///   source: GRANT (given to a user by staff) | ROLE_REWARD (staff's own perk)
+///   status: ACTIVE | EXPIRED | REVOKED
+model TemporaryEntitlement {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  type          String
+  value         Int?
+  itemId        String?
+  itemType      String?
+  previousValue String?
+  source        String    @default("GRANT")
+  staffRoleId   Int?
+  grantedById   Int?
+  startedAt     DateTime  @default(now())
+  expiresAt     DateTime
+  status        String    @default("ACTIVE")
+  endedAt       DateTime?
+  endedById     Int?
+
+  @@index([userId, type, status])
+  @@index([status, expiresAt])
+  @@index([grantedById, startedAt])
+  @@index([staffRoleId])
+  @@map("temporary_entitlements")
+}
+
+/// Every ban issued through نظام الحظر. The ban itself is enforced from the
+/// User row (isBanned / banExpiresAt, banSource 'staff'); this is its record.
+///   duration: 1d | 7d | 30d | 365d | permanent
+///   status:   ACTIVE | LIFTED | EXPIRED
+model BanRecord {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  bannedById Int
+  duration   String
+  reason     String
+  startedAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  status     String    @default("ACTIVE")
+  liftedAt   DateTime?
+  liftedById Int?
+
+  @@index([userId, status])
+  @@index([bannedById, startedAt])
+  @@map("ban_records")
+}

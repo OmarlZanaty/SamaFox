@@ -993,6 +993,10 @@ function releaseUserFromRooms(io: Server, uid: number) {
 
 let _io: Server | null = null;
 
+export function emitToUser(userId: number, event: string, payload: unknown): void {
+  _io?.to(`user:${userId}`).emit(event, payload);
+}
+
 export function invalidateAdminCacheAndRefresh(roomId: number) {
   adminCacheTTL.delete(roomId);
   if (_io) emitRoomState(_io, roomId).catch(console.error);

@@ -1,0 +1,43 @@
+import { Router } from 'express';
+import { authMiddleware } from '../middlewares/auth.middleware';
+import { staffController as handle, staffResponses } from './staff.controller';
+
+const router = Router();
+router.use(staffResponses);
+router.use(authMiddleware);
+// Role → permission → scope → live expiration → action → audit are enforced
+// together by the service transaction, including requests from modified clients.
+router.get('/me', handle('me'));
+router.get('/permissions/catalog', handle('catalog'));
+router.get('/users/lookup', handle('lookup'));
+router.get('/members', handle('members'));
+router.get('/members/:roleId', handle('member'));
+router.post('/members', handle('appoint'));
+router.post('/members/:roleId/extend', handle('extend'));
+router.post('/members/:roleId/renew', handle('renew'));
+router.post('/members/:roleId/revoke', handle('revoke'));
+router.put('/members/:roleId/permissions', handle('permissions'));
+router.put('/members/:roleId/allowed-items', handle('allowedItems'));
+router.put('/members/:roleId/reward-items', handle('rewardItems'));
+router.get('/ban-holders', handle('banHolders'));
+router.post('/ban-holders', handle('banHolderGrant'));
+router.delete('/ban-holders/:userId', handle('banHolderRevoke'));
+router.get('/items/grantable', handle('grantable'));
+router.get('/items/pool', handle('pool'));
+router.get('/config/role-rewards', handle('roleRewards'));
+router.put('/config/role-rewards', handle('roleRewardsSet'));
+router.post('/grants/vip', handle('vipGrant'));
+router.post('/grants/level', handle('levelGrant'));
+router.post('/grants/item', handle('itemGrant'));
+router.get('/grants', handle('grants'));
+router.post('/grants/:id/revoke', handle('grantRevoke'));
+router.get('/agencies', handle('agencies'));
+router.get('/agencies/:id', handle('agency'));
+router.post('/agencies', handle('agencyCreate'));
+router.post('/agencies/:id/followers', handle('followerAdd'));
+router.delete('/agencies/:id/followers/:staffUserId', handle('followerRemove'));
+router.post('/bans', handle('ban'));
+router.post('/bans/:userId/unban', handle('unban'));
+router.get('/bans', handle('bans'));
+router.get('/audit', handle('audit'));
+export default router;

@@ -10,6 +10,9 @@ import 'blocked_users_screen.dart';
 import 'dm_privacy_screen.dart';
 import 'broadcast_time_screen.dart';
 import 'edit_profile_screen.dart';
+import '../providers/staff_provider.dart';
+import 'staff/staff_ban_screen.dart';
+import 'staff/staff_panel_screen.dart';
 
 /// What the signed-in account is actually allowed to do with التارجت, so the
 /// settings screen only offers the actions that can succeed.
@@ -133,6 +136,10 @@ class SettingsScreen extends ConsumerWidget {
         ref.watch(_targetActionsProvider).valueOrNull ?? const _TargetActions.none();
     final features = ref.watch(_myFeaturesProvider).valueOrNull ?? const [];
     final hiddenMode = features.where((f) => f['key'] == 'HIDDEN_MODE').firstOrNull;
+    // نظام الإدارة — what the server says this account holds right now. The
+    // provider refreshes on the staff_access_changed socket event and on resume,
+    // so a withdrawn role disappears from here without reopening the app.
+    final staff = ref.watch(staffMeProvider).valueOrNull;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentLocale = ref.watch(localeProvider);
@@ -217,6 +224,46 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           const SizedBox(height: 24),
+
+          // نظام الإدارة — only the systems this account actually holds.
+          if (staff != null && (staff.rolePanel || staff.ban)) ...[
+            _buildSectionTitle('نظام الإدارة', theme, isDark),
+            const SizedBox(height: 12),
+            _buildSettingsCard(
+              theme: theme,
+              isDark: isDark,
+              children: [
+                if (staff.rolePanel)
+                  _buildSettingsTile(
+                    icon: staff.manager
+                        ? Icons.workspace_premium
+                        : staff.role == 'SUPER_ADMIN'
+                            ? Icons.diamond_outlined
+                            : Icons.shield_outlined,
+                    title: StaffPanelScreen.titleFor(staff.role),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StaffPanelScreen()),
+                    ),
+                    theme: theme,
+                    isDark: isDark,
+                  ),
+                if (staff.rolePanel && staff.ban) _buildDivider(isDark),
+                if (staff.ban)
+                  _buildSettingsTile(
+                    icon: Icons.gpp_bad_outlined,
+                    title: '🚫 نظام الحظر',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StaffBanScreen()),
+                    ),
+                    theme: theme,
+                    isDark: isDark,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // Target Actions Section — "بيع التارجت" moves target to another
           // account by ID (any amount, up to all of it); "تبديل الكوينزات"
