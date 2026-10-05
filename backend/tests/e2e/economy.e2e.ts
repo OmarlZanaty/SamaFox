@@ -84,7 +84,7 @@ async function seed() {
     const u = await db.user.create({ data: { name: key, displayId: 10_000 + Object.keys(U).length + 1, coinsBalance: 100_000, ...extra } });
     U[key] = u.id;
   };
-  for (const k of ['admin', 'a', 'b', 'c', 'd', 'host', 'e', 'f', 'g', 'h2', 'poor', 'o1', 'o2', 'j', 'hidden', 'bypass']) {
+  for (const k of ['admin', 'a', 'b', 'c', 'd', 'host', 'e', 'f', 'g', 'h2', 'poor', 'o1', 'o2', 'j', 'hidden', 'bypass', 'solo']) {
     await mk(k, k === 'admin' ? { isAdmin: true, isSuperAdmin: true } : k === 'poor' ? { coinsBalance: 10 } : {});
   }
   const g = await db.gift.create({
@@ -191,15 +191,16 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
 
   test('lucky: a second player makes the round competitive — both entries drawn and paid from the pool', async () => {
     const room = await db.room.findFirst({ where: { name: 'lucky-1' } });
+    await db.luckyPool.update({ where: { id: 1 }, data: { balance: { increment: 1_000_000n } } });
     const [a0, b0, pool0] = [await bal(U.a), await bal(U.b), await luckyPool()];
     const r = await sendLucky(U.b, room.id);
     assert.equal(r.status, 200);
     assert.equal(r.body.luckyEntry.status, 'SETTLED');
     assert.equal(r.body.lucky.multiplier, 5);
-    assert.equal(r.body.lucky.payoutCoins, 50, 'x5 on H=10');
-    assert.equal(await bal(U.b), b0 - 100 + 50);
-    assert.equal(await bal(U.a), a0 + 50, "A's pending entry was drawn too");
-    assert.equal(await luckyPool(), pool0 + 70 - 100, 'both wins came out of the pool');
+    assert.equal(r.body.lucky.payoutCoins, 500, 'x5 on the full gift value V=100');
+    assert.equal(await bal(U.b), b0 - 100 + 500);
+    assert.equal(await bal(U.a), a0 + 500, "A's pending entry was drawn too");
+    assert.equal(await luckyPool(), pool0 + 70 - 1000, 'both wins came out of the pool');
     const rolls = await db.luckyRoll.findMany({ where: { roomId: room.id } });
     assert.ok(rolls.every((x: any) => x.status === 'SETTLED' && x.multiplier === 5));
     const round = await db.luckyRound.findFirst({ where: { roomId: room.id } });
@@ -207,7 +208,7 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
     assert.equal(Number(round.totalEntry), 200);
     assert.equal(Number(round.prizePool), 140);
     assert.equal(Number(round.programShare), 60);
-    assert.equal(Number(round.totalWin), 100);
+    assert.equal(Number(round.totalWin), 1000);
   });
 
   test('lucky: a round that closes short of players settles its entries as NO_COMPETITION', async () => {
@@ -224,7 +225,7 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
     assert.equal(await bal(U.c), c0 - 100, 'no refund, no win, nothing minted');
   });
 
-  test('lucky: every multiplier pays m × H, and "no win" pays nothing', async () => {
+  test('lucky: every multiplier pays m × V, and "no win" pays nothing', async () => {
     await db.luckyPool.update({ where: { id: 1 }, data: { balance: 50_000_000n } });
     for (const m of [0, 5, 10, 20, 30, 50, 100, 200, 300, 500]) {
       await setLuckyTiers(m === 0 ? [] : [[m, 10_000]]);
@@ -233,8 +234,8 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
       const f0 = await bal(U.f);
       const r = await sendLucky(U.f, room.id);
       assert.equal(r.body.lucky.multiplier, m, `x${m}`);
-      assert.equal(r.body.lucky.payoutCoins, m * 10, `x${m} pays ${m * 10}`);
-      assert.equal(await bal(U.f), f0 - 100 + m * 10);
+      assert.equal(r.body.lucky.payoutCoins, m * 100, `x${m} pays ${m * 100}`);
+      assert.equal(await bal(U.f), f0 - 100 + m * 100);
     }
   });
 
@@ -244,8 +245,52 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
     const room = await db.room.create({ data: { name: 'lucky-thin', ownerId: U.o1 } });
     await sendLucky(U.e, room.id);
     const r = await sendLucky(U.f, room.id);
-    assert.equal(r.body.lucky.multiplier, 0, 'x500 (5,000) cannot be paid from a 140 pool');
+    assert.equal(r.body.lucky.multiplier, 0, 'x500 (50,000) cannot be paid from a 140 pool');
     assert.ok((await luckyPool()) >= 0);
+  });
+
+  test('lucky: the locked floor (program seed) is never paid out', async () => {
+    await setLuckyTiers([[5, 1000]]);
+    const set = await api('PATCH', '/admin-dashboard/lucky-mgmt/settings', U.admin, { poolFloor: 1_000_000, reason: 'e2e floor' });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    await setLuckyTiers([[5, 10_000]]);
+    await db.luckyPool.update({ where: { id: 1 }, data: { balance: 1_000_000n } });
+    const room = await db.room.create({ data: { name: 'lucky-floor', ownerId: U.o1 } });
+    await sendLucky(U.e, room.id);
+    const r = await sendLucky(U.f, room.id);
+    assert.equal(r.body.lucky.multiplier, 0, 'x5 (500) > the 140 players put in above the floor');
+    assert.ok((await luckyPool()) >= 1_000_000, 'the floor is untouched');
+    await db.luckyPool.update({ where: { id: 1 }, data: { balance: 1_000_000n + 10_000n } });
+    const room2 = await db.room.create({ data: { name: 'lucky-floor-2', ownerId: U.o1 } });
+    await sendLucky(U.e, room2.id);
+    const r2 = await sendLucky(U.f, room2.id);
+    assert.equal(r2.body.lucky.multiplier, 5, "paid from the players' coins above the floor");
+    await setLuckyTiers([[5, 1000]]);
+    const reset = await api('PATCH', '/admin-dashboard/lucky-mgmt/settings', U.admin, { poolFloor: 0, reason: 'e2e floor reset' });
+    assert.equal(reset.status, 200);
+  });
+
+  test('lucky: a lone player is drawn at once (minPlayers 1) but only wins back his own losses', async () => {
+    await setLuckyTiers([[5, 1000]]);
+    const set = await api('PATCH', '/admin-dashboard/lucky-mgmt/settings', U.admin, { minPlayers: 1, reason: 'e2e solo' });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    await setLuckyTiers([[5, 10_000]]);
+    await db.luckyPool.update({ where: { id: 1 }, data: { balance: 10_000_000n } });
+    const room = await db.room.create({ data: { name: 'lucky-solo', ownerId: U.solo } });
+    // Each 100-coin entry puts 70 in the pool; x5 pays 500, so he needs 8
+    // entries (560) behind him before x5 is in his draw.
+    for (let i = 1; i <= 7; i++) {
+      const r = await sendLucky(U.solo, room.id);
+      assert.equal(r.body.luckyEntry.status, 'SETTLED', `entry ${i} drawn at once`);
+      assert.equal(r.body.luckyEntry.multiplier, 0, `entry ${i}: ${i * 70} of his own < 500`);
+    }
+    const s0 = await bal(U.solo);
+    const r8 = await sendLucky(U.solo, room.id);
+    assert.equal(r8.body.lucky.multiplier, 5, '560 of his own losses cover x5');
+    assert.equal(await bal(U.solo), s0 - 100 + 500);
+    await setLuckyTiers([[5, 1000]]);
+    const reset = await api('PATCH', '/admin-dashboard/lucky-mgmt/settings', U.admin, { minPlayers: 2, reason: 'e2e solo reset' });
+    assert.equal(reset.status, 200);
   });
 
   test('lucky: idempotency — a resent request (same key) is charged once and replays the answer', async () => {
@@ -285,7 +330,7 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
     const badTiers = await api('PUT', '/admin-dashboard/lucky-mgmt/tiers', U.admin, { tiers: [{ multiplier: 5, weightBp: 9000 }, { multiplier: 10, weightBp: 2000 }], reason: 'x' });
     assert.equal(badTiers.status, 400, 'probabilities over 100%');
     const hiRtp = await api('PUT', '/admin-dashboard/lucky-mgmt/tiers', U.admin, { tiers: [{ multiplier: 100, weightBp: 1000 }], reason: 'x' });
-    assert.equal(hiRtp.status, 400, 'E[m]×10% = 100% > RTP target');
+    assert.equal(hiRtp.status, 400, 'E[m] = 1000% > RTP target');
     const audit = await db.adminAuditLog.findFirst({ where: { action: 'LUCKY_SETTINGS_UPDATE' } });
     assert.equal(audit.reason, 'e2e limits');
     const h0 = await bal(U.h2);

@@ -1409,7 +1409,7 @@ model LuckyRoll {
   giftCoins      Int      // V — what the sender paid
   hostCoins      Int      // H — the host's 10%
   multiplier     Int      // 0 = lost
-  payoutCoins    Int      // multiplier × H, after the pool cap
+  payoutCoins    Int      // multiplier × V (× H before 2026-10-05), after the pool cap
   poolBefore     BigInt
   poolAfter      BigInt
   serverSeed     String

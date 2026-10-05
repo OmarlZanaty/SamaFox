@@ -22,12 +22,18 @@ import { PROGRAM_ACCOUNT, bpShare, creditAccount } from '../services/economyAcco
 // as above.
 //
 // Draw: the multiplier set is x5 … x500, each with an admin-set probability
-// (basis points; the remainder is "no win"). A win pays m × H to the sender,
-// FROM THE POOL ONLY. A multiplier the pool — or the admin's max win — cannot
-// cover is not in the draw at all, so every shown multiplier is paid in full
-// and the pool can never go negative. The expected return, E[m] × H / V (the
-// RTP), is validated against the admin's RTP target, which cannot exceed the
-// prize-pool share.
+// (basis points; the remainder is "no win"). A win pays m × V — the full gift
+// value (client, 2026-10-05: "خلي المكسب من قيمة الهديه") — to the sender,
+// FROM THE POOL ONLY, and never from its locked floor (`poolFloor`: the
+// program's seed money — "مفيش مكسب من البرنامج نهائي"). A multiplier the
+// pool — or the admin's max win — cannot cover is not in the draw at all, so
+// every shown multiplier is paid in full and the pool can never go below its
+// floor. The expected return, E[m] (the RTP), is validated against the
+// admin's RTP target, which cannot exceed the prize-pool share.
+//
+// A player alone in his round (fewer than 2 players) "wins from his own
+// losses": his win is also capped by what he has put into the pool and not yet
+// won back, so a lone player can never take coins other players lost.
 //
 // Fairness: every entry commits to a fresh server seed at entry time (its hash
 // is stored and returned immediately); the draw at settlement is
@@ -72,6 +78,8 @@ export interface LuckyConfig {
   maxWin: number;
   roundSeconds: number;
   broadcastMin: number;
+  /** Coins at the bottom of the pool that no win may touch (the seed). */
+  poolFloor: number;
 }
 
 export const LUCKY_DEFAULTS: LuckyConfig = {
@@ -87,6 +95,7 @@ export const LUCKY_DEFAULTS: LuckyConfig = {
   maxWin: 1_000_000,
   roundSeconds: 60,
   broadcastMin: LUCKY_BROADCAST_MIN_DEFAULT,
+  poolFloor: 0,
 };
 
 export interface LuckyTierRow {
@@ -189,7 +198,7 @@ export function luckyHostCoins(giftCoins: number, hostShareBp: number) {
 
 export function validateLuckyConfig(c: LuckyConfig): string | null {
   const int = (v: unknown) => Number.isInteger(v);
-  if (![c.programShareBp, c.prizePoolBp, c.hostShareBp, c.minPlayers, c.maxPlayers, c.minEntry, c.maxEntry, c.rtpTargetBp, c.maxWin, c.roundSeconds, c.broadcastMin].every(int)) {
+  if (![c.programShareBp, c.prizePoolBp, c.hostShareBp, c.minPlayers, c.maxPlayers, c.minEntry, c.maxEntry, c.rtpTargetBp, c.maxWin, c.roundSeconds, c.broadcastMin, c.poolFloor].every(int)) {
     return 'كل القيم يجب أن تكون أرقاماً صحيحة';
   }
   if (c.programShareBp < 0 || c.prizePoolBp < 0) return 'النسب لا تكون سالبة';
@@ -202,18 +211,19 @@ export function validateLuckyConfig(c: LuckyConfig): string | null {
   if (c.maxWin < 1) return 'أقصى مكسب يجب أن يكون 1 أو أكثر';
   if (c.roundSeconds < 10 || c.roundSeconds > 3600) return 'مدة الجولة بين 10 ثوانٍ وساعة';
   if (c.broadcastMin < 0) return 'حد الإعلان لا يكون سالباً';
+  if (c.poolFloor < 0) return 'الحد المحجوز في الصندوق لا يكون سالباً';
   return null;
 }
 
 /**
  * Expected multiplier of a tier table, and what it returns per coin of V.
- * RTP = E[m] × hostShare (the win is m × H, H = hostShare × V).
+ * RTP = E[m] (the win is m × V). `hostShareBp` is only reported back.
  */
 export function analyzeTiers(tiers: { multiplier: number; weightBp: number }[], hostShareBp: number, cfg?: Partial<LuckyConfig>) {
   const totalWeight = tiers.reduce((a, t) => a + t.weightBp, 0);
   const expectedMultiplier = tiers.reduce((a, t) => a + (t.multiplier * t.weightBp) / BP, 0);
   const s = hostShareBp / BP;
-  const rtp = expectedMultiplier * s;
+  const rtp = expectedMultiplier;
   const prizePool = (cfg?.prizePoolBp ?? LUCKY_DEFAULTS.prizePoolBp) / BP;
   const rtpTarget = (cfg?.rtpTargetBp ?? LUCKY_DEFAULTS.rtpTargetBp) / BP;
   return {
@@ -440,7 +450,7 @@ export async function rollLucky(tx: Prisma.TransactionClient, input: EntryInput)
 
   let settled: SettledEntry[] = [];
   if (updatedRound.playerCount >= cfg.minPlayers) {
-    settled = await drawPending(tx, round.id, round.code, cfg);
+    settled = await drawPending(tx, round.id, round.code, cfg, updatedRound.playerCount < 2);
   }
 
   const mine = settled.find((s) => s.rollId === own.id);
@@ -453,8 +463,19 @@ export async function rollLucky(tx: Prisma.TransactionClient, input: EntryInput)
   };
 }
 
-/** Draw every pending entry of a competitive round, oldest first. */
-async function drawPending(tx: Prisma.TransactionClient, roundId: number, roundCode: string, cfg: LuckyConfig): Promise<SettledEntry[]> {
+/** What a player has put into the pool and not yet won back (never < 0). */
+async function netPoolContribution(tx: Prisma.TransactionClient, senderId: number) {
+  const agg = await tx.luckyRoll.aggregate({
+    where: { senderId },
+    _sum: { poolCoins: true, payoutCoins: true },
+  });
+  const net = (agg._sum.poolCoins ?? 0) - (agg._sum.payoutCoins ?? 0);
+  return Math.max(0, net);
+}
+
+/** Draw every pending entry of a drawable round, oldest first. `solo`: the
+ *  round has a single player, whose wins are capped by his own losses. */
+async function drawPending(tx: Prisma.TransactionClient, roundId: number, roundCode: string, cfg: LuckyConfig, solo: boolean): Promise<SettledEntry[]> {
   const pending = await tx.luckyRoll.findMany({
     where: { roundId, status: 'PENDING' },
     orderBy: { id: 'asc' },
@@ -470,15 +491,25 @@ async function drawPending(tx: Prisma.TransactionClient, roundId: number, roundC
   let totalWin = 0n;
   for (const p of pending) {
     const pool = (await tx.luckyPool.findUnique({ where: { id: 1 }, select: { balance: true } }))?.balance ?? 0n;
-    // Only multipliers the pool AND the max-win cap can pay are in the draw.
-    // The losing share absorbs the weight of the excluded ones.
+    // Players' money only: the locked floor is never paid out.
+    const floor = BigInt(cfg.poolFloor);
+    const available = pool > floor ? pool - floor : 0n;
+    const soloCap = solo ? BigInt(await netPoolContribution(tx, p.senderId)) : null;
+    // Only multipliers the pool, the max-win cap AND (alone) the player's own
+    // losses can pay are in the draw. The losing share absorbs the weight of
+    // the excluded ones.
     const eligible = tiersAll.filter((t) => {
-      const win = BigInt(t.multiplier * p.hostCoins);
-      return pool >= t.minPoolCoins && pool >= win && t.multiplier * p.hostCoins <= cfg.maxWin;
+      const win = BigInt(t.multiplier) * BigInt(p.giftCoins);
+      return (
+        available >= t.minPoolCoins &&
+        available >= win &&
+        win <= BigInt(cfg.maxWin) &&
+        (soloCap == null || win <= soloCap)
+      );
     });
     const point = drawPointFromSeed(p.serverSeed, p.giftTxId);
     const multiplier = multiplierAtPoint(point, eligible);
-    const payoutCoins = multiplier * p.hostCoins;
+    const payoutCoins = multiplier * p.giftCoins;
 
     let poolAfter = pool;
     if (payoutCoins > 0) {

@@ -207,7 +207,6 @@
 
   function lkAnalyze() {
     const tiers = lkReadTiers();
-    const hostShare = (pctToBp(val("lk_hostShare")) ?? lkCfg?.hostShareBp ?? 1000) / 10_000;
     const rtpTarget = (pctToBp(val("lk_rtp")) ?? lkCfg?.rtpTargetBp ?? 6500) / 10_000;
     let total = 0;
     let em = 0;
@@ -216,9 +215,11 @@
       total += w;
       em += (t.multiplier * w) / 10_000;
       const cell = $(`lkt_c_${i}`);
-      if (cell) cell.textContent = ((t.multiplier * w) / 10_000 * hostShare * 100).toFixed(2) + "%";
+      // The win is m × the gift's full value (2026-10-05), so a tier's share
+      // of the RTP is just m × its probability.
+      if (cell) cell.textContent = ((t.multiplier * w) / 10_000 * 100).toFixed(2) + "%";
     });
-    const rtp = em * hostShare;
+    const rtp = em;
     const okSum = total <= 10_000;
     const okRtp = rtp <= rtpTarget + 1e-9;
     $("lkAnalysis").innerHTML =

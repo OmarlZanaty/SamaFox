@@ -190,7 +190,7 @@ r.patch('/lucky-mgmt/settings', requireSuperAdmin, async (req, res) => {
     const before = await getLuckyConfig();
     const b = req.body ?? {};
     const next: LuckyConfig = { ...before };
-    for (const f of ['programShareBp', 'prizePoolBp', 'hostShareBp', 'minPlayers', 'maxPlayers', 'minEntry', 'maxEntry', 'rtpTargetBp', 'maxWin', 'roundSeconds', 'broadcastMin'] as const) {
+    for (const f of ['programShareBp', 'prizePoolBp', 'hostShareBp', 'minPlayers', 'maxPlayers', 'minEntry', 'maxEntry', 'rtpTargetBp', 'maxWin', 'roundSeconds', 'broadcastMin', 'poolFloor'] as const) {
       if (b[f] === undefined) continue;
       const v = Number(b[f]);
       if (!Number.isFinite(v)) return bad(res, 400, `${f}: رقم غير صالح`);
