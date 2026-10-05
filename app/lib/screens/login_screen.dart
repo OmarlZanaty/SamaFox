@@ -78,7 +78,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'تسجيل الدخول بالايميل',
+                  'تسجيل الدخول بالايميل\nSign in with Email',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,
@@ -92,7 +92,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   keyboardType: TextInputType.emailAddress,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    hintText: 'البريد الإلكتروني',
+                    hintText: 'البريد الإلكتروني / Email',
                     hintStyle: const TextStyle(color: Colors.white70),
                     filled: true,
                     fillColor: Colors.white10,
@@ -108,7 +108,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   obscureText: true,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    hintText: 'كلمة المرور',
+                    hintText: 'كلمة المرور / Password',
                     hintStyle: const TextStyle(color: Colors.white70),
                     filled: true,
                     fillColor: Colors.white10,
@@ -132,7 +132,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           width: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('دخول'),
+                      : const Text('دخول / Sign in'),
                 ),
               ],
             ),
@@ -244,7 +244,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 18),
                   _authButton(
-                    text: 'تسجيل الدخول بالايميل',
+                    text: 'Email / تسجيل الدخول بالايميل',
                     icon: const Icon(
                       Icons.email_outlined,
                       size: 20,
@@ -289,12 +289,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Center(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 26),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
