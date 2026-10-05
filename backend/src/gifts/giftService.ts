@@ -1,6 +1,6 @@
 import prisma from '../utils/prisma';
 import { coinFreezeReason } from '../utils/coinFreeze';
-import { getLuckyConfig, luckyHostCoins, rollLucky, type LuckyRollResult, type SettledEntry } from './lucky.service';
+import { getLuckyConfig, isLuckyGift, luckyHostCoins, rollLucky, type LuckyRollResult, type SettledEntry } from './lucky.service';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
 import { getCpConfig } from '../controllers/settings.controller';
@@ -89,7 +89,8 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   // host's 10%. Everything below that credits or counts "the gift" for the
   // recipient uses `recipientCoins`; everything on the sender's side (the
   // debit, XP, CP) keeps using `totalCoins`.
-  const luckySettings = gift.isLucky ? await getLuckyConfig() : null;
+  const giftIsLucky = isLuckyGift(gift);
+  const luckySettings = giftIsLucky ? await getLuckyConfig() : null;
   if (luckySettings) {
     if (!luckySettings.enabled) throw new GiftSendError('LUCKY_DISABLED', 'هدايا الحظ متوقفة حالياً', 403);
     if (totalCoins < luckySettings.minEntry || totalCoins > luckySettings.maxEntry) {
@@ -100,7 +101,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     }
   }
   const recipientCoins = luckySettings ? luckyHostCoins(totalCoins, luckySettings.hostShareBp) : totalCoins;
-  if (gift.isLucky && recipientCoins <= 0) {
+  if (giftIsLucky && recipientCoins <= 0) {
     throw new GiftSendError('INVALID_AMOUNT', 'Lucky gift too small for a host share');
   }
 
@@ -205,7 +206,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       // ordinary host with 5% of what the client said they get.
       recipientCredit = hostMembership || chargingMembership
         ? 0
-        : gift.isLucky ? recipientCoins : Math.floor(totalCoins / 2);
+        : giftIsLucky ? recipientCoins : Math.floor(totalCoins / 2);
 
       // #4: agency owner's 20% commission on a host's gift earnings, cut from
       // every gift a hosting-agency member receives.
@@ -326,7 +327,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       // and — once the round is competitive — drawn and paid from the pool.
       let lucky: LuckyRollResult | null = null;
       let luckySettled: SettledEntry[] = [];
-      if (gift.isLucky && luckySettings) {
+      if (giftIsLucky && luckySettings) {
         const entry = await rollLucky(tx, {
           giftTxId: txRow.id,
           senderId: input.senderId,
@@ -487,7 +488,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       fireworksColors: gift.fireworksColors,
       coinCost: gift.coinCost,
       broadcastGlobal: gift.broadcastGlobal,
-      isLucky: gift.isLucky,
+      isLucky: isLuckyGift(gift),
     },
   };
 }

@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { sendGiftAtomic, GiftSendError } from './giftService';
 import { readCatalogCache, writeCatalogCache, getCatalogVersion } from './catalogCache';
 import { maybeCreateRelationRequestFromRing } from '../services/relationRing.service';
-import { getLuckySettings, verifyRoll, type LuckyRollResult, type SettledEntry } from './lucky.service';
+import { getLuckySettings, isLuckyGift, verifyRoll, type LuckyRollResult, type SettledEntry } from './lucky.service';
 import type { Server } from 'socket.io';
 
 let ioRef: Server | null = null;
@@ -209,7 +209,7 @@ export async function listCatalog(_req: Request, res: Response) {
         isComboEligible: g.isComboEligible,
         broadcastGlobal: g.broadcastGlobal,
         category: g.category,
-        isLucky: g.isLucky,
+        isLucky: isLuckyGift(g),
         sortOrder: g.sortOrder,
         createdAt: g.createdAt,
       });

@@ -44,6 +44,19 @@ export const LUCKY_BROADCAST_MIN_KEY = 'lucky_broadcast_min_multiplier';
 export const LUCKY_BROADCAST_MIN_DEFAULT = 10;
 export const LUCKY_CONFIG_KEY = 'lucky_config';
 
+/** The dashboard list the app shows as the "محظوظ" tab. */
+export const LUCKY_CATEGORY_KEY = 'lucky';
+
+/**
+ * A gift is lucky when its flag is set OR it sits in the "lucky" list. The app
+ * has always shown both in the محظوظ tab; the server used to honour only the
+ * flag, so a gift filed under the list without ticking the box was shown as
+ * lucky and sent as an ordinary gift — no round, no draw.
+ */
+export function isLuckyGift(g: { isLucky: boolean; category?: string | null }) {
+  return g.isLucky || (g.category ?? '').trim() === LUCKY_CATEGORY_KEY;
+}
+
 const BP = 10_000;
 
 export interface LuckyConfig {
