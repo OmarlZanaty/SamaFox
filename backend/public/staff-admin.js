@@ -68,8 +68,7 @@
   }
   function init() {
     $("staffPanel").innerHTML = card("تعيين Manager", `<form id="staffAppoint" class="form-row">
-      <label>نوع المعرّف <select id="staffIdKind" class="form-select"><option value="displayId">المعرّف الظاهر</option><option value="userId">المعرّف الداخلي</option></select></label>
-      <label>معرّف المستخدم <input id="staffUserId" class="form-input" type="number" min="1" step="1" required></label>
+      <label>ID المستخدم <input id="staffUserId" class="form-input" type="number" min="1" step="1" required placeholder="الـ ID اللي ظاهر في بروفايله"></label>
       <label>المدة بالأيام <input id="staffDays" class="form-input form-input--sm" type="number" min="1" max="365" step="1" value="30" required></label>
       <button class="btn btn-primary" type="submit" disabled>تعيين Manager</button></form>`)
       + card("الإداريون", `<form id="staffFilters" class="form-row"><label>الدور <select id="staffRoleFilter" class="form-select">${options(roles, "كل الأدوار")}</select></label>
@@ -80,7 +79,7 @@
       + card("حاملو صلاحية الحظر", '<p class="settings-hint">للعرض فقط. تشمل القائمة المديرين الذين يملكون الصلاحية تلقائيًا.</p><div id="staffHolders"></div>')
       + card("المنح المؤقتة", '<div id="staffGrants"></div>')
       + card("حظر نظام الإدارة", '<div id="staffBans"></div>')
-      + card("سجل عمليات الإدارة", `<form id="staffAuditFilters" class="form-row"><label>المعرّف الداخلي للفاعل <input id="staffAuditActor" class="form-input" type="number" min="0" step="1" placeholder="الكل؛ ٠ لعمليات النظام"></label>
+      + card("سجل عمليات الإدارة", `<form id="staffAuditFilters" class="form-row"><label>ID الإداري <input id="staffAuditActor" class="form-input" type="number" min="0" step="1" placeholder="فاضي = الكل · ٠ = النظام"></label>
       <label>العملية <select id="staffAuditAction" class="form-select">${options(actions, "كل العمليات")}</select></label><button class="btn btn-outline">بحث</button></form><div id="staffAudit"></div>`);
   }
   function renderMembers() {
@@ -162,9 +161,19 @@
     const targets = { user: "مستخدم", staff: "تعيين", agency: "وكالة", grant: "منحة", ban: "حظر", setting: "إعداد" };
     return table(["العملية", "التاريخ", "الفاعل", "الإجراء", "الهدف", "قبل", "بعد", "السبب", "عنوان الاتصال والجهاز"], rows.map(r => `<tr><td>${esc(r.id)}</td><td>${date(r.createdAt)}</td><td>${person(r.actor, r.adminId)}</td><td>${esc(actions[r.action] || "عملية إدارية أخرى")}</td><td>${esc(targets[r.targetType] || "—")} · ${esc(r.targetId)}${r.targetUserId ? "<br>" + person(r.targetUser, r.targetUserId) : ""}</td><td>${json(r.before)}</td><td>${json(r.after)}</td><td>${esc(r.reason || "—")}</td><td dir="auto">${esc(r.ip || "—")}<div class="cell-muted">${esc(r.userAgent || "—")}</div></td></tr>`));
   }
+  // The filter takes the ID shown on the profile; the log is keyed by the
+  // internal one. Any staff user on the page can be translated; anything else
+  // is passed through unchanged (0 = the system).
+  function actorIdFromDisplay(n) {
+    if (!n) return n;
+    for (const r of state.members) {
+      for (const u of [r.user, r.assignedBy, r.parent]) if (u && Number(u.displayId) === n) return u.id;
+    }
+    return n;
+  }
   function loadAudit(page = 1) {
     const query = new URLSearchParams({ page: String(page) });
-    if (value("staffAuditActor")) query.set("actorId", value("staffAuditActor"));
+    if (value("staffAuditActor")) query.set("actorId", String(actorIdFromDisplay(Number(value("staffAuditActor")))));
     if (value("staffAuditAction")) query.set("action", value("staffAuditAction"));
     return loadPanel("staffAudit", async () => {
       const data = await api("/audit?" + query);
@@ -232,7 +241,8 @@
     if (form.id === "staffAppoint") {
       const id = Number(value("staffUserId"));
       if (!Number.isSafeInteger(id) || id < 1) throw new Error("معرّف المستخدم غير صالح");
-      await mutate("/managers", "POST", { [value("staffIdKind")]: id, days: Number(value("staffDays")) });
+      // The ID people see on the profile — the only one the owner knows.
+      await mutate("/managers", "POST", { displayId: id, days: Number(value("staffDays")) });
       $("staffUserId").value = "";
     } else if (form.id === "staffActionForm") {
       const action = form.dataset.action;
