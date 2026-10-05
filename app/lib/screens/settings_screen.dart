@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'about_screen.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/theme_provider.dart';
@@ -465,18 +466,12 @@ class SettingsScreen extends ConsumerWidget {
               _buildSettingsTile(
                 icon: Icons.info_outline,
                 title: strings.about,
-                trailing: Text(
-                  '${strings.version} 1.0.0',
-                  style: TextStyle(
-                    color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
-                    fontSize: 14,
-                  ),
+                // Opened the "coming soon" toast and claimed version 1.0.0;
+                // the About screen shows the installed version.
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AboutScreen()),
                 ),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(strings.searchComingSoon)),
-                  );
-                },
                 theme: theme,
                 isDark: isDark,
               ),

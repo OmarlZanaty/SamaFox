@@ -157,6 +157,7 @@ flutter:
     - assets/fonts/
     - assets/frames/gold_wings.png
     - assets/icons/
+    - assets/branding/
     - assets/mega/
     - assets/seat_effect.mp4
     - assets/sounds/
