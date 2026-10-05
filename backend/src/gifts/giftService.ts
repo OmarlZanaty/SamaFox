@@ -335,7 +335,6 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
           roomId: input.roomId ?? null,
           giftCoins: totalCoins,
           hostCoins: recipientCoins,
-          isSelfGift,
           cfg: luckySettings,
         });
         lucky = entry.own;

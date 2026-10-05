@@ -288,8 +288,8 @@ interface EntryInput {
   roomId: number | null;
   giftCoins: number; // V
   hostCoins: number; // H
-  /** A gift to yourself never wins and is not a player in the round. */
-  isSelfGift: boolean;
+  // A gift to yourself enters the round like any other (owner's call,
+  // 2026-10-05: the client tested by gifting himself and never saw a draw).
   cfg: LuckyConfig;
 }
 
@@ -397,36 +397,6 @@ export async function rollLucky(tx: Prisma.TransactionClient, input: EntryInput)
 
   const serverSeed = crypto.randomBytes(16).toString('hex');
   const serverSeedHash = rollHash(serverSeed);
-
-  // A self-gift is not a player: recorded, never drawn, never counted.
-  if (input.isSelfGift) {
-    const roll = await tx.luckyRoll.create({
-      data: {
-        giftTxId: input.giftTxId,
-        senderId: input.senderId,
-        recipientId: input.recipientId,
-        roomId: input.roomId,
-        giftCoins: V,
-        hostCoins: H,
-        multiplier: 0,
-        payoutCoins: 0,
-        poolBefore: funded.balance - BigInt(poolCoins),
-        poolAfter: funded.balance,
-        serverSeed,
-        serverSeedHash,
-        tiersSnapshot: [],
-        programCoins,
-        poolCoins,
-        status: 'SETTLED',
-        settledAt: new Date(),
-      },
-      select: { id: true },
-    });
-    return {
-      own: { rollId: roll.id, status: 'SETTLED', roundCode: null, multiplier: 0, payoutCoins: 0, hostCoins: H, poolAfter: funded.balance, serverSeedHash },
-      settled: [],
-    };
-  }
 
   const round = await openRoundFor(tx, input.roomId, input.senderId, cfg);
   const isNewPlayer = !(await tx.luckyRoll.findFirst({
