@@ -15,6 +15,7 @@ import 'package:dio/dio.dart';
 
 import '../gifts/widgets/video_gift_player.dart';
 import '../widgets/product_video_layer.dart';
+import 'device_tier.dart';
 import 'dio_client.dart';
 
 /// Why the app died, in the app's own words.
@@ -230,7 +231,7 @@ class CrashReporter {
     await _recoverPreviousSession();
     await _markSessionOpen();
     _startRssSampling();
-    breadcrumb('app start $_appVersion');
+    breadcrumb('app start $_appVersion ${DeviceTier.summary}');
   }
 
   /// Runs [body] in a zone that catches everything escaping it, so an error

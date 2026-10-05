@@ -175,6 +175,21 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(out)
                     }
+                    // How much RAM the phone has, so the app can go easy on a
+                    // 2–4 GB one: an OPPO A15 and a Samsung A30 were killed on
+                    // entering a room many times a day (05/10) while phones
+                    // with more memory sat in the same room for hours.
+                    "deviceRam" -> {
+                        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val mi = ActivityManager.MemoryInfo()
+                        am.getMemoryInfo(mi)
+                        result.success(
+                            mapOf(
+                                "totalMb" to (mi.totalMem / (1024 * 1024)).toInt(),
+                                "lowRam" to am.isLowRamDevice,
+                            )
+                        )
+                    }
                     // Off the main thread: a native crash's tombstone is read
                     // and decoded here, and it can run to a few hundred KB.
                     "lastExit" -> Thread {

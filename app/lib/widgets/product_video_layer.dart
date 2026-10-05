@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../services/device_tier.dart';
+
 /// D5 — "جميع المنتجات اضيف (صوره- فيديو)".
 ///
 /// The upload endpoint has accepted a video for every product type since
@@ -64,8 +66,9 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
   /// 29/09: rooms still sat at 1–1.7 GB of graphics memory on 1.0.41 (Xiaomi,
   /// realme, Samsung A13). Each of these players holds a hardware decoder plus
   /// its frame buffers at the clip's own resolution — often 1080x1920 for a
-  /// thing drawn a few dozen pixels wide — so three is the ceiling now.
-  static const int _maxActive = 3;
+  /// thing drawn a few dozen pixels wide — so three is the ceiling now, and
+  /// one on a 2–4 GB phone (05/10, see [DeviceTier]).
+  static int get _maxActive => DeviceTier.lite ? 1 : 3;
   static int _active = 0;
 
   bool _holdsSlot = false;

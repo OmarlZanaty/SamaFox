@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/device_tier.dart';
 import '../models/gift.dart';
 import '../services/gift_socket_service.dart';
 import 'broadcast_banner_layer.dart';
@@ -57,7 +58,9 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   static const Duration _giftSoundThrottle = Duration(milliseconds: 320);
   DateTime? _lastGiftSoundAt;
 
-  static const int _maxConcurrent = 24;
+  /// Gift flights on screen at once. A x50 burst in a busy room (room 87 took
+  /// 40k gifts on 05/10) keeps this full; on a 2–4 GB phone a third of it.
+  static int get _maxConcurrent => DeviceTier.lite ? 8 : 24;
   static const int _staggerMs = 180;
 
   @override

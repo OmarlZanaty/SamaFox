@@ -14,6 +14,7 @@ import '../providers/room_controller_provider.dart';
 import '../models/user.dart';
 import '../providers/room_live_provider.dart';
 import '../providers/room_provider.dart';
+import '../services/device_tier.dart';
 import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
@@ -329,9 +330,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // Release the decoder now, not when the next effect or the room exit comes
     // round: a finished 1080x1920 entrance clip otherwise keeps its decoder and
     // frame buffers (graphics memory) for as long as the user stays.
+    //
+    // But not in this frame: the setState above only SCHEDULES the frame that
+    // drops the VideoPlayer, so disposing here released the decoder and its
+    // texture while the raster thread could still be drawing them. 1.0.46 did
+    // exactly that, and an OPPO A15 (Android 10) started dying silently ~13 s
+    // after entering a room — the length of its owner's own entrance clip —
+    // most times she entered (05/10). Release it once the frame without it is
+    // out, with a margin for the raster thread.
     if (identical(_seatVideoController, controller)) {
       _seatVideoController = null;
-      unawaited(controller.dispose());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future<void>.delayed(const Duration(milliseconds: 500), controller.dispose);
+      });
     }
 
     await Future.delayed(const Duration(milliseconds: 400));
@@ -3020,6 +3031,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _seatEffectSub = SocketService().seatEffectStream.listen((event) {
         final videoUrl = event['video'];
         if (videoUrl == null || videoUrl.toString().isEmpty) return;
+        // A full-screen clip is a hardware decoder at the clip's resolution,
+        // arriving exactly while the room is loading. On a 2–4 GB phone only
+        // the user's OWN entrance plays; the others still get the banner.
+        if (DeviceTier.lite &&
+            event['userId']?.toString() != _myUserId?.toString()) {
+          return;
+        }
         _seatEffectQueue.add(videoUrl);
         _tryPlayNextEffect();
       });
