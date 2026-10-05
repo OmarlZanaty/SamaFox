@@ -9,6 +9,7 @@ import android.media.AudioRecordingConfiguration
 import android.media.MediaRecorder
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
@@ -39,10 +40,18 @@ class MainActivity : FlutterActivity() {
         const val DEVICE_CHANNEL = "samafox/device"
         const val MIC_SHARE_CHANNEL = "samafox/mic_share"
         const val REQ_PROJECTION = 7311
+        const val BLANK_LINE = "\n\n"
     }
 
     /** Answered once the consent dialog comes back. */
     private var pendingRecordResult: MethodChannel.Result? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Before super: a plugin that throws while the engine attaches must
+        // already find the handler in place.
+        JavaCrashLog.install(applicationContext)
+        super.onCreate(savedInstanceState)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -236,7 +245,12 @@ class MainActivity : FlutterActivity() {
                 "pssMb" to (info.pss / 1024).toInt(),
                 "rssMb" to (info.rss / 1024).toInt(),
                 "at" to info.timestamp,
-                "trace" to if (info.reason == 5) nativeCrashSummary(info) else null,
+                "trace" to when (info.reason) {
+                    4 -> JavaCrashLog.take(this, info.timestamp)
+                    5 -> nativeCrashSummary(info)
+                    6 -> anrSummary(info)
+                    else -> null
+                },
             )
         } catch (e: Throwable) {
             null
@@ -268,6 +282,33 @@ class MainActivity : FlutterActivity() {
             Tombstone.summarize(bytes)
         } catch (e: Throwable) {
             "tombstone unreadable: ${e.javaClass.simpleName} ${e.message}"
+        }
+    }
+
+    /**
+     * The main thread's stack from an ANR's traces file (API 30+) — what it was
+     * stuck on. On 29/09 a realme froze in a room with 1.6 GB resident and the
+     * report said only "Input dispatching timed out".
+     */
+    private fun anrSummary(info: android.app.ApplicationExitInfo): String? {
+        return try {
+            val text = info.traceInputStream?.bufferedReader()?.use { r ->
+                val sb = StringBuilder()
+                var line = r.readLine()
+                while (line != null && sb.length < 512 * 1024) {
+                    sb.appendLine(line)
+                    line = r.readLine()
+                }
+                sb.toString()
+            } ?: return null
+            // Thread blocks are separated by blank lines; the main one starts
+            // with "\"main\"".
+            val start = text.indexOf("\"main\"")
+            if (start < 0) return text.take(7800)
+            val end = text.indexOf(BLANK_LINE, start).let { if (it < 0) text.length else it }
+            text.substring(start, end).take(7800)
+        } catch (e: Throwable) {
+            "anr trace unreadable: ${e.javaClass.simpleName} ${e.message}"
         }
     }
 
@@ -320,6 +361,53 @@ class MainActivity : FlutterActivity() {
         } else {
             // Declined, or dismissed. Not an error — the user said no.
             result?.success(false)
+        }
+    }
+}
+
+/**
+ * A JVM crash's stack, kept for the next launch. Android records WHY the
+ * process died (REASON_CRASH) but, unlike a native crash, keeps no trace: a
+ * realme RMX3690 crashed on start on 29/09 and the report carried nothing else.
+ * The handler writes the stack to a file and hands over to the previous
+ * handler, so the crash itself (and Play's own reporting) is unchanged.
+ */
+private object JavaCrashLog {
+    private const val FILE = "last_java_crash.txt"
+    private const val NL = '\n'
+    @Volatile private var installed = false
+
+    fun install(context: Context) {
+        if (installed) return
+        installed = true
+        val file = java.io.File(context.filesDir, FILE)
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            try {
+                val sw = java.io.StringWriter()
+                error.printStackTrace(java.io.PrintWriter(sw))
+                file.writeText(
+                    System.currentTimeMillis().toString() + NL +
+                        "thread " + thread.name + NL + sw.toString().take(7600)
+                )
+            } catch (_: Throwable) {
+            }
+            previous?.uncaughtException(thread, error)
+        }
+    }
+
+    /** The stack saved for a crash at [at] (epoch ms), once; null if none. */
+    fun take(context: Context, at: Long): String? {
+        val file = java.io.File(context.filesDir, FILE)
+        if (!file.exists()) return null
+        return try {
+            val text = file.readText()
+            file.delete()
+            val savedAt = text.substringBefore(NL).toLongOrNull() ?: return null
+            // Written just before the process died; anything else is stale.
+            if (kotlin.math.abs(at - savedAt) > 60_000) null else text.substringAfter(NL)
+        } catch (_: Throwable) {
+            null
         }
     }
 }

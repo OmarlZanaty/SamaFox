@@ -18,6 +18,7 @@ import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
 import '../services/voice_engine.dart';
+import '../services/livekit_voice_engine.dart';
 import 'room/pin_dialog.dart';
 import 'room/room_widgets.dart';
 import '../services/room_audio_keepalive.dart';
@@ -324,6 +325,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     setState(() {
       _showSeatVideo = false;
     });
+
+    // Release the decoder now, not when the next effect or the room exit comes
+    // round: a finished 1080x1920 entrance clip otherwise keeps its decoder and
+    // frame buffers (graphics memory) for as long as the user stays.
+    if (identical(_seatVideoController, controller)) {
+      _seatVideoController = null;
+      unawaited(controller.dispose());
+    }
 
     await Future.delayed(const Duration(milliseconds: 400));
 
@@ -3152,6 +3161,60 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
   }
 
+  static const String _kBgHintAt = 'bg_activity_hint_at';
+  static const String _kBgHintCount = 'bg_activity_hint_count';
+
+  /// OPPO, realme and Xiaomi cut an app's network as soon as it leaves the
+  /// screen, foreground service or not (29/09: voice and socket dead within a
+  /// second of "lifecycle paused", every time, for the same users). Only the
+  /// user can lift that, in the phone's settings. So when it has just happened
+  /// to them, and at most once every 3 days and 3 times in all, say so.
+  Future<void> _maybeAskForBackgroundActivity() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    if (!LiveKitVoiceEngine().takeBackgroundDrop()) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final count = prefs.getInt(_kBgHintCount) ?? 0;
+      final last = prefs.getInt(_kBgHintAt) ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (count >= 3 || now - last < const Duration(days: 3).inMilliseconds) return;
+      if (!mounted) return;
+      await prefs.setInt(_kBgHintAt, now);
+      await prefs.setInt(_kBgHintCount, count + 1);
+      CrashReporter.breadcrumb('bg activity hint shown #${count + 1}');
+      if (!mounted) return;
+      final open = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('الصوت اتقطع وانت برّه التطبيق'),
+          content: const Text(
+            'الموبايل بيوقف النت عن التطبيق لما تخرج منه، علشان يوفّر البطارية.\n\n'
+            'علشان الصوت يفضل شغال:\n'
+            'افتح الإعدادات ← البطارية ← واختار «السماح بالنشاط في الخلفية» '
+            'أو «بدون قيود».',
+            textDirection: TextDirection.rtl,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('لاحقاً'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('فتح الإعدادات'),
+            ),
+          ],
+        ),
+      );
+      if (open == true) {
+        CrashReporter.breadcrumb('bg activity hint -> settings');
+        await openAppSettings();
+      }
+    } catch (e) {
+      debugPrint('background activity hint failed: $e');
+    }
+  }
+
   /// Re-establish the live session after the app comes back to the foreground.
   Future<void> _resumeInRoom() async {
     try {
@@ -3177,6 +3240,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
     unawaited(AudioRoute.instance.apply());
     unawaited(AudioRoute.instance.applyVolume());
+    unawaited(_maybeAskForBackgroundActivity());
 
     // The mic was NOT closed on the way out — this only repairs it if the OS
     // (a phone call, another app grabbing the microphone) interrupted it while

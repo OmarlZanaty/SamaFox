@@ -27,6 +27,9 @@ class ProductVideoLayer extends StatefulWidget {
   final String url;
   final BoxFit fit;
 
+  /// Decoders held right now by all product videos, for the memory breadcrumb.
+  static int get activeCount => _ProductVideoLayerState._active;
+
   @override
   State<ProductVideoLayer> createState() => _ProductVideoLayerState();
 }
@@ -57,8 +60,14 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
   /// 700 MB – 1.2 GB on mid-range phones and 26 sessions killed by the OS. Past
   /// the cap a decoration simply does not play — the same "no decoration" look
   /// as a clip that fails to load — until a slot frees up.
-  static const int _maxActive = 6;
+  ///
+  /// 29/09: rooms still sat at 1–1.7 GB of graphics memory on 1.0.41 (Xiaomi,
+  /// realme, Samsung A13). Each of these players holds a hardware decoder plus
+  /// its frame buffers at the clip's own resolution — often 1080x1920 for a
+  /// thing drawn a few dozen pixels wide — so three is the ceiling now.
+  static const int _maxActive = 3;
   static int _active = 0;
+
   bool _holdsSlot = false;
 
   void _releaseSlot() {

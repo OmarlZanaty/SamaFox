@@ -13,6 +13,8 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:dio/dio.dart';
 
+import '../gifts/widgets/video_gift_player.dart';
+import '../widgets/product_video_layer.dart';
 import 'dio_client.dart';
 
 /// Why the app died, in the app's own words.
@@ -334,7 +336,10 @@ class CrashReporter {
       return 'pss=${mb('total-pss')} java=${mb('java-heap')} '
           'native=${mb('native-heap')} gfx=${mb('graphics')} '
           'code=${mb('code')} other=${mb('private-other')} '
-          'sys=${mb('system')}';
+          'sys=${mb('system')} '
+          // Video decoders are the main holder of graphics memory we control;
+          // this says whether a high gfx comes with them or without them.
+          'vid=${ProductVideoLayer.activeCount}+${VideoGiftPlayer.liveCount}';
     } catch (_) {
       return '';
     }
