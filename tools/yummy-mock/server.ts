@@ -9,18 +9,19 @@
  * Not part of the app or the backend: nothing imports it and it moves no coins.
  *
  *   cd backend && npx ts-node --transpile-only ../tools/yummy-mock/server.ts
- *   GET /scene/:name  force the next spin: bonus | jackpot | win | auto
+ *   GET /scene/:name  force the next spin: win | tumble | bonus | jackpot | mega | auto
  */
 import crypto from 'crypto';
 import path from 'path';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const express = require(path.join(__dirname, '../../backend/node_modules/express'));
 import {
-  BET_STEPS, PAYLINES, PAYTABLE, JACKPOT_MULTIPLIER, MATH_VERSION, TARGET_RTP,
-  RngStream, computeSpin, scoreGrid, validBet, Symbol,
+  BET_STEPS, PAYLINES, PAYTABLE, JACKPOT_MULTIPLIER, MATH_VERSION, TARGET_RTP, MAX_MULTIPLIER,
+  TUMBLE_MULTIPLIERS, FREE_SPIN_AWARDS, EXPANDING_REELS, SYMBOLS, WEIGHTS,
+  Rng, RngStream, computeSpin, validBet, Symbol,
 } from '../../backend/src/services/yummy.math';
 
-const PORT = 3100;
+const PORT = Number(process.argv[process.argv.indexOf('--port') + 1]) || 3100;
 let balance = 500_000;
 let scene = 'auto';
 let serverSeed = crypto.randomBytes(32).toString('hex');
@@ -32,27 +33,50 @@ const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 const layout = {
   betSteps: BET_STEPS, minLines: 1, maxLines: 9, paylines: PAYLINES, paytable: PAYTABLE,
   jackpotMultiplier: JACKPOT_MULTIPLIER, mathVersion: MATH_VERSION, mathRtp: TARGET_RTP,
-  enabled: true, minBet: 10, maxBet: 9000, maxWinPerRound: null, dailyMaxWinPerUser: null,
+  tumbleMultipliers: TUMBLE_MULTIPLIERS, freeSpinAwards: FREE_SPIN_AWARDS, expandingReels: EXPANDING_REELS,
+  maxMultiplier: MAX_MULTIPLIER, enabled: true, minBet: 10, maxBet: 9000, maxWinPerRound: null, dailyMaxWinPerUser: null,
 };
 const fairness = () => ({ serverSeedHash: hash(serverSeed), clientSeed, nonce });
 
-/** Forced scenes swap in a hand-made grid and rescore it with the real math. */
+/** The float that makes the weighted strip draw [symbol]. */
+function floatFor(symbol: Symbol) {
+  const total = WEIGHTS.reduce((a, b) => a + b, 0);
+  let before = 0;
+  for (let i = 0; i < SYMBOLS.length; i++) {
+    if (SYMBOLS[i] === symbol) return (before + WEIGHTS[i]! / 2) / total;
+    before += WEIGHTS[i]!;
+  }
+  return 0;
+}
+/** Feeds [script] draws first, then the real HMAC stream, through the REAL math. */
+const scripted = (script: Symbol[], rest: Rng): Rng => {
+  let i = 0;
+  return { nextFloat: () => (i < script.length ? floatFor(script[i++]!) : rest.nextFloat()) };
+};
+const row = (...s: Symbol[]) => s;
+const SCENES: Record<string, Symbol[]> = {
+  // Cherry line through a WILD on the middle row.
+  win: [...row('lemon', 'orange', 'grapes', 'candy', 'strawberry'), ...row('cherry', 'cherry', 'wild', 'cherry', 'lemon'),
+    ...row('orange', 'grapes', 'lemon', 'diamond', 'watermelon')],
+  // Middle-row lemons pop; the scripted refills then complete the top row twice more.
+  tumble: [...row('grapes', 'candy', 'orange', 'diamond', 'watermelon'),
+    ...row('lemon', 'lemon', 'lemon', 'lemon', 'grapes'), ...row('orange', 'watermelon', 'candy', 'orange', 'diamond'),
+    ...row('strawberry', 'strawberry', 'strawberry', 'strawberry'),
+    ...row('watermelon', 'watermelon', 'watermelon', 'watermelon')],
+  // Three BONUS → 8 free spins; the first free spin lands an expanding WILD.
+  bonus: [...row('bonus', 'lemon', 'grapes', 'candy', 'strawberry'), ...row('orange', 'cherry', 'bonus', 'diamond', 'lemon'),
+    ...row('watermelon', 'grapes', 'orange', 'lemon', 'bonus'),
+    ...row('grapes', 'grapes', 'wild', 'lemon', 'orange'), ...row('cherry', 'grapes', 'candy', 'diamond', 'strawberry'),
+    ...row('lemon', 'orange', 'watermelon', 'cherry', 'candy')],
+  jackpot: [...row('lemon', 'orange', 'grapes', 'candy', 'strawberry'), ...row('jackpot', 'jackpot', 'jackpot', 'jackpot', 'lemon'),
+    ...row('orange', 'grapes', 'lemon', 'diamond', 'watermelon')],
+  mega: [...row('diamond', 'wild', 'diamond', 'diamond', 'diamond'), ...row('wild', 'diamond', 'wild', 'diamond', 'wild'),
+    ...row('diamond', 'diamond', 'diamond', 'wild', 'diamond')],
+};
+
 function forced(bet: number, lines: number) {
-  const spin = computeSpin(new RngStream(serverSeed, clientSeed, nonce), bet, lines);
-  const fill = (cells: Record<number, Symbol>) =>
-    spin.grid.map((s, i) => cells[i] ?? (s === 'bonus' || s === 'jackpot' ? 'lemon' : s));
-  let grid = spin.grid;
-  if (scene === 'win') grid = fill({ 5: 'cherry', 6: 'cherry', 7: 'wild', 8: 'cherry' });
-  if (scene === 'jackpot') grid = fill({ 5: 'jackpot', 6: 'jackpot', 7: 'jackpot' });
-  if (scene === 'bonus') grid = fill({ 0: 'bonus', 7: 'bonus', 14: 'bonus' });
-  if (scene === 'auto') return spin;
-  const wins = scoreGrid(grid, bet, lines);
-  const bonusTriggered = grid.filter((s) => s === 'bonus').length >= 3;
-  const bonusMultiplier = bonusTriggered ? 5 : 0;
-  const bonusPrize = bonusMultiplier * spin.totalBet;
-  return { ...spin, grid, wins, bonusTriggered, bonusMultiplier, bonusPrize,
-    jackpotTriggered: wins.some((w) => w.symbol === 'jackpot'),
-    totalPrize: wins.reduce((a, w) => a + w.amount, 0) + bonusPrize };
+  const stream = new RngStream(serverSeed, clientSeed, nonce);
+  return computeSpin(SCENES[scene] ? scripted(SCENES[scene]!, stream) : stream, bet, lines);
 }
 
 const app = express();

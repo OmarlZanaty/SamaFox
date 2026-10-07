@@ -6,7 +6,8 @@ import { getGameSettings, checkGamePlayable } from './gameConfig.service';
 import { cairoDay, getHalalSettings, reservePrize, releasePrize } from './halalGames.service';
 import { creditAccount, debitAccount, readBalance, gamePoolAccount, PROGRAM_ACCOUNT, bpShare } from './economyAccounts.service';
 import { awardUserXP } from './xp.service';
-import { BET_STEPS, PAYLINES, PAYTABLE, JACKPOT_MULTIPLIER, MAX_MULTIPLIER, MATH_VERSION, TARGET_RTP, RngStream, computeSpin, validBet } from './yummy.math';
+import { BET_STEPS, PAYLINES, PAYTABLE, JACKPOT_MULTIPLIER, MAX_MULTIPLIER, MATH_VERSION, TARGET_RTP, TUMBLE_MULTIPLIERS,
+  FREE_SPIN_AWARDS, EXPANDING_REELS, RngStream, computeSpin, validBet } from './yummy.math';
 
 const GAME = 'yummy';
 export class YummyError extends Error {
@@ -19,7 +20,8 @@ export async function getLayout() {
   const settings = await getGameSettings(GAME);
   return { betSteps:BET_STEPS, minLines:1, maxLines:9, paylines:PAYLINES, paytable:PAYTABLE,
     jackpotMultiplier:JACKPOT_MULTIPLIER, mathVersion:MATH_VERSION, mathRtp:TARGET_RTP,
-    ...settings, minBet:Math.max(10,settings.minBet ?? 10), maxBet:Math.min(9000,settings.maxBet ?? 9000) };
+    tumbleMultipliers:TUMBLE_MULTIPLIERS, freeSpinAwards:FREE_SPIN_AWARDS, expandingReels:EXPANDING_REELS,
+    maxMultiplier:MAX_MULTIPLIER, ...settings, minBet:Math.max(10,settings.minBet ?? 10), maxBet:Math.min(9000,settings.maxBet ?? 9000) };
 }
 export async function getHistory(userId:number) {
   const records = await prisma.yummyRound.findMany({where:{userId},orderBy:{createdAt:'desc'},take:50});
