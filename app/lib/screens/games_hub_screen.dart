@@ -14,6 +14,8 @@ import 'games/plinko_screen.dart';
 /// Full-bleed stacked cards: one game per row, artwork filling the card, the
 /// name drawn over it. Titles stay in code rather than baked into the artwork
 /// so they remain translatable and crisp at any density.
+const bool _yummyEnabled = bool.fromEnvironment('YUMMY');
+
 const List<_GameEntry> _games = [
   _GameEntry(
     title: 'بلينكو',
@@ -85,6 +87,9 @@ const List<_GameEntry> _games = [
     // Delivered without lettering, so the hub draws the name.
     drawTitle: true,
   ),
+  // Hidden until its server side is deployed: build with
+  // --dart-define=YUMMY=true to show the card.
+  if (_yummyEnabled)
   _GameEntry(
     title: 'يمي',
     tagline: 'اجمع الفواكه واربح العملات',

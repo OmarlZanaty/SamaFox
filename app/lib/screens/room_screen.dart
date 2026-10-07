@@ -3340,7 +3340,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
 
     AudioRoute.instance.unregister(_audioPlayer);
-    _audioPlayer.dispose();  // ✅ ADD
+    // Unawaited dispose can fail after the screen is gone; never let that
+    // surface as an uncaught error.
+    _audioPlayer.dispose().catchError((Object _) {});
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
     _seatVideoController?.dispose();

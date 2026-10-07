@@ -107,7 +107,11 @@ class AudioRoute {
 
   /// Push [masterVolume] to every registered player.
   Future<void> applyVolume() async {
-    for (final p in _players) {
+    // Iterate a snapshot: each await yields, and a screen closing meanwhile
+    // unregisters its players — iterating the live set threw "Concurrent
+    // modification during iteration" on room leave (1.0.46 crash reports).
+    for (final p in List.of(_players)) {
+      if (!_players.contains(p)) continue;
       try {
         await p.setVolume(masterVolume);
       } catch (e) {
@@ -184,19 +188,22 @@ class AudioRoute {
 
   /// Convenience for the game SFX pools, which each own a handful of players.
   Future<void> registerAll(Iterable<AudioPlayer> players) async {
-    for (final p in players) {
+    for (final p in List.of(players)) {
       await register(p);
     }
   }
 
-  void unregisterAll(Iterable<AudioPlayer> players) => players.forEach(unregister);
+  void unregisterAll(Iterable<AudioPlayer> players) =>
+      List.of(players).forEach(unregister);
 
   /// Re-apply the current route to every registered player. Called by the room
   /// when the user flips the icon.
   Future<void> apply() async {
     if (!_supported) return;
     final ctx = _contextFor(speakerOn);
-    for (final p in _players) {
+    // Snapshot for the same reason as [applyVolume].
+    for (final p in List.of(_players)) {
+      if (!_players.contains(p)) continue;
       try {
         await p.setAudioContext(ctx);
       } catch (e) {

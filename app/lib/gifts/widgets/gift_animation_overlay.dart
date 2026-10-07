@@ -218,8 +218,8 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     for (final f in _flights) {
       f.controller.dispose();
     }
-    _vipPlayer.dispose();
-    _giftPlayer.dispose();
+    _vipPlayer.dispose().catchError((Object _) {});
+    _giftPlayer.dispose().catchError((Object _) {});
     super.dispose();
   }
 
