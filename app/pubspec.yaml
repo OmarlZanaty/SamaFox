@@ -6,7 +6,7 @@ publish_to: 'none'
 # regenerates local.properties FROM this file, so that override was silently
 # overwritten and the next build would have dropped to 24 and been rejected as
 # a downgrade. pubspec is the single source of truth now.
-version: 1.0.47+2055
+version: 1.0.48+2056
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
