@@ -28,8 +28,11 @@ Widget yummyHelp(YummyStrings strings, Map<String, dynamic> layout) => Column(
           ),
         for (final key in [
           'wildRule',
+          'tumbleHelp',
           'bonusHelp',
           'jackpotHelp',
+          'maxWinHelp',
+          'autoHelp',
           'stopHelp',
           'caps',
         ])

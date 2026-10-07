@@ -167,6 +167,9 @@ flutter:
   # the plain blur stack if the device cannot compile it.
   shaders:
     - shaders/bloom.frag
+    # YUMMY glints; both have Dart fallbacks if a device cannot compile them.
+    - shaders/yummy_shine.frag
+    - shaders/yummy_symbol.frag
   fonts:
         - family: ElMessiri
           fonts:

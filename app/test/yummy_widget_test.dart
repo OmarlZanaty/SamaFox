@@ -12,7 +12,9 @@ import 'package:samafox/repositories/yummy_repository.dart';
 import 'package:samafox/screens/games/yummy_engine.dart';
 import 'package:samafox/screens/games/yummy_screen.dart';
 import 'package:samafox/screens/games/yummy_symbols.dart';
+import 'package:samafox/screens/games/yummy_grid.dart';
 import 'yummy_engine_test.dart' show yummyFixture;
+import 'yummy_v2_test.dart' show v2Fixture;
 
 class _Auth extends StateNotifier<AuthState> implements AuthNotifier {
   _Auth()
@@ -29,6 +31,10 @@ class _Auth extends StateNotifier<AuthState> implements AuthNotifier {
 class _Repository extends YummyRepository {
   int calls = 0, balance = 50000;
   bool bonus = false;
+
+  /// Rounds (1-based) that trigger free spins.
+  Set<int> bonusOn = {};
+  int prize = 0;
   Completer<YummyRound>? pending;
   @override
   Future<Map<String, dynamic>> fetchState() async => {
@@ -41,6 +47,49 @@ class _Repository extends YummyRepository {
           'enabled': true,
           'paytable': yummyPaytable,
         },
+      };
+  @override
+  Future<List<Map<String, dynamic>>> feed() async => [];
+  @override
+  Future<Map<String, dynamic>> leaderboard() async => {
+        'weekStart': '2026-10-03',
+        'entries': [
+          {
+            'rank': 1,
+            'userId': 9,
+            'name': 'Karim',
+            'avatar': null,
+            'won': 410000,
+          },
+          {
+            'rank': 2,
+            'userId': 701,
+            'name': 'Test',
+            'avatar': null,
+            'won': 1200,
+          },
+        ],
+        'me': {'rank': 2, 'won': 1200},
+      };
+  @override
+  Future<Map<String, dynamic>> missions() async => {
+        'day': '2026-10-07',
+        'missions': [
+          {
+            'key': 'spin20',
+            'target': 20,
+            'xp': 50,
+            'progress': 20,
+            'claimed': false,
+          },
+          {
+            'key': 'win5',
+            'target': 5,
+            'xp': 60,
+            'progress': 1,
+            'claimed': false,
+          },
+        ],
       };
   @override
   Future<YummyRound> spin(
@@ -58,10 +107,23 @@ class _Repository extends YummyRepository {
     spin['betPerLine'] = betPerLine;
     spin['activeLines'] = activeLines;
     spin['totalBet'] = betPerLine * activeLines;
-    if (bonus) {
-      spin['bonusTriggered'] = true;
-      spin['bonusMultiplier'] = 5;
-      spin['bonusPrize'] = betPerLine * activeLines * 5;
+    if (bonus || bonusOn.contains(calls)) {
+      final v2 = v2Fixture();
+      final v2spin = v2['spin'] as Map;
+      v2spin['betPerLine'] = betPerLine;
+      v2spin['activeLines'] = activeLines;
+      v2spin['totalBet'] = betPerLine * activeLines;
+      balance += v2spin['totalPrize'] as int;
+      v2['balance'] = balance;
+      v2['nonce'] = calls;
+      v2['id'] = 'round-$calls';
+      return YummyRound.fromJson(v2);
+    }
+    if (prize > 0) {
+      balance += prize;
+      fixture['balance'] = balance;
+      spin['totalPrize'] = prize;
+      spin['requestedPrize'] = prize;
     }
     return YummyRound.fromJson(fixture);
   }
@@ -142,7 +204,18 @@ void main() {
           tester.widget<Directionality>(screenDirection).textDirection,
           arabic ? TextDirection.rtl : TextDirection.ltr,
         );
-        expect(find.byType(YummySymbol), findsNWidgets(15));
+        final semantics = tester.ensureSemantics();
+        expect(find.byType(YummyMachine), findsOneWidget);
+        expect(
+          find.bySemanticsLabel(
+            RegExp(
+              '^(Strawberry|Cherry|Orange|Lemon|Watermelon|Grapes|Candy|Diamond|'
+              'فراولة|كرز|برتقال|ليمون|بطيخ|عنب|حلوى|ماس)\$',
+            ),
+          ),
+          findsWidgets,
+        );
+        semantics.dispose();
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
       });
@@ -202,19 +275,136 @@ void main() {
       await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
     }
-    repository.bonus = true;
-    await tester.ensureVisible(find.text('SPIN'));
-    await tester.tap(find.text('SPIN'));
-    await tester.pumpAndSettle();
-    expect(find.text('Choose a chest'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('Choose a chest 1'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('5×'), findsOneWidget);
-    await tester.tap(find.byTooltip('Close'));
-    await tester.pumpAndSettle();
+    for (final tooltip in ['Weekly leaderboard', 'Daily missions']) {
+      await tester.ensureVisible(find.byTooltip(tooltip));
+      await tester.tap(find.byTooltip(tooltip));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Close'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+    }
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+  testWidgets('free spins: intro, eight auto-played spins, summary, balance',
+      (tester) async {
+    final repository = _Repository()..bonus = true;
+    await _mount(tester, repository, arabic: false);
+    await tester.ensureVisible(find.text('SPIN'));
+    await tester.tap(find.text('SPIN'));
+    await tester.pumpAndSettle();
+    // Intro waits for START (or its own timer).
+    expect(find.text('FREE SPINS'), findsWidgets);
+    expect(find.text('×2'), findsWidgets);
+    expect(find.text('8'), findsWidgets);
+    await tester.tap(find.text('START'));
+    await tester.pumpAndSettle();
+    // All eight spins replayed; the summary shows what they paid.
+    expect(find.text('FREE SPINS WIN'), findsWidgets);
+    expect(find.text('4800'), findsWidgets);
+    expect(repository.calls, 1);
+    await tester.tap(find.text('Tap to continue'));
+    await tester.pumpAndSettle();
+    expect(find.text('FREE SPINS WIN'), findsNothing);
+    // 50000 − 900 + 5400.
+    expect(find.text('54500'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('free spins intro starts by itself', (tester) async {
+    final repository = _Repository()..bonus = true;
+    await _mount(tester, repository, arabic: false);
+    await tester.ensureVisible(find.text('SPIN'));
+    await tester.tap(find.text('SPIN'));
+    await tester.pumpAndSettle();
+    expect(find.text('START'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
+    expect(find.text('FREE SPINS WIN'), findsWidgets);
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    expect(find.text('FREE SPINS WIN'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  Future<void> runAutoplay(
+    WidgetTester tester,
+    _Repository repository, {
+    String? spins,
+    String? lossLimit,
+  }) async {
+    await tester.ensureVisible(find.text('AUTO'));
+    await tester.tap(find.text('AUTO'));
+    await tester.pumpAndSettle();
+    if (spins != null) await tester.tap(find.text(spins).last);
+    if (lossLimit != null) await tester.tap(find.text(lossLimit).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start autoplay'));
+    for (var i = 0;
+        i < 400 && find.text('Autoplay stopped').evaluate().isEmpty;
+        i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('autoplay plays the chosen count, then stops', (tester) async {
+    final repository = _Repository();
+    await _mount(tester, repository, arabic: false);
+    await runAutoplay(tester, repository, spins: '10');
+    expect(repository.calls, 10);
+    expect(find.text('Autoplay stopped'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('autoplay stops at the loss limit', (tester) async {
+    final repository = _Repository();
+    await _mount(tester, repository, arabic: false);
+    // 10 × 900 total bet: stops once 9000 is lost.
+    await runAutoplay(tester, repository, spins: '50', lossLimit: '9000');
+    expect(repository.calls, 10);
+    expect(find.text('Autoplay stopped'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('autoplay stops when free spins start', (tester) async {
+    final repository = _Repository()..bonusOn = {3};
+    await _mount(tester, repository, arabic: false);
+    await tester.ensureVisible(find.text('AUTO'));
+    await tester.tap(find.text('AUTO'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start autoplay'));
+    for (var i = 0;
+        i < 400 && find.text('Autoplay stopped').evaluate().isEmpty;
+        i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+      // Let the free spins play out on their own timers.
+    }
+    await tester.pumpAndSettle();
+    expect(repository.calls, 3);
+    expect(find.text('Autoplay stopped'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets('STOP during autoplay ends it after the current round',
+      (tester) async {
+    final repository = _Repository()..pending = Completer<YummyRound>();
+    await _mount(tester, repository, arabic: false);
+    await tester.ensureVisible(find.text('AUTO'));
+    await tester.tap(find.text('AUTO'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start autoplay'));
+    await tester.pump();
+    expect(find.textContaining('STOP'), findsOneWidget);
+    await tester.tap(find.textContaining('STOP'));
+    await tester.pump();
+    repository.pending!
+        .complete(YummyRound.fromJson(yummyFixture(prize: 0, balance: 49100)));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    expect(repository.calls, 1);
+    expect(find.text('SPIN'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('capture the 390px screen for visual review', (tester) async {
     tester.view.physicalSize = const Size(390, 1000);
     tester.view.devicePixelRatio = 1;

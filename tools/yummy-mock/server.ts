@@ -10,6 +10,7 @@
  *
  *   cd backend && npx ts-node --transpile-only ../tools/yummy-mock/server.ts
  *   GET /scene/:name  force the next spin: win | tumble | bonus | jackpot | mega | auto
+ *   GET /balance/:n   set the balance
  */
 import crypto from 'crypto';
 import path from 'path';
@@ -28,13 +29,29 @@ let serverSeed = crypto.randomBytes(32).toString('hex');
 let clientSeed = 'browser-test';
 let nonce = 0;
 const history: object[] = [];
+// Fake neighbours for the ticker and the leaderboard.
+const feed: object[] = [
+  { game: 'yummy', userId: 7, name: 'Mona', avatar: null, prize: 48000, x: 53.3, tier: 'big', at: new Date().toISOString() },
+  { game: 'yummy', userId: 9, name: 'Karim', avatar: null, prize: 135000, x: 150, tier: 'mega', at: new Date().toISOString() },
+];
+let won = 0;
+const missionsClaimed = new Set<string>();
+const progress = { spin20: 0, win5: 0, chain3: 0, freeSpins: 0 };
+const MISSIONS = [
+  { key: 'spin20', target: 20, xp: 50 }, { key: 'win5', target: 5, xp: 60 },
+  { key: 'chain3', target: 1, xp: 80 }, { key: 'freeSpins', target: 1, xp: 120 },
+] as const;
+const missions = () => ({
+  day: new Date().toISOString().slice(0, 10),
+  missions: MISSIONS.map((m) => ({ ...m, progress: Math.min(progress[m.key], m.target), claimed: missionsClaimed.has(m.key) })),
+});
 const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
 const layout = {
   betSteps: BET_STEPS, minLines: 1, maxLines: 9, paylines: PAYLINES, paytable: PAYTABLE,
   jackpotMultiplier: JACKPOT_MULTIPLIER, mathVersion: MATH_VERSION, mathRtp: TARGET_RTP,
   tumbleMultipliers: TUMBLE_MULTIPLIERS, freeSpinAwards: FREE_SPIN_AWARDS, expandingReels: EXPANDING_REELS,
-  maxMultiplier: MAX_MULTIPLIER, enabled: true, minBet: 10, maxBet: 9000, maxWinPerRound: null, dailyMaxWinPerUser: null,
+  maxMultiplier: MAX_MULTIPLIER, broadcastMinX: 50, enabled: true, minBet: 10, maxBet: 9000, maxWinPerRound: null, dailyMaxWinPerUser: null,
 };
 const fairness = () => ({ serverSeedHash: hash(serverSeed), clientSeed, nonce });
 
@@ -113,12 +130,40 @@ app.post(`${api}/spin`, (q: any, r: any) => {
   const spin = forced(bet, lines);
   scene = 'auto';
   balance += spin.totalPrize - spin.totalBet;
+  won += spin.totalPrize;
+  progress.spin20++;
+  if (spin.totalPrize > 0) progress.win5++;
+  if (spin.tumbles.filter((t) => t.prize > 0).length >= 3) progress.chain3++;
+  if (spin.bonusTriggered) progress.freeSpins++;
+  if (spin.totalPrize >= spin.totalBet * 50 || spin.jackpotTriggered) {
+    feed.unshift({ game: 'yummy', userId: 1, name: 'Preview', avatar: null, prize: spin.totalPrize,
+      x: Math.round((spin.totalPrize / spin.totalBet) * 10) / 10, tier: spin.jackpotTriggered ? 'jackpot' : 'big',
+      at: new Date().toISOString() });
+    feed.splice(20);
+  }
   const round = { id: history.length + 1, at: new Date().toISOString(),
     spin: { ...spin, requestedPrize: spin.totalPrize, capped: false }, balance,
     serverSeedHash: hash(serverSeed), clientSeed, nonce: nonce++ };
   history.unshift(round);
   history.splice(50);
   setTimeout(() => r.json({ success: true, ...round }), 250);
+});
+app.get(`${api}/feed`, (_q: any, r: any) => r.json({ success: true, wins: feed }));
+app.get(`${api}/leaderboard`, (_q: any, r: any) => {
+  const rows = [
+    { userId: 9, name: 'Karim', won: 410000 }, { userId: 7, name: 'Mona', won: 260500 },
+    { userId: 1, name: 'Preview', won }, { userId: 12, name: 'Salma', won: 92000 }, { userId: 15, name: 'Omar', won: 41000 },
+  ].sort((a, b) => b.won - a.won).map((row, i) => ({ ...row, rank: i + 1, avatar: null }));
+  r.json({ success: true, weekStart: '2026-10-03', entries: rows, me: { rank: rows.findIndex((x) => x.userId === 1) + 1, won } });
+});
+app.get(`${api}/missions`, (_q: any, r: any) => r.json({ success: true, ...missions() }));
+app.post(`${api}/missions/:key/claim`, (q: any, r: any) => {
+  const m = MISSIONS.find((x) => x.key === q.params.key);
+  if (!m) return r.status(400).json({ success: false, code: 'BAD_MISSION' });
+  if (progress[m.key] < m.target) return r.status(400).json({ success: false, code: 'MISSION_INCOMPLETE' });
+  if (missionsClaimed.has(m.key)) return r.status(400).json({ success: false, code: 'MISSION_CLAIMED' });
+  missionsClaimed.add(m.key);
+  r.json({ success: true, claimed: m.key, xp: m.xp, ...missions() });
 });
 app.get('/scene/:name', (q: any, r: any) => { scene = q.params.name; r.json({ scene }); });
 app.get('/balance/:n', (q: any, r: any) => { balance = Number(q.params.n); r.json({ balance }); });

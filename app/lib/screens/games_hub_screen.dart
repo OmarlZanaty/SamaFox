@@ -6,6 +6,8 @@ import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
 import 'games/yummy_screen.dart';
+import 'games/yummy_social.dart';
+import 'games/yummy_strings.dart';
 import 'games/olympus_screen.dart';
 import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
@@ -101,6 +103,27 @@ const List<_GameEntry> _games = [
   ),
 ];
 
+/// Big wins announced by the server ride above the cards while YUMMY is on.
+class _WithWinTicker extends StatelessWidget {
+  final Widget child;
+  const _WithWinTicker({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_yummyEnabled) return child;
+    YummyWinFeed.instance.listen();
+    return Column(
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(14, 6, 14, 0),
+          child: YummyWinTicker(clock: null, strings: YummyStrings(true)),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
 class GamesHubScreen extends ConsumerWidget {
   const GamesHubScreen({super.key});
 
@@ -130,7 +153,8 @@ class GamesHubScreen extends ConsumerWidget {
           ),
         ),
         child: SafeArea(
-          child: LayoutBuilder(
+          child: _WithWinTicker(
+            child: LayoutBuilder(
             builder: (context, constraints) {
               const hPad = 14.0;
               const vPad = 10.0;
@@ -175,6 +199,7 @@ class GamesHubScreen extends ConsumerWidget {
                 itemBuilder: (_, i) => cards[i],
               );
             },
+          ),
           ),
         ),
       ),

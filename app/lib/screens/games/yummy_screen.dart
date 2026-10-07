@@ -7,14 +7,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../../providers/auth_provider.dart';
 import '../../repositories/yummy_repository.dart';
+import '../../services/device_tier.dart';
 import 'yummy_bonus.dart';
 import 'yummy_celebration.dart';
 import 'yummy_engine.dart';
 import 'yummy_fairness.dart';
+import 'yummy_fx.dart';
 import 'yummy_grid.dart';
 import 'yummy_help.dart';
 import 'yummy_preferences.dart';
 import 'yummy_sfx.dart';
+import 'yummy_social.dart';
 import 'yummy_strings.dart';
 import 'yummy_symbols.dart';
 
@@ -25,48 +28,55 @@ class YummyScreen extends ConsumerStatefulWidget {
   ConsumerState<YummyScreen> createState() => _YummyScreenState();
 }
 
+/// Free spins in progress: which spin is showing and what they paid so far.
+class _FreeState {
+  final int count, multiplier;
+  int spin = 0, total = 0;
+  _FreeState(this.count, this.multiplier);
+}
+
 class _YummyScreenState extends ConsumerState<YummyScreen>
     with TickerProviderStateMixin {
   late final YummyRepository _repository =
       widget.repository ?? YummyRepository();
   final _sfx = YummySfx();
   final _random = Random();
-  late final AnimationController _pulse = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 650),
-  );
-  // Drives the cabinet bulbs. It only runs while reels spin or a win shows,
-  // so an idle screen costs nothing on low-end phones.
-  late final AnimationController _ambient = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  );
-  int _revealed = 5, _spinId = 0;
-  // While reels spin the badge shows the pre-spin balance minus the stake,
-  // so the server's settled balance never spoils the result early.
+  final _machine = GlobalKey<YummyMachineState>();
+  late final YummyClock _clock = YummyClock(this);
+  final bool _lite = DeviceTier.lite;
+  int _spinId = 0;
+  // While a round plays out the badge shows the pre-spin balance minus the
+  // stake, so the server's settled balance never spoils the result early.
   int? _shownBalance;
+  // The prize counter climbs with each tumble instead of jumping to the total.
+  int _shownPrize = 0;
+  int _ladder = -1;
   YummyWinTier _tier = YummyWinTier.none;
-  Completer<void>? _celebrating;
+  int _tierPrize = 0;
+  Completer<void>? _celebrating, _intro, _summary;
+  _FreeState? _free;
+  YummyRound? _summaryRound;
+  YummyAutoplay? _auto;
   YummyPreferences? _preferences;
   Map<String, dynamic>? _layout;
   Map<String, dynamic>? _pending;
   List<YummyRound> _history = [];
-  List<String> _grid = List.generate(15, (index) => yummySymbolIds[index % 8]);
+  late final List<String> _initial =
+      List.generate(15, (index) => yummySymbolIds[index % 8]);
   YummyRound? _last;
-  YummyReplay? _replay;
-  Timer? _shuffle;
-  Completer<void>? _stopSignal;
   bool _loading = true,
       _busy = false,
+      _skipped = false,
       _arabic = true,
       _motion = true,
-      _sound = true;
+      _sound = true,
+      _turbo = false;
   int _bet = 100, _lines = 9;
   String? _notice;
   YummyStrings get _strings => YummyStrings(_arabic);
   int get _balance => ref.read(authStateProvider).user?.coinsBalance ?? 0;
   int get _totalBet => yummyTotalBet(_bet, _lines);
-  bool get _locked => _busy || _pending != null;
+  bool get _locked => _busy || _pending != null || _auto != null;
   List<int> get _steps => List<int>.from(
         _layout?['betSteps'] as List? ?? [10, 20, 50, 100, 200, 500, 1000],
       );
@@ -74,20 +84,44 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
       !_motion ||
       MediaQuery.disableAnimationsOf(context) ||
       MediaQuery.of(context).accessibleNavigation;
+  bool get _ambient => !_reduced && !_lite;
+  YummyClock? get _ambientClock => _ambient ? _clock : null;
+  YummyMachineState? get _m => _machine.currentState;
+  List<int> get _ladderSteps => List<int>.from(
+        _layout?['tumbleMultipliers'] as List? ?? yummyTumbleMultipliers,
+      );
 
   @override
   void initState() {
     super.initState();
+    YummyShaders.load();
+    YummyWinFeed.instance.listen();
     _boot();
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncClock();
+  }
+
+  /// The ambient clock runs only with motion on and a phone that can afford it.
+  void _syncClock() {
+    _clock.enabled = _ambient;
+    if (_ambient) {
+      _clock.wake();
+    } else {
+      _clock.sleep();
+    }
+  }
+
+  @override
   void dispose() {
-    _shuffle?.cancel();
-    if (_stopSignal?.isCompleted == false) _stopSignal!.complete();
-    if (_celebrating?.isCompleted == false) _celebrating!.complete();
-    _pulse.dispose();
-    _ambient.dispose();
+    _auto = null;
+    for (final completer in [_celebrating, _intro, _summary]) {
+      if (completer?.isCompleted == false) completer!.complete();
+    }
+    _clock.dispose();
     _sfx.dispose();
     super.dispose();
   }
@@ -105,10 +139,12 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         _arabic = preferences.arabic;
         _motion = preferences.motion;
         _sound = preferences.sound;
+        _turbo = preferences.turbo;
         _sfx.enabled = _sound;
         _history = preferences.history;
         _pending = preferences.pending;
       });
+      _syncClock();
       final state = await _repository.fetchState();
       if (!mounted) return;
       final rounds = (state['history'] as List)
@@ -123,7 +159,7 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         _layout = Map<String, dynamic>.from(state['layout'] as Map);
         _history = preferences.visible(rounds);
         _last = rounds.isEmpty ? null : rounds.first;
-        _grid = _last?.grid ?? yummyDecorativeGrid(_random);
+        _shownPrize = _last?.totalPrize ?? 0;
         if (_pending != null) {
           _bet = _pending!['betPerLine'] as int;
           _lines = _pending!['activeLines'] as int;
@@ -132,12 +168,20 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         }
         _notice = null;
       });
+      _m?.setBoard(_last?.finalGrid ?? yummyDecorativeGrid(_random));
       await preferences.saveHistory(_history);
+      unawaited(_loadFeed());
     } catch (_) {
       if (mounted) setState(() => _notice = _strings.text('error'));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadFeed() async {
+    try {
+      YummyWinFeed.instance.seed(await _repository.feed());
+    } catch (_) {}
   }
 
   bool _allowed(int bet, int lines) {
@@ -185,17 +229,18 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
     }
   }
 
+  /// STOP: skips the animation of the current step. The round itself was
+  /// settled by the server before anything moved.
   void _stop() {
-    _replay?.stop();
-    if (_stopSignal?.isCompleted == false) _stopSignal!.complete();
+    _skipped = true;
+    _m?.skip();
   }
 
-  Future<void> _delay(int milliseconds) async {
-    if (_reduced || _stopSignal?.isCompleted == true) return;
-    await Future.any([
-      Future<void>.delayed(Duration(milliseconds: milliseconds)),
-      _stopSignal!.future,
-    ]);
+  Future<void> _pause(double seconds) async {
+    if (_reduced || _skipped || seconds <= 0) return;
+    await Future<void>.delayed(
+      Duration(milliseconds: (seconds * 1000).round()),
+    );
   }
 
   Future<void> _spin() async {
@@ -203,10 +248,14 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
     if (_pending == null) {
       if (_layout!['enabled'] == false || !_allowed(_bet, _lines)) {
         setState(() => _notice = _strings.text('disabled'));
+        _auto = null;
         return;
       }
       if (!yummyCanSpin(_balance, _bet, _lines)) {
-        setState(() => _notice = _strings.text('lowBalance'));
+        setState(() {
+          _notice = _strings.text('lowBalance');
+          _auto = null;
+        });
         return;
       }
       _pending = {
@@ -217,35 +266,23 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
     }
     final stake =
         (_pending!['betPerLine'] as int) * (_pending!['activeLines'] as int);
+    final machine = _m;
+    machine?.pace = _turbo ? YummyPace.turbo : YummyPace.normal;
     setState(() {
       _busy = true;
+      _skipped = false;
       _notice = null;
-      _replay = null;
-      _revealed = 0;
       _spinId++;
+      _ladder = -1;
+      _shownPrize = 0;
       _tier = YummyWinTier.none;
       _shownBalance = max(0, _balance - stake);
     });
-    _pulse.stop();
-    _pulse.value = 0;
-    if (!_reduced) _ambient.repeat();
-    _stopSignal = Completer<void>();
-    _sfx.spin();
+    _clock.busy = true;
+    machine?.startSpin();
+    if (!_reduced) _sfx.spinStart();
     final started = DateTime.now();
-    if (!_reduced) {
-      _shuffle = Timer.periodic(const Duration(milliseconds: 70), (_) {
-        if (!mounted || _stopSignal?.isCompleted == true) return;
-        final decoration = yummyDecorativeGrid(_random);
-        setState(
-          () => _grid = List.generate(
-            15,
-            (index) => index % 5 < (_replay?.revealedReels ?? 0)
-                ? _replay!.result.grid[index]
-                : decoration[index],
-          ),
-        );
-      });
-    }
+    YummyRound? settled;
     try {
       await _preferences!.savePending(_pending);
       final result = await _repository.spin(
@@ -258,67 +295,38 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
       await _preferences!.savePending(null);
       if (!mounted) return;
       _pending = null;
-      _replay = YummyReplay(result);
-      await _delay(
-        max(0, 700 - DateTime.now().difference(started).inMilliseconds),
+      settled = result;
+      await _present(
+        result,
+        DateTime.now().difference(started).inMilliseconds / 1000,
       );
-      for (var reel = 0; reel < 5; reel++) {
-        if (!mounted) return;
-        _replay!.revealedReels = reel + 1;
-        setState(() {
-          _revealed = reel + 1;
-          _grid = List.generate(
-            15,
-            (index) => index % 5 <= reel ? result.grid[index] : _grid[index],
-          );
-        });
-        _sfx.click();
-        await _delay(140);
-      }
-      _shuffle?.cancel();
       if (!mounted) return;
       setState(() {
         _last = result;
-        _grid = result.grid;
-        _revealed = 5;
         _shownBalance = null;
+        _shownPrize = result.totalPrize;
         _history = [result, ..._history.where((round) => round.id != result.id)]
             .take(50)
             .toList();
       });
       await _preferences!.saveHistory(_history);
-      if (!mounted) return;
-      if (result.jackpotTriggered) {
-        _sfx.jackpot();
-      } else if (result.totalPrize > 0) {
-        _sfx.win();
-      }
-      if (result.totalPrize > 0 && !_reduced) {
-        _pulse.repeat(reverse: true);
-      } else {
-        _ambient.stop();
-      }
-      final tier = yummyWinTier(
-        result.totalPrize - result.bonusPrize,
-        result.totalBet,
-        result.jackpotTriggered,
-      );
-      if (tier != YummyWinTier.none) {
-        _celebrating = Completer<void>();
-        setState(() => _tier = tier);
-        await _celebrating!.future;
-        if (!mounted) return;
-      }
-      if (result.bonusTriggered) {
-        await yummySheet(
-          context,
-          _strings.text('bonus'),
-          YummyBonus(round: result, strings: _strings),
-          _strings,
-        );
+      if (result.totalPrize >= result.totalBet * 50 ||
+          result.jackpotTriggered) {
+        // Our own big win shows on our ticker at once; others get the
+        // server's broadcast.
+        final user = ref.read(authStateProvider).user;
+        YummyWinFeed.instance.add({
+          'game': 'yummy',
+          'userId': user?.id ?? 0,
+          'name': user?.name ?? '',
+          'prize': result.totalPrize,
+          'x': result.totalPrize / result.totalBet,
+          'tier': result.jackpotTriggered ? 'jackpot' : 'big',
+        });
       }
     } catch (error) {
       if (!mounted) return;
+      _auto = null;
       final code = error is YummyException ? error.code : 'NETWORK';
       if (![
         'NETWORK',
@@ -330,6 +338,7 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         _pending = null;
         await _preferences?.savePending(null);
       }
+      _m?.setBoard(_m?.board ?? _initial);
       if (mounted) {
         setState(
           () => _notice = _strings.text(
@@ -345,16 +354,163 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
       // badge stops promising coins that are not there.
       if (code == 'INSUFFICIENT') unawaited(_refreshBalance());
     } finally {
-      _shuffle?.cancel();
+      _sfx.spinEnd();
+      _clock.busy = false;
       if (mounted) {
         setState(() {
           _busy = false;
-          _revealed = 5;
           _shownBalance = null;
+          _free = null;
         });
-        if (!_pulse.isAnimating) _ambient.stop();
       }
     }
+    if (mounted && settled != null) _continueAuto(settled);
+  }
+
+  void _continueAuto(YummyRound round) {
+    final auto = _auto;
+    if (auto == null) return;
+    final keepGoing = auto.next(
+      balance: round.balance,
+      totalBet: round.totalBet,
+      prize: round.totalPrize,
+      freeSpins: round.freeSpins != null,
+    );
+    if (!keepGoing) {
+      setState(() {
+        _auto = null;
+        _notice = _strings.text('autoStopped');
+      });
+      return;
+    }
+    setState(() {});
+    Future<void>.delayed(Duration(milliseconds: _turbo ? 120 : 350), () {
+      if (mounted && _auto == auto && !_busy) _spin();
+    });
+  }
+
+  /// Replays a settled round: reels, then every tumble, then free spins.
+  Future<void> _present(YummyRound result, double elapsed) async {
+    final machine = _m;
+    if (machine == null) return;
+    await machine.land(result.grid, elapsed: elapsed);
+    _sfx.spinEnd();
+    if (!mounted) return;
+    final base = await _playTumbles(result.tumbles, cap: result.totalPrize);
+    if (!mounted) return;
+    setState(() => _shownPrize = min(base, result.totalPrize));
+    final tier = yummyWinTier(
+      result.baseShown,
+      result.totalBet,
+      result.jackpotTriggered,
+    );
+    if (tier != YummyWinTier.none) {
+      _sfx.bigWin();
+      await _celebrate(tier, result.baseShown);
+    } else if (result.baseShown >= result.totalBet * 3) {
+      machine.coinBurst();
+      _sfx.coins();
+    }
+    if (!mounted) return;
+    final free = result.freeSpins;
+    if (free != null) await _playFreeSpins(result, free);
+  }
+
+  /// Plays one spin's tumble chain on the machine. Returns what it paid.
+  Future<int> _playTumbles(
+    List<YummyTumble> tumbles, {
+    int offset = 0,
+    int? cap,
+  }) async {
+    final machine = _m;
+    var paid = 0;
+    for (var index = 0; index < tumbles.length; index++) {
+      if (!mounted || machine == null) return paid;
+      final step = tumbles[index];
+      if (step.wins.isEmpty) break;
+      paid += step.prize;
+      setState(() {
+        _ladder = index;
+        _shownPrize = cap == null ? offset + paid : min(offset + paid, cap);
+      });
+      if (step.wins.any((w) => w.symbol == 'jackpot' || w.symbol == 'wild')) {
+        _sfx.expand();
+      }
+      _sfx.win();
+      await machine.showWins(
+        step.wins,
+        label: step.multiplier > 1
+            ? '+${step.prize}  ×${step.multiplier}'
+            : '+${step.prize}',
+        hold: _turbo ? .5 : .95,
+      );
+      if (step.removed.isEmpty || index + 1 >= tumbles.length) break;
+      _sfx.tumblePop();
+      await machine.pop(step.removed);
+      await machine.collapse(tumbles[index + 1].grid, step.removed);
+    }
+    return paid;
+  }
+
+  Future<void> _playFreeSpins(YummyRound result, YummyFreeSpins free) async {
+    final machine = _m;
+    if (machine == null) return;
+    _sfx.freeSpinsIntro();
+    _intro = Completer<void>();
+    setState(() => _free = _FreeState(free.count, free.multiplier));
+    await _intro!.future;
+    if (!mounted) return;
+    _intro = null;
+    _sfx.freeSpinsMusic();
+    final state = _free!;
+    for (var index = 0; index < free.spins.length; index++) {
+      if (!mounted) return;
+      final spin = free.spins[index];
+      setState(() {
+        state.spin = index + 1;
+        _ladder = -1;
+        _skipped = false;
+      });
+      machine.startSpin();
+      await machine.land(spin.landed);
+      if (!mounted) return;
+      if (spin.expandedReels.isNotEmpty) {
+        _sfx.expand();
+        await machine.expand(spin.expandedReels);
+      }
+      final paid = await _playTumbles(
+        spin.tumbles,
+        offset: result.baseShown + state.total,
+        cap: result.totalPrize,
+      );
+      if (!mounted) return;
+      setState(() => state.total += paid);
+      await _pause(_turbo ? .15 : .4);
+    }
+    _sfx.freeSpinsEnd();
+    if (!mounted) return;
+    _summaryRound = result;
+    _summary = Completer<void>();
+    setState(() {});
+    _sfx.bigWin();
+    await _summary!.future;
+    if (!mounted) return;
+    _summary = null;
+    setState(() {
+      _summaryRound = null;
+      _free = null;
+      _ladder = -1;
+    });
+    machine.setBoard(result.finalGrid);
+  }
+
+  Future<void> _celebrate(YummyWinTier tier, int prize) async {
+    _celebrating = Completer<void>();
+    setState(() {
+      _tier = tier;
+      _tierPrize = prize;
+    });
+    await _celebrating!.future;
   }
 
   Future<void> _refreshBalance() async {
@@ -373,24 +529,73 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
     if (_celebrating?.isCompleted == false) _celebrating!.complete();
   }
 
+  void _startFree() {
+    if (_intro?.isCompleted == false) _intro!.complete();
+  }
+
+  void _endSummary() {
+    if (_summary?.isCompleted == false) _summary!.complete();
+  }
+
   Future<void> _setting(String key, bool value) async {
     setState(() {
       if (key == 'arabic') _arabic = value;
       if (key == 'sound') {
         _sound = value;
-        _sfx.enabled = value;
+        _sfx.set(value);
       }
+      if (key == 'turbo') _turbo = value;
       if (key == 'motion') {
         _motion = value;
-        if (!value) {
-          _stop();
-          _pulse.stop();
-          _pulse.value = 0;
-          _ambient.stop();
-        }
+        if (!value) _stop();
       }
     });
+    _syncClock();
     await _preferences?.setSetting(key, value);
+  }
+
+  Future<void> _openAutoplay() async {
+    if (_auto != null) {
+      setState(() {
+        _auto = null;
+        _notice = _strings.text('autoStopped');
+      });
+      return;
+    }
+    if (_busy || _layout == null) return;
+    final settings = await showModalBottomSheet<YummyAutoSettings>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFFF3FAFF),
+      builder: (context) => Directionality(
+        textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _strings.text('autoplay'),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: yummyInk,
+                    ),
+                  ),
+                  YummyAutoplaySheet(strings: _strings, totalBet: _totalBet),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (settings == null || !mounted) return;
+    setState(() => _auto = YummyAutoplay(settings, _balance));
+    unawaited(_spin());
   }
 
   Future<void> _settings() => yummySheet(
@@ -412,6 +617,14 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                 value: _motion,
                 onChanged: (value) async {
                   await _setting('motion', value);
+                  refresh(() {});
+                },
+              ),
+              SwitchListTile(
+                title: Text(_strings.text('turbo')),
+                value: _turbo,
+                onChanged: (value) async {
+                  await _setting('turbo', value);
                   refresh(() {});
                 },
               ),
@@ -454,7 +667,10 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                   '#${round.nonce} · ${round.totalPrize >= round.totalBet ? _strings.text('win') : _strings.text('loss')} · ${round.at.toLocal().toString().split('.').first}',
                 ),
                 subtitle: Text(
-                  '${_strings.text('totalBet')}: ${round.totalBet}   ${_strings.text('prize')}: ${round.totalPrize}\n${_strings.text('balance')}: ${round.balance}',
+                  '${_strings.text('totalBet')}: ${round.totalBet}   ${_strings.text('prize')}: ${round.totalPrize}'
+                  '${round.freeSpins != null ? '   🎁 ${round.freeSpins!.count}' : ''}'
+                  '${round.tumbleChain > 1 ? '   ${_strings.text('tumble')} ×${round.tumbleChain}' : ''}'
+                  '\n${_strings.text('balance')}: ${round.balance}',
                 ),
                 trailing: IconButton(
                   tooltip: _strings.text('fairness'),
@@ -503,6 +719,22 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         ),
         _strings,
       );
+  Future<void> _leaderboard() => yummySheet(
+        context,
+        _strings.text('leaderboard'),
+        YummyLeaderboard(
+          repository: _repository,
+          strings: _strings,
+          userId: ref.read(authStateProvider).user?.id,
+        ),
+        _strings,
+      );
+  Future<void> _missions() => yummySheet(
+        context,
+        _strings.text('missions'),
+        YummyMissions(repository: _repository, strings: _strings),
+        _strings,
+      );
 
   Widget _icon(IconData icon, String label, VoidCallback? action) => IconButton(
         tooltip: _strings.text(label),
@@ -512,21 +744,33 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         style: IconButton.styleFrom(
           backgroundColor: yummyDeep.withValues(alpha: .9),
           minimumSize: const Size(44, 44),
+          side: const BorderSide(color: Color(0x55FFFFFF)),
         ),
       );
-  Widget _metric(String label, int value) => Column(
+  Widget _metric(String label, int value, {bool glow = false}) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             _strings.text(label),
             style: const TextStyle(fontSize: 14, color: Colors.white),
           ),
-          Text(
-            '$value',
-            style: const TextStyle(
-              fontSize: 23,
-              fontWeight: FontWeight.w900,
-              color: yummyGold,
+          TweenAnimationBuilder<double>(
+            tween: Tween(end: value.toDouble()),
+            duration: _reduced || !glow
+                ? Duration.zero
+                : const Duration(milliseconds: 600),
+            curve: Curves.easeOutCubic,
+            builder: (context, shown, _) => Text(
+              '${shown.round()}',
+              style: TextStyle(
+                fontSize: 23,
+                fontWeight: FontWeight.w900,
+                color: yummyGold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                shadows: glow && value > 0
+                    ? const [Shadow(color: Color(0xAAFFB300), blurRadius: 10)]
+                    : null,
+              ),
             ),
           ),
         ],
@@ -542,6 +786,14 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0x33FFB300), width: 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33043180),
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
         ),
         child: Column(
           children: [
@@ -587,11 +839,187 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         ),
       );
 
+  /// JACKPOT amount plus the tumble ladder (×1 ×2 ×3 ×5) lighting up.
+  Widget _banner(YummyStrings strings) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF6A2FB3), Color(0xFF44227A), Color(0xFF241047)],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: yummyGold, width: 2.5),
+          boxShadow: const [
+            BoxShadow(color: Color(0x66FFD529), blurRadius: 16),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  '${yummyArt}jackpot.png',
+                  width: 36,
+                  height: 36,
+                  cacheWidth: 120,
+                  excludeFromSemantics: true,
+                  errorBuilder: (_, __, ___) =>
+                      const Text('👑', style: TextStyle(fontSize: 24)),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: ShaderMask(
+                      shaderCallback: (bounds) => const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0xFFFFFBD0),
+                          yummyGold,
+                          Color(0xFFFF9A25),
+                        ],
+                      ).createShader(bounds),
+                      child: Text(
+                        '${strings.text('jackpot')}  ${_bet * 1000}',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          shadows: [
+                            Shadow(
+                              color: Color(0x88000000),
+                              offset: Offset(0, 2),
+                              blurRadius: 3,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Semantics(
+              label:
+                  '${strings.text('tumble')} ${strings.text('multiplier')} ${_ladder < 0 ? 1 : _ladderSteps[min(_ladder, _ladderSteps.length - 1)]}',
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var i = 0; i < _ladderSteps.length; i++) ...[
+                    if (i > 0)
+                      Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: _ladder >= i ? yummyGold : Colors.white38,
+                      ),
+                    YummyMultiplierBadge(
+                      multiplier: _ladderSteps[i] * (_free?.multiplier ?? 1),
+                      active: _ladder == i ||
+                          (i == _ladderSteps.length - 1 && _ladder >= i),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _spinButton(YummyStrings strings) {
+    final auto = _auto;
+    final stopping = _busy || auto != null;
+    final label = auto != null
+        ? '${strings.text('stop')} · ${auto.left}'
+        : strings.text(
+            _busy
+                ? 'stop'
+                : _pending != null || _layout == null
+                    ? 'retry'
+                    : 'spin',
+          );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: stopping
+              ? const [Color(0xFFFF7A9E), Color(0xFFE72965)]
+              : const [Color(0xFFFFF3A0), yummyGold, Color(0xFFFF9A25)],
+        ),
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color:
+                (stopping ? const Color(0xFFE72965) : const Color(0xFFFF9A25))
+                    .withValues(alpha: .6),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: FilledButton(
+        onPressed: _loading
+            ? null
+            : auto != null
+                ? () => setState(() => _auto = null)
+                : _busy
+                    ? _stop
+                    : _layout == null
+                        ? _boot
+                        : _spin,
+        style: FilledButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          foregroundColor: stopping ? Colors.white : yummyInk,
+          minimumSize: const Size(0, 58),
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _toggle(IconData icon, String label, bool on, VoidCallback? action) =>
+      Expanded(
+        child: OutlinedButton.icon(
+          onPressed: action,
+          icon: Icon(icon, size: 20),
+          label: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              _strings.text(label),
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 44),
+            backgroundColor: on ? yummyGold : Colors.white,
+            foregroundColor: on ? yummyInk : yummyDeep,
+            side:
+                BorderSide(color: on ? Colors.white : const Color(0x330753BD)),
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final balance = ref.watch(authStateProvider).user?.coinsBalance ?? 0;
     final strings = _strings;
     final last = _last;
+    final free = _free;
+    final clock = _ambientClock;
+    final summary = _summaryRound;
     return Directionality(
       textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
       child: Theme(
@@ -603,653 +1031,382 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         ),
         child: Scaffold(
           backgroundColor: yummySky,
-          body: Shortcuts(
-            shortcuts: const {
-              SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
-            },
-            child: Actions(
-              actions: {
-                ActivateIntent: CallbackAction<ActivateIntent>(
-                  onInvoke: (_) {
-                    if (_busy) {
-                      _stop();
-                    } else {
-                      _spin();
-                    }
-                    return null;
-                  },
-                ),
+          body: Listener(
+            onPointerDown: (_) => _clock.wake(),
+            child: Shortcuts(
+              shortcuts: const {
+                SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
               },
-              child: Focus(
-                autofocus: true,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.asset(
-                      '${yummyArt}background.png',
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              yummySky,
-                              yummyDeep,
-                            ],
-                          ),
+              child: Actions(
+                actions: {
+                  ActivateIntent: CallbackAction<ActivateIntent>(
+                    onInvoke: (_) {
+                      if (_busy) {
+                        _stop();
+                      } else {
+                        _spin();
+                      }
+                      return null;
+                    },
+                  ),
+                },
+                child: Focus(
+                  autofocus: true,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      RepaintBoundary(
+                        child: YummyBackdrop(
+                          clock: clock,
+                          freeSpins: free != null,
                         ),
                       ),
-                    ),
-                    SafeArea(
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            maxWidth: 560,
-                          ),
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.fromLTRB(
-                              14,
-                              8,
-                              14,
-                              24,
-                            ),
-                            child: Column(
-                              children: [
-                                Row(
-                                  children: [
-                                    _icon(
-                                      Icons.arrow_back,
-                                      'back',
-                                      () => Navigator.maybePop(
-                                        context,
+                      SafeArea(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 560),
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      _icon(
+                                        Icons.arrow_back,
+                                        'back',
+                                        () => Navigator.maybePop(context),
                                       ),
-                                    ),
-                                    const Spacer(),
-                                    Semantics(
-                                      liveRegion: true,
-                                      label: strings.text('balance'),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 9,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          gradient: const LinearGradient(
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                            colors: [
-                                              Color(0xFF1C7BE8),
-                                              yummyDeep,
-                                            ],
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            24,
-                                          ),
-                                          border: Border.all(
-                                            color: yummyGold,
-                                            width: 1.5,
-                                          ),
-                                          boxShadow: const [
-                                            BoxShadow(
-                                              color: Color(0x55043180),
-                                              blurRadius: 8,
-                                              offset: Offset(0, 3),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(
-                                              Icons.toll,
-                                              color: yummyGold,
-                                            ),
-                                            const SizedBox(
-                                              width: 8,
-                                            ),
-                                            TweenAnimationBuilder<double>(
-                                              tween: Tween(
-                                                end: (_shownBalance ?? balance)
-                                                    .toDouble(),
-                                              ),
-                                              duration: _reduced
-                                                  ? Duration.zero
-                                                  : const Duration(
-                                                      milliseconds: 900,
-                                                    ),
-                                              curve: Curves.easeOutCubic,
-                                              builder: (context, value, _) =>
-                                                  Text(
-                                                '${value.round()}',
-                                                style: const TextStyle(
-                                                  fontSize: 21,
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.w900,
-                                                  fontFeatures: [
-                                                    FontFeature
-                                                        .tabularFigures(),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          ],
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: YummyWinTicker(
+                                          clock: clock,
+                                          strings: strings,
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _arabic ? 'AR' : 'EN',
-                                      style: const TextStyle(
-                                        color: yummyInk,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
+                                      const SizedBox(width: 8),
+                                      _balancePill(strings, balance),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      _icon(
+                                        Icons.settings_outlined,
+                                        'settings',
+                                        _preferences == null ? null : _settings,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  alignment: WrapAlignment.center,
-                                  children: [
-                                    _icon(
-                                      Icons.settings_outlined,
-                                      'settings',
-                                      _preferences == null ? null : _settings,
-                                    ),
-                                    _icon(
-                                      Icons.help_outline,
-                                      'help',
-                                      () => yummySheet(
-                                        context,
-                                        strings.text('help'),
-                                        yummyHelp(
+                                      _icon(
+                                        Icons.help_outline,
+                                        'help',
+                                        () => yummySheet(
+                                          context,
+                                          strings.text('help'),
+                                          yummyHelp(strings, _layout ?? {}),
                                           strings,
-                                          _layout ?? {},
                                         ),
-                                        strings,
                                       ),
-                                    ),
-                                    _icon(
-                                      Icons.history,
-                                      'history',
-                                      _showHistory,
-                                    ),
-                                    _icon(
-                                      _sound
-                                          ? Icons.volume_up
-                                          : Icons.volume_off,
-                                      'sound',
-                                      () => _setting(
+                                      _icon(
+                                        Icons.history,
+                                        'history',
+                                        _showHistory,
+                                      ),
+                                      _icon(
+                                        _sound
+                                            ? Icons.volume_up
+                                            : Icons.volume_off,
                                         'sound',
-                                        !_sound,
+                                        () => _setting('sound', !_sound),
                                       ),
-                                    ),
-                                    _icon(
-                                      Icons.bar_chart,
-                                      'stats',
-                                      _stats,
-                                    ),
-                                    _icon(
-                                      Icons.verified_user_outlined,
-                                      'fairness',
-                                      _busy ? null : () => _fairness(),
-                                    ),
-                                  ],
-                                ),
-                                Image.asset(
-                                  '${yummyArt}logo.png',
-                                  height: 112,
-                                  width: 280,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (
-                                    _,
-                                    __,
-                                    ___,
-                                  ) =>
-                                      const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      vertical: 18,
-                                    ),
-                                    child: Text(
-                                      'YUMMY',
-                                      style: TextStyle(
-                                        fontSize: 54,
-                                        fontWeight: FontWeight.w900,
-                                        color: yummyGold,
-                                        shadows: [
-                                          Shadow(
-                                            color: yummyDeep,
-                                            offset: Offset(
-                                              3,
-                                              4,
-                                            ),
-                                            blurRadius: 2,
+                                      _icon(Icons.bar_chart, 'stats', _stats),
+                                      _icon(
+                                        Icons.emoji_events_outlined,
+                                        'leaderboard',
+                                        _leaderboard,
+                                      ),
+                                      _icon(
+                                        Icons.task_alt,
+                                        'missions',
+                                        _missions,
+                                      ),
+                                      _icon(
+                                        Icons.verified_user_outlined,
+                                        'fairness',
+                                        _busy ? null : () => _fairness(),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  YummyLogo(clock: clock, height: 100),
+                                  AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 300),
+                                    child: free != null && free.spin > 0
+                                        ? YummyFreeSpinsHud(
+                                            key: const ValueKey('hud'),
+                                            spin: free.spin,
+                                            count: free.count,
+                                            multiplier: free.multiplier,
+                                            total: free.total,
+                                            strings: strings,
+                                          )
+                                        : KeyedSubtree(
+                                            key: const ValueKey('banner'),
+                                            child: _banner(strings),
                                           ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  YummyMachine(
+                                    key: _machine,
+                                    initial: _initial,
+                                    strings: strings,
+                                    clock: clock,
+                                    reduced: _reduced,
+                                    lite: _lite,
+                                    freeSpins: free != null,
+                                    onReelStop: (reel, column) {
+                                      _sfx.reelStop(reel);
+                                      if (column.contains('bonus') ||
+                                          column.contains('jackpot')) {
+                                        _sfx.bonusLand();
+                                      }
+                                    },
+                                    onAnticipate: _sfx.anticipation,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Color(0xFF1C7BE8),
+                                          yummyDeep,
+                                          Color(0xFF053E8F),
                                         ],
                                       ),
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(
-                                    10,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Color(0xFF6A2FB3),
-                                        Color(0xFF44227A),
-                                        Color(0xFF241047),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: const Color(0x66FFFFFF),
+                                      ),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Color(0x55043180),
+                                          blurRadius: 10,
+                                          offset: Offset(0, 5),
+                                        ),
                                       ],
                                     ),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                      color: yummyGold,
-                                      width: 2.5,
-                                    ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Color(0x66FFD529),
-                                        blurRadius: 16,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Image.asset(
-                                            '${yummyArt}jackpot.png',
-                                            width: 40,
-                                            height: 40,
-                                            excludeFromSemantics: true,
-                                            errorBuilder: (_, __, ___) =>
-                                                const Text(
-                                              '👑',
-                                              style: TextStyle(fontSize: 26),
-                                            ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceAround,
+                                      children: [
+                                        _metric('totalBet', _totalBet),
+                                        Semantics(
+                                          liveRegion: true,
+                                          child: _metric(
+                                            'prize',
+                                            _shownPrize,
+                                            glow: true,
                                           ),
-                                          const SizedBox(width: 8),
-                                          Flexible(
-                                            child: FittedBox(
-                                              fit: BoxFit.scaleDown,
-                                              child: ShaderMask(
-                                                shaderCallback: (bounds) =>
-                                                    const LinearGradient(
-                                                  begin: Alignment.topCenter,
-                                                  end: Alignment.bottomCenter,
-                                                  colors: [
-                                                    Color(0xFFFFFBD0),
-                                                    yummyGold,
-                                                    Color(0xFFFF9A25),
-                                                  ],
-                                                ).createShader(bounds),
-                                                child: Text(
-                                                  '${strings.text('jackpot')}  ${_bet * 1000}',
-                                                  style: const TextStyle(
-                                                    fontSize: 26,
-                                                    fontWeight: FontWeight.w900,
-                                                    color: Colors.white,
-                                                    shadows: [
-                                                      Shadow(
-                                                        color:
-                                                            Color(0x88000000),
-                                                        offset: Offset(0, 2),
-                                                        blurRadius: 3,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Text(
-                                        strings.text(
-                                          'jackpotRule',
                                         ),
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                AnimatedBuilder(
-                                  animation: Listenable.merge([
-                                    _pulse,
-                                    _ambient,
-                                  ]),
-                                  builder: (context, child) =>
-                                      Transform.translate(
-                                    offset: Offset(
-                                      _pulse.isAnimating
-                                          ? sin(
-                                                _pulse.value * pi * 4,
-                                              ) *
-                                              1.5
-                                          : 0,
-                                      0,
-                                    ),
-                                    child: YummyGrid(
-                                      grid: _grid,
-                                      wins: _busy
-                                          ? const []
-                                          : last?.wins ?? const [],
-                                      strings: strings,
-                                      pulse: _pulse.value,
-                                      ambient: _ambient.value,
-                                      spinning: _busy,
-                                      revealedReels: _revealed,
-                                      spinId: _spinId,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(
-                                    12,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Color(0xFF1C7BE8),
-                                        yummyDeep,
-                                        Color(0xFF053E8F),
                                       ],
                                     ),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                      color: const Color(0x66FFFFFF),
-                                    ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Color(0x55043180),
-                                        blurRadius: 10,
-                                        offset: Offset(0, 5),
-                                      ),
-                                    ],
                                   ),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceAround,
+                                  const SizedBox(height: 12),
+                                  Row(
                                     children: [
-                                      _metric(
-                                        'totalBet',
-                                        _totalBet,
-                                      ),
-                                      Semantics(
-                                        liveRegion: true,
-                                        child: _metric(
-                                          'prize',
-                                          _busy ? 0 : last?.totalPrize ?? 0,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _stepper(
-                                        'bet',
-                                        _bet,
-                                        _locked ||
-                                                _steps.indexOf(
-                                                      _bet,
-                                                    ) <=
-                                                    0
-                                            ? null
-                                            : () => _changeBet(
-                                                  -1,
-                                                ),
-                                        _locked ||
-                                                _steps.indexOf(
-                                                      _bet,
-                                                    ) >=
-                                                    _steps.length - 1
-                                            ? null
-                                            : () => _changeBet(
-                                                  1,
-                                                ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: _stepper(
-                                        'lines',
-                                        _lines,
-                                        _locked ||
-                                                _lines <= 1 ||
-                                                !_allowed(
-                                                  _bet,
-                                                  _lines - 1,
-                                                )
-                                            ? null
-                                            : () => setState(
-                                                  () => _lines--,
-                                                ),
-                                        _locked ||
-                                                _lines >= 9 ||
-                                                !_allowed(
-                                                  _bet,
-                                                  _lines + 1,
-                                                )
-                                            ? null
-                                            : () => setState(
-                                                  () => _lines++,
-                                                ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: OutlinedButton(
-                                        onPressed: _locked || _layout == null
-                                            ? null
-                                            : _maximum,
-                                        style: OutlinedButton.styleFrom(
-                                          backgroundColor: Colors.white,
-                                          minimumSize: const Size(
-                                            0,
-                                            54,
-                                          ),
-                                          foregroundColor: yummyDeep,
-                                        ),
-                                        child: Text(
-                                          strings.text('maximum'),
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(30),
-                                          gradient: LinearGradient(
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                            colors: _busy
-                                                ? const [
-                                                    Color(0xFFFF7A9E),
-                                                    Color(0xFFE72965),
-                                                  ]
-                                                : const [
-                                                    Color(0xFFFFF3A0),
-                                                    yummyGold,
-                                                    Color(0xFFFF9A25),
-                                                  ],
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.white,
-                                            width: 2,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: (_busy
-                                                      ? const Color(0xFFE72965)
-                                                      : const Color(0xFFFF9A25))
-                                                  .withValues(alpha: .6),
-                                              blurRadius: 14,
-                                              offset: const Offset(0, 5),
-                                            ),
-                                          ],
-                                        ),
-                                        child: FilledButton(
-                                          onPressed: _loading
+                                      Expanded(
+                                        child: _stepper(
+                                          'bet',
+                                          _bet,
+                                          _locked || _steps.indexOf(_bet) <= 0
                                               ? null
-                                              : _busy
-                                                  ? _stop
-                                                  : _layout == null
-                                                      ? _boot
-                                                      : _spin,
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: Colors.transparent,
-                                            shadowColor: Colors.transparent,
-                                            foregroundColor:
-                                                _busy ? Colors.white : yummyInk,
-                                            minimumSize: const Size(
-                                              0,
-                                              58,
-                                            ),
+                                              : () => _changeBet(-1),
+                                          _locked ||
+                                                  _steps.indexOf(_bet) >=
+                                                      _steps.length - 1
+                                              ? null
+                                              : () => _changeBet(1),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: _stepper(
+                                          'lines',
+                                          _lines,
+                                          _locked ||
+                                                  _lines <= 1 ||
+                                                  !_allowed(_bet, _lines - 1)
+                                              ? null
+                                              : () => setState(() => _lines--),
+                                          _locked ||
+                                                  _lines >= 9 ||
+                                                  !_allowed(_bet, _lines + 1)
+                                              ? null
+                                              : () => setState(() => _lines++),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton(
+                                          onPressed: _locked || _layout == null
+                                              ? null
+                                              : _maximum,
+                                          style: OutlinedButton.styleFrom(
+                                            backgroundColor: Colors.white,
+                                            minimumSize: const Size(0, 54),
+                                            foregroundColor: yummyDeep,
                                           ),
                                           child: Text(
-                                            strings.text(
-                                              _busy
-                                                  ? 'stop'
-                                                  : _pending != null ||
-                                                          _layout == null
-                                                      ? 'retry'
-                                                      : 'spin',
-                                            ),
-                                            style: const TextStyle(
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.w900,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                if (_loading) const LinearProgressIndicator(),
-                                Semantics(
-                                  liveRegion: true,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xB3082A5E),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      _notice ??
-                                          (_busy
-                                              ? strings.text(
-                                                  'pending',
-                                                )
-                                              : last == null
-                                                  ? strings.text(
-                                                      'ready',
-                                                    )
-                                                  : last.capped
-                                                      ? '${strings.text('capped')}: ${last.requestedPrize} → ${last.totalPrize}'
-                                                      : last.jackpotTriggered
-                                                          ? '👑 ${strings.text('jackpot')}'
-                                                          : last.totalPrize > 0
-                                                              ? '${strings.text('prize')}: ${last.totalPrize}'
-                                                              : strings.text(
-                                                                  'noWin',
-                                                                )),
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                if (!_busy && last != null)
-                                  Wrap(
-                                    alignment: WrapAlignment.center,
-                                    spacing: 8,
-                                    children: [
-                                      for (final win in last.wins)
-                                        Chip(
-                                          label: Text(
-                                            '${strings.text('line')} ${win.line + 1} · ${win.count} ${strings.text(win.symbol)} · ${win.amount}',
+                                            strings.text('maximum'),
+                                            textAlign: TextAlign.center,
                                             style: const TextStyle(
                                               fontSize: 14,
+                                              fontWeight: FontWeight.bold,
                                             ),
                                           ),
                                         ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(child: _spinButton(strings)),
                                     ],
                                   ),
-                                const SizedBox(height: 12),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      _toggle(
+                                        Icons.autorenew,
+                                        'auto',
+                                        _auto != null,
+                                        _layout == null ||
+                                                (_busy && _auto == null)
+                                            ? null
+                                            : _openAutoplay,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      _toggle(
+                                        Icons.bolt,
+                                        'turbo',
+                                        _turbo,
+                                        () => _setting('turbo', !_turbo),
+                                      ),
+                                    ],
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0x99082A5E),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: Text(
-                                    strings.footer,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.white,
+                                  const SizedBox(height: 10),
+                                  if (_loading) const LinearProgressIndicator(),
+                                  Semantics(
+                                    liveRegion: true,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xB3082A5E),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        _status(strings, last),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  if (!_busy && last != null)
+                                    Wrap(
+                                      alignment: WrapAlignment.center,
+                                      spacing: 8,
+                                      children: [
+                                        for (final win in last.allWins.take(6))
+                                          Chip(
+                                            label: Text(
+                                              '${strings.text('line')} ${win.line + 1} · ${win.count} ${strings.text(win.symbol)} · ${win.amount}',
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0x99082A5E),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Text(
+                                      strings.footer,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    if (_tier != YummyWinTier.none && last != null)
-                      Positioned.fill(
-                        child: YummyCelebration(
-                          key: ValueKey('celebrate-$_spinId'),
-                          tier: _tier,
-                          prize: last.totalPrize - last.bonusPrize,
-                          strings: strings,
-                          reduced: _reduced,
-                          onDone: _endCelebration,
+                      if (_intro != null && free != null)
+                        Positioned.fill(
+                          child: YummyFreeSpinsIntro(
+                            key: ValueKey('intro-$_spinId'),
+                            count: free.count,
+                            multiplier: free.multiplier,
+                            strings: strings,
+                            reduced: _reduced,
+                            lite: _lite,
+                            autoStart: Duration(
+                              seconds: _auto != null || _turbo ? 2 : 6,
+                            ),
+                            onStart: _startFree,
+                          ),
                         ),
-                      ),
-                  ],
+                      if (summary != null && summary.freeSpins != null)
+                        Positioned.fill(
+                          child: YummyFreeSpinsSummary(
+                            key: ValueKey('summary-$_spinId'),
+                            total: summary.freeSpinsShown,
+                            count: summary.freeSpins!.count,
+                            capped: summary.capped,
+                            strings: strings,
+                            reduced: _reduced,
+                            lite: _lite,
+                            onDone: _endSummary,
+                          ),
+                        ),
+                      if (_tier != YummyWinTier.none)
+                        Positioned.fill(
+                          child: YummyCelebration(
+                            key: ValueKey('celebrate-$_spinId'),
+                            tier: _tier,
+                            prize: _tierPrize,
+                            strings: strings,
+                            reduced: _reduced,
+                            lite: _lite,
+                            onDone: _endCelebration,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1258,4 +1415,69 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
       ),
     );
   }
+
+  String _status(YummyStrings strings, YummyRound? last) {
+    if (_notice != null) return _notice!;
+    final auto = _auto;
+    if (auto != null) {
+      return '${strings.text('autoplay')} · ${auto.left} ${strings.text('autoLeft')}';
+    }
+    if (_busy) return strings.text('pending');
+    if (last == null) return strings.text('ready');
+    if (last.capped) {
+      return '${strings.text('capped')}: ${last.requestedPrize} → ${last.totalPrize}';
+    }
+    if (last.jackpotTriggered) return '👑 ${strings.text('jackpot')}';
+    if (last.totalPrize > 0) {
+      return '${strings.text('prize')}: ${last.totalPrize}';
+    }
+    return strings.text('noWin');
+  }
+
+  Widget _balancePill(YummyStrings strings, int balance) => Semantics(
+        liveRegion: true,
+        label: strings.text('balance'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1C7BE8), yummyDeep],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: yummyGold, width: 1.5),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x55043180),
+                blurRadius: 8,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.toll, color: yummyGold),
+              const SizedBox(width: 6),
+              TweenAnimationBuilder<double>(
+                tween: Tween(end: (_shownBalance ?? balance).toDouble()),
+                duration: _reduced
+                    ? Duration.zero
+                    : const Duration(milliseconds: 900),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) => Text(
+                  '${value.round()}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 }

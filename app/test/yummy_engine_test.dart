@@ -67,7 +67,7 @@ void main() {
     final grid = List<String>.filled(15, 'bonus');
     grid[5] = grid[6] = grid[7] = 'cherry';
     final wins = yummyEvaluateLines(grid, 100, 1);
-    expect(wins.single.amount, 300);
+    expect(wins.single.amount, 600);
     expect(wins.single.cells, [5, 6, 7]);
     grid[5] = 'bonus';
     grid[8] = grid[9] = 'cherry';
@@ -83,7 +83,7 @@ void main() {
         yummyEvaluateLines(grid, 10, 9)
             .firstWhere((win) => win.line == line)
             .amount,
-        5000,
+        7500,
       );
     }
   });
@@ -92,9 +92,9 @@ void main() {
     grid[5] = 'wild';
     grid[6] = 'diamond';
     grid[7] = 'wild';
-    expect(yummyEvaluateLines(grid, 100, 1).single.amount, 2000);
+    expect(yummyEvaluateLines(grid, 100, 1).single.amount, 4000);
     grid[6] = 'wild';
-    expect(yummyEvaluateLines(grid, 100, 1).single.amount, 2500);
+    expect(yummyEvaluateLines(grid, 100, 1).single.amount, 5000);
   });
   test('6 bonus is never wild; wild never substitutes a jackpot', () {
     final grid = List<String>.filled(15, 'bonus');

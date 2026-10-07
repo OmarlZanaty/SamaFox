@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'yummy_fx.dart';
 import 'yummy_strings.dart';
 import 'yummy_symbols.dart';
 
@@ -22,7 +23,7 @@ class YummyCelebration extends StatefulWidget {
   final YummyWinTier tier;
   final int prize;
   final YummyStrings strings;
-  final bool reduced;
+  final bool reduced, lite;
   final VoidCallback onDone;
   const YummyCelebration({
     super.key,
@@ -31,6 +32,7 @@ class YummyCelebration extends StatefulWidget {
     required this.strings,
     required this.onDone,
     this.reduced = false,
+    this.lite = false,
   });
 
   @override
@@ -96,7 +98,16 @@ class _YummyCelebrationState extends State<YummyCelebration> {
                 ),
               ),
             ),
-            if (!widget.reduced) const Positioned.fill(child: _Rays()),
+            if (!widget.reduced && !widget.lite)
+              const Positioned.fill(child: _Rays()),
+            if (!widget.reduced)
+              Positioned.fill(
+                child: YummyCoinRain(
+                  seconds: jackpot ? 4 : 2.6,
+                  perSecond: jackpot ? 36 : 24,
+                  lite: widget.lite,
+                ),
+              ),
             Align(
               alignment: Alignment.topCenter,
               child: ConfettiWidget(

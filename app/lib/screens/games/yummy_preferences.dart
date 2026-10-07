@@ -10,6 +10,7 @@ class YummyPreferences {
   bool get arabic => storage.getBool('${_prefix}arabic') ?? true;
   bool get sound => storage.getBool('${_prefix}sound') ?? true;
   bool get motion => storage.getBool('${_prefix}motion') ?? true;
+  bool get turbo => storage.getBool('${_prefix}turbo') ?? false;
   DateTime? get hiddenBefore =>
       DateTime.tryParse(storage.getString('${_prefix}hidden') ?? '');
   Future<void> setSetting(String key, bool value) async =>

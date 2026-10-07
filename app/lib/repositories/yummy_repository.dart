@@ -41,8 +41,9 @@ class YummyRepository {
   Future<List<YummyRound>> history() async => ((await request(
         'history',
       ))['history'] as List)
-          .map((row) =>
-              YummyRound.fromJson(Map<String, dynamic>.from(row as Map)))
+          .map(
+            (row) => YummyRound.fromJson(Map<String, dynamic>.from(row as Map)),
+          )
           .toList();
   Future<YummyRound> spin(
     int betPerLine,
@@ -56,6 +57,16 @@ class YummyRepository {
           requestId: requestId ?? const Uuid().v4(),
         ),
       );
+
+  /// Latest big wins announced to everyone (newest first).
+  Future<List<Map<String, dynamic>>> feed() async =>
+      ((await request('feed'))['wins'] as List? ?? const [])
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList();
+  Future<Map<String, dynamic>> leaderboard() => request('leaderboard');
+  Future<Map<String, dynamic>> missions() => request('missions');
+  Future<Map<String, dynamic>> claimMission(String key) =>
+      request('missions/$key/claim', data: const {});
 }
 
 class YummyException implements Exception {
