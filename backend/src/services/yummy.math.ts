@@ -76,7 +76,8 @@ export interface Tumble {
   /** Cells that pop after this step (empty on the last step). */
   removed: number[];
 }
-export interface FreeSpin { expandedReels: number[]; tumbles: Tumble[]; prize: number }
+/** [landed] is the board before WILDs expanded; tumbles[0].grid is after. */
+export interface FreeSpin { landed: Symbol[]; expandedReels: number[]; tumbles: Tumble[]; prize: number }
 export interface FreeSpins { count: number; multiplier: number; trigger: number; spins: FreeSpin[]; prize: number }
 
 export function validBet(bet: unknown, lines: unknown): boolean {
@@ -175,10 +176,11 @@ export function computeSpin(rng: Rng, betPerLine: number, activeLines: number) {
     const award = FREE_SPIN_AWARDS[Math.min(trigger,5)]!;
     const spins: FreeSpin[] = [];
     for (let i = 0; i < award.spins; i++) {
-      const board = drawBoard(rng);
+      const landed = drawBoard(rng);
+      const board = [...landed];
       const expandedReels = expandWilds(board);
       const chain = tumbleChain(rng, board, betPerLine, activeLines, award.multiplier);
-      spins.push({ expandedReels, tumbles: chain, prize: chain.reduce((sum,t) => sum+t.prize, 0) });
+      spins.push({ landed, expandedReels, tumbles: chain, prize: chain.reduce((sum,t) => sum+t.prize, 0) });
     }
     freeSpins = { count: award.spins, multiplier: award.multiplier, trigger, spins,
       prize: spins.reduce((sum,s) => sum+s.prize, 0) };

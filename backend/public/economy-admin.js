@@ -102,6 +102,7 @@
     $("econ_maxPayoutRatio").value = s.maxPayoutRatio ?? "";
     $("econ_rtpTarget").value = bpToPct(s.rtpTargetBp);
     $("econ_programShare").value = bpToPct(s.programShareBp);
+    $("econ_broadcastMinX").value = s.broadcastMinX ?? "";
     $("econNatural").textContent =
       `أعلى مضاعف طبيعي للعبة: ×${g.naturalMaxMultiplier ?? "—"} — نسبة دفع أقل منه تقص المكاسب الكبيرة. ` +
       `صندوق اللاعبين يأخذ ${(100 - Number(s.programShareBp) / 100).toFixed(2)}% من كل رهان، فـ RTP المستهدف يجب ألا يتجاوزها.`;
@@ -121,6 +122,7 @@
       maxPayoutRatio: intOrEmpty("econ_maxPayoutRatio"),
       rtpTargetBp: pctToBp(val("econ_rtpTarget")),
       programShareBp: pctToBp(val("econ_programShare")),
+      broadcastMinX: intOrEmpty("econ_broadcastMinX"),
       reason,
     });
     $("econ_reason").value = "";

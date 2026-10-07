@@ -1,4 +1,5 @@
 import { Server, Socket } from 'socket.io';
+import { setGameBroadcastEmitter } from './gameBroadcast.service';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
 import { readSettings, voiceEngineForRoom } from '../controllers/settings.controller';
@@ -1009,6 +1010,7 @@ export function broadcastRoomClosed(roomId: number) {
 
 export const initializeSocketHandlers = (io: Server) => {
   _io = io;
+  setGameBroadcastEmitter((event, payload) => io.emit(event, payload));
   startRoomStatePersistence(io);
   io.use(async (socket: AuthenticatedSocket, next) => {
   let payload: { userId: number };

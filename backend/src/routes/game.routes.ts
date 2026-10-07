@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { getYummyState, spinYummy, getYummyHistory, getYummyFairness, setYummyClientSeed, rotateYummySeed, verifyYummySpin } from '../controllers/yummy.controller';
+import { getYummyState, spinYummy, getYummyHistory, getYummyFairness, setYummyClientSeed, rotateYummySeed, verifyYummySpin,
+  getYummyFeed, getYummyLeaderboard, getYummyMissions, claimYummyMission } from '../controllers/yummy.controller';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.middleware';
 import {
@@ -381,5 +382,9 @@ router.get('/yummy/fair', authenticate, getYummyFairness);
 router.post('/yummy/seed', authenticate, yummyLimiter, setYummyClientSeed);
 router.post('/yummy/seed/rotate', authenticate, yummyLimiter, rotateYummySeed);
 router.post('/yummy/verify', authenticate, yummyLimiter, verifyYummySpin);
+router.get('/yummy/feed', authenticate, getYummyFeed);
+router.get('/yummy/leaderboard', authenticate, getYummyLeaderboard);
+router.get('/yummy/missions', authenticate, getYummyMissions);
+router.post('/yummy/missions/:key/claim', authenticate, yummyLimiter, claimYummyMission);
 
 export default router;

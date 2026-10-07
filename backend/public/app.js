@@ -75,7 +75,10 @@ function navigate(sec) {
   if (sec === "staff") window.staffLoad?.().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
   // 2026-09-26 pages live in economy-admin.js.
-  if (sec === "games") window.econLoadGames?.().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "games") {
+    window.econLoadGames?.().catch(e => showToast("خطأ: " + e.message));
+    loadGamesRtp().catch(e => showToast("خطأ: " + e.message));
+  }
   if (sec === "lucky") window.lkLoad?.().catch(e => showToast("خطأ: " + e.message));
   if (sec === "cp") window.cpEconLoad?.().catch(e => showToast("خطأ: " + e.message));
   if (sec === "features") window.ftInit?.();
@@ -3201,6 +3204,60 @@ async function saveHalalGames() {
   loadHalalGames().catch(() => {});
 }
 
+// RTP per game per day: a table of totals and an SVG bar chart of one game's
+// days (bars = RTP %, dashed red = 100%, green = target). No chart library:
+// the dashboard has to stay light on a phone.
+let gamesRtpData = null;
+async function loadGamesRtp() {
+  const days = document.getElementById("rtpDays")?.value || 14;
+  const res = await apiFetch(`/admin-dashboard/games-rtp?days=${encodeURIComponent(days)}`);
+  gamesRtpData = res?.data ?? null;
+  const select = document.getElementById("rtpGame");
+  if (select && gamesRtpData) {
+    const current = select.value;
+    select.innerHTML = gamesRtpData.games.map(g =>
+      `<option value="${escapeHtml(g.game)}">${escapeHtml(GAME_LABELS[g.game] || g.game)}</option>`).join("");
+    if (gamesRtpData.games.some(g => g.game === current)) select.value = current;
+    else if (gamesRtpData.games.some(g => g.game === "yummy")) select.value = "yummy";
+  }
+  renderGamesRtp();
+}
+
+function renderGamesRtp() {
+  const data = gamesRtpData;
+  const body = document.querySelector("#gamesRtpTable tbody");
+  const chart = document.getElementById("gamesRtpChart");
+  if (!data || !body || !chart) return;
+  const n = (v) => Number(v || 0).toLocaleString("en-US");
+  const pct = (v) => v == null ? "—" : (v * 100).toFixed(1) + "%";
+  body.innerHTML = data.games.map(g => `
+    <tr><td><strong>${escapeHtml(GAME_LABELS[g.game] || g.game)}</strong></td>
+    <td>${n(g.stakes)}</td><td>${n(g.prizes)}</td><td>${n(g.rounds)}</td>
+    <td style="color:${g.rtp != null && g.rtp > 1 ? "#e5373f" : "inherit"}">${pct(g.rtp)}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="cell-muted">لا توجد جولات في الفترة</td></tr>`;
+  const game = data.games.find(g => g.game === document.getElementById("rtpGame")?.value) || data.games[0];
+  if (!game) { chart.innerHTML = ""; return; }
+  const W = Math.max(320, data.days.length * 34), H = 190, pad = 28;
+  const max = Math.max(1.2, ...game.daily.map(d => d.rtp || 0));
+  const y = (v) => H - pad - (v / max) * (H - pad * 2);
+  const bw = (W - pad * 2) / data.days.length;
+  const bars = game.daily.map((d, i) => {
+    const x = pad + i * bw + bw * .15, top = y(d.rtp || 0);
+    const color = d.rtp == null ? "#ccc" : d.rtp > 1 ? "#e5373f" : d.rtp > 0.85 ? "#ff9a25" : "#1e7bff";
+    return `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${(bw * .7).toFixed(1)}" height="${(H - pad - top).toFixed(1)}" rx="3" fill="${color}">
+      <title>${escapeHtml(d.day)} · ${pct(d.rtp)} · لعب ${n(d.stakes)} · مكاسب ${n(d.prizes)}</title></rect>
+      <text x="${(x + bw * .35).toFixed(1)}" y="${H - 8}" font-size="9" text-anchor="middle" fill="#888">${escapeHtml(d.day.slice(5))}</text>`;
+  }).join("");
+  const target = game.targetRtp != null
+    ? `<line x1="${pad}" x2="${W - pad}" y1="${y(game.targetRtp)}" y2="${y(game.targetRtp)}" stroke="#00b386" stroke-width="1.5"/>
+       <text x="${W - pad}" y="${y(game.targetRtp) - 4}" font-size="10" text-anchor="end" fill="#00b386">المستهدف ${pct(game.targetRtp)}</text>` : "";
+  chart.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="RTP">
+    ${bars}
+    <line x1="${pad}" x2="${W - pad}" y1="${y(1)}" y2="${y(1)}" stroke="#e5373f" stroke-dasharray="4 4"/>
+    <text x="${pad}" y="${y(1) - 4}" font-size="10" fill="#e5373f">100%</text>${target}
+    <line x1="${pad}" x2="${W - pad}" y1="${H - pad}" y2="${H - pad}" stroke="#bbb"/></svg>`;
+}
+
 async function saveGameConfig(game) {
   const enabled = document.getElementById(`gc_en_${game}`).value === "1";
   // Empty string is sent through deliberately — the API reads it as "clear the
@@ -3462,7 +3519,7 @@ Object.assign(window, {
   loadRewards, saveRoomSupportWindow,
   saveRoomCupReward, deleteRoomCupReward,
   saveSupporterReward, deleteSupporterReward,
-  loadGamesConfig, saveGameConfig, loadHalalGames, saveHalalGames,
+  loadGamesConfig, saveGameConfig, loadHalalGames, saveHalalGames, loadGamesRtp, renderGamesRtp,
   loadModeration, sendAdminMessage,
   createDeviceBan, deleteDeviceBan,
   saveGates, adjustUserTarget, loadUserCharges,

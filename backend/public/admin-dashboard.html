@@ -1221,6 +1221,7 @@
           <label>أقصى نسبة دفع (× الرهان) <input id="econ_maxPayoutRatio" type="number" min="1" class="form-input" placeholder="الحد الطبيعي للعبة" /></label>
           <label>RTP مستهدف % <input id="econ_rtpTarget" type="number" min="0" max="100" step="0.01" class="form-input" /></label>
           <label>حصة البرنامج % <input id="econ_programShare" type="number" min="0" max="100" step="0.01" class="form-input" /></label>
+          <label>إعلان الفوز من (× الرهان) <input id="econ_broadcastMinX" type="number" min="1" class="form-input" placeholder="50" /></label>
         </div>
         <div class="cell-muted" id="econNatural"></div>
         <div class="form-row" style="margin-top:10px">
@@ -1232,6 +1233,24 @@
           <button class="btn btn-outline" onclick="econFundGame()">تمويل الصندوق</button>
         </div>
         <p class="section-sub">صندوق فارغ = اللعبة ترفض الرهانات قبل الخصم. التمويل يُخصم من حساب البرنامج (حصته من اللعب) ويُسجَّل.</p>
+      </div>
+      <div class="form-card" id="gamesRtpCard">
+        <div class="form-card-title">RTP يومي لكل لعبة</div>
+        <p class="section-sub">المكاسب ÷ اللعب لكل يوم (بتوقيت القاهرة) من سجل الألعاب. الخط الأحمر المتقطع = 100%، الأخضر = المستهدف.</p>
+        <div class="form-row">
+          <select id="rtpDays" class="form-input form-input--sm" onchange="loadGamesRtp()">
+            <option value="7">7 أيام</option><option value="14" selected>14 يوم</option><option value="30">30 يوم</option>
+          </select>
+          <select id="rtpGame" class="form-input form-input--sm" onchange="renderGamesRtp()"></select>
+          <button class="btn btn-outline btn-sm" onclick="loadGamesRtp()">تحديث</button>
+        </div>
+        <div id="gamesRtpChart" style="overflow-x:auto;margin-top:8px"></div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="gamesRtpTable">
+            <thead><tr><th>اللعبة</th><th>اللعب</th><th>المكاسب</th><th>الجولات</th><th>RTP</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 

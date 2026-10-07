@@ -38,6 +38,8 @@ export interface GameSettings {
   rtpTargetBp: number | null;
   /** The program's cut of every stake, in basis points; the rest feeds the pool. */
   programShareBp: number;
+  /** Wins of at least stake × this are announced to every player. null = 50. */
+  broadcastMinX?: number | null;
 }
 
 export type GameConfigMap = Record<string, GameSettings>;
@@ -84,7 +86,7 @@ const NATURAL_MAX_MULTIPLIER: Record<string, number> = {
   'crazy-wheel': 500,
   'greedy-cat': 45,
   'neon-fortune': 1000,
-  yummy: 1010,
+  yummy: 1500,
   aetherfall: 1000,
   asterion: 1000,
   olympus: 1000,
@@ -111,6 +113,9 @@ export function validateGameSettings(game: string, s: GameSettings): string | nu
   }
   if (s.maxPayoutRatio != null && (!Number.isFinite(s.maxPayoutRatio) || s.maxPayoutRatio < 1)) {
     return 'أقصى نسبة دفع يجب أن تكون 1 أو أكثر';
+  }
+  if (s.broadcastMinX != null && (!Number.isFinite(s.broadcastMinX) || s.broadcastMinX < 1)) {
+    return 'حد إعلان الفوز يجب أن يكون 1 أو أكثر';
   }
   if (!Number.isInteger(s.programShareBp) || s.programShareBp < 0 || s.programShareBp > 10_000) {
     return 'حصة البرنامج بين 0% و 100%';

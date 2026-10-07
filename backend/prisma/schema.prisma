@@ -73,6 +73,7 @@ model User {
   relationsAsUser2         Relation[]                @relation("RelationUser2")
   transactions             Transaction[]
   yummyRounds              YummyRound[]
+  yummyMissionClaims       YummyMissionClaim[]
   reportsMade              Report[]                  @relation("Reporter")
   reportsReceived          Report[]                  @relation("Reported")
   achievements             UserAchievement[]
@@ -1708,6 +1709,20 @@ model YummyRound {
   @@unique([userId, requestId])
   @@index([userId, createdAt])
   @@map("yummy_rounds")
+}
+
+/// A claimed YUMMY daily mission; the unique key makes a claim race-proof.
+model YummyMissionClaim {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  day       String // Cairo day, YYYY-MM-DD
+  key       String
+  xp        Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day, key])
+  @@map("yummy_mission_claims")
 }
 
 model GameFairSeed {

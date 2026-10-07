@@ -272,6 +272,17 @@ router.post('/gates', adminSetGates);
 router.get('/games', adminListGameConfig);
 router.post('/games/:game', adminSetGameConfig);
 router.get('/games-halal', adminGetHalalGames);
+// Per game, per Cairo day: coins staked vs coins paid out, from game_ledger.
+// GET /admin-dashboard/games-rtp?days=14
+router.get('/games-rtp', async (req, res) => {
+  try {
+    const { gamesRtp } = await import('../services/gamesRtp.service');
+    res.json({ success: true, data: await gamesRtp(Number(req.query.days) || 14) });
+  } catch (e) {
+    console.error('[games-rtp]', e);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 router.post('/games-halal', adminSetHalalGames);
 
 // ── Client logs (what the app is doing on users' phones) ─────────────────────

@@ -5,7 +5,9 @@ import { computeSpin, scoreGrid, collapse, tumbleChain, expandWilds, PAYLINES, R
   SYMBOLS, WEIGHTS, MAX_TUMBLES, MAX_MULTIPLIER, FREE_SPIN_AWARDS } from '../yummy.math';
 import { invalidateGameConfigCache } from '../gameConfig.service';
 import { __resetHalalForTests } from '../halalGames.service';
-import { resolveSpin, verifySpin, rotateServerSeed } from '../yummy.service';
+import { resolveSpin, verifySpin, rotateServerSeed, getMissions, claimMission, getLeaderboard, cairoWeekDays,
+  __resetLeaderboardForTests } from '../yummy.service';
+import { recentGameWins, setGameBroadcastEmitter, __resetGameBroadcastForTests } from '../gameBroadcast.service';
 
 const rounds=new Map<string,any>();
 let failHistory=false;
@@ -18,8 +20,29 @@ fakePrisma.yummyRound={
     const record={...data,id:`round-${rounds.size}`,createdAt:new Date()};
     rounds.set(`${data.userId}:${data.requestId}`,record);return record;
   },
-  findMany:async ({where}:any)=>[...rounds.values()].filter(row=>row.userId===where.userId).reverse().slice(0,50),
+  findMany:async ({where,take}:any)=>[...rounds.values()]
+    .filter(row=>row.userId===where.userId&&(!where.createdAt?.gte||row.createdAt>=where.createdAt.gte))
+    .reverse().slice(0,take??50),
 };
+const claims:any[]=[];
+fakePrisma.yummyMissionClaim={
+  findMany:async ({where}:any)=>claims.filter(c=>c.userId===where.userId&&c.day===where.day),
+  create:async ({data}:any)=>{
+    if(claims.some(c=>c.userId===data.userId&&c.day===data.day&&c.key===data.key)) throw Object.assign(new Error('unique'),{code:'P2002'});
+    claims.push(data);return data;
+  },
+};
+fakePrisma.gameLedger.groupBy=async ({where,take}:any)=>{
+  const sums=new Map<number,number>();
+  for(const r of ledger) if(r.game===where.game&&r.kind===where.kind&&where.day.in.includes(r.day)) sums.set(r.userId,(sums.get(r.userId)??0)+r.amount);
+  return [...sums.entries()].sort((a,b)=>b[1]-a[1]).slice(0,take).map(([userId,amount])=>({userId,_sum:{amount}}));
+};
+const ledgerAggregate=fakePrisma.gameLedger.aggregate;
+fakePrisma.gameLedger.aggregate=async (args:any)=>{
+  if(!args.where.day?.in) return ledgerAggregate(args);
+  return {_sum:{amount:ledger.filter(r=>r.userId===args.where.userId&&r.game===args.where.game&&r.kind===args.where.kind&&args.where.day.in.includes(r.day)).reduce((a:number,r:any)=>a+r.amount,0)}};
+};
+fakePrisma.user.findMany=async ({where}:any)=>where.id.in.map((id:number)=>({id,name:`u${id}`,avatarUrl:null}));
 fakePrisma.$transaction=async (callback:any)=> {
   let release!:()=>void;
   const previous=transactionTail;
@@ -39,7 +62,8 @@ fakePrisma.$transaction=async (callback:any)=> {
 
 beforeEach(()=>{
   balances.clear();accounts.clear();rounds.clear();settings.clear();ledger.length=0;economyLedger.length=0;xpAwards.length=0;
-  failHistory=false;transactionCount=0;
+  failHistory=false;transactionCount=0;claims.length=0;
+  __resetGameBroadcastForTests();__resetLeaderboardForTests();
   accounts.set('GAME_POOL:yummy',100000000);accounts.set('PROGRAM',0);balances.set(701,50000);
   invalidateGameConfigCache();__resetHalalForTests();
 });
@@ -129,6 +153,7 @@ test('free-spin WILD on reels 2–4 expands to the whole reel; edge reels never 
   const result=computeSpin(scripted([...opening,...first]),100,9);
   const spin=result.freeSpins!.spins[0]!;
   assert.deepEqual(spin.expandedReels,[2]);
+  assert.deepEqual([spin.landed[2],spin.landed[7],spin.landed[12]],['wild','bonus','bonus']);
   assert.deepEqual([2,7,12].map(c=>spin.tumbles[0]!.grid[c]),['wild','wild','wild']);
   assert.equal(spin.tumbles[0]!.wins.length,9);
   assert.equal(spin.tumbles[0]!.prize,9*600*5);
@@ -198,4 +223,58 @@ test('revealed seed verifies committed grid and uncapped prize',async()=>{
   assert.deepEqual(verified.tumbles,result.spin.tumbles);assert.deepEqual(verified.freeSpins,result.spin.freeSpins);
   assert.equal(verified.serverSeedHash,result.serverSeedHash);
   assert.throws(()=>verifySpin('bad','seed',0,100,9),{code:'BAD_VERIFY'});
+});
+
+// A winning round, found by trying request ids (about 1 in 4 spins pays).
+async function winningRound(user=701,minPrize=1) {
+  for(let i=0;i<400;i++){
+    const id=`win-${user}-${Date.now()}-${i}`;
+    const round:any=await resolveSpin(user,100,9,id);
+    if(round.spin.totalPrize>=minPrize) return {round,id};
+  }
+  throw new Error('no win in 400 spins');
+}
+test('wins at or above broadcastMinX × stake are announced once; losses never',async()=>{
+  const sent:any[]=[];
+  setGameBroadcastEmitter((event,payload)=>sent.push({event,payload}));
+  settings.set('game_config',JSON.stringify({yummy:{broadcastMinX:1000000}}));invalidateGameConfigCache();
+  await winningRound();
+  assert.equal(sent.length,0);
+  settings.set('game_config',JSON.stringify({yummy:{broadcastMinX:1}}));invalidateGameConfigCache();
+  balances.set(701,10_000_000);
+  const {round,id}=await winningRound(701,900);
+  const last=sent[sent.length-1];
+  assert.equal(last.event,'game_win_broadcast');
+  assert.equal(last.payload.game,'yummy');assert.equal(last.payload.userId,701);
+  assert.equal(last.payload.prize,round.spin.totalPrize);
+  assert.equal(last.payload.name,'u701');
+  assert.ok(['big','mega','jackpot'].includes(last.payload.tier));
+  assert.equal(recentGameWins('yummy')[0]!.prize,round.spin.totalPrize);
+  // A replayed request is not announced again.
+  const before=sent.length;
+  await resolveSpin(701,100,9,id);
+  assert.equal(sent.length,before);
+});
+test('daily missions track spins and wins and pay XP exactly once',async()=>{
+  for(let i=0;i<20;i++) await resolveSpin(701,10,1,`m-${i}`);
+  const state=await getMissions(701);
+  const spin=state.missions.find(m=>m.key==='spin20')!;
+  assert.equal(spin.progress,20);assert.equal(spin.claimed,false);
+  const xpBefore=xpAwards.length;
+  const claimed:any=await claimMission(701,'spin20');
+  assert.equal(claimed.xp,50);assert.equal(xpAwards.length,xpBefore+1);
+  assert.equal(claimed.missions.find((m:any)=>m.key==='spin20').claimed,true);
+  await assert.rejects(claimMission(701,'spin20'),{code:'MISSION_CLAIMED'});
+  await assert.rejects(claimMission(701,'nope'),{code:'BAD_MISSION'});
+});
+test('weekly leaderboard ranks prize totals and reports my rank',async()=>{
+  const days=cairoWeekDays(new Date('2026-10-07T10:00:00Z'));
+  assert.equal(days[0],'2026-10-03');assert.equal(days[days.length-1],'2026-10-07');
+  assert.deepEqual(cairoWeekDays(new Date('2026-10-03T10:00:00Z')),['2026-10-03']);
+  const today=cairoWeekDays().slice(-1)[0];
+  ledger.push({userId:5,game:'yummy',kind:'prize',amount:900,day:today},{userId:6,game:'yummy',kind:'prize',amount:4000,day:today},
+    {userId:701,game:'yummy',kind:'prize',amount:1200,day:today},{userId:7,game:'plinko',kind:'prize',amount:99999,day:today});
+  const board=await getLeaderboard(701);
+  assert.deepEqual(board.entries.map(e=>e.userId),[6,701,5]);
+  assert.equal(board.entries[0]!.rank,1);assert.equal(board.me.rank,2);assert.equal(board.me.won,1200);
 });

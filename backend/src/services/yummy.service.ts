@@ -6,10 +6,13 @@ import { getGameSettings, checkGamePlayable } from './gameConfig.service';
 import { cairoDay, getHalalSettings, reservePrize, releasePrize } from './halalGames.service';
 import { creditAccount, debitAccount, readBalance, gamePoolAccount, PROGRAM_ACCOUNT, bpShare } from './economyAccounts.service';
 import { awardUserXP } from './xp.service';
+import { broadcastGameWin, recentGameWins } from './gameBroadcast.service';
 import { BET_STEPS, PAYLINES, PAYTABLE, JACKPOT_MULTIPLIER, MAX_MULTIPLIER, MATH_VERSION, TARGET_RTP, TUMBLE_MULTIPLIERS,
   FREE_SPIN_AWARDS, EXPANDING_REELS, RngStream, computeSpin, validBet } from './yummy.math';
 
 const GAME = 'yummy';
+/** Default for gameConfig.broadcastMinX: wins of 50× the stake are announced. */
+export const BROADCAST_MIN_X = 50;
 export class YummyError extends Error {
   constructor(public code: string, message: string, public status = 400) { super(message); }
 }
@@ -21,7 +24,7 @@ export async function getLayout() {
   return { betSteps:BET_STEPS, minLines:1, maxLines:9, paylines:PAYLINES, paytable:PAYTABLE,
     jackpotMultiplier:JACKPOT_MULTIPLIER, mathVersion:MATH_VERSION, mathRtp:TARGET_RTP,
     tumbleMultipliers:TUMBLE_MULTIPLIERS, freeSpinAwards:FREE_SPIN_AWARDS, expandingReels:EXPANDING_REELS,
-    maxMultiplier:MAX_MULTIPLIER, ...settings, minBet:Math.max(10,settings.minBet ?? 10), maxBet:Math.min(9000,settings.maxBet ?? 9000) };
+    maxMultiplier:MAX_MULTIPLIER, broadcastMinX:BROADCAST_MIN_X, missions:MISSIONS, ...settings, minBet:Math.max(10,settings.minBet ?? 10), maxBet:Math.min(9000,settings.maxBet ?? 9000) };
 }
 export async function getHistory(userId:number) {
   const records = await prisma.yummyRound.findMany({where:{userId},orderBy:{createdAt:'desc'},take:50});
@@ -62,7 +65,7 @@ export async function resolveSpin(userId:number,betPerLine:unknown,activeLines:u
     const spin = computeSpin(new RngStream(seed.serverSeed,seed.clientSeed,seed.nonce),bet,lines);
     const day = cairoDay();
     const pool = gamePoolAccount(GAME);
-    return await prisma.$transaction(async tx => {
+    const settled = await prisma.$transaction(async tx => {
       // Conditional debit takes the user row lock before any per-user limits.
       const charged = await tx.user.updateMany({where:{id:userId,coinsBalance:{gte:totalBet}},data:{coinsBalance:{decrement:totalBet}}});
       if (charged.count !== 1) throw new YummyError('INSUFFICIENT','رصيدك لا يكفي');
@@ -100,6 +103,8 @@ export async function resolveSpin(userId:number,betPerLine:unknown,activeLines:u
       const record = await tx.yummyRound.create({data:{userId,requestId,result:result as unknown as Prisma.InputJsonValue}});
       return {id:record.id,at:record.createdAt.toISOString(),...result};
     },{timeout:15000});
+    await announce(userId,settled.spin.totalPrize,totalBet,spin.jackpotTriggered,settings.broadcastMinX);
+    return settled;
   } finally { releasePrize(reserved.token); }
 }
 
@@ -111,4 +116,94 @@ export function verifySpin(serverSeed:unknown,clientSeed:unknown,nonce:unknown,b
   }
   return {...computeSpin(new RngStream(serverSeed,clientSeed,nonce),bet as number,lines as number),
     serverSeedHash:crypto.createHash('sha256').update(serverSeed).digest('hex')};
+}
+
+/** Tells every player about a big win, after it committed. Never throws. */
+async function announce(userId:number,prize:number,totalBet:number,jackpot:boolean,minX:number|null|undefined) {
+  const x = prize/totalBet;
+  if (prize <= 0 || (!jackpot && x < (minX ?? BROADCAST_MIN_X))) return;
+  try {
+    const user = await prisma.user.findUnique({where:{id:userId},select:{name:true,avatarUrl:true}});
+    broadcastGameWin({game:GAME,userId,name:user?.name ?? '',avatar:user?.avatarUrl ?? null,prize,
+      x:Math.round(x*10)/10,tier:jackpot ? 'jackpot' : x >= 100 ? 'mega' : 'big',at:new Date().toISOString()});
+  } catch (e) { console.warn('[yummy] announce failed:',(e as Error).message); }
+}
+export const getWinFeed = () => ({wins:recentGameWins(GAME)});
+
+// ── Weekly leaderboard: coins won this Cairo week (Saturday → Friday) ──────────
+/** Cairo days from the last Saturday through today, oldest first. */
+export function cairoWeekDays(now = new Date()): string[] {
+  const today = cairoDay(now);
+  const [y,m,d] = today.split('-').map(Number) as [number,number,number];
+  const base = Date.UTC(y,m-1,d);
+  const sinceSaturday = (new Date(base).getUTCDay()+1) % 7;
+  return Array.from({length:sinceSaturday+1},(_,i) => new Date(base-(sinceSaturday-i)*86_400_000).toISOString().slice(0,10));
+}
+let board: {at:number;week:string;rows:{userId:number;won:number}[]} | null = null;
+export async function getLeaderboard(userId:number) {
+  const days = cairoWeekDays();
+  if (!board || board.week !== days[0] || Date.now()-board.at > 60_000) {
+    const grouped = await prisma.gameLedger.groupBy({by:['userId'],where:{game:GAME,kind:'prize',day:{in:days}},
+      _sum:{amount:true},orderBy:{_sum:{amount:'desc'}},take:20});
+    board = {at:Date.now(),week:days[0]!,rows:grouped.map(g => ({userId:g.userId,won:Number(g._sum.amount ?? 0)})).filter(r => r.won > 0)};
+  }
+  const rows = board.rows;
+  const users = await prisma.user.findMany({where:{id:{in:rows.map(r => r.userId)}},select:{id:true,name:true,avatarUrl:true}});
+  const byId = new Map(users.map(u => [u.id,u]));
+  const mine = await prisma.gameLedger.aggregate({where:{userId,game:GAME,kind:'prize',day:{in:days}},_sum:{amount:true}});
+  const rank = rows.findIndex(r => r.userId === userId);
+  return {weekStart:days[0],entries:rows.map((r,i) => ({rank:i+1,userId:r.userId,name:byId.get(r.userId)?.name ?? '',
+    avatar:byId.get(r.userId)?.avatarUrl ?? null,won:r.won})),
+    me:{rank:rank < 0 ? null : rank+1,won:Number(mine._sum.amount ?? 0)}};
+}
+export function __resetLeaderboardForTests() { board = null; }
+
+// ── Daily missions: progress comes from today's rounds; claims pay XP once ─────
+export const MISSIONS = [
+  {key:'spin20',target:20,xp:50},
+  {key:'win5',target:5,xp:60},
+  {key:'chain3',target:1,xp:80},
+  {key:'freeSpins',target:1,xp:120},
+] as const;
+type MissionKey = typeof MISSIONS[number]['key'];
+
+async function missionProgress(userId:number,day:string): Promise<Record<MissionKey,number>> {
+  const since = new Date(Date.now()-26*3_600_000);
+  const rounds = await prisma.yummyRound.findMany({where:{userId,createdAt:{gte:since}},orderBy:{createdAt:'desc'},
+    take:500,select:{createdAt:true,result:true}});
+  const progress: Record<MissionKey,number> = {spin20:0,win5:0,chain3:0,freeSpins:0};
+  for (const round of rounds) {
+    if (cairoDay(round.createdAt) !== day) continue;
+    const spin = ((round.result ?? {}) as {spin?:{totalPrize?:number;tumbles?:{prize:number}[];bonusTriggered?:boolean}}).spin ?? {};
+    progress.spin20++;
+    if ((spin.totalPrize ?? 0) > 0) progress.win5++;
+    if ((spin.tumbles ?? []).filter(t => t.prize > 0).length >= 3) progress.chain3++;
+    if (spin.bonusTriggered) progress.freeSpins++;
+  }
+  return progress;
+}
+export async function getMissions(userId:number) {
+  const day = cairoDay();
+  const [progress,claims] = await Promise.all([missionProgress(userId,day),
+    prisma.yummyMissionClaim.findMany({where:{userId,day},select:{key:true}})]);
+  const claimed = new Set(claims.map(c => c.key));
+  return {day,missions:MISSIONS.map(m => ({...m,progress:Math.min(progress[m.key],m.target),claimed:claimed.has(m.key)}))};
+}
+export async function claimMission(userId:number,key:unknown) {
+  const mission = MISSIONS.find(m => m.key === key);
+  if (!mission) throw new YummyError('BAD_MISSION','مهمة غير معروفة');
+  const day = cairoDay();
+  const progress = await missionProgress(userId,day);
+  if (progress[mission.key] < mission.target) throw new YummyError('MISSION_INCOMPLETE','المهمة لم تكتمل بعد');
+  try {
+    await prisma.$transaction(async tx => {
+      await tx.yummyMissionClaim.create({data:{userId,day,key:mission.key,xp:mission.xp}});
+      const awarded = await awardUserXP(userId,mission.xp,tx);
+      if (!awarded.success) throw new Error('YUMMY mission XP failed');
+    });
+  } catch (e) {
+    if ((e as {code?:string}).code === 'P2002') throw new YummyError('MISSION_CLAIMED','تم استلام هذه المكافأة');
+    throw e;
+  }
+  return {claimed:mission.key,xp:mission.xp,...await getMissions(userId)};
 }

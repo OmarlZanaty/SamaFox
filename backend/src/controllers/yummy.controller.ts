@@ -23,3 +23,7 @@ export const setYummyClientSeed = handler(async (req,id)=> {
 });
 export const rotateYummySeed = handler((_req,id)=>game.rotateServerSeed(id));
 export const verifyYummySpin = handler(req=>({spin:game.verifySpin(req.body?.serverSeed,req.body?.clientSeed,req.body?.nonce,req.body?.betPerLine,req.body?.activeLines)}));
+export const getYummyFeed = handler(()=>game.getWinFeed());
+export const getYummyLeaderboard = handler((_req,id)=>game.getLeaderboard(id));
+export const getYummyMissions = handler((_req,id)=>game.getMissions(id));
+export const claimYummyMission = handler((req,id)=>game.claimMission(id,req.params.key));

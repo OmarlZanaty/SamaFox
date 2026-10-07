@@ -99,7 +99,7 @@ r.patch('/games-economy/:game', requireSuperAdmin, async (req, res) => {
     const b = req.body ?? {};
     const patch: Record<string, unknown> = {};
     if (b.enabled != null) patch.enabled = Boolean(b.enabled);
-    for (const f of ['minBet', 'maxBet', 'maxWinPerRound', 'dailyMaxWinPerUser', 'maxPayoutRatio', 'rtpTargetBp'] as const) {
+    for (const f of ['minBet', 'maxBet', 'maxWinPerRound', 'dailyMaxWinPerUser', 'maxPayoutRatio', 'rtpTargetBp', 'broadcastMinX'] as const) {
       if (b[f] === undefined) continue;
       const v = intOrNull(b[f]);
       if (Number.isNaN(v)) return bad(res, 400, `${f}: رقم غير صالح`);
