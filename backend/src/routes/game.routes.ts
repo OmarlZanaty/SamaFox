@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { getYummyState, spinYummy, getYummyHistory, getYummyFairness, setYummyClientSeed, rotateYummySeed, verifyYummySpin } from '../controllers/yummy.controller';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.middleware';
 import {
@@ -370,5 +371,15 @@ router.get('/leaderboard', getLeaderboard);
 router.get('/stats/:userId', getUserGameStats);
 router.post('/fish/shoot', authenticate, idempotent('game:fish:shoot'), fishShotLimiter, fireFishShot);
 router.post('/fish/capture', authenticate, idempotent('game:fish:capture'), fishCaptureLimiter, captureFish);
+
+const yummyLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`yummy:${req.userId ?? req.ip}` });
+router.get('/yummy/state', authenticate, getYummyState);
+router.post('/yummy/spin', authenticate, yummyLimiter, idempotent('game:yummy:spin'), gameGuard('yummy'), spinYummy);
+router.get('/yummy/history', authenticate, getYummyHistory);
+router.get('/yummy/fair', authenticate, getYummyFairness);
+router.post('/yummy/seed', authenticate, yummyLimiter, setYummyClientSeed);
+router.post('/yummy/seed/rotate', authenticate, yummyLimiter, rotateYummySeed);
+router.post('/yummy/verify', authenticate, yummyLimiter, verifyYummySpin);
 
 export default router;

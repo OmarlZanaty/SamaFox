@@ -5,6 +5,7 @@ import 'games/asterion_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
+import 'games/yummy_screen.dart';
 import 'games/olympus_screen.dart';
 import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
@@ -82,6 +83,15 @@ const List<_GameEntry> _games = [
     gradient: [Color(0xFF250A46), Color(0xFF17062E)],
     art: 'assets/images/cards/card_neon.png',
     // Delivered without lettering, so the hub draws the name.
+    drawTitle: true,
+  ),
+  _GameEntry(
+    title: 'يمي',
+    tagline: 'اجمع الفواكه واربح العملات',
+    emoji: '🍓',
+    accent: Color(0xFFFFD529),
+    gradient: [Color(0xFF08B9F2), Color(0xFF0753BD)],
+    art: 'assets/images/cards/card_yummy.png',
     drawTitle: true,
   ),
 ];
@@ -198,6 +208,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
+        break;
+      case 'يمي':
+        screen = const YummyScreen();
         break;
       default:
         return;

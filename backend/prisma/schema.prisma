@@ -72,6 +72,7 @@ model User {
   relationsAsUser1         Relation[]                @relation("RelationUser1")
   relationsAsUser2         Relation[]                @relation("RelationUser2")
   transactions             Transaction[]
+  yummyRounds              YummyRound[]
   reportsMade              Report[]                  @relation("Reporter")
   reportsReceived          Report[]                  @relation("Reported")
   achievements             UserAchievement[]
@@ -1696,6 +1697,19 @@ model CpRequest {
 /// `serverSeed` is the secret half and must never leave the server except
 /// through a deliberate rotation, which reveals the old seed and commits to a
 /// new one.
+model YummyRound {
+  id        String   @id @default(cuid())
+  userId    Int
+  requestId String
+  result    Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt])
+  @@map("yummy_rounds")
+}
+
 model GameFairSeed {
   id             String   @id @default(cuid())
   userId         Int

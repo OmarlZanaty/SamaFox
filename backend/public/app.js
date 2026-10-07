@@ -3146,6 +3146,7 @@ const GAME_LABELS = {
   "crazy-wheel": "عجلة الحظ",
   "greedy-cat": "القط الجشع",
   "neon-fortune": "نيون فورتشن",
+  "yummy": "يمي — YUMMY",
   "aetherfall": "أثيرفول",
   "asterion": "أستيريون",
   "olympus": "أوليمبوس",
