@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { getYummyState, spinYummy, getYummyHistory, getYummyFairness, setYummyClientSeed, rotateYummySeed, verifyYummySpin,
   getYummyFeed, getYummyLeaderboard, getYummyMissions, claimYummyMission } from '../controllers/yummy.controller';
+import { getFruitWheelState, spinFruitWheel, getFruitWheelHistory, getFruitWheelFairness, setFruitWheelClientSeed,
+  rotateFruitWheelSeed, verifyFruitWheelSpin, getFruitWheelFeed, getFruitWheelLeaderboard, getFruitWheelToday } from '../controllers/fruitWheel.controller';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.middleware';
 import {
@@ -386,5 +388,18 @@ router.get('/yummy/feed', authenticate, getYummyFeed);
 router.get('/yummy/leaderboard', authenticate, getYummyLeaderboard);
 router.get('/yummy/missions', authenticate, getYummyMissions);
 router.post('/yummy/missions/:key/claim', authenticate, yummyLimiter, claimYummyMission);
+
+const fruitWheelLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`fruitwheel:${req.userId ?? req.ip}` });
+router.get('/fruitwheel/state', authenticate, getFruitWheelState);
+router.post('/fruitwheel/spin', authenticate, fruitWheelLimiter, idempotent('game:fruitwheel:spin'), gameGuard('fruitwheel'), spinFruitWheel);
+router.get('/fruitwheel/history', authenticate, getFruitWheelHistory);
+router.get('/fruitwheel/fair', authenticate, getFruitWheelFairness);
+router.post('/fruitwheel/seed', authenticate, fruitWheelLimiter, setFruitWheelClientSeed);
+router.post('/fruitwheel/seed/rotate', authenticate, fruitWheelLimiter, rotateFruitWheelSeed);
+router.post('/fruitwheel/verify', authenticate, fruitWheelLimiter, verifyFruitWheelSpin);
+router.get('/fruitwheel/feed', authenticate, getFruitWheelFeed);
+router.get('/fruitwheel/leaderboard', authenticate, getFruitWheelLeaderboard);
+router.get('/fruitwheel/today', authenticate, getFruitWheelToday);
 
 export default router;

@@ -74,6 +74,7 @@ model User {
   transactions             Transaction[]
   yummyRounds              YummyRound[]
   yummyMissionClaims       YummyMissionClaim[]
+  fruitWheelRounds         FruitWheelRound[]
   reportsMade              Report[]                  @relation("Reporter")
   reportsReceived          Report[]                  @relation("Reported")
   achievements             UserAchievement[]
@@ -1709,6 +1710,23 @@ model YummyRound {
   @@unique([userId, requestId])
   @@index([userId, createdAt])
   @@map("yummy_rounds")
+}
+
+/// One settled FRUIT WHEEL spin; result and coin settlement commit together.
+model FruitWheelRound {
+  id        String   @id @default(cuid())
+  userId    Int
+  requestId String
+  /// The player's own round counter (1, 2, 3 …), shown in the game.
+  round     Int
+  result    Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("fruit_wheel_rounds")
 }
 
 /// A claimed YUMMY daily mission; the unique key makes a claim race-proof.

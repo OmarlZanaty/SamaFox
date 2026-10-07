@@ -4,6 +4,7 @@ import 'games/aetherfall_screen.dart';
 import 'games/asterion_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
+import 'games/fruit_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
 import 'games/yummy_screen.dart';
 import 'games/yummy_social.dart';
@@ -17,6 +18,7 @@ import 'games/plinko_screen.dart';
 /// name drawn over it. Titles stay in code rather than baked into the artwork
 /// so they remain translatable and crisp at any density.
 const bool _yummyEnabled = bool.fromEnvironment('YUMMY');
+const bool _fruitWheelEnabled = bool.fromEnvironment('FRUIT_WHEEL');
 
 const List<_GameEntry> _games = [
   _GameEntry(
@@ -99,6 +101,18 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFFD529),
     gradient: [Color(0xFF08B9F2), Color(0xFF0753BD)],
     art: 'assets/images/cards/card_yummy.png',
+    drawTitle: true,
+  ),
+  // Hidden until its server side is deployed: build with
+  // --dart-define=FRUIT_WHEEL=true to show the card.
+  if (_fruitWheelEnabled)
+  _GameEntry(
+    title: 'عجلة الفواكه',
+    tagline: 'بطيخ ×2 · 777 ×3 · برقوق ×2',
+    emoji: '🍉',
+    accent: Color(0xFFFFD332),
+    gradient: [Color(0xFF16072E), Color(0xFF5724A0)],
+    art: 'assets/images/cards/card_fruit_wheel.png',
     drawTitle: true,
   ),
 ];
@@ -241,6 +255,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'يمي':
         screen = const YummyScreen();
+        break;
+      case 'عجلة الفواكه':
+        screen = const FruitWheelScreen();
         break;
       default:
         return;

@@ -60,7 +60,13 @@
     {
       "name": "yummy-mock",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["ts-node", "--transpile-only", "-P", "tsconfig.json", "../tools/yummy-mock/server.ts"],
+      "runtimeArgs": [
+        "ts-node",
+        "--transpile-only",
+        "-P",
+        "tsconfig.json",
+        "../tools/yummy-mock/server.ts"
+      ],
       "cwd": "backend",
       "port": 3100
     },
@@ -83,7 +89,11 @@
     {
       "name": "yummy-web-static",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "5762"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5762"
+      ],
       "cwd": "app/build/web-yummy",
       "port": 5762
     },
@@ -101,6 +111,21 @@
       ],
       "cwd": "app",
       "port": 5760
+    },
+    {
+      "name": "fruit-wheel-preview",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-t",
+        "lib/dev/fruit_wheel_preview.dart",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5773"
+      ],
+      "cwd": "app",
+      "port": 5773
     }
   ]
 }
