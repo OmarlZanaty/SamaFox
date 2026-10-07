@@ -1,3 +1,4 @@
+import 'games/fruit_jackpot_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'games/aetherfall_screen.dart';
@@ -14,9 +15,20 @@ import 'games/plinko_screen.dart';
 /// Full-bleed stacked cards: one game per row, artwork filling the card, the
 /// name drawn over it. Titles stay in code rather than baked into the artwork
 /// so they remain translatable and crisp at any density.
+const bool _fruitJackpotEnabled = bool.fromEnvironment('FRUIT_JACKPOT');
 const bool _yummyEnabled = bool.fromEnvironment('YUMMY');
 
 const List<_GameEntry> _games = [
+  if (_fruitJackpotEnabled)
+    _GameEntry(
+      title: 'جاكبوت الفواكه',
+      tagline: 'اختر رهانك وأدر الفواكه',
+      emoji: '🍒',
+      accent: Color(0xFFFFD52B),
+      gradient: [Color(0xFF3B176B), Color(0xFF190D35)],
+      art: 'assets/images/cards/card_fruit_jackpot.png',
+      drawTitle: true,
+    ),
   _GameEntry(
     title: 'بلينكو',
     tagline: 'أسقط الكرة',
@@ -90,15 +102,15 @@ const List<_GameEntry> _games = [
   // Hidden until its server side is deployed: build with
   // --dart-define=YUMMY=true to show the card.
   if (_yummyEnabled)
-  _GameEntry(
-    title: 'يمي',
-    tagline: 'اجمع الفواكه واربح العملات',
-    emoji: '🍓',
-    accent: Color(0xFFFFD529),
-    gradient: [Color(0xFF08B9F2), Color(0xFF0753BD)],
-    art: 'assets/images/cards/card_yummy.png',
-    drawTitle: true,
-  ),
+    _GameEntry(
+      title: 'يمي',
+      tagline: 'اجمع الفواكه واربح العملات',
+      emoji: '🍓',
+      accent: Color(0xFFFFD529),
+      gradient: [Color(0xFF08B9F2), Color(0xFF0753BD)],
+      art: 'assets/images/cards/card_yummy.png',
+      drawTitle: true,
+    ),
 ];
 
 class GamesHubScreen extends ConsumerWidget {
@@ -214,6 +226,9 @@ class GamesHubScreen extends ConsumerWidget {
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
         break;
+      case 'جاكبوت الفواكه':
+        screen = const FruitJackpotScreen();
+        break;
       case 'يمي':
         screen = const YummyScreen();
         break;
@@ -299,14 +314,18 @@ class _GameCard extends StatelessWidget {
                     // Falls back to the gradient plus the game's emoji if the
                     // artwork is ever missing, so the row never renders empty.
                     errorBuilder: (_, __, ___) => Center(
-                      child:
-                          Text(entry.emoji, style: const TextStyle(fontSize: 84)),
+                      child: Text(
+                        entry.emoji,
+                        style: const TextStyle(fontSize: 84),
+                      ),
                     ),
                   )
                 else
                   Center(
-                    child:
-                        Text(entry.emoji, style: const TextStyle(fontSize: 84)),
+                    child: Text(
+                      entry.emoji,
+                      style: const TextStyle(fontSize: 84),
+                    ),
                   ),
                 if (entry.drawTitle) ..._titleOverlay(),
               ],

@@ -73,6 +73,7 @@ model User {
   relationsAsUser2         Relation[]                @relation("RelationUser2")
   transactions             Transaction[]
   yummyRounds              YummyRound[]
+  fruitJackpotRounds       FruitJackpotRound[]
   reportsMade              Report[]                  @relation("Reporter")
   reportsReceived          Report[]                  @relation("Reported")
   achievements             UserAchievement[]
@@ -1708,6 +1709,19 @@ model YummyRound {
   @@unique([userId, requestId])
   @@index([userId, createdAt])
   @@map("yummy_rounds")
+}
+
+model FruitJackpotRound {
+  id        String   @id @default(cuid())
+  userId    Int
+  requestId String
+  result    Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt])
+  @@map("fruit_jackpot_rounds")
 }
 
 model GameFairSeed {

@@ -1,3 +1,4 @@
+import { getFruitJackpotState, spinFruitJackpot, getFruitJackpotHistory, getFruitJackpotFairness, setFruitJackpotClientSeed, rotateFruitJackpotSeed, verifyFruitJackpotSpin, getFruitJackpotRank } from '../controllers/fruitJackpot.controller';
 import { Router } from 'express';
 import { getYummyState, spinYummy, getYummyHistory, getYummyFairness, setYummyClientSeed, rotateYummySeed, verifyYummySpin } from '../controllers/yummy.controller';
 import rateLimit from 'express-rate-limit';
@@ -381,5 +382,15 @@ router.get('/yummy/fair', authenticate, getYummyFairness);
 router.post('/yummy/seed', authenticate, yummyLimiter, setYummyClientSeed);
 router.post('/yummy/seed/rotate', authenticate, yummyLimiter, rotateYummySeed);
 router.post('/yummy/verify', authenticate, yummyLimiter, verifyYummySpin);
+const fruitJackpotLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`fruitJackpot:${req.userId ?? req.ip}` });
+router.get('/fruit-jackpot/state', authenticate, getFruitJackpotState);
+router.post('/fruit-jackpot/spin', authenticate, fruitJackpotLimiter, idempotent('game:fruit-jackpot:spin'), gameGuard('fruit-jackpot'), spinFruitJackpot);
+router.get('/fruit-jackpot/history', authenticate, getFruitJackpotHistory);
+router.get('/fruit-jackpot/fair', authenticate, getFruitJackpotFairness);
+router.post('/fruit-jackpot/seed', authenticate, fruitJackpotLimiter, setFruitJackpotClientSeed);
+router.post('/fruit-jackpot/seed/rotate', authenticate, fruitJackpotLimiter, rotateFruitJackpotSeed);
+router.post('/fruit-jackpot/verify', authenticate, fruitJackpotLimiter, verifyFruitJackpotSpin);
+router.get('/fruit-jackpot/rank', authenticate, getFruitJackpotRank);
 
 export default router;

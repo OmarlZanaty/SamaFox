@@ -3147,6 +3147,7 @@ const GAME_LABELS = {
   "greedy-cat": "القط الجشع",
   "neon-fortune": "نيون فورتشن",
   "yummy": "يمي — YUMMY",
+  "fruit-jackpot": "جاكبوت الفواكه",
   "aetherfall": "أثيرفول",
   "asterion": "أستيريون",
   "olympus": "أوليمبوس",
