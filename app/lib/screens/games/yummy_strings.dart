@@ -61,6 +61,9 @@ class YummyStrings {
     'caps':
         'Server prize caps apply. The final credited prize is shown separately if a cap reduces a win.',
     'capped': 'Prize reduced by server limits',
+    'bigWin': 'BIG WIN',
+    'megaWin': 'MEGA WIN',
+    'tapToContinue': 'Tap to continue',
     'fairness': 'Fairness',
     'commitment': 'Server seed hash',
     'clientSeed': 'Client seed',
@@ -151,6 +154,9 @@ class YummyStrings {
     'caps':
         'تُطبق حدود جوائز الخادم. تظهر الجائزة المقيدة بشكل منفصل عند تخفيض المكسب بسبب أحد الحدود.',
     'capped': 'خُفضت الجائزة وفق حدود الخادم',
+    'bigWin': 'فوز كبير',
+    'megaWin': 'فوز ضخم',
+    'tapToContinue': 'اضغط للمتابعة',
     'fairness': 'العدالة',
     'commitment': 'بصمة بذرة الخادم',
     'clientSeed': 'بذرة اللاعب',

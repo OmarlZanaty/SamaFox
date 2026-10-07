@@ -58,6 +58,36 @@
       "port": 5759
     },
     {
+      "name": "yummy-mock",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["ts-node", "--transpile-only", "-P", "tsconfig.json", "../tools/yummy-mock/server.ts"],
+      "cwd": "backend",
+      "port": 3100
+    },
+    {
+      "name": "yummy-preview",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-t",
+        "lib/dev/yummy_preview.dart",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5761",
+        "--dart-define=API_BASE_URL=http://localhost:3100/api/v1/"
+      ],
+      "cwd": "app",
+      "port": 5761
+    },
+    {
+      "name": "yummy-web-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5762"],
+      "cwd": "app/build/web-yummy",
+      "port": 5762
+    },
+    {
       "name": "olympus-preview",
       "runtimeExecutable": "flutter",
       "runtimeArgs": [

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../providers/auth_provider.dart';
 import '../../repositories/yummy_repository.dart';
 import 'yummy_bonus.dart';
+import 'yummy_celebration.dart';
 import 'yummy_engine.dart';
 import 'yummy_fairness.dart';
 import 'yummy_grid.dart';
@@ -25,7 +26,7 @@ class YummyScreen extends ConsumerStatefulWidget {
 }
 
 class _YummyScreenState extends ConsumerState<YummyScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final YummyRepository _repository =
       widget.repository ?? YummyRepository();
   final _sfx = YummySfx();
@@ -34,6 +35,18 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
     vsync: this,
     duration: const Duration(milliseconds: 650),
   );
+  // Drives the cabinet bulbs. It only runs while reels spin or a win shows,
+  // so an idle screen costs nothing on low-end phones.
+  late final AnimationController _ambient = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  );
+  int _revealed = 5, _spinId = 0;
+  // While reels spin the badge shows the pre-spin balance minus the stake,
+  // so the server's settled balance never spoils the result early.
+  int? _shownBalance;
+  YummyWinTier _tier = YummyWinTier.none;
+  Completer<void>? _celebrating;
   YummyPreferences? _preferences;
   Map<String, dynamic>? _layout;
   Map<String, dynamic>? _pending;
@@ -72,7 +85,9 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
   void dispose() {
     _shuffle?.cancel();
     if (_stopSignal?.isCompleted == false) _stopSignal!.complete();
+    if (_celebrating?.isCompleted == false) _celebrating!.complete();
     _pulse.dispose();
+    _ambient.dispose();
     _sfx.dispose();
     super.dispose();
   }
@@ -200,13 +215,20 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
         'activeLines': _lines,
       };
     }
+    final stake =
+        (_pending!['betPerLine'] as int) * (_pending!['activeLines'] as int);
     setState(() {
       _busy = true;
       _notice = null;
       _replay = null;
+      _revealed = 0;
+      _spinId++;
+      _tier = YummyWinTier.none;
+      _shownBalance = max(0, _balance - stake);
     });
     _pulse.stop();
     _pulse.value = 0;
+    if (!_reduced) _ambient.repeat();
     _stopSignal = Completer<void>();
     _sfx.spin();
     final started = DateTime.now();
@@ -243,19 +265,23 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
       for (var reel = 0; reel < 5; reel++) {
         if (!mounted) return;
         _replay!.revealedReels = reel + 1;
-        setState(
-          () => _grid = List.generate(
+        setState(() {
+          _revealed = reel + 1;
+          _grid = List.generate(
             15,
             (index) => index % 5 <= reel ? result.grid[index] : _grid[index],
-          ),
-        );
-        await _delay(75);
+          );
+        });
+        _sfx.click();
+        await _delay(140);
       }
       _shuffle?.cancel();
       if (!mounted) return;
       setState(() {
         _last = result;
         _grid = result.grid;
+        _revealed = 5;
+        _shownBalance = null;
         _history = [result, ..._history.where((round) => round.id != result.id)]
             .take(50)
             .toList();
@@ -267,7 +293,22 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
       } else if (result.totalPrize > 0) {
         _sfx.win();
       }
-      if (result.totalPrize > 0 && !_reduced) _pulse.repeat(reverse: true);
+      if (result.totalPrize > 0 && !_reduced) {
+        _pulse.repeat(reverse: true);
+      } else {
+        _ambient.stop();
+      }
+      final tier = yummyWinTier(
+        result.totalPrize - result.bonusPrize,
+        result.totalBet,
+        result.jackpotTriggered,
+      );
+      if (tier != YummyWinTier.none) {
+        _celebrating = Completer<void>();
+        setState(() => _tier = tier);
+        await _celebrating!.future;
+        if (!mounted) return;
+      }
       if (result.bonusTriggered) {
         await yummySheet(
           context,
@@ -300,10 +341,36 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
           ),
         );
       }
+      // The server knows the real balance (gifts, other games); resync so the
+      // badge stops promising coins that are not there.
+      if (code == 'INSUFFICIENT') unawaited(_refreshBalance());
     } finally {
       _shuffle?.cancel();
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _revealed = 5;
+          _shownBalance = null;
+        });
+        if (!_pulse.isAnimating) _ambient.stop();
+      }
     }
+  }
+
+  Future<void> _refreshBalance() async {
+    try {
+      final state = await _repository.fetchState();
+      if (!mounted) return;
+      ref
+          .read(authStateProvider.notifier)
+          .updateCoinsBalance((state['balance'] as num).toInt());
+    } catch (_) {}
+  }
+
+  void _endCelebration() {
+    if (!mounted) return;
+    setState(() => _tier = YummyWinTier.none);
+    if (_celebrating?.isCompleted == false) _celebrating!.complete();
   }
 
   Future<void> _setting(String key, bool value) async {
@@ -319,6 +386,7 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
           _stop();
           _pulse.stop();
           _pulse.value = 0;
+          _ambient.stop();
         }
       }
     });
@@ -426,8 +494,10 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
             }.entries)
               ListTile(
                 title: Text(_strings.text(entry.key)),
-                trailing: Text('${entry.value}',
-                    style: const TextStyle(fontSize: 20)),
+                trailing: Text(
+                  '${entry.value}',
+                  style: const TextStyle(fontSize: 20),
+                ),
               ),
           ],
         ),
@@ -605,10 +675,28 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                           vertical: 9,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: yummyDeep,
+                                          gradient: const LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                              Color(0xFF1C7BE8),
+                                              yummyDeep,
+                                            ],
+                                          ),
                                           borderRadius: BorderRadius.circular(
                                             24,
                                           ),
+                                          border: Border.all(
+                                            color: yummyGold,
+                                            width: 1.5,
+                                          ),
+                                          boxShadow: const [
+                                            BoxShadow(
+                                              color: Color(0x55043180),
+                                              blurRadius: 8,
+                                              offset: Offset(0, 3),
+                                            ),
+                                          ],
                                         ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
@@ -620,12 +708,29 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                             const SizedBox(
                                               width: 8,
                                             ),
-                                            Text(
-                                              '$balance',
-                                              style: const TextStyle(
-                                                fontSize: 21,
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w900,
+                                            TweenAnimationBuilder<double>(
+                                              tween: Tween(
+                                                end: (_shownBalance ?? balance)
+                                                    .toDouble(),
+                                              ),
+                                              duration: _reduced
+                                                  ? Duration.zero
+                                                  : const Duration(
+                                                      milliseconds: 900,
+                                                    ),
+                                              curve: Curves.easeOutCubic,
+                                              builder: (context, value, _) =>
+                                                  Text(
+                                                '${value.round()}',
+                                                style: const TextStyle(
+                                                  fontSize: 21,
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w900,
+                                                  fontFeatures: [
+                                                    FontFeature
+                                                        .tabularFigures(),
+                                                  ],
+                                                ),
                                               ),
                                             ),
                                           ],
@@ -735,26 +840,78 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                   ),
                                   decoration: BoxDecoration(
                                     gradient: const LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
                                       colors: [
+                                        Color(0xFF6A2FB3),
                                         Color(0xFF44227A),
-                                        yummyDeep,
+                                        Color(0xFF241047),
                                       ],
                                     ),
                                     borderRadius: BorderRadius.circular(20),
                                     border: Border.all(
                                       color: yummyGold,
-                                      width: 2,
+                                      width: 2.5,
                                     ),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x66FFD529),
+                                        blurRadius: 16,
+                                      ),
+                                    ],
                                   ),
                                   child: Column(
                                     children: [
-                                      Text(
-                                        '👑 ${strings.text('jackpot')}  ${_bet * 1000}',
-                                        style: const TextStyle(
-                                          fontSize: 26,
-                                          fontWeight: FontWeight.w900,
-                                          color: yummyGold,
-                                        ),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Image.asset(
+                                            '${yummyArt}jackpot.png',
+                                            width: 40,
+                                            height: 40,
+                                            excludeFromSemantics: true,
+                                            errorBuilder: (_, __, ___) =>
+                                                const Text(
+                                              '👑',
+                                              style: TextStyle(fontSize: 26),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: ShaderMask(
+                                                shaderCallback: (bounds) =>
+                                                    const LinearGradient(
+                                                  begin: Alignment.topCenter,
+                                                  end: Alignment.bottomCenter,
+                                                  colors: [
+                                                    Color(0xFFFFFBD0),
+                                                    yummyGold,
+                                                    Color(0xFFFF9A25),
+                                                  ],
+                                                ).createShader(bounds),
+                                                child: Text(
+                                                  '${strings.text('jackpot')}  ${_bet * 1000}',
+                                                  style: const TextStyle(
+                                                    fontSize: 26,
+                                                    fontWeight: FontWeight.w900,
+                                                    color: Colors.white,
+                                                    shadows: [
+                                                      Shadow(
+                                                        color:
+                                                            Color(0x88000000),
+                                                        offset: Offset(0, 2),
+                                                        blurRadius: 3,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                       Text(
                                         strings.text(
@@ -770,7 +927,10 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                 ),
                                 const SizedBox(height: 14),
                                 AnimatedBuilder(
-                                  animation: _pulse,
+                                  animation: Listenable.merge([
+                                    _pulse,
+                                    _ambient,
+                                  ]),
                                   builder: (context, child) =>
                                       Transform.translate(
                                     offset: Offset(
@@ -789,7 +949,10 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                           : last?.wins ?? const [],
                                       strings: strings,
                                       pulse: _pulse.value,
+                                      ambient: _ambient.value,
                                       spinning: _busy,
+                                      revealedReels: _revealed,
+                                      spinId: _spinId,
                                     ),
                                   ),
                                 ),
@@ -800,8 +963,26 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                     12,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: yummyDeep,
+                                    gradient: const LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0xFF1C7BE8),
+                                        yummyDeep,
+                                        Color(0xFF053E8F),
+                                      ],
+                                    ),
                                     borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: const Color(0x66FFFFFF),
+                                    ),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x55043180),
+                                        blurRadius: 10,
+                                        offset: Offset(0, 5),
+                                      ),
+                                    ],
                                   ),
                                   child: Row(
                                     mainAxisAlignment:
@@ -905,34 +1086,70 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                     ),
                                     const SizedBox(width: 10),
                                     Expanded(
-                                      child: FilledButton(
-                                        onPressed: _loading
-                                            ? null
-                                            : _busy
-                                                ? _stop
-                                                : _layout == null
-                                                    ? _boot
-                                                    : _spin,
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: yummyGold,
-                                          foregroundColor: yummyInk,
-                                          minimumSize: const Size(
-                                            0,
-                                            58,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(30),
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: _busy
+                                                ? const [
+                                                    Color(0xFFFF7A9E),
+                                                    Color(0xFFE72965),
+                                                  ]
+                                                : const [
+                                                    Color(0xFFFFF3A0),
+                                                    yummyGold,
+                                                    Color(0xFFFF9A25),
+                                                  ],
                                           ),
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: (_busy
+                                                      ? const Color(0xFFE72965)
+                                                      : const Color(0xFFFF9A25))
+                                                  .withValues(alpha: .6),
+                                              blurRadius: 14,
+                                              offset: const Offset(0, 5),
+                                            ),
+                                          ],
                                         ),
-                                        child: Text(
-                                          strings.text(
-                                            _busy
-                                                ? 'stop'
-                                                : _pending != null ||
-                                                        _layout == null
-                                                    ? 'retry'
-                                                    : 'spin',
+                                        child: FilledButton(
+                                          onPressed: _loading
+                                              ? null
+                                              : _busy
+                                                  ? _stop
+                                                  : _layout == null
+                                                      ? _boot
+                                                      : _spin,
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: Colors.transparent,
+                                            shadowColor: Colors.transparent,
+                                            foregroundColor:
+                                                _busy ? Colors.white : yummyInk,
+                                            minimumSize: const Size(
+                                              0,
+                                              58,
+                                            ),
                                           ),
-                                          style: const TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.w900,
+                                          child: Text(
+                                            strings.text(
+                                              _busy
+                                                  ? 'stop'
+                                                  : _pending != null ||
+                                                          _layout == null
+                                                      ? 'retry'
+                                                      : 'spin',
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.w900,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -943,30 +1160,40 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                 if (_loading) const LinearProgressIndicator(),
                                 Semantics(
                                   liveRegion: true,
-                                  child: Text(
-                                    _notice ??
-                                        (_busy
-                                            ? strings.text(
-                                                'pending',
-                                              )
-                                            : last == null
-                                                ? strings.text(
-                                                    'ready',
-                                                  )
-                                                : last.capped
-                                                    ? '${strings.text('capped')}: ${last.requestedPrize} → ${last.totalPrize}'
-                                                    : last.jackpotTriggered
-                                                        ? '👑 ${strings.text('jackpot')}'
-                                                        : last.totalPrize > 0
-                                                            ? '${strings.text('prize')}: ${last.totalPrize}'
-                                                            : strings.text(
-                                                                'noWin',
-                                                              )),
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      color: yummyInk,
-                                      fontWeight: FontWeight.bold,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xB3082A5E),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      _notice ??
+                                          (_busy
+                                              ? strings.text(
+                                                  'pending',
+                                                )
+                                              : last == null
+                                                  ? strings.text(
+                                                      'ready',
+                                                    )
+                                                  : last.capped
+                                                      ? '${strings.text('capped')}: ${last.requestedPrize} → ${last.totalPrize}'
+                                                      : last.jackpotTriggered
+                                                          ? '👑 ${strings.text('jackpot')}'
+                                                          : last.totalPrize > 0
+                                                              ? '${strings.text('prize')}: ${last.totalPrize}'
+                                                              : strings.text(
+                                                                  'noWin',
+                                                                )),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -987,12 +1214,22 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                                     ],
                                   ),
                                 const SizedBox(height: 12),
-                                Text(
-                                  strings.footer,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: yummyInk,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0x99082A5E),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Text(
+                                    strings.footer,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1001,6 +1238,17 @@ class _YummyScreenState extends ConsumerState<YummyScreen>
                         ),
                       ),
                     ),
+                    if (_tier != YummyWinTier.none && last != null)
+                      Positioned.fill(
+                        child: YummyCelebration(
+                          key: ValueKey('celebrate-$_spinId'),
+                          tier: _tier,
+                          prize: last.totalPrize - last.bonusPrize,
+                          strings: strings,
+                          reduced: _reduced,
+                          onDone: _endCelebration,
+                        ),
+                      ),
                   ],
                 ),
               ),
