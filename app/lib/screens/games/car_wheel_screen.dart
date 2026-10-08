@@ -469,10 +469,16 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
                                   Text(_error!,
                                       style:
                                           const TextStyle(color: Colors.white),),
-                                  TextButton(
+                                  const SizedBox(height: 14),
+                                  FilledButton(
+                                      style: FilledButton.styleFrom(
+                                          backgroundColor: cwGold,
+                                          foregroundColor: cwPurpleDark,),
                                       onPressed: _boot,
                                       child: Text(_s.text('retry')),),
                                   TextButton(
+                                      style: TextButton.styleFrom(
+                                          foregroundColor: Colors.white,),
                                       onPressed: () =>
                                           Navigator.maybePop(context),
                                       child: Text(_s.text('back')),),

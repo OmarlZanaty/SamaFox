@@ -36,6 +36,11 @@ class TokenRefresher {
 
   static Future<RefreshResult>? _inFlight;
 
+  /// Called once the server has refused the refresh token, so the app can
+  /// return to the login screen instead of staying on a dead session. Wired to
+  /// the auth notifier at startup; a hook so this file stays free of Riverpod.
+  static void Function()? onSessionEnded;
+
   /// Callers arriving mid-exchange await the running one rather than starting
   /// a second rotation.
   static Future<RefreshResult> refresh() {
@@ -84,6 +89,11 @@ class TokenRefresher {
         }
       }
       AppLogger.error('Token refresh failed: $e');
+      // Only a server that answered and refused the token ends the session. A
+      // timeout or a dropped connection keeps the tokens for the next try.
+      final status = e is DioException ? e.response?.statusCode : null;
+      if (status != 401 && status != 403) return RefreshResult.noSession;
+      onSessionEnded?.call();
       return RefreshResult.ended;
     }
   }

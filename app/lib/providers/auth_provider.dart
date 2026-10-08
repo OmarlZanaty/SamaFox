@@ -1,3 +1,4 @@
+import '../services/token_refresher.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -74,6 +75,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     // Same treatment when the API (rather than the socket) reports the ban —
     // covers a user who was banned while offline.
     ErrorInterceptor.onBanned = forceLogoutBanned;
+
+    // An expired or revoked session goes back to the login screen; otherwise
+    // every screen keeps failing with 401s behind a "logged in" UI.
+    TokenRefresher.onSessionEnded = () {
+      if (!state.isAuthenticated && state.user == null) return;
+      _forceLogoutLocal(error: 'انتهت الجلسة — سجّل الدخول مرة أخرى');
+    };
   }
 
   /// Ends the session because the account was banned. Public so the Dio

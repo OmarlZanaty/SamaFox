@@ -102,6 +102,8 @@ const List<_GameEntry> _games = [
     emoji: '⛈️',
     accent: Color(0xFF5EE0F5),
     gradient: [Color(0xFF141A47), Color(0xFF06071A)],
+    art: 'assets/images/cards/card_asterion.png',
+    focus: Alignment(-0.1, 0),
   ),
   _GameEntry(
     title: 'نيون فورتشن',
