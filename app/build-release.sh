@@ -65,9 +65,9 @@ DEFINES=()
 [[ -n "$TURN_CREDENTIAL" ]] && DEFINES+=("--dart-define=TURN_CREDENTIAL=$TURN_CREDENTIAL")
 [[ -n "$API_BASE_URL" ]]    && DEFINES+=("--dart-define=API_BASE_URL=$API_BASE_URL")
 [[ -n "$SOCKET_URL" ]]      && DEFINES+=("--dart-define=SOCKET_URL=$SOCKET_URL")
-# Games whose hub card stays hidden until their server side is live:
-#   FRUIT_WHEEL=true ./build-release.sh
-for flag in YUMMY FRUIT_WHEEL ROULETTE CAR_WHEEL; do
+# Every game card shows by default; a flag set to false hides one:
+#   FRUIT_WHEEL=false ./build-release.sh
+for flag in FRUIT_JACKPOT YUMMY FRUIT_WHEEL ROULETTE CAR_WHEEL; do
   if [[ -n "${!flag:-}" ]]; then DEFINES+=("--dart-define=$flag=${!flag}"); fi
 done
 
