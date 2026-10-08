@@ -16,13 +16,19 @@ import 'games/roulette_screen.dart';
 import 'games/car_wheel_screen.dart';
 // G3(a) — these four shipped but were parked out of the hub; they are back.
 
-/// Full-bleed stacked cards: one game per row, artwork filling the card, the
-/// name drawn over it. Titles stay in code rather than baked into the artwork
-/// so they remain translatable and crisp at any density.
-const bool _yummyEnabled = bool.fromEnvironment('YUMMY');
-const bool _fruitWheelEnabled = bool.fromEnvironment('FRUIT_WHEEL');
-const bool _rouletteEnabled = bool.fromEnvironment('ROULETTE');
-const bool _carWheelEnabled = bool.fromEnvironment('CAR_WHEEL');
+/// A grid of game tiles, three per row: the artwork cropped around its subject
+/// and the name drawn on it. Titles stay in code rather than baked into the
+/// artwork so they remain translatable and crisp at any density.
+///
+/// Every game's server side is live, so every card shows. A build can still
+/// hide one with --dart-define=<FLAG>=false.
+const bool _yummyEnabled = bool.fromEnvironment('YUMMY', defaultValue: true);
+const bool _fruitWheelEnabled =
+    bool.fromEnvironment('FRUIT_WHEEL', defaultValue: true);
+const bool _rouletteEnabled =
+    bool.fromEnvironment('ROULETTE', defaultValue: true);
+const bool _carWheelEnabled =
+    bool.fromEnvironment('CAR_WHEEL', defaultValue: true);
 
 const List<_GameEntry> _games = [
   _GameEntry(
@@ -32,6 +38,7 @@ const List<_GameEntry> _games = [
     accent: Color(0xFF9C6BFF),
     gradient: [Color(0xFF1B0B3A), Color(0xFF4A148C)],
     art: 'assets/images/cards/card_plinko.png',
+    focus: Alignment(0.45, 0),
   ),
   _GameEntry(
     title: 'عجلة الحظ',
@@ -40,6 +47,7 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFFC107),
     gradient: [Color(0xFF6A0F0F), Color(0xFFC62828)],
     art: 'assets/images/cards/card_crazy.png',
+    focus: Alignment(0.45, 0),
   ),
   _GameEntry(
     title: 'طيّار',
@@ -48,6 +56,7 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFF9800),
     gradient: [Color(0xFF0D1B3E), Color(0xFF1A3A6B)],
     art: 'assets/images/cards/card_crash.png',
+    focus: Alignment(0.7, 0),
   ),
   _GameEntry(
     title: 'أثيرفول',
@@ -64,8 +73,7 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFE3B84A),
     gradient: [Color(0xFF3A1A72), Color(0xFF12052B)],
     art: 'assets/images/cards/card_olympus.png',
-    // The banner carries no lettering, so the hub draws the name over it.
-    drawTitle: true,
+    focus: Alignment(0.75, 0),
   ),
   _GameEntry(
     title: 'القط الجشع',
@@ -74,6 +82,7 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFFD83D),
     gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
     art: 'assets/images/cards/card_greedy.png',
+    focus: Alignment(0.75, 0),
   ),
   _GameEntry(
     title: 'أستيريون',
@@ -81,9 +90,6 @@ const List<_GameEntry> _games = [
     emoji: '⛈️',
     accent: Color(0xFF5EE0F5),
     gradient: [Color(0xFF141A47), Color(0xFF06071A)],
-    // No banner has been delivered yet, so the card draws its own name over the
-    // gradient rather than showing a broken image.
-    drawTitle: true,
   ),
   _GameEntry(
     title: 'نيون فورتشن',
@@ -92,11 +98,8 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFEA35D7),
     gradient: [Color(0xFF250A46), Color(0xFF17062E)],
     art: 'assets/images/cards/card_neon.png',
-    // Delivered without lettering, so the hub draws the name.
-    drawTitle: true,
+    focus: Alignment(-0.7, 0),
   ),
-  // Hidden until its server side is deployed: build with
-  // --dart-define=YUMMY=true to show the card.
   if (_yummyEnabled)
   _GameEntry(
     title: 'يمي',
@@ -105,10 +108,7 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFFD529),
     gradient: [Color(0xFF08B9F2), Color(0xFF0753BD)],
     art: 'assets/images/cards/card_yummy.png',
-    drawTitle: true,
   ),
-  // Hidden until its server side is deployed: build with
-  // --dart-define=FRUIT_WHEEL=true to show the card.
   if (_fruitWheelEnabled)
   _GameEntry(
     title: 'عجلة الفواكه',
@@ -117,10 +117,7 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFFD332),
     gradient: [Color(0xFF16072E), Color(0xFF5724A0)],
     art: 'assets/images/cards/card_fruit_wheel.png',
-    drawTitle: true,
   ),
-  // Hidden until its server side is deployed: build with
-  // --dart-define=ROULETTE=true to show the card.
   if (_rouletteEnabled)
   _GameEntry(
     title: 'الروليت',
@@ -129,10 +126,8 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFF5BD45),
     gradient: [Color(0xFF111634), Color(0xFF260C4C)],
     art: 'assets/images/cards/card_roulette.png',
-    drawTitle: true,
+    focus: Alignment(-0.5, 0),
   ),
-  // Hidden until its server side is deployed: build with
-  // --dart-define=CAR_WHEEL=true to show the card.
   if (_carWheelEnabled)
   _GameEntry(
     title: 'عجلة السيارات',
@@ -141,7 +136,6 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFF5BD45),
     gradient: [Color(0xFF361265), Color(0xFFA7133B)],
     art: 'assets/images/cards/card_car_wheel.png',
-    drawTitle: true,
   ),
 ];
 
@@ -196,52 +190,18 @@ class GamesHubScreen extends ConsumerWidget {
         ),
         child: SafeArea(
           child: _WithWinTicker(
-            child: LayoutBuilder(
-            builder: (context, constraints) {
-              const hPad = 14.0;
-              const vPad = 10.0;
-              final cardHeight = (constraints.maxWidth - hPad * 2) / 2.0;
-              final needed = cardHeight * _games.length;
-              final slack = constraints.maxHeight - vPad * 2 - needed;
-
-              final cards = [
-                for (var i = 0; i < _games.length; i++)
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 10,
+                childAspectRatio: .78,
+              ),
+              itemCount: _games.length,
+              itemBuilder: (_, i) =>
                   _GameCard(entry: _games[i], onTap: () => _open(context, i)),
-              ];
-
-              // Three 2:1 banners do not fill a tall phone, so spread the
-              // leftover height between them rather than leaving a dead gap
-              // under the last card. On short screens it scrolls instead.
-              if (slack > 0) {
-                final gap = (slack / (_games.length - 1)).clamp(12.0, 48.0);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: hPad,
-                    vertical: vPad,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      for (var i = 0; i < cards.length; i++) ...[
-                        if (i > 0) SizedBox(height: gap),
-                        cards[i],
-                      ],
-                    ],
-                  ),
-                );
-              }
-
-              return ListView.separated(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: hPad,
-                  vertical: vPad,
-                ),
-                itemCount: cards.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 16),
-                itemBuilder: (_, i) => cards[i],
-              );
-            },
-          ),
+            ),
           ),
         ),
       ),
@@ -303,19 +263,15 @@ class GamesHubScreen extends ConsumerWidget {
 class _GameEntry {
   final String title, tagline, emoji;
 
-  /// Drives the card's border, glow and the tagline colour.
+  /// Drives the tile's border, glow and the name's glow.
   final Color accent;
   final List<Color> gradient;
 
   /// Optional key art; the gradient and emoji stand in when absent.
   final String? art;
 
-  /// Draw [title] and [tagline] over the artwork.
-  ///
-  /// Most banners have their name lettered into the image, so text on top would
-  /// double up. A banner delivered without lettering sets this instead, and gets
-  /// its name from code — which also keeps that name translatable.
-  final bool drawTitle;
+  /// Where the 2:1 banner's subject sits; the tile crops around it.
+  final Alignment focus;
 
   const _GameEntry({
     required this.title,
@@ -324,7 +280,7 @@ class _GameEntry {
     required this.accent,
     required this.gradient,
     this.art,
-    this.drawTitle = false,
+    this.focus = Alignment.center,
   });
 }
 
@@ -336,26 +292,26 @@ class _GameCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AspectRatio(
-        // The banners are 2:1 and most carry their own frame, glow and title, so
-        // the card is the artwork — text on top of those would double up. A
-        // banner without lettering opts into `drawTitle` and gets its name here.
-        aspectRatio: 2.0,
+    final emoji =
+        Center(child: Text(entry.emoji, style: const TextStyle(fontSize: 44)));
+    return Semantics(
+      button: true,
+      label: entry.title,
+      child: GestureDetector(
+        onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: entry.accent.withValues(alpha: .55)),
             boxShadow: [
               BoxShadow(
-                color: entry.accent.withValues(alpha: 0.30),
-                blurRadius: 20,
-                spreadRadius: 1,
+                color: entry.accent.withValues(alpha: .25),
+                blurRadius: 12,
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(13),
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -372,89 +328,60 @@ class _GameCard extends StatelessWidget {
                   Image.asset(
                     entry.art!,
                     fit: BoxFit.cover,
+                    alignment: entry.focus,
+                    // Decode near the tile's size, not the full banner.
+                    cacheWidth: 360,
                     // Falls back to the gradient plus the game's emoji if the
-                    // artwork is ever missing, so the row never renders empty.
-                    errorBuilder: (_, __, ___) => Center(
-                      child:
-                          Text(entry.emoji, style: const TextStyle(fontSize: 84)),
-                    ),
+                    // artwork is ever missing, so the tile never renders empty.
+                    errorBuilder: (_, __, ___) => emoji,
                   )
                 else
-                  Center(
-                    child:
-                        Text(entry.emoji, style: const TextStyle(fontSize: 84)),
+                  emoji,
+                // Scrim under the name so it reads over any artwork.
+                const Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Color(0x0017062E),
+                            Color(0xE617062E),
+                          ],
+                          stops: [0, .5, 1],
+                        ),
+                      ),
+                    ),
                   ),
-                if (entry.drawTitle) ..._titleOverlay(),
+                ),
+                Positioned(
+                  left: 6,
+                  right: 6,
+                  bottom: 8,
+                  child: Text(
+                    entry.title,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      height: 1.15,
+                      fontWeight: FontWeight.w900,
+                      shadows: [
+                        Shadow(color: entry.accent, blurRadius: 12),
+                        const Shadow(color: Colors.black87, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
         ),
       ),
     );
-  }
-
-  /// Name and tagline over the artwork, for banners delivered without lettering.
-  ///
-  /// A scrim runs from the leading edge inward so the words hold their contrast
-  /// whatever the art does behind them, and both it and the text follow the
-  /// reading direction — the Arabic layout puts them on the right, an English one
-  /// on the left. That is where reading starts, and where this banner leaves the
-  /// art quiet.
-  List<Widget> _titleOverlay() {
-    return [
-      Positioned.fill(
-        child: IgnorePointer(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: AlignmentDirectional.centerStart,
-                end: AlignmentDirectional.centerEnd,
-                colors: [
-                  const Color(0xFF17062E).withValues(alpha: 0.82),
-                  const Color(0xFF17062E).withValues(alpha: 0.45),
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.32, 0.62],
-              ),
-            ),
-          ),
-        ),
-      ),
-      PositionedDirectional(
-        start: 20,
-        top: 0,
-        bottom: 0,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              entry.title,
-              textAlign: TextAlign.start,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-                shadows: [
-                  Shadow(color: entry.accent, blurRadius: 18),
-                  const Shadow(color: Colors.black87, blurRadius: 6),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              entry.tagline,
-              textAlign: TextAlign.start,
-              style: TextStyle(
-                color: entry.accent,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                shadows: const [Shadow(color: Colors.black87, blurRadius: 5)],
-              ),
-            ),
-          ],
-        ),
-      ),
-    ];
   }
 }
