@@ -152,6 +152,7 @@ flutter:
     - assets/images/games/fruit_wheel/
     - assets/images/games/roulette/
     - assets/images/games/car_wheel/
+    - assets/images/games/fruit_jackpot/
     # القط الجشع artwork — likewise. The screen paints its own vector art, so
     # this folder is empty until the commissioned PNGs land; see
     # GREEDY_CAT_ARTWORK_BRIEF.md.

@@ -7,6 +7,7 @@ import { getRouletteState, placeRouletteBet, undoRouletteBet, clearRouletteBets,
   getRouletteRanking } from '../controllers/roulette.controller';
 import { getCarWheelState, placeCarWheelBet, undoCarWheelBet, clearCarWheelBets, repeatCarWheelBets, getCarWheelHistory,
   getCarWheelRanking } from '../controllers/carWheel.controller';
+import { getFruitJackpotState, spinFruitJackpot, getFruitJackpotHistory, getFruitJackpotFairness, setFruitJackpotClientSeed, rotateFruitJackpotSeed, verifyFruitJackpotSpin, getFruitJackpotRank } from '../controllers/fruitJackpot.controller';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.middleware';
 import {
@@ -427,5 +428,16 @@ router.post('/carwheel/clear', authenticate, carWheelLimiter, idempotent('game:c
 router.post('/carwheel/repeat', authenticate, carWheelLimiter, idempotent('game:carwheel:repeat'), gameGuard('carwheel'), repeatCarWheelBets);
 router.get('/carwheel/history', authenticate, getCarWheelHistory);
 router.get('/carwheel/ranking', authenticate, getCarWheelRanking);
+
+const fruitJackpotLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`fruitJackpot:${req.userId ?? req.ip}` });
+router.get('/fruit-jackpot/state', authenticate, getFruitJackpotState);
+router.post('/fruit-jackpot/spin', authenticate, fruitJackpotLimiter, idempotent('game:fruit-jackpot:spin'), gameGuard('fruit-jackpot'), spinFruitJackpot);
+router.get('/fruit-jackpot/history', authenticate, getFruitJackpotHistory);
+router.get('/fruit-jackpot/fair', authenticate, getFruitJackpotFairness);
+router.post('/fruit-jackpot/seed', authenticate, fruitJackpotLimiter, setFruitJackpotClientSeed);
+router.post('/fruit-jackpot/seed/rotate', authenticate, fruitJackpotLimiter, rotateFruitJackpotSeed);
+router.post('/fruit-jackpot/verify', authenticate, fruitJackpotLimiter, verifyFruitJackpotSpin);
+router.get('/fruit-jackpot/rank', authenticate, getFruitJackpotRank);
 
 export default router;

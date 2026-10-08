@@ -3153,6 +3153,7 @@ const GAME_LABELS = {
   "fruitwheel": "عجلة الفواكه — FRUIT WHEEL",
   "roulette": "الروليت — ROULETTE",
   "carwheel": "عجلة السيارات — CAR WHEEL",
+  "fruit-jackpot": "جاكبوت الفواكه",
   "aetherfall": "أثيرفول",
   "asterion": "أستيريون",
   "olympus": "أوليمبوس",

@@ -17,7 +17,7 @@ import prisma from '../utils/prisma';
 // same one.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type FairGame = 'plinko' | 'neon_fortune' | 'aetherfall' | 'asterion' | 'olympus' | 'yummy' | 'fruitwheel';
+export type FairGame = 'plinko' | 'neon_fortune' | 'aetherfall' | 'asterion' | 'olympus' | 'yummy' | 'fruitwheel' | 'fruit-jackpot';
 
 export interface SeedState {
   serverSeed: string;

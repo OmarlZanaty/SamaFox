@@ -4,6 +4,7 @@ import 'games/aetherfall_screen.dart';
 import 'games/asterion_screen.dart';
 import 'games/crash_game_screen.dart';
 import 'games/crazy_wheel_screen.dart';
+import 'games/fruit_jackpot_screen.dart';
 import 'games/fruit_wheel_screen.dart';
 import 'games/neon_fortune_screen.dart';
 import 'games/yummy_screen.dart';
@@ -22,6 +23,8 @@ import 'games/car_wheel_screen.dart';
 ///
 /// Every game's server side is live, so every card shows. A build can still
 /// hide one with --dart-define=<FLAG>=false.
+const bool _fruitJackpotEnabled =
+    bool.fromEnvironment('FRUIT_JACKPOT', defaultValue: true);
 const bool _yummyEnabled = bool.fromEnvironment('YUMMY', defaultValue: true);
 const bool _fruitWheelEnabled =
     bool.fromEnvironment('FRUIT_WHEEL', defaultValue: true);
@@ -31,6 +34,15 @@ const bool _carWheelEnabled =
     bool.fromEnvironment('CAR_WHEEL', defaultValue: true);
 
 const List<_GameEntry> _games = [
+  if (_fruitJackpotEnabled)
+  _GameEntry(
+    title: 'جاكبوت الفواكه',
+    tagline: 'اختر رهانك وأدر الفواكه',
+    emoji: '🍒',
+    accent: Color(0xFFFFD52B),
+    gradient: [Color(0xFF3B176B), Color(0xFF190D35)],
+    art: 'assets/images/cards/card_fruit_jackpot.png',
+  ),
   _GameEntry(
     title: 'بلينكو',
     tagline: 'أسقط الكرة',
@@ -240,6 +252,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'نيون فورتشن':
         screen = const NeonFortuneScreen();
+        break;
+      case 'جاكبوت الفواكه':
+        screen = const FruitJackpotScreen();
         break;
       case 'يمي':
         screen = const YummyScreen();

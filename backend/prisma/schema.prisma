@@ -77,6 +77,7 @@ model User {
   fruitWheelRounds         FruitWheelRound[]
   rouletteStakes           RouletteStake[]
   carWheelStakes           CarWheelStake[]
+  fruitJackpotRounds       FruitJackpotRound[]
   reportsMade              Report[]                  @relation("Reporter")
   reportsReceived          Report[]                  @relation("Reported")
   achievements             UserAchievement[]
@@ -1712,6 +1713,20 @@ model YummyRound {
   @@unique([userId, requestId])
   @@index([userId, createdAt])
   @@map("yummy_rounds")
+}
+
+/// One settled FRUIT JACKPOT spin; result and coin settlement commit together.
+model FruitJackpotRound {
+  id        String   @id @default(cuid())
+  userId    Int
+  requestId String
+  result    Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, requestId])
+  @@index([userId, createdAt])
+  @@map("fruit_jackpot_rounds")
 }
 
 /// One settled FRUIT WHEEL spin; result and coin settlement commit together.
