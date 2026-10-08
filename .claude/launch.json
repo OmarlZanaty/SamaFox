@@ -141,6 +141,32 @@
       ],
       "cwd": "app",
       "port": 5774
+    },
+    {
+      "name": "car-wheel-preview",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-t",
+        "lib/dev/car_wheel_preview.dart",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5775"
+      ],
+      "cwd": "app",
+      "port": 5775
+    },
+    {
+      "name": "car-wheel-web-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5776"
+      ],
+      "cwd": "app/build/web-carwheel",
+      "port": 5776
     }
   ]
 }

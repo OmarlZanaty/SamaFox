@@ -67,7 +67,7 @@ DEFINES=()
 [[ -n "$SOCKET_URL" ]]      && DEFINES+=("--dart-define=SOCKET_URL=$SOCKET_URL")
 # Games whose hub card stays hidden until their server side is live:
 #   FRUIT_WHEEL=true ./build-release.sh
-for flag in YUMMY FRUIT_WHEEL ROULETTE; do
+for flag in YUMMY FRUIT_WHEEL ROULETTE CAR_WHEEL; do
   if [[ -n "${!flag:-}" ]]; then DEFINES+=("--dart-define=$flag=${!flag}"); fi
 done
 

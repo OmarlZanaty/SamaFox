@@ -13,6 +13,7 @@ import 'games/olympus_screen.dart';
 import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
 import 'games/roulette_screen.dart';
+import 'games/car_wheel_screen.dart';
 // G3(a) — these four shipped but were parked out of the hub; they are back.
 
 /// Full-bleed stacked cards: one game per row, artwork filling the card, the
@@ -21,6 +22,7 @@ import 'games/roulette_screen.dart';
 const bool _yummyEnabled = bool.fromEnvironment('YUMMY');
 const bool _fruitWheelEnabled = bool.fromEnvironment('FRUIT_WHEEL');
 const bool _rouletteEnabled = bool.fromEnvironment('ROULETTE');
+const bool _carWheelEnabled = bool.fromEnvironment('CAR_WHEEL');
 
 const List<_GameEntry> _games = [
   _GameEntry(
@@ -127,6 +129,18 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFF5BD45),
     gradient: [Color(0xFF111634), Color(0xFF260C4C)],
     art: 'assets/images/cards/card_roulette.png',
+    drawTitle: true,
+  ),
+  // Hidden until its server side is deployed: build with
+  // --dart-define=CAR_WHEEL=true to show the card.
+  if (_carWheelEnabled)
+  _GameEntry(
+    title: 'عجلة السيارات',
+    tagline: 'طاولة واحدة للجميع — راهن قبل انتهاء الوقت',
+    emoji: '🎡',
+    accent: Color(0xFFF5BD45),
+    gradient: [Color(0xFF361265), Color(0xFFA7133B)],
+    art: 'assets/images/cards/card_car_wheel.png',
     drawTitle: true,
   ),
 ];
@@ -272,6 +286,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'عجلة الفواكه':
         screen = const FruitWheelScreen();
+        break;
+      case 'عجلة السيارات':
+        screen = const CarWheelScreen();
         break;
       case 'الروليت':
         screen = const RouletteScreen();

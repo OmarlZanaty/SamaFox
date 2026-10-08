@@ -3152,6 +3152,7 @@ const GAME_LABELS = {
   "yummy": "يمي — YUMMY",
   "fruitwheel": "عجلة الفواكه — FRUIT WHEEL",
   "roulette": "الروليت — ROULETTE",
+  "carwheel": "عجلة السيارات — CAR WHEEL",
   "aetherfall": "أثيرفول",
   "asterion": "أستيريون",
   "olympus": "أوليمبوس",

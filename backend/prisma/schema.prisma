@@ -76,6 +76,7 @@ model User {
   yummyMissionClaims       YummyMissionClaim[]
   fruitWheelRounds         FruitWheelRound[]
   rouletteStakes           RouletteStake[]
+  carWheelStakes           CarWheelStake[]
   reportsMade              Report[]                  @relation("Reporter")
   reportsReceived          Report[]                  @relation("Reported")
   achievements             UserAchievement[]
@@ -1765,6 +1766,43 @@ model RouletteStake {
   @@index([status])
   @@index([userId, createdAt])
   @@map("roulette_stakes")
+}
+
+/// One shared CAR WHEEL round. The seed is committed (hash) when it opens and
+/// revealed once the result is public; `result` is null until it spins.
+model CarWheelRound {
+  id        Int             @id @default(autoincrement())
+  seedHash  String
+  seed      String
+  result    String?
+  totalBet  Int             @default(0)
+  players   Int             @default(0)
+  createdAt DateTime        @default(now())
+  settledAt DateTime?
+  stakes    CarWheelStake[]
+
+  @@index([settledAt])
+  @@map("car_wheel_rounds")
+}
+
+/// One chip on the CAR WHEEL table. Written with the balance charge, so a
+/// restart can refund every chip still `open` from a round that never settled.
+model CarWheelStake {
+  id        Int           @id @default(autoincrement())
+  roundId   Int
+  userId    Int
+  betKey    String
+  amount    Int
+  /// open → settled (round paid) | refunded (undo, clear, or a lost round)
+  status    String        @default("open")
+  createdAt DateTime      @default(now())
+  round     CarWheelRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, userId])
+  @@index([status])
+  @@index([userId, createdAt])
+  @@map("car_wheel_stakes")
 }
 
 /// A claimed YUMMY daily mission; the unique key makes a claim race-proof.

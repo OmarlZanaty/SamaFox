@@ -5,6 +5,8 @@ import { getFruitWheelState, spinFruitWheel, getFruitWheelHistory, getFruitWheel
   rotateFruitWheelSeed, verifyFruitWheelSpin, getFruitWheelFeed, getFruitWheelLeaderboard, getFruitWheelToday } from '../controllers/fruitWheel.controller';
 import { getRouletteState, placeRouletteBet, undoRouletteBet, clearRouletteBets, repeatRouletteBets, getRouletteHistory,
   getRouletteRanking } from '../controllers/roulette.controller';
+import { getCarWheelState, placeCarWheelBet, undoCarWheelBet, clearCarWheelBets, repeatCarWheelBets, getCarWheelHistory,
+  getCarWheelRanking } from '../controllers/carWheel.controller';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.middleware';
 import {
@@ -414,5 +416,16 @@ router.post('/roulette/clear', authenticate, rouletteLimiter, idempotent('game:r
 router.post('/roulette/repeat', authenticate, rouletteLimiter, idempotent('game:roulette:repeat'), gameGuard('roulette'), repeatRouletteBets);
 router.get('/roulette/history', authenticate, getRouletteHistory);
 router.get('/roulette/ranking', authenticate, getRouletteRanking);
+
+// A chip per tap, so the limit is generous; every bet still settles one at a time per player.
+const carWheelLimiter = rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`carwheel:${req.userId ?? req.ip}` });
+router.get('/carwheel/state', authenticate, getCarWheelState);
+router.post('/carwheel/bet', authenticate, carWheelLimiter, idempotent('game:carwheel:bet'), placeCarWheelBet);
+router.post('/carwheel/undo', authenticate, carWheelLimiter, idempotent('game:carwheel:undo'), undoCarWheelBet);
+router.post('/carwheel/clear', authenticate, carWheelLimiter, idempotent('game:carwheel:clear'), clearCarWheelBets);
+router.post('/carwheel/repeat', authenticate, carWheelLimiter, idempotent('game:carwheel:repeat'), gameGuard('carwheel'), repeatCarWheelBets);
+router.get('/carwheel/history', authenticate, getCarWheelHistory);
+router.get('/carwheel/ranking', authenticate, getCarWheelRanking);
 
 export default router;
