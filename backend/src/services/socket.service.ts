@@ -15,6 +15,7 @@ import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
 import { CRAZY_ROOM, getPublicState as getCrazyWheelState } from './crazyWheel.service';
 import { GREEDY_ROOM, getPublicState as getGreedyCatState } from './greedyCat.service';
+import { ROULETTE_ROOM, getPublicState as getRouletteState } from './roulette.service';
 import { CRASH_ROOM, getCrashStatePublic, getCrashChat } from './crash.service';
 import {
   BOXING_RING_ROOM,
@@ -1130,6 +1131,16 @@ socket.on('greedy_join_table', () => {
 
 socket.on('greedy_leave_table', () => {
   socket.leave(GREEDY_ROOM);
+});
+
+// ── Roulette (الروليت): the same — the socket only pushes the shared table.
+socket.on('roulette_join_table', () => {
+  socket.join(ROULETTE_ROOM);
+  socket.emit('roulette_state', getRouletteState());
+});
+
+socket.on('roulette_leave_table', () => {
+  socket.leave(ROULETTE_ROOM);
 });
 
 // ── Crash (طيّار): subscribing to the table is free — betting, cashing out and

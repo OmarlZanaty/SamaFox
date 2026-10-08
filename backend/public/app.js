@@ -3151,6 +3151,7 @@ const GAME_LABELS = {
   "neon-fortune": "نيون فورتشن",
   "yummy": "يمي — YUMMY",
   "fruitwheel": "عجلة الفواكه — FRUIT WHEEL",
+  "roulette": "الروليت — ROULETTE",
   "aetherfall": "أثيرفول",
   "asterion": "أستيريون",
   "olympus": "أوليمبوس",

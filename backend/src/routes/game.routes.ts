@@ -3,6 +3,8 @@ import { getYummyState, spinYummy, getYummyHistory, getYummyFairness, setYummyCl
   getYummyFeed, getYummyLeaderboard, getYummyMissions, claimYummyMission } from '../controllers/yummy.controller';
 import { getFruitWheelState, spinFruitWheel, getFruitWheelHistory, getFruitWheelFairness, setFruitWheelClientSeed,
   rotateFruitWheelSeed, verifyFruitWheelSpin, getFruitWheelFeed, getFruitWheelLeaderboard, getFruitWheelToday } from '../controllers/fruitWheel.controller';
+import { getRouletteState, placeRouletteBet, undoRouletteBet, clearRouletteBets, repeatRouletteBets, getRouletteHistory,
+  getRouletteRanking } from '../controllers/roulette.controller';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.middleware';
 import {
@@ -401,5 +403,16 @@ router.post('/fruitwheel/verify', authenticate, fruitWheelLimiter, verifyFruitWh
 router.get('/fruitwheel/feed', authenticate, getFruitWheelFeed);
 router.get('/fruitwheel/leaderboard', authenticate, getFruitWheelLeaderboard);
 router.get('/fruitwheel/today', authenticate, getFruitWheelToday);
+
+// A chip per tap, so the limit is generous; every bet still settles one at a time per player.
+const rouletteLimiter = rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`roulette:${req.userId ?? req.ip}` });
+router.get('/roulette/state', authenticate, getRouletteState);
+router.post('/roulette/bet', authenticate, rouletteLimiter, idempotent('game:roulette:bet'), placeRouletteBet);
+router.post('/roulette/undo', authenticate, rouletteLimiter, idempotent('game:roulette:undo'), undoRouletteBet);
+router.post('/roulette/clear', authenticate, rouletteLimiter, idempotent('game:roulette:clear'), clearRouletteBets);
+router.post('/roulette/repeat', authenticate, rouletteLimiter, idempotent('game:roulette:repeat'), gameGuard('roulette'), repeatRouletteBets);
+router.get('/roulette/history', authenticate, getRouletteHistory);
+router.get('/roulette/ranking', authenticate, getRouletteRanking);
 
 export default router;

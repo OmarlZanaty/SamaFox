@@ -126,6 +126,21 @@
       ],
       "cwd": "app",
       "port": 5773
+    },
+    {
+      "name": "roulette-preview",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-t",
+        "lib/dev/roulette_preview.dart",
+        "-d",
+        "web-server",
+        "--web-port",
+        "5774"
+      ],
+      "cwd": "app",
+      "port": 5774
     }
   ]
 }

@@ -39,6 +39,7 @@ import { startSkillWheelEngine } from './services/skillWheel.service';
 import { startCrashEngine } from './services/crash.service';
 import { startCrazyWheelEngine } from './services/crazyWheel.service';
 import { startGreedyCatEngine } from './services/greedyCat.service';
+import { startRouletteEngine } from './services/roulette.service';
 import { startBoxingEngine } from './services/boxing.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
@@ -310,6 +311,7 @@ startSkillWheelEngine(io);
 startCrashEngine(io);
 startCrazyWheelEngine(io);
 startGreedyCatEngine(io);
+startRouletteEngine(io).catch(err => console.error('[roulette] engine failed to start', err));
 startBoxingEngine(io);
 
 // error handler

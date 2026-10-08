@@ -12,6 +12,7 @@ import 'games/yummy_strings.dart';
 import 'games/olympus_screen.dart';
 import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
+import 'games/roulette_screen.dart';
 // G3(a) — these four shipped but were parked out of the hub; they are back.
 
 /// Full-bleed stacked cards: one game per row, artwork filling the card, the
@@ -19,6 +20,7 @@ import 'games/plinko_screen.dart';
 /// so they remain translatable and crisp at any density.
 const bool _yummyEnabled = bool.fromEnvironment('YUMMY');
 const bool _fruitWheelEnabled = bool.fromEnvironment('FRUIT_WHEEL');
+const bool _rouletteEnabled = bool.fromEnvironment('ROULETTE');
 
 const List<_GameEntry> _games = [
   _GameEntry(
@@ -113,6 +115,18 @@ const List<_GameEntry> _games = [
     accent: Color(0xFFFFD332),
     gradient: [Color(0xFF16072E), Color(0xFF5724A0)],
     art: 'assets/images/cards/card_fruit_wheel.png',
+    drawTitle: true,
+  ),
+  // Hidden until its server side is deployed: build with
+  // --dart-define=ROULETTE=true to show the card.
+  if (_rouletteEnabled)
+  _GameEntry(
+    title: 'الروليت',
+    tagline: 'طاولة واحدة للجميع — راهن قبل انتهاء الوقت',
+    emoji: '🎡',
+    accent: Color(0xFFF5BD45),
+    gradient: [Color(0xFF111634), Color(0xFF260C4C)],
+    art: 'assets/images/cards/card_roulette.png',
     drawTitle: true,
   ),
 ];
@@ -258,6 +272,9 @@ class GamesHubScreen extends ConsumerWidget {
         break;
       case 'عجلة الفواكه':
         screen = const FruitWheelScreen();
+        break;
+      case 'الروليت':
+        screen = const RouletteScreen();
         break;
       default:
         return;
