@@ -11,6 +11,7 @@ process.on('uncaughtException', (err) => {
 });
 
 import express, { Application } from 'express';
+import { trustProxySetting } from './utils/trustProxy';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -76,14 +77,16 @@ const app: Application = express();
 // admin dashboard unstyled. Disable those two; keep the rest of Helmet.
 app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 
-// Clients hit this box directly on IP:3000 — there is no nginx/ALB in front.
-// `trust proxy: true` therefore trusted an X-Forwarded-For header that only an
-// attacker could set, letting anyone forge req.ip and walk around the per-IP
-// auth rate limiter (express-rate-limit flags this as
-// ERR_ERL_PERMISSIVE_TRUST_PROXY). Set TRUST_PROXY_HOPS when a real proxy is
-// added later — e.g. 1 behind a single ALB.
-const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
-app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : false);
+// Caddy on this box terminates HTTPS and forwards every request from
+// 127.0.0.1 with the phone's address in X-Forwarded-For. With 'trust proxy'
+// off, req.ip was 127.0.0.1 for everyone behind Caddy, so each per-IP limiter
+// was ONE bucket for the whole app: 20 token refreshes per 15 minutes shared
+// by every phone, and builds up to 1.0.48 log the user out on that 429
+// (client logs, 7 Oct). Port 3000 stays open for old builds that call it
+// directly, so only the loopback hop is trusted: a direct caller's
+// X-Forwarded-For is ignored and cannot forge req.ip. TRUST_PROXY_HOPS still
+// overrides this for a different proxy layout.
+app.set('trust proxy', trustProxySetting(process.env));
 
 const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase();
 
@@ -175,6 +178,11 @@ app.get(['/admin-dashboard.html', '/public/admin-dashboard.html'], (_req, res) =
 app.get(['/client-logs', '/client-logs.html'], (_req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   return res.sendFile(path.join(publicDir, 'client-logs.html'));
+});
+
+app.get(['/client-health', '/client-health.html'], (_req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.sendFile(path.join(publicDir, 'client-health.html'));
 });
 
 // ✅ static

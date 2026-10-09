@@ -35,12 +35,14 @@ export function isProtectedIp(ip: string): boolean {
   return PROTECTED_IPS.has(ip.trim());
 }
 
-/** Best-effort client IP, honouring the proxy header AWS/nginx sets. */
+/**
+ * The client's IP as Express resolved it. 'trust proxy' (index.ts) honours
+ * X-Forwarded-For only from Caddy on loopback; reading the header here
+ * directly let anyone on port 3000 name any address, dodging an IP ban or
+ * pinning one on a stranger.
+ */
 export function clientIp(req: Request): string | null {
-  const fwd = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
-  const first = raw?.split(',')[0]?.trim();
-  return first || req.socket?.remoteAddress || null;
+  return req.ip || req.socket?.remoteAddress || null;
 }
 
 /**

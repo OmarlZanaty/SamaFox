@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware';
 import { requireAdminDashboard, requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
 import { clientLogFiles, tailJsonl } from './appDownload.routes';
+import { readClientHealth, type HealthRow } from '../services/clientHealth';
 import {
   adminDashboardAnalytics,
   adminDashboardBanUser,
@@ -341,6 +342,33 @@ router.get('/client-logs', (req, res) => {
     return res.json({ success: true, minutes, summary, items: all });
   } catch (e) {
     console.error('[admin.client-logs]', e);
+    return res.status(500).json({ success: false, message: 'Failed to read logs' });
+  }
+});
+
+
+// ── Client health (per day × app version) ────────────────────────────────────
+//
+// GET /admin-dashboard/client-health?days=7
+//
+// OS kills, forced logouts, lost connections and memory from the client logs,
+// so each release can be judged by numbers. Reading ~100 MB of logs takes a
+// few seconds, so a result is kept for ten minutes.
+const healthCache = new Map<number, { at: number; rows: HealthRow[] }>();
+router.get('/client-health', async (req, res) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+    const hit = healthCache.get(days);
+    if (hit && Date.now() - hit.at < 10 * 60 * 1000) {
+      return res.json({ success: true, days, generatedAt: new Date(hit.at).toISOString(), rows: hit.rows });
+    }
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    const rows = await readClientHealth({ events: clientLogFiles.events(), reports: clientLogFiles.reports() }, since);
+    const at = Date.now();
+    healthCache.set(days, { at, rows });
+    return res.json({ success: true, days, generatedAt: new Date(at).toISOString(), rows });
+  } catch (e) {
+    console.error('[admin.client-health]', e);
     return res.status(500).json({ success: false, message: 'Failed to read logs' });
   }
 });
