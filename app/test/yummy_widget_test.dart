@@ -262,22 +262,29 @@ void main() {
       (tester) async {
     final repository = _Repository();
     await _mount(tester, repository, arabic: false);
+    // Settings sits in the HUD; everything else is one tap into the menu.
+    Future<void> open(String tooltip) async {
+      if (tooltip != 'Settings') {
+        await tester.tap(find.byTooltip('Menu'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.byTooltip(tooltip));
+    }
+
     for (final tooltip in [
       'Help & paytable',
       'History',
       'Statistics',
       'Settings',
     ]) {
-      await tester.ensureVisible(find.byTooltip(tooltip));
-      await tester.tap(find.byTooltip(tooltip));
+      await open(tooltip);
       await tester.pumpAndSettle();
       expect(find.byTooltip('Close'), findsOneWidget);
       await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
     }
     for (final tooltip in ['Weekly leaderboard', 'Daily missions']) {
-      await tester.ensureVisible(find.byTooltip(tooltip));
-      await tester.tap(find.byTooltip(tooltip));
+      await open(tooltip);
       await tester.pumpAndSettle();
       expect(find.byTooltip('Close'), findsOneWidget);
       await tester.tap(find.byTooltip('Close'));

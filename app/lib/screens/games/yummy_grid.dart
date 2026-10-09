@@ -94,8 +94,8 @@ class YummyPace {
     required this.lineDraw,
   });
   static const normal = YummyPace(
-    minSpin: .55,
-    gap: .17,
+    minSpin: .45,
+    gap: .13,
     anticipation: 1.1,
     settle: .28,
     pop: .32,
