@@ -84,8 +84,17 @@ class CarWheelWheel extends StatelessWidget {
                 child: ExcludeSemantics(
                   child: CustomPaint(
                     size: Size.square(size),
-                    painter: _DiskPainter(winner: winner),
+                    painter: _DiskPainter(winner: winner, stakes: myStakes),
                   ),
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _MotionPainter(angle, ambient, phase, reduced),
                 ),
               ),
             ),
@@ -145,7 +154,9 @@ class CarWheelWheel extends StatelessWidget {
                   animation: angle,
                   builder: (_, child) => Transform.rotate(
                     alignment: Alignment.topCenter,
-                    angle: phase == 'spinning' ? _pointerKick(angle.value) : 0,
+                    angle: phase == 'spinning' && !reduced
+                        ? _pointerKick(angle.value)
+                        : 0,
                     child: child,
                   ),
                   child: SizedBox(
@@ -175,56 +186,43 @@ class CarWheelWheel extends StatelessWidget {
   Widget _label(CarWheelSegment s, double a, bool winner) {
     final c = size / 2;
     Offset polar(double r) => Offset(c + sin(a) * r, c - cos(a) * r);
-    final emblem = size * .135, at = polar(size * .318), x = polar(size * .2);
+    final emblem = size * .11, at = polar(size * .285);
     final stake = myStakes[s.key] ?? 0;
-    return Stack(
-      children: [
-        Positioned(
-          left: at.dx - emblem / 2,
-          top: at.dy - emblem / 2,
-          width: emblem,
-          height: emblem,
-          child: Stack(
+    return Positioned(
+      left: at.dx - size * .09,
+      top: at.dy - size * .105,
+      width: size * .18,
+      height: size * .19,
+      child: Column(
+        children: [
+          Stack(
             clipBehavior: Clip.none,
             children: [
-              Positioned.fill(
-                  child: CarWheelEmblem(segment: s.key, size: emblem),),
+              CarWheelEmblem(segment: s.key, size: emblem),
               if (stake > 0)
                 Positioned(
-                  right: -emblem * .22,
-                  bottom: -emblem * .12,
+                  right: -5,
+                  bottom: 0,
                   child:
-                      CarWheelChip(amount: _chipFor(stake), size: emblem * .5),
+                      CarWheelChip(amount: _chipFor(stake), size: emblem * .4),
                 ),
             ],
           ),
-        ),
-        Positioned(
-          left: x.dx - size * .09,
-          top: x.dy - size * .03,
-          width: size * .18,
-          height: size * .06,
-          child: FittedBox(
-            child: Text(
-              'x${s.multiplier}',
-              textDirection: TextDirection.ltr,
-              style: TextStyle(
-                color: winner ? cwGoldLight : Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 40,
-                height: 1,
-                shadows: const [
-                  Shadow(
-                    color: Color(0xAA3A0010),
-                    offset: Offset(0, 3),
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
+          Text(
+            'x${s.multiplier}',
+            textDirection: TextDirection.ltr,
+            style: TextStyle(
+              color: winner ? cwGoldLight : Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: size * .05,
+              height: 1.1,
+              shadows: const [
+                Shadow(color: Color(0xAA3A0010), offset: Offset(0, 2)),
+              ],
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -296,7 +294,11 @@ class CarWheelWheel extends StatelessWidget {
     return switch (phase) {
       'betting' => ValueListenableBuilder<double>(
           valueListenable: secondsLeft,
-          builder: (_, s, __) => Text('${s.ceil()}', style: style),
+          builder: (_, s, __) => Text(
+            '${s.ceil()}',
+            textDirection: TextDirection.ltr,
+            style: style,
+          ),
         ),
       'closing' => const Text('?', style: style),
       _ => const Icon(Icons.sync_rounded, color: cwGoldLight, size: 40),
@@ -307,11 +309,12 @@ class CarWheelWheel extends StatelessWidget {
 /// Wedges in two jewel tones, lit from the centre, with gold dividers.
 class _DiskPainter extends CustomPainter {
   final String? winner;
-  const _DiskPainter({this.winner});
+  final Map<String, int> stakes;
+  const _DiskPainter({this.winner, required this.stakes});
 
   static const _tones = [
-    [Color(0xFFFF5C86), Color(0xFFD4174A), Color(0xFF7E0A2B)],
-    [Color(0xFFFF8FA9), Color(0xFFEE3C6E), Color(0xFF9C1240)],
+    [Color(0xFFF45379), Color(0xFFB91F4C), Color(0xFF430B29)],
+    [Color(0xFFDC5C97), Color(0xFF8D1D57), Color(0xFF2F0A27)],
   ];
 
   @override
@@ -331,6 +334,25 @@ class _DiskPainter extends CustomPainter {
           ..shader = RadialGradient(colors: tone, stops: const [0, .55, 1])
               .createShader(disk),
       );
+      c.drawArc(
+          Rect.fromCircle(center: center, radius: r * .87),
+          start + .035,
+          carWheelSegmentAngle - .07,
+          false,
+          Paint()
+            ..color = cwGoldLight.withValues(alpha: .3)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5,);
+      if ((stakes[carWheelSegments[i].key] ?? 0) > 0) {
+        c.drawPath(path, Paint()..color = cwGold.withValues(alpha: .12));
+        c.drawPath(
+          path,
+          Paint()
+            ..color = cwGoldLight.withValues(alpha: .6)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2,
+        );
+      }
       if (carWheelSegments[i].key == winner) {
         c.drawPath(
           path,
@@ -387,7 +409,8 @@ class _DiskPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DiskPainter old) => winner != old.winner;
+  bool shouldRepaint(_DiskPainter old) =>
+      winner != old.winner || stakes != old.stakes;
 }
 
 /// Light that stays put while the disk turns under it.
@@ -427,9 +450,11 @@ class _BulbPainter extends CustomPainter {
   final Animation<double> ambient;
   final String phase;
   final bool reduced;
-  _BulbPainter(
-      {required this.ambient, required this.phase, required this.reduced,})
-      : super(repaint: ambient);
+  _BulbPainter({
+    required this.ambient,
+    required this.phase,
+    required this.reduced,
+  }) : super(repaint: ambient);
 
   /// Where the studs sit on rim.png (degrees clockwise from the top), so the
   /// light lands on the art instead of beside it. The painted rim uses the same.
@@ -461,18 +486,24 @@ class _BulbPainter extends CustomPainter {
         p,
         b * 2.8,
         Paint()
-          ..shader = RadialGradient(colors: [
-            const Color(0xFFFFF3C4).withValues(alpha: .8 * on),
-            cwGold.withValues(alpha: .35 * on),
-            Colors.transparent,
-          ], stops: const [
-            0,
-            .35,
-            1,
-          ],).createShader(Rect.fromCircle(center: p, radius: b * 2.8)),
+          ..shader = RadialGradient(
+            colors: [
+              const Color(0xFFFFF3C4).withValues(alpha: .8 * on),
+              cwGold.withValues(alpha: .35 * on),
+              Colors.transparent,
+            ],
+            stops: const [
+              0,
+              .35,
+              1,
+            ],
+          ).createShader(Rect.fromCircle(center: p, radius: b * 2.8)),
       );
       c.drawCircle(
-          p, b * .55, Paint()..color = Colors.white.withValues(alpha: on),);
+        p,
+        b * .55,
+        Paint()..color = Colors.white.withValues(alpha: on),
+      );
     }
   }
 
@@ -510,6 +541,19 @@ class _RingPainter extends CustomPainter {
         ..strokeWidth = w
         ..color = const Color(0xCC1A0410),
     );
+    if (phase == 'spinning' && !reduced) {
+      c.drawArc(
+        Rect.fromCircle(center: center, radius: r),
+        ambient.value * 4 * pi,
+        pi * .65,
+        false,
+        Paint()
+          ..color = cwGoldLight
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = w
+          ..strokeCap = StrokeCap.round,
+      );
+    }
     if (phase != 'betting') return;
     final s = secondsLeft.value;
     final urgent = s <= 3;
@@ -567,6 +611,64 @@ class _RimPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_RimPainter old) => false;
+}
+
+class _MotionPainter extends CustomPainter {
+  final ValueNotifier<double> angle;
+  final Animation<double> ambient;
+  final String phase;
+  final bool reduced;
+  _MotionPainter(this.angle, this.ambient, this.phase, this.reduced)
+      : super(repaint: Listenable.merge([angle, ambient]));
+  @override
+  void paint(Canvas c, Size s) {
+    if (reduced) return;
+    final center = s.center(Offset.zero);
+    if (phase == 'spinning') {
+      for (var i = 0; i < 8; i++) {
+        c.drawArc(
+          Rect.fromCircle(center: center, radius: s.width * (.18 + i * .03)),
+          angle.value + i * .8,
+          1.0,
+          false,
+          Paint()
+            ..color = cwGoldLight.withValues(alpha: .15)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+    } else if (phase == 'result') {
+      final path = Path()
+        ..moveTo(center.dx, center.dy)
+        ..lineTo(s.width * .36, s.height * .12)
+        ..lineTo(s.width * .64, s.height * .12)
+        ..close();
+      c.drawPath(
+        path,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [
+              cwGoldLight.withValues(alpha: .12 + .22 * ambient.value),
+              cwGoldLight.withValues(alpha: 0),
+            ],
+          ).createShader(
+            Rect.fromLTWH(
+              s.width * .36,
+              s.height * .12,
+              s.width * .28,
+              s.height * .38,
+            ),
+          ),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MotionPainter old) =>
+      old.phase != phase || old.reduced != reduced;
 }
 
 class _PointerPainter extends CustomPainter {

@@ -23,6 +23,7 @@ class CarWheelStrings {
   String error(String code) => text(code) == code ? text('FAILED') : text(code);
 
   static const _english = {
+    'mineAll': 'Mine / All',
     'title': 'CAR WHEEL',
     'ranking': 'Ranking',
     'players': 'Players',
@@ -93,6 +94,7 @@ class CarWheelStrings {
   };
 
   static const _arabic = {
+    'mineAll': 'رهاني / الجميع',
     'title': 'عجلة السيارات',
     'ranking': 'الترتيب',
     'players': 'اللاعبون',

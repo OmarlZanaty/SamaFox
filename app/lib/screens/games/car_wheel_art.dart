@@ -12,7 +12,19 @@ const cwMuted = Color(0xFFC1B1D3);
 const cwPink = Color(0xFFE62757);
 const carWheelArt = 'assets/images/games/car_wheel';
 
-/// Commissioned cutouts can arrive later; every asset has a painted fallback.
+int carWheelDecodeWidth(String name) => switch (name) {
+      'velvet_atrium_v2' || 'background' => 900,
+      'rim' => 768,
+      'hub' => 256,
+      _ => 128,
+    };
+
+ImageProvider carWheelProvider(String name) => ResizeImage(
+      AssetImage('$carWheelArt/$name.png'),
+      width: carWheelDecodeWidth(name),
+    );
+
+/// Every image has a painted fallback and a bounded decode size.
 Widget carWheelImage(
   String name,
   Widget fallback, {
@@ -21,6 +33,7 @@ Widget carWheelImage(
 }) =>
     Image.asset(
       '$carWheelArt/$name.png',
+      cacheWidth: carWheelDecodeWidth(name),
       width: width,
       height: height,
       fit: BoxFit.contain,
@@ -229,22 +242,18 @@ class CarWheelChip extends StatelessWidget {
       10000 => '10k',
       _ => '100k'
     };
-    return AnimatedScale(
-      scale: selected ? 1.12 : 1,
-      duration: const Duration(milliseconds: 150),
+    return RepaintBoundary(
       child: Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          boxShadow: [
-            if (selected || glow)
-              BoxShadow(
-                color: cwGold.withValues(alpha: .8),
-                blurRadius: 12,
-                spreadRadius: 2,
-              ),
-          ],
+          gradient: selected || glow
+              ? const RadialGradient(
+                  colors: [cwGoldLight, Color(0x88F5BD45), Color(0x00F5BD45)],
+                  stops: [0, .6, 1],
+                )
+              : null,
         ),
         child: Stack(
           alignment: Alignment.center,

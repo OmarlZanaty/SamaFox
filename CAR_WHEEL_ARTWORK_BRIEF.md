@@ -49,3 +49,23 @@ The wedges, gloss, rim lights, countdown ring, pointer kick, coin burst and bet 
 code (`car_wheel_wheel.dart`, `car_wheel_effects.dart`, `car_wheel_widgets.dart`). The rim lights sit
 on the 14 studs of `rim.png` (angles listed in `_BulbPainter.studs`); a new rim must keep those
 positions or update the list.
+
+### v2 completion — generated backdrop
+
+`app/assets/images/games/car_wheel/velvet_atrium_v2.png`: 900×1599, 225,273 bytes,
+128-color PNG. Generated using the built-in imagegen tool, then resized and
+compressed with `require('D:/Projects/SamaFox/backend/node_modules/sharp')`.
+The existing backdrop is retained. All symbols, chips, hub and pointer reuse
+the original commissioned cutouts; new wedges and effects are Flutter painters.
+
+Original: `C:/Users/user/.codex/generated_images/01a11e16-7f64-7c20-9624-a02dbf158eb1/exec-aee7fd11-3f1c-4e64-b016-69038f221bb8.png`.
+
+Prompt: “Use case: stylized-concept. Create a premium mobile social wheel game
+BACKGROUND ONLY, portrait 9:16. Original art, no brands. Deep midnight plum velvet
+and black cherry polished architectural alcove, restrained symmetrical fine
+champagne-gold art deco edge rails at far left and right. Soft luminous amethyst
+and crimson halo in upper middle behind where a wheel will be drawn, discreet
+tiny distant gold sparkles, darker clean bottom third for UI overlays. Top-left
+lighting. Sophisticated tactile 3D casual game rendering, rich yet quiet, high
+contrast to gold and pink game pieces. Absolutely no wheel, objects, chips, UI
+panels, words, letters, numbers, logos or watermark. Full bleed opaque background.”

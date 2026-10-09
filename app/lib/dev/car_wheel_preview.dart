@@ -11,7 +11,7 @@ import '../screens/games/car_wheel_screen.dart';
 import '../utils/storage_service.dart';
 
 /// Dev-only entry point: عجلة السيارات against an in-memory table that runs its own
-/// rounds (short timers). Not referenced by the app; nothing here ships.
+/// rounds (server timings). Not referenced by the app; nothing here ships.
 ///
 ///   flutter run -t lib/dev/car_wheel_preview.dart -d web-server --web-port 5775
 Future<void> main() async {
@@ -33,8 +33,11 @@ Future<void> main() async {
 
 class _PreviewAuth extends StateNotifier<AuthState> implements AuthNotifier {
   _PreviewAuth()
-      : super(AuthState(
-            user: User(id: 519273, name: 'Preview', coinsBalance: 5000000),),);
+      : super(
+          AuthState(
+            user: User(id: 519273, name: 'Preview', coinsBalance: 5000000),
+          ),
+        );
   @override
   void updateCoinsBalance(int newBalance) => state =
       state.copyWith(user: state.user!.copyWith(coinsBalance: newBalance));
@@ -96,12 +99,12 @@ class PreviewCarWheelTable extends CarWheelRepository {
     while (true) {
       round++;
       payout = 0;
-      _phase('betting', 15);
+      _phase('betting', 25);
       _push();
-      await Future<void>.delayed(const Duration(seconds: 15));
-      _phase('closing', 2);
+      await Future<void>.delayed(const Duration(seconds: 25));
+      _phase('closing', 3);
       _push();
-      await Future<void>.delayed(const Duration(seconds: 2));
+      await Future<void>.delayed(const Duration(seconds: 3));
       result = carWheelSegments[_random.nextInt(8)].key;
       _phase('spinning', 7);
       _push();
@@ -110,11 +113,10 @@ class PreviewCarWheelTable extends CarWheelRepository {
       balance += payout;
       results.add(result!);
       if (stakes.isNotEmpty) last = stakes;
-      _phase('result', 5);
+      _phase('result', 6);
       _push();
-      await Future<void>.delayed(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(seconds: 6));
       stakes = {};
-      chips.clear();
       chips.clear();
     }
   }

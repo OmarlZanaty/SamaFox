@@ -16,6 +16,8 @@ import 'car_wheel_strings.dart';
 import 'car_wheel_wheel.dart';
 import 'car_wheel_widgets.dart';
 
+part 'car_wheel_layout.dart';
+
 /// عجلة السيارات: one shared wheel. Chips use real platform coins; the
 /// committed server result determines the disk animation and every payout.
 class CarWheelScreen extends ConsumerStatefulWidget {
@@ -48,7 +50,7 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
   SharedPreferences? _prefs;
 
   bool _loading = true, _arabic = true, _sound = true, _motion = true;
-  bool _urgent = false, _timeUp = false;
+  bool _urgent = false, _timeUp = false, _artCached = false;
   String? _error, _notice;
   CarWheelState? state;
   Map<String, int> myStakes = {};
@@ -61,6 +63,7 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
   int _lastPocket = 0;
   int? _announced;
   int _payout = 0;
+  List<Map<String, dynamic>> _chips = [];
   final _stageKey = GlobalKey(), _diskKey = GlobalKey(), _barKey = GlobalKey();
   final _cardKeys = {for (final s in carWheelSegments) s.key: GlobalKey()};
   final _flights = <({Key key, Offset from, Offset to, int amount})>[];
@@ -87,15 +90,26 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _syncAmbient();
+    if (_artCached) return;
+    _artCached = true;
     for (final name in [
-      'velvet_atrium',
+      'velvet_atrium_v2',
+      'background',
+      'trophy',
+      'chip_100',
+      'chip_1k',
+      'chip_10k',
+      'chip_100k',
       'rim',
       'hub',
       'pointer',
       for (final s in carWheelSegments) 'emblem_${s.key}',
     ]) {
-      precacheImage(AssetImage('$carWheelArt/$name.png'), context,
-          onError: (_, __) {},);
+      precacheImage(
+        carWheelProvider(name),
+        context,
+        onError: (_, __) {},
+      );
     }
   }
 
@@ -139,6 +153,13 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
     if (!mounted) return;
     if (_reduced) {
       _ambient.stop();
+      if (_spin != null) {
+        _angle.value = _spin!.end;
+        _landed = _spin!.result;
+        _spin = null;
+        _ticker.stop();
+      }
+      _flights.clear();
     } else if (!_ambient.isAnimating) {
       _ambient.repeat();
     }
@@ -221,6 +242,7 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
       if (changedRound) {
         _round = next.round;
         myStakes = {};
+        _chips = [];
         _payout = 0;
         _notice = null;
         _landed = null;
@@ -229,6 +251,7 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
       }
       if (mine) {
         myStakes = Map.of(next.myStakes);
+        _chips = next.myChips;
         _payout = next.myPayout;
       }
     });
@@ -288,11 +311,19 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
     if (spin == null) return;
     final u = _reduced
         ? 1.0
-        : DateTime.now().difference(spin.start).inMilliseconds / 6000;
+        : DateTime.now().difference(spin.start).inMilliseconds / 6800;
     const windUp = .06;
-    _angle.value = u < windUp
-        ? spin.from - .12 * sin(u / windUp * pi)
-        : carWheelSpinFrame((u - windUp) / (1 - windUp), spin.from, spin.end);
+    if (u < windUp) {
+      _angle.value = spin.from - .12 * sin(u / windUp * pi / 2);
+    } else if (u < .94) {
+      _angle.value = carWheelSpinFrame(
+        (u - windUp) / (.94 - windUp),
+        spin.from - .12,
+        spin.end + .035,
+      );
+    } else {
+      _angle.value = spin.end + .035 * (1 - ((u - .94) / .06).clamp(0, 1));
+    }
     final pocket =
         ((_angle.value + carWheelSegmentAngle / 2) / carWheelSegmentAngle)
             .floor();
@@ -325,7 +356,8 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
             Offset(cos(a), sin(a)) * disk.size.width * .3;
         // The disk is rotated; place the chip in screen space instead.
         to = stage.globalToLocal(
-                disk.localToGlobal(disk.size.center(Offset.zero)),) +
+              disk.localToGlobal(disk.size.center(Offset.zero)),
+            ) +
             (local - disk.size.center(Offset.zero));
       }
     } else {
@@ -339,11 +371,21 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
     if (to == null) return;
     // Thrown from the selected chip's slot in the dock.
     final slot = carWheelChips.indexOf(amount).clamp(0, 3);
-    final from = stage.globalToLocal(bar.localToGlobal(
-        Offset(bar.size.width * (slot + .5) / 4, bar.size.height / 2),),);
+    final from = stage.globalToLocal(
+      bar.localToGlobal(
+        Offset(bar.size.width * (slot + .5) / 4, bar.size.height / 2),
+      ),
+    );
     if (_flights.length >= 6) _flights.removeAt(0);
-    setState(() => _flights.add(
-        (key: ValueKey(_flightId++), from: from, to: to!, amount: amount),),);
+    setState(
+      () => _flights.add(
+        (key: ValueKey(_flightId++), from: from, to: to!, amount: amount),
+      ),
+    );
+  }
+
+  void _finishFlight(Key key) {
+    if (mounted) setState(() => _flights.removeWhere((f) => f.key == key));
   }
 
   void _say(String? text) {
@@ -393,6 +435,10 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
                     .entries)
               e.key: (e.value as num).toInt(),
           };
+          _chips = (body['chipList'] as List? ?? const [])
+              .whereType<Map>()
+              .map((c) => Map<String, dynamic>.from(c))
+              .toList();
           _notice = null;
         });
       } on CarWheelException catch (e) {
@@ -411,8 +457,12 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
       return;
     }
     final amount = chip;
-    _send(() => _repository.bet(key, amount),
-        target: key, amount: amount, fromWheel: fromWheel,);
+    _send(
+      () => _repository.bet(key, amount),
+      target: key,
+      amount: amount,
+      fromWheel: fromWheel,
+    );
   }
 
   void _undo() => _send(_repository.undo, chipSound: false);
@@ -529,389 +579,86 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
       textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         backgroundColor: cwBlack,
-        body: Stack(fit: StackFit.expand, children: [
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFF12030A), Color(0xFF3A0820), cwPurpleDark],
-              ),
-            ),
-          ),
-          Image.asset('$carWheelArt/velvet_atrium.png',
-              fit: BoxFit.cover,
-              cacheWidth: 1080,
-              errorBuilder: (_, __, ___) => Image.asset(
-                  '$carWheelArt/background.png',
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),),),
-          SafeArea(
-            child: _loading
-                ? Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      const CircularProgressIndicator(color: cwGold),
-                      const SizedBox(height: 10),
-                      Text(_s.text('loading'),
-                          style: const TextStyle(color: Colors.white),),
-                    ],),
-                  )
-                : _error != null
-                    ? _errorView()
-                    : _game(balance),
-          ),
-        ],),
-      ),
-    );
-  }
-
-  Widget _errorView() => Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_error!, style: const TextStyle(color: Colors.white)),
-          const SizedBox(height: 14),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: cwGold, foregroundColor: cwPurpleDark,),
-            onPressed: _boot,
-            child: Text(_s.text('retry')),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: Colors.white),
-            onPressed: () => Navigator.maybePop(context),
-            child: Text(_s.text('back')),
-          ),
-        ],),
-      );
-
-  /// Fixed heights for everything but the wheel; the wheel takes what is left,
-  /// so the whole game fits one screen without scrolling.
-  Widget _game(int balance) => LayoutBuilder(builder: (context, box) {
-        final width = min(box.maxWidth, 520.0);
-        final inner = width - 20;
-        final cardW = (inner - 3 * 6) / 4;
-        const hud = 48.0, crowd = 46.0, totals = 44.0, dock = 70.0, gaps = 30.0;
-        final room = box.maxHeight - hud - crowd - totals - dock - gaps - 6;
-        final minCard = (cardW * .78).clamp(58.0, 76.0);
-        final wheel = min(inner * .96, room - minCard * 2).clamp(200.0, 520.0);
-        // A tall phone's spare height goes to bigger cards, not a gap.
-        final cardH = ((room - wheel) / 2).clamp(minCard, 96.0);
-        final fixed = hud + crowd + totals + dock + cardH * 2 + 6 + 12;
-        final wheelTop = hud + crowd + (box.maxHeight - fixed - wheel) / 2;
-        final phase = state?.phase ?? 'betting';
-        final result = state?.result;
-        return Center(
-          child: SizedBox(
-            width: width,
-            child: Stack(key: _stageKey, clipBehavior: Clip.none, children: [
-              Column(children: [
-                SizedBox(height: hud, child: _hud(balance)),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: CarWheelCrowdRow(
-                    players: state?.players ?? const [],
-                    playerCount: state?.playerCount ?? 0,
-                    history: state?.history ?? const [],
-                    strings: _s,
-                    onPlayers: _openPlayers,
-                    onHistory: _openHistory,
-                  ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: CarWheelWheel(
-                      size: wheel,
-                      angle: _angle,
-                      ambient: _ambient,
-                      secondsLeft: _secondsLeft,
-                      phase: _landed == null && phase == 'result'
-                          ? 'spinning'
-                          : phase,
-                      result: _landed ?? (phase == 'result' ? result : null),
-                      myStakes: myStakes,
-                      reduced: _reduced,
-                      diskKey: _diskKey,
-                      onBet: _betting
-                          ? (k) => placeChip(k, fromWheel: true)
-                          : null,
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: CarWheelTotalsRow(
-                    total: state?.totalBet ?? 0,
-                    mine: _myTotal,
-                    phaseText: _phaseText(phase),
-                    urgent: _urgent,
-                    strings: _s,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: SizedBox(
-                    height: cardH * 2 + 6,
-                    child: GridView.count(
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: EdgeInsets.zero,
-                      crossAxisCount: 4,
-                      mainAxisSpacing: 6,
-                      crossAxisSpacing: 6,
-                      childAspectRatio: cardW / cardH,
-                      children: [
-                        for (final s in carWheelSegments)
-                          CarWheelBetCard(
-                            key: _cardKeys[s.key],
-                            segment: s,
-                            mine: myStakes[s.key] ?? 0,
-                            all: state?.totals[s.key] ?? 0,
-                            winner: phase == 'result' && result == s.key,
-                            loser: phase == 'result' &&
-                                result != null &&
-                                result != s.key,
-                            enabled: _betting && !_timeUp,
-                            strings: _s,
-                            onTap: () => placeChip(s.key),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                CarWheelDock(
-                  selected: chip,
-                  canRenew: _betting && _pending == 0,
-                  strings: _s,
-                  barKey: _barKey,
-                  onPick: _pickChip,
-                  onRenew: _renew,
-                ),
-              ],),
-              if (phase == 'result' && result != null && _landed != null)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: wheelTop + wheel * .7,
-                  child: _resultPlaque(result),
-                ),
-              if (phase == 'result' &&
-                  _landed != null &&
-                  _payout > 0 &&
-                  !_reduced)
-                Positioned.fill(
-                  child: CarWheelCoinBurst(
-                    key: ValueKey('burst-$_round'),
-                    big: _payout >= max(1, state?.myStaked ?? 1) * 10,
-                  ),
-                ),
-              if (_notice != null)
-                Positioned(
-                  left: 24,
-                  right: 24,
-                  bottom: dock + cardH * 2 + totals + 24,
-                  child: _toast(_notice!),
-                ),
-              for (final f in _flights)
-                CarWheelFlyingChip(
-                  key: f.key,
-                  from: f.from,
-                  to: f.to,
-                  amount: f.amount,
-                  onDone: () {
-                    if (mounted) setState(() => _flights.remove(f));
-                  },
-                ),
-            ],),
-          ),
-        );
-      },);
-
-  String _phaseText(String phase) {
-    if (phase == 'betting' && _timeUp) return _s.text('closing');
-    return switch (phase) {
-      'closing' => _s.text('closing'),
-      'spinning' => _s.text('spinning'),
-      'result' => _s.text('result'),
-      _ => _s.text('betting'),
-    };
-  }
-
-  Widget _hud(int balance) {
-    final date = DateTime.now();
-    String two(int n) => n.toString().padLeft(2, '0');
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
-      child: Directionality(
-        textDirection: TextDirection.ltr,
-        child: Row(children: [
-          CarWheelRoundButton(
-            icon: Icons.arrow_back_rounded,
-            tooltip: _s.text('home'),
-            onTap: () => Navigator.maybePop(context),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: AlignmentDirectional.centerStart,
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(_s.round(state?.round ?? 0),
-                        style: const TextStyle(
-                            color: cwGoldLight,
-                            fontSize: 14,
-                            height: 1.15,
-                            fontWeight: FontWeight.w900,),),
-                    Text('${date.year} / ${two(date.month)} / ${two(date.day)}',
-                        style: const TextStyle(
-                            color: cwMuted, fontSize: 10, height: 1.15,),),
-                  ],),
-            ),
-          ),
-          Flexible(child: FittedBox(child: CarWheelBalance(balance: balance))),
-          const SizedBox(width: 6),
-          CarWheelRoundButton(
-            icon: Icons.emoji_events_rounded,
-            tooltip: _s.text('ranking'),
-            onTap: _openRanking,
-            child: SizedBox.square(
-              dimension: 26,
-              child: carWheelImage(
-                  'trophy', const Icon(Icons.emoji_events, color: cwGold),),
-            ),
-          ),
-          const SizedBox(width: 6),
-          PopupMenuButton<String>(
-            tooltip: _s.text('menu'),
-            color: cwNavy,
-            padding: EdgeInsets.zero,
-            icon: Container(
-              width: 40,
-              height: 40,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            const DecoratedBox(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF8B54D6), Color(0xFF4A1C86)],),
-                border: Border.fromBorderSide(
-                    BorderSide(color: Color(0x88FFE7A2), width: 1.2),),
-              ),
-              child: const Icon(Icons.menu_rounded, color: Colors.white),
-            ),
-            itemBuilder: (_) => [
-              for (final key in [
-                'help',
-                'paytable',
-                'history',
-                'players',
-                'settings',
-              ])
-                PopupMenuItem(
-                  value: key,
-                  child: Text(_s.text(key),
-                      style: const TextStyle(color: Colors.white),),
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF12030A), Color(0xFF3A0820), cwPurpleDark],
                 ),
-            ],
-            onSelected: (key) {
-              switch (key) {
-                case 'help':
-                  _openHelp();
-                case 'paytable':
-                  _openHelp(paytable: true);
-                case 'history':
-                  _openHistory();
-                case 'players':
-                  _openPlayers();
-                case 'settings':
-                  _openSettings();
-              }
-            },
-          ),
-        ],),
-      ),
-    );
-  }
-
-  Widget _resultPlaque(String result) {
-    final won = _payout > 0;
-    final big = won && _payout >= max(1, state?.myStaked ?? 1) * 10;
-    return Center(
-      child: CarWheelPopIn(
-        key: ValueKey('plaque-$_round'),
-        reduced: _reduced,
-        child: Semantics(
-          liveRegion: true,
-          label:
-              '${_s.winning(result)}. ${won ? '${_s.text('youWon')} ${cwNumber(_payout)}' : _s.text('noWin')}',
-          child: ExcludeSemantics(
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
-              decoration: cwPanel(radius: 18, lit: won).copyWith(boxShadow: [
-                BoxShadow(
-                    color: (won ? cwGold : Colors.black).withValues(alpha: .55),
-                    blurRadius: 18,),
-              ],),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                CarWheelEmblem(segment: result, size: big ? 46 : 38),
-                const SizedBox(width: 10),
-                Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(_s.winning(result),
-                          style: const TextStyle(
-                              color: cwGold,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,),),
-                      if (won)
-                        TweenAnimationBuilder<double>(
-                          key: ValueKey('prize-$_round-$_payout'),
-                          tween: Tween(begin: 0, end: _payout.toDouble()),
-                          duration: Duration(
-                              milliseconds: _reduced ? 0 : (big ? 1800 : 1000),),
-                          builder: (_, value, __) => Text(
-                            '${_s.text('youWon')} ${cwNumber(value.round())}',
-                            style: TextStyle(
-                                color: cwGoldLight,
-                                fontSize: big ? 24 : 20,
-                                fontWeight: FontWeight.w900,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],),
-                          ),
-                        )
-                      else
-                        Text(_s.text('noWin'),
-                            style:
-                                const TextStyle(color: cwMuted, fontSize: 13),),
-                    ],),
-              ],),
+              ),
             ),
-          ),
+            Image.asset(
+              '$carWheelArt/velvet_atrium_v2.png',
+              fit: BoxFit.cover,
+              cacheWidth: 900,
+              errorBuilder: (_, __, ___) => Image.asset(
+                '$carWheelArt/background.png',
+                cacheWidth: 900,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+            const IgnorePointer(
+                child: DecoratedBox(
+                    decoration: BoxDecoration(
+              gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0x18120316),
+                    Color(0x38120316),
+                    Color(0x70120316),
+                  ],),
+            ),),),
+            SafeArea(
+              child: _loading
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(color: cwGold),
+                          const SizedBox(height: 10),
+                          Text(
+                            _s.text('loading'),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _error != null
+                      ? _errorView()
+                      : _game(balance),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _toast(String text) => IgnorePointer(
-        child: Center(
-          child: Semantics(
-            liveRegion: true,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xEE1A0830),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: cwGold.withValues(alpha: .6)),
+  Widget _errorView() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!, style: const TextStyle(color: Colors.white)),
+            const SizedBox(height: 14),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: cwGold,
+                foregroundColor: cwPurpleDark,
               ),
-              child: Text(text,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: cwGoldLight, fontWeight: FontWeight.w700,),),
+              onPressed: _boot,
+              child: Text(_s.text('retry')),
             ),
-          ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              onPressed: () => Navigator.maybePop(context),
+              child: Text(_s.text('back')),
+            ),
+          ],
         ),
       );
 
@@ -933,8 +680,10 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
                 onPressed: () => Navigator.pop(context, key),
                 child: Padding(
                   padding: const EdgeInsets.all(8),
-                  child: Text(_s.text(key),
-                      style: const TextStyle(color: Colors.white),),
+                  child: Text(
+                    _s.text(key),
+                    style: const TextStyle(color: Colors.white),
+                  ),
                 ),
               ),
           ],
