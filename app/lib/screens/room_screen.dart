@@ -1183,7 +1183,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         children: [
           Row(children: [
             CircleAvatar(radius: 18,
-              backgroundImage: (u['avatarUrl'] ?? '').toString().isNotEmpty ? NetworkImage(u['avatarUrl']) : null,
+              backgroundImage: (u['avatarUrl'] ?? '').toString().isNotEmpty ? appImage(u['avatarUrl'], 36) : null,
               child: (u['avatarUrl'] ?? '').toString().isEmpty ? const Icon(Icons.person, size: 18) : null),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1639,7 +1639,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               children: [
                                 CircleAvatar(
                                   backgroundImage: member.user?.avatarUrl != null
-                                      ? NetworkImage(member.user!.avatarUrl!)
+                                      ? appImage(member.user!.avatarUrl!, 40)
                                       : null,
                                   child: member.user?.avatarUrl == null
                                       ? const Icon(Icons.person, color: Colors.white)
@@ -3961,7 +3961,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 showTrail: false,
                 child: CircleAvatar(
                   backgroundImage: user.avatarUrl != null
-                      ? NetworkImage(user.avatarUrl!)
+                      ? appImage(user.avatarUrl!, 40)
                       : null,
                   child: user.avatarUrl == null
                       ? const Icon(Icons.person)
@@ -4468,7 +4468,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ),
                             image: (state.roomImageUrl ?? '').trim().isNotEmpty
                                 ? DecorationImage(
-                              image: NetworkImage(state.roomImageUrl!.trim()),
+                              image: appImage(state.roomImageUrl!.trim(), 48),
                               fit: BoxFit.cover,
                             )
                                 : null,
@@ -4629,7 +4629,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         radius: 22,
                         backgroundColor: Colors.deepPurple,
                         backgroundImage: (state.roomImageUrl ?? '').trim().isNotEmpty
-                            ? NetworkImage(state.roomImageUrl!.trim())
+                            ? appImage(state.roomImageUrl!.trim(), 44)
                             : null,
                         child: (state.roomImageUrl ?? '').trim().isNotEmpty
                             ? null
@@ -5464,7 +5464,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     children: [
                       CircleAvatar(
                         radius: 16,
-                        backgroundImage: r.avatarUrl != null ? NetworkImage(r.avatarUrl!) : null,
+                        backgroundImage: r.avatarUrl != null ? appImage(r.avatarUrl!, 32) : null,
                         child: r.avatarUrl == null
                             ? const Icon(Icons.person, color: Colors.white, size: 18)
                             : null,
@@ -6091,7 +6091,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                         child: CircleAvatar(
                                           radius: 30,
                                           backgroundImage:
-                                              seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                              seat.avatarUrl != null ? appImage(seat.avatarUrl!, 60) : null,
                                           child: seat.avatarUrl == null
                                               ? const Icon(Icons.person, color: Colors.white, size: 30)
                                               : null,
@@ -6674,7 +6674,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                                 children: [
                                                   CircleAvatar(
                                                     radius: 18,
-                                                    backgroundImage: seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                                    backgroundImage: seat.avatarUrl != null ? appImage(seat.avatarUrl!, 36) : null,
                                                     backgroundColor: Colors.pinkAccent,
                                                   ),
                                                   Positioned(
@@ -6682,7 +6682,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                                     child: CircleAvatar(
                                                       radius: 18,
                                                       backgroundImage: seat.relationPartner?.avatarUrl != null
-                                                          ? NetworkImage(seat.relationPartner!.avatarUrl!)
+                                                          ? appImage(seat.relationPartner!.avatarUrl!, 36)
                                                           : null,
                                                       backgroundColor: Colors.purpleAccent,
                                                       child: const Icon(Icons.favorite, size: 14, color: Colors.white),
@@ -6800,7 +6800,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       padding: const EdgeInsets.all(3),
       child: CircleAvatar(
         radius: radius,
-        backgroundImage: url != null ? NetworkImage(url) : null,
+        backgroundImage: url != null ? appImage(url, radius * 2) : null,
         backgroundColor: Colors.grey[800],
         child: url == null ? const Icon(Icons.person, color: Colors.white) : null,
       ),
@@ -7087,7 +7087,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       ),
       child: CircleAvatar(
         radius: radius,
-        backgroundImage: url != null ? NetworkImage(url) : null,
+        backgroundImage: url != null ? appImage(url, radius * 2) : null,
         backgroundColor: Colors.grey[800],
         child: url == null ? const Icon(Icons.person, color: Colors.white) : null,
       ),

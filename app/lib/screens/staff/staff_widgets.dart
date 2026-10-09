@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/staff_provider.dart';
 import '../../services/staff_service.dart';
+import '../../widgets/app_network_image.dart';
 
 const staffGold = Color(0xFFFFD700);
 const staffCardColor = Color(0xFF1A0E3E);
@@ -143,11 +144,11 @@ Widget staffSelect(String label, String value, Map<String, String> choices, Valu
       onChanged: (v) { if (v != null) onChanged(v); });
 Widget staffAvatar(StaffUser user) => SizedBox(width: 44, height: 44,
     child: ClipOval(child: user.avatarUrl?.isNotEmpty == true
-      ? Image.network(user.avatarUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person))
+      ? AppNetworkImage(user.avatarUrl!, width: 44, height: 44, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person))
       : const Icon(Icons.person)));
 Widget staffUserCard(StaffUser user) => staffCard(user.label, leading: staffAvatar(user), subtitle: 'VIP ${user.vip} • Level ${user.level}');
 Widget staffThumbnail(StaffItem item) => SizedBox(width: 48, height: 48, child: item.thumbnail == null
-    ? const Icon(Icons.image_outlined) : Image.network(item.thumbnail!, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.image_outlined)));
+    ? const Icon(Icons.image_outlined) : AppNetworkImage(item.thumbnail!, width: 48, height: 48, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.image_outlined)));
 
 class StaffUserLookup extends ConsumerStatefulWidget {
   const StaffUserLookup({super.key, required this.onSelected});

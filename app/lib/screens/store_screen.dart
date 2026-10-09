@@ -426,7 +426,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     image: DecorationImage(
-                      image: NetworkImage(product.fileUrl),
+                      image: appImage(product.fileUrl, 300),
                       fit: BoxFit.fill,
                       onError: (_, __) {},
                     ),

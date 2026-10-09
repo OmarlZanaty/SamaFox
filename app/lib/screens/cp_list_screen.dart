@@ -221,7 +221,7 @@ class _CpListScreenState extends State<CpListScreen> {
             CircleAvatar(
               radius: 24,
               backgroundColor: const Color(0xFF2A1A5E),
-              backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+              backgroundImage: avatar != null ? appImage(avatar, 48) : null,
               child: avatar == null
                   ? Text(
                       p.name.isNotEmpty ? p.name.characters.first.toUpperCase() : '?',

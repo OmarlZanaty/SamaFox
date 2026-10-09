@@ -587,7 +587,7 @@ class SearchResultTile extends StatelessWidget {
           child: CircleAvatar(
             backgroundColor: Colors.white24,
             backgroundImage: (result.imageUrl != null && result.imageUrl!.isNotEmpty)
-                ? NetworkImage(result.imageUrl!)
+                ? appImage(result.imageUrl!, 40)
                 : null,
             child: (result.imageUrl == null || result.imageUrl!.isEmpty)
                 ? Icon(

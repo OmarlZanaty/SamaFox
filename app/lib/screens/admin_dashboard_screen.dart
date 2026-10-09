@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/locale_provider.dart';
 import '../services/dio_client.dart';
+import '../widgets/app_network_image.dart';
 
 /// Group 12: in-app admin page — search any user by ID and ban/unban them
 /// directly, with durations tiered by the caller's role (regular admin:
@@ -275,7 +276,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             leading: CircleAvatar(
                               backgroundImage: (u['avatarUrl'] is String &&
                                       (u['avatarUrl'] as String).isNotEmpty)
-                                  ? NetworkImage(u['avatarUrl'])
+                                  ? appImage(u['avatarUrl'], 40)
                                   : null,
                               child: (u['avatarUrl'] is String &&
                                       (u['avatarUrl'] as String).isNotEmpty)

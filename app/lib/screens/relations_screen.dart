@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../services/dio_client.dart';
 import 'profile_screen.dart';
+import '../widgets/app_network_image.dart';
 
 /// C16 — أصدقاء / أتابعه / يتابعني / الزوار.
 ///
@@ -189,7 +190,7 @@ class _RelationsScreenState extends State<RelationsScreen>
                 ),
                 leading: CircleAvatar(
                   backgroundColor: const Color(0xFF2A1655),
-                  backgroundImage: p.avatarUrl == null ? null : NetworkImage(p.avatarUrl!),
+                  backgroundImage: p.avatarUrl == null ? null : appImage(p.avatarUrl!, 40),
                   child: p.avatarUrl == null
                       ? const Icon(Icons.person, color: Colors.white54)
                       : null,
@@ -241,7 +242,7 @@ class _RelationsScreenState extends State<RelationsScreen>
                 ),
                 leading: CircleAvatar(
                   backgroundColor: const Color(0xFF2A1655),
-                  backgroundImage: p.avatarUrl == null ? null : NetworkImage(p.avatarUrl!),
+                  backgroundImage: p.avatarUrl == null ? null : appImage(p.avatarUrl!, 40),
                   child: p.avatarUrl == null
                       ? const Icon(Icons.person, color: Colors.white54)
                       : null,

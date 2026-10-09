@@ -12,6 +12,7 @@ import '../services/socket_service.dart';
 import '../services/room_audio_keepalive.dart';
 import '../services/voice_engine.dart';
 import '../main.dart';
+import 'app_network_image.dart';
 
 class PipOverlay extends ConsumerStatefulWidget {
   const PipOverlay({super.key});
@@ -223,7 +224,7 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
                           ),
                           image: (pip.roomImageUrl ?? '').isNotEmpty
                               ? DecorationImage(
-                            image: NetworkImage(pip.roomImageUrl!),
+                            image: appImage(pip.roomImageUrl!, 46),
                             fit: BoxFit.cover,
                           )
                               : null,
