@@ -119,7 +119,17 @@ class RouletteChip extends StatelessWidget {
   }
 }
 
-/// The wheel: wood bowl, ball track, 37 pockets with numbers, ball.
+//// The wheel, seen from above under one fixed light (top left):
+///
+///   1.00–.92  lacquered wood rim with gold trims        (static)
+///   .92–.75   ball track sloping into the bowl, eight
+///             gold deflectors                            (static)
+///   .75–.61   number ring                                (turns)
+///   .61–.49   pockets with gold frets                    (turns)
+///   .49–0     wooden cone; the turret image sits on top  (turns)
+///
+/// Both the bowl and the face are recorded once per size; a frame only
+/// rotates the face and draws the ball and the light on top.
 class RouletteWheelPainter extends CustomPainter {
   final double wheelAngle, ballAngle, ballLift;
   final int? highlight;
@@ -134,69 +144,212 @@ class RouletteWheelPainter extends CustomPainter {
     this.showBall = true,
   });
 
-  static final Map<int, ui.Picture> _faces = {};
+  static const numberOuter = .75, numberInner = .61, pocketInner = .49;
 
-  /// Pockets and numbers drawn once per size, then only rotated.
+  /// Ball distance from the centre: [pocket] when it rests, [track] when it runs.
+  static const pocket = .55, track = .845;
+
+  static final Map<int, ui.Picture> _bowls = {}, _faces = {};
+
+  static Shader _metal(double r) => const SweepGradient(
+        colors: [
+          Color(0xFFFFF1C1),
+          rlGold,
+          Color(0xFF9A6A1E),
+          rlGold,
+          Color(0xFFFFF1C1),
+          rlGold,
+          Color(0xFF8A5A14),
+          rlGold,
+          Color(0xFFFFF1C1),
+        ],
+        transform: GradientRotation(-pi / 4),
+      ).createShader(Rect.fromCircle(center: Offset.zero, radius: r));
+
+  static void _ring(Canvas canvas, double radius, double width, double r) =>
+      canvas.drawCircle(
+        Offset.zero,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = width
+          ..shader = _metal(r),
+      );
+
+  /// Rim, track and deflectors: everything that does not turn.
+  static ui.Picture _bowl(double s) => _bowls.putIfAbsent(s.round(), () {
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder);
+        final r = s / 2;
+        final all = Rect.fromCircle(center: Offset.zero, radius: r);
+        // Lacquered wood: a warm radial body with fine concentric grain.
+        canvas.drawCircle(
+          Offset.zero,
+          r,
+          Paint()
+            ..shader = const RadialGradient(
+              center: Alignment(-.3, -.35),
+              radius: .9,
+              colors: [Color(0xFFB8702F), Color(0xFF7A3E17), Color(0xFF3E1C08)],
+              stops: [.55, .85, 1],
+            ).createShader(all),
+        );
+        final grain = Random(7);
+        for (var i = 0; i < 26; i++) {
+          final gr = r * (.925 + grain.nextDouble() * .07);
+          final start = grain.nextDouble() * 2 * pi;
+          canvas.drawArc(
+            Rect.fromCircle(center: Offset.zero, radius: gr),
+            start,
+            .6 + grain.nextDouble() * 2.2,
+            false,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = max(.6, s * .0022)
+              ..color = (grain.nextBool() ? const Color(0xFF2A1205) : const Color(0xFFE0A15E))
+                  .withValues(alpha: .18 + grain.nextDouble() * .2),
+          );
+        }
+        _ring(canvas, r * .992, s * .012, r);
+        _ring(canvas, r * .918, s * .014, r);
+        // The track: bright at the lip, darker as it slopes into the bowl.
+        canvas.drawCircle(
+          Offset.zero,
+          r * .91,
+          Paint()
+            ..shader = const RadialGradient(
+              colors: [
+                Color(0xFF0B0503),
+                Color(0xFF1E0E05),
+                Color(0xFF3E1E0B),
+                Color(0xFF6B3C1A),
+                Color(0xFFC58A4E),
+                Color(0xFF2A1407),
+              ],
+              stops: [.80, .835, .88, .945, .978, 1],
+            ).createShader(Rect.fromCircle(center: Offset.zero, radius: r * .91)),
+        );
+        // Eight deflectors, alternating along and across the track.
+        for (var i = 0; i < 8; i++) {
+          canvas.save();
+          canvas.rotate(i * pi / 4 + pi / 8);
+          canvas.translate(0, -r * .80);
+          if (i.isOdd) canvas.rotate(pi / 2);
+          final w = s * .018, h = s * .042;
+          final diamond = Path()
+            ..moveTo(0, -h / 2)
+            ..lineTo(w / 2, 0)
+            ..lineTo(0, h / 2)
+            ..lineTo(-w / 2, 0)
+            ..close();
+          canvas.drawPath(
+            diamond.shift(Offset(s * .003, s * .004)),
+            Paint()..color = Colors.black.withValues(alpha: .45),
+          );
+          canvas.drawPath(
+            diamond,
+            Paint()
+              ..shader = const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFFFF4CC), rlGold, Color(0xFF7A4E10)],
+              ).createShader(Rect.fromCenter(center: Offset.zero, width: w, height: h)),
+          );
+          canvas.restore();
+        }
+        return recorder.endRecording();
+      });
+
+  /// Numbers, pockets and cone: everything that turns.
   static ui.Picture _face(double s) => _faces.putIfAbsent(s.round(), () {
         final recorder = ui.PictureRecorder();
         final canvas = Canvas(recorder);
         final r = s / 2;
         final seg = roulettePocketAngle;
-        final outer = Rect.fromCircle(center: Offset.zero, radius: r * .80);
+        final numbers = Rect.fromCircle(center: Offset.zero, radius: r * numberOuter);
+        final pockets = Rect.fromCircle(center: Offset.zero, radius: r * numberInner);
+        Color shade(Color c, double k) => Color.lerp(c, Colors.black, k)!;
         for (var i = 0; i < rouletteWheel.length; i++) {
-          final n = rouletteWheel[i];
-          canvas.drawArc(outer, -pi / 2 + i * seg, seg, true,
-              Paint()..color = roulettePaint(n),);
+          final base = roulettePaint(rouletteWheel[i]);
+          final from = -pi / 2 + i * seg;
+          // Number band: lit towards the outside edge.
+          canvas.drawArc(
+            numbers,
+            from,
+            seg,
+            true,
+            Paint()
+              ..shader = RadialGradient(
+                colors: [shade(base, .25), base, Color.lerp(base, Colors.white, .12)!],
+                stops: const [numberInner / numberOuter, .9, 1],
+              ).createShader(numbers),
+          );
+          // Pocket: darker and deeper.
+          canvas.drawArc(
+            pockets,
+            from,
+            seg,
+            true,
+            Paint()
+              ..shader = RadialGradient(
+                colors: [shade(base, .7), shade(base, .35), shade(base, .55)],
+                stops: const [pocketInner / numberInner, .8, 1],
+              ).createShader(pockets),
+          );
         }
-        // Inner cone covers the middle of the pocket wedges.
+        // Gold frets between the pockets, fine lines between the numbers.
+        final fret = Paint()
+          ..shader = _metal(r)
+          ..strokeWidth = max(1.2, s * .006)
+          ..strokeCap = StrokeCap.round;
+        final line = Paint()
+          ..color = rlGoldLight.withValues(alpha: .55)
+          ..strokeWidth = max(.6, s * .0025);
+        for (var i = 0; i < rouletteWheel.length; i++) {
+          final d = Offset(cos(-pi / 2 + i * seg), sin(-pi / 2 + i * seg));
+          canvas.drawLine(d * r * pocketInner, d * r * (numberInner + .005), fret);
+          canvas.drawLine(d * r * numberInner, d * r * numberOuter, line);
+        }
+        _ring(canvas, r * numberOuter, s * .008, r);
+        _ring(canvas, r * numberInner, s * .007, r);
+        // The cone: polished wood with a gold collar.
         canvas.drawCircle(
           Offset.zero,
-          r * .62,
+          r * pocketInner,
           Paint()
             ..shader = const RadialGradient(
-                    colors: [rlWoodLight, rlWood, Color(0xFF4A2812)],
-                    stops: [0, .6, 1],)
-                .createShader(
-                    Rect.fromCircle(center: Offset.zero, radius: r * .62),),
+              colors: [Color(0xFFE09A55), Color(0xFFA85E2A), Color(0xFF6A3412), Color(0xFF3A1A06)],
+              stops: [0, .5, .85, 1],
+            ).createShader(Rect.fromCircle(center: Offset.zero, radius: r * pocketInner)),
         );
-        final divider = Paint()
-          ..color = const Color(0xFFD9D9E0)
-          ..strokeWidth = max(1, s * .004);
-        for (var i = 0; i < rouletteWheel.length; i++) {
-          final a = -pi / 2 + i * seg;
-          canvas.drawLine(Offset(cos(a), sin(a)) * r * .62,
-              Offset(cos(a), sin(a)) * r * .80, divider,);
-        }
+        // A soft sheen ring across the polished wood.
         canvas.drawCircle(
           Offset.zero,
-          r * .80,
+          r * .37,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = s * .012
-            ..color = rlGold,
+            ..strokeWidth = s * .05
+            ..color = const Color(0xFFFFD9A0).withValues(alpha: .07),
         );
-        canvas.drawCircle(
-          Offset.zero,
-          r * .62,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = s * .01
-            ..color = rlGold,
-        );
+        _ring(canvas, r * (pocketInner - .01), s * .012, r);
+        _ring(canvas, r * .26, s * .006, r);
         for (var i = 0; i < rouletteWheel.length; i++) {
           final tp = TextPainter(
             text: TextSpan(
               text: '${rouletteWheel[i]}',
               style: TextStyle(
-                  color: Colors.white,
-                  fontSize: s * .036,
-                  fontWeight: FontWeight.w800,),
+                color: Colors.white,
+                fontSize: s * .034,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -s * .001,
+                shadows: [Shadow(color: Colors.black54, blurRadius: s * .006)],
+              ),
             ),
             textDirection: TextDirection.ltr,
           )..layout();
           canvas.save();
           canvas.rotate((i + .5) * seg);
-          canvas.translate(0, -r * .735);
+          canvas.translate(0, -r * (numberInner + numberOuter) / 2);
           tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
           canvas.restore();
         }
@@ -208,80 +361,98 @@ class RouletteWheelPainter extends CustomPainter {
     final s = size.width;
     final r = s / 2;
     final c = Offset(r, r);
-    // Shadow and wood bowl.
     canvas.drawCircle(
-      c.translate(0, s * .015),
-      r * .99,
+      c.translate(0, s * .02),
+      r * .98,
       Paint()
-        ..color = Colors.black54
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+        ..color = Colors.black.withValues(alpha: .6)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * .03),
     );
-    canvas.drawCircle(
-      c,
-      r,
-      Paint()
-        ..shader = const SweepGradient(colors: [
-          rlWood,
-          rlWoodLight,
-          rlWood,
-          Color(0xFF5E3018),
-          rlWood,
-        ],).createShader(Rect.fromCircle(center: c, radius: r)),
-    );
-    canvas.drawCircle(
-      c,
-      r * .985,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = s * .018
-        ..shader = const SweepGradient(colors: [
-          rlGold,
-          rlGoldLight,
-          rlGold,
-          Color(0xFFA9762A),
-          rlGold,
-        ],).createShader(Rect.fromCircle(center: c, radius: r)),
-    );
-    // Ball track.
-    canvas.drawCircle(
-      c,
-      r * .88,
-      Paint()
-        ..shader = const RadialGradient(
-                colors: [Color(0xFF3A2010), Color(0xFF6B3D1E)], stops: [.9, 1],)
-            .createShader(Rect.fromCircle(center: c, radius: r * .88)),
-    );
-    // Turning face.
     canvas.save();
     canvas.translate(c.dx, c.dy);
+    canvas.drawPicture(_bowl(s));
+    canvas.save();
     canvas.rotate(wheelAngle);
     canvas.drawPicture(_face(s));
     if (highlight != null && glow > 0) {
       final i = rouletteWheel.indexOf(highlight!);
-      canvas.drawArc(
-        Rect.fromCircle(center: Offset.zero, radius: r * .80),
-        -pi / 2 + i * roulettePocketAngle,
-        roulettePocketAngle,
-        true,
-        Paint()..color = rlGoldLight.withValues(alpha: .55 * glow),
+      final seg = roulettePocketAngle;
+      final from = -pi / 2 + i * seg;
+      final band = Path()
+        ..addArc(Rect.fromCircle(center: Offset.zero, radius: r * numberOuter), from, seg)
+        ..arcTo(Rect.fromCircle(center: Offset.zero, radius: r * pocketInner), from + seg, -seg, false)
+        ..close();
+      canvas.drawPath(
+        band,
+        Paint()
+          ..color = rlGoldLight.withValues(alpha: .45 * glow)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, s * .006),
+      );
+      canvas.drawPath(
+        band,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = max(1.5, s * .007)
+          ..color = rlGoldLight.withValues(alpha: glow),
       );
     }
     canvas.restore();
-    if (!showBall) return;
-    // Ball: outer track (lift 1) down to the pocket ring (lift 0).
-    final br = r * (.68 + (.84 - .68) * ballLift);
-    final a = ballAngle - pi / 2;
-    final p = c + Offset(cos(a), sin(a)) * br;
+    // The turning part sits below the track: shade its outer edge.
     canvas.drawCircle(
-        p.translate(1, 2), s * .022, Paint()..color = Colors.black45,);
-    canvas.drawCircle(
-      p,
-      s * .022,
+      Offset.zero,
+      r * numberOuter,
       Paint()
-        ..shader = const RadialGradient(
-                center: Alignment(-.4, -.4),
-                colors: [Colors.white, Color(0xFFCFCFD8)],)
-            .createShader(Rect.fromCircle(center: p, radius: s * .022)),
+        ..shader = RadialGradient(
+          colors: [Colors.transparent, Colors.black.withValues(alpha: .35)],
+          stops: const [.9, 1],
+        ).createShader(Rect.fromCircle(center: Offset.zero, radius: r * numberOuter)),
+    );
+    canvas.restore();
+    if (showBall) {
+      // On the track (lift 1) down to the pocket ring (lift 0).
+      final br = r * (pocket + (track - pocket) * ballLift);
+      final a = ballAngle - pi / 2;
+      final p = c + Offset(cos(a), sin(a)) * br;
+      final ball = s * .021;
+      canvas.drawCircle(
+        p.translate(ball * .35, ball * .5),
+        ball * 1.05,
+        Paint()
+          ..color = Colors.black.withValues(alpha: .55)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, ball * .45),
+      );
+      canvas.drawCircle(
+        p,
+        ball,
+        Paint()
+          ..shader = const RadialGradient(
+            center: Alignment(-.35, -.4),
+            radius: .9,
+            colors: [Colors.white, Color(0xFFE9E9F0), Color(0xFF9C9CAB)],
+            stops: [0, .45, 1],
+          ).createShader(Rect.fromCircle(center: p, radius: ball)),
+      );
+      canvas.drawCircle(
+        p.translate(-ball * .35, -ball * .4),
+        ball * .28,
+        Paint()..color = Colors.white.withValues(alpha: .9),
+      );
+    }
+    // One fixed light from the top left, over everything.
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-.45, -.55),
+          radius: .85,
+          colors: [
+            Colors.white.withValues(alpha: .16),
+            Colors.white.withValues(alpha: 0),
+            Colors.black.withValues(alpha: .18),
+          ],
+          stops: const [0, .55, 1],
+        ).createShader(Rect.fromCircle(center: c, radius: r)),
     );
   }
 
@@ -295,7 +466,7 @@ class RouletteWheelPainter extends CustomPainter {
       old.showBall != showBall;
 }
 
-/// Painted stand-in for the centre turret.
+// Painted stand-in for the centre turret.
 class RouletteTurretPainter extends CustomPainter {
   const RouletteTurretPainter();
   @override

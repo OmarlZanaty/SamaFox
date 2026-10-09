@@ -526,13 +526,12 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
         ),
       );
 
-  /// One screen, no scrolling. While bets are open the felt fills the middle
-  /// and the wheel is a medallion in the meta bar; from the moment bets close
-  /// until the next round opens the wheel takes the stage over a dimmed felt.
+  /// One screen, no scrolling. The whole wheel is always on stage at the top;
+  /// the felt lies under it the way a real table does, numbers running
+  /// left to right, with the outside bets along its bottom edge.
   Widget _game(int balance) => LayoutBuilder(
         builder: (context, box) {
           final width = min(box.maxWidth, 560.0);
-          final stage = !_betting || _spin != null;
           return Center(
             child: SizedBox(
               width: width,
@@ -541,97 +540,49 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                 child: Column(
                   children: [
                     _header(balance),
-                    _metaBar(stage),
+                    _metaBar(),
                     const SizedBox(height: 6),
                     _historyRow(),
-                    const SizedBox(height: 6),
-                    _totals(),
-                    const SizedBox(height: 6),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, area) {
-                          final big =
-                              min(area.maxWidth * .94, area.maxHeight * .9);
-                          return SizedBox(
-                            width: area.maxWidth,
-                            height: area.maxHeight,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                Positioned.fill(
-                                  child: Align(
-                                    alignment: Alignment.topCenter,
-                                    child:
-                                        _table(area.maxWidth, area.maxHeight),
-                                  ),
-                                ),
-                                Positioned.fill(
-                                  child: IgnorePointer(
-                                    ignoring: !stage,
-                                    child: AnimatedOpacity(
-                                      opacity: stage ? 1 : 0,
-                                      duration: Duration(
-                                        milliseconds: _reduced ? 0 : 300,
-                                      ),
-                                      child: GestureDetector(
-                                        onTap: skip,
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            borderRadius:
-                                                BorderRadius.circular(14),
-                                            gradient: RadialGradient(
-                                              colors: [
-                                                rlPurpleDark.withValues(
-                                                  alpha: .7,
-                                                ),
-                                                rlBlack.withValues(alpha: .88),
-                                              ],
-                                            ),
+                          final felt = _Felt(area.maxWidth);
+                          // Totals bar (≈36) and the gaps around it.
+                          final room = area.maxHeight - felt.height - 50;
+                          final wheel = max(0.0, min(area.maxWidth * .92, room));
+                          return Column(
+                            children: [
+                              Expanded(
+                                child: Center(
+                                  child: SizedBox.square(
+                                    dimension: wheel,
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      alignment: Alignment.center,
+                                      children: [
+                                        _wheelBlock(wheel),
+                                        if (_notice != null)
+                                          Positioned(
+                                            left: -20,
+                                            right: -20,
+                                            bottom: wheel * .04,
+                                            child: _noticeView(),
                                           ),
-                                        ),
-                                      ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                                Positioned.fill(
-                                  child: Center(
-                                    child: AnimatedSwitcher(
-                                      duration: Duration(
-                                        milliseconds: _reduced ? 0 : 450,
-                                      ),
-                                      switchInCurve: Curves.easeOutBack,
-                                      transitionBuilder: (child, a) =>
-                                          FadeTransition(
-                                        opacity: a,
-                                        child: ScaleTransition(
-                                          scale: Tween(begin: .35, end: 1.0)
-                                              .animate(a),
-                                          child: child,
-                                        ),
-                                      ),
-                                      child: stage
-                                          ? KeyedSubtree(
-                                              key: const ValueKey('stage'),
-                                              child: _wheelBlock(big),
-                                            )
-                                          : const SizedBox.shrink(),
-                                    ),
-                                  ),
-                                ),
-                                if (_notice != null)
-                                  Positioned(
-                                    left: 8,
-                                    right: 8,
-                                    bottom: 10,
-                                    child: _noticeView(),
-                                  ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(height: 6),
+                              _totals(),
+                              const SizedBox(height: 6),
+                              _table(felt),
+                            ],
                           );
                         },
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     _chipBar(),
                     const SizedBox(height: 6),
                   ],
@@ -728,9 +679,9 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
     };
   }
 
-  Widget _metaBar(bool stage) => Container(
+  Widget _metaBar() => Container(
         margin: const EdgeInsets.only(top: 6),
-        padding: const EdgeInsetsDirectional.fromSTEB(6, 4, 6, 4),
+        padding: const EdgeInsetsDirectional.fromSTEB(12, 4, 6, 4),
         decoration: BoxDecoration(
           color: rlNavy2.withValues(alpha: .85),
           borderRadius: BorderRadius.circular(14),
@@ -738,16 +689,6 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
         ),
         child: Row(
           children: [
-            // The wheel waits here, small, while the felt takes bets.
-            AnimatedSwitcher(
-              duration: Duration(milliseconds: _reduced ? 0 : 300),
-              child: stage
-                  ? const SizedBox(width: 4, height: 52)
-                  : Padding(
-                      padding: const EdgeInsetsDirectional.only(end: 8),
-                      child: _wheelBlock(52),
-                    ),
-            ),
             Expanded(
               child: Semantics(
                 liveRegion: true,
@@ -998,45 +939,56 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
         ),
       );
 
-  Widget _noticeView() => Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Semantics(
-          liveRegion: true,
-          child: Text(
-            _notice!,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: rlGoldLight,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
+  /// The round's outcome as a plaque over the bottom of the wheel.
+  Widget _noticeView() => IgnorePointer(
+        child: Center(
+          child: TweenAnimationBuilder<double>(
+            key: ValueKey(_notice),
+            tween: Tween(begin: 0, end: 1),
+            duration: Duration(milliseconds: _reduced ? 0 : 380),
+            curve: Curves.easeOutBack,
+            builder: (_, t, child) => Opacity(
+              opacity: t.clamp(0.0, 1.0),
+              child: Transform.scale(scale: .85 + .15 * t, child: child),
+            ),
+            child: Semantics(
+              liveRegion: true,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xEE1D2454), Color(0xEE260C4C)],
+                  ),
+                  border: Border.all(color: rlGold, width: 1.5),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black54, blurRadius: 10),
+                  ],
+                ),
+                child: Text(
+                  _notice!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: rlGoldLight,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
       );
 
   // ── The felt ──────────────────────────────────────────────────────────────
-  /// The felt, sized to [height]: twelve rows, the column bets and the zero
-  /// (1.2 rows) share it, so the whole table is always on screen.
-  Widget _table(double width, double height) {
-    // Inside the felt's padding (4) and border (2) on each side.
-    final inner = width - 12;
-    final evenW = inner * .17, dozenW = inner * .14;
-    final numbersW = inner - evenW - dozenW;
-    final cellW = numbersW / 3;
-    final cellH = ((height - 12) / (rouletteRows + 2.2)).clamp(16.0, 38.0);
-    final zeroH = cellH * 1.2;
-    final gridH = cellH * rouletteRows;
+  /// A real table's layout: zero on the left, three rows of twelve numbers
+  /// (3 … 36 on top, 1 … 34 at the bottom), the 2:1 columns on the right,
+  /// then the dozens and the even-money bets along the bottom edge.
+  Widget _table(_Felt f) {
     final result =
         state?.phase == 'result' && _landed != null ? state?.result : null;
     final locked = !_betting;
-    Widget outside(
-      String key,
-      double w,
-      double h, {
-      Color? fill,
-      String? label,
-      int quarter = 0,
-    }) {
+    Widget outside(String key, double w, double h, {Color? fill}) {
       final mine = myStakes[key] ?? 0, all = state?.totals[key] ?? 0;
       final wins = result != null &&
           (rouletteBet(key)?.numbers.contains(result) ?? false);
@@ -1052,10 +1004,10 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
             onTap: () => placeChip(key),
             child: Container(
               decoration: BoxDecoration(
-                color: fill ?? (wins ? rlFelt.withValues(alpha: 1) : null),
+                color: fill ?? (wins ? rlGold.withValues(alpha: .25) : null),
                 border: Border.all(
-                  color: wins ? rlGoldLight : Colors.white70,
-                  width: wins ? 2.5 : .8,
+                  color: wins ? rlGoldLight : Colors.white60,
+                  width: wins ? 2 : .7,
                 ),
                 boxShadow: wins
                     ? [
@@ -1069,39 +1021,38 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  RotatedBox(
-                    quarterTurns: quarter,
-                    child: Padding(
-                      padding: const EdgeInsets.all(2),
-                      child: FittedBox(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              label ?? _s.text(key),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 14,
-                              ),
+                  Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: FittedBox(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _s.text(key),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                              height: 1.1,
                             ),
-                            Text(
-                              '$mine/$all',
-                              style: const TextStyle(
-                                color: rlGoldLight,
-                                fontSize: 11,
-                              ),
+                          ),
+                          Text(
+                            '$mine/$all',
+                            style: const TextStyle(
+                              color: rlGoldLight,
+                              fontSize: 10,
+                              height: 1.1,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                   if (mine > 0)
-                    Positioned(
-                      right: 2,
-                      bottom: 2,
-                      child: RouletteChip(value: mine, size: min(w, h) * .42),
+                    PositionedDirectional(
+                      end: 1,
+                      top: 1,
+                      child: RouletteChip(value: mine, size: min(w, h) * .62),
                     ),
                 ],
               ),
@@ -1111,76 +1062,75 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
       );
     }
 
-    const evenKeys = rouletteOutside;
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: Opacity(
-        opacity: locked ? .75 : 1,
+      child: AnimatedOpacity(
+        opacity: locked ? .7 : 1,
+        duration: const Duration(milliseconds: 250),
         child: Container(
-          padding: const EdgeInsets.all(4),
+          width: f.width,
+          height: f.height,
+          padding: const EdgeInsets.all(_Felt.pad),
           decoration: BoxDecoration(
-            color: rlFelt,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: rlFeltBorder, width: 2),
+            gradient: const RadialGradient(
+              radius: 1.2,
+              colors: [Color(0xFF0E8A55), rlFelt, rlFeltDark],
+              stops: [0, .55, 1],
+            ),
+            border: Border.all(color: rlGold.withValues(alpha: .8), width: 2),
             boxShadow: [
+              const BoxShadow(
+                color: Colors.black54,
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
               BoxShadow(
-                color: rlFeltBorder.withValues(alpha: .25),
+                color: rlFeltBorder.withValues(alpha: .2),
                 blurRadius: 14,
               ),
             ],
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
             children: [
-              // Even-money column.
-              Padding(
-                padding: EdgeInsets.only(top: zeroH),
-                child: Column(
-                  children: [
-                    for (final key in evenKeys)
-                      outside(
-                        key,
-                        evenW,
-                        cellH * 2,
-                        fill: key == 'red'
-                            ? rlRed
-                            : key == 'black'
-                                ? rlPocketBlack
-                                : null,
-                        quarter: 3,
-                      ),
-                  ],
-                ),
+              Row(
+                children: [
+                  _zeroCell(f.zeroW, f.cellH * 3, result),
+                  SizedBox(
+                    width: f.cellW * rouletteRows,
+                    height: f.cellH * 3,
+                    child: _grid(f.cellW, f.cellH, result),
+                  ),
+                  Column(
+                    children: [
+                      for (final key in rouletteColumns.reversed)
+                        outside(key, f.columnW, f.cellH),
+                    ],
+                  ),
+                ],
               ),
-              // Dozens.
-              Padding(
-                padding: EdgeInsets.only(top: zeroH),
-                child: Column(
-                  children: [
-                    for (final key in rouletteDozens)
-                      outside(key, dozenW, cellH * 4, quarter: 3),
-                  ],
-                ),
+              Row(
+                children: [
+                  SizedBox(width: f.zeroW),
+                  for (final key in rouletteDozens)
+                    outside(key, f.cellW * 4, f.rowH),
+                ],
               ),
-              // Zero, numbers, columns.
-              SizedBox(
-                width: numbersW,
-                child: Column(
-                  children: [
-                    _zeroCell(numbersW, zeroH, result),
-                    SizedBox(
-                      width: numbersW,
-                      height: gridH,
-                      child: _grid(cellW, cellH, result),
+              Row(
+                children: [
+                  SizedBox(width: f.zeroW),
+                  for (final key in rouletteOutside)
+                    outside(
+                      key,
+                      f.cellW * 2,
+                      f.rowH,
+                      fill: key == 'red'
+                          ? rlRed
+                          : key == 'black'
+                              ? rlPocketBlack
+                              : null,
                     ),
-                    Row(
-                      children: [
-                        for (final key in rouletteColumns)
-                          outside(key, (numbersW) / 3, cellH),
-                      ],
-                    ),
-                  ],
-                ),
+                ],
               ),
             ],
           ),
@@ -1202,18 +1152,27 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
           height: h,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: rlZero,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-            border: Border.all(
-              color: wins ? rlGoldLight : Colors.white70,
-              width: wins ? 3 : .8,
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF16A867), rlZero, Color(0xFF05532F)],
             ),
+            borderRadius:
+                BorderRadius.horizontal(left: Radius.circular(w * .9)),
+            border: Border.all(
+              color: wins ? rlGoldLight : Colors.white60,
+              width: wins ? 2.5 : .7,
+            ),
+            boxShadow: wins
+                ? [BoxShadow(color: rlGold.withValues(alpha: .8), blurRadius: 12)]
+                : null,
           ),
           child: Stack(
+            clipBehavior: Clip.none,
             alignment: Alignment.center,
             children: [
               SizedBox(
-                height: h * .8,
+                width: w * .7,
                 child: const FittedBox(
                   child: Text(
                     '0',
@@ -1227,8 +1186,8 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
               ),
               if (mine > 0)
                 Positioned(
-                  right: 8,
-                  child: RouletteChip(value: mine, size: h * .7),
+                  bottom: 4,
+                  child: RouletteChip(value: mine, size: w * .8),
                 ),
             ],
           ),
@@ -1237,19 +1196,27 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
     );
   }
 
+  /// Twelve columns of three. The engine counts in its own terms (row =
+  /// which three, col = 1st/2nd/3rd of them), so a tap is turned a quarter:
+  /// across the felt is down the engine's rows, up the felt is across.
   Widget _grid(double cellW, double cellH, int? result) {
     final winning = result == null
         ? const <String>{}
         : rouletteWinningKeys(myStakes, result);
-    final chipSize = min(cellW, cellH) * .66;
+    final chipSize = min(cellW, cellH) * .8;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapUp: (d) {
         final p = d.localPosition;
-        final col = (p.dx / cellW).floor().clamp(0, 2),
-            row = (p.dy / cellH).floor().clamp(0, rouletteRows - 1);
+        final row = (p.dx / cellW).floor().clamp(0, rouletteRows - 1),
+            line = (p.dy / cellH).floor().clamp(0, 2);
         placeChip(
-          rouletteKeyAt(row, col, p.dx / cellW - col, p.dy / cellH - row),
+          rouletteKeyAt(
+            row,
+            2 - line,
+            1 - (p.dy / cellH - line),
+            p.dx / cellW - row,
+          ),
         );
       },
       child: Stack(
@@ -1258,41 +1225,49 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
           for (var row = 0; row < rouletteRows; row++)
             for (var col = 0; col < 3; col++)
               Positioned(
-                left: col * cellW,
-                top: row * cellH,
+                left: row * cellW,
+                top: (2 - col) * cellH,
                 width: cellW,
                 height: cellH,
                 child: Builder(
                   builder: (_) {
                     final n = rouletteNumberAt(row, col);
                     final wins = result == n;
+                    final base = roulettePaint(n);
                     return Semantics(
                       button: true,
                       label: '$n ${_s.color(n)}, ×26, ${myStakes['n:$n'] ?? 0}',
                       onTap: () => placeChip('n:$n'),
                       child: Container(
-                        alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          border: Border.all(
-                            color: wins ? rlGoldLight : Colors.white70,
-                            width: wins ? 3 : .6,
-                          ),
-                          boxShadow: wins
-                              ? [
-                                  BoxShadow(
-                                    color: rlGold.withValues(alpha: .8),
-                                    blurRadius: 12,
-                                  ),
-                                ]
-                              : null,
+                          border: Border.all(color: Colors.white60, width: .5),
                         ),
-                        child: Container(
-                          width: min(cellW, cellH) * .82,
-                          height: min(cellW, cellH) * .82,
+                        padding: const EdgeInsets.all(1.5),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: roulettePaint(n),
+                            borderRadius: BorderRadius.circular(3),
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Color.lerp(base, Colors.white, .18)!,
+                                base,
+                                Color.lerp(base, Colors.black, .3)!,
+                              ],
+                            ),
+                            border: wins
+                                ? Border.all(color: rlGoldLight, width: 2)
+                                : null,
+                            boxShadow: wins
+                                ? [
+                                    BoxShadow(
+                                      color: rlGold.withValues(alpha: .9),
+                                      blurRadius: 12,
+                                    ),
+                                  ]
+                                : null,
                           ),
                           child: FittedBox(
                             child: Padding(
@@ -1301,8 +1276,11 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                                 '$n',
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w900,
                                   fontSize: 14,
+                                  shadows: [
+                                    Shadow(color: Colors.black45, blurRadius: 2),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1318,8 +1296,8 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                 rouletteAnchor(entry.key) != null &&
                 rouletteAnchor(entry.key)!.dy >= 0)
               Positioned(
-                left: rouletteAnchor(entry.key)!.dx * cellW - chipSize / 2,
-                top: rouletteAnchor(entry.key)!.dy * cellH - chipSize / 2,
+                left: rouletteAnchor(entry.key)!.dy * cellW - chipSize / 2,
+                top: (3 - rouletteAnchor(entry.key)!.dx) * cellH - chipSize / 2,
                 child: IgnorePointer(
                   child: AnimatedScale(
                     scale: winning.contains(entry.key) ? 1.25 : 1,
@@ -1538,4 +1516,19 @@ class _ActionButton extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// The felt's measurements at [width]: zero (1.1 cells), twelve number
+/// columns, the 2:1 bets (1.3 cells), then two rows of outside bets.
+class _Felt {
+  static const pad = 4.0, border = 2.0;
+  final double width;
+  _Felt(this.width);
+  late final double inner = width - 2 * (pad + border);
+  late final double cellW = inner / 14.4;
+  late final double zeroW = cellW * 1.1;
+  late final double columnW = inner - zeroW - cellW * rouletteRows;
+  late final double cellH = (cellW * 1.3).clamp(26.0, 46.0);
+  late final double rowH = cellH * .85;
+  late final double height = cellH * 3 + rowH * 2 + 2 * (pad + border);
 }
