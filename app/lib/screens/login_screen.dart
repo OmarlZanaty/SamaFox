@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
-import '../widgets/branding/al_mobarmg_branding.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -194,10 +193,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
           Container(color: Colors.black.withOpacity(0.25)),
           SafeArea(
-            // The column is spaced with Spacers for tall phones, but a short
-            // phone or large text would overflow it once the developer
-            // signature sits at the bottom: below that height it scrolls
-            // instead, and above it nothing changes.
+            // The column is spaced with Spacers for tall phones; a short
+            // phone or large text scrolls instead of overflowing.
             child: LayoutBuilder(
               builder: (context, constraints) => SingleChildScrollView(
                 child: ConstrainedBox(
@@ -269,13 +266,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 14),
-                  // Developer signature: last thing on the screen, after every
-                  // action, so it never sits between the user and signing in.
-                  const AlMobarmgBranding(
-                    caption: AlMobarmgCaption.poweredBy,
-                    brightness: Brightness.dark,
-                  ),
-                  const SizedBox(height: 6),
                 ],
               ),
                     ),

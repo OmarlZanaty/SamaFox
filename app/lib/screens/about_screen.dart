@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/locale_provider.dart';
-import '../widgets/branding/al_mobarmg_branding.dart';
 
 class AboutScreen extends ConsumerWidget {
   const AboutScreen({super.key});
@@ -78,9 +77,6 @@ class AboutScreen extends ConsumerWidget {
                       textAlign: TextAlign.center,
                     ),
                     const Spacer(flex: 2),
-                    const SizedBox(height: 32),
-                    // The one place the developer's full card appears.
-                    const AlMobarmgBranding(variant: AlMobarmgVariant.full),
                   ],
                 ),
               ),

@@ -4,7 +4,6 @@ import '../providers/auth_provider.dart';
 import '../providers/localization_provider.dart';
 import '../l10n/app_strings.dart';
 import '../theme/app_theme.dart';
-import '../widgets/branding/al_mobarmg_branding.dart';
 import '../widgets/force_update_gate.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -76,18 +75,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundDarkPurple,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(child: _appIdentity(strings)),
-            // The developer's signature: under SamaFox, never beside it.
-            const Padding(
-              padding: EdgeInsets.only(bottom: 16),
-              child: AlMobarmgBranding(brightness: Brightness.dark),
-            ),
-          ],
-        ),
-      ),
+      body: SafeArea(child: _appIdentity(strings)),
     );
   }
 
