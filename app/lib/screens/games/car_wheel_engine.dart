@@ -50,8 +50,12 @@ double carWheelCenter(String key) =>
 
 /// End the clockwise spin with the winner inside the fixed top pointer.
 /// Jitter is limited to the middle 60% of a wedge, away from its dividers.
-double carWheelSpinEnd(double start, String result,
-    {int turns = 4, double jitter = 0,}) {
+double carWheelSpinEnd(
+  double start,
+  String result, {
+  int turns = 4,
+  double jitter = 0,
+}) {
   final target =
       -carWheelCenter(result) + jitter.clamp(-.3, .3) * carWheelSegmentAngle;
   return start + turns.clamp(4, 5) * 2 * pi + (target - start) % (2 * pi);

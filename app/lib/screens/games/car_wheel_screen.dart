@@ -8,10 +8,13 @@ import '../../providers/auth_provider.dart';
 import '../../repositories/car_wheel_repository.dart';
 import '../../services/socket_service.dart';
 import 'car_wheel_art.dart';
+import 'car_wheel_effects.dart';
 import 'car_wheel_engine.dart';
 import 'car_wheel_sfx.dart';
 import 'car_wheel_sheets.dart';
 import 'car_wheel_strings.dart';
+import 'car_wheel_wheel.dart';
+import 'car_wheel_widgets.dart';
 
 /// عجلة السيارات: one shared wheel. Chips use real platform coins; the
 /// committed server result determines the disk animation and every payout.
@@ -26,17 +29,26 @@ class CarWheelScreen extends ConsumerStatefulWidget {
 }
 
 class CarWheelScreenState extends ConsumerState<CarWheelScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final CarWheelRepository _repository =
       widget.repository ?? CarWheelRepository();
   final _sfx = CarWheelSfx();
   final _socket = SocketService();
+
+  /// Drives only the spin; the angle goes to [_angle], never to setState.
   late final Ticker _ticker = createTicker(_frame);
+
+  /// Ambient light (bulbs, countdown pulse). Painters listen to it directly.
+  late final AnimationController _ambient =
+      AnimationController(vsync: this, duration: const Duration(seconds: 2));
+  final _angle = ValueNotifier<double>(0);
+  final _secondsLeft = ValueNotifier<double>(0);
   Timer? _clock;
   Future<void> _queue = Future.value();
   SharedPreferences? _prefs;
 
   bool _loading = true, _arabic = true, _sound = true, _motion = true;
+  bool _urgent = false, _timeUp = false;
   String? _error, _notice;
   CarWheelState? state;
   Map<String, int> myStakes = {};
@@ -44,15 +56,16 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
   int chip = 1000;
   int _round = -1;
 
-  double _wheel = 0, _glow = 0;
   String? _landed;
   ({DateTime start, double from, double end, String result})? _spin;
   int _lastPocket = 0;
   int? _announced;
   int _payout = 0;
-  List<Map<String, dynamic>> _chips = [];
   final _stageKey = GlobalKey(), _diskKey = GlobalKey(), _barKey = GlobalKey();
-  ({DateTime start, Offset from, Offset to, int amount})? _flight;
+  final _cardKeys = {for (final s in carWheelSegments) s.key: GlobalKey()};
+  final _flights = <({Key key, Offset from, Offset to, int amount})>[];
+  int _flightId = 0;
+  Timer? _noticeTimer;
   final _random = Random();
 
   CarWheelStrings get _s => CarWheelStrings(_arabic);
@@ -66,15 +79,34 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
   void initState() {
     super.initState();
     _boot();
-    _clock = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted) setState(() {});
-    });
+    _clock =
+        Timer.periodic(const Duration(milliseconds: 250), (_) => _tickClock());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncAmbient();
+    for (final name in [
+      'velvet_atrium',
+      'rim',
+      'hub',
+      'pointer',
+      for (final s in carWheelSegments) 'emblem_${s.key}',
+    ]) {
+      precacheImage(AssetImage('$carWheelArt/$name.png'), context,
+          onError: (_, __) {},);
+    }
   }
 
   @override
   void dispose() {
     _clock?.cancel();
+    _noticeTimer?.cancel();
     _ticker.dispose();
+    _ambient.dispose();
+    _angle.dispose();
+    _secondsLeft.dispose();
     _sfx.dispose();
     if (widget.live) {
       _socket.off('connect', _onReconnect);
@@ -83,6 +115,33 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
       _socket.emit('carwheel_leave_table', {});
     }
     super.dispose();
+  }
+
+  /// The countdown moves without rebuilding the screen; only the moments that
+  /// change controls (last three seconds, time up) trigger a rebuild.
+  void _tickClock() {
+    if (!mounted) return;
+    final left = state?.betting ?? false
+        ? (state!.left.inMilliseconds / 1000).toDouble()
+        : 0.0;
+    _secondsLeft.value = left;
+    final urgent = (state?.betting ?? false) && left > 0 && left <= 3;
+    final timeUp = (state?.betting ?? false) && left <= 0;
+    if (urgent != _urgent || timeUp != _timeUp) {
+      setState(() {
+        _urgent = urgent;
+        _timeUp = timeUp;
+      });
+    }
+  }
+
+  void _syncAmbient() {
+    if (!mounted) return;
+    if (_reduced) {
+      _ambient.stop();
+    } else if (!_ambient.isAnimating) {
+      _ambient.repeat();
+    }
   }
 
   Future<void> _boot() async {
@@ -104,6 +163,7 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
           .read(authStateProvider.notifier)
           .updateCoinsBalance((body['balance'] as num?)?.toInt() ?? _balance);
       setState(() => _loading = false);
+      _syncAmbient();
       if (body['state'] is Map) {
         applyState(Map<String, dynamic>.from(body['state'] as Map), mine: true);
       }
@@ -161,7 +221,6 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
       if (changedRound) {
         _round = next.round;
         myStakes = {};
-        _chips = [];
         _payout = 0;
         _notice = null;
         _landed = null;
@@ -170,25 +229,29 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
       }
       if (mine) {
         myStakes = Map.of(next.myStakes);
-        _chips = next.myChips;
         _payout = next.myPayout;
       }
     });
+    _tickClock();
     if (next.phase == 'closing' && previous?.phase == 'betting') _sfx.lock();
     if (next.result != null &&
         next.phase == 'spinning' &&
         _spin == null &&
         _landed == null) {
-      final end = carWheelSpinEnd(_wheel, next.result!,
-          turns: 4, jitter: (_random.nextDouble() - .5) * .6,);
+      final end = carWheelSpinEnd(
+        _angle.value,
+        next.result!,
+        turns: 4,
+        jitter: (_random.nextDouble() - .5) * .6,
+      );
       // A subscriber joining a spin sees its destination immediately.
       if (_reduced || previous?.phase != 'closing' || next.msLeft < 6500) {
-        _wheel = end;
+        _angle.value = end;
         _landed = next.result;
       } else {
         _spin = (
           start: DateTime.now(),
-          from: _wheel,
+          from: _angle.value,
           end: end,
           result: next.result!
         );
@@ -197,7 +260,8 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
     }
     if (next.phase == 'result' && next.result != null) {
       if (_landed == null) {
-        _wheel = _spin?.end ?? carWheelSpinEnd(_wheel, next.result!);
+        _angle.value =
+            _spin?.end ?? carWheelSpinEnd(_angle.value, next.result!);
         _landed = next.result;
         _spin = null;
       }
@@ -212,61 +276,84 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
 
   // ── Wheel motion ──────────────────────────────────────────────────────────
   void _syncTicker() {
-    final run = _spin != null ||
-        _flight != null ||
-        (state?.phase == 'result' && !_reduced);
+    final run = _spin != null;
     if (run && !_ticker.isActive) _ticker.start();
     if (!run && _ticker.isActive) _ticker.stop();
   }
 
+  /// A short wind-up against the spin, then the long ease-out to the result.
   void _frame(Duration elapsed) {
     if (!mounted) return;
     final spin = _spin;
-    setState(() {
-      if (spin != null) {
-        final u = _reduced
-            ? 1.0
-            : DateTime.now().difference(spin.start).inMilliseconds / 6000;
-        _wheel = carWheelSpinFrame(u, spin.from, spin.end);
-        final pocket =
-            ((_wheel + carWheelSegmentAngle / 2) / carWheelSegmentAngle)
-                .floor();
-        if (pocket != _lastPocket) {
-          _lastPocket = pocket;
-          _sfx.tick();
-        }
-        if (u >= 1) {
-          _landed = spin.result;
-          _spin = null;
-          _sfx.stop();
-        }
-      }
-      _glow = .5 + .5 * sin(elapsed.inMilliseconds / 220);
-      if (_flight != null &&
-          DateTime.now().difference(_flight!.start).inMilliseconds >= 380) {
-        _flight = null;
-      }
-    });
-    _syncTicker();
+    if (spin == null) return;
+    final u = _reduced
+        ? 1.0
+        : DateTime.now().difference(spin.start).inMilliseconds / 6000;
+    const windUp = .06;
+    _angle.value = u < windUp
+        ? spin.from - .12 * sin(u / windUp * pi)
+        : carWheelSpinFrame((u - windUp) / (1 - windUp), spin.from, spin.end);
+    final pocket =
+        ((_angle.value + carWheelSegmentAngle / 2) / carWheelSegmentAngle)
+            .floor();
+    if (pocket != _lastPocket) {
+      _lastPocket = pocket;
+      _sfx.tick();
+    }
+    if (u >= 1) {
+      _sfx.stop();
+      setState(() {
+        _landed = spin.result;
+        _spin = null;
+      });
+      _syncTicker();
+    }
   }
 
-  void _fly(String key, int amount) {
+  /// Throws a chip from the dock to the card (or wedge) that took it.
+  void _fly(String key, int amount, {bool fromWheel = false}) {
     if (_reduced) return;
     final stage = _stageKey.currentContext?.findRenderObject() as RenderBox?;
-    final disk = _diskKey.currentContext?.findRenderObject() as RenderBox?;
     final bar = _barKey.currentContext?.findRenderObject() as RenderBox?;
-    if (stage == null || disk == null || bar == null) return;
-    final a = carWheelCenter(key) - pi / 2;
-    final local = disk.size.center(Offset.zero) +
-        Offset(cos(a), sin(a)) * disk.size.width * .30;
-    _flight = (
-      start: DateTime.now(),
-      from:
-          stage.globalToLocal(bar.localToGlobal(bar.size.center(Offset.zero))),
-      to: stage.globalToLocal(disk.localToGlobal(local)),
-      amount: amount
-    );
-    _syncTicker();
+    if (stage == null || bar == null) return;
+    Offset? to;
+    if (fromWheel) {
+      final disk = _diskKey.currentContext?.findRenderObject() as RenderBox?;
+      if (disk != null) {
+        final a = carWheelCenter(key) + _angle.value - pi / 2;
+        final local = disk.size.center(Offset.zero) +
+            Offset(cos(a), sin(a)) * disk.size.width * .3;
+        // The disk is rotated; place the chip in screen space instead.
+        to = stage.globalToLocal(
+                disk.localToGlobal(disk.size.center(Offset.zero)),) +
+            (local - disk.size.center(Offset.zero));
+      }
+    } else {
+      final card =
+          _cardKeys[key]?.currentContext?.findRenderObject() as RenderBox?;
+      if (card != null) {
+        to = stage
+            .globalToLocal(card.localToGlobal(card.size.center(Offset.zero)));
+      }
+    }
+    if (to == null) return;
+    // Thrown from the selected chip's slot in the dock.
+    final slot = carWheelChips.indexOf(amount).clamp(0, 3);
+    final from = stage.globalToLocal(bar.localToGlobal(
+        Offset(bar.size.width * (slot + .5) / 4, bar.size.height / 2),),);
+    if (_flights.length >= 6) _flights.removeAt(0);
+    setState(() => _flights.add(
+        (key: ValueKey(_flightId++), from: from, to: to!, amount: amount),),);
+  }
+
+  void _say(String? text) {
+    _noticeTimer?.cancel();
+    setState(() => _notice = text);
+    if (text != null) {
+      _noticeTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _notice = null);
+      });
+    }
   }
 
   // ── Betting ───────────────────────────────────────────────────────────────
@@ -275,13 +362,16 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
     bool chipSound = true,
     String? target,
     int? amount,
+    bool fromWheel = false,
   }) {
     if (!_betting) {
-      setState(() => _notice = _s.text('closing'));
+      _say(_s.text('closing'));
       return;
     }
     final requestRound = _round;
     setState(() => _pending++);
+    // The chip leaves the hand at once; the server confirms behind it.
+    if (target != null) _fly(target, amount ?? chip, fromWheel: fromWheel);
     _queue = _queue.then((_) async {
       try {
         if (!mounted || !_betting || requestRound != _round) return;
@@ -303,30 +393,26 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
                     .entries)
               e.key: (e.value as num).toInt(),
           };
-          _chips = (body['chipList'] as List? ?? const [])
-              .whereType<Map>()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
           _notice = null;
         });
-        if (target != null) _fly(target, amount ?? chip);
       } on CarWheelException catch (e) {
-        if (mounted) setState(() => _notice = _s.error(e.code));
+        if (mounted) _say(_s.error(e.code));
       } catch (_) {
-        if (mounted) setState(() => _notice = _s.text('NETWORK'));
+        if (mounted) _say(_s.text('NETWORK'));
       } finally {
         if (mounted) setState(() => _pending--);
       }
     });
   }
 
-  void placeChip(String key) {
+  void placeChip(String key, {bool fromWheel = false}) {
     if (chip > _balance) {
-      setState(() => _notice = _s.text('INSUFFICIENT_COINS'));
+      _say(_s.text('INSUFFICIENT_COINS'));
       return;
     }
     final amount = chip;
-    _send(() => _repository.bet(key, amount), target: key, amount: amount);
+    _send(() => _repository.bet(key, amount),
+        target: key, amount: amount, fromWheel: fromWheel,);
   }
 
   void _undo() => _send(_repository.undo, chipSound: false);
@@ -429,6 +515,7 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
           onMotion: (v) {
             setState(() => _motion = v);
             _setting('motion', v);
+            _syncAmbient();
             _syncTicker();
           },
         ),
@@ -439,484 +526,421 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
   Widget build(BuildContext context) {
     final balance = ref.watch(authStateProvider).user?.coinsBalance ?? 0;
     return Directionality(
-        textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
-        child: Scaffold(
-            backgroundColor: cwBlack,
-            body: Stack(fit: StackFit.expand, children: [
-              const DecoratedBox(
-                  decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [cwBlack, cwNavy, cwPurpleDark],),),),
-              Image.asset('$carWheelArt/background.png',
+      textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
+      child: Scaffold(
+        backgroundColor: cwBlack,
+        body: Stack(fit: StackFit.expand, children: [
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF12030A), Color(0xFF3A0820), cwPurpleDark],
+              ),
+            ),
+          ),
+          Image.asset('$carWheelArt/velvet_atrium.png',
+              fit: BoxFit.cover,
+              cacheWidth: 1080,
+              errorBuilder: (_, __, ___) => Image.asset(
+                  '$carWheelArt/background.png',
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),),
-              SafeArea(
-                  child: _loading
-                      ? Center(
-                          child:
-                              Column(mainAxisSize: MainAxisSize.min, children: [
-                          const CircularProgressIndicator(color: cwGold),
-                          Text(_s.text('loading'),
-                              style: const TextStyle(color: Colors.white),),
-                        ],),)
-                      : _error != null
-                          ? Center(
-                              child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                  Text(_error!,
-                                      style:
-                                          const TextStyle(color: Colors.white),),
-                                  const SizedBox(height: 14),
-                                  FilledButton(
-                                      style: FilledButton.styleFrom(
-                                          backgroundColor: cwGold,
-                                          foregroundColor: cwPurpleDark,),
-                                      onPressed: _boot,
-                                      child: Text(_s.text('retry')),),
-                                  TextButton(
-                                      style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white,),
-                                      onPressed: () =>
-                                          Navigator.maybePop(context),
-                                      child: Text(_s.text('back')),),
-                                ],),)
-                          : _game(balance),),
-            ],),),);
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),),),
+          SafeArea(
+            child: _loading
+                ? Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      const CircularProgressIndicator(color: cwGold),
+                      const SizedBox(height: 10),
+                      Text(_s.text('loading'),
+                          style: const TextStyle(color: Colors.white),),
+                    ],),
+                  )
+                : _error != null
+                    ? _errorView()
+                    : _game(balance),
+          ),
+        ],),
+      ),
+    );
   }
 
+  Widget _errorView() => Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(_error!, style: const TextStyle(color: Colors.white)),
+          const SizedBox(height: 14),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: cwGold, foregroundColor: cwPurpleDark,),
+            onPressed: _boot,
+            child: Text(_s.text('retry')),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+            onPressed: () => Navigator.maybePop(context),
+            child: Text(_s.text('back')),
+          ),
+        ],),
+      );
+
+  /// Fixed heights for everything but the wheel; the wheel takes what is left,
+  /// so the whole game fits one screen without scrolling.
   Widget _game(int balance) => LayoutBuilder(builder: (context, box) {
-        final width = min(box.maxWidth, 560.0);
-        final wheelSize = min(box.maxWidth * .92, 460.0);
-        return Stack(key: _stageKey, children: [
-          Column(children: [
-            Expanded(
-                child: SingleChildScrollView(
-                    child: Center(
-                        child: SizedBox(
-                            width: width,
-                            child: Column(children: [
-                              _topBar(),
-                              Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 18, vertical: 8,),
-                                  child: Wrap(
-                                      alignment: WrapAlignment.center,
-                                      spacing: 18,
-                                      runSpacing: 4,
-                                      children: [
-                                        Text(
-                                            '${_s.text('balance')}: ${_number(balance)}',
-                                            style: const TextStyle(
-                                                color: cwGold,
-                                                fontWeight: FontWeight.w800,),),
-                                        Text(
-                                            '${_s.text(state?.phase ?? 'betting')} · ${_s.seconds(((state?.left.inMilliseconds ?? 0) / 1000).ceil())}',
-                                            style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12,),),
-                                      ],),),
-                              _wheelView(wheelSize),
-                              Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 10,),
-                                  child: Directionality(
-                                      textDirection: TextDirection.ltr,
-                                      child: Row(children: [
-                                        Expanded(
-                                            child: _total(_s.text('totalBet'),
-                                                state?.totalBet ?? 0,),),
-                                        Expanded(
-                                            child: _total(_s.text('myTotalBet'),
-                                                _myTotal,),),
-                                      ],),),),
-                              if (state?.phase == 'result' &&
-                                  state?.result != null)
-                                Semantics(
-                                    liveRegion: true,
-                                    label:
-                                        '${_s.winning(state!.result!)}. ${_payout > 0 ? '${_s.text('youWon')} ${_number(_payout)}' : _s.text('noWin')}',
-                                    child: ExcludeSemantics(
-                                        child: Column(children: [
-                                      Text(_s.winning(state!.result!),
-                                          style: const TextStyle(
-                                              color: cwGold,
-                                              fontSize: 19,
-                                              fontWeight: FontWeight.w900,),),
-                                      if (_payout > 0)
-                                        TweenAnimationBuilder<double>(
-                                            key: ValueKey(
-                                                'prize-$_round-$_payout',),
-                                            tween: Tween(
-                                                begin: 0,
-                                                end: _payout.toDouble(),),
-                                            duration: Duration(
-                                                milliseconds:
-                                                    _reduced ? 0 : 1000,),
-                                            builder: (_, value, __) => Text(
-                                                '${_s.text('youWon')} ${_number(value.round())}',
-                                                style: const TextStyle(
-                                                    color: cwGoldLight,
-                                                    fontSize: 22,
-                                                    fontWeight:
-                                                        FontWeight.w900,),),)
-                                      else
-                                        Text(_s.text('noWin'),
-                                            style: const TextStyle(
-                                                color: cwMuted,),),
-                                    ],),),),
-                              if (_notice != null)
-                                Padding(
-                                    padding: const EdgeInsets.all(6),
-                                    child: Semantics(
-                                        liveRegion: true,
-                                        child: Text(_notice!,
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                                color: cwGoldLight,),),),),
-                              if (state?.history.isNotEmpty ?? false)
-                                Padding(
-                                    padding: const EdgeInsets.all(8),
-                                    child: Semantics(
-                                        label: _s.text('lastResults'),
-                                        child: Wrap(
-                                            alignment: WrapAlignment.center,
-                                            spacing: 5,
-                                            runSpacing: 5,
-                                            children: [
-                                              for (final key
-                                                  in state!.history.reversed)
-                                                carWheelBadge(key, size: 25),
-                                            ],),),),
-                              const SizedBox(height: 8),
-                            ],),),),),),
-            _chipBar(width),
-          ],),
-          if (_flight != null) _flyingChip(),
-        ],);
+        final width = min(box.maxWidth, 520.0);
+        final inner = width - 20;
+        final cardW = (inner - 3 * 6) / 4;
+        const hud = 48.0, crowd = 46.0, totals = 44.0, dock = 70.0, gaps = 30.0;
+        final room = box.maxHeight - hud - crowd - totals - dock - gaps - 6;
+        final minCard = (cardW * .78).clamp(58.0, 76.0);
+        final wheel = min(inner * .96, room - minCard * 2).clamp(200.0, 520.0);
+        // A tall phone's spare height goes to bigger cards, not a gap.
+        final cardH = ((room - wheel) / 2).clamp(minCard, 96.0);
+        final fixed = hud + crowd + totals + dock + cardH * 2 + 6 + 12;
+        final wheelTop = hud + crowd + (box.maxHeight - fixed - wheel) / 2;
+        final phase = state?.phase ?? 'betting';
+        final result = state?.result;
+        return Center(
+          child: SizedBox(
+            width: width,
+            child: Stack(key: _stageKey, clipBehavior: Clip.none, children: [
+              Column(children: [
+                SizedBox(height: hud, child: _hud(balance)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: CarWheelCrowdRow(
+                    players: state?.players ?? const [],
+                    playerCount: state?.playerCount ?? 0,
+                    history: state?.history ?? const [],
+                    strings: _s,
+                    onPlayers: _openPlayers,
+                    onHistory: _openHistory,
+                  ),
+                ),
+                Expanded(
+                  child: Center(
+                    child: CarWheelWheel(
+                      size: wheel,
+                      angle: _angle,
+                      ambient: _ambient,
+                      secondsLeft: _secondsLeft,
+                      phase: _landed == null && phase == 'result'
+                          ? 'spinning'
+                          : phase,
+                      result: _landed ?? (phase == 'result' ? result : null),
+                      myStakes: myStakes,
+                      reduced: _reduced,
+                      diskKey: _diskKey,
+                      onBet: _betting
+                          ? (k) => placeChip(k, fromWheel: true)
+                          : null,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: CarWheelTotalsRow(
+                    total: state?.totalBet ?? 0,
+                    mine: _myTotal,
+                    phaseText: _phaseText(phase),
+                    urgent: _urgent,
+                    strings: _s,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: SizedBox(
+                    height: cardH * 2 + 6,
+                    child: GridView.count(
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: EdgeInsets.zero,
+                      crossAxisCount: 4,
+                      mainAxisSpacing: 6,
+                      crossAxisSpacing: 6,
+                      childAspectRatio: cardW / cardH,
+                      children: [
+                        for (final s in carWheelSegments)
+                          CarWheelBetCard(
+                            key: _cardKeys[s.key],
+                            segment: s,
+                            mine: myStakes[s.key] ?? 0,
+                            all: state?.totals[s.key] ?? 0,
+                            winner: phase == 'result' && result == s.key,
+                            loser: phase == 'result' &&
+                                result != null &&
+                                result != s.key,
+                            enabled: _betting && !_timeUp,
+                            strings: _s,
+                            onTap: () => placeChip(s.key),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                CarWheelDock(
+                  selected: chip,
+                  canRenew: _betting && _pending == 0,
+                  strings: _s,
+                  barKey: _barKey,
+                  onPick: _pickChip,
+                  onRenew: _renew,
+                ),
+              ],),
+              if (phase == 'result' && result != null && _landed != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: wheelTop + wheel * .7,
+                  child: _resultPlaque(result),
+                ),
+              if (phase == 'result' &&
+                  _landed != null &&
+                  _payout > 0 &&
+                  !_reduced)
+                Positioned.fill(
+                  child: CarWheelCoinBurst(
+                    key: ValueKey('burst-$_round'),
+                    big: _payout >= max(1, state?.myStaked ?? 1) * 10,
+                  ),
+                ),
+              if (_notice != null)
+                Positioned(
+                  left: 24,
+                  right: 24,
+                  bottom: dock + cardH * 2 + totals + 24,
+                  child: _toast(_notice!),
+                ),
+              for (final f in _flights)
+                CarWheelFlyingChip(
+                  key: f.key,
+                  from: f.from,
+                  to: f.to,
+                  amount: f.amount,
+                  onDone: () {
+                    if (mounted) setState(() => _flights.remove(f));
+                  },
+                ),
+            ],),
+          ),
+        );
       },);
 
-  Widget _total(String title, int value) => Column(children: [
-        Text(title, style: const TextStyle(color: Colors.white, fontSize: 12)),
-        Text(carWheelCompact(value),
-            style: const TextStyle(
-                color: cwGold,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                fontFeatures: [FontFeature.tabularFigures()],),),
-      ],);
+  String _phaseText(String phase) {
+    if (phase == 'betting' && _timeUp) return _s.text('closing');
+    return switch (phase) {
+      'closing' => _s.text('closing'),
+      'spinning' => _s.text('spinning'),
+      'result' => _s.text('result'),
+      _ => _s.text('betting'),
+    };
+  }
 
-  Widget _topBar() {
+  Widget _hud(int balance) {
     final date = DateTime.now();
     String two(int n) => n.toString().padLeft(2, '0');
     return Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-        child: Directionality(
-            textDirection: TextDirection.ltr,
-            child: Row(children: [
-              DecoratedBox(
-                  decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                          colors: [Color(0xFF3677DE), cwPurple],),),
-                  child: IconButton(
-                      tooltip: _s.text('home'),
-                      onPressed: () => Navigator.maybePop(context),
-                      icon:
-                          const Icon(Icons.home_rounded, color: Colors.white),),),
-              const SizedBox(width: 6),
-              Expanded(
-                  child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 9,),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFFAD83D3).withValues(alpha: .4),
-                          borderRadius: BorderRadius.circular(15),
-                          border: Border.all(color: Colors.white38),),
-                      child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                              '${date.year} / ${two(date.month)} / ${two(date.day)}   ${_s.round(state?.round ?? 0)}',
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,),),),),),
-              IconButton(
-                  tooltip: _s.text('ranking'),
-                  onPressed: _openRanking,
-                  icon: SizedBox.square(
-                      dimension: 28,
-                      child: carWheelImage('trophy',
-                          const Icon(Icons.emoji_events, color: cwGold),),),),
-              PopupMenuButton<String>(
-                  tooltip: _s.text('menu'),
-                  color: cwNavy,
-                  icon: const Icon(Icons.menu_rounded, color: Colors.white),
-                  itemBuilder: (_) => [
-                        for (final key in [
-                          'help',
-                          'paytable',
-                          'history',
-                          'players',
-                          'settings',
-                        ])
-                          PopupMenuItem(
-                              value: key,
-                              child: Text(_s.text(key),
-                                  style: const TextStyle(color: Colors.white),),),
-                      ],
-                  onSelected: (key) {
-                    switch (key) {
-                      case 'help':
-                        _openHelp();
-                      case 'paytable':
-                        _openHelp(paytable: true);
-                      case 'history':
-                        _openHistory();
-                      case 'players':
-                        _openPlayers();
-                      case 'settings':
-                        _openSettings();
-                    }
-                  },),
-            ],),),);
-  }
-
-  Widget _wheelView(double size) {
-    final phase = state?.phase ?? 'betting';
-    final hubText = switch (phase) {
-      'betting' => '${((state?.left.inMilliseconds ?? 0) / 1000).ceil()}',
-      'closing' => '?',
-      'spinning' => '...',
-      _ => 'x${carWheelBet(state?.result ?? '')?.multiplier ?? 0}',
-    };
-    return SizedBox.square(
-        dimension: size,
-        child: Stack(alignment: Alignment.center, children: [
-          Transform.rotate(
-              angle: _wheel,
-              child: GestureDetector(
-                  key: _diskKey,
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: _betting
-                      ? (d) {
-                          // Transform already un-rotates this local position.
-                          final key = carWheelKeyAt(d.localPosition, size);
-                          if (key != null) placeChip(key);
-                        }
-                      : null,
-                  child: SizedBox.square(
-                      dimension: size,
-                      child: Stack(children: [
-                        Positioned.fill(
-                            child: CustomPaint(
-                                painter: CarWheelDiskPainter(
-                                    winner: phase == 'result'
-                                        ? state?.result
-                                        : null,
-                                    glow: _glow,),),),
-                        for (final (i, b) in carWheelSegments.indexed)
-                          _wedge(b, i, size),
-                      ],),),),),
-          Positioned.fill(
-              child: IgnorePointer(
-                  child: carWheelImage('rim',
-                      const CustomPaint(painter: CarWheelRimPainter()),),),),
-          SizedBox.square(
-              dimension: size * .23,
-              child: Stack(alignment: Alignment.center, children: [
-                Positioned.fill(
-                    child: carWheelImage(
-                        'hub',
-                        Container(
-                            decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: const RadialGradient(
-                                    colors: [cwPurple, cwPurpleDark],),
-                                border: Border.all(color: cwGold, width: 3),
-                                boxShadow: const [
-                              BoxShadow(color: cwPink, blurRadius: 12),
-                            ],),),),),
-                Transform.scale(
-                    scale: phase == 'result' && !_reduced ? 1 + .08 * _glow : 1,
-                    child: Text(hubText,
-                        textDirection: TextDirection.ltr,
-                        style: TextStyle(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Row(children: [
+          CarWheelRoundButton(
+            icon: Icons.arrow_back_rounded,
+            tooltip: _s.text('home'),
+            onTap: () => Navigator.maybePop(context),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_s.round(state?.round ?? 0),
+                        style: const TextStyle(
                             color: cwGoldLight,
-                            fontSize: size * .075,
-                            fontWeight: FontWeight.w900,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures(),
-                            ],),),),
-              ],),),
-          Positioned(
-              top: 0,
-              child: IgnorePointer(
-                  child: SizedBox(
-                      width: size * .10,
-                      height: size * .14,
-                      child: carWheelImage(
-                          'pointer',
-                          const CustomPaint(
-                              painter: CarWheelPointerPainter(),),),),),),
-        ],),);
+                            fontSize: 14,
+                            height: 1.15,
+                            fontWeight: FontWeight.w900,),),
+                    Text('${date.year} / ${two(date.month)} / ${two(date.day)}',
+                        style: const TextStyle(
+                            color: cwMuted, fontSize: 10, height: 1.15,),),
+                  ],),
+            ),
+          ),
+          Flexible(child: FittedBox(child: CarWheelBalance(balance: balance))),
+          const SizedBox(width: 6),
+          CarWheelRoundButton(
+            icon: Icons.emoji_events_rounded,
+            tooltip: _s.text('ranking'),
+            onTap: _openRanking,
+            child: SizedBox.square(
+              dimension: 26,
+              child: carWheelImage(
+                  'trophy', const Icon(Icons.emoji_events, color: cwGold),),
+            ),
+          ),
+          const SizedBox(width: 6),
+          PopupMenuButton<String>(
+            tooltip: _s.text('menu'),
+            color: cwNavy,
+            padding: EdgeInsets.zero,
+            icon: Container(
+              width: 40,
+              height: 40,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF8B54D6), Color(0xFF4A1C86)],),
+                border: Border.fromBorderSide(
+                    BorderSide(color: Color(0x88FFE7A2), width: 1.2),),
+              ),
+              child: const Icon(Icons.menu_rounded, color: Colors.white),
+            ),
+            itemBuilder: (_) => [
+              for (final key in [
+                'help',
+                'paytable',
+                'history',
+                'players',
+                'settings',
+              ])
+                PopupMenuItem(
+                  value: key,
+                  child: Text(_s.text(key),
+                      style: const TextStyle(color: Colors.white),),
+                ),
+            ],
+            onSelected: (key) {
+              switch (key) {
+                case 'help':
+                  _openHelp();
+                case 'paytable':
+                  _openHelp(paytable: true);
+                case 'history':
+                  _openHistory();
+                case 'players':
+                  _openPlayers();
+                case 'settings':
+                  _openSettings();
+              }
+            },
+          ),
+        ],),
+      ),
+    );
   }
 
-  Widget _wedge(CarWheelSegment b, int index, double size) {
-    final angle = index * carWheelSegmentAngle;
-    final at = Offset(
-        size / 2 + sin(angle) * size * .265, size / 2 - cos(angle) * size * .265,);
-    final chips = _chips.where((c) => c['key'] == b.key).toList();
-    final winner = state?.phase == 'result' && state?.result == b.key;
-    return Positioned(
-        // Kept inside the red disk: the rim art covers everything past ~40%.
-        left: at.dx - size * .12,
-        top: at.dy - size * .125,
-        width: size * .24,
-        height: size * .25,
-        child: Transform.rotate(
-            angle: angle,
-            child: Semantics(
-                button: true,
-                enabled: _betting,
-                label: _s.betLabel(b),
-                onTap: _betting ? () => placeChip(b.key) : null,
-                child: ExcludeSemantics(
-                    child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                          CarWheelEmblem(segment: b.key, size: size * .085),
-                          Text(b.name,
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: size * .026,
-                                  fontWeight: FontWeight.w800,),),
-                          Text('x${b.multiplier}',
-                              textDirection: TextDirection.ltr,
-                              style: TextStyle(
-                                  color: winner ? cwGoldLight : Colors.white,
-                                  fontSize: size * .048,
-                                  fontWeight: FontWeight.w900,),),
-                          Text(
-                              '${carWheelCompact(myStakes[b.key] ?? 0)} / ${carWheelCompact(state?.totals[b.key] ?? 0)}',
-                              textDirection: TextDirection.ltr,
-                              style: TextStyle(
-                                  color: cwGoldLight,
-                                  fontSize: size * .023,
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures(),
-                                  ],),),
-                          if (winner)
-                            Text(_s.text('win'),
-                                style: const TextStyle(
-                                    color: cwGold,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w900,),)
-                          else
-                            SizedBox(
-                                width: size * .20,
-                                height: size * .065,
-                                child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      for (final (j, c) in chips
-                                          .take(5)
-                                          .indexed)
-                                        Positioned(
-                                            left: j * size * .027,
-                                            top: j.isEven ? 0 : 2,
-                                            child: Transform.rotate(
-                                                angle: (((c['id'] as num?)
-                                                                    ?.toInt() ??
-                                                                j) *
-                                                            17 %
-                                                            25 -
-                                                        12) *
-                                                    pi /
-                                                    180,
-                                                child: CarWheelChip(
-                                                    amount:
-                                                        (c['amount'] as num?)
-                                                                ?.toInt() ??
-                                                            100,
-                                                    size: size * .058,
-                                                    glow: c ==
-                                                        _chips.lastOrNull,),),),
-                                      if (chips.length > 5)
-                                        Positioned(
-                                            right: 0,
-                                            bottom: 0,
-                                            child: Container(
-                                                color: cwPurpleDark,
-                                                child: Text(
-                                                    '+${chips.length - 5}',
-                                                    style: const TextStyle(
-                                                        color: cwGold,
-                                                        fontSize: 10,),),),),
-                                    ],),),
-                        ],),),),),),);
+  Widget _resultPlaque(String result) {
+    final won = _payout > 0;
+    final big = won && _payout >= max(1, state?.myStaked ?? 1) * 10;
+    return Center(
+      child: CarWheelPopIn(
+        key: ValueKey('plaque-$_round'),
+        reduced: _reduced,
+        child: Semantics(
+          liveRegion: true,
+          label:
+              '${_s.winning(result)}. ${won ? '${_s.text('youWon')} ${cwNumber(_payout)}' : _s.text('noWin')}',
+          child: ExcludeSemantics(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+              decoration: cwPanel(radius: 18, lit: won).copyWith(boxShadow: [
+                BoxShadow(
+                    color: (won ? cwGold : Colors.black).withValues(alpha: .55),
+                    blurRadius: 18,),
+              ],),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                CarWheelEmblem(segment: result, size: big ? 46 : 38),
+                const SizedBox(width: 10),
+                Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_s.winning(result),
+                          style: const TextStyle(
+                              color: cwGold,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,),),
+                      if (won)
+                        TweenAnimationBuilder<double>(
+                          key: ValueKey('prize-$_round-$_payout'),
+                          tween: Tween(begin: 0, end: _payout.toDouble()),
+                          duration: Duration(
+                              milliseconds: _reduced ? 0 : (big ? 1800 : 1000),),
+                          builder: (_, value, __) => Text(
+                            '${_s.text('youWon')} ${cwNumber(value.round())}',
+                            style: TextStyle(
+                                color: cwGoldLight,
+                                fontSize: big ? 24 : 20,
+                                fontWeight: FontWeight.w900,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],),
+                          ),
+                        )
+                      else
+                        Text(_s.text('noWin'),
+                            style:
+                                const TextStyle(color: cwMuted, fontSize: 13),),
+                    ],),
+              ],),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
-  Widget _chipBar(double width) => Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-          color: cwPurple.withValues(alpha: .35),
-          border: const Border(top: BorderSide(color: Colors.white24)),),
-      child: Row(children: [
-        Expanded(
-            child: Row(
-                key: _barKey,
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-              for (final amount in carWheelChips)
-                Semantics(
-                    button: true,
-                    selected: chip == amount,
-                    label: _number(amount),
-                    child: GestureDetector(
-                        onTap: () => _pickChip(amount),
-                        child: Padding(
-                            padding: const EdgeInsets.all(3),
-                            child: CarWheelChip(
-                                amount: amount,
-                                size: min(48, (width - 112) / 5),
-                                selected: chip == amount,),),),),
-            ],),),
-        const SizedBox(width: 8),
-        DecoratedBox(
-            decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                gradient: const LinearGradient(
-                    colors: [Color(0xFFF39430), Color(0xFFD83944)],),),
-            child: TextButton(
-                onPressed: _betting && _pending == 0 ? _renew : null,
-                child: Text(_s.text('renew'),
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w900,),),),),
-      ],),);
+  Widget _toast(String text) => IgnorePointer(
+        child: Center(
+          child: Semantics(
+            liveRegion: true,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xEE1A0830),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: cwGold.withValues(alpha: .6)),
+              ),
+              child: Text(text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: cwGoldLight, fontWeight: FontWeight.w700,),),
+            ),
+          ),
+        ),
+      );
 
   Future<void> _renew() async {
     final action = await showDialog<String>(
-        context: context,
-        builder: (context) => Directionality(
-            textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
-            child: SimpleDialog(
-                backgroundColor: cwNavy,
-                title: Text(_s.text('renew'),
-                    style: const TextStyle(color: cwGold),),
-                children: [
-                  for (final key in ['rebet', 'undo', 'clear', 'cancel'])
-                    SimpleDialogOption(
-                        onPressed: () => Navigator.pop(context, key),
-                        child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Text(_s.text(key),
-                                style: const TextStyle(color: Colors.white),),),),
-                ],),),);
+      context: context,
+      builder: (context) => Directionality(
+        textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
+        child: SimpleDialog(
+          backgroundColor: cwNavy,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: BorderSide(color: cwGold.withValues(alpha: .6)),
+          ),
+          title: Text(_s.text('renew'), style: const TextStyle(color: cwGold)),
+          children: [
+            for (final key in ['rebet', 'undo', 'clear', 'cancel'])
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, key),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(_s.text(key),
+                      style: const TextStyle(color: Colors.white),),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
     if (!mounted) return;
     switch (action) {
       case 'rebet':
@@ -927,22 +951,4 @@ class CarWheelScreenState extends ConsumerState<CarWheelScreen>
         _clear();
     }
   }
-
-  Widget _flyingChip() {
-    final f = _flight!;
-    final t = (DateTime.now().difference(f.start).inMilliseconds / 380)
-        .clamp(0.0, 1.0);
-    final at = Offset.lerp(f.from, f.to, Curves.easeOut.transform(t))!;
-    return Positioned(
-        left: at.dx - 17,
-        top: at.dy - 17,
-        child: IgnorePointer(
-            child: Transform.scale(
-                scale: .7 + .3 * t,
-                child: CarWheelChip(amount: f.amount, size: 34, glow: true),),),);
-  }
-
-  String _number(int value) => value
-      .toString()
-      .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
 }

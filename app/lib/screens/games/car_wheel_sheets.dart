@@ -71,8 +71,9 @@ Future<T?> carWheelSheet<T>(
 
 /// The same emblem is used in the wheel, history and paytable.
 Widget carWheelBadge(String key, {double size = 30}) => Tooltip(
-    message: carWheelBet(key)?.name ?? key,
-    child: CarWheelEmblem(segment: key, size: size),);
+      message: carWheelBet(key)?.name ?? key,
+      child: CarWheelEmblem(segment: key, size: size),
+    );
 
 class CarWheelHelp extends StatelessWidget {
   final CarWheelStrings strings;
@@ -80,52 +81,66 @@ class CarWheelHelp extends StatelessWidget {
   final String? seed;
   final List<String> history;
   final bool paytable;
-  const CarWheelHelp(
-      {super.key,
-      required this.strings,
-      required this.seedHash,
-      this.seed,
-      this.history = const [],
-      this.paytable = false,});
+  const CarWheelHelp({
+    super.key,
+    required this.strings,
+    required this.seedHash,
+    this.seed,
+    this.history = const [],
+    this.paytable = false,
+  });
   @override
-  Widget build(BuildContext context) =>
-      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (!paytable) ...[
-          Text(strings.text('rules')),
-          const SizedBox(height: 10),
-          Text(strings.text('rulesZero')),
-          const SizedBox(height: 10),
-        ],
-        Text(strings.text('rulesPay')),
-        const SizedBox(height: 12),
-        for (final b in carWheelSegments)
-          ListTile(
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!paytable) ...[
+            Text(strings.text('rules')),
+            const SizedBox(height: 10),
+            Text(strings.text('rulesZero')),
+            const SizedBox(height: 10),
+          ],
+          Text(strings.text('rulesPay')),
+          const SizedBox(height: 12),
+          for (final b in carWheelSegments)
+            ListTile(
               contentPadding: EdgeInsets.zero,
               leading: carWheelBadge(b.key),
               title: Text(b.name, style: const TextStyle(color: Colors.white)),
               subtitle: Text(
-                  '${strings.text('chance')}: ${(b.chance * 100).toStringAsFixed(2)}%',
-                  style: const TextStyle(color: cwMuted),),
-              trailing: Text('×${b.multiplier}',
-                  style: const TextStyle(color: cwGold, fontSize: 20),),),
-        Text(strings.text('rulesFair')),
-        const SizedBox(height: 10),
-        Text(strings.text('seedHash'), style: const TextStyle(color: cwMuted)),
-        SelectableText(seedHash,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),),
-        if (seed != null) ...[
-          Text(strings.text('seed'), style: const TextStyle(color: cwMuted)),
-          SelectableText(seed!,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),),
-        ],
-        const SizedBox(height: 12),
-        Wrap(
+                '${strings.text('chance')}: ${(b.chance * 100).toStringAsFixed(2)}%',
+                style: const TextStyle(color: cwMuted),
+              ),
+              trailing: Text(
+                '×${b.multiplier}',
+                style: const TextStyle(color: cwGold, fontSize: 20),
+              ),
+            ),
+          Text(strings.text('rulesFair')),
+          const SizedBox(height: 10),
+          Text(strings.text('seedHash'),
+              style: const TextStyle(color: cwMuted),),
+          SelectableText(
+            seedHash,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+          if (seed != null) ...[
+            Text(strings.text('seed'), style: const TextStyle(color: cwMuted)),
+            SelectableText(
+              seed!,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
             spacing: 5,
-            children: [for (final key in history.reversed) carWheelBadge(key)],),
-        Text(strings.text('statsNote'), style: const TextStyle(color: cwMuted)),
-        const SizedBox(height: 12),
-        Text(strings.footer, style: const TextStyle(color: cwMuted)),
-      ],);
+            children: [for (final key in history.reversed) carWheelBadge(key)],
+          ),
+          Text(strings.text('statsNote'),
+              style: const TextStyle(color: cwMuted),),
+          const SizedBox(height: 12),
+          Text(strings.footer, style: const TextStyle(color: cwMuted)),
+        ],
+      );
 }
 
 class CarWheelHistoryView extends StatelessWidget {

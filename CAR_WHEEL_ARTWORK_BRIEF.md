@@ -38,3 +38,14 @@ Cutouts: transparent background, single centered object, no shadow plate.
 | trophy | Gold trophy cup with a small pink gem. Cutout. |
 | logo | Title logo "CAR WHEEL" in chunky gold 3D letters with a small red wheel and a silhouette of a generic (unbranded) sports car behind it. Cutout. |
 | card | 2:1 games-hub banner: a glossy crimson prize wheel with a purple/gold rim, colourful chips and a sleek generic unbranded supercar in front, on a dark purple glowing background. No text (the hub draws the title), no real brands. |
+
+## v2 redesign (2026-10-09)
+
+| file | content |
+|---|---|
+| velvet_atrium | Portrait backdrop: a dark crimson-and-gold palace atrium with tall arches, a nebula glow in the upper middle and a reflective marble stage floor. No text, no wheel, no cars. (Codex gpt-6-astra.) |
+
+The wedges, gloss, rim lights, countdown ring, pointer kick, coin burst and bet cards are painted in
+code (`car_wheel_wheel.dart`, `car_wheel_effects.dart`, `car_wheel_widgets.dart`). The rim lights sit
+on the 14 studs of `rim.png` (angles listed in `_BulbPainter.studs`); a new rim must keep those
+positions or update the list.
