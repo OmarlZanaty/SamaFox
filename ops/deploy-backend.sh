@@ -4,6 +4,7 @@
 #
 #   ops/deploy-backend.sh dist/index.js dist/routes/auth.routes.js public/client-health.html
 #   ops/deploy-backend.sh --now dist/index.js      # outside the night window
+#   ops/deploy-backend.sh --no-reload dist/tools/x.js   # files the server does not load
 #
 # Paths are relative to backend/. The script:
 #   1. refuses to run between 10:00 and 03:00 Cairo time without --now: a
@@ -22,18 +23,23 @@ KEY="${SAMAFOX_KEY:-$HOME/.ssh/hetzner-main}"
 REMOTE=/srv/samafox/backend
 NOW=0
 BUILD=1
+NO_RELOAD=0
 FILES=()
 for arg in "$@"; do
   case "$arg" in
     --now) NOW=1 ;;
     --no-build) BUILD=0 ;;
+    --no-reload) NO_RELOAD=1 ;;
     -*) echo "unknown option $arg" >&2; exit 2 ;;
     *) FILES+=("$arg") ;;
   esac
 done
 [[ ${#FILES[@]} -gt 0 ]] || { echo "usage: $0 [--now] [--no-build] <path under backend/>..." >&2; exit 2; }
 
-hour=$(TZ=Africa/Cairo date +%H)
+# Git Bash on Windows has no zoneinfo (TZ=Africa/Cairo silently gives UTC);
+# Node's Intl does, DST included.
+if [[ $NO_RELOAD -eq 1 ]]; then NOW=1; fi  # nothing restarts, nobody is dropped
+hour=$(node -e "process.stdout.write(new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Cairo',hour:'2-digit',hourCycle:'h23'}).format(new Date()))")
 if [[ $NOW -eq 0 ]] && (( 10#$hour >= 10 || 10#$hour < 3 )); then
   echo "It is ${hour}:00 in Cairo. A restart drops every user's connection;" >&2
   echo "deploy between 03:00 and 10:00, or pass --now if it cannot wait." >&2
@@ -59,7 +65,7 @@ done"
 
 reload=0
 for f in "${FILES[@]}"; do
-  [[ "$f" == dist/* ]] && reload=1
+  [[ "$f" == dist/* && $NO_RELOAD -eq 0 ]] && reload=1
   echo "▶ upload $f"
   tr -d '\r' < "$f" | ssh_ "mkdir -p '$REMOTE/$(dirname "$f")' && cat > '$REMOTE/$f.deploying' && chown samafox:samafox '$REMOTE/$f.deploying' && mv '$REMOTE/$f.deploying' '$REMOTE/$f'"
 done
