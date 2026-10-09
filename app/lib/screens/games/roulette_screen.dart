@@ -59,6 +59,12 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
   DateTime _lastTick = DateTime.fromMillisecondsSinceEpoch(0);
   int? _announced;
 
+  /// Bumped every animation frame; only the wheel listens to it.
+  final _pose = ValueNotifier<int>(0);
+
+  /// Betting countdown in whole seconds; only the phase label listens.
+  final _seconds = ValueNotifier<int>(0);
+
   RouletteStrings get _s => RouletteStrings(_arabic);
   int get _balance => ref.read(authStateProvider).user?.coinsBalance ?? 0;
   bool get _reduced => !_motion || MediaQuery.disableAnimationsOf(context);
@@ -70,7 +76,7 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
     super.initState();
     _boot();
     _clock = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted && (state?.betting ?? false)) setState(() {});
+      if (mounted) _seconds.value = state?.left.inSeconds ?? 0;
     });
   }
 
@@ -78,6 +84,8 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
   void dispose() {
     _clock?.cancel();
     _ticker.dispose();
+    _pose.dispose();
+    _seconds.dispose();
     _sfx.dispose();
     if (widget.live) {
       _socket.off('roulette_state', _onSocketState);
@@ -240,12 +248,14 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
       final u = DateTime.now().difference(spin.start).inMicroseconds /
           spin.length.inMicroseconds;
       final f = rouletteSpinFrame(
-          u: u, wheelStart: spin.wheelStart, result: spin.result,);
-      setState(() {
-        _wheel = f.wheel;
-        _ball = f.ball;
-        _lift = f.radius;
-      });
+        u: u,
+        wheelStart: spin.wheelStart,
+        result: spin.result,
+      );
+      _wheel = f.wheel;
+      _ball = f.ball;
+      _lift = f.radius;
+      _pose.value++;
       final pocket = _pocketUnderBall();
       if (pocket != _lastPocket) {
         _lastPocket = pocket;
@@ -259,14 +269,13 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
       return;
     }
     // Idle: the wheel drifts; a landed ball rides with it.
-    setState(() {
-      _wheel += dt * 2 * pi / 24;
-      final resting = _landed ?? _rest;
-      if (resting != null) _ball = _wheel + roulettePocketCenter(resting);
-      if (_glow > 0 && _landed != null) {
-        _glow = .6 + .4 * sin(elapsed.inMilliseconds / 250);
-      }
-    });
+    _wheel += dt * 2 * pi / 24;
+    final resting = _landed ?? _rest;
+    if (resting != null) _ball = _wheel + roulettePocketCenter(resting);
+    if (_glow > 0 && _landed != null) {
+      _glow = .6 + .4 * sin(elapsed.inMilliseconds / 250);
+    }
+    _pose.value++;
   }
 
   void _land(int result, {bool sound = true}) {
@@ -292,8 +301,10 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
   }
 
   // ── Betting ───────────────────────────────────────────────────────────────
-  void _send(Future<Map<String, dynamic>> Function() call,
-      {bool chipSound = true,}) {
+  void _send(
+    Future<Map<String, dynamic>> Function() call, {
+    bool chipSound = true,
+  }) {
     if (!_betting) {
       setState(() => _notice = _s.text('closing'));
       return;
@@ -344,11 +355,15 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
     _sfx.click();
     setState(() => chip = value);
     _prefs?.setInt(
-        'roulette.${ref.read(authStateProvider).user?.id ?? 0}.chip', value,);
+      'roulette.${ref.read(authStateProvider).user?.id ?? 0}.chip',
+      value,
+    );
   }
 
   void _setting(String key, bool value) => _prefs?.setBool(
-      'roulette.${ref.read(authStateProvider).user?.id ?? 0}.$key', value,);
+        'roulette.${ref.read(authStateProvider).user?.id ?? 0}.$key',
+        value,
+      );
 
   // ── Sheets ────────────────────────────────────────────────────────────────
   void _sheet(String title, Widget body) {
@@ -359,10 +374,11 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
   void _openHelp() => _sheet(
         'help',
         RouletteHelp(
-            strings: _s,
-            seedHash: state?.seedHash ?? '',
-            seed: state?.seed,
-            history: state?.history ?? const [],),
+          strings: _s,
+          seedHash: state?.seedHash ?? '',
+          seed: state?.seed,
+          history: state?.history ?? const [],
+        ),
       );
 
   Future<void> _openHistory() async {
@@ -402,10 +418,11 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
   void _openPlayers() => _sheet(
         'players',
         RouletteBoard(
-            strings: _s,
-            rows: state?.players ?? const [],
-            valueKey: 'staked',
-            empty: 'emptyPlayers',),
+          strings: _s,
+          rows: state?.players ?? const [],
+          valueKey: 'staked',
+          empty: 'emptyPlayers',
+        ),
       );
 
   void _openSettings() => _sheet(
@@ -463,8 +480,10 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                         children: [
                           const CircularProgressIndicator(color: rlGold),
                           const SizedBox(height: 12),
-                          Text(_s.text('loading'),
-                              style: const TextStyle(color: Colors.white),),
+                          Text(
+                            _s.text('loading'),
+                            style: const TextStyle(color: Colors.white),
+                          ),
                         ],
                       ),
                     )
@@ -484,57 +503,138 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_error!,
-                  style: const TextStyle(color: Colors.white),
-                  textAlign: TextAlign.center,),
+              Text(
+                _error!,
+                style: const TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 12),
               FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: rlPink),
-                  onPressed: _boot,
-                  child: Text(_s.text('retry')),),
+                style: FilledButton.styleFrom(backgroundColor: rlPink),
+                onPressed: _boot,
+                child: Text(_s.text('retry')),
+              ),
               TextButton(
                 onPressed: () => Navigator.maybePop(context),
-                child: Text(_s.text('back'),
-                    style: const TextStyle(color: rlMuted),),
+                child: Text(
+                  _s.text('back'),
+                  style: const TextStyle(color: rlMuted),
+                ),
               ),
             ],
           ),
         ),
       );
 
+  /// One screen, no scrolling. While bets are open the felt fills the middle
+  /// and the wheel is a medallion in the meta bar; from the moment bets close
+  /// until the next round opens the wheel takes the stage over a dimmed felt.
   Widget _game(int balance) => LayoutBuilder(
         builder: (context, box) {
           final width = min(box.maxWidth, 560.0);
-          return SingleChildScrollView(
-            child: Center(
-              child: SizedBox(
-                width: width,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Column(
-                    children: [
-                      _header(balance),
-                      _metaBar(),
-                      if ((state?.players ?? const []).isNotEmpty)
-                        _playersStrip(),
-                      const SizedBox(height: 8),
-                      _wheelBlock(width - 20),
-                      const SizedBox(height: 8),
-                      _historyRow(),
-                      const SizedBox(height: 8),
-                      _totals(),
-                      if (_notice != null) _noticeView(),
-                      const SizedBox(height: 8),
-                      _table(width - 20),
-                      const SizedBox(height: 10),
-                      _chipBar(),
-                      const SizedBox(height: 10),
-                      Text(_s.footer,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: rlMuted, fontSize: 12),),
-                      const SizedBox(height: 14),
-                    ],
-                  ),
+          final stage = !_betting || _spin != null;
+          return Center(
+            child: SizedBox(
+              width: width,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Column(
+                  children: [
+                    _header(balance),
+                    _metaBar(stage),
+                    const SizedBox(height: 6),
+                    _historyRow(),
+                    const SizedBox(height: 6),
+                    _totals(),
+                    const SizedBox(height: 6),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, area) {
+                          final big =
+                              min(area.maxWidth * .94, area.maxHeight * .9);
+                          return SizedBox(
+                            width: area.maxWidth,
+                            height: area.maxHeight,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Positioned.fill(
+                                  child: Align(
+                                    alignment: Alignment.topCenter,
+                                    child:
+                                        _table(area.maxWidth, area.maxHeight),
+                                  ),
+                                ),
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    ignoring: !stage,
+                                    child: AnimatedOpacity(
+                                      opacity: stage ? 1 : 0,
+                                      duration: Duration(
+                                        milliseconds: _reduced ? 0 : 300,
+                                      ),
+                                      child: GestureDetector(
+                                        onTap: skip,
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(14),
+                                            gradient: RadialGradient(
+                                              colors: [
+                                                rlPurpleDark.withValues(
+                                                  alpha: .7,
+                                                ),
+                                                rlBlack.withValues(alpha: .88),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Positioned.fill(
+                                  child: Center(
+                                    child: AnimatedSwitcher(
+                                      duration: Duration(
+                                        milliseconds: _reduced ? 0 : 450,
+                                      ),
+                                      switchInCurve: Curves.easeOutBack,
+                                      transitionBuilder: (child, a) =>
+                                          FadeTransition(
+                                        opacity: a,
+                                        child: ScaleTransition(
+                                          scale: Tween(begin: .35, end: 1.0)
+                                              .animate(a),
+                                          child: child,
+                                        ),
+                                      ),
+                                      child: stage
+                                          ? KeyedSubtree(
+                                              key: const ValueKey('stage'),
+                                              child: _wheelBlock(big),
+                                            )
+                                          : const SizedBox.shrink(),
+                                    ),
+                                  ),
+                                ),
+                                if (_notice != null)
+                                  Positioned(
+                                    left: 8,
+                                    right: 8,
+                                    bottom: 10,
+                                    child: _noticeView(),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _chipBar(),
+                    const SizedBox(height: 6),
+                  ],
                 ),
               ),
             ),
@@ -558,11 +658,15 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                 children: [
                   Text(
                     _s.text('title'),
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.fade,
                     style: const TextStyle(
-                        color: rlGold,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        shadows: [Shadow(color: rlPurple, blurRadius: 8)],),
+                      color: rlGold,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      shadows: [Shadow(color: rlPurple, blurRadius: 8)],
+                    ),
                   ),
                   Semantics(
                     liveRegion: true,
@@ -570,17 +674,21 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                     child: ExcludeSemantics(
                       child: Row(
                         children: [
-                          const Icon(Icons.monetization_on,
-                              color: rlGold, size: 16,),
+                          const Icon(
+                            Icons.monetization_on,
+                            color: rlGold,
+                            size: 16,
+                          ),
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
                               '$balance',
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,),
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ],
@@ -591,14 +699,17 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
               ),
             ),
             _RoundButton(
-                icon: Icons.settings,
-                label: _s.text('settings'),
-                onTap: _openSettings,),
+              icon: Icons.settings,
+              label: _s.text('settings'),
+              onTap: _openSettings,
+            ),
             const SizedBox(width: 6),
             _Pill(
               label: _s.text('recharge'),
-              onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const WalletScreen()),),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const WalletScreen()),
+              ),
             ),
           ],
         ),
@@ -617,9 +728,9 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
     };
   }
 
-  Widget _metaBar() => Container(
-        margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+  Widget _metaBar(bool stage) => Container(
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsetsDirectional.fromSTEB(6, 4, 6, 4),
         decoration: BoxDecoration(
           color: rlNavy2.withValues(alpha: .85),
           borderRadius: BorderRadius.circular(14),
@@ -627,6 +738,16 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
         ),
         child: Row(
           children: [
+            // The wheel waits here, small, while the felt takes bets.
+            AnimatedSwitcher(
+              duration: Duration(milliseconds: _reduced ? 0 : 300),
+              child: stage
+                  ? const SizedBox(width: 4, height: 52)
+                  : Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 8),
+                      child: _wheelBlock(52),
+                    ),
+            ),
             Expanded(
               child: Semantics(
                 liveRegion: true,
@@ -635,23 +756,44 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                   children: [
                     Text(
                       _s.round(state?.round ?? 0),
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
                       style: const TextStyle(
-                          color: rlGoldLight,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,),
+                        color: rlGoldLight,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
                     ),
-                    Text(_phaseText(),
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 14),),
+                    ValueListenableBuilder<int>(
+                      valueListenable: _seconds,
+                      builder: (_, __, ___) {
+                        final urgent =
+                            _betting && (state?.left.inSeconds ?? 99) < 4;
+                        return Text(
+                          _phaseText(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color:
+                                urgent ? const Color(0xFFFF6B7A) : Colors.white,
+                            fontWeight:
+                                urgent ? FontWeight.w900 : FontWeight.w500,
+                            fontSize: 14,
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
             ),
             _RoundButton(
-                icon: Icons.groups,
-                label: _s.text('players'),
-                onTap: _openPlayers,
-                size: 40,),
+              icon: Icons.groups,
+              label: _s.text('players'),
+              onTap: _openPlayers,
+              size: 40,
+            ),
             const SizedBox(width: 6),
             Semantics(
               button: true,
@@ -671,15 +813,26 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const RouletteArt('trophy',
-                          size: 22,
-                          fallback: Icon(Icons.emoji_events,
-                              color: rlGold, size: 20,),),
-                      const SizedBox(width: 4),
-                      Text(_s.text('ranking'),
+                      const RouletteArt(
+                        'trophy',
+                        size: 22,
+                        fallback: Icon(
+                          Icons.emoji_events,
+                          color: rlGold,
+                          size: 20,
+                        ),
+                      ),
+                      // Narrow phones keep the trophy; the word needs room.
+                      if (MediaQuery.sizeOf(context).width >= 380) ...[
+                        const SizedBox(width: 4),
+                        Text(
+                          _s.text('ranking'),
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,),),
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -689,40 +842,9 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
         ),
       );
 
-  Widget _playersStrip() => Container(
-        height: 70,
-        margin: const EdgeInsets.only(top: 6),
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          children: [
-            for (final p in state!.players)
-              SizedBox(
-                width: 64,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient:
-                              LinearGradient(colors: [rlGold, rlFeltBorder]),),
-                      child: rouletteAvatar(p['avatarUrl']?.toString(),
-                          p['name']?.toString() ?? '', 36,),
-                    ),
-                    Text(
-                      rouletteCompact((p['staked'] as num?)?.toInt() ?? 0),
-                      style: const TextStyle(color: rlGoldLight, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      );
-
-  Widget _wheelBlock(double width) {
-    final size = min(width * .82, 360.0);
+  /// The painted wheel at [size]. It repaints from [_pose] alone, so the ball
+  /// can run at 60 fps without rebuilding the felt.
+  Widget _wheelBlock(double size) {
     return Semantics(
       label: _phaseText(),
       button: _spin != null,
@@ -731,28 +853,36 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
         onTap: skip,
         child: SizedBox.square(
           dimension: size,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              CustomPaint(
-                size: Size.square(size),
-                painter: RouletteWheelPainter(
-                  wheelAngle: _wheel,
-                  ballAngle: _ball,
-                  ballLift: _lift,
-                  highlight: _landed,
-                  glow: _glow,
-                  showBall: _spin != null || _landed != null || _rest != null,
-                ),
+          child: RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _pose,
+              builder: (_, __) => Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    size: Size.square(size),
+                    painter: RouletteWheelPainter(
+                      wheelAngle: _wheel,
+                      ballAngle: _ball,
+                      ballLift: _lift,
+                      highlight: _landed,
+                      glow: _glow,
+                      showBall:
+                          _spin != null || _landed != null || _rest != null,
+                    ),
+                  ),
+                  Transform.rotate(
+                    angle: _wheel,
+                    child: RouletteArt(
+                      'turret',
+                      size: size * .4,
+                      fallback:
+                          const CustomPaint(painter: RouletteTurretPainter()),
+                    ),
+                  ),
+                ],
               ),
-              Transform.rotate(
-                angle: _wheel,
-                child: RouletteArt('turret',
-                    size: size * .4,
-                    fallback:
-                        const CustomPaint(painter: RouletteTurretPainter()),),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -779,9 +909,13 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: rlFeltBorder),
               ),
-              child: Text('${_s.text('new')} ›',
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w800,),),
+              child: Text(
+                '${_s.text('new')} ›',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           ),
         ),
@@ -796,18 +930,20 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 2),
                     child: Semantics(
-                        label: '$n ${_s.color(n)}',
-                        child: rouletteBall(n, size: 28, ring: i == 0),),
+                      label: '$n ${_s.color(n)}',
+                      child: rouletteBall(n, size: 28, ring: i == 0),
+                    ),
                   ),
               ],
             ),
           ),
         ),
         _RoundButton(
-            icon: Icons.question_mark,
-            label: _s.text('help'),
-            onTap: _openHelp,
-            size: 40,),
+          icon: Icons.question_mark,
+          label: _s.text('help'),
+          onTap: _openHelp,
+          size: 40,
+        ),
       ],
     );
   }
@@ -826,8 +962,13 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                 liveRegion: true,
                 child: Text(
                   '${_s.text('totalBet')}: ${state?.totalBet ?? 0}',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.fade,
                   style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700,),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
@@ -835,17 +976,23 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
               liveRegion: true,
               child: Text(
                 '${_s.text('myTotalBet')}: $_myTotal',
+                maxLines: 1,
                 style: const TextStyle(
-                    color: rlGoldLight, fontWeight: FontWeight.w800,),
+                  color: rlGoldLight,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
             if (_pending > 0)
               const Padding(
                 padding: EdgeInsetsDirectional.only(start: 6),
                 child: SizedBox.square(
-                    dimension: 14,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: rlGold,),),
+                  dimension: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: rlGold,
+                  ),
+                ),
               ),
           ],
         ),
@@ -859,25 +1006,37 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
             _notice!,
             textAlign: TextAlign.center,
             style: const TextStyle(
-                color: rlGoldLight, fontSize: 15, fontWeight: FontWeight.w700,),
+              color: rlGoldLight,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       );
 
   // ── The felt ──────────────────────────────────────────────────────────────
-  Widget _table(double width) {
+  /// The felt, sized to [height]: twelve rows, the column bets and the zero
+  /// (1.2 rows) share it, so the whole table is always on screen.
+  Widget _table(double width, double height) {
     // Inside the felt's padding (4) and border (2) on each side.
     final inner = width - 12;
     final evenW = inner * .17, dozenW = inner * .14;
     final numbersW = inner - evenW - dozenW;
     final cellW = numbersW / 3;
-    const cellH = 36.0, zeroH = 42.0;
-    const gridH = cellH * rouletteRows;
+    final cellH = ((height - 12) / (rouletteRows + 2.2)).clamp(16.0, 38.0);
+    final zeroH = cellH * 1.2;
+    final gridH = cellH * rouletteRows;
     final result =
         state?.phase == 'result' && _landed != null ? state?.result : null;
     final locked = !_betting;
-    Widget outside(String key, double w, double h,
-        {Color? fill, String? label, int quarter = 0,}) {
+    Widget outside(
+      String key,
+      double w,
+      double h, {
+      Color? fill,
+      String? label,
+      int quarter = 0,
+    }) {
       final mine = myStakes[key] ?? 0, all = state?.totals[key] ?? 0;
       final wins = result != null &&
           (rouletteBet(key)?.numbers.contains(result) ?? false);
@@ -895,12 +1054,15 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
               decoration: BoxDecoration(
                 color: fill ?? (wins ? rlFelt.withValues(alpha: 1) : null),
                 border: Border.all(
-                    color: wins ? rlGoldLight : Colors.white70,
-                    width: wins ? 2.5 : .8,),
+                  color: wins ? rlGoldLight : Colors.white70,
+                  width: wins ? 2.5 : .8,
+                ),
                 boxShadow: wins
                     ? [
                         BoxShadow(
-                            color: rlGold.withValues(alpha: .7), blurRadius: 10,),
+                          color: rlGold.withValues(alpha: .7),
+                          blurRadius: 10,
+                        ),
                       ]
                     : null,
               ),
@@ -925,7 +1087,10 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                             ),
                             Text(
                               '$mine/$all',
-                              style: const TextStyle(color: rlGoldLight, fontSize: 11),
+                              style: const TextStyle(
+                                color: rlGoldLight,
+                                fontSize: 11,
+                              ),
                             ),
                           ],
                         ),
@@ -934,10 +1099,10 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                   ),
                   if (mine > 0)
                     Positioned(
-                        right: 2,
-                        bottom: 2,
-                        child:
-                            RouletteChip(value: mine, size: min(w, h) * .42),),
+                      right: 2,
+                      bottom: 2,
+                      child: RouletteChip(value: mine, size: min(w, h) * .42),
+                    ),
                 ],
               ),
             ),
@@ -959,7 +1124,9 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
             border: Border.all(color: rlFeltBorder, width: 2),
             boxShadow: [
               BoxShadow(
-                  color: rlFeltBorder.withValues(alpha: .25), blurRadius: 14,),
+                color: rlFeltBorder.withValues(alpha: .25),
+                blurRadius: 14,
+              ),
             ],
           ),
           child: Row(
@@ -967,7 +1134,7 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
             children: [
               // Even-money column.
               Padding(
-                padding: const EdgeInsets.only(top: zeroH),
+                padding: EdgeInsets.only(top: zeroH),
                 child: Column(
                   children: [
                     for (final key in evenKeys)
@@ -987,7 +1154,7 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
               ),
               // Dozens.
               Padding(
-                padding: const EdgeInsets.only(top: zeroH),
+                padding: EdgeInsets.only(top: zeroH),
                 child: Column(
                   children: [
                     for (final key in rouletteDozens)
@@ -1006,10 +1173,12 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                       height: gridH,
                       child: _grid(cellW, cellH, result),
                     ),
-                    Row(children: [
-                      for (final key in rouletteColumns)
-                        outside(key, (numbersW) / 3, cellH),
-                    ],),
+                    Row(
+                      children: [
+                        for (final key in rouletteColumns)
+                          outside(key, (numbersW) / 3, cellH),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -1036,20 +1205,31 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
             color: rlZero,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
             border: Border.all(
-                color: wins ? rlGoldLight : Colors.white70,
-                width: wins ? 3 : .8,),
+              color: wins ? rlGoldLight : Colors.white70,
+              width: wins ? 3 : .8,
+            ),
           ),
           child: Stack(
             alignment: Alignment.center,
             children: [
-              const Text('0',
-                  style: TextStyle(
+              SizedBox(
+                height: h * .8,
+                child: const FittedBox(
+                  child: Text(
+                    '0',
+                    style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
-                      fontSize: 18,),),
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ),
               if (mine > 0)
                 Positioned(
-                    right: 8, child: RouletteChip(value: mine, size: h * .7),),
+                  right: 8,
+                  child: RouletteChip(value: mine, size: h * .7),
+                ),
             ],
           ),
         ),
@@ -1069,7 +1249,8 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
         final col = (p.dx / cellW).floor().clamp(0, 2),
             row = (p.dy / cellH).floor().clamp(0, rouletteRows - 1);
         placeChip(
-            rouletteKeyAt(row, col, p.dx / cellW - col, p.dy / cellH - row),);
+          rouletteKeyAt(row, col, p.dx / cellW - col, p.dy / cellH - row),
+        );
       },
       child: Stack(
         clipBehavior: Clip.none,
@@ -1093,13 +1274,15 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           border: Border.all(
-                              color: wins ? rlGoldLight : Colors.white70,
-                              width: wins ? 3 : .6,),
+                            color: wins ? rlGoldLight : Colors.white70,
+                            width: wins ? 3 : .6,
+                          ),
                           boxShadow: wins
                               ? [
                                   BoxShadow(
-                                      color: rlGold.withValues(alpha: .8),
-                                      blurRadius: 12,),
+                                    color: rlGold.withValues(alpha: .8),
+                                    blurRadius: 12,
+                                  ),
                                 ]
                               : null,
                         ),
@@ -1108,12 +1291,22 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
                           height: min(cellW, cellH) * .82,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                              shape: BoxShape.circle, color: roulettePaint(n),),
-                          child: Text('$n',
-                              style: const TextStyle(
+                            shape: BoxShape.circle,
+                            color: roulettePaint(n),
+                          ),
+                          child: FittedBox(
+                            child: Padding(
+                              padding: const EdgeInsets.all(2),
+                              child: Text(
+                                '$n',
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,
-                                  fontSize: 14,),),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     );
@@ -1140,66 +1333,79 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
     );
   }
 
+  /// Pinned under the felt: chips on one row, actions under them.
   Widget _chipBar() => Column(
         children: [
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final value in rouletteChips)
-                Semantics(
-                  button: true,
-                  selected: value == chip,
-                  label: '$value',
-                  child: GestureDetector(
-                    onTap: () => _pickChip(value),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: value == chip
-                                ? rlGoldLight
-                                : Colors.transparent,
-                            width: 3,),
-                        boxShadow: value == chip
-                            ? [
-                                BoxShadow(
-                                    color: rlGold.withValues(alpha: .7),
-                                    blurRadius: 10,),
-                              ]
-                            : null,
+          LayoutBuilder(
+            builder: (_, box) {
+              final size = min(44.0, box.maxWidth / 5 - 14);
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (final value in rouletteChips)
+                    Semantics(
+                      button: true,
+                      selected: value == chip,
+                      label: '$value',
+                      child: GestureDetector(
+                        onTap: () => _pickChip(value),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: value == chip
+                                  ? rlGoldLight
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
+                            boxShadow: value == chip
+                                ? [
+                                    BoxShadow(
+                                      color: rlGold.withValues(alpha: .7),
+                                      blurRadius: 10,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: RouletteChip(
+                            value: value,
+                            size: value == chip ? size + 6 : size,
+                          ),
+                        ),
                       ),
-                      child: RouletteChip(
-                          value: value, size: value == chip ? 50 : 44,),
                     ),
-                  ),
-                ),
-            ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
-                  child: _ActionButton(
-                      icon: Icons.undo,
-                      label: _s.text('undo'),
-                      onTap: _betting && _myTotal > 0 ? _undo : null,),),
-              const SizedBox(width: 6),
-              Expanded(
-                  child: _ActionButton(
-                      icon: Icons.delete_sweep,
-                      label: _s.text('clear'),
-                      onTap: _betting && _myTotal > 0 ? _clear : null,),),
+                child: _ActionButton(
+                  icon: Icons.undo,
+                  label: _s.text('undo'),
+                  onTap: _betting && _myTotal > 0 ? _undo : null,
+                ),
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: _ActionButton(
-                    icon: Icons.replay,
-                    label: _s.text('rebet'),
-                    onTap: _betting && _myTotal == 0 ? _rebet : null,
-                    primary: true,),
+                  icon: Icons.delete_sweep,
+                  label: _s.text('clear'),
+                  onTap: _betting && _myTotal > 0 ? _clear : null,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _ActionButton(
+                  icon: Icons.replay,
+                  label: _s.text('rebet'),
+                  onTap: _betting && _myTotal == 0 ? _rebet : null,
+                  primary: true,
+                ),
               ),
             ],
           ),
@@ -1212,8 +1418,12 @@ class _RoundButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
   final double size;
-  const _RoundButton(
-      {required this.icon, required this.label, this.onTap, this.size = 44,});
+  const _RoundButton({
+    required this.icon,
+    required this.label,
+    this.onTap,
+    this.size = 44,
+  });
   @override
   Widget build(BuildContext context) => Semantics(
         button: true,
@@ -1223,15 +1433,19 @@ class _RoundButton extends StatelessWidget {
           child: Material(
             color: rlPurple,
             shape: CircleBorder(
-                side: BorderSide(
-                    color: rlFeltBorder.withValues(alpha: .8), width: 2,),),
+              side: BorderSide(
+                color: rlFeltBorder.withValues(alpha: .8),
+                width: 2,
+              ),
+            ),
             elevation: 3,
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: onTap,
               child: SizedBox.square(
-                  dimension: size,
-                  child: Icon(icon, color: Colors.white, size: size * .5),),
+                dimension: size,
+                child: Icon(icon, color: Colors.white, size: size * .5),
+              ),
             ),
           ),
         ),
@@ -1254,11 +1468,14 @@ class _Pill extends StatelessWidget {
               borderRadius: BorderRadius.circular(20),
               gradient: const LinearGradient(colors: [rlGoldLight, rlGold]),
             ),
-            child: Text(label,
-                style: const TextStyle(
-                    color: rlPurpleDark,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 13,),),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: rlPurpleDark,
+                fontWeight: FontWeight.w900,
+                fontSize: 13,
+              ),
+            ),
           ),
         ),
       );
@@ -1269,11 +1486,12 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
   final bool primary;
-  const _ActionButton(
-      {required this.icon,
-      required this.label,
-      this.onTap,
-      this.primary = false,});
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    this.onTap,
+    this.primary = false,
+  });
   @override
   Widget build(BuildContext context) => Semantics(
         button: true,
@@ -1289,12 +1507,14 @@ class _ActionButton extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(23),
                 gradient: LinearGradient(
-                    colors:
-                        primary ? [rlPink, rlPurple] : [rlNavy2, rlPurpleDark],),
+                  colors:
+                      primary ? [rlPink, rlPurple] : [rlNavy2, rlPurpleDark],
+                ),
                 border: Border.all(
-                    color: primary
-                        ? const Color(0xFFFFA6D5)
-                        : rlFeltBorder.withValues(alpha: .6),),
+                  color: primary
+                      ? const Color(0xFFFFA6D5)
+                      : rlFeltBorder.withValues(alpha: .6),
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1306,9 +1526,10 @@ class _ActionButton extends StatelessWidget {
                       label,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,),
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ],
