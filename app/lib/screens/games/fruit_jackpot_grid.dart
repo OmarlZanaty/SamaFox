@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'fruit_jackpot_engine.dart';
 import 'fruit_jackpot_symbols.dart';
 
+/// The 3×3 reels. A cell still waiting for its result rolls through the
+/// symbols under motion blur; when the server's symbol arrives it lands with a
+/// bounce. Winning cells glow and the winning lines are drawn across them.
 class FruitJackpotGrid extends StatelessWidget {
   final List<String> grid;
   final FruitJackpotRound? round;
@@ -19,6 +23,7 @@ class FruitJackpotGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final won = round?.wins.expand((w) => w.cells).toSet() ?? <int>{};
+    final done = revealed == 9;
     return Directionality(
       textDirection: TextDirection.ltr,
       child: AspectRatio(
@@ -27,106 +32,139 @@ class FruitJackpotGrid extends StatelessWidget {
           children: [
             GridView.builder(
               physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(6),
               itemCount: 9,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
                 childAspectRatio: 1.08,
               ),
               itemBuilder: (context, i) {
                 final spinning = i >= revealed;
-                return TweenAnimationBuilder<double>(
-                  key: ValueKey('$i:$spinning'),
-                  tween: Tween(begin: spinning ? 0 : .82, end: 1),
-                  duration: Duration(milliseconds: motion ? 360 : 0),
-                  curve: Curves.elasticOut,
-                  builder: (_, scale, child) => Transform.scale(
-                    scale: spinning ? 1 : scale,
-                    child: child,
-                  ),
+                final winner = !spinning && won.contains(i);
+                final dim = done && won.isNotEmpty && !winner;
+                return AnimatedOpacity(
+                  duration: Duration(milliseconds: motion ? 250 : 0),
+                  opacity: dim ? .55 : 1,
                   child: AnimatedContainer(
                     duration: Duration(milliseconds: motion ? 250 : 0),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: i == 4
-                            ? const [Color(0xff9a2037), Color(0xff420d23)]
-                            : const [Color(0xff304953), Color(0xff17162e)],
-                      ),
                       borderRadius: BorderRadius.circular(14),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: i == 4
+                            ? const [
+                                Color(0xffc23a5c),
+                                Color(0xff7d1238),
+                                Color(0xff3e0720),
+                              ]
+                            : const [
+                                Color(0xff7b48c4),
+                                Color(0xff4a1f86),
+                                Color(0xff26104c),
+                              ],
+                      ),
                       border: Border.all(
-                        color: !spinning && won.contains(i)
-                            ? const Color(0xff46d9ff)
-                            : const Color(0xff9065ad),
-                        width: 2,
+                        color: winner
+                            ? const Color(0xff7ff3ff)
+                            : const Color(0xccffd52b),
+                        width: winner ? 2.5 : 1.5,
                       ),
                       boxShadow: [
-                        if (!spinning && won.contains(i))
+                        if (winner)
                           const BoxShadow(
-                            color: Color(0xff46d9ff),
-                            blurRadius: 10,
+                            color: Color(0xcc46d9ff),
+                            blurRadius: 14,
                           ),
                       ],
                     ),
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: ImageFiltered(
-                            imageFilter: ImageFilter.blur(
-                              sigmaY: spinning && motion ? 5 : 0,
-                              sigmaX: 0,
-                            ),
-                            child: fruitJackpotArt(grid[i], label: grid[i]),
-                          ),
-                        ),
-                        // On 320 px phones a cell is ~48 px tall: the counter
-                        // and label shrink to fit rather than overflow.
-                        if (i == 4)
-                          Flexible(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                spinning
-                                    ? '--'
-                                    : '${round?.centreMultiplier ?? 1}'
-                                        .padLeft(2, '0'),
-                                style: const TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 22,
-                                  color: Color(0xffffac35),
-                                  fontFeatures: [
-                                    FontFeature.tabularFigures(),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          // Glass highlight on the upper half of the tile.
+                          const Positioned(
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            height: 26,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Color(0x44ffffff),
+                                    Color(0x00ffffff),
                                   ],
                                 ),
                               ),
                             ),
                           ),
-                        Flexible(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              grid[i] == 'multiplier'
-                                  ? 'BONUS'
-                                  : '${fruitJackpotPaytable[grid[i]]} ${arabic ? 'مرات' : 'times'}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xfffff6db),
+                          Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: spinning && motion
+                                ? _Rolling(seed: i)
+                                : TweenAnimationBuilder<double>(
+                                    key: ValueKey('$i:${grid[i]}:$spinning'),
+                                    tween:
+                                        Tween(begin: motion ? .6 : 1, end: 1),
+                                    duration: Duration(
+                                      milliseconds: motion ? 420 : 0,
+                                    ),
+                                    curve: Curves.elasticOut,
+                                    builder: (_, s, child) => Transform.scale(
+                                      scale: winner ? s * 1.06 : s,
+                                      child: child,
+                                    ),
+                                    child: fruitJackpotArt(
+                                      grid[i],
+                                      label: grid[i],
+                                    ),
+                                  ),
+                          ),
+                          if (i == 4)
+                            Positioned(
+                              right: 4,
+                              bottom: 3,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xcc1a0410),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xffffac35),
+                                  ),
+                                ),
+                                child: Text(
+                                  spinning
+                                      ? '--'
+                                      : '×${round?.centreMultiplier ?? 1}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13,
+                                    color: Color(0xffffac35),
+                                    fontFeatures: [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 );
               },
             ),
-            if (revealed == 9 && won.isNotEmpty)
+            if (done && won.isNotEmpty)
               IgnorePointer(
                 child: CustomPaint(
                   size: Size.infinite,
@@ -140,21 +178,73 @@ class FruitJackpotGrid extends StatelessWidget {
   }
 }
 
+/// A cell still spinning: symbols roll past under vertical motion blur.
+class _Rolling extends StatefulWidget {
+  final int seed;
+  const _Rolling({required this.seed});
+  @override
+  State<_Rolling> createState() => _RollingState();
+}
+
+class _RollingState extends State<_Rolling> {
+  late int _index = widget.seed * 3;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 70), (_) {
+      if (mounted) setState(() => _index++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final symbol = fruitJackpotSymbolIds[_index % fruitJackpotSymbolIds.length];
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaY: 6),
+      child: Transform.translate(
+        offset: Offset(0, (_index.isEven ? -1 : 1) * 6),
+        child: fruitJackpotArt(symbol, label: symbol),
+      ),
+    );
+  }
+}
+
 class _Lines extends CustomPainter {
   final List<List<int>> lines;
   _Lines(this.lines);
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0x9946d9ff)
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round;
     Offset point(int c) => Offset(
-          8 + (size.width - 16) / 3 * (c % 3 + .5),
-          8 + (size.height - 16) / 3 * (c ~/ 3 + .5),
+          6 + (size.width - 12) / 3 * (c % 3 + .5),
+          6 + (size.height - 12) / 3 * (c ~/ 3 + .5),
         );
     for (final line in lines) {
-      canvas.drawLine(point(line.first), point(line.last), paint);
+      final a = point(line.first), b = point(line.last);
+      // A soft glow under a bright core.
+      canvas.drawLine(
+        a,
+        b,
+        Paint()
+          ..color = const Color(0x6646d9ff)
+          ..strokeWidth = 12
+          ..strokeCap = StrokeCap.round,
+      );
+      canvas.drawLine(
+        a,
+        b,
+        Paint()
+          ..color = const Color(0xffbff8ff)
+          ..strokeWidth = 3.5
+          ..strokeCap = StrokeCap.round,
+      );
     }
   }
 

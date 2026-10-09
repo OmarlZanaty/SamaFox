@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -49,8 +50,6 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
   String? notice;
   Completer<void>? stop;
   Timer? timer;
-  Duration clockOffset = Duration.zero;
-  final roundClock = Stopwatch();
   int get balance => ref.read(authStateProvider).user?.coinsBalance ?? 0;
   bool get locked => busy || pending != null;
   bool get reduced =>
@@ -95,8 +94,6 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
   void applyStats(Map<String, dynamic> data) {
     stats = data;
     roundCount = (data['roundCount'] as num?)?.toInt() ?? roundCount;
-    final server = DateTime.tryParse(data['serverTime']?.toString() ?? '');
-    if (server != null) clockOffset = server.difference(DateTime.now());
   }
 
   Future<void> boot() async {
@@ -172,9 +169,6 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
       revealed = 0;
     });
     stop = Completer<void>();
-    roundClock
-      ..reset()
-      ..start();
     sfx.spin();
     try {
       pending ??= {
@@ -212,14 +206,13 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
       await prefs!.saveHistory(history);
       await prefs!.savePending(null);
       pending = null;
-      roundClock.stop();
       if (!mounted) return;
       setState(
         () => notice = result.capped
             ? strings.text('capped')
             : result.totalPrize > 0
-            ? '${strings.text('prize')}: ${result.totalPrize}'
-            : strings.text('noWin'),
+                ? '${strings.text('prize')}: ${result.totalPrize}'
+                : strings.text('noWin'),
       );
       if (result.totalPrize > 0) {
         if (power) HapticFeedback.mediumImpact();
@@ -274,7 +267,6 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
     } catch (_) {
       if (mounted) setState(() => notice = strings.text('error'));
     } finally {
-      roundClock.stop();
       if (mounted) {
         setState(() {
           busy = false;
@@ -285,101 +277,86 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
   }
 
   Future<void> panel(String title, Widget child) => showDialog<void>(
-    context: context,
-    builder: (_) => Directionality(
-      textDirection: arabic ? TextDirection.rtl : TextDirection.ltr,
-      child: AlertDialog(
-        backgroundColor: const Color(0xff35134e),
-        title: Text(title),
-        content: SizedBox(
-          width: 480,
-          child: SingleChildScrollView(child: child),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(strings.text('close')),
-          ),
-        ],
-      ),
-    ),
-  );
-  void settings() => panel(
-    strings.text('settings'),
-    StatefulBuilder(
-      builder: (_, update) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final key in ['language', 'sound', 'motion'])
-            SwitchListTile(
-              title: Text(strings.text(key)),
-              value: key == 'language'
-                  ? arabic
-                  : key == 'sound'
-                  ? sound
-                  : motion,
-              onChanged: (v) async {
-                setState(() {
-                  if (key == 'language') arabic = v;
-                  if (key == 'sound') sound = v;
-                  if (key == 'motion') motion = v;
-                  sfx.enabled = sound && power;
-                });
-                update(() {});
-                syncMotion();
-                await prefs?.setSetting(key == 'language' ? 'arabic' : key, v);
-              },
+        context: context,
+        builder: (_) => Directionality(
+          textDirection: arabic ? TextDirection.rtl : TextDirection.ltr,
+          child: AlertDialog(
+            backgroundColor: const Color(0xff35134e),
+            title: Text(title),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(child: child),
             ),
-          TextButton(
-            onPressed: () async {
-              await prefs?.clearHistory();
-              if (mounted) {
-                setState(() => history = []);
-                update(() {});
-              }
-            },
-            child: Text(strings.text('clear')),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(strings.text('close')),
+              ),
+            ],
           ),
-        ],
-      ),
-    ),
-  );
+        ),
+      );
+  void settings() => panel(
+        strings.text('settings'),
+        StatefulBuilder(
+          builder: (_, update) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final key in ['language', 'sound', 'motion'])
+                SwitchListTile(
+                  title: Text(strings.text(key)),
+                  value: key == 'language'
+                      ? arabic
+                      : key == 'sound'
+                          ? sound
+                          : motion,
+                  onChanged: (v) async {
+                    setState(() {
+                      if (key == 'language') arabic = v;
+                      if (key == 'sound') sound = v;
+                      if (key == 'motion') motion = v;
+                      sfx.enabled = sound && power;
+                    });
+                    update(() {});
+                    syncMotion();
+                    await prefs?.setSetting(
+                        key == 'language' ? 'arabic' : key, v,);
+                  },
+                ),
+              TextButton(
+                onPressed: () async {
+                  await prefs?.clearHistory();
+                  if (mounted) {
+                    setState(() => history = []);
+                    update(() {});
+                  }
+                },
+                child: Text(strings.text('clear')),
+              ),
+            ],
+          ),
+        ),
+      );
   void showHistory() => panel(
-    strings.text('history'),
-    Column(
-      mainAxisSize: MainAxisSize.min,
-      children: history.isEmpty
-          ? [Text(strings.text('empty'))]
-          : history
-                .map(
-                  (r) => ListTile(
-                    title: Text(
-                      '#${r.roundNumber} • ${r.totalBet} → ${r.totalPrize}',
+        strings.text('history'),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: history.isEmpty
+              ? [Text(strings.text('empty'))]
+              : history
+                  .map(
+                    (r) => ListTile(
+                      title: Text(
+                        '#${r.roundNumber} • ${r.totalBet} → ${r.totalPrize}',
+                      ),
+                      subtitle: Text(
+                        '${r.at.toLocal()}\n${strings.text('balance')}: ${r.balance}\n${r.grid.map((s) => fruitJackpotEmoji[s]).join(' ')}\n${r.jackpotTriggered ? 'JACKPOT' : r.bonusTriggered ? 'BONUS' : r.totalPrize > 0 ? strings.text('win') : strings.text('loss')}',
+                      ),
                     ),
-                    subtitle: Text(
-                      '${r.at.toLocal()}\n${strings.text('balance')}: ${r.balance}\n${r.grid.map((s) => fruitJackpotEmoji[s]).join(' ')}\n${r.jackpotTriggered
-                          ? 'JACKPOT'
-                          : r.bonusTriggered
-                          ? 'BONUS'
-                          : r.totalPrize > 0
-                          ? strings.text('win')
-                          : strings.text('loss')}',
-                    ),
-                  ),
-                )
-                .toList(),
-    ),
-  );
-  String get resetText {
-    final reset = DateTime.tryParse(stats['resetAt']?.toString() ?? '');
-    if (reset == null) return '—';
-    final seconds = reset
-        .difference(DateTime.now().add(clockOffset))
-        .inSeconds
-        .clamp(0, 100000);
-    return '${(seconds ~/ 3600).toString().padLeft(2, '0')}:${(seconds ~/ 60 % 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
-  }
-
+                  )
+                  .toList(),
+        ),
+      );
   Widget box(Widget child, {Color border = const Color(0xffbd80e5)}) =>
       Container(
         padding: const EdgeInsets.all(8),
@@ -421,6 +398,7 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
                 child: Image.asset(
                   'assets/images/games/fruit_jackpot/background.png',
                   fit: BoxFit.cover,
+                  cacheWidth: 1080,
                   errorBuilder: (_, __, ___) => const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -433,479 +411,495 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
                 ),
               ),
               SafeArea(
-                child: Align(
-                  alignment: Alignment.topCenter,
+                child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 720),
-                    child: SingleChildScrollView(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+                      child: LayoutBuilder(builder: (_, box) => stage(box)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One screen, no scrolling. Fixed rows around the machine; the machine
+  /// takes the height left and the logo only shows when there is room.
+  Widget stage(BoxConstraints box) {
+    const top = 46.0, plate = 62.0, results = 40.0, chips = 66.0;
+    const action = 58.0, gaps = 40.0, frame = 74.0;
+    final room = box.maxHeight - top - plate - results - chips - action - gaps;
+    // The grid is 1.08:1 inside an 8 px frame on each side.
+    final gridW = min(box.maxWidth - 16, (room - frame) * 1.08);
+    final machineH = gridW / 1.08 + frame;
+    final logo = (room - machineH).clamp(0.0, 120.0);
+    return Stack(
+      children: [
+        Column(
+          children: [
+            SizedBox(height: top, child: topBar()),
+            if (logo >= 44)
+              SizedBox(
+                height: logo,
+                child: RepaintBoundary(
+                  child: AnimatedBuilder(
+                    animation: ambient,
+                    builder: (_, child) => Transform.scale(
+                      scale: reduced
+                          ? 1
+                          : 1 + .025 * sin(ambient.value * 2 * pi * 8),
+                      child: child,
+                    ),
+                    child: fruitJackpotArt('logo_jackpot'),
+                  ),
+                ),
+              ),
+            SizedBox(height: plate, child: jackpotPlate()),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Center(
+                child: SizedBox(width: gridW + 16, child: machine()),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(height: results, child: resultsRow()),
+            const SizedBox(height: 8),
+            SizedBox(height: chips, child: chipRow()),
+            const SizedBox(height: 8),
+            SizedBox(height: action, child: actionRow()),
+            if (loading) const LinearProgressIndicator(minHeight: 2),
+          ],
+        ),
+        if (notice != null)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: chips + action + results + 34,
+            child: IgnorePointer(
+              child: Center(
+                child: Semantics(
+                  liveRegion: true,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xee2a0f4a),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xffffd52b)),
+                    ),
+                    child: Text(
+                      notice!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xfffff1b8),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget roundIcon(IconData icon, String tip, VoidCallback? onTap) => Tooltip(
+        message: tip,
+        child: Semantics(
+          button: true,
+          label: tip,
+          child: GestureDetector(
+            onTap: onTap,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xff8e55d6), Color(0xff4a1c86)],
+                ),
+                border: Border.fromBorderSide(
+                  BorderSide(color: Color(0x99ffd52b), width: 1.2),
+                ),
+              ),
+              child: Icon(icon, color: Colors.white, size: 21),
+            ),
+          ),
+        ),
+      );
+
+  Widget topBar() => Row(
+        children: [
+          roundIcon(
+            arabic ? Icons.arrow_forward : Icons.arrow_back,
+            strings.text('back'),
+            () => Navigator.maybePop(context),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                strings.text('title'),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xffffd52b),
+                  shadows: [Shadow(color: Color(0xff8a2be2), blurRadius: 8)],
+                ),
+              ),
+            ),
+          ),
+          // Today's rank.
+          Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(15),
+              color: const Color(0xcc2a0f4a),
+              border: Border.all(color: const Color(0x99ffd52b)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.emoji_events,
+                    color: Color(0xffffd52b), size: 16,),
+                const SizedBox(width: 4),
+                Text(
+                  stats['rank'] == null ? '—' : '#${stats['rank']}',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          roundIcon(Icons.tune, strings.text('settings'), settings),
+          const SizedBox(width: 6),
+          roundIcon(
+            Icons.info_outline,
+            strings.text('help'),
+            () => panel(
+              strings.text('help'),
+              FruitJackpotHelp(arabic: arabic, layout: layout),
+            ),
+          ),
+        ],
+      );
+
+  String grouped(int v) => v.toString().replaceAllMapped(
+        RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+        (m) => '${m[1]},',
+      );
+
+  Widget jackpotPlate() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xff7b3fc0), Color(0xff4a1c86), Color(0xff2a0f4a)],
+          ),
+          border: Border.all(color: const Color(0xffffd52b), width: 2),
+          boxShadow: const [
+            BoxShadow(color: Color(0x66ffd52b), blurRadius: 14),
+          ],
+        ),
+        child: Row(
+          children: [
+            Flexible(
+              child: Text(
+                tr('جائزة الجاكبوت عند رهانك', 'Jackpot at your bet'),
+                maxLines: 2,
+                style: const TextStyle(fontSize: 12, color: Color(0xffe8d7ff)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerEnd,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(end: bet * 1000.0),
+                  duration: Duration(milliseconds: reduced ? 0 : 600),
+                  builder: (_, v, __) => ShaderMask(
+                    shaderCallback: (b) => const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0xfffffbd0),
+                        Color(0xffffd52b),
+                        Color(0xffff9a25),
+                      ],
+                    ).createShader(b),
+                    child: Text(
+                      grouped(v.round()),
+                      textDirection: TextDirection.ltr,
+                      style: const TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// Gold cabinet: the three row multipliers as medallions, then the reels.
+  Widget machine() {
+    final won = last != null && last!.totalPrize > 0 && revealed == 9;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xfffff0a8),
+            Color(0xffffc93c),
+            Color(0xffd98b12),
+            Color(0xff8a4f08),
+          ],
+        ),
+        boxShadow: [
+          const BoxShadow(
+            color: Colors.black54,
+            blurRadius: 22,
+            offset: Offset(0, 10),
+          ),
+          if (won) const BoxShadow(color: Color(0xaaffd52b), blurRadius: 26),
+        ],
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xff4b1a7a), Color(0xff22093f)],
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 40,
+              child: Row(
+                children: List.generate(3, (i) {
+                  final m = last?.rowMultipliers[i] ?? 2;
+                  final lit = won && m > 1;
+                  return Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: lit
+                              ? const [
+                                  Color(0xfffffbd0),
+                                  Color(0xffffd52b),
+                                  Color(0xffff9a25),
+                                ]
+                              : const [Color(0xffb88a3a), Color(0xff7a5420)],
                         ),
-                        child: Column(
+                        border: Border.all(
+                          color: lit ? Colors.white : const Color(0x99fff0a8),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          if (lit)
+                            const BoxShadow(
+                              color: Color(0xccffd52b),
+                              blurRadius: 12,
+                            ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Text(
+                          '×$m',
+                          textDirection: TextDirection.ltr,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            color: lit
+                                ? const Color(0xff5a1d00)
+                                : const Color(0xfffff0c8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+            FruitJackpotGrid(
+              grid: grid,
+              round: last,
+              revealed: revealed,
+              motion: !reduced,
+              arabic: arabic,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Balance, the last results as fruit, history and fairness.
+  Widget resultsRow() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: const Color(0xcc2a0f4a),
+          border: Border.all(color: const Color(0x55ffd52b)),
+        ),
+        child: Row(
+          children: [
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                '${strings.text('balance')}: $balance 🪙',
+                style:
+                    const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: GestureDetector(
+                onTap: showHistory,
+                child: Row(
+                  children: [
+                    for (final (i, r) in history.take(6).indexed)
+                      Expanded(
+                        child: Opacity(
+                          opacity: i == 0 ? 1 : .7,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox.square(
+                                dimension: 22,
+                                child: fruitJackpotArt(r.grid.first),
+                              ),
+                              Flexible(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    '${r.totalPrize}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: r.totalPrize > 0
+                                          ? const Color(0xffffd52b)
+                                          : Colors.white54,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: strings.text('fairness'),
+              visualDensity: VisualDensity.compact,
+              onPressed: locked
+                  ? null
+                  : () => panel(
+                        strings.text('fairness'),
+                        FruitJackpotFairness(
+                          repository: repo,
+                          strings: strings,
+                          round: last,
+                        ),
+                      ),
+              icon: const Icon(Icons.verified_user_outlined, size: 20),
+            ),
+          ],
+        ),
+      );
+
+  Widget chipRow() => Row(
+        children: List.generate(4, (i) {
+          final b = fruitJackpotBets[i];
+          final enabled = !locked && allowed(b) && balance >= b;
+          final selected = bet == b;
+          return Expanded(
+            child: Semantics(
+              selected: selected,
+              button: true,
+              enabled: enabled,
+              label: '${strings.text('bet')} $b',
+              child: GestureDetector(
+                onTap: enabled
+                    ? () {
+                        setState(() => bet = b);
+                        sfx.click();
+                      }
+                    : null,
+                child: Opacity(
+                  opacity: enabled || selected ? 1 : .45,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 160),
+                    offset: Offset(0, selected ? -.08 : 0),
+                    child: AnimatedScale(
+                      duration: const Duration(milliseconds: 160),
+                      scale: selected ? 1.1 : 1,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            if (selected)
+                              const BoxShadow(
+                                color: Color(0xccffd52b),
+                                blurRadius: 16,
+                                spreadRadius: 1,
+                              ),
+                          ],
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
                           children: [
-                            Row(
-                              children: [
-                                IconButton(
-                                  tooltip: strings.text('back'),
-                                  onPressed: () => Navigator.maybePop(context),
-                                  icon: const Icon(Icons.arrow_back),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    strings.text('title'),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: strings.text('settings'),
-                                  onPressed: settings,
-                                  icon: const Icon(Icons.tune),
-                                ),
-                                IconButton(
-                                  tooltip: strings.text('help'),
-                                  onPressed: () => panel(
-                                    strings.text('help'),
-                                    FruitJackpotHelp(
-                                      arabic: arabic,
-                                      layout: layout,
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.info_outline),
-                                ),
-                              ],
+                            fruitJackpotArt(
+                              [
+                                'chip_100',
+                                'chip_1k',
+                                'chip_10k',
+                                'chip_100k',
+                              ][i],
                             ),
                             Text(
-                              '${tr('الجولة', 'Round')} $roundCount • ID ${last == null ? '—' : last!.id.substring(0, last!.id.length.clamp(0, 8))} • ${(roundClock.elapsedMilliseconds / 1000).toStringAsFixed(1)}s',
+                              ['100', '1K', '10K', '100K'][i],
                               style: const TextStyle(
-                                color: Color(0xffe8d7ff),
-                                fontSize: 12,
-                              ),
-                            ),
-                            AnimatedBuilder(
-                              animation: ambient,
-                              builder: (_, child) => ShaderMask(
-                                blendMode: BlendMode.srcATop,
-                                shaderCallback: (bounds) => LinearGradient(
-                                  colors: const [
-                                    Colors.transparent,
-                                    Color(0x88ffffff),
-                                    Colors.transparent,
-                                  ],
-                                  stops: const [0, .5, 1],
-                                  transform: GradientRotation(
-                                    ambient.value * 8 * 3.14159,
-                                  ),
-                                ).createShader(bounds),
-                                child: child,
-                              ),
-                              child: SizedBox(
-                                height: 115,
-                                child: fruitJackpotArt('logo_jackpot'),
-                              ),
-                            ),
-                            box(
-                              Column(
-                                children: [
-                                  Text(
-                                    tr(
-                                      'جائزة الجاكبوت عند رهانك',
-                                      'Jackpot at your bet',
-                                    ),
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  TweenAnimationBuilder<double>(
-                                    tween: Tween(end: bet * 1000.0),
-                                    duration: Duration(
-                                      milliseconds: reduced ? 0 : 600,
-                                    ),
-                                    builder: (_, v, __) => Text(
-                                      v.round().toString().replaceAllMapped(
-                                        RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
-                                        (m) => '${m[1]},',
-                                      ),
-                                      style: const TextStyle(
-                                        fontSize: 36,
-                                        fontWeight: FontWeight.w900,
-                                        color: Color(0xffffd52b),
-                                        fontFamily: 'monospace',
-                                      ),
-                                    ),
-                                  ),
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                shadows: [
+                                  Shadow(color: Colors.black, blurRadius: 4),
                                 ],
-                              ),
-                              border: const Color(0xffffd52b),
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Column(
-                                  children: [
-                                    IconButton(
-                                      tooltip: tr(
-                                        'تشغيل المؤثرات',
-                                        'Power effects',
-                                      ),
-                                      onPressed: () {
-                                        setState(() => power = !power);
-                                        sfx.enabled = sound && power;
-                                        syncMotion();
-                                      },
-                                      icon: Icon(
-                                        Icons.power_settings_new,
-                                        color: power
-                                            ? Colors.cyan
-                                            : Colors.white54,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: strings.text('sound'),
-                                      onPressed: () async {
-                                        setState(() => sound = !sound);
-                                        sfx.enabled = sound && power;
-                                        await prefs?.setSetting('sound', sound);
-                                      },
-                                      icon: Icon(
-                                        sound
-                                            ? Icons.volume_up
-                                            : Icons.volume_off,
-                                      ),
-                                    ),
-                                    Text(
-                                      repo.lastPingMs == null
-                                          ? '—'
-                                          : '${repo.lastPingMs} ms',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: (repo.lastPingMs ?? 0) <= 100
-                                            ? Colors.greenAccent
-                                            : Colors.orange,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Expanded(
-                                  child: box(
-                                    Column(
-                                      children: [
-                                        Row(
-                                          children: List.generate(
-                                            3,
-                                            (i) => Expanded(
-                                              child: AnimatedBuilder(
-                                                animation: ambient,
-                                                builder: (_, __) => Container(
-                                                  margin: const EdgeInsets.all(
-                                                    3,
-                                                  ),
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        vertical: 8,
-                                                      ),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(
-                                                      0xffe8deef,
-                                                    ),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          10,
-                                                        ),
-                                                    boxShadow: [
-                                                      if (last != null &&
-                                                          last!.totalPrize >
-                                                              0 &&
-                                                          revealed == 9 &&
-                                                          (ambient.value * 12)
-                                                                      .floor() %
-                                                                  3 ==
-                                                              i)
-                                                        const BoxShadow(
-                                                          color: Colors.amber,
-                                                          blurRadius: 12,
-                                                        ),
-                                                    ],
-                                                  ),
-                                                  child: Text(
-                                                    '×${last?.rowMultipliers[i] ?? 2}',
-                                                    textAlign: TextAlign.center,
-                                                    style: const TextStyle(
-                                                      color: Color(0xff662b92),
-                                                      fontWeight:
-                                                          FontWeight.w900,
-                                                      fontSize: 22,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        FruitJackpotGrid(
-                                          grid: grid,
-                                          round: last,
-                                          revealed: revealed,
-                                          motion: !reduced,
-                                          arabic: arabic,
-                                        ),
-                                        AnimatedBuilder(
-                                          animation: ambient,
-                                          builder: (_, __) => Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.spaceAround,
-                                            children: List.generate(
-                                              12,
-                                              (i) => Container(
-                                                width: 5,
-                                                height: 5,
-                                                decoration: BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color:
-                                                      last != null &&
-                                                          last!.totalPrize >
-                                                              0 &&
-                                                          revealed == 9 &&
-                                                          (ambient.value * 32)
-                                                                      .floor() %
-                                                                  3 ==
-                                                              i % 3
-                                                      ? Colors.cyanAccent
-                                                      : Colors.amber,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: 45,
-                                  child: Column(
-                                    children: [
-                                      const Icon(
-                                        Icons.stars,
-                                        color: Colors.amber,
-                                      ),
-                                      Text(
-                                        stats['rank'] == null
-                                            ? '—'
-                                            : '#${stats['rank']}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      Text(
-                                        tr('اليوم', 'Today'),
-                                        style: const TextStyle(fontSize: 10),
-                                      ),
-                                      FittedBox(
-                                        child: Text(
-                                          resetText,
-                                          style: const TextStyle(fontSize: 10),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ClipRect(
-                              child: SizedBox(
-                                height: 30,
-                                child: AnimatedBuilder(
-                                  animation: ambient,
-                                  builder: (_, __) => Transform.translate(
-                                    offset: Offset(
-                                      reduced ? 0 : -ambient.value * 40,
-                                      0,
-                                    ),
-                                    child: Text(
-                                      history.isEmpty
-                                          ? tr('النتائج', 'Results')
-                                          : history
-                                                .take(12)
-                                                .map(
-                                                  (r) =>
-                                                      '${r == history.first ? 'NEW ' : ''}${fruitJackpotEmoji[r.grid.first]} ${r.totalPrize}',
-                                                )
-                                                .join('    '),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.fade,
-                                      softWrap: false,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Semantics(
-                              liveRegion: true,
-                              child: Text(
-                                '${strings.text('balance')}: $balance 🪙',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: List.generate(4, (i) {
-                                final b = fruitJackpotBets[i];
-                                final enabled =
-                                    !locked && allowed(b) && balance >= b;
-                                return Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(3),
-                                    child: Semantics(
-                                      selected: bet == b,
-                                      button: true,
-                                      enabled: enabled,
-                                      label: '${strings.text('bet')} $b',
-                                      child: OutlinedButton(
-                                        style: OutlinedButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 6,
-                                          ),
-                                          minimumSize: const Size(44, 72),
-                                          side: BorderSide(
-                                            color: bet == b
-                                                ? Colors.amber
-                                                : Colors.purpleAccent,
-                                            width: bet == b ? 2 : 1,
-                                          ),
-                                          backgroundColor: [
-                                            const Color(0xff9d332a),
-                                            const Color(0xff56369b),
-                                            const Color(0xff1657a2),
-                                            const Color(0xff43318e),
-                                          ][i],
-                                        ),
-                                        onPressed: enabled
-                                            ? () {
-                                                setState(() => bet = b);
-                                                sfx.click();
-                                              }
-                                            : null,
-                                        child: Column(
-                                          children: [
-                                            SizedBox(
-                                              height: 30,
-                                              child: fruitJackpotArt(
-                                                [
-                                                  'chip_100',
-                                                  'chip_1k',
-                                                  'chip_10k',
-                                                  'chip_100k',
-                                                ][i],
-                                              ),
-                                            ),
-                                            Text(
-                                              ['100', '1K', '10K', '100K'][i],
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton(
-                                    key: const Key('fruit-spin'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: const Color(0xffe92335),
-                                      minimumSize: const Size(44, 56),
-                                    ),
-                                    onPressed: busy || loading ? null : spin,
-                                    child: Text(
-                                      busy
-                                          ? tr('جارٍ الدوران…', 'Spinning…')
-                                          : pending != null
-                                          ? strings.text('retry')
-                                          : strings.text('spin'),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 22,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                OutlinedButton(
-                                  key: const Key('fruit-stop'),
-                                  onPressed: busy
-                                      ? () {
-                                          if (stop?.isCompleted == false) {
-                                            stop!.complete();
-                                          }
-                                        }
-                                      : null,
-                                  child: Text(strings.text('stop')),
-                                ),
-                              ],
-                            ),
-                            if (loading) const LinearProgressIndicator(),
-                            if (notice != null)
-                              Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: Semantics(
-                                  liveRegion: true,
-                                  child: Text(
-                                    notice!,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              ),
-                            Wrap(
-                              alignment: WrapAlignment.center,
-                              children: [
-                                TextButton(
-                                  onPressed: showHistory,
-                                  child: Text(strings.text('history')),
-                                ),
-                                TextButton(
-                                  onPressed: locked
-                                      ? null
-                                      : () => panel(
-                                          strings.text('fairness'),
-                                          FruitJackpotFairness(
-                                            repository: repo,
-                                            strings: strings,
-                                            round: last,
-                                          ),
-                                        ),
-                                  child: Text(strings.text('fairness')),
-                                ),
-                                if (layout == null && !loading)
-                                  TextButton(
-                                    onPressed: () {
-                                      setState(() => loading = true);
-                                      boot();
-                                    },
-                                    child: Text(strings.text('retry')),
-                                  ),
-                              ],
-                            ),
-                            Text(
-                              strings.footer,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xffe8d7ff),
                               ),
                             ),
                           ],
@@ -915,10 +909,108 @@ class _FruitJackpotScreenState extends ConsumerState<FruitJackpotScreen>
                   ),
                 ),
               ),
-            ],
+            ),
+          );
+        }),
+      );
+
+  Widget actionRow() {
+    final label = busy
+        ? tr('جارٍ الدوران…', 'Spinning…')
+        : pending != null
+            ? strings.text('retry')
+            : strings.text('spin');
+    return Row(
+      children: [
+        Expanded(
+          child: Semantics(
+            button: true,
+            enabled: !(busy || loading),
+            label: label,
+            child: GestureDetector(
+              key: const Key('fruit-spin'),
+              onTap: busy || loading ? null : spin,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 150),
+                opacity: busy || loading ? .6 : 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(29),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0xffff7a6b),
+                        Color(0xffe92335),
+                        Color(0xff9e0f22),
+                      ],
+                    ),
+                    border:
+                        Border.all(color: const Color(0xffffd52b), width: 2.5),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x99e92335),
+                        blurRadius: 16,
+                        offset: Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 24,
+                          color: Colors.white,
+                          shadows: [
+                            Shadow(color: Color(0x88000000), blurRadius: 4),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Semantics(
+          button: true,
+          enabled: busy,
+          label: strings.text('stop'),
+          child: GestureDetector(
+            key: const Key('fruit-stop'),
+            onTap: busy
+                ? () {
+                    if (stop?.isCompleted == false) stop!.complete();
+                  }
+                : null,
+            child: Opacity(
+              opacity: busy ? 1 : .45,
+              child: Container(
+                width: 58,
+                height: 58,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xff8e55d6), Color(0xff4a1c86)],
+                  ),
+                  border: Border.fromBorderSide(
+                    BorderSide(color: Color(0xffffd52b), width: 2),
+                  ),
+                ),
+                child: const Icon(Icons.stop_rounded,
+                    color: Colors.white, size: 30,),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
