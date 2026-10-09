@@ -4,6 +4,7 @@ import '../models/room.dart';
 import '../models/user.dart';
 import '../theme/app_theme.dart';
 import '../repositories/room_repository.dart';
+import 'app_network_image.dart';
 
 /// Room Admin Panel Widget
 /// Provides comprehensive administrative controls for room owners and admins
@@ -226,7 +227,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
               return ListTile(
                 leading: CircleAvatar(
                   backgroundImage: member.user?.avatarUrl != null
-                      ? NetworkImage(member.user!.avatarUrl!)
+                      ? appImage(member.user!.avatarUrl!, 40)
                       : null,
                   child: member.user?.avatarUrl == null
                       ? Text(member.user?.name[0] ?? 'U')
@@ -360,7 +361,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
               return ListTile(
                 leading: CircleAvatar(
                   backgroundImage: member.user?.avatarUrl != null
-                      ? NetworkImage(member.user!.avatarUrl!)
+                      ? appImage(member.user!.avatarUrl!, 40)
                       : null,
                   child: member.user?.avatarUrl == null
                       ? Text(member.user?.name[0] ?? 'U')

@@ -5,11 +5,13 @@ import {
   getVipThresholdOverrides,
   vipThresholdWithOverrides,
   vipRechargeFloor,
+  computeVipLevelWithOverrides,
 } from '../services/vip.service';
 import { getLevelThresholdOverrides, levelThresholdWithOverrides } from '../services/xp.service';
 import { grantVipRewardsForRange } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { authMiddleware } from '../middlewares/auth.middleware';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 const router = Router();
 
@@ -64,7 +66,7 @@ router.get('/progress', authMiddleware, async (req, res) => {
  * configured on it. Buying a tier at or below the one already held is refused
  * rather than silently charging for nothing.
  */
-router.post('/buy', authMiddleware, async (req, res) => {
+router.post('/buy', authMiddleware, idempotent('vip_buy'), async (req, res) => {
   try {
     const userId = (req as any).userId as number;
     const level = Number((req.body as any)?.level);
@@ -89,7 +91,16 @@ router.post('/buy', authMiddleware, async (req, res) => {
         },
       });
       if (!user) return { ok: false as const, status: 404, message: 'المستخدم غير موجود' };
-      if (user.vipLevel >= level) {
+      // A temporary staff tier must not prevent buying a tier in one's own right.
+      // Include unswept rows for the base so a delayed job cannot make a grant permanent.
+      const chain = await tx.temporaryEntitlement.findMany({
+        where: { userId, type: 'VIP', status: 'ACTIVE' },
+        orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
+      });
+      const natural = computeVipLevelWithOverrides(user.totalRecharge, await getVipThresholdOverrides());
+      const realBase = Math.max(natural, chain.length ? Number(chain[0]!.previousValue ?? 0) : user.vipLevel);
+      const temporaryValue = Math.max(0, ...chain.filter(g => g.expiresAt > new Date()).map(g => g.value ?? 0));
+      if (realBase >= level) {
         return { ok: false as const, status: 400, message: 'أنت بالفعل في هذا المستوى أو أعلى' };
       }
       if (user.coinsBalance < cfg.priceCoins) {
@@ -118,12 +129,12 @@ router.post('/buy', authMiddleware, async (req, res) => {
         where: { id: userId },
         data: {
           coinsBalance: { decrement: cfg.priceCoins },
-          vipLevel: level,
+          vipLevel: Math.max(level, temporaryValue),
           vipExpiresAt: expiresAt,
           ...carry,
         } as any,
       });
-      return { ok: true as const, previousLevel: user.vipLevel, expiresAt };
+      return { ok: true as const, previousLevel: realBase, expiresAt };
     });
 
     if (!result.ok) return res.status(result.status).json({ success: false, message: result.message });

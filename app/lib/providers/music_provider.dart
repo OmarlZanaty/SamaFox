@@ -329,8 +329,19 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
     _reconnectSub?.cancel();
     _completeSub?.cancel();
     _deniedController.close();
-    _player.stop();
-    _player.dispose();
+    // Stop, THEN dispose. Firing both unawaited let stop()'s continuation set
+    // state on an already-disposed player: "AudioPlayer has been disposed" and
+    // "Player has not yet been created or has already been disposed" were
+    // uncaught crashes on room leave in 1.0.46.
+    final player = _player;
+    () async {
+      try {
+        await player.stop();
+      } catch (_) {}
+      try {
+        await player.dispose();
+      } catch (_) {}
+    }();
     super.dispose();
   }
 }

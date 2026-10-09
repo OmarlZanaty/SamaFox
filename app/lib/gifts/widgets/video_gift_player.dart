@@ -25,6 +25,9 @@ class VideoGiftPlayer extends StatefulWidget {
   /// Longest a clip is ever allowed to hold the screen, whatever it says its
   /// duration is — a corrupt header must not freeze the room forever.
   static const Duration maxPlayback = Duration(seconds: 60);
+
+  /// Gift players alive right now, for the memory breadcrumb.
+  static int liveCount = 0;
 }
 
 class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingObserver {
@@ -36,6 +39,7 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
   @override
   void initState() {
     super.initState();
+    VideoGiftPlayer.liveCount++;
     WidgetsBinding.instance.addObserver(this);
     _initialize();
     // Safety net only, until the real duration is known. `animationMs` is an
@@ -149,6 +153,7 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
 
   @override
   void dispose() {
+    VideoGiftPlayer.liveCount--;
     WidgetsBinding.instance.removeObserver(this);
     _hardTimer?.cancel();
     _controller?.removeListener(_onTick);

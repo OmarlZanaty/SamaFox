@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middlewares/auth.middleware';
 import { requireAdminDashboard, requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
 import { clientLogFiles, tailJsonl } from './appDownload.routes';
+import { readClientHealth, type HealthRow } from '../services/clientHealth';
 import {
   adminDashboardAnalytics,
   adminDashboardBanUser,
@@ -13,6 +14,9 @@ import {
   adminDashboardListTargetLocks,
   adminDashboardGetTargetSellPolicy,
   adminDashboardSetTargetSellPolicy,
+  adminDashboardGetCoinFreeze,
+  adminDashboardSetCoinFreezeGlobal,
+  adminDashboardSetUserCoinFreeze,
   adminDashboardCreateQuest,
   adminDashboardDeleteQuest,
   adminDashboardForceCloseRoom,
@@ -59,6 +63,7 @@ import {
   adminRemoveAgencyMember,
   adminAdjustMemberTarget,
   adminAdjustUserTarget,
+  adminListTargetMovements,
   adminListRoomCupRewards,
   adminSaveRoomCupReward,
   adminDeleteRoomCupReward,
@@ -74,8 +79,6 @@ import {
   adminUserChargeHistory,
   adminGetGates,
   adminLuckySummary,
-  adminLuckySaveTiers,
-  adminLuckyTopUp,
   adminSetGates,
   adminListGameConfig,
   adminSetGameConfig,
@@ -90,17 +93,52 @@ import {
   adminSetSuperAdmin,
 } from '../controllers/adminDashboard.controller';
 import { adminBackgroundsRouter, adminCpRouter } from './adminCp.routes';
+import { adminEconomyRouter } from './adminEconomy.routes';
+import { auditContext, recordAdminAudit } from '../services/adminAudit.service';
 
 const router = express.Router();
 
 router.use(authenticate);
 router.use(requireAdminDashboard);
 
+// Item 20 — every administrative change is in admin_audit_logs. The pages that
+// write their own detailed rows (before/after, reason) are skipped here; every
+// OTHER mutating dashboard call — agency approvals, target adjustments, bans,
+// store edits… — gets a generic row with the path, the body and the result.
+const SELF_AUDITED = /^\/(cp|backgrounds|games-economy|lucky-mgmt|cp-economy|features|host-targets|rooms-mgmt)(\/|$)/;
+router.use((req: any, res: any, next: any) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || SELF_AUDITED.test(req.path)) return next();
+  res.on('finish', () => {
+    let body: unknown = null;
+    try {
+      // Secrets never reach the log.
+      const raw = JSON.stringify(req.body ?? null, (k, v) => (/pass|token|secret|pin|accesscode/i.test(k) ? '***' : v));
+      body = raw && raw.length > 4000 ? { truncated: raw.slice(0, 4000) } : JSON.parse(raw ?? 'null');
+    } catch {
+      body = null;
+    }
+    const idMatch = /\/(?:users|agencies|agency-members|rooms)\/(\d+)/.exec(req.path);
+    recordAdminAudit({
+      adminId: Number(req.userId),
+      action: `DASHBOARD_${req.method}`,
+      targetType: req.path.split('/')[1] || null,
+      targetId: req.path,
+      targetUserId: /\/users\/(\d+)/.test(req.path) && idMatch ? Number(idMatch[1]) : null,
+      before: null,
+      after: { body, status: res.statusCode },
+      ...auditContext(req),
+    }).catch(() => undefined);
+  });
+  return next();
+});
+
 // ── 2026-09-22: صلاحيات فتح CP + إدارة نظام CP والخلفيات ──────────────────
 // Sub-routers, so they inherit the two gates above (JWT + isAdmin on the row)
 // and every action inside writes admin_audit_logs.
 router.use('/cp', adminCpRouter);
 router.use('/backgrounds', adminBackgroundsRouter);
+// ── 2026-09-26: اقتصاد الألعاب، المحظوظ، CP، منح المميزات، التارجت، سجل المراجعة ──
+router.use(adminEconomyRouter);
 
 router.get('/overview', adminDashboardOverview);
 
@@ -123,6 +161,11 @@ router.patch('/users/:id/target-lock', adminDashboardSetTargetLock);
 router.get('/target-locks', adminDashboardListTargetLocks);
 router.get('/target-sell-policy', adminDashboardGetTargetSellPolicy);
 router.patch('/target-sell-policy', requireSuperAdmin, adminDashboardSetTargetSellPolicy);
+// تجميد الكوينزات (owner request, 2026-10-01). Same split as the target freeze:
+// the platform-wide switch is super-admin only, freezing one account is not.
+router.get('/coin-freeze', adminDashboardGetCoinFreeze);
+router.patch('/coin-freeze', requireSuperAdmin, adminDashboardSetCoinFreezeGlobal);
+router.patch('/users/:id/coin-freeze', adminDashboardSetUserCoinFreeze);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);
@@ -162,6 +205,7 @@ router.post('/agency-members/:memberId/target-adjust', adminAdjustMemberTarget);
 // target can be adjusted from the user search instead of only from an
 // agency's member list. `?by=id` forces the internal-id reading.
 router.post('/users/:id/target-adjust', adminAdjustUserTarget);
+router.get('/target-movements', adminListTargetMovements);
 // B9 - top supporters board + per-account counter reset.
 router.get('/top-supporters', adminListTopSupporters);
 router.post('/users/:id/reset-supporter-counter', adminResetSupporterCounter);
@@ -217,14 +261,29 @@ router.get('/gates', adminGetGates);
 
 // ── هدايا الحظ: الصندوق، جدول المضاعفات، آخر الرميات ─────────────────────────
 router.get('/lucky', adminLuckySummary);
-router.post('/lucky/tiers', adminLuckySaveTiers);
-router.post('/lucky/topup', adminLuckyTopUp);
+// 2026-09-26: superseded by /lucky-mgmt/* (validated against the 30/70 split
+// and the RTP target, super-admin only, with a reason in the audit log).
+const retiredLucky = (_req: any, res: any) =>
+  res.status(410).json({ success: false, message: 'استخدم صفحة الألعاب ← إدارة المحظوظ' });
+router.post('/lucky/tiers', retiredLucky);
+router.post('/lucky/topup', retiredLucky);
 router.post('/gates', adminSetGates);
 
 // ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────
 router.get('/games', adminListGameConfig);
 router.post('/games/:game', adminSetGameConfig);
 router.get('/games-halal', adminGetHalalGames);
+// Per game, per Cairo day: coins staked vs coins paid out, from game_ledger.
+// GET /admin-dashboard/games-rtp?days=14
+router.get('/games-rtp', async (req, res) => {
+  try {
+    const { gamesRtp } = await import('../services/gamesRtp.service');
+    res.json({ success: true, data: await gamesRtp(Number(req.query.days) || 14) });
+  } catch (e) {
+    console.error('[games-rtp]', e);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 router.post('/games-halal', adminSetHalalGames);
 
 // ── Client logs (what the app is doing on users' phones) ─────────────────────
@@ -283,6 +342,33 @@ router.get('/client-logs', (req, res) => {
     return res.json({ success: true, minutes, summary, items: all });
   } catch (e) {
     console.error('[admin.client-logs]', e);
+    return res.status(500).json({ success: false, message: 'Failed to read logs' });
+  }
+});
+
+
+// ── Client health (per day × app version) ────────────────────────────────────
+//
+// GET /admin-dashboard/client-health?days=7
+//
+// OS kills, forced logouts, lost connections and memory from the client logs,
+// so each release can be judged by numbers. Reading ~100 MB of logs takes a
+// few seconds, so a result is kept for ten minutes.
+const healthCache = new Map<number, { at: number; rows: HealthRow[] }>();
+router.get('/client-health', async (req, res) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+    const hit = healthCache.get(days);
+    if (hit && Date.now() - hit.at < 10 * 60 * 1000) {
+      return res.json({ success: true, days, generatedAt: new Date(hit.at).toISOString(), rows: hit.rows });
+    }
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    const rows = await readClientHealth({ events: clientLogFiles.events(), reports: clientLogFiles.reports() }, since);
+    const at = Date.now();
+    healthCache.set(days, { at, rows });
+    return res.json({ success: true, days, generatedAt: new Date(at).toISOString(), rows });
+  } catch (e) {
+    console.error('[admin.client-health]', e);
     return res.status(500).json({ success: false, message: 'Failed to read logs' });
   }
 });

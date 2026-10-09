@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
-import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
+import { grantStakeValue, payPrize, releasePrize, reservePrize, revokeStakeValue } from './halalGames.service';
 import {
   getFairness as fairGetFairness,
   reserveNonce,
@@ -256,7 +256,7 @@ export async function dropBall(userId: number, rawRisk: unknown, rawRows: unknow
 
   // The biggest prize this board can pay is promised before the coins move.
   const table = multipliersFor(risk, rows);
-  const reserved = await reservePrize(userId, GAME, bet * Math.max(...table));
+  const reserved = await reservePrize(userId, GAME, bet * Math.max(...table), bet);
   if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
 
   // Charge first, and only if the balance actually covers it — updateMany with a
@@ -291,30 +291,26 @@ export async function dropBall(userId: number, rawRisk: unknown, rawRows: unknow
   let multiplier: number;
   let payout: number;
 
+  let capped = false;
   try {
     ({ directions, slot } = derivePath(s.serverSeed, s.clientSeed, nonce, rows));
     multiplier = table[slot]!;
-    payout = Math.floor(bet * multiplier);
-
-    if (payout > 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { coinsBalance: { increment: payout } },
-      });
-    }
+    // The landing slot's multiplier is a prize from this game's pool — debited,
+    // credited and booked in one transaction.
+    const paid = await payPrize(reserved.token, userId, GAME, Math.floor(bet * multiplier), `${userId}:${nonce}`, bet);
+    payout = paid.paid;
+    capped = paid.capped;
   } catch (err) {
     // Never keep the stake if we failed to resolve the drop.
     await prisma.user.update({
       where: { id: userId },
       data: { coinsBalance: { increment: bet } },
     });
+    await revokeStakeValue(userId, GAME, bet, `${userId}:${nonce}`);
     releasePrize(reserved.token);
     console.error('[plinko] drop failed, bet refunded', { userId, bet, err });
     return { ok: false as const, code: 'DROP_FAILED', message: 'تعذر إسقاط الكرة' };
   }
-
-  // The landing slot's multiplier is a prize from the fund.
-  settlePrize(reserved.token, userId, GAME, payout, `${userId}:${nonce}`);
 
   const record: DropRecord = {
     nonce,
@@ -335,7 +331,7 @@ export async function dropBall(userId: number, rawRisk: unknown, rawRows: unknow
 
   return {
     ok: true as const,
-    drop: { ...record, directions },
+    drop: { ...record, directions, capped },
     balance: user?.coinsBalance ?? 0,
     serverSeedHash: s.serverSeedHash,
     clientSeed: s.clientSeed,

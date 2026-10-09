@@ -583,7 +583,7 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
                 ListTile(
                   leading: CircleAvatar(
                     backgroundImage: (foundUser!['avatarUrl'] ?? '').toString().isNotEmpty
-                        ? NetworkImage(foundUser!['avatarUrl'].toString())
+                        ? appImage(foundUser!['avatarUrl'].toString(), 40)
                         : null,
                     child: (foundUser!['avatarUrl'] ?? '').toString().isEmpty
                         ? const Icon(Icons.person)
@@ -696,7 +696,7 @@ Future<void> _transferAgencyOwnership(BuildContext context, {required String age
                 child: ListTile(
                   leading: CircleAvatar(
                     backgroundImage: (foundUser!['avatarUrl'] ?? '').toString().isNotEmpty
-                        ? NetworkImage(foundUser!['avatarUrl'].toString())
+                        ? appImage(foundUser!['avatarUrl'].toString(), 40)
                         : null,
                     child: (foundUser!['avatarUrl'] ?? '').toString().isEmpty
                         ? const Icon(Icons.person)

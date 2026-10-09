@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import prisma from '../utils/prisma';
-import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
+import { grantStakeValue, payPrize, releasePrize, reservePrize } from './halalGames.service';
 
 // ============================================================
 // نرد المهارة — SKILL DICE (real coins, NOT a betting game)
@@ -187,7 +187,7 @@ export async function joinRound(userId: number, entry: number) {
 
   // The best reward this entry can earn is promised before the coins move.
   const joinRoundId = round.id;
-  const reserved = await reservePrize(userId, 'dice', rewardFor(entry, 100));
+  const reserved = await reservePrize(userId, 'dice', rewardFor(entry, 100), entry);
   if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
 
   const charged = await prisma.user.updateMany({
@@ -290,11 +290,9 @@ async function settleRound(r: Round) {
       continue;
     }
     try {
-      await prisma.user.update({
-        where: { id: e.userId },
-        data: { coinsBalance: { increment: e.reward } },
-      });
-      settlePrize(prizeToken, e.userId, 'dice', e.reward, `round:${r.id}`);
+      // Paid from the game's pool in one transaction, cut only by the caps.
+      const paid = await payPrize(prizeToken, e.userId, 'dice', e.reward, `round:${r.id}`, e.entry);
+      e.reward = paid.paid;
     } catch (err) {
       releasePrize(prizeToken);
       console.error('[skillDice] payout failed', { userId: e.userId, reward: e.reward, err });

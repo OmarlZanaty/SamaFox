@@ -13,6 +13,30 @@ import prisma from '../utils/prisma';
  * the same transaction when they can (see cpAdmin.service).
  */
 export const AUDIT_ACTIONS = {
+  STAFF_APPOINT: 'STAFF_APPOINT',
+  STAFF_EXTEND: 'STAFF_EXTEND',
+  STAFF_RENEW: 'STAFF_RENEW',
+  STAFF_REVOKE: 'STAFF_REVOKE',
+  STAFF_EXPIRED: 'STAFF_EXPIRED',
+  STAFF_PERMISSION_GRANT: 'STAFF_PERMISSION_GRANT',
+  STAFF_PERMISSION_REVOKE: 'STAFF_PERMISSION_REVOKE',
+  STAFF_PERMISSION_EXPIRED: 'STAFF_PERMISSION_EXPIRED',
+  STAFF_ALLOWED_ITEMS_SET: 'STAFF_ALLOWED_ITEMS_SET',
+  STAFF_REWARD_ITEMS_SET: 'STAFF_REWARD_ITEMS_SET',
+  STAFF_ROLE_REWARDS_CONFIG: 'STAFF_ROLE_REWARDS_CONFIG',
+  STAFF_GRANTABLE_POOL_SET: 'STAFF_GRANTABLE_POOL_SET',
+  STAFF_REPARENT: 'STAFF_REPARENT',
+  STAFF_GRANT_VIP: 'STAFF_GRANT_VIP',
+  STAFF_GRANT_LEVEL: 'STAFF_GRANT_LEVEL',
+  STAFF_GRANT_ITEM: 'STAFF_GRANT_ITEM',
+  STAFF_GRANT_REVOKE: 'STAFF_GRANT_REVOKE',
+  STAFF_GRANT_EXPIRED: 'STAFF_GRANT_EXPIRED',
+  STAFF_AGENCY_CREATE: 'STAFF_AGENCY_CREATE',
+  STAFF_AGENCY_FOLLOWER_ADD: 'STAFF_AGENCY_FOLLOWER_ADD',
+  STAFF_AGENCY_FOLLOWER_REMOVE: 'STAFF_AGENCY_FOLLOWER_REMOVE',
+  STAFF_BAN: 'STAFF_BAN',
+  STAFF_UNBAN: 'STAFF_UNBAN',
+  STAFF_BAN_EXPIRED: 'STAFF_BAN_EXPIRED',
   CP_POLICY_UPDATE: 'CP_POLICY_UPDATE',
   CP_GRANT_FREE: 'CP_GRANT_FREE',
   CP_GRANT_FEE: 'CP_GRANT_FEE',
@@ -28,6 +52,26 @@ export const AUDIT_ACTIONS = {
   BG_DELETE: 'BG_DELETE',
   BG_GRANT: 'BG_GRANT',
   BG_REVOKE: 'BG_REVOKE',
+  // 2026-09-26
+  FEATURE_GRANT: 'FEATURE_GRANT',
+  FEATURE_REVOKE: 'FEATURE_REVOKE',
+  TARGET_SET: 'TARGET_SET',
+  TARGET_CANCEL: 'TARGET_CANCEL',
+  CP_BREAK_FEE_UPDATE: 'CP_BREAK_FEE_UPDATE',
+  CP_BREAK_CUSTOM_FEE: 'CP_BREAK_CUSTOM_FEE',
+  CP_LEVEL_UPDATE: 'CP_LEVEL_UPDATE',
+  CP_LEVEL_DELETE: 'CP_LEVEL_DELETE',
+  CP_EFFECT_UPDATE: 'CP_EFFECT_UPDATE',
+  GAME_ECONOMY_UPDATE: 'GAME_ECONOMY_UPDATE',
+  GAME_PROBABILITY_UPDATE: 'GAME_PROBABILITY_UPDATE',
+  GAME_POOL_FUND: 'GAME_POOL_FUND',
+  LUCKY_SETTINGS_UPDATE: 'LUCKY_SETTINGS_UPDATE',
+  LUCKY_TIERS_UPDATE: 'LUCKY_TIERS_UPDATE',
+  LUCKY_POOL_FUND: 'LUCKY_POOL_FUND',
+  ROOM_PERMISSION_UPDATE: 'ROOM_PERMISSION_UPDATE',
+  ROOM_CLOSE: 'ROOM_CLOSE',
+  ROOM_ORDER_UPDATE: 'ROOM_ORDER_UPDATE',
+  AGENCY_ACTION: 'AGENCY_ACTION',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -41,6 +85,9 @@ export interface AdminAuditInput {
   before?: unknown;
   after?: unknown;
   ip?: string | null;
+  reason?: string | null;
+  sessionId?: string | null;
+  userAgent?: string | null;
 }
 
 /** Minimal shape of the client the writer needs — the real prisma or a tx. */
@@ -62,6 +109,9 @@ export async function recordAdminAudit(input: AdminAuditInput, db: AuditWriter =
         before: json(input.before),
         after: json(input.after),
         ip: input.ip ?? null,
+        reason: input.reason ? String(input.reason).slice(0, 500) : null,
+        sessionId: input.sessionId ? String(input.sessionId).slice(0, 200) : null,
+        userAgent: input.userAgent ? String(input.userAgent).slice(0, 300) : null,
       },
     });
   } catch (err) {
@@ -73,4 +123,20 @@ export async function recordAdminAudit(input: AdminAuditInput, db: AuditWriter =
 export function requestIp(req: any): string | null {
   const fwd = String(req?.headers?.['x-forwarded-for'] ?? '').split(',')[0]?.trim();
   return fwd || req?.ip || req?.socket?.remoteAddress || null;
+}
+
+/**
+ * Who, from where, and why — everything an audit row wants from the request.
+ * `reason` is read from the body (`reason`) or the `X-Admin-Reason` header so
+ * any dashboard call can carry one; the session/device come from the headers
+ * the dashboard sends (`X-Session-Id`) or, failing that, the JWT's jti.
+ */
+export function auditContext(req: any): Pick<AdminAuditInput, 'ip' | 'reason' | 'sessionId' | 'userAgent'> {
+  const reason = req?.body?.reason ?? req?.headers?.['x-admin-reason'] ?? null;
+  return {
+    ip: requestIp(req),
+    reason: reason == null || reason === '' ? null : String(reason),
+    sessionId: (req?.headers?.['x-session-id'] as string) ?? req?.tokenJti ?? null,
+    userAgent: (req?.headers?.['user-agent'] as string) ?? null,
+  };
 }

@@ -24,3 +24,6 @@ tatus
 
 # G2 — published APKs are build output, not source
 public/downloads/*.apk
+
+# live room seats saved across restarts (roomStateSnapshot.ts)
+room-state.snapshot.json*

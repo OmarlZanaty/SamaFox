@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, optionalAuth } from '../middlewares/auth.middleware';
 import { rateLimitMw } from './rateLimit';
 import * as ctrl from './controller';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 const router = Router();
 
@@ -17,11 +18,12 @@ router.get('/supporters', ctrl.topSupporters);
 // carry that viewer's claimable مكافأة لك rungs (A15b).
 router.get('/leaderboard/:roomId', optionalAuth, ctrl.leaderboard);
 // A15b — claim a supporter reward rung.
-router.post('/supporter-rewards/:id/claim', authMiddleware, ctrl.claimSupporterRewardHandler);
+router.post('/supporter-rewards/:id/claim', authMiddleware, idempotent('supporter_reward_claim'), ctrl.claimSupporterRewardHandler);
 router.post(
   '/send',
   authMiddleware,
   rateLimitMw('gift_send', (req) => req.userId ?? null),
+  idempotent('gift_send'),
   ctrl.send,
 );
 // A27 - "المايك الكامل" / "جميع الغرفة": one request fans the gift out to every
@@ -31,6 +33,7 @@ router.post(
   '/send-batch',
   authMiddleware,
   rateLimitMw('gift_send', (req) => req.userId ?? null),
+  idempotent('gift_send_batch'),
   ctrl.sendBatch,
 );
 

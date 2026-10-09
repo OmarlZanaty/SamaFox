@@ -1,7 +1,7 @@
 import { Server } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
-import { grantStakeValue, releasePrize, reservePrize, settlePrize } from './halalGames.service';
+import { grantStakeValue, payPrize, releasePrize, reservePrize } from './halalGames.service';
 
 // ============================================================
 // عجلة الحظ — CRAZY WHEEL (54-segment live wheel, Crazy Time format)
@@ -442,7 +442,7 @@ export async function placeBet(userId: number, segment: string, amount: number) 
 
   // Promise the biggest prize this stake could bring before taking it.
   const roundId = round.id;
-  const reserved = await reservePrize(userId, 'crazy-wheel', amount * maxMultiplierFor(segment as SegmentKey));
+  const reserved = await reservePrize(userId, 'crazy-wheel', amount * maxMultiplierFor(segment as SegmentKey), amount);
   if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
 
   const charged = await prisma.user.updateMany({
@@ -602,40 +602,38 @@ async function settle(r: Round) {
   for (const player of r.players.values()) {
     const staked = player.bets[r.resultSegment!] ?? 0;
     lastBets.set(player.userId, { ...player.bets });
-    // One reservation carries the prize to the ledger; the rest are freed.
-    const [prizeToken, ...spare] = player.prizeTokens;
+    // Every reservation this player made this round backs the one prize.
+    const prizeTokens = player.prizeTokens;
     player.prizeTokens = [];
-    for (const t of spare) releasePrize(t);
     if (staked <= 0) {
-      releasePrize(prizeToken);
+      for (const t of prizeTokens) releasePrize(t);
       continue;
     }
 
     const multiplier = Math.min(MAX_WIN_MULTIPLIER, multiplierFor(player, r));
-    const payout = Math.floor(staked * multiplier);
+    const requested = Math.floor(staked * multiplier);
     player.multiplier = multiplier;
-    player.payout = payout;
-    if (payout <= 0) {
-      releasePrize(prizeToken);
+    player.payout = requested;
+    if (requested <= 0) {
+      for (const t of prizeTokens) releasePrize(t);
       continue;
     }
 
     try {
-      await prisma.user.update({
-        where: { id: player.userId },
-        data: { coinsBalance: { increment: payout } },
-      });
-      settlePrize(prizeToken, player.userId, 'crazy-wheel', payout, `round:${r.id}`);
+      // Paid from the wheel's pool in one transaction, cut only by the caps.
+      const paid = await payPrize(prizeTokens, player.userId, 'crazy-wheel', requested, `round:${r.id}`, staked);
+      player.payout = paid.paid;
       winners.push({
         userId: player.userId,
         name: player.name,
         avatarUrl: player.avatarUrl,
-        payout,
+        payout: paid.paid,
         multiplier,
       });
     } catch (err) {
-      releasePrize(prizeToken);
-      console.error('[crazyWheel] payout failed', { userId: player.userId, payout, err });
+      for (const t of prizeTokens) releasePrize(t);
+      player.payout = 0;
+      console.error('[crazyWheel] payout failed', { userId: player.userId, payout: requested, err });
     }
   }
 

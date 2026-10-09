@@ -6,7 +6,7 @@
   <title>لوحة تحكم سمافوكس</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20260802-mobile" />
+  <link rel="stylesheet" href="style.css?v=20260926" />
 </head>
 <body>
 
@@ -65,17 +65,34 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       المشرفون
     </a>
+    <a href="#" class="nav-item" data-section="staff">👑 نظام الإدارة</a>
     <a href="#" class="nav-item" data-section="rewards">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
       المكافآت
     </a>
     <a href="#" class="nav-item" data-section="lucky">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.2"/><circle cx="16" cy="8" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="8" cy="16" r="1.2"/><circle cx="16" cy="16" r="1.2"/></svg>
-      هدايا الحظ
+      إدارة المحظوظ
     </a>
     <a href="#" class="nav-item" data-section="games">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="15" y1="13" x2="15.01" y2="13"/><line x1="18" y1="11" x2="18.01" y2="11"/><rect x="2" y="6" width="20" height="12" rx="2"/></svg>
-      الألعاب
+      اقتصاد الألعاب
+    </a>
+    <a href="#" class="nav-item" data-section="features">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 16.5 5.5 21l2-7.5L2 9h7z"/></svg>
+      منح المميزات
+    </a>
+    <a href="#" class="nav-item" data-section="targets">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+      Target المضيف
+    </a>
+    <a href="#" class="nav-item" data-section="targetlog">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      سجل تعديلات التارجت
+    </a>
+    <a href="#" class="nav-item" data-section="audit">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      سجل المراجعة
     </a>
     <a href="#" class="nav-item" data-section="moderation">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
@@ -126,6 +143,16 @@
 
   <!-- CONTENT AREA -->
   <main class="content" id="mainContent">
+
+    <section class="section" id="section-staff" dir="rtl" aria-label="نظام الإدارة">
+      <div class="section-header">
+        <h2 class="section-title">👑 نظام الإدارة</h2>
+        <p class="section-sub">الإداريون والصلاحيات والمنتجات والسجلات</p>
+      </div>
+      <p id="staffAccessNote" class="settings-hint" role="status">جارٍ التحقق من صلاحيات لوحة التحكم…</p>
+      <button type="button" class="btn btn-outline" id="staffRefresh">تحديث قسم الإدارة</button>
+      <div id="staffPanel"></div>
+    </section>
 
     <!-- ======================== OVERVIEW SECTION ======================== -->
     <section class="section active" id="section-overview">
@@ -285,6 +312,45 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <div class="form-card" id="roomOrderCard">
+        <div class="form-card-title">ترتيب الغرف في التطبيق</div>
+        <p class="section-sub">اكتب الـ ID (رقم صاحب الغرفة الظاهر في التطبيق، أو رقم الغرفة) بالترتيب: الأول يظهر أول غرفة، والثاني بعده… وبعد الغرف المثبتة تأتي باقي الغرف حسب عدد الموجودين فيها الآن. غرفة الإدارة تبقى الكارت الكبير في الأعلى.</p>
+        <div class="form-row">
+          <input id="ro_add" class="form-input" placeholder="ID" inputmode="numeric" />
+          <button class="btn btn-outline" onclick="roAdd()">إضافة للقائمة</button>
+          <button class="btn btn-outline" onclick="roLoad()">تحديث</button>
+        </div>
+        <table class="data-table" id="roPinsTable" style="margin-top:8px">
+          <thead><tr><th>الترتيب</th><th>ID</th><th>الغرفة</th><th>الموجودون الآن</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="form-row" style="margin-top:8px">
+          <input id="ro_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="roSave()">حفظ الترتيب</button>
+        </div>
+        <div class="form-card-title" style="margin-top:14px">كما يظهر الآن في التطبيق (أول 30)</div>
+        <table class="data-table" id="roPreviewTable">
+          <thead><tr><th>#</th><th>الغرفة</th><th>ID صاحبها</th><th>الموجودون الآن</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="form-card">
+        <div class="form-card-title">نوع الغرفة والدخول المخفي</div>
+        <p class="section-sub">OFFICIAL_ROOM لا تُغلق تلقائياً ولا يغلقها مالكها — الإغلاق من هنا فقط أو بصلاحية «إدارة الغرف الرسمية».</p>
+        <div class="form-row">
+          <input id="rm_id" class="form-input" placeholder="Room ID" />
+          <button class="btn btn-outline" onclick="rmLoad()">عرض</button>
+        </div>
+        <div id="rmInfo" class="cell-muted" style="margin-top:8px"></div>
+        <div class="form-row" style="margin-top:8px">
+          <label>النوع <select id="rm_type" class="form-input"><option value="USER">USER</option><option value="OFFICIAL_ROOM">OFFICIAL_ROOM</option></select></label>
+          <label style="display:flex;align-items:center;gap:6px"><input id="rm_hidden" type="checkbox" /> يسمح بالدخول المخفي للغرفة المغلقة</label>
+          <input id="rm_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="rmSave()">حفظ</button>
+        </div>
       </div>
     </section>
 
@@ -866,6 +932,63 @@
           <button class="btn btn-outline" id="cpAuditMore" style="display:none" onclick="loadCpAudit(true)">تحميل المزيد</button>
         </div>
       </div>
+
+      <!-- ── 2026-09-26: رسوم فك CP، رسوم مخصصة، CP Level، التأثيرات ── -->
+      <div class="form-card">
+        <div class="form-card-title">CP Settings — Break CP Fee</div>
+        <p class="section-sub">الرسوم يدفعها من يفك الارتباط: حصة البرنامج تذهب لحساب البرنامج، وحصة الطرف الآخر تذهب لرصيده — في عملية واحدة.</p>
+        <div class="form-row">
+          <label>Program Fee <input id="cpb_program" type="number" min="0" class="form-input" /></label>
+          <label>Partner Fee <input id="cpb_partner" type="number" min="0" class="form-input" /></label>
+          <label>الإجمالي <input id="cpb_total" class="form-input" disabled /></label>
+        </div>
+        <div class="form-row">
+          <input id="cpb_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="cpbSave()">حفظ</button>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title">Custom CP Break Fee</div>
+        <div class="form-row">
+          <input id="cpc_user" class="form-input" placeholder="ID" />
+          <button class="btn btn-primary" onclick="cpcSearch()">بحث</button>
+        </div>
+        <div id="cpcCard" style="margin-top:10px"></div>
+        <div class="form-row" style="margin-top:10px">
+          <label>Custom Program Fee <input id="cpc_program" type="number" min="0" class="form-input" /></label>
+          <label>Custom Partner Fee <input id="cpc_partner" type="number" min="0" class="form-input" /></label>
+          <label style="display:flex;align-items:center;gap:6px"><input id="cpc_enabled" type="checkbox" /> Enable Custom Fee</label>
+        </div>
+        <div class="form-row">
+          <input id="cpc_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="cpcSave()">حفظ</button>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title">CP Level Management</div>
+        <p class="section-sub">مستقل عن مستوى المستخدم. يرتفع فقط من هدايا CP الموجودة في قائمة CP (لا شحن ولا ألعاب ولا هدايا عادية). طالما الجدول فارغ تبقى المستويات الحالية كما هي.</p>
+        <div class="table-wrap">
+          <table id="cplTable"><thead><tr><th>Level</th><th>Required Coins</th><th>الاسم</th><th>Badge URL</th><th>Frame URL</th><th>Effect</th><th>مفعّل</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="form-row" style="margin-top:10px">
+          <input id="cpl_new_level" type="number" min="1" class="form-input" placeholder="رقم مستوى جديد" />
+          <button class="btn btn-outline" onclick="cplAddRow()">إضافة مستوى</button>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title">تأثير CP على المايكات</div>
+        <p class="section-sub">يظهر بين الشريكين فقط إذا كانا على مايكين متجاورين ومستوى CP ≥ المطلوب، ويختفي عند نزول أحدهما أو خروجه.</p>
+        <div class="table-wrap">
+          <table id="cpeTable"><thead><tr><th>Effect ID</th><th>الاسم</th><th>Required Level</th><th>Enable</th><th>Duration (ث، 0=دائم)</th><th>Animation Speed</th><th>Priority</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title">سجل فك CP</div>
+        <div class="form-row"><input id="cpbl_user" class="form-input" placeholder="ID (اختياري)" /><button class="btn btn-outline" onclick="cpblLoad()">عرض</button></div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="cpblTable"><thead><tr><th>#</th><th>من فك</th><th>الطرف الآخر</th><th>Program</th><th>Partner</th><th>المصدر</th><th>قيمة CP</th><th>الوقت</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
     </section>
 
     <!-- ======================== BACKGROUNDS (خلفية الصفحة الشخصية) SECTION ======================== -->
@@ -1025,7 +1148,7 @@
         <div class="form-row">
           <input id="rcr_threshold" type="number" min="1" class="form-input" placeholder="عدد كوينز الدعم في الغرفة" />
           <input id="rcr_reward" type="number" min="1" class="form-input" placeholder="عدد كوينز المكافأة" />
-          <button class="btn btn-primary" onclick="saveRoomCupReward()">حفظ الدرجة</button>
+          <button id="rcr_save" class="btn btn-primary" onclick="saveRoomCupReward()">حفظ الدرجة</button>
         </div>
         <div class="table-wrap" style="margin-top:10px">
           <table id="roomCupRewardsTable">
@@ -1060,41 +1183,74 @@
     <section class="section" id="section-games">
       <div class="section-header">
         <div>
-          <h2 class="section-title">الألعاب</h2>
-          <p class="section-sub">تشغيل/إيقاف كل لعبة وحدود الرهان</p>
+          <h2 class="section-title">إدارة اقتصاد الألعاب</h2>
+          <p class="section-sub">25% حصة البرنامج · 75% صندوق جوائز اللاعبين لكل لعبة · المكاسب تُدفع من صندوق اللعبة فقط ولا تُنشأ كوينز</p>
         </div>
         <div class="section-actions">
-          <button class="btn btn-outline" onclick="loadGamesConfig()">تحديث</button>
+          <input id="econ_from" type="date" class="form-input form-input--sm" />
+          <input id="econ_to" type="date" class="form-input form-input--sm" />
+          <button class="btn btn-outline" onclick="econLoadGames()">تحديث</button>
         </div>
       </div>
+      <div class="stats-grid" id="econTotals"></div>
       <div class="form-card">
-        <p class="section-sub">
-          اترك حد الرهان فارغاً ليعمل بالحد الأصلي المبني داخل اللعبة. الإيقاف يمنع الرهانات الجديدة فقط —
-          أي رهان قائم يقدر صاحبه يكمله ويسحب أرباحه.
-        </p>
+        <div class="form-card-title">كل الألعاب</div>
+        <p class="section-sub">RTP الفعلي = المكاسب ÷ اللعب. نسبة الخسارة = الجولات بدون مكسب. صافي النتيجة = اللعب − المكاسب. الربح/الخسارة للبرنامج = حصة البرنامج − ما تم تمويله للصندوق.</p>
         <div class="table-wrap">
-          <table id="gamesTable">
-            <thead><tr><th>اللعبة</th><th>الحالة</th><th>أقل رهان</th><th>أعلى رهان</th><th>حفظ</th></tr></thead>
+          <table id="econGamesTable">
+            <thead><tr>
+              <th>اللعبة</th><th>الحالة</th><th>إجمالي اللعب</th><th>إجمالي المكاسب</th><th>حصة البرنامج</th><th>صندوق اللاعبين</th>
+              <th>صافي النتيجة</th><th>الجولات</th><th>اللاعبين</th><th>أعلى مكسب</th><th>متوسط المكسب</th>
+              <th>RTP فعلي</th><th>RTP مستهدف</th><th>نسبة الخسارة</th><th>ربح/خسارة</th><th>رصيد الصندوق</th><th></th>
+            </tr></thead>
             <tbody></tbody>
           </table>
         </div>
       </div>
-      <div class="form-card">
-        <h3 class="section-title">الألعاب الحلال — صندوق الجوائز</h3>
-        <p class="section-sub">
-          المبلغ اللي بيدفعه اللاعب بيشتري XP فوراً بنفس سعر الهدايا (ده العِوَض). المكسب جائزة من صندوق المنصة،
-          بحد يومي كلي وحد يومي لكل لاعب. لو الصندوق مش مغطي أكبر جائزة ممكنة، اللعبة بترفض قبل ما تخصم أي كوينز.
-        </p>
-        <div id="halalToday" class="cell-muted" style="margin-bottom:12px"></div>
+      <div class="form-card" id="econEditCard" style="display:none">
+        <div class="form-card-title">إعدادات اللعبة: <span id="econEditTitle"></span></div>
+        <p class="section-sub">كل القيم تُطبَّق على السيرفر. التطبيق لا يقرر قيمة المكسب. أي تعديل يحتاج سبباً ويُسجل في سجل المراجعة (سوبر أدمن فقط).</p>
         <div class="form-row">
-          <label>ميزانية الجوائز اليومية (كل الألعاب)
-            <input id="halal_budget" type="number" min="0" class="form-input" /></label>
-          <label>أقصى جوائز للاعب الواحد في اليوم
-            <input id="halal_cap" type="number" min="0" class="form-input" /></label>
-          <label>XP لكل كوينز
-            <input id="halal_xp" type="number" min="0" step="0.1" class="form-input" /></label>
+          <label>الحالة <select id="econ_enabled" class="form-input"><option value="1">تعمل</option><option value="0">متوقفة</option></select></label>
+          <label>أقل رهان <input id="econ_minBet" type="number" min="0" class="form-input" placeholder="الأصلي" /></label>
+          <label>أعلى رهان <input id="econ_maxBet" type="number" min="0" class="form-input" placeholder="الأصلي" /></label>
+          <label>أقصى مكسب للجولة <input id="econ_maxWinPerRound" type="number" min="0" class="form-input" placeholder="بدون حد" /></label>
         </div>
-        <button class="btn btn-primary" onclick="saveHalalGames()">حفظ</button>
+        <div class="form-row">
+          <label>أقصى مكسب يومي للاعب <input id="econ_dailyMaxWinPerUser" type="number" min="0" class="form-input" placeholder="بدون حد" /></label>
+          <label>أقصى نسبة دفع (× الرهان) <input id="econ_maxPayoutRatio" type="number" min="1" class="form-input" placeholder="الحد الطبيعي للعبة" /></label>
+          <label>RTP مستهدف % <input id="econ_rtpTarget" type="number" min="0" max="100" step="0.01" class="form-input" /></label>
+          <label>حصة البرنامج % <input id="econ_programShare" type="number" min="0" max="100" step="0.01" class="form-input" /></label>
+          <label>إعلان الفوز من (× الرهان) <input id="econ_broadcastMinX" type="number" min="1" class="form-input" placeholder="50" /></label>
+        </div>
+        <div class="cell-muted" id="econNatural"></div>
+        <div class="form-row" style="margin-top:10px">
+          <input id="econ_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="econSaveGame()">حفظ الإعدادات</button>
+        </div>
+        <div class="form-row" style="margin-top:10px">
+          <input id="econ_fund" type="number" min="1" class="form-input" placeholder="تمويل صندوق اللعبة من حساب البرنامج (كوينز)" />
+          <button class="btn btn-outline" onclick="econFundGame()">تمويل الصندوق</button>
+        </div>
+        <p class="section-sub">صندوق فارغ = اللعبة ترفض الرهانات قبل الخصم. التمويل يُخصم من حساب البرنامج (حصته من اللعب) ويُسجَّل.</p>
+      </div>
+      <div class="form-card" id="gamesRtpCard">
+        <div class="form-card-title">RTP يومي لكل لعبة</div>
+        <p class="section-sub">المكاسب ÷ اللعب لكل يوم (بتوقيت القاهرة) من سجل الألعاب. الخط الأحمر المتقطع = 100%، الأخضر = المستهدف.</p>
+        <div class="form-row">
+          <select id="rtpDays" class="form-input form-input--sm" onchange="loadGamesRtp()">
+            <option value="7">7 أيام</option><option value="14" selected>14 يوم</option><option value="30">30 يوم</option>
+          </select>
+          <select id="rtpGame" class="form-input form-input--sm" onchange="renderGamesRtp()"></select>
+          <button class="btn btn-outline btn-sm" onclick="loadGamesRtp()">تحديث</button>
+        </div>
+        <div id="gamesRtpChart" style="overflow-x:auto;margin-top:8px"></div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="gamesRtpTable">
+            <thead><tr><th>اللعبة</th><th>اللعب</th><th>المكاسب</th><th>الجولات</th><th>RTP</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -1102,63 +1258,204 @@
     <section class="section" id="section-lucky">
       <div class="section-header">
         <div>
-          <h2 class="section-title">هدايا الحظ (المحظوظ)</h2>
-          <p class="section-sub">المضيف ياخد نسبته، والداعم يرمي على مضاعف يتدفع من صندوق الحظ — البرنامج لا يدفع ولا يأخذ</p>
+          <h2 class="section-title">الألعاب / إدارة المحظوظ</h2>
+          <p class="section-sub">كل هدية حظ = مشاركة في جولة الغرفة: 30% للبرنامج (منها 10% للمضيف) · 70% صندوق جوائز اللاعبين · لاعب واحد لا يحصل على مكسب تنافسي</p>
         </div>
         <div class="section-actions">
-          <button class="btn btn-outline" onclick="loadLucky()">تحديث</button>
+          <input id="lk_from" type="date" class="form-input form-input--sm" />
+          <input id="lk_to" type="date" class="form-input form-input--sm" />
+          <button class="btn btn-outline" onclick="lkLoad()">تحديث</button>
+        </div>
+      </div>
+      <div class="stats-grid" id="lkStats"></div>
+
+      <div class="form-card">
+        <div class="form-card-title">Lucky Settings</div>
+        <div class="form-row">
+          <label>الحالة <select id="lk_enabled" class="form-input"><option value="1">مفعّل</option><option value="0">متوقف</option></select></label>
+          <label>Program Share % <input id="lk_programShare" type="number" step="0.01" class="form-input" /></label>
+          <label>Player Prize Pool % <input id="lk_prizePool" type="number" step="0.01" class="form-input" /></label>
+          <label>حصة المضيف % <input id="lk_hostShare" type="number" step="0.01" class="form-input" /></label>
+        </div>
+        <div class="form-row">
+          <label>Minimum Players <input id="lk_minPlayers" type="number" min="1" class="form-input" /></label>
+          <label>Maximum Players <input id="lk_maxPlayers" type="number" min="1" class="form-input" /></label>
+          <label>Minimum Entry <input id="lk_minEntry" type="number" min="1" class="form-input" /></label>
+          <label>Maximum Entry <input id="lk_maxEntry" type="number" min="1" class="form-input" /></label>
+        </div>
+        <div class="form-row">
+          <label>RTP % <input id="lk_rtp" type="number" step="0.01" class="form-input" /></label>
+          <label>Maximum Win <input id="lk_maxWin" type="number" min="1" class="form-input" /></label>
+          <label>مدة الجولة (ثانية) <input id="lk_roundSeconds" type="number" min="10" class="form-input" /></label>
+          <label>أقل مضاعف للشريط العام <input id="lk_broadcastMin" type="number" min="0" class="form-input" /></label>
+        </div>
+        <div class="form-row">
+          <input id="lk_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="lkSaveSettings()">حفظ الإعدادات</button>
         </div>
       </div>
 
-      <div class="stats-grid" id="luckyStats"></div>
-
       <div class="form-card">
-        <div class="form-card-title">&#127922; جدول المضاعفات</div>
-        <p class="section-sub">
-          الوزن بالنقطة الأساس (10000 = 100%). الباقي حتى 10000 هو احتمال الخسارة. "أقل صندوق" يمنع المضاعف من الدخول في السحب
-          لحد ما الصندوق يوصل للرقم ده — كده المضاعفات الكبيرة بتظهر لما فلوس الخاسرين تكون اتجمعت، مش من جيب البرنامج.
-        </p>
+        <div class="form-card-title">Multipliers — الاحتمالات</div>
+        <p class="section-sub">الاحتمال لكل مضاعف بالنسبة المئوية؛ الباقي حتى 100% = بدون مكسب. المكسب = المضاعف × حصة المضيف. مضاعف لا يغطيه الصندوق أو يتجاوز Maximum Win لا يدخل السحب أصلاً.</p>
         <div class="table-wrap">
-          <table id="luckyTiersTable">
-            <thead><tr><th>المضاعف</th><th>الوزن (bp)</th><th>%</th><th>أقل صندوق (كوينز)</th><th>مفعّل</th></tr></thead>
+          <table id="lkTiersTable">
+            <thead><tr><th>المضاعف</th><th>الاحتمال %</th><th>المساهمة في RTP</th><th>أقل رصيد صندوق</th><th>مفعّل</th></tr></thead>
             <tbody></tbody>
           </table>
+        </div>
+        <div id="lkAnalysis" class="cell-muted" style="margin:10px 0"></div>
+        <div class="form-row">
+          <input id="lk_tiers_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="lkSaveTiers()">حفظ الاحتمالات</button>
         </div>
         <div class="form-row" style="margin-top:10px">
-          <input id="lucky_host_bp" type="number" min="100" max="5000" class="form-input" placeholder="نسبة المضيف (bp) — 1000 = 10%" />
-          <input id="lucky_bcast_min" type="number" min="0" max="500" class="form-input" placeholder="أقل مضاعف يظهر في الشريط العام" />
-          <button class="btn btn-primary" onclick="saveLuckyTiers()">حفظ الجدول</button>
+          <input id="lk_fund" type="number" min="1" class="form-input" placeholder="تمويل صندوق المحظوظ من حساب البرنامج" />
+          <button class="btn btn-outline" onclick="lkFund()">تمويل</button>
         </div>
-        <p class="section-sub" id="luckyAnalysis" style="margin-top:8px"></p>
       </div>
 
       <div class="form-card">
-        <div class="form-card-title">&#128176; صندوق الحظ</div>
-        <p class="section-sub">إضافة فقط (ترويج). مفيش سحب من الصندوق — دي فلوس اللاعبين.</p>
+        <div class="form-card-title">سجل المحظوظ</div>
         <div class="form-row">
-          <input id="lucky_topup" type="number" min="1" class="form-input" placeholder="كوينز تضاف للصندوق" />
-          <button class="btn btn-primary" onclick="luckyTopUp()">إضافة</button>
+          <input id="lkq_user" class="form-input" placeholder="ID اللاعب" />
+          <input id="lkq_room" class="form-input" placeholder="Room ID" />
+          <input id="lkq_round" class="form-input" placeholder="رقم الجولة" />
+          <input id="lkq_from" type="date" class="form-input" />
+          <input id="lkq_to" type="date" class="form-input" />
+          <button class="btn btn-primary" onclick="lkSearch(1)">بحث</button>
         </div>
-      </div>
-
-      <div class="form-card">
-        <div class="form-card-title">&#127942; أعلى الكسبانين</div>
-        <div class="table-wrap">
-          <table id="luckyWinnersTable">
-            <thead><tr><th>المستخدم</th><th>رميات</th><th>أنفق</th><th>كسب</th><th>صافي</th></tr></thead>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="lkLogTable">
+            <thead><tr><th>Round ID</th><th>Room</th><th>Player</th><th>Total Entry</th><th>المضيف</th><th>Program Share</th><th>Prize Pool</th><th>Multiplier</th><th>Win</th><th>الحالة</th><th>التاريخ</th><th>الوقت</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
+        <div class="table-meta" id="lkLogMeta"></div>
       </div>
+    </section>
 
-      <div class="form-card">
-        <div class="form-card-title">&#128203; آخر 50 رمية</div>
-        <div class="table-wrap">
-          <table id="luckyRollsTable">
-            <thead><tr><th>#</th><th>الوقت</th><th>الداعم</th><th>المضيف</th><th>الهدية</th><th>للمضيف</th><th>المضاعف</th><th>المكسب</th><th>الصندوق بعدها</th></tr></thead>
-            <tbody></tbody>
-          </table>
+    <section class="section" id="section-features">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">منح المميزات</h2>
+          <p class="section-sub">صلاحيات وميزات لكل مستخدم — كل منح/سحب يُسجَّل. التحقق دائماً على السيرفر.</p>
         </div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <input id="ft_user" class="form-input" placeholder="User ID" />
+          <button class="btn btn-primary" onclick="ftSearch()">Search</button>
+        </div>
+        <div id="ftUserCard" style="margin-top:12px"></div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="ftTable"><thead><tr><th>الميزة</th><th>الوصف</th><th>الحالة</th><th>مفتاح المستخدم</th><th>ينتهي</th><th>إجراء</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title">سجل الدخول المخفي وتجاوز كلمة المرور</div>
+        <div class="form-row">
+          <input id="fte_user" class="form-input" placeholder="User ID" />
+          <input id="fte_room" class="form-input" placeholder="Room ID" />
+          <label style="display:flex;align-items:center;gap:6px"><input id="fte_hidden" type="checkbox" /> المخفي فقط</label>
+          <button class="btn btn-outline" onclick="ftEntries()">عرض</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="ftEntriesTable"><thead><tr><th>User</th><th>Room</th><th>مخفي</th><th>تجاوز القفل</th><th>Entry Time</th><th>Exit Time</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-targets">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Target المضيف</h2>
+          <p class="section-sub">مصدر واحد للتارجت: ما يُحفظ هنا هو ما يظهر للمضيف في التطبيق وفي كل لوحات التحكم.</p>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <input id="tg_user" class="form-input" placeholder="Host ID" />
+          <button class="btn btn-primary" onclick="tgSearch()">بحث</button>
+        </div>
+        <div id="tgUserCard" style="margin-top:12px"></div>
+        <div id="tgBalance" style="margin-top:10px"></div>
+        <div id="tgActive" class="cell-muted" style="margin-top:8px"></div>
+        <div class="form-row" style="margin-top:10px">
+          <label>Target Coins <input id="tg_coins" type="number" min="0" class="form-input" /></label>
+          <label>Target USD <input id="tg_usd" type="number" min="0" step="0.01" class="form-input" /></label>
+          <label>Start Date <input id="tg_start" type="date" class="form-input" /></label>
+          <label>End Date <input id="tg_end" type="date" class="form-input" /></label>
+        </div>
+        <div class="form-row">
+          <input id="tg_note" class="form-input" placeholder="ملاحظة (اختياري)" />
+          <input id="tg_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
+          <button class="btn btn-primary" onclick="tgSave()">Save</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="tgHistory"><thead><tr><th>#</th><th>Coins</th><th>USD</th><th>من</th><th>إلى</th><th>الحالة</th><th>المصدر</th><th>Version</th><th>آخر تعديل</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-targetlog">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">سجل تعديلات التارجت</h2>
+          <p class="section-sub">كل حركة على تارجت أي حساب: إضافة أو خصم من الإدارة (ومين المشرف)، بيع وشراء تارجت، تبديل، وشحن الوكيل.</p>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <input id="tl_q" class="form-input" placeholder="ID المستخدم أو اسمه" onkeydown="if(event.key==='Enter')tlLoad(1)" />
+          <select id="tl_kind" class="form-input">
+            <option value="">كل الحركات</option>
+            <option value="admin_deduct">خصم من الإدارة</option>
+            <option value="admin_add">إضافة من الإدارة</option>
+            <option value="sale_out">بيع تارجت</option>
+            <option value="sale_in">شراء تارجت</option>
+            <option value="convert">تبديل لكوينزات</option>
+            <option value="charge">شحن (تارجت الوكيل)</option>
+          </select>
+          <button class="btn btn-primary" onclick="tlLoad(1)">عرض</button>
+        </div>
+        <div id="tlTotals" class="table-meta" style="margin-top:8px"></div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="tlTable"><thead><tr><th>الوقت</th><th>الحساب</th><th>الوكالة</th><th>الحركة</th><th>الكمية</th><th>بواسطة</th><th>الطرف الآخر</th><th>ملاحظة</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="table-meta" id="tlMeta"></div>
+        <p class="cell-muted" style="margin-top:8px">التبديل والشحن متسجلين من 3/10/2026. تعديلات الإدارة وبيع التارجت متسجلة من الأول.</p>
+      </div>
+    </section>
+
+    <section class="section" id="section-audit">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">سجل المراجعة</h2>
+          <p class="section-sub">كل عملية إدارية: المشرف، العملية، الهدف، القيمة قبل وبعد، السبب، الوقت، IP والجهاز.</p>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <select id="au_action" class="form-input">
+            <option value="">كل العمليات</option>
+            <option value="FEATURE_*">منح/سحب المميزات</option>
+            <option value="TARGET_*">التارجت</option>
+            <option value="CP_*">CP</option>
+            <option value="GAME_*">الألعاب</option>
+            <option value="LUCKY_*">المحظوظ</option>
+            <option value="ROOM_*">الغرف</option>
+            <option value="DASHBOARD_*">عمليات أخرى في اللوحة</option>
+          </select>
+          <input id="au_user" class="form-input" placeholder="ID المستخدم المستهدف" />
+          <input id="au_from" type="date" class="form-input" />
+          <input id="au_to" type="date" class="form-input" />
+          <button class="btn btn-primary" onclick="auLoad(1)">عرض</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="auTable"><thead><tr><th>#</th><th>الوقت</th><th>Admin</th><th>Action</th><th>الهدف</th><th>قبل</th><th>بعد</th><th>السبب</th><th>IP / الجهاز</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div class="table-meta" id="auMeta"></div>
       </div>
     </section>
 
@@ -1361,6 +1658,40 @@
           </table>
         </div>
         <p class="settings-hint">تُستخدم عند رغبتك في منع أشخاص بعينهم بينما البيع مفتوح للباقين.</p>
+      </div>
+
+      <!-- COIN FREEZE (تجميد الكوينزات) -->
+      <div class="form-card">
+        <div class="form-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19"/></svg>
+          تجميد الكوينزات
+        </div>
+
+        <div class="form-row" style="align-items:center">
+          <span class="settings-hint" style="min-width:220px">الحالة الحالية لكل المستخدمين</span>
+          <span id="coinFreezeStatus" class="badge badge-pending">جاري التحميل…</span>
+        </div>
+
+        <div class="form-row">
+          <button class="btn btn-bad" id="btnFreezeCoins" onclick="setCoinFreezeGlobal(true)">تجميد كوينزات كل المستخدمين</button>
+          <button class="btn btn-primary" id="btnUnfreezeCoins" onclick="setCoinFreezeGlobal(false)">فك التجميد</button>
+          <button class="btn btn-outline" onclick="loadCoinFreeze()">تحديث</button>
+        </div>
+        <p class="settings-hint">أثناء التجميد لا يستطيع أحد استخدام الكوينزات في أي شيء: إرسال الهدايا، الألعاب، المتجر، VIP، وغيرها. الرصيد نفسه لا يتغير، وعند فك التجميد يرجع كل شيء كما كان. استقبال الكوينزات (هدايا واردة، شحن من وكلاء الشحن) يظل يعمل.</p>
+
+        <div class="form-card-title" style="margin-top:18px">تجميد مستخدم بالـ ID</div>
+        <div class="form-row">
+          <input id="coinFreezeUserId" type="number" class="form-input" placeholder="ID المستخدم الظاهر في ملفه" min="1" />
+          <button class="btn btn-bad" onclick="setUserCoinFreeze(true)">تجميد</button>
+          <button class="btn btn-outline" onclick="setUserCoinFreeze(false)">فك التجميد</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="coinFreezeTable">
+            <thead><tr><th>ID</th><th>الاسم</th><th>المعرّف</th><th>الرصيد</th><th>إجراءات</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="settings-hint">الحساب المجمّد بالـ ID يظل مجمداً حتى لو تم فك التجميد العام، إلى أن تفك تجميده من هنا.</p>
       </div>
     </section>
 
@@ -1779,6 +2110,8 @@
   <div id="uploadBarLabel" style="margin-bottom:6px">جارٍ الرفع…</div>
   <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
 </div>
-<script src="app.js?v=20260920-lucky"></script>
+<script src="app.js?v=20261005-tl"></script>
+<script src="economy-admin.js?v=20261005"></script>
+<script src="staff-admin.js?v=20261005"></script>
 </body>
 </html>

@@ -80,6 +80,21 @@ class _CpListScreenState extends State<CpListScreen> {
   }
 
   Future<void> _confirmCancel(CpPartner partner) async {
+    // The fee comes from the server before anything is confirmed. An older
+    // server without the quote endpoint means breaking is free, as it was.
+    CpBreakQuote? quote;
+    try {
+      quote = await _repo.breakQuote(partner.userId);
+    } on CpException catch (e) {
+      if (e.code == 'NOT_FOUND' && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        _reload();
+        return;
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    final fee = quote?.totalFee ?? 0;
+    final short = quote?.shortfall ?? 0;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => Directionality(
@@ -88,7 +103,16 @@ class _CpListScreenState extends State<CpListScreen> {
           backgroundColor: _kCard,
           title: const Text('إلغاء الـ CP', style: TextStyle(color: Colors.white)),
           content: Text(
-            'إلغاء CP مع ${partner.name}؟',
+            fee <= 0
+                ? 'إلغاء CP مع ${partner.name}؟'
+                : [
+                    'إلغاء CP مع ${partner.name}؟',
+                    '',
+                    'رسوم فك الارتباط: $fee كوينز',
+                    '(${quote!.programFee} للبرنامج + ${quote.partnerFee} لـ ${partner.name})',
+                    'رصيدك: ${quote.balance}',
+                    if (short > 0) ...['', 'رصيدك لا يكفي — ينقصك $short كوينز'],
+                  ].join('\n'),
             style: const TextStyle(color: Colors.white70, height: 1.5),
           ),
           actions: [
@@ -97,8 +121,9 @@ class _CpListScreenState extends State<CpListScreen> {
               child: const Text('لا', style: TextStyle(color: Colors.white54)),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('نعم', style: TextStyle(color: _kPink, fontWeight: FontWeight.bold)),
+              onPressed: short > 0 ? null : () => Navigator.pop(ctx, true),
+              child: Text(fee > 0 ? 'نعم — ادفع $fee' : 'نعم',
+                  style: TextStyle(color: short > 0 ? Colors.white24 : _kPink, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -196,7 +221,7 @@ class _CpListScreenState extends State<CpListScreen> {
             CircleAvatar(
               radius: 24,
               backgroundColor: const Color(0xFF2A1A5E),
-              backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+              backgroundImage: avatar != null ? appImage(avatar, 48) : null,
               child: avatar == null
                   ? Text(
                       p.name.isNotEmpty ? p.name.characters.first.toUpperCase() : '?',

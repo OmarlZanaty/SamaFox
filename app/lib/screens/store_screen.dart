@@ -73,13 +73,15 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
 
       final items = await service.getInventory(token!);
 
+      if (!mounted) return;
       setState(() {
         ownedIds = items.map((e) => e.productId).toSet();
         loadingInventory = false;
       });
     } catch (e) {
-      //debugPrint(e);
-      setState(() => loadingInventory = false);
+      // Leaving the store before the inventory arrived made this setState hit
+      // a disposed widget ("Null check operator used on a null value", 1.0.46).
+      if (mounted) setState(() => loadingInventory = false);
     }
   }
 
@@ -424,7 +426,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     image: DecorationImage(
-                      image: NetworkImage(product.fileUrl),
+                      image: appImage(product.fileUrl, 300),
                       fit: BoxFit.fill,
                       onError: (_, __) {},
                     ),

@@ -14,10 +14,12 @@ import '../providers/room_controller_provider.dart';
 import '../models/user.dart';
 import '../providers/room_live_provider.dart';
 import '../providers/room_provider.dart';
+import '../services/device_tier.dart';
 import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
 import '../services/voice_engine.dart';
+import '../services/livekit_voice_engine.dart';
 import 'room/pin_dialog.dart';
 import 'room/room_widgets.dart';
 import '../services/room_audio_keepalive.dart';
@@ -324,6 +326,24 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     setState(() {
       _showSeatVideo = false;
     });
+
+    // Release the decoder now, not when the next effect or the room exit comes
+    // round: a finished 1080x1920 entrance clip otherwise keeps its decoder and
+    // frame buffers (graphics memory) for as long as the user stays.
+    //
+    // But not in this frame: the setState above only SCHEDULES the frame that
+    // drops the VideoPlayer, so disposing here released the decoder and its
+    // texture while the raster thread could still be drawing them. 1.0.46 did
+    // exactly that, and an OPPO A15 (Android 10) started dying silently ~13 s
+    // after entering a room — the length of its owner's own entrance clip —
+    // most times she entered (05/10). Release it once the frame without it is
+    // out, with a margin for the raster thread.
+    if (identical(_seatVideoController, controller)) {
+      _seatVideoController = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future<void>.delayed(const Duration(milliseconds: 500), controller.dispose);
+      });
+    }
 
     await Future.delayed(const Duration(milliseconds: 400));
 
@@ -774,13 +794,40 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// Shown when the server denies entry to a locked room: prompt for the PIN
   /// and re-join. Cancelling leaves the room.
-  Future<void> _promptRoomAccessCode() async {
+  Future<void> _promptRoomAccessCode({bool canHiddenBypass = false, bool wrongCode = false}) async {
     if (_pinDialogOpen) return;
     _pinDialogOpen = true;
     try {
+      // الدخول المخفي + غرفة مغلقة: the server said this user may be let in
+      // without the PIN (HIDDEN_MODE granted and on, and the room allows it).
+      // Ask first; the server checks everything again when the answer lands.
+      if (canHiddenBypass) {
+        final yes = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('غرفة مقفلة 🔒'),
+              content: const Text('الغرفة مغلقة، هل تريد الدخول بدون كلمة مرور؟'),
+              actions: [
+                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('لا')),
+                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('نعم')),
+              ],
+            ),
+          ),
+        );
+        if (!mounted) return;
+        if (yes == true) {
+          await ref.read(roomControllerProvider(widget.roomId).notifier).rejoinHidden();
+        } else {
+          Navigator.of(context).maybePop(); // "لا" → cancel the entry
+        }
+        return;
+      }
       final code = await _askFiveDigitCode(
         title: 'غرفة مقفلة 🔒',
-        hint: 'أدخل الرمز السري المكوّن من 5 أرقام للدخول',
+        hint: wrongCode ? 'الرمز غير صحيح — أدخل الرمز المكوّن من 5 أرقام' : 'أدخل الرمز السري المكوّن من 5 أرقام للدخول',
         confirmLabel: 'دخول',
       );
       if (!mounted) return;
@@ -1136,7 +1183,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         children: [
           Row(children: [
             CircleAvatar(radius: 18,
-              backgroundImage: (u['avatarUrl'] ?? '').toString().isNotEmpty ? NetworkImage(u['avatarUrl']) : null,
+              backgroundImage: (u['avatarUrl'] ?? '').toString().isNotEmpty ? appImage(u['avatarUrl'], 36) : null,
               child: (u['avatarUrl'] ?? '').toString().isEmpty ? const Icon(Icons.person, size: 18) : null),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1592,7 +1639,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               children: [
                                 CircleAvatar(
                                   backgroundImage: member.user?.avatarUrl != null
-                                      ? NetworkImage(member.user!.avatarUrl!)
+                                      ? appImage(member.user!.avatarUrl!, 40)
                                       : null,
                                   child: member.user?.avatarUrl == null
                                       ? const Icon(Icons.person, color: Colors.white)
@@ -2820,7 +2867,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (event.roomId != null && event.roomId != widget.roomId) return;
       ref.read(roomControllerProvider(widget.roomId).notifier).applyGiftEarning(
             recipientId: event.recipientId,
-            coins: event.totalCoins,
+            // A lucky gift counts only its host share for the recipient.
+            coins: event.recipientCoins,
           );
     });
 
@@ -2894,7 +2942,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           Navigator.of(context).maybePop();
           return;
         }
-        _promptRoomAccessCode();
+        _promptRoomAccessCode(
+          canHiddenBypass: data['canHiddenBypass'] == true,
+          wrongCode: data['wrongCode'] == true,
+        );
       });
 
       // Live room background change (admin set a new background).
@@ -2980,6 +3031,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _seatEffectSub = SocketService().seatEffectStream.listen((event) {
         final videoUrl = event['video'];
         if (videoUrl == null || videoUrl.toString().isEmpty) return;
+        // A full-screen clip is a hardware decoder at the clip's resolution,
+        // arriving exactly while the room is loading. On a 2–4 GB phone only
+        // the user's OWN entrance plays; the others still get the banner.
+        if (DeviceTier.lite &&
+            event['userId']?.toString() != _myUserId?.toString()) {
+          return;
+        }
         _seatEffectQueue.add(videoUrl);
         _tryPlayNextEffect();
       });
@@ -3121,6 +3179,60 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
   }
 
+  static const String _kBgHintAt = 'bg_activity_hint_at';
+  static const String _kBgHintCount = 'bg_activity_hint_count';
+
+  /// OPPO, realme and Xiaomi cut an app's network as soon as it leaves the
+  /// screen, foreground service or not (29/09: voice and socket dead within a
+  /// second of "lifecycle paused", every time, for the same users). Only the
+  /// user can lift that, in the phone's settings. So when it has just happened
+  /// to them, and at most once every 3 days and 3 times in all, say so.
+  Future<void> _maybeAskForBackgroundActivity() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    if (!LiveKitVoiceEngine().takeBackgroundDrop()) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final count = prefs.getInt(_kBgHintCount) ?? 0;
+      final last = prefs.getInt(_kBgHintAt) ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (count >= 3 || now - last < const Duration(days: 3).inMilliseconds) return;
+      if (!mounted) return;
+      await prefs.setInt(_kBgHintAt, now);
+      await prefs.setInt(_kBgHintCount, count + 1);
+      CrashReporter.breadcrumb('bg activity hint shown #${count + 1}');
+      if (!mounted) return;
+      final open = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('الصوت اتقطع وانت برّه التطبيق'),
+          content: const Text(
+            'الموبايل بيوقف النت عن التطبيق لما تخرج منه، علشان يوفّر البطارية.\n\n'
+            'علشان الصوت يفضل شغال:\n'
+            'افتح الإعدادات ← البطارية ← واختار «السماح بالنشاط في الخلفية» '
+            'أو «بدون قيود».',
+            textDirection: TextDirection.rtl,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('لاحقاً'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('فتح الإعدادات'),
+            ),
+          ],
+        ),
+      );
+      if (open == true) {
+        CrashReporter.breadcrumb('bg activity hint -> settings');
+        await openAppSettings();
+      }
+    } catch (e) {
+      debugPrint('background activity hint failed: $e');
+    }
+  }
+
   /// Re-establish the live session after the app comes back to the foreground.
   Future<void> _resumeInRoom() async {
     try {
@@ -3146,6 +3258,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
     unawaited(AudioRoute.instance.apply());
     unawaited(AudioRoute.instance.applyVolume());
+    unawaited(_maybeAskForBackgroundActivity());
 
     // The mic was NOT closed on the way out — this only repairs it if the OS
     // (a phone call, another app grabbing the microphone) interrupted it while
@@ -3227,7 +3340,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
 
     AudioRoute.instance.unregister(_audioPlayer);
-    _audioPlayer.dispose();  // ✅ ADD
+    // Unawaited dispose can fail after the screen is gone; never let that
+    // surface as an uncaught error.
+    _audioPlayer.dispose().catchError((Object _) {});
     _roomImageCtrl.dispose();
     _bgImageCtrl.dispose();
     _seatVideoController?.dispose();
@@ -3846,7 +3961,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 showTrail: false,
                 child: CircleAvatar(
                   backgroundImage: user.avatarUrl != null
-                      ? NetworkImage(user.avatarUrl!)
+                      ? appImage(user.avatarUrl!, 40)
                       : null,
                   child: user.avatarUrl == null
                       ? const Icon(Icons.person)
@@ -4353,7 +4468,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ),
                             image: (state.roomImageUrl ?? '').trim().isNotEmpty
                                 ? DecorationImage(
-                              image: NetworkImage(state.roomImageUrl!.trim()),
+                              image: appImage(state.roomImageUrl!.trim(), 48),
                               fit: BoxFit.cover,
                             )
                                 : null,
@@ -4514,7 +4629,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         radius: 22,
                         backgroundColor: Colors.deepPurple,
                         backgroundImage: (state.roomImageUrl ?? '').trim().isNotEmpty
-                            ? NetworkImage(state.roomImageUrl!.trim())
+                            ? appImage(state.roomImageUrl!.trim(), 44)
                             : null,
                         child: (state.roomImageUrl ?? '').trim().isNotEmpty
                             ? null
@@ -4747,6 +4862,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ownerId: state.ownerId,
                         adminIds: state.adminIds,
                         seatEarnings: state.seatEarnings24h,
+                        cpLinks: state.cpLinks,
                           onSeatTap: (seatNumber, seat) {
                             _onSeatTap(context, seatNumber, seat, userId ?? 0, isAdmin);
                           }
@@ -4787,6 +4903,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   height: MediaQuery.of(context).size.height * 0.30,
                   child: RoomChatPanel(
                     roomId: widget.roomId,
+                    // هدايا الحظ: the app-wide winners ticker lives with the
+                    // messages. Tap → the winner's card (متابعة / رسالة / مسار).
+                    header: LuckyTicker(
+                      socket: _giftSocket,
+                      repository: _giftRepository,
+                      myUserId: ref.read(authStateProvider).user?.id,
+                    ),
                     // Tapping a writer's name opens the room's own profile
                     // card, not a separate screen.
                     onUserTap: (uid, name, {level, vipLevel, displayId, avatarUrl}) =>
@@ -5126,22 +5249,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               socket: _giftSocket,
               roomId: widget.roomId,
               myUserId: userId,
-            ),
-
-            // ===== هدايا الحظ: the app-wide winners ticker, just above the
-            // bottom bar. Tap → the winner's card (متابعة / رسالة / مسار).
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: bottomBarH + 12,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: LuckyTicker(
-                  socket: _giftSocket,
-                  repository: _giftRepository,
-                  myUserId: userId,
-                ),
-              ),
+              onMyWin: () async {
+                await ref.read(authStateProvider.notifier).refreshUser();
+                final u = ref.read(authStateProvider).user;
+                final coins = u?.coinsBalance ?? u?.coins;
+                if (coins != null) GiftPickerSheet.liveBalance.value = coins;
+              },
             ),
 
             // ===== Music control bar — draggable, only for owner/admins, and
@@ -5351,7 +5464,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     children: [
                       CircleAvatar(
                         radius: 16,
-                        backgroundImage: r.avatarUrl != null ? NetworkImage(r.avatarUrl!) : null,
+                        backgroundImage: r.avatarUrl != null ? appImage(r.avatarUrl!, 32) : null,
                         child: r.avatarUrl == null
                             ? const Icon(Icons.person, color: Colors.white, size: 18)
                             : null,
@@ -5978,7 +6091,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                         child: CircleAvatar(
                                           radius: 30,
                                           backgroundImage:
-                                              seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                              seat.avatarUrl != null ? appImage(seat.avatarUrl!, 60) : null,
                                           child: seat.avatarUrl == null
                                               ? const Icon(Icons.person, color: Colors.white, size: 30)
                                               : null,
@@ -6561,7 +6674,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                                 children: [
                                                   CircleAvatar(
                                                     radius: 18,
-                                                    backgroundImage: seat.avatarUrl != null ? NetworkImage(seat.avatarUrl!) : null,
+                                                    backgroundImage: seat.avatarUrl != null ? appImage(seat.avatarUrl!, 36) : null,
                                                     backgroundColor: Colors.pinkAccent,
                                                   ),
                                                   Positioned(
@@ -6569,7 +6682,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                                     child: CircleAvatar(
                                                       radius: 18,
                                                       backgroundImage: seat.relationPartner?.avatarUrl != null
-                                                          ? NetworkImage(seat.relationPartner!.avatarUrl!)
+                                                          ? appImage(seat.relationPartner!.avatarUrl!, 36)
                                                           : null,
                                                       backgroundColor: Colors.purpleAccent,
                                                       child: const Icon(Icons.favorite, size: 14, color: Colors.white),
@@ -6687,7 +6800,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       padding: const EdgeInsets.all(3),
       child: CircleAvatar(
         radius: radius,
-        backgroundImage: url != null ? NetworkImage(url) : null,
+        backgroundImage: url != null ? appImage(url, radius * 2) : null,
         backgroundColor: Colors.grey[800],
         child: url == null ? const Icon(Icons.person, color: Colors.white) : null,
       ),
@@ -6974,7 +7087,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       ),
       child: CircleAvatar(
         radius: radius,
-        backgroundImage: url != null ? NetworkImage(url) : null,
+        backgroundImage: url != null ? appImage(url, radius * 2) : null,
         backgroundColor: Colors.grey[800],
         child: url == null ? const Icon(Icons.person, color: Colors.white) : null,
       ),

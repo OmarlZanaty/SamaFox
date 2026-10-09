@@ -11,6 +11,7 @@ process.on('uncaughtException', (err) => {
 });
 
 import express, { Application } from 'express';
+import { trustProxySetting } from './utils/trustProxy';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -39,6 +40,8 @@ import { startSkillWheelEngine } from './services/skillWheel.service';
 import { startCrashEngine } from './services/crash.service';
 import { startCrazyWheelEngine } from './services/crazyWheel.service';
 import { startGreedyCatEngine } from './services/greedyCat.service';
+import { startRouletteEngine } from './services/roulette.service';
+import { startCarWheelEngine } from './services/carWheel.service';
 import { startBoxingEngine } from './services/boxing.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
@@ -52,11 +55,17 @@ import levelRoutes from './routes/level.routes';
 import betaRoutes from './routes/beta.routes';
 import cpRoutes from './routes/cp.routes';
 import { startExpirySweep } from './services/expiry.service';
+import staffRoutes from './staff/staff.routes';
+import staffDashboardRoutes from './staff/staffDashboard.routes';
+import { startStaffExpiryJob } from './staff/staff.service';
 import { startBetaSyncWatchdog } from './services/betaWatchdog.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import appDownloadRoutes from './routes/appDownload.routes';
-import { setGiftIo } from './gifts/controller';
+import { setGiftIo, emitLuckyRoundsClosed } from './gifts/controller';
+import { startLuckyRoundSweeper } from './gifts/lucky.service';
+import { purgeOldIdempotencyKeys } from './middlewares/idempotency.middleware';
+import { coinFreezeResponses } from './utils/coinFreeze';
 
 import helmet from 'helmet';
 
@@ -68,14 +77,16 @@ const app: Application = express();
 // admin dashboard unstyled. Disable those two; keep the rest of Helmet.
 app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
 
-// Clients hit this box directly on IP:3000 — there is no nginx/ALB in front.
-// `trust proxy: true` therefore trusted an X-Forwarded-For header that only an
-// attacker could set, letting anyone forge req.ip and walk around the per-IP
-// auth rate limiter (express-rate-limit flags this as
-// ERR_ERL_PERMISSIVE_TRUST_PROXY). Set TRUST_PROXY_HOPS when a real proxy is
-// added later — e.g. 1 behind a single ALB.
-const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
-app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : false);
+// Caddy on this box terminates HTTPS and forwards every request from
+// 127.0.0.1 with the phone's address in X-Forwarded-For. With 'trust proxy'
+// off, req.ip was 127.0.0.1 for everyone behind Caddy, so each per-IP limiter
+// was ONE bucket for the whole app: 20 token refreshes per 15 minutes shared
+// by every phone, and builds up to 1.0.48 log the user out on that 429
+// (client logs, 7 Oct). Port 3000 stays open for old builds that call it
+// directly, so only the loopback hop is trusted: a direct caller's
+// X-Forwarded-For is ignored and cannot forge req.ip. TRUST_PROXY_HOPS still
+// overrides this for a different proxy layout.
+app.set('trust proxy', trustProxySetting(process.env));
 
 const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase();
 
@@ -136,6 +147,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// تجميد الكوينزات: a spend refused by the freeze answers with the freeze's own
+// message, whatever error the route would otherwise have sent. Before routes.
+app.use(coinFreezeResponses);
+
 app.use('/api/v1/admin', adminRoutes);
 app.use("/api/v1/store", storeRoutes);
 app.use("/api/v1/admin-products", adminProductRoutes);
@@ -165,6 +180,11 @@ app.get(['/client-logs', '/client-logs.html'], (_req, res) => {
   return res.sendFile(path.join(publicDir, 'client-logs.html'));
 });
 
+app.get(['/client-health', '/client-health.html'], (_req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.sendFile(path.join(publicDir, 'client-health.html'));
+});
+
 // ✅ static
 app.use('/public', express.static(publicDir));
 app.use(express.static(publicDir));
@@ -190,6 +210,9 @@ app.use('/api/v1/admin-dashboard-auth', adminDashAuthRoutes);
 app.use('/admin-dashboard-auth', adminDashAuthRoutes); // backward-compatible path
 
 // ✅ admin dashboard routes (reads cookie)
+app.use('/api/v1/staff', staffRoutes);
+app.use('/api/v1/admin-dashboard/staff', staffDashboardRoutes);
+app.use('/admin-dashboard/staff', staffDashboardRoutes);
 app.use('/api/v1/admin-dashboard', adminDashboardRoutes);
 app.use('/admin-dashboard', adminDashboardRoutes); // backward-compatible path
 
@@ -297,6 +320,8 @@ startSkillWheelEngine(io);
 startCrashEngine(io);
 startCrazyWheelEngine(io);
 startGreedyCatEngine(io);
+startRouletteEngine(io).catch(err => console.error('[roulette] engine failed to start', err));
+startCarWheelEngine(io).catch(err => console.error('[carwheel] engine failed to start', err));
 startBoxingEngine(io);
 
 // error handler
@@ -318,9 +343,16 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // Retire time-limited products, lapsed VIP terms and rented room
   // backgrounds. Runs on boot and every 15 minutes.
   startExpirySweep();
+  startStaffExpiryJob();
   // Notice when the operator's beta-sync PC goes dark and fall back to the
   // email invite, so a signup never just spins. Every minute.
   startBetaSyncWatchdog();
+  // هدايا الحظ: close rounds whose window passed without enough players.
+  startLuckyRoundSweeper(emitLuckyRoundsClosed);
+  // Idempotency keys only matter for retries; three days is plenty.
+  setInterval(() => {
+    purgeOldIdempotencyKeys().catch((e) => console.warn('[idempotency] purge failed:', e?.message));
+  }, 6 * 60 * 60 * 1000).unref?.();
 });
 
 export { io };

@@ -2,7 +2,9 @@ import prisma from '../utils/prisma';
 import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
-import { broadcastRoomClosed } from '../services/socket.service';
+import { broadcastRoomClosed, getLiveRoomUserIds } from '../services/socket.service';
+import { rankedRoomIds } from '../services/roomRanking.service';
+import { hasFeature, isFeatureOn } from '../services/features.service';
 
 /**
  * A16 — غرفة الإدارة. Pinned to the top of the room list and drawn as the large
@@ -23,20 +25,6 @@ const roomListInclude = {
       vipLevel: true,
     },
   },
-  members: {
-    take: 3,
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          avatarUrl: true,
-          avatarFrameUrl: true,
-        },
-      },
-    },
-  },
-  _count: { select: { members: true } },
 } as const;
 
 
@@ -46,7 +34,6 @@ export const getRooms = async (req: Request, res: Response) => {
     const userId = req.userId;
     const safePage = Math.max(1, Math.floor(Number(page) || 1));
     const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 20)));
-    const skip = (safePage - 1) * safeLimit;
 
     const where = {
       ...(userId
@@ -60,36 +47,37 @@ export const getRooms = async (req: Request, res: Response) => {
       ...(type && { type: String(type) })
     };
 
-    const rooms = await prisma.room.findMany({
-      where,
+    // ترتيب الغرف: الإدارة, then the dashboard's pinned IDs, then most people
+    // in the room right now. The order is computed over every matching room
+    // (a light query) and only the page is loaded in full.
+    const { ids, live, pinRanks } = await rankedRoomIds(where, FEATURED_ROOM_ID);
+    const total = ids.length;
+    // "الغرف اخرها 20 — لو حد فتح غرفه بعد ال 20 بيقفل غرفه تانية" (03/10):
+    // nothing closed them. The home screen asks for page 1 with limit=20 and
+    // never for page 2, so room #21 by live count simply fell off the list.
+    // Page 1 is now the whole list, for every build already installed; later
+    // pages are empty so a client that does page cannot see a room twice.
+    const pageIds = safePage === 1 ? ids : [];
+    const pageRows = await prisma.room.findMany({
+      where: { id: { in: pageIds } },
       include: roomListInclude,
-      skip,
-      take: safeLimit,
-      orderBy: {
-        createdAt: 'desc'
-      }
     });
+    const byId = new Map(pageRows.map((r: any) => [r.id, r]));
+    const ordered = pageIds.map((id) => byId.get(id)).filter(Boolean) as typeof pageRows;
 
-    const total = await prisma.room.count({ where });
-
-    // A16 — الإدارة room pinned first and drawn large ("تكون اول غرفه وبحجم
-    // كبير في العرض"). Ordering cannot express this: room ids run 1,2,3… so
-    // sorting by id would bury 100000 at the very end, and sorting by date only
-    // holds until someone makes a newer room. So it is hoisted explicitly, and
-    // fetched separately on page 1 in case it falls outside the page window.
-    let ordered = rooms;
-    if (safePage === 1) {
-      const alreadyThere = rooms.find((r: any) => r.id === FEATURED_ROOM_ID);
-      const featured =
-        alreadyThere ??
-        (await prisma.room.findFirst({
-          where: { ...where, id: FEATURED_ROOM_ID },
-          include: roomListInclude,
-        }));
-      if (featured) {
-        ordered = [featured, ...rooms.filter((r: any) => r.id !== FEATURED_ROOM_ID)];
-      }
+    // The avatars on a card are people in the room now, not old member rows.
+    const liveIdsByRoom = new Map<number, number[]>();
+    for (const r of ordered) {
+      if ((live.get(r.id) ?? 0) > 0) liveIdsByRoom.set(r.id, getLiveRoomUserIds(r.id).slice(0, 3));
     }
+    const wanted = Array.from(new Set(Array.from(liveIdsByRoom.values()).flat()));
+    const liveUsers = wanted.length
+      ? await prisma.user.findMany({
+          where: { id: { in: wanted } },
+          select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true },
+        })
+      : [];
+    const userById = new Map(liveUsers.map((u) => [u.id, u]));
 
     res.json({
       rooms: ordered.map(room => ({
@@ -104,23 +92,25 @@ export const getRooms = async (req: Request, res: Response) => {
         maxSeats: room.maxSeats,
         ownerId: room.ownerId,
         isLocked: room.isLocked,
+        roomType: (room as any).roomType ?? 'USER',
+        isOfficial: (room as any).roomType === 'OFFICIAL_ROOM',
         owner: room.owner,
-        membersCount: room._count.members,
-members: room.members.map(m => ({
-  userId: m.userId,
-  role: m.role,
-  isMuted: m.isMuted,
-  joinedAt: m.joinedAt,
-  user: m.user
-})),
+        // Real people in the room now (was the RoomMember row count).
+        membersCount: live.get(room.id) ?? 0,
+        liveCount: live.get(room.id) ?? 0,
+        pinRank: pinRanks.has(room.id) ? pinRanks.get(room.id)! + 1 : null,
+        members: (liveIdsByRoom.get(room.id) ?? [])
+          .map((uid) => userById.get(uid))
+          .filter(Boolean)
+          .map((u: any) => ({ userId: u.id, role: 'MEMBER', isMuted: false, joinedAt: null, user: u })),
 
         createdAt: room.createdAt
       })),
       pagination: {
         page: safePage,
-        limit: safeLimit,
+        limit: Math.max(safeLimit, total),
         total,
-        totalPages: Math.ceil(total / safeLimit)
+        totalPages: 1
       }
     });
   } catch (error) {
@@ -229,7 +219,7 @@ export const getRoomById = async (req: Request, res: Response) => {
       isLocked: room.isLocked,
       owner: room.owner,
       ownerFrameImageUrl: room.owner.activeFrame?.assetUrl ?? null,
-      membersCount: room._count.members,
+      membersCount: getLiveRoomUserIds(room.id).length,
       members: room.members.map(m => ({
         userId: m.userId,
         role: m.role,
@@ -380,6 +370,11 @@ export const deleteRoom = async (req: Request, res: Response) => {
     const room = await prisma.room.findUnique({ where: { id: roomIdNum } });
     if (!room) return res.status(404).json({ error: 'Room not found' });
     if (room.ownerId !== userId) return res.status(403).json({ error: 'Only room owner can delete the room' });
+    // غرف البرنامج: never closed from the app by their owner — only from
+    // لوحة التحكم or by an admin holding OFFICIAL_ROOM_MANAGE.
+    if ((room as any).roomType === 'OFFICIAL_ROOM' && !(await hasFeature(userId, 'OFFICIAL_ROOM_MANAGE'))) {
+      return res.status(403).json({ code: 'OFFICIAL_ROOM', error: 'هذه غرفة رسمية ولا تُغلق إلا من الإدارة' });
+    }
 
     await prisma.room.update({
       where: { id: roomIdNum },
@@ -411,6 +406,20 @@ export const joinRoom = async (req: Request, res: Response) => {
 
     if (!room) return res.status(404).json({ error: 'Room not found' });
     if (!room.isActive) return res.status(400).json({ error: 'Room is not active' });
+
+    // The same locked-room rule the socket join enforces (2026-09-26): only
+    // the owner enters without the PIN, unless a server-checked grant applies.
+    if (room.isLocked && room.accessCode && room.ownerId !== userId) {
+      const provided = String((req.body as any)?.code ?? '').trim();
+      const hiddenOk =
+        (req.body as any)?.hiddenBypass === true &&
+        (room as any).allowHiddenEntry &&
+        (await isFeatureOn(userId, 'HIDDEN_MODE'));
+      const permOk = await hasFeature(userId, 'ROOM_LOCK_BYPASS');
+      if (provided !== room.accessCode && !hiddenOk && !permOk) {
+        return res.status(403).json({ code: 'ROOM_LOCKED', error: 'الغرفة مغلقة بكلمة مرور' });
+      }
+    }
 
     const existing = await prisma.roomMember.findUnique({
       where: { userId_roomId: { userId, roomId: roomIdNum } },

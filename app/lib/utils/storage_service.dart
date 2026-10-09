@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
@@ -67,8 +68,24 @@ class StorageService {
     await _secure.write(key: AppConfig.refreshTokenKey, value: cleanRefresh);
   }
 
+  /// Some phones lose the Keystore key behind encrypted prefs (restore from
+  /// backup, OEM "cleaners"); every read then throws BadPaddingException
+  /// (BAD_DECRYPT) — an uncaught error on each request in 1.0.46. Treat that as
+  /// "signed out" and wipe the unreadable store so the user can log in again.
+  static Future<String?> _safeRead(String key) async {
+    try {
+      return await _secure.read(key: key);
+    } catch (e) {
+      debugPrint('[StorageService] secure read failed, clearing: $e');
+      try {
+        await _secure.deleteAll();
+      } catch (_) {}
+      return null;
+    }
+  }
+
   static Future<String?> getAccessToken() async {
-    String? token = await _secure.read(key: AppConfig.accessTokenKey);
+    String? token = await _safeRead(AppConfig.accessTokenKey);
     if (token == null || token.isEmpty) return null;
     token = _cleanToken(token);
     if (token.split('.').length != 3) {
@@ -79,7 +96,7 @@ class StorageService {
   }
 
   static Future<String?> getRefreshToken() async {
-    final token = await _secure.read(key: AppConfig.refreshTokenKey);
+    final token = await _safeRead(AppConfig.refreshTokenKey);
     if (token == null || token.isEmpty) return null;
     return _cleanToken(token);
   }

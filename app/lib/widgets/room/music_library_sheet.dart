@@ -61,7 +61,9 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
       _snack('تعذر فتح ملفات الهاتف', error: true);
       return;
     }
-    if (result == null || result.files.isEmpty) return;
+    // The file picker backgrounds the app; the sheet can be gone by the time it
+    // returns ("Cannot use ref after the widget was disposed", 1.0.46).
+    if (result == null || result.files.isEmpty || !mounted) return;
 
     final notifier = ref.read(musicLibraryProvider.notifier);
     var uploaded = 0;
@@ -71,6 +73,7 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
       if (path == null || path.isEmpty) continue;
       final title = file.name.replaceAll(RegExp(r'\.[^.]+$'), '');
       final track = await notifier.upload(path: path, title: title);
+      if (!mounted) return;
       if (track != null) {
         uploaded++;
       } else {

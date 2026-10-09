@@ -33,6 +33,7 @@ import 'providers/localization_provider.dart';
 import 'package:samafox/screens/games_hub_screen.dart';
 import 'widgets/pip_overlay.dart';
 import 'services/socket_service.dart';
+import 'services/device_tier.dart';
 import 'services/global_notification_service.dart';
 import 'repositories/cp_repository.dart';
 import 'widgets/cp_request_dialog.dart';
@@ -41,6 +42,14 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Decoded images: 60 MB instead of Flutter's 100 MB. Phones in a room sat at
+  // img=100MB with ~350 MB of graphics beside it, and a realme RMX3760 died at
+  // 1.2 GB (29/09). Evicted pictures are re-decoded from the disk cache.
+  // Half that on a 2–4 GB phone (see DeviceTier).
+  await DeviceTier.init();
+  PaintingBinding.instance.imageCache.maximumSizeBytes =
+      (DeviceTier.lite ? 32 : 60) << 20;
 
   // Before anything else can fail. The app shipped with NO error handler of any
   // kind, which is why "التطبيق يقفل بعد دقيقة" could only ever be guessed at:

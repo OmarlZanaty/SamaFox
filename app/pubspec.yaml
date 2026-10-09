@@ -6,7 +6,7 @@ publish_to: 'none'
 # regenerates local.properties FROM this file, so that override was silently
 # overwritten and the next build would have dropped to 24 and been rejected as
 # a downgrade. pubspec is the single source of truth now.
-version: 1.0.30+2038
+version: 1.0.50+2058
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -148,6 +148,11 @@ flutter:
     # Recorded spins for lib/dev/olympus_play.dart. ~50 KB, dev harness only.
     - assets/dev/
     - assets/images/neon/
+    - assets/images/games/yummy/
+    - assets/images/games/fruit_wheel/
+    - assets/images/games/roulette/
+    - assets/images/games/car_wheel/
+    - assets/images/games/fruit_jackpot/
     # القط الجشع artwork — likewise. The screen paints its own vector art, so
     # this folder is empty until the commissioned PNGs land; see
     # GREEDY_CAT_ARTWORK_BRIEF.md.
@@ -165,6 +170,9 @@ flutter:
   # the plain blur stack if the device cannot compile it.
   shaders:
     - shaders/bloom.frag
+    # YUMMY glints; both have Dart fallbacks if a device cannot compile them.
+    - shaders/yummy_shine.frag
+    - shaders/yummy_symbol.frag
   fonts:
         - family: ElMessiri
           fonts:

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/locale_provider.dart';
 import '../services/user_account_service.dart';
 import '../config/app_config.dart';
+import '../widgets/app_network_image.dart';
 
 /// #2 القائمة السوداء — real blocked-users list from /users/me/blocks.
 class BlockedUsersScreen extends ConsumerStatefulWidget {
@@ -68,7 +69,7 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
     }
     return CircleAvatar(
       backgroundColor: isDark ? const Color(0xFF2D1B69) : Colors.blue.shade100,
-      backgroundImage: url != null ? NetworkImage(url) : null,
+      backgroundImage: url != null ? appImage(url, 40) : null,
       child: url == null
           ? Icon(Icons.person, color: isDark ? Colors.white70 : Colors.blue.shade700)
           : null,

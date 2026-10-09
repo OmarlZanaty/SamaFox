@@ -181,10 +181,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
       ..repeat(reverse: true);
     _controller.addListener(_onChanged);
+    // The number on each room card is the people in it NOW, and the order
+    // follows it — so it has to be refreshed while the list is on screen,
+    // not only when the app opens.
+    _roomsRefresh = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!mounted) return;
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+      if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+      if (_controller.text.trim().isNotEmpty) return;
+      ref.read(roomsProvider.notifier).loadRooms();
+    });
   }
+
+  Timer? _roomsRefresh;
 
   @override
   void dispose() {
+    _roomsRefresh?.cancel();
     _debounce?.cancel();
     _controller.removeListener(_onChanged);
     _controller.dispose();
@@ -206,7 +219,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     // here is what stops it being drawn a second time inside the normal grid.
     final featuredIndex = rooms.indexWhere((r) => r.isFeatured == true);
     final featuredRoom = featuredIndex >= 0 ? rooms.removeAt(featuredIndex) : null;
-    rooms.shuffle(Random(7));
+    // No shuffle: the server orders the list (the dashboard's pinned rooms,
+    // then the rooms with the most people in them now).
 
     final w = MediaQuery.of(context).size.width;
     final crossAxisCount = w >= 900 ? 4 : (w >= 520 ? 3 : 3);
@@ -573,7 +587,7 @@ class SearchResultTile extends StatelessWidget {
           child: CircleAvatar(
             backgroundColor: Colors.white24,
             backgroundImage: (result.imageUrl != null && result.imageUrl!.isNotEmpty)
-                ? NetworkImage(result.imageUrl!)
+                ? appImage(result.imageUrl!, 40)
                 : null,
             child: (result.imageUrl == null || result.imageUrl!.isEmpty)
                 ? Icon(

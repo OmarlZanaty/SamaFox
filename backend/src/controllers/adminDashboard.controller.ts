@@ -2,10 +2,11 @@ import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
-import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned } from '../agencies/agency.controller';
+import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned, memberTargetTotal } from '../agencies/agency.controller';
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
 import { kickBannedUser } from '../services/socket.service';
+import { isProtectedIp, isSharedBuildId } from '../middlewares/deviceBan.middleware';
 import {
   grantVipRewardsForRange,
   evaluateVip,
@@ -20,12 +21,14 @@ import {
 } from '../services/xp.service';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { createNotification } from '../services/notification.service';
+import { recordTargetMovement } from '../services/targetMovement.service';
 import {
   setTargetSellBlocked,
   listTargetSellBlocked,
   isTargetSellGloballyBlocked,
   setTargetSellGlobalBlock,
 } from '../utils/targetLock';
+import { getCoinFreezePolicy, setCoinsGloballyFrozen, setUserCoinsFrozen } from '../utils/coinFreeze';
 
 const db = prisma as any;
 
@@ -860,6 +863,85 @@ export const adminDashboardSetTargetSellPolicy = async (req: Request, res: Respo
   }
 };
 
+// ---------------------------------------------------------------- تجميد الكوينزات
+//
+// «اجمد كوينزات المستخدمين، محدش يعرف يستخدم الكوينزات في اي شي، افك التجميد
+// يرجع كما كان، وكمان اجمد مستخدم بالايدي لوحده» — dashboard only. Enforcement
+// lives in utils/coinFreeze.ts.
+
+async function coinFreezeUsers(ids: number[]) {
+  return ids.length
+    ? (prisma as any).user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, displayId: true, coinsBalance: true },
+      })
+    : [];
+}
+
+/** GET — the platform-wide switch plus every account frozen by id. */
+export const adminDashboardGetCoinFreeze = async (_req: Request, res: Response) => {
+  try {
+    const policy = await getCoinFreezePolicy();
+    const users = await coinFreezeUsers(policy.frozenUserIds);
+    return ok(res, {
+      data: {
+        globallyFrozen: policy.globallyFrozen,
+        frozenUsers: users.map((u: any) => ({ ...u, coinsBalance: String(u.coinsBalance ?? 0) })),
+      },
+    });
+  } catch (e) {
+    console.error('adminDashboardGetCoinFreeze error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/** PATCH { frozen: boolean } — freeze / unfreeze every account's coins. */
+export const adminDashboardSetCoinFreezeGlobal = async (req: Request, res: Response) => {
+  try {
+    if (typeof req.body?.frozen !== 'boolean') return fail(res, 400, 'frozen (boolean) is required');
+    const frozen = await setCoinsGloballyFrozen(req.body.frozen);
+    return ok(res, { data: { globallyFrozen: frozen } });
+  } catch (e) {
+    console.error('adminDashboardSetCoinFreezeGlobal error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
+/**
+ * PATCH /users/:id/coin-freeze { frozen: boolean } — one account. The id is
+ * the one on the profile card (displayId), falling back to the row id, exactly
+ * as the target lock resolves it; `?by=id` forces the row id (the list's
+ * «فك التجميد» button holds that).
+ */
+export const adminDashboardSetUserCoinFreeze = async (req: Request, res: Response) => {
+  try {
+    const raw = Number(req.params.id);
+    if (!Number.isFinite(raw) || raw <= 0) return fail(res, 400, 'Invalid user id');
+    const frozen = Boolean(req.body?.frozen);
+    const select = { id: true, name: true, displayId: true };
+    const byInternalId = String((req.query as any)?.by ?? '') === 'id';
+    const user = byInternalId
+      ? await (prisma as any).user.findUnique({ where: { id: raw }, select })
+      : (await (prisma as any).user.findFirst({ where: { displayId: raw }, select })) ??
+        (await (prisma as any).user.findUnique({ where: { id: raw }, select }));
+    if (!user) return fail(res, 404, 'لا يوجد مستخدم بهذا الرقم');
+
+    const ids = await setUserCoinsFrozen(user.id, frozen);
+    return ok(res, {
+      data: {
+        userId: user.id,
+        displayId: user.displayId ?? null,
+        name: user.name ?? null,
+        frozen,
+        frozenUserIds: ids,
+      },
+    });
+  } catch (e) {
+    console.error('adminDashboardSetUserCoinFreeze error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 export const adminDashboardForceCloseRoom = async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
@@ -867,6 +949,17 @@ export const adminDashboardForceCloseRoom = async (req: Request, res: Response) 
     if (!id || !reason) return fail(res, 400, 'Invalid payload');
 
     const room = await prisma.room.update({ where: { id }, data: { isActive: false } });
+    const { recordAdminAudit, auditContext, AUDIT_ACTIONS } = await import('../services/adminAudit.service');
+    await recordAdminAudit({
+      adminId: Number((req as any).userId),
+      action: AUDIT_ACTIONS.ROOM_CLOSE,
+      targetType: 'room',
+      targetId: id,
+      before: { isActive: true },
+      after: { isActive: false, roomType: (room as any).roomType },
+      ...auditContext(req),
+      reason,
+    });
     const { io } = await import('../index');
     io.to(`room:${id}`).emit('room_force_closed', { roomId: id, reason });
 
@@ -925,9 +1018,11 @@ export const adminDashboardLeaderboard = async (req: Request, res: Response) => 
 
     if (type === 'coins') {
       const data = await prisma.$queryRawUnsafe<Array<{ id: number; name: string; avatarUrl: string | null; coinsBalance: string }>>(
-        `SELECT id, name, avatarUrl, CAST(coinsBalance AS TEXT) as coinsBalance
+        // Quoted: PostgreSQL folds unquoted identifiers to lower case, so the
+        // camelCase columns were "not found" and this always returned 500.
+        `SELECT id, name, "avatarUrl", CAST("coinsBalance" AS TEXT) AS "coinsBalance"
          FROM users
-         ORDER BY coinsBalance DESC
+         ORDER BY "coinsBalance" DESC
          LIMIT 20`,
       );
       return ok(res, { data });
@@ -1038,20 +1133,20 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
 };
 
 /**
- * The target a charging agency has actually built: every OWNER/BRANCH seat's
- * running total, which is where sendCoinsToUser and transferCoins book a sale
- * and where بيع/تبديل take it back out again. Read straight off the same
- * column those writes use, so the dashboard cannot drift from the app.
+ * The target a charging agency holds: the sum of its OWNER/BRANCH seats'
+ * رصيد التارجت — sales booked by sendCoinsToUser/transferCoins and target
+ * bought, minus بيع/تبديل, PLUS the gifts each seat owns (giftWindow). It
+ * used to read the adjustment column alone, so a وكيل شحن's gifts showed in
+ * the app but never here. Same function as the app's card; no commission,
+ * as on a charging agency in getMyTarget.
  */
 const computeChargingAgencyTarget = async (agencyId: number): Promise<number> => {
   const seats = await db.agencyMember.findMany({
     where: { agencyId, role: { in: ['OWNER', 'BRANCH'] } },
-    select: { targetAdjustmentCoins: true },
+    select: { id: true, userId: true, joinedAt: true, targetAdjustmentCoins: true },
   });
-  return seats.reduce(
-    (sum: number, m: any) => sum + Math.max(0, Number(m.targetAdjustmentCoins ?? 0)),
-    0,
-  );
+  const totals = await Promise.all(seats.map((m: any) => memberTargetEarned(m)));
+  return totals.reduce((sum: number, v: number) => sum + v, 0);
 };
 
 // PATCH /admin-dashboard/agencies/:id — edit agency name + lock renaming (group 7)
@@ -1699,9 +1794,8 @@ export const adminListAgencyMembers = async (req: AdminReq, res: Response) => {
       members.map(async (m: any) => {
         // Owner rows also carry their agency commission (#4), which is target
         // and not wallet coins — same total the agent sees in his own panel.
-        // memberTargetEarned folds in بيع التارجيت movements.
-        const earnedCoins =
-          (await memberTargetEarned(m)) + Number(m.commissionTargetCoins ?? 0n);
+        // memberTargetTotal folds in بيع/تبديل movements before clamping.
+        const earnedCoins = await memberTargetTotal(m);
         const goal = Number(m.targetGoalCoins ?? 0n);
         // How much of that commission is still held back because the member
         // who generated it hasn't completed their target (2026-08 rule). Only
@@ -2240,8 +2334,7 @@ export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
       return fail(res, 400, `${user.name ?? 'هذا المستخدم'} ليس عضواً في أي وكالة معتمدة — لا يوجد تارجيت لتعديله`);
     }
 
-    const currentEarned =
-      (await memberTargetEarned(membership)) + Number(membership.commissionTargetCoins ?? 0n);
+    const currentEarned = await memberTargetTotal(membership);
     if (amount < 0 && currentEarned + amount < 0) {
       return fail(res, 400, `لا يمكن الخصم: التارجيت الحالي ${currentEarned} فقط`);
     }
@@ -2250,8 +2343,16 @@ export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
       where: { id: membership.id },
       data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
     });
-    const newEarned =
-      (await memberTargetEarned(updated)) + Number(updated.commissionTargetCoins ?? 0n);
+    const newEarned = await memberTargetTotal(updated);
+    await recordTargetMovement({
+      memberId: membership.id,
+      userId: user.id,
+      agencyId: membership.agencyId,
+      kind: amount > 0 ? 'admin_add' : 'admin_deduct',
+      amountCoins: amount,
+      actorId: req.userId ?? null,
+      note: `قبل ${currentEarned} ← بعد ${newEarned}`,
+    });
 
     try {
       const { createNotification } = await import('../services/notification.service');
@@ -2286,6 +2387,100 @@ export const adminAdjustUserTarget = async (req: AdminReq, res: Response) => {
   }
 };
 
+/**
+ * GET /admin-dashboard/target-movements?q=&kind=&page=
+ *
+ * سجل تعديلات التارجت: who moved whose target, by how much, and when — admin
+ * additions/deductions, sales, swaps and charging credits. `q` is the user's
+ * 6-digit ID (or the internal id) or part of a name.
+ */
+export const adminListTargetMovements = async (req: AdminReq, res: Response) => {
+  try {
+    const q = String((req.query as any)?.q ?? '').trim();
+    const kind = String((req.query as any)?.kind ?? '').trim();
+    const page = Math.max(1, Math.floor(Number((req.query as any)?.page) || 1));
+    const perPage = 50;
+
+    const where: any = {};
+    if (kind) where.kind = kind;
+    if (q) {
+      const num = /^\d+$/.test(q) ? Number(q) : null;
+      const users = await db.user.findMany({
+        where: {
+          OR: [
+            ...(num !== null ? [{ displayId: num }, { id: num }] : []),
+            { name: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+        take: 200,
+      });
+      where.userId = { in: users.map((u: any) => u.id) };
+    }
+
+    const [total, rows, sums] = await Promise.all([
+      db.targetMovement.count({ where }),
+      db.targetMovement.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      db.targetMovement.groupBy({ by: ['kind'], where, _sum: { amountCoins: true }, _count: { _all: true } }),
+    ]);
+
+    const userIds = [
+      ...new Set(rows.flatMap((r: any) => [r.userId, r.actorId, r.counterpartId]).filter((x: any) => x != null)),
+    ];
+    const agencyIds = [...new Set(rows.map((r: any) => r.agencyId))];
+    const [people, agencies] = await Promise.all([
+      db.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, displayId: true, isAdmin: true },
+      }),
+      db.chargingAgency.findMany({
+        where: { id: { in: agencyIds } },
+        select: { id: true, agencyName: true, type: true },
+      }),
+    ]);
+    const person = new Map(people.map((p: any) => [p.id, p]));
+    const agency = new Map(agencies.map((a: any) => [a.id, a]));
+    const who = (id: number | null) => {
+      if (id == null) return null;
+      const p: any = person.get(id);
+      return p ? { id: p.id, name: p.name, displayId: p.displayId, isAdmin: p.isAdmin } : { id };
+    };
+
+    return ok(res, {
+      data: {
+        total,
+        page,
+        perPage,
+        totals: sums.map((s: any) => ({
+          kind: s.kind,
+          count: s._count._all,
+          amountCoins: String(s._sum.amountCoins ?? 0),
+        })),
+        rows: rows.map((r: any) => ({
+          id: r.id,
+          createdAt: r.createdAt,
+          kind: r.kind,
+          amountCoins: String(r.amountCoins),
+          note: r.note,
+          memberId: r.memberId,
+          user: who(r.userId),
+          actor: who(r.actorId),
+          counterpart: who(r.counterpartId),
+          agency: agency.get(r.agencyId) ?? { id: r.agencyId },
+        })),
+      },
+    });
+  } catch (e) {
+    console.error('adminListTargetMovements error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
   try {
     const memberId = Number(req.params.memberId);
@@ -2305,8 +2500,7 @@ export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
 
     // A deduction may not push the member's target below zero — the panel is
     // an accounting tool, not a way to invent negative earnings.
-    const currentEarned =
-      (await memberTargetEarned(member)) + Number(member.commissionTargetCoins ?? 0n);
+    const currentEarned = await memberTargetTotal(member);
     if (amount < 0 && currentEarned + amount < 0) {
       return fail(res, 400, `لا يمكن الخصم: التارجيت الحالي ${currentEarned} فقط`);
     }
@@ -2316,8 +2510,16 @@ export const adminAdjustMemberTarget = async (req: AdminReq, res: Response) => {
       data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
     });
 
-    const newEarned =
-      (await memberTargetEarned(updated)) + Number(updated.commissionTargetCoins ?? 0n);
+    const newEarned = await memberTargetTotal(updated);
+    await recordTargetMovement({
+      memberId,
+      userId: member.userId,
+      agencyId: member.agencyId,
+      kind: amount > 0 ? 'admin_add' : 'admin_deduct',
+      amountCoins: amount,
+      actorId: req.userId ?? null,
+      note: `قبل ${currentEarned} ← بعد ${newEarned}`,
+    });
 
     try {
       const { createNotification } = await import('../services/notification.service');
@@ -2454,7 +2656,11 @@ export const adminResetSupporterCounter = async (req: AdminReq, res: Response) =
 
 export const adminListRoomCupRewards = async (_req: AdminReq, res: Response) => {
   try {
-    const rows = await db.roomCupReward.findMany({ orderBy: { thresholdCoins: 'asc' } });
+    // Switched-off rungs are kept for the payout audit trail, not shown.
+    const rows = await db.roomCupReward.findMany({
+      where: { isActive: true },
+      orderBy: { thresholdCoins: 'asc' },
+    });
     return ok(res, {
       data: rows.map((r: any) => ({
         id: r.id,
@@ -2475,6 +2681,16 @@ export const adminSaveRoomCupReward = async (req: AdminReq, res: Response) => {
     const reward = Math.floor(Number((req.body as any)?.rewardCoins));
     if (!Number.isFinite(threshold) || threshold <= 0) return fail(res, 400, 'thresholdCoins must be > 0');
     if (!Number.isFinite(reward) || reward <= 0) return fail(res, 400, 'rewardCoins must be > 0');
+
+    // One active rung per threshold. Five identical 1M → 50k rungs (a save
+    // pressed five times) paid each room 250k instead of 50k on 2026-10-02.
+    const clash = await db.roomCupReward.findFirst({
+      where: { isActive: true, thresholdCoins: BigInt(threshold) },
+      select: { id: true },
+    });
+    if (clash) {
+      return fail(res, 409, 'توجد درجة بنفس الحد بالفعل — احذفها أولاً إذا أردت تغيير المكافأة');
+    }
 
     const row = await db.roomCupReward.create({
       data: { thresholdCoins: BigInt(threshold), rewardCoins: BigInt(reward) },
@@ -2662,6 +2878,16 @@ export const adminCreateDeviceBan = async (req: AdminReq, res: Response) => {
     const days = Number((req.body as any)?.days);
 
     if (!deviceId && !ipAddress) return fail(res, 400, 'أدخل معرّف جهاز أو عنوان IP');
+    if (ipAddress && isProtectedIp(ipAddress)) {
+      return fail(res, 400, 'هذا عنوان خادم التطبيق نفسه — حظره يمنع كل المستخدمين الذين يمرّون عبره. استخدم حظر الحساب.');
+    }
+    if (deviceId && isSharedBuildId(deviceId)) {
+      return fail(
+        res,
+        400,
+        'هذا ليس معرّف جهاز حقيقي — هو رقم إصدار النظام ويشترك فيه كل الأجهزة من نفس الموديل. اطلب من المستخدم تحديث التطبيق، أو احظر الـIP.',
+      );
+    }
 
     const expiresAt =
       Number.isFinite(days) && days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000) : null;

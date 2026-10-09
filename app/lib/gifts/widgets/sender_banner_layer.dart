@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/gift.dart';
 import '../providers/gift_animation_provider.dart';
+import '../../widgets/app_network_image.dart';
 
 class SenderBannerLayer extends ConsumerWidget {
   const SenderBannerLayer({super.key});
@@ -80,7 +81,7 @@ class _SenderBannerState extends State<_SenderBanner> with SingleTickerProviderS
               radius: 18,
               backgroundColor: const Color(0xFF4A2A8C),
               backgroundImage: (ev.sender?.avatarUrl != null && ev.sender!.avatarUrl!.isNotEmpty)
-                  ? NetworkImage(ev.sender!.avatarUrl!)
+                  ? appImage(ev.sender!.avatarUrl!, 36)
                   : null,
               child: (ev.sender?.avatarUrl == null || ev.sender!.avatarUrl!.isEmpty)
                   ? Text(

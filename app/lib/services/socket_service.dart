@@ -68,6 +68,9 @@ class SocketService {
   final _bannedController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get bannedStream => _bannedController.stream;
 
+  final _staffAccessChangedController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get staffAccessChangedStream => _staffAccessChangedController.stream;
+
   /// A DM was refused because of a block in either direction.
   final _dmBlockedController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get dmBlockedStream => _dmBlockedController.stream;
@@ -680,6 +683,14 @@ class SocketService {
       }
     }
 
+    // نظام الإدارة changed for this account (appointed, extended, withdrawn,
+    // expired, a permission switched). Sent only to the account's own room;
+    // staffMeProvider refetches /staff/me and open staff screens close if the
+    // access is gone.
+    _socket?.on('staff_access_changed', (data) {
+      _staffAccessChangedController.add(data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{});
+    });
+
     // The server only sends this to the banned account's own room, and then
     // disconnects them. The app listens so the session ends right away instead
     // of lingering until the token expires.
@@ -1147,13 +1158,17 @@ class SocketService {
     required int roomId,
     required int userId,
     required String username,
-    String? code, // 5-digit PIN for locked rooms (owner/admins may omit)
+    String? code, // 5-digit PIN for locked rooms (only the owner may omit it)
+    // الدخول المخفي: the user answered "نعم" to entering a locked room without
+    // the PIN. Only a request — the server re-checks HIDDEN_MODE itself.
+    bool hiddenBypass = false,
   }) {
     emit('join_room', {
       'roomId': roomId,
       'userId': userId,
       'username': username,
       if (code != null && code.isNotEmpty) 'code': code,
+      if (hiddenBypass) 'hiddenBypass': true,
     });
     // ONE event. `join_room` on the server already answers with the full
     // seats snapshot (emitRoomState), the roster (`room_users`), the mic
@@ -1525,6 +1540,10 @@ class RoomSeatsState {
   /// backend may send only occupied seats
   final List<SeatData> seats;
 
+  /// CP partners sitting on mics right now, and the effect their CP level
+  /// earns (server 2026-09-26). Drawn only for neighbouring seats.
+  final List<CpSeatLink> cpLinks;
+
   RoomSeatsState({
     required this.roomId,
     required this.ownerId,
@@ -1533,6 +1552,7 @@ class RoomSeatsState {
     required this.seats,
     required this.lockedSeats,
     this.mutedSeats = const [],
+    this.cpLinks = const [],
   });
 
   factory RoomSeatsState.fromJson(Map<String, dynamic> json) {
@@ -1597,8 +1617,49 @@ class RoomSeatsState {
       seats: seats,
       lockedSeats: lockedSeats,
       mutedSeats: mutedSeats,
+      cpLinks: ((json['cpLinks'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => CpSeatLink.fromJson(Map<String, dynamic>.from(e)))
+          .where((l) => l.effectKey != null)
+          .toList(),
     );
   }
+}
+
+/// Two CP partners on the mics and the effect their level earns.
+class CpSeatLink {
+  final int userA;
+  final int userB;
+  final int level;
+  final String? effectKey;
+  final int durationSec;
+  final double animationSpeed;
+  final int priority;
+
+  const CpSeatLink({
+    required this.userA,
+    required this.userB,
+    required this.level,
+    this.effectKey,
+    this.durationSec = 0,
+    this.animationSpeed = 1,
+    this.priority = 0,
+  });
+
+  factory CpSeatLink.fromJson(Map<String, dynamic> j) {
+    final fx = j['effect'] is Map ? Map<String, dynamic>.from(j['effect'] as Map) : null;
+    return CpSeatLink(
+      userA: (j['userA'] as num?)?.toInt() ?? 0,
+      userB: (j['userB'] as num?)?.toInt() ?? 0,
+      level: (j['level'] as num?)?.toInt() ?? 0,
+      effectKey: fx?['key'] as String?,
+      durationSec: (fx?['durationSec'] as num?)?.toInt() ?? 0,
+      animationSpeed: (fx?['animationSpeed'] as num?)?.toDouble() ?? 1,
+      priority: (fx?['priority'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  String get id => '${userA < userB ? userA : userB}-${userA < userB ? userB : userA}-$effectKey';
 }
 
 

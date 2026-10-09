@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'about_screen.dart';
 import '../providers/auth_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/theme_provider.dart';
@@ -10,6 +11,9 @@ import 'blocked_users_screen.dart';
 import 'dm_privacy_screen.dart';
 import 'broadcast_time_screen.dart';
 import 'edit_profile_screen.dart';
+import '../providers/staff_provider.dart';
+import 'staff/staff_ban_screen.dart';
+import 'staff/staff_panel_screen.dart';
 
 /// What the signed-in account is actually allowed to do with التارجت, so the
 /// settings screen only offers the actions that can succeed.
@@ -58,6 +62,71 @@ final _targetActionsProvider = FutureProvider.autoDispose<_TargetActions>((ref) 
   }
 });
 
+/// «منح المميزات» — what the admin granted this account. Only granted
+/// features get a row; the server re-checks every one of them where it is used.
+final _myFeaturesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  try {
+    final res = await DioClient.dio.get('/users/me/features');
+    final list = ((res.data as Map)['data'] as List?) ?? const [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  } catch (_) {
+    return const [];
+  }
+});
+
+/// الدخول المخفي — ON: entering a room shows nobody an entrance notice. The
+/// switch only records the choice; the server applies it on every entry.
+class _HiddenModeSwitch extends StatefulWidget {
+  const _HiddenModeSwitch({required this.initial});
+  final bool initial;
+  @override
+  State<_HiddenModeSwitch> createState() => _HiddenModeSwitchState();
+}
+
+class _HiddenModeSwitchState extends State<_HiddenModeSwitch> {
+  late bool _on = widget.initial;
+  bool _busy = false;
+
+  Future<void> _set(bool v) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _on = v;
+    });
+    try {
+      final res = await DioClient.dio.put('/users/me/features/HIDDEN_MODE', data: {'on': v});
+      final on = ((res.data as Map)['data'] as Map?)?['on'] == true;
+      if (mounted) setState(() => _on = on);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _on = !v);
+      final msg = e is DioException ? (e.error?.toString() ?? 'تعذر الحفظ') : 'تعذر الحفظ';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return ListTile(
+      leading: Icon(Icons.visibility_off_outlined, color: isDark ? const Color(0xFFFFD700) : const Color(0xFF00A3FF)),
+      title: Text('الدخول المخفي', style: TextStyle(color: theme.textTheme.bodyLarge?.color, fontWeight: FontWeight.w500)),
+      subtitle: Text(
+        _on ? 'ON — لا يظهر دخولك للمستخدمين' : 'OFF',
+        style: TextStyle(color: theme.textTheme.bodySmall?.color, fontSize: 12),
+      ),
+      trailing: Switch(
+        value: _on,
+        onChanged: _busy ? null : _set,
+        activeColor: isDark ? const Color(0xFFFFD700) : const Color(0xFF00A3FF),
+      ),
+    );
+  }
+}
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -66,6 +135,12 @@ class SettingsScreen extends ConsumerWidget {
     final strings = ref.watch(stringsProvider);
     final targetActions =
         ref.watch(_targetActionsProvider).valueOrNull ?? const _TargetActions.none();
+    final features = ref.watch(_myFeaturesProvider).valueOrNull ?? const [];
+    final hiddenMode = features.where((f) => f['key'] == 'HIDDEN_MODE').firstOrNull;
+    // نظام الإدارة — what the server says this account holds right now. The
+    // provider refreshes on the staff_access_changed socket event and on resume,
+    // so a withdrawn role disappears from here without reopening the app.
+    final staff = ref.watch(staffMeProvider).valueOrNull;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentLocale = ref.watch(localeProvider);
@@ -150,6 +225,46 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           const SizedBox(height: 24),
+
+          // نظام الإدارة — only the systems this account actually holds.
+          if (staff != null && (staff.rolePanel || staff.ban)) ...[
+            _buildSectionTitle('نظام الإدارة', theme, isDark),
+            const SizedBox(height: 12),
+            _buildSettingsCard(
+              theme: theme,
+              isDark: isDark,
+              children: [
+                if (staff.rolePanel)
+                  _buildSettingsTile(
+                    icon: staff.manager
+                        ? Icons.workspace_premium
+                        : staff.role == 'SUPER_ADMIN'
+                            ? Icons.diamond_outlined
+                            : Icons.shield_outlined,
+                    title: StaffPanelScreen.titleFor(staff.role),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StaffPanelScreen()),
+                    ),
+                    theme: theme,
+                    isDark: isDark,
+                  ),
+                if (staff.rolePanel && staff.ban) _buildDivider(isDark),
+                if (staff.ban)
+                  _buildSettingsTile(
+                    icon: Icons.gpp_bad_outlined,
+                    title: '🚫 نظام الحظر',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const StaffBanScreen()),
+                    ),
+                    theme: theme,
+                    isDark: isDark,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
 
           // Target Actions Section — "بيع التارجت" moves target to another
           // account by ID (any amount, up to all of it); "تبديل الكوينزات"
@@ -309,6 +424,10 @@ class SettingsScreen extends ConsumerWidget {
             theme: theme,
             isDark: isDark,
             children: [
+              if (hiddenMode != null) ...[
+                _HiddenModeSwitch(initial: hiddenMode['on'] == true),
+                _buildDivider(isDark),
+              ],
               _buildSettingsTile(
                 icon: Icons.privacy_tip_outlined,
                 title: strings.privacyPolicy,
@@ -347,18 +466,12 @@ class SettingsScreen extends ConsumerWidget {
               _buildSettingsTile(
                 icon: Icons.info_outline,
                 title: strings.about,
-                trailing: Text(
-                  '${strings.version} 1.0.0',
-                  style: TextStyle(
-                    color: theme.textTheme.bodyMedium?.color?.withOpacity(0.6),
-                    fontSize: 14,
-                  ),
+                // Opened the "coming soon" toast and claimed version 1.0.0;
+                // the About screen shows the installed version.
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AboutScreen()),
                 ),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(strings.searchComingSoon)),
-                  );
-                },
                 theme: theme,
                 isDark: isDark,
               ),

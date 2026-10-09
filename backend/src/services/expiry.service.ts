@@ -64,11 +64,26 @@ export async function sweepExpired(now: Date = new Date()): Promise<{
       select: { id: true, totalRecharge: true },
     });
     for (const u of lapsedVips) {
-      const earned = computeVipLevelWithOverrides(u.totalRecharge, overrides);
-      await (prisma as any).user.update({
-        where: { id: u.id },
-        data: { vipLevel: earned, vipExpiresAt: null },
-      });
+      // Re-read inside the transaction: a purchase or staff grant may have
+      // arrived since this sweep's initial list was collected.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await prisma.$transaction(async tx => {
+            const current = await tx.user.findUnique({ where: { id: u.id }, select: { totalRecharge: true, vipExpiresAt: true } });
+            if (!current?.vipExpiresAt || current.vipExpiresAt > now) return;
+            const earned = computeVipLevelWithOverrides(current.totalRecharge, overrides);
+            const temporary = await tx.temporaryEntitlement.findMany({
+              where: { userId: u.id, type: 'VIP', status: 'ACTIVE', expiresAt: { gt: now } }, select: { value: true },
+            });
+            await tx.user.update({ where: { id: u.id },
+              data: { vipLevel: Math.max(earned, ...temporary.map(g => g.value ?? 0)), vipExpiresAt: null } });
+          }, { isolationLevel: 'Serializable' });
+          break;
+        } catch (error) {
+          if ((error as { code?: string }).code === 'P2034' && attempt < 3) continue;
+          throw error;
+        }
+      }
     }
     vips = lapsedVips.length;
   } catch (e) {

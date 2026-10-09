@@ -1,5 +1,6 @@
 import prisma from '../utils/prisma';
-import { getLuckySettings, luckyHostCoins, rollLucky, type LuckyRollResult } from './lucky.service';
+import { coinFreezeReason } from '../utils/coinFreeze';
+import { getLuckyConfig, isLuckyGift, luckyHostCoins, rollLucky, type LuckyRollResult, type SettledEntry } from './lucky.service';
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
 import { getCpConfig } from '../controllers/settings.controller';
@@ -18,12 +19,18 @@ export interface SendGiftInput {
 export interface SendGiftResult {
   transactionId: string;
   totalCoins: number;
+  /** What counts for the recipient (target, seat total): the full value, or a
+   *  lucky gift's host share. */
+  recipientCoins: number;
   senderBalance: number;
   recipientCoinsDelta: number;
   comboCount: number;
   broadcast: boolean;
-  /** Present only for a lucky gift: what the sender rolled. */
+  /** Present only for a lucky gift: the sender's entry (PENDING or drawn). */
   lucky: LuckyRollResult | null;
+  /** Every lucky entry drawn by this send — the sender's own, and any pending
+   *  entries of other players that this gift made competitive. */
+  luckySettled: SettledEntry[];
   gift: {
     id: string;
     name: string;
@@ -82,11 +89,27 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   // host's 10%. Everything below that credits or counts "the gift" for the
   // recipient uses `recipientCoins`; everything on the sender's side (the
   // debit, XP, CP) keeps using `totalCoins`.
-  const luckySettings = gift.isLucky ? await getLuckySettings() : null;
+  const giftIsLucky = isLuckyGift(gift);
+  const luckySettings = giftIsLucky ? await getLuckyConfig() : null;
+  if (luckySettings) {
+    if (!luckySettings.enabled) throw new GiftSendError('LUCKY_DISABLED', 'هدايا الحظ متوقفة حالياً', 403);
+    if (totalCoins < luckySettings.minEntry || totalCoins > luckySettings.maxEntry) {
+      throw new GiftSendError(
+        'LUCKY_ENTRY_RANGE',
+        `قيمة هدية الحظ بين ${luckySettings.minEntry} و ${luckySettings.maxEntry} كوينز`,
+      );
+    }
+  }
   const recipientCoins = luckySettings ? luckyHostCoins(totalCoins, luckySettings.hostShareBp) : totalCoins;
-  if (gift.isLucky && recipientCoins <= 0) {
+  if (giftIsLucky && recipientCoins <= 0) {
     throw new GiftSendError('INVALID_AMOUNT', 'Lucky gift too small for a host share');
   }
+
+  // تجميد الكوينزات — checked up front so the sender is told why, in his
+  // language, rather than seeing the transaction below fail. The Prisma guard
+  // under the decrement would stop it anyway.
+  const frozen = await coinFreezeReason(input.senderId);
+  if (frozen) throw new GiftSendError('COINS_FROZEN', frozen, 403);
 
   let comboCount = 1;
   if (input.comboKey && gift.isComboEligible) {
@@ -103,7 +126,11 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     comboCount = existing + 1;
   }
 
-  const result = await prisma.$transaction(
+  // Serializable transactions abort (P2034) when two gifts touch the same rows
+  // at once — every lucky gift touches the pool row. The whole transaction is
+  // retried: it either commits once or rolls back completely, so a retry can
+  // never double-charge.
+  const result = await withSerializableRetry(() => prisma.$transaction(
     async (tx) => {
       const decremented = await tx.user.updateMany({
         where: { id: input.senderId, coinsBalance: { gte: totalCoins } },
@@ -179,7 +206,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       // ordinary host with 5% of what the client said they get.
       recipientCredit = hostMembership || chargingMembership
         ? 0
-        : gift.isLucky ? recipientCoins : Math.floor(totalCoins / 2);
+        : giftIsLucky ? recipientCoins : Math.floor(totalCoins / 2);
 
       // #4: agency owner's 20% commission on a host's gift earnings, cut from
       // every gift a hosting-agency member receives.
@@ -296,18 +323,22 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         },
       });
 
-      // The roll, inside the same transaction: pool funded, drawn, paid.
+      // The entry, inside the same transaction: shares booked, round joined,
+      // and — once the round is competitive — drawn and paid from the pool.
       let lucky: LuckyRollResult | null = null;
-      if (gift.isLucky) {
-        lucky = await rollLucky(tx, {
+      let luckySettled: SettledEntry[] = [];
+      if (giftIsLucky && luckySettings) {
+        const entry = await rollLucky(tx, {
           giftTxId: txRow.id,
           senderId: input.senderId,
           recipientId: input.recipientId,
           roomId: input.roomId ?? null,
           giftCoins: totalCoins,
           hostCoins: recipientCoins,
-          isSelfGift,
+          cfg: luckySettings,
         });
+        lucky = entry.own;
+        luckySettled = entry.settled;
       }
 
       // Any gift worth more than 5,000 coins is broadcast globally.
@@ -324,13 +355,13 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       }
 
       let senderBalance = sender?.coinsBalance ?? 0;
-      if (lucky && lucky.payoutCoins > 0) {
+      if (luckySettled.some((e) => e.senderId === input.senderId && e.payoutCoins > 0)) {
         // The balance above was read before the payout landed.
         const after = await tx.user.findUnique({
           where: { id: input.senderId },
           select: { coinsBalance: true },
         });
-        senderBalance = after?.coinsBalance ?? senderBalance + lucky.payoutCoins;
+        senderBalance = after?.coinsBalance ?? senderBalance;
       }
 
       return {
@@ -342,10 +373,11 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         commission,
         levelUp,
         lucky,
+        luckySettled,
       };
     },
     { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
-  );
+  ));
 
   // Level-up notice, once the XP/level/item grants are safely committed.
   if (result.levelUp) {
@@ -431,6 +463,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   return {
     transactionId: result.transactionId,
     totalCoins,
+    recipientCoins,
     senderBalance: result.senderBalance,
     // Actual coins that landed in the recipient's spendable balance (0 for
     // agency hosts / self-gifts, 50% for non-members). Not always == totalCoins.
@@ -438,6 +471,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     comboCount,
     broadcast: result.broadcast,
     lucky: result.lucky,
+    luckySettled: result.luckySettled,
     gift: {
       id: gift.id,
       name: gift.name,
@@ -453,7 +487,24 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       fireworksColors: gift.fireworksColors,
       coinCost: gift.coinCost,
       broadcastGlobal: gift.broadcastGlobal,
-      isLucky: gift.isLucky,
+      isLucky: isLuckyGift(gift),
     },
   };
+}
+
+/** Retry a Serializable transaction that lost a conflict (P2034 / 40001). */
+export async function withSerializableRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      const msg = String(e?.message ?? '');
+      const conflict = e?.code === 'P2034' || msg.includes('could not serialize') || msg.includes('40001');
+      if (!conflict || e instanceof GiftSendError) throw e;
+      last = e;
+      await new Promise((r) => setTimeout(r, 20 + Math.floor(Math.random() * 60) * (i + 1)));
+    }
+  }
+  throw last;
 }

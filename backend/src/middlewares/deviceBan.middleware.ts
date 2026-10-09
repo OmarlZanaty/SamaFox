@@ -17,12 +17,43 @@ const db = prisma as any;
  * well: defeating both takes a new device AND a new network.
  */
 
-/** Best-effort client IP, honouring the proxy header AWS/nginx sets. */
+/**
+ * IPs that are OUR servers, not a user: the old AWS box still relays every
+ * request from apps built against it (47 users showed it as their IP), plus the
+ * Hetzner box and loopback. Banning one would lock out everyone behind it, so
+ * they can never be banned and never match a ban.
+ */
+const PROTECTED_IPS = new Set([
+  '63.179.163.62',
+  '46.224.129.250',
+  '127.0.0.1',
+  '::1',
+  '::ffff:127.0.0.1',
+]);
+
+export function isProtectedIp(ip: string): boolean {
+  return PROTECTED_IPS.has(ip.trim());
+}
+
+/**
+ * The client's IP as Express resolved it. 'trust proxy' (index.ts) honours
+ * X-Forwarded-For only from Caddy on loopback; reading the header here
+ * directly let anyone on port 3000 name any address, dodging an IP ban or
+ * pinning one on a stranger.
+ */
 export function clientIp(req: Request): string | null {
-  const fwd = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
-  const first = raw?.split(',')[0]?.trim();
-  return first || req.socket?.remoteAddress || null;
+  return req.ip || req.socket?.remoteAddress || null;
+}
+
+/**
+ * Apps up to 1.0.34 sent Android's Build.ID ("AP3A.240905.015.A2") as the
+ * device id. That is the FIRMWARE build, shared by every phone of the same
+ * model and update, so a ban on it locked out strangers. Real ids — ANDROID_ID
+ * (16 hex) and iOS identifierForVendor (UUID) — never contain a dot; a build id
+ * always does.
+ */
+export function isSharedBuildId(value: string): boolean {
+  return value.includes('.');
 }
 
 export function clientDeviceId(req: Request): string | null {
@@ -30,7 +61,8 @@ export function clientDeviceId(req: Request): string | null {
   const fromHeader = Array.isArray(hdr) ? hdr[0] : hdr;
   const fromBody = (req.body as any)?.deviceId;
   const value = String(fromHeader ?? fromBody ?? '').trim();
-  return value || null;
+  if (!value || isSharedBuildId(value)) return null;
+  return value;
 }
 
 export type DeviceBanState = { banned: boolean; reason: string | null; expiresAt: Date | null };
@@ -72,7 +104,8 @@ export const deviceBanMiddleware: RequestHandler = async (
   res: Response,
   next: NextFunction,
 ) => {
-  const state = await checkDeviceBan(clientDeviceId(req), clientIp(req));
+  const ip = clientIp(req);
+  const state = await checkDeviceBan(clientDeviceId(req), ip && !isProtectedIp(ip) ? ip : null);
   if (!state.banned) return next();
 
   return res.status(403).json({

@@ -75,6 +75,11 @@ class AppNetworkImage extends StatelessWidget {
         memWidth = (width! * dpr).round();
       } else if (height != null && height!.isFinite && height! > 0) {
         memHeight = (height! * dpr).round();
+      } else {
+        // No size given: never wider than the screen. A 3456×3456 upload
+        // drawn in a list tile otherwise decodes at 48 MB.
+        final screen = MediaQuery.maybeOf(context)?.size.shortestSide ?? 400;
+        memWidth = (screen * dpr).round();
       }
     }
 
@@ -98,4 +103,21 @@ class AppNetworkImage extends StatelessWidget {
           errorBuilder?.call(context, error, null) ?? const SizedBox.shrink(),
     );
   }
+}
+
+/// [AppNetworkImage] for the places that take an [ImageProvider]
+/// (`CircleAvatar.backgroundImage`, `DecorationImage`): the same disk cache,
+/// decoded [size] logical pixels wide instead of at the file's resolution.
+///
+/// A plain `NetworkImage` decodes a 1080px avatar at 1080×1080×4 ≈ 4.6 MB and
+/// keeps it on the GPU for as long as it is on screen. A room shows dozens of
+/// them, and the client logs put graphics memory at ~570 MB median and up to
+/// 2.4 GB on the phones Android then killed for LOW_MEMORY (6–9 Oct).
+ImageProvider appImage(String url, double size) {
+  final views = WidgetsBinding.instance.platformDispatcher.views;
+  final dpr = views.isEmpty ? 3.0 : views.first.devicePixelRatio;
+  return ResizeImage(
+    CachedNetworkImageProvider(url),
+    width: (size * dpr).round(),
+  );
 }
