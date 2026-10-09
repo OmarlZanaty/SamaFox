@@ -346,13 +346,26 @@ class FruitLeaders extends StatelessWidget {
   final List<Map<String, dynamic>> entries;
   final int? myRank;
   final int myWon;
+  final Duration? resetsIn;
   const FruitLeaders({
     super.key,
     required this.strings,
     required this.entries,
     required this.myRank,
     required this.myWon,
+    this.resetsIn,
   });
+
+  String? get _resets {
+    final d = resetsIn;
+    if (d == null) return null;
+    final safe = d.isNegative ? Duration.zero : d;
+    String two(int v) => v.toString().padLeft(2, '0');
+    return safe.inDays > 0
+        ? '${safe.inDays}d ${two(safe.inHours % 24)}:${two(safe.inMinutes % 60)}'
+        : '${two(safe.inHours)}:${two(safe.inMinutes % 60)}';
+  }
+
   @override
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -395,6 +408,14 @@ class FruitLeaders extends StatelessWidget {
             '${strings.text('weekRank')}: ${strings.rank(myRank)} · ${fruitCompact(myWon)}',
             style: const TextStyle(color: fwCream),
           ),
+          if (_resets != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${strings.text('resetsIn')} $_resets',
+                style: const TextStyle(color: fwMuted, fontSize: 12),
+              ),
+            ),
         ],
       );
 }

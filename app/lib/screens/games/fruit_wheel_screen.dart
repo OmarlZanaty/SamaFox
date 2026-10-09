@@ -26,10 +26,8 @@ class FruitWheelScreen extends ConsumerStatefulWidget {
 
 enum FruitPhase { idle, spinning, revealing, bonus }
 
-class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
-    with TickerProviderStateMixin {
-  late final FruitWheelRepository _repository =
-      widget.repository ?? FruitWheelRepository();
+class FruitWheelScreenState extends ConsumerState<FruitWheelScreen> with TickerProviderStateMixin {
+  late final FruitWheelRepository _repository = widget.repository ?? FruitWheelRepository();
   final _sfx = FruitWheelSfx();
   final _random = Random();
   late final AnimationController _spin = AnimationController(vsync: this);
@@ -42,8 +40,6 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
     duration: const Duration(seconds: 2),
   );
   Animation<double>? _spinAngle;
-  Timer? _clock;
-
   FruitWheelPreferences? _preferences;
   Map<String, dynamic>? _layout;
   bool _loading = true, _arabic = true, _sound = true, _motion = true;
@@ -76,8 +72,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
     return allowed.isEmpty ? [fruitChips.first] : allowed;
   }
 
-  bool get _reduced =>
-      !_motion || MediaQuery.disableAnimationsOf(context);
+  bool get _reduced => !_motion || MediaQuery.disableAnimationsOf(context);
   bool get _busy => phase != FruitPhase.idle;
 
   @override
@@ -85,9 +80,6 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
     super.initState();
     _spin.addListener(_onSpinFrame);
     _boot();
-    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _boardEnds != null) setState(() {});
-    });
   }
 
   @override
@@ -106,7 +98,6 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
 
   @override
   void dispose() {
-    _clock?.cancel();
     _spin.dispose();
     _glow.dispose();
     _ambient.dispose();
@@ -121,8 +112,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
     });
     try {
       final account = ref.read(authStateProvider).user?.id.toString() ?? 'guest';
-      final preferences = _preferences ??=
-          FruitWheelPreferences(await SharedPreferences.getInstance(), account);
+      final preferences = _preferences ??= FruitWheelPreferences(await SharedPreferences.getInstance(), account);
       if (!mounted) return;
       setState(() {
         _arabic = preferences.arabic;
@@ -139,16 +129,13 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
       final rounds = (state['history'] as List? ?? [])
           .map((r) => FruitRound.fromJson(Map<String, dynamic>.from(r as Map)))
           .toList();
-      ref
-          .read(authStateProvider.notifier)
-          .updateCoinsBalance((state['balance'] as num).toInt());
+      ref.read(authStateProvider.notifier).updateCoinsBalance((state['balance'] as num).toInt());
       setState(() {
         _layout = Map<String, dynamic>.from(state['layout'] as Map);
         if (!_chips.contains(_chip)) _chip = _chips.first;
         _history = preferences.visible(rounds);
         _ticker = rounds.take(fruitTickerLength).map((r) => r.outcome).toList();
-        _rounds = (state['rounds'] as num?)?.toInt() ??
-            (rounds.isEmpty ? 0 : rounds.first.round);
+        _rounds = (state['rounds'] as num?)?.toInt() ?? (rounds.isEmpty ? 0 : rounds.first.round);
         final today = (state['today'] as Map?)?['totals'];
         if (today is Map) {
           _today = {
@@ -189,9 +176,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
       final board = await _repository.leaderboard();
       if (!mounted) return;
       setState(() {
-        _leaders = (board['entries'] as List? ?? [])
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        _leaders = (board['entries'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         final me = board['me'] as Map?;
         _myRank = (me?['rank'] as num?)?.toInt();
         _myWon = (me?['won'] as num?)?.toInt() ?? 0;
@@ -361,9 +346,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
       phase = FruitPhase.idle;
       _shownBalance = null;
       bets = FruitBets();
-      _notice = result.totalPrize > 0
-          ? '${_s.text('won')} ${result.totalPrize}'
-          : _s.text('lost');
+      _notice = result.totalPrize > 0 ? '${_s.text('won')} ${result.totalPrize}' : _s.text('lost');
     });
     if (result.totalPrize > 0) unawaited(_loadLeaders());
   }
@@ -395,11 +378,16 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         'help',
         FruitHelp(strings: _s, layout: _layout ?? const {}, repository: _repository),
       );
-  void _openHistory() =>
-      _open('history', FruitHistory(strings: _s, rounds: _history));
+  void _openHistory() => _open('history', FruitHistory(strings: _s, rounds: _history));
   void _openLeaders() => _open(
         'leaders',
-        FruitLeaders(strings: _s, entries: _leaders, myRank: _myRank, myWon: _myWon),
+        FruitLeaders(
+          strings: _s,
+          entries: _leaders,
+          myRank: _myRank,
+          myWon: _myWon,
+          resetsIn: _boardEnds?.difference(DateTime.now()),
+        ),
       );
   void _openSettings() => _open(
         'settings',
@@ -420,8 +408,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
   // ── Layout ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final balance =
-        _shownBalance ?? ref.watch(authStateProvider).user?.coinsBalance ?? 0;
+    final balance = _shownBalance ?? ref.watch(authStateProvider).user?.coinsBalance ?? 0;
     final userId = ref.watch(authStateProvider).user?.publicDisplayId;
     return Directionality(
       textDirection: _arabic ? TextDirection.rtl : TextDirection.ltr,
@@ -475,13 +462,20 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         ),
       );
 
+  /// One screen, no scrolling. The wheel spans the machine's full width
+  /// (the button rails moved into the meta bar) unless the phone is short,
+  /// in which case it takes the height that is left.
   Widget _game(int balance, int? userId) => LayoutBuilder(
         builder: (context, box) {
           final width = min(box.maxWidth, 560.0);
+          // Fits one screen from 640 px tall; only tiny phones (iPhone SE 1st
+          // gen) scroll, and then a 640-tall layout rather than a squashed one.
           return SingleChildScrollView(
+            physics: box.maxHeight >= 640 ? const NeverScrollableScrollPhysics() : null,
             child: Center(
               child: SizedBox(
                 width: width,
+                height: max(box.maxHeight, 640),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: Column(
@@ -491,14 +485,8 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                       const SizedBox(height: 6),
                       _socialStrip(),
                       const SizedBox(height: 8),
-                      _machine(width - 20),
-                      const SizedBox(height: 10),
-                      Text(
-                        _s.footer,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: fwMuted, fontSize: 12),
-                      ),
-                      const SizedBox(height: 14),
+                      Expanded(child: _machine()),
+                      const SizedBox(height: 6),
                     ],
                   ),
                 ),
@@ -571,22 +559,13 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
       );
 
   Widget _metaBar(int? userId) {
-    String left = '';
-    final ends = _boardEnds;
-    if (ends != null) {
-      final d = ends.difference(DateTime.now());
-      final safe = d.isNegative ? Duration.zero : d;
-      String two(int v) => v.toString().padLeft(2, '0');
-      left = safe.inDays > 0
-          ? '${safe.inDays}d ${two(safe.inHours % 24)}:${two(safe.inMinutes % 60)}'
-          : '${two(safe.inHours)}:${two(safe.inMinutes % 60)}:${two(safe.inSeconds % 60)}';
-    }
+    final soundIcon = _sound ? Icons.volume_up : Icons.volume_off;
     return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsetsDirectional.fromSTEB(12, 3, 4, 3),
       decoration: BoxDecoration(
         color: fwPurple.withValues(alpha: .45),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: fwPurpleLight.withValues(alpha: .6)),
       ),
       child: Row(
@@ -595,18 +574,55 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
             _s.round(_rounds + 1),
             style: const TextStyle(color: fwCream, fontWeight: FontWeight.w700, fontSize: 14),
           ),
-          Expanded(
-            child: Text(
-              userId == null ? '' : 'ID: $userId',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+          const SizedBox(width: 8),
+          Semantics(
+            label: '${_s.text('weekRank')}: ${_s.rank(_myRank)}',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: const LinearGradient(colors: [fwCream, fwGold, fwGoldDark]),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.emoji_events, color: fwPurpleDeep, size: 14),
+                  const SizedBox(width: 2),
+                  Text(
+                    _s.rank(_myRank),
+                    style: const TextStyle(color: fwPurpleDeep, fontWeight: FontWeight.w900, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
           ),
-          if (left.isNotEmpty) ...[
-            const Icon(Icons.check_circle, color: fwGreen, size: 15),
-            const SizedBox(width: 4),
-            Text(left, style: const TextStyle(color: Colors.white, fontSize: 14)),
-          ],
+          const Spacer(),
+          Flexible(
+            flex: 6,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerEnd,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _RoundButton(icon: Icons.people, label: _s.text('leaders'), onTap: _openLeaders, size: 34),
+                  const SizedBox(width: 5),
+                  _RoundButton(icon: Icons.question_mark, label: _s.text('help'), onTap: _openHelp, size: 34),
+                  const SizedBox(width: 5),
+                  _RoundButton(icon: Icons.receipt_long, label: _s.text('history'), onTap: _openHistory, size: 34),
+                  const SizedBox(width: 5),
+                  _RoundButton(
+                    icon: soundIcon,
+                    label: _s.text(_sound ? 'soundOff' : 'soundOn'),
+                    onTap: () => _setSound(!_sound),
+                    size: 34,
+                  ),
+                  const SizedBox(width: 5),
+                  _RoundButton(icon: Icons.settings, label: _s.text('settings'), onTap: _openSettings, size: 34),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -618,7 +634,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         child: GestureDetector(
           onTap: _openLeaders,
           child: Container(
-            height: 92,
+            height: 66,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               gradient: LinearGradient(
@@ -642,29 +658,29 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                     children: [
                       for (final e in _leaders.take(6))
                         SizedBox(
-                          width: 70,
+                          width: 64,
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: LinearGradient(colors: [fwGold, fwPink]),
-                                ),
-                                child: fruitAvatar(
-                                  e['avatar']?.toString(),
-                                  e['name']?.toString() ?? '',
-                                  44,
+                              Tooltip(
+                                message: e['name']?.toString() ?? '',
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: const LinearGradient(colors: [fwGold, fwPink]),
+                                    boxShadow: [
+                                      if (e == _leaders.first) const BoxShadow(color: fwGold, blurRadius: 8),
+                                    ],
+                                  ),
+                                  child: fruitAvatar(
+                                    e['avatar']?.toString(),
+                                    e['name']?.toString() ?? '',
+                                    34,
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 3),
-                              Text(
-                                e['name']?.toString() ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white, fontSize: 12),
-                              ),
                               Text(
                                 '🔥 ${fruitCompact((e['won'] as num?)?.toInt() ?? 0)}',
                                 style: const TextStyle(color: fwGold, fontSize: 11),
@@ -678,89 +694,99 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         ),
       );
 
-  Widget _machine(double width) {
-    final rail = width < 340 ? 44.0 : 52.0;
-    final soundIcon = _sound ? Icons.volume_up : Icons.volume_off;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(8, 10, 8, 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: fwGold, width: 2.5),
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF16072E), Color(0xFF5724A0)],
+  Widget _machine() => Container(
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: fwGold, width: 2.5),
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF16072E), Color(0xFF5724A0)],
+          ),
+          boxShadow: [
+            BoxShadow(color: fwBlueBright.withValues(alpha: .35), blurRadius: 18, spreadRadius: 1),
+            const BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(0, 10)),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(color: fwBlueBright.withValues(alpha: .35), blurRadius: 18, spreadRadius: 1),
-          const BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(0, 10)),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: rail,
-                child: Column(
-                  children: [
-                    _RoundButton(icon: Icons.people, label: _s.text('leaders'), onTap: _openLeaders, size: rail),
-                    const SizedBox(height: 8),
-                    _RoundButton(icon: Icons.question_mark, label: _s.text('help'), onTap: _openHelp, size: rail),
-                    const SizedBox(height: 8),
-                    _RoundButton(icon: Icons.receipt_long, label: _s.text('history'), onTap: _openHistory, size: rail),
-                    const SizedBox(height: 8),
-                    _RoundButton(
-                      icon: soundIcon,
-                      label: _s.text(_sound ? 'soundOff' : 'soundOn'),
-                      onTap: () => _setSound(!_sound),
-                      size: rail,
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(child: _wheel()),
-              SizedBox(
-                width: rail,
-                child: Column(
-                  children: [
-                    _RankBadge(text: _s.rank(_myRank), label: _s.text('weekRank')),
-                    const SizedBox(height: 10),
-                    _RoundButton(icon: Icons.settings, label: _s.text('settings'), onTap: _openSettings, size: rail),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: _tickerView()),
-              const SizedBox(width: 8),
-              _spinButton(),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _cards(),
-          const SizedBox(height: 10),
-          _chipRow(),
-          if (_notice != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Semantics(
-                liveRegion: true,
-                child: Text(
-                  _notice!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: fwCream, fontSize: 14, fontWeight: FontWeight.w600),
+        child: Column(
+          children: [
+            // The wheel takes every pixel the cards and chips leave.
+            Expanded(
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: LayoutBuilder(
+                    builder: (context, square) {
+                      final wheel = square.maxWidth;
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned.fill(child: _wheel()),
+                          // The round's outcome as a plaque over the bottom of the wheel.
+                          if (_notice != null)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: wheel * .06,
+                              child: IgnorePointer(
+                                child: Center(
+                                  child: TweenAnimationBuilder<double>(
+                                    key: ValueKey(_notice),
+                                    tween: Tween(begin: 0, end: 1),
+                                    duration: Duration(milliseconds: _reduced ? 0 : 420),
+                                    curve: Curves.easeOutBack,
+                                    builder: (_, t, child) => Opacity(
+                                      opacity: t.clamp(0.0, 1.0),
+                                      child: Transform.scale(scale: .8 + .2 * t, child: child),
+                                    ),
+                                    child: Semantics(
+                                      liveRegion: true,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(18),
+                                          color: const Color(0xEE1F0A3D),
+                                          border: Border.all(color: fwGold, width: 1.5),
+                                          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
+                                        ),
+                                        child: Text(
+                                          _notice!,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: fwCream,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
-        ],
-      ),
-    );
-  }
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: _tickerView()),
+                const SizedBox(width: 8),
+                _spinButton(),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _cards(),
+            const SizedBox(height: 8),
+            _chipRow(),
+          ],
+        ),
+      );
 
   Widget _wheel() => AspectRatio(
         aspectRatio: 1,
@@ -796,9 +822,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           angle: _angle,
                           highlight: _highlight,
                           glow: _glow.value,
-                          bulbPhase: phase == FruitPhase.spinning
-                              ? (_angle / (2 * pi)) % 1
-                              : _ambient.value,
+                          bulbPhase: phase == FruitPhase.spinning ? (_angle / (2 * pi)) % 1 : _ambient.value,
                         ),
                       ),
                       for (var i = 0; i < fruitSegments.length; i++)
@@ -913,7 +937,11 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
 
   Widget _spinButton() {
     final spinning = phase != FruitPhase.idle;
-    final label = spinning ? '...' : bets.isEmpty ? _s.text('repeat') : _s.text('spin');
+    final label = spinning
+        ? '...'
+        : bets.isEmpty
+            ? _s.text('repeat')
+            : _s.text('spin');
     final enabled = !spinning && (!bets.isEmpty || _lastBets != null);
     return Semantics(
       button: true,
@@ -953,8 +981,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
           final row = Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              for (final card in fruitCards)
-                SizedBox(width: cardWidth, child: _card(card)),
+              for (final card in fruitCards) SizedBox(width: cardWidth, child: _card(card)),
             ],
           );
           return narrow
@@ -992,8 +1019,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
               ),
               border: Border.all(color: winning ? fwCream : fwGold, width: winning ? 3 : 2),
               boxShadow: [
-                if (winning)
-                  BoxShadow(color: fwGold.withValues(alpha: .8 * glow), blurRadius: 18, spreadRadius: 2),
+                if (winning) BoxShadow(color: fwGold.withValues(alpha: .8 * glow), blurRadius: 18, spreadRadius: 2),
                 const BoxShadow(color: Colors.black45, blurRadius: 6, offset: Offset(0, 3)),
               ],
             ),
@@ -1120,38 +1146,6 @@ class _RoundButton extends StatelessWidget {
                 child: Icon(icon, color: Colors.white, size: size * .48),
               ),
             ),
-          ),
-        ),
-      );
-}
-
-class _RankBadge extends StatelessWidget {
-  final String text, label;
-  const _RankBadge({required this.text, required this.label});
-  @override
-  Widget build(BuildContext context) => Semantics(
-        label: '$label: $text',
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [fwCream, fwGold, fwGoldDark],
-            ),
-            boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
-          ),
-          child: Column(
-            children: [
-              const Icon(Icons.emoji_events, color: fwPurpleDeep, size: 18),
-              FittedBox(
-                child: Text(
-                  text,
-                  style: const TextStyle(color: fwPurpleDeep, fontWeight: FontWeight.w900, fontSize: 15),
-                ),
-              ),
-            ],
           ),
         ),
       );
