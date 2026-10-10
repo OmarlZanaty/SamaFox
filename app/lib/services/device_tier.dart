@@ -22,11 +22,22 @@ class DeviceTier {
   /// keeps the rest); 6 GB phones report ~5.5 GB.
   static const int _liteBelowMb = 4500;
 
+  /// 2–3 GB phones report ~1.8–2.9 GB; 4 GB phones ~3.5 GB.
+  static const int _ultraLiteBelowMb = 3300;
+
   /// Total RAM in MB, null until [init] ran or when the OS would not say.
   static int? totalRamMb;
 
   /// True on phones that need the room kept light.
   static bool lite = false;
+
+  /// 10/10: phones under 3 GB, on top of [lite]. A 4 GB HONOR was killed on
+  /// the home screen at ~800 MB; a 2 GB phone has half that budget, so here
+  /// every optional animation goes: mic frames hold their first frame, no
+  /// entrance clips (not even the user's own), two gift flights at a time
+  /// with small gifts left to the announcement bar, no product videos, and a
+  /// 16 MB picture cache. What was bought is still SHOWN — just not animated.
+  static bool ultraLite = false;
 
   static Future<void> init() async {
     if (kIsWeb || !Platform.isAndroid) return;
@@ -37,7 +48,9 @@ class DeviceTier {
       if (raw == null) return;
       final total = (raw['totalMb'] as num?)?.toInt();
       totalRamMb = total;
-      lite = raw['lowRam'] == true || (total != null && total > 0 && total < _liteBelowMb);
+      final mb = total ?? 0;
+      lite = raw['lowRam'] == true || (mb > 0 && mb < _liteBelowMb);
+      ultraLite = raw['lowRam'] == true || (mb > 0 && mb < _ultraLiteBelowMb);
     } catch (e) {
       debugPrint('[DeviceTier] RAM unknown: $e');
     }
@@ -45,5 +58,6 @@ class DeviceTier {
 
   /// For the breadcrumbs: "ram=2861MB lite".
   static String get summary =>
-      'ram=${totalRamMb == null ? '?' : '${totalRamMb}MB'}${lite ? ' lite' : ''}';
+      'ram=${totalRamMb == null ? '?' : '${totalRamMb}MB'}'
+      '${ultraLite ? ' ultralite' : lite ? ' lite' : ''}';
 }

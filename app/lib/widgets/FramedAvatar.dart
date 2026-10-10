@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../config/app_config.dart';
 import '../models/product_layout.dart';
+import '../services/device_tier.dart';
 import '../utils/image_opaque_bounds.dart';
 import '../widgets/app_network_image.dart';
 import 'product_video_layer.dart';
@@ -191,6 +192,8 @@ class FramedAvatar extends StatelessWidget {
         url,
         fit: BoxFit.contain,
         cacheWidth: (size * dpr * 1.5).round(),
+        // Under 3 GB an animated frame holds its first frame (10/10).
+        still: DeviceTier.ultraLite,
         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
       );
     }

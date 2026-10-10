@@ -2,6 +2,7 @@ package com.almobarmg.samafox
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -13,10 +14,14 @@ import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
+import android.system.Os
+import android.system.OsConstants
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 /**
  * A23 — the Dart side asks for the mic foreground service to be running while
@@ -40,6 +45,9 @@ class MainActivity : FlutterActivity() {
         const val DEVICE_CHANNEL = "samafox/device"
         const val MIC_SHARE_CHANNEL = "samafox/mic_share"
         const val REQ_PROJECTION = 7311
+        const val MB = 1024L * 1024L
+        const val MEM_POLL_MS = 3_000L
+        const val PRESSURE_EVERY_MS = 30_000L
         const val BLANK_LINE = "\n\n"
     }
 
@@ -160,6 +168,7 @@ class MainActivity : FlutterActivity() {
         // and surfaces) or code. This is `dumpsys meminfo` for a phone nobody can
         // plug into a computer.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MEM_CHANNEL)
+            .also { memChannel = it }
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "breakdown" -> {
@@ -201,6 +210,103 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    // ── Memory pressure (10/10) ─────────────────────────────────────────────
+    //
+    // A HONOR NLA-L31 (Android 15, 4 GB) was killed on the home screen five
+    // times in an hour with no warning reaching the app: Android 14+ stopped
+    // sending the onTrimMemory "running" levels, which are the only ones
+    // Flutter turns into a memory-pressure event. So while on screen this
+    // looks for itself every few seconds — free memory against the OS's own
+    // kill threshold, and on a 2–4 GB phone this process's own size — and
+    // tells MemoryGuard on the Dart side, which lets go of caches and
+    // animations. Trim callbacks that still arrive are passed on too.
+
+    private var memChannel: MethodChannel? = null
+    private val memHandler = Handler(Looper.getMainLooper())
+    private var lastPressureAt = 0L
+    private val memPoll = object : Runnable {
+        override fun run() {
+            checkMemory()
+            memHandler.postDelayed(this, MEM_POLL_MS)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        memHandler.removeCallbacks(memPoll)
+        memHandler.postDelayed(memPoll, MEM_POLL_MS)
+    }
+
+    override fun onPause() {
+        memHandler.removeCallbacks(memPoll)
+        super.onPause()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // UI_HIDDEN only means "went to the background"; it is not a shortage.
+        if (level != ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN &&
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE
+        ) {
+            reportPressure(
+                "trim$level",
+                force = level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+            )
+        }
+    }
+
+    private fun rssMb(): Long = try {
+        val pages = File("/proc/self/statm").readText().trim().split(' ')[1].toLong()
+        pages * Os.sysconf(OsConstants._SC_PAGESIZE) / MB
+    } catch (e: Exception) {
+        0L
+    }
+
+    private fun memInfo(): Pair<ActivityManager.MemoryInfo, Long> {
+        val mi = ActivityManager.MemoryInfo()
+        (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(mi)
+        return mi to mi.availMem / MB
+    }
+
+    private fun checkMemory() {
+        val (mi, availMb) = memInfo()
+        val totalMb = mi.totalMem / MB
+        val thresholdMb = mi.threshold / MB
+        // Same line as DeviceTier.lite. The HONOR above died at 535–800 MB of
+        // its 3.8 GB; 15% (~570 MB there, ~300 MB on a 2 GB phone) is where
+        // letting go starts.
+        val rssBudgetMb = if (totalMb in 1 until 4500) totalMb * 15 / 100 else Long.MAX_VALUE
+        val rss = rssMb()
+        val reason = when {
+            mi.lowMemory -> "low"
+            availMb < thresholdMb * 5 / 4 -> "avail"
+            rss > rssBudgetMb -> "rss"
+            else -> return
+        }
+        reportPressure(reason, availMb = availMb, rss = rss)
+    }
+
+    /** At most every [PRESSURE_EVERY_MS], unless the OS says it is critical. */
+    private fun reportPressure(
+        reason: String,
+        force: Boolean = false,
+        availMb: Long? = null,
+        rss: Long? = null,
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastPressureAt < PRESSURE_EVERY_MS) return
+        lastPressureAt = now
+        memChannel?.invokeMethod(
+            "pressure",
+            mapOf(
+                "reason" to reason,
+                "availMb" to (availMb ?: memInfo().second),
+                "rssMb" to (rss ?: rssMb()),
+            ),
+        )
+    }
+
     private var micShareChannel: MethodChannel? = null
     private var recordingCallback: AudioManager.AudioRecordingCallback? = null
     private var othersRecording = false
@@ -234,6 +340,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         unwatchRecordings()
+        memHandler.removeCallbacks(memPoll)
+        memChannel = null
         micShareChannel = null
         super.onDestroy()
     }

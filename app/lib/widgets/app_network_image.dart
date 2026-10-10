@@ -1,4 +1,8 @@
+import 'dart:ui' as ui;
+
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter/material.dart';
 
 /// Every remote image in the app, cached on disk and decoded at the size it is
@@ -35,6 +39,7 @@ class AppNetworkImage extends StatelessWidget {
     this.color,
     this.colorBlendMode,
     this.placeholder,
+    this.still = false,
   });
 
   final String url;
@@ -59,6 +64,9 @@ class AppNetworkImage extends StatelessWidget {
   /// these images sit inside a coloured tile that already looks fine bare.
   final Widget? placeholder;
 
+  /// Draw only the first frame of an animated GIF/WebP (see [StillNetworkImage]).
+  final bool still;
+
   @override
   Widget build(BuildContext context) {
     if (url.trim().isEmpty) {
@@ -81,6 +89,22 @@ class AppNetworkImage extends StatelessWidget {
         final screen = MediaQuery.maybeOf(context)?.size.shortestSide ?? 400;
         memWidth = (screen * dpr).round();
       }
+    }
+
+    if (still) {
+      return Image(
+        image: StillNetworkImage(url, width: memWidth, height: memHeight),
+        width: width,
+        height: height,
+        fit: fit,
+        alignment: alignment,
+        color: color,
+        colorBlendMode: colorBlendMode,
+        filterQuality: filterQuality,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, _) =>
+            errorBuilder?.call(context, error, null) ?? const SizedBox.shrink(),
+      );
     }
 
     return CachedNetworkImage(
@@ -120,4 +144,63 @@ ImageProvider appImage(String url, double size) {
     CachedNetworkImageProvider(url),
     width: (size * dpr).round(),
   );
+}
+
+/// The first frame of a remote picture, and nothing after it.
+///
+/// An animated GIF/WebP mic frame keeps its codec open and decodes a new frame
+/// every few dozen milliseconds, on every seat that wears one, for as long as
+/// the room is open. On a phone under 3 GB ([DeviceTier.ultraLite]) that is
+/// memory and CPU the room can't spare, so the frame is shown — it was bought —
+/// but held still: one decode, codec closed straight after. Same disk cache as
+/// [AppNetworkImage], so nothing is downloaded twice.
+@immutable
+class StillNetworkImage extends ImageProvider<StillNetworkImage> {
+  const StillNetworkImage(this.url, {this.width, this.height});
+
+  final String url;
+
+  /// Decode cap in pixels; the artwork is never decoded larger than this.
+  final int? width;
+  final int? height;
+
+  @override
+  Future<StillNetworkImage> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture<StillNetworkImage>(this);
+
+  @override
+  ImageStreamCompleter loadImage(StillNetworkImage key, ImageDecoderCallback decode) =>
+      OneFrameImageStreamCompleter(
+        _firstFrame(decode),
+        informationCollector: () => [DiagnosticsProperty<String>('URL', url)],
+      );
+
+  Future<ImageInfo> _firstFrame(ImageDecoderCallback decode) async {
+    final file = await DefaultCacheManager().getSingleFile(url);
+    final buffer = await ui.ImmutableBuffer.fromFilePath(file.path);
+    final codec = await decode(
+      buffer,
+      getTargetSize: (w, h) {
+        if (width != null && w > width!) return ui.TargetImageSize(width: width);
+        if (height != null && h > height!) return ui.TargetImageSize(height: height);
+        return ui.TargetImageSize(width: w, height: h);
+      },
+    );
+    try {
+      final frame = await codec.getNextFrame();
+      return ImageInfo(image: frame.image);
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is StillNetworkImage &&
+      other.url == url &&
+      other.width == width &&
+      other.height == height;
+
+  @override
+  int get hashCode => Object.hash(url, width, height);
 }

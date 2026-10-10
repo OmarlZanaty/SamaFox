@@ -15,6 +15,7 @@ import '../models/user.dart';
 import '../providers/room_live_provider.dart';
 import '../providers/room_provider.dart';
 import '../services/device_tier.dart';
+import '../services/memory_guard.dart';
 import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../services/store_service.dart';
@@ -235,6 +236,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _joinDeniedSub = null;
     _seatEffectSub?.cancel();
     _seatEffectSub = null;
+    MemoryGuard.pressure.removeListener(_dropQueuedEffects);
     _seatInviteSub?.cancel();
     _seatInviteSub = null;
     _seatInviteResultSub?.cancel();
@@ -439,6 +441,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final status = await PermissionGate.request(Permission.microphone);
     return status.isGranted;
   }
+
+  void _dropQueuedEffects() => _seatEffectQueue.clear();
 
   void _tryPlayNextEffect() {
     if (_isPlayingEffect) return;
@@ -3026,6 +3030,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             : '${name.isEmpty ? 'المستخدم' : name} رفض دعوة المايك $seat');
       });
 
+      // Short of memory: entrance clips still waiting are skipped (10/10).
+      MemoryGuard.pressure
+        ..removeListener(_dropQueuedEffects)
+        ..addListener(_dropQueuedEffects);
+
       // Subscribe BEFORE joining: the server broadcasts our own entrance effect
       // as part of join_room, and a listener attached afterwards would miss it.
       _seatEffectSub = SocketService().seatEffectStream.listen((event) {
@@ -3034,6 +3043,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         // A full-screen clip is a hardware decoder at the clip's resolution,
         // arriving exactly while the room is loading. On a 2–4 GB phone only
         // the user's OWN entrance plays; the others still get the banner.
+        // Under 3 GB not even that one (10/10).
+        if (DeviceTier.ultraLite) return;
         if (DeviceTier.lite &&
             event['userId']?.toString() != _myUserId?.toString()) {
           return;
