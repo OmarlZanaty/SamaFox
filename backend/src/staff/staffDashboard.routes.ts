@@ -10,6 +10,8 @@ router.use(staffResponses);
 router.use(authenticate, requireAdminDashboard);
 router.get('/', handle('members'));
 router.post('/managers', requireSuperAdmin, handle('appoint'));
+// Super Admin / Admin under a chosen Manager (body.role + body.parentUserId).
+router.post('/members', requireSuperAdmin, staffController('appoint', true, false));
 router.get('/pool', handle('pool'));
 router.put('/pool', requireSuperAdmin, handle('poolSet'));
 router.get('/role-rewards', handle('roleRewards'));

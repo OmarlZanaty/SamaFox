@@ -23,7 +23,7 @@ test('app surface matches Part D, with no financial, product-edit or audit-delet
 });
 test('dashboard surface matches Part D and mounts before the existing dashboard router', () => {
   assert.deepEqual(routes('staffDashboard.routes.ts'), [
-    'GET /', 'POST /managers', 'GET /:roleId', 'POST /:roleId/extend', 'POST /:roleId/renew',
+    'GET /', 'POST /managers', 'POST /members', 'GET /:roleId', 'POST /:roleId/extend', 'POST /:roleId/renew',
     'POST /:roleId/revoke', 'POST /:roleId/parent',
     'GET /pool', 'PUT /pool', 'GET /role-rewards', 'PUT /role-rewards', 'GET /audit', 'GET /grants', 'GET /bans',
     'GET /ban-holders',

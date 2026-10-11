@@ -297,7 +297,15 @@ async function appoint(c: Context, body: Body, previous?: StaffRole) {
   checkTarget(c, user);
   const role = String(body.role);
   if (!rules.ROLES.includes(role as rules.StaffRoleName)) fail(400, 'نوع الإدارة غير صالح');
-  if (c.dashboard ? role !== 'MANAGER' && !previous : !rules.mayAppoint(c.access.role?.role ?? null, role)) denied();
+  // The dashboard appoints Managers directly, and Super Admins / Admins under a
+  // live Manager (or, for an Admin, a Super Admin) it names, exactly as if that
+  // person had appointed them in the app.
+  let dashboardParent: StaffRole | null = null;
+  if (c.dashboard && role !== 'MANAGER' && !previous) {
+    const parentUserId = body.parentUserId == null || body.parentUserId === '' ? null : positiveId(body.parentUserId);
+    dashboardParent = parentUserId === null ? null : c.access.tree.find(r => r.userId === parentUserId && rules.isLive(r, c.now)) ?? null;
+    if (!dashboardParent || !rules.mayAppoint(dashboardParent.role, role, dashboardParent.userId === user.id)) fail(400, 'اختر Manager نشطاً يتبعه هذا الإداري');
+  } else if (!c.dashboard && !rules.mayAppoint(c.access.role?.role ?? null, role)) denied();
   if (c.dashboard && body.days == null) fail(400, 'مدة الإدارة مطلوبة');
   const days = rules.roleDays(c.dashboard ? 'MANAGER' : c.access.role?.role ?? '', body.days);
   if (days === null) fail(400, 'مدة الإدارة غير صالحة');
@@ -309,9 +317,11 @@ async function appoint(c: Context, body: Body, previous?: StaffRole) {
   // A Super Admin hands on only what he holds himself. Defaults and a renewal's
   // copied checklist / product lists are narrowed to that instead of refusing
   // the whole appointment; anything he names explicitly is still checked (403).
-  const narrowPermissions = !c.dashboard && c.access.role?.role === 'SUPER_ADMIN';
-  const holdable = (p: Body = {}) => narrowPermissions
-    ? Object.fromEntries(Object.entries(p).filter(([key]) => c.access.permissions.includes(key as rules.Permission))) : p;
+  // The same holds for an Admin the dashboard puts under a Super Admin.
+  const narrowTo = !c.dashboard && c.access.role?.role === 'SUPER_ADMIN' ? c.access.permissions
+    : dashboardParent?.role === 'SUPER_ADMIN' ? (await resolveAccess(c.db, dashboardParent.userId, c.now)).permissions : null;
+  const holdable = (p: Body = {}) => narrowTo
+    ? Object.fromEntries(Object.entries(p).filter(([key]) => narrowTo.includes(key as rules.Permission))) : p;
   const narrowItems = async (ids: unknown, mode: 'grant' | 'reward') => {
     if (!previous || c.dashboard) return ids ?? [];
     const allowed = await assignableItems(c, mode);
@@ -320,7 +330,7 @@ async function appoint(c: Context, body: Body, previous?: StaffRole) {
   const allowedItemIds = await validateItems(c, await narrowItems(body.allowedItemIds, 'grant'));
   const rewardItemIds = await validateItems(c, await narrowItems(body.rewardItemIds, 'reward'), 'reward');
   const next = await c.db.staffRole.create({ data: { userId: user.id, role,
-    assignedById: c.dashboard ? null : c.userId, parentUserId: previous ? previous.parentUserId : c.dashboard ? null : c.userId,
+    assignedById: c.dashboard ? null : c.userId, parentUserId: previous ? previous.parentUserId : c.dashboard ? dashboardParent?.userId ?? null : c.userId,
     expiresAt: new Date(c.now.getTime() + days! * rules.DAY), allowedItemIds, rewardItemIds } });
   if (role !== 'MANAGER') {
     const defaults = holdable(Object.fromEntries(rules.defaultPermissions(role as rules.StaffRoleName).map(key => [key, true])));

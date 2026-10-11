@@ -71,6 +71,12 @@
       <label>ID المستخدم <input id="staffUserId" class="form-input" type="number" min="1" step="1" required placeholder="الـ ID اللي ظاهر في بروفايله"></label>
       <label>المدة بالأيام <input id="staffDays" class="form-input form-input--sm" type="number" min="1" max="365" step="1" value="30" required></label>
       <button class="btn btn-primary" type="submit" disabled>تعيين Manager</button></form>`)
+      + `<div id="staffAppointStaffCard">` + card("تعيين Super Admin / Admin", `<p class="settings-hint">يتبع الـ Manager اللي تختاره ويظهر في لوحته بالتطبيق. الـ Admin ممكن يتبع Manager أو Super Admin، ويأخذ من صلاحيات الـ Super Admin اللي معاه بس.</p><form id="staffAppointStaff" class="form-row">
+      <label>ID المستخدم <input id="staffStaffUserId" class="form-input" type="number" min="1" step="1" required placeholder="الـ ID اللي ظاهر في بروفايله"></label>
+      <label>الدور <select id="staffStaffRole" class="form-select" required><option value="SUPER_ADMIN">💎 Super Admin</option><option value="ADMIN">🛡️ Admin</option></select></label>
+      <label>يتبع <select id="staffStaffParent" class="form-select" required><option value="">اختر المدير</option></select></label>
+      <label>المدة بالأيام <input id="staffStaffDays" class="form-input form-input--sm" type="number" min="1" max="365" step="1" value="30" required></label>
+      <button class="btn btn-primary" type="submit" disabled>تعيين</button></form>`) + `</div>`
       + card("الإداريون", `<form id="staffFilters" class="form-row"><label>الدور <select id="staffRoleFilter" class="form-select">${options(roles, "كل الأدوار")}</select></label>
       <label>الحالة <select id="staffStatusFilter" class="form-select">${options({ ACTIVE: "نشط", EXPIRED: "منتهي", REVOKED: "ملغى" }, "كل الحالات")}</select></label><button class="btn btn-outline">تطبيق</button></form><div id="staffMembers"></div>`)
       + '<div id="staffActionBox" hidden></div><div id="staffFile" hidden tabindex="-1"></div>'
@@ -94,8 +100,19 @@
   function loadMembers() {
     return loadPanel("staffMembers", async () => {
       const rows = await api("");
-      return () => { state.members = rows; renderMembers(); };
+      return () => { state.members = rows; renderMembers(); renderParents(); };
     });
+  }
+  // Who the new Super Admin / Admin may report to: live Managers, and for an
+  // Admin also live Super Admins (the server checks the same).
+  function renderParents() {
+    const select = $("staffStaffParent");
+    const role = value("staffStaffRole");
+    const previous = select.value;
+    const allowed = role === "ADMIN" ? ["MANAGER", "SUPER_ADMIN"] : ["MANAGER"];
+    const parents = state.members.filter(m => allowed.includes(m.role) && effectiveStatus(m) === "ACTIVE");
+    select.innerHTML = `<option value="">اختر المدير</option>` + parents.map(m => `<option value="${esc(m.userId)}">${esc(roles[m.role])} · ${esc(m.user?.name || "—")} · ${esc(m.user?.displayId ?? m.userId)}</option>`).join("");
+    if (parents.some(m => String(m.userId) === previous)) select.value = previous;
   }
   function thumbnail(item) {
     const raw = item.preview_url || item.previewUrl || item.file_url || item.assetUrl;
@@ -244,6 +261,13 @@
       // The ID people see on the profile — the only one the owner knows.
       await mutate("/managers", "POST", { displayId: id, days: Number(value("staffDays")) });
       $("staffUserId").value = "";
+    } else if (form.id === "staffAppointStaff") {
+      const id = Number(value("staffStaffUserId"));
+      if (!Number.isSafeInteger(id) || id < 1) throw new Error("معرّف المستخدم غير صالح");
+      if (!value("staffStaffParent")) throw new Error("اختر المدير اللي هيتبعه");
+      await mutate("/members", "POST", { displayId: id, role: value("staffStaffRole"),
+        parentUserId: Number(value("staffStaffParent")), days: Number(value("staffStaffDays")) });
+      $("staffStaffUserId").value = "";
     } else if (form.id === "staffActionForm") {
       const action = form.dataset.action;
       const body = action === "revoke" ? { reason: form.elements.reason.value.trim() } : action === "parent" ? { parentUserId: Number(form.elements.parentUserId.value) } : { days: Number(form.elements.days.value) };
@@ -277,6 +301,8 @@
       $("staffAccessNote").textContent = state.canWrite ? "يمكنك تعيين الـ Manager وإدارة التعيينات وقوائم المنتجات." : "وضع العرض فقط؛ التعديل متاح للمشرف الأعلى للمنصة.";
       $("staffAppoint").hidden = !state.canWrite;
       $("staffAppoint").querySelector("button").disabled = !state.canWrite;
+      $("staffAppointStaffCard").hidden = !state.canWrite;
+      $("staffAppointStaff").querySelector("button").disabled = !state.canWrite;
       await loadMembers();
       await Promise.all([loadPool(), loadRewards(), loadHolders(), loadGrants(), loadBans(), loadAudit(1)]);
     });
@@ -300,6 +326,7 @@
     else if (action === "retry") run(el, () => loaders[el.dataset.id]?.());
     else openAction(action, id);
   });
+  $("staffStaffRole").addEventListener("change", renderParents);
   $("section-staff").addEventListener("input", event => {
     const target = event.target.dataset.staffSearch;
     if (!target) return;

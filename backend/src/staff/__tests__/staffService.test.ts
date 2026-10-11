@@ -290,3 +290,20 @@ test('an id too large for the database is a clear 400, not a server error', asyn
   await reject(call(1, 'lookup', {}, {}, false, { id: '100010100010' }), 400);
   await reject(call(1, 'vipGrant', { userId: 99999999999, level: 2 }), 400);
 });
+test('the dashboard appoints Super Admins / Admins under a live Manager it names', async () => {
+  const dash = (body: Row) => call(99, 'appoint', { days: 30, ...body }, {}, true);
+  await reject(dash({ displayId: 10008, role: 'SUPER_ADMIN' }), 400);
+  await reject(dash({ displayId: 10008, role: 'SUPER_ADMIN', parentUserId: 2 }), 400);
+  await reject(dash({ displayId: 10008, role: 'ADMIN', parentUserId: 3 }), 400);
+  row('staffRole', 4).expiresAt = new Date(Date.now() - 1);
+  await reject(dash({ displayId: 10008, role: 'SUPER_ADMIN', parentUserId: 4 }), 400);
+  const sa = await dash({ displayId: 10008, role: 'SUPER_ADMIN', parentUserId: 1 });
+  assert.equal(sa.parentUserId, 1); assert.equal(sa.assignedById, null);
+  assert.equal((await call(8, 'me')).panels.superAdmin, true);
+  assert.ok((await call(1, 'members')).some((m: Row) => m.userId === 8));
+  // Under a Super Admin, an Admin gets only the defaults that Super Admin holds.
+  tables.staffPermission!.find(p => p.userId === 2 && p.permission === 'follow_agencies')!.status = 'REVOKED';
+  const admin = await dash({ displayId: 10009, role: 'ADMIN', parentUserId: 2 });
+  assert.equal(admin.parentUserId, 2);
+  assert.deepEqual((await call(9, 'me')).permissions.sort(), ['manage_host_agency', 'role_panel']);
+});

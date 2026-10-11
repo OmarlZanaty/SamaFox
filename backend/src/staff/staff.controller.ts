@@ -17,13 +17,13 @@ export const staffResponses: RequestHandler = (_req, res, next) => {
   next();
 };
 
-export function staffController(operation: Operation, dashboard = false): RequestHandler {
+export function staffController(operation: Operation, dashboard = false, managerOnly = dashboard): RequestHandler {
   return async (req, res) => {
     try {
       const data = await runStaffAction({ userId: req.userId!, dashboard, ip: requestIp(req),
         userAgent: [req.get('x-device-id'), req.get('user-agent')].filter(Boolean).join(' | '),
         reason: typeof req.body?.reason === 'string' ? req.body.reason : null }, operation,
-      operation === 'appoint' && dashboard ? { ...req.body, role: 'MANAGER' } : req.body ?? {}, req.params, req.query);
+      operation === 'appoint' && dashboard && managerOnly ? { ...req.body, role: 'MANAGER' } : req.body ?? {}, req.params, req.query);
       return res.json({ success: true, data });
     } catch (error) {
       if (error instanceof StaffError) return res.status(error.status).json({ success: false, message: error.message });
