@@ -18,6 +18,7 @@ import '../widgets/user_trail.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../widgets/app_network_image.dart';
 import '../services/device_tier.dart';
+import '../services/room_audio_keepalive.dart';
 import '../utils/app_route_observer.dart';
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -193,6 +194,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
       if (_controller.text.trim().isNotEmpty) return;
       ref.read(roomsProvider.notifier).loadRooms();
+    });
+    // Once per install, a moment after home is on screen (not on top of the
+    // splash or another permission dialog).
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+      unawaited(RoomAudioKeepAlive.instance.askBatteryExemptionOnce());
     });
   }
 

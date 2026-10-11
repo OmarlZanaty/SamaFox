@@ -35,7 +35,8 @@ class MemoryGuard {
       cache.clear();
       CrashReporter.breadcrumb(
         'mem pressure ${a['reason']} avail=${a['availMb']}MB '
-        'rss=${a['rssMb']}MB freed=${freedMb}MB live=${cache.liveImageCount}',
+        'rss=${a['rssMb']}MB${a['pssMb'] == null ? '' : ' pss=${a['pssMb']}MB'} '
+        'freed=${freedMb}MB live=${cache.liveImageCount}',
       );
       pressure.value++;
       return null;

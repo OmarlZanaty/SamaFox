@@ -18,6 +18,7 @@ import '../models/InventoryItem.dart';
 import '../providers/auth_provider.dart';
 import '../providers/room_controller_provider.dart';
 import '../models/user.dart';
+import '../services/device_tier.dart';
 import '../services/dio_client.dart';
 import '../services/store_service.dart';
 import '../utils/storage_service.dart';
@@ -191,6 +192,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     height: _kBadgeSize,
                     fit: BoxFit.contain,
                     filterQuality: FilterQuality.medium,
+                    // A row of 60 badges is 60 open GIF/WebP decoders.
+                    still: DeviceTier.ultraLite,
                     // Same rule on failure: show nothing, never a stand-in.
                     errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                   ),

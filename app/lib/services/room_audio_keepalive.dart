@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:samafox/services/crash_reporter.dart';
 import 'package:samafox/utils/permission_gate.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// A23 — keeps the room's voice alive while the app is in the background.
 ///
@@ -101,6 +103,28 @@ class RoomAudioKeepAlive {
     } on MissingPluginException {
       // Older host build without the channel; nothing to do.
       debugPrint('[RoomAudioKeepAlive] channel unavailable on this build');
+    }
+  }
+
+  static const String _kBatteryAsked = 'battery_exemption_asked';
+
+  /// 11/10 — realme and OPPO cut the network of an app that is not on screen
+  /// about 40 s after it leaves, foreground service or not (user 7, realme
+  /// RMX3760: socket "ping timeout" while in WhatsApp, voice back only 21 s
+  /// after returning). The system's own "always run in the background?"
+  /// dialog exempts the app from that. Asked once, when the home screen first
+  /// opens; the "الصوت اتقطع" hint in the room asks again when it happens.
+  Future<void> askBatteryExemptionOnce() async {
+    if (!_supported) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_kBatteryAsked) == true) return;
+      if (await Permission.ignoreBatteryOptimizations.isGranted) return;
+      await prefs.setBool(_kBatteryAsked, true);
+      final status = await PermissionGate.request(Permission.ignoreBatteryOptimizations);
+      CrashReporter.breadcrumb('battery exemption asked -> ${status.name}');
+    } catch (e) {
+      debugPrint('[RoomAudioKeepAlive] battery exemption request failed: $e');
     }
   }
 

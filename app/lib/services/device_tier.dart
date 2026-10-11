@@ -39,6 +39,13 @@ class DeviceTier {
   /// 16 MB picture cache. What was bought is still SHOWN — just not animated.
   static bool ultraLite = false;
 
+  /// 11/10: makers whose own memory manager kills a FOREGROUND app far below
+  /// what stock Android tolerates. The HONOR NLA-L31 (3.8 GB) was SIGKILLed on
+  /// screen six times on 1.0.51 at 300–430 MB, within a minute of launch, after
+  /// [lite] had already halved its use. On these, a [lite] phone is treated as
+  /// [ultraLite].
+  static const Set<String> _strictMakers = {'honor', 'huawei'};
+
   static Future<void> init() async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
@@ -50,7 +57,10 @@ class DeviceTier {
       totalRamMb = total;
       final mb = total ?? 0;
       lite = raw['lowRam'] == true || (mb > 0 && mb < _liteBelowMb);
-      ultraLite = raw['lowRam'] == true || (mb > 0 && mb < _ultraLiteBelowMb);
+      final maker = (raw['maker'] as String?)?.toLowerCase().trim() ?? '';
+      ultraLite = raw['lowRam'] == true ||
+          (mb > 0 && mb < _ultraLiteBelowMb) ||
+          (lite && _strictMakers.contains(maker));
     } catch (e) {
       debugPrint('[DeviceTier] RAM unknown: $e');
     }

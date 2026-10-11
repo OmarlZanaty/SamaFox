@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Debug
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
@@ -47,6 +48,8 @@ class MainActivity : FlutterActivity() {
         const val REQ_PROJECTION = 7311
         const val MB = 1024L * 1024L
         const val MEM_POLL_MS = 3_000L
+        /** Full PSS (with graphics) on every Nth poll — it walks smaps. */
+        const val PSS_EVERY_POLLS = 2
         const val PRESSURE_EVERY_MS = 30_000L
         const val BLANK_LINE = "\n\n"
     }
@@ -196,6 +199,7 @@ class MainActivity : FlutterActivity() {
                             mapOf(
                                 "totalMb" to (mi.totalMem / (1024 * 1024)).toInt(),
                                 "lowRam" to am.isLowRamDevice,
+                                "maker" to Build.MANUFACTURER,
                             )
                         )
                     }
@@ -220,10 +224,19 @@ class MainActivity : FlutterActivity() {
     // kill threshold, and on a 2–4 GB phone this process's own size — and
     // tells MemoryGuard on the Dart side, which lets go of caches and
     // animations. Trim callbacks that still arrive are passed on too.
+    //
+    // 11/10: RSS alone missed it. The same HONOR (NLA-L31) kept being killed
+    // on 1.0.51 and the watcher never fired once: /proc/self/statm does not
+    // count graphics buffers there (07/10: rss=894 MB while pss=1547 MB, of
+    // which gfx=1171). So every other poll also takes the full PSS, graphics
+    // included — off the main thread, since it walks smaps.
 
     private var memChannel: MethodChannel? = null
-    private val memHandler = Handler(Looper.getMainLooper())
-    private var lastPressureAt = 0L
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val memThread = HandlerThread("samafox-mem").apply { start() }
+    private val memHandler = Handler(memThread.looper)
+    private var memPolls = 0
+    @Volatile private var lastPressureAt = 0L
     private val memPoll = object : Runnable {
         override fun run() {
             checkMemory()
@@ -263,6 +276,15 @@ class MainActivity : FlutterActivity() {
         0L
     }
 
+    /** Total PSS with graphics — the `pss=` of the "mem" breadcrumb. */
+    private fun pssMb(): Long = try {
+        val info = Debug.MemoryInfo()
+        Debug.getMemoryInfo(info)
+        (info.getMemoryStat("summary.total-pss")?.toLongOrNull() ?: info.totalPss.toLong()) / 1024
+    } catch (e: Exception) {
+        0L
+    }
+
     private fun memInfo(): Pair<ActivityManager.MemoryInfo, Long> {
         val mi = ActivityManager.MemoryInfo()
         (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(mi)
@@ -278,33 +300,39 @@ class MainActivity : FlutterActivity() {
         // letting go starts.
         val rssBudgetMb = if (totalMb in 1 until 4500) totalMb * 15 / 100 else Long.MAX_VALUE
         val rss = rssMb()
+        val pss = if (rssBudgetMb != Long.MAX_VALUE && memPolls++ % PSS_EVERY_POLLS == 0) pssMb() else null
         val reason = when {
             mi.lowMemory -> "low"
             availMb < thresholdMb * 5 / 4 -> "avail"
             rss > rssBudgetMb -> "rss"
+            pss != null && pss > rssBudgetMb -> "pss"
             else -> return
         }
-        reportPressure(reason, availMb = availMb, rss = rss)
+        reportPressure(reason, availMb = availMb, rss = rss, pss = pss)
     }
 
-    /** At most every [PRESSURE_EVERY_MS], unless the OS says it is critical. */
+    /**
+     * At most every [PRESSURE_EVERY_MS], unless the OS says it is critical.
+     * Called from the poll thread and from onTrimMemory; the channel itself is
+     * only touched on the main thread.
+     */
     private fun reportPressure(
         reason: String,
         force: Boolean = false,
         availMb: Long? = null,
         rss: Long? = null,
+        pss: Long? = null,
     ) {
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastPressureAt < PRESSURE_EVERY_MS) return
         lastPressureAt = now
-        memChannel?.invokeMethod(
-            "pressure",
-            mapOf(
-                "reason" to reason,
-                "availMb" to (availMb ?: memInfo().second),
-                "rssMb" to (rss ?: rssMb()),
-            ),
+        val args = mapOf(
+            "reason" to reason,
+            "availMb" to (availMb ?: memInfo().second),
+            "rssMb" to (rss ?: rssMb()),
+            "pssMb" to pss,
         )
+        mainHandler.post { memChannel?.invokeMethod("pressure", args) }
     }
 
     private var micShareChannel: MethodChannel? = null
@@ -341,6 +369,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         unwatchRecordings()
         memHandler.removeCallbacks(memPoll)
+        memThread.quitSafely()
         memChannel = null
         micShareChannel = null
         super.onDestroy()

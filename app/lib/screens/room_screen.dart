@@ -3236,6 +3236,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         ),
       );
       if (open == true) {
+        // The system's one-tap "always run in the background?" dialog first;
+        // the app's settings page (OEM battery toggles) only if it is refused
+        // or was already granted and the phone cut us anyway.
+        final exempt = Permission.ignoreBatteryOptimizations;
+        if (!await exempt.isGranted && (await exempt.request()).isGranted) {
+          CrashReporter.breadcrumb('bg activity hint -> exemption granted');
+          return;
+        }
         CrashReporter.breadcrumb('bg activity hint -> settings');
         await openAppSettings();
       }
