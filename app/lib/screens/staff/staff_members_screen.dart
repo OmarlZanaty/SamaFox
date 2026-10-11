@@ -125,9 +125,12 @@ class _StaffAppointScreenState extends StaffActionState<StaffAppointScreen> {
           if (permissions!['ban_users'] == true) permissionDuration(banDays, (v) => setState(() => banDays = v)),
           StaffItemPicker(items: data.items, selected: selected, onChanged: (v) => setState(() => selected = v)),
           FilledButton(onPressed: busy || user == null ? null : () async {
-            if (!form.currentState!.validate()) return;
+            // The days field is at the top of a lazy ListView: once the button is
+            // scrolled into view the field may be disposed and the form state gone.
+            form.currentState?.validate();
+            final term = int.tryParse(days.text.trim());
+            if (term == null || term < 1 || term > me.maxDays) { staffSnack(context, 'المدة: أدخل من 1 إلى ${me.maxDays} يوم'); return; }
             final target = user!;
-            final term = int.parse(days.text);
             if (!await staffConfirm(context, 'تأكيد التعيين', '${target.label}\n${staffRoles[widget.role]} لمدة $term يوم') || !mounted) return;
             final ok = await act(() async { await service.appoint(userId: target.id, role: widget.role, days: term,
               permissions: {for (final p in editable) p.key: permissions![p.key] ?? false},

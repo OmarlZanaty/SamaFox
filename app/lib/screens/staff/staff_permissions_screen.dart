@@ -163,12 +163,16 @@ class _StaffPermissionsHubScreenState extends StaffActionState<StaffPermissionsH
   @override
   Widget build(BuildContext context) {
     final me = ref.watch(staffMeProvider).valueOrNull;
-    final role = user?.staffRole;
+    final found = user?.staffRole;
+    // Your own role is not editable here; the server answers 403 for it.
+    final self = found != null && found.id == me?.roleId;
+    final role = self ? null : found;
     return StaffScreen(title: '🔐 صلاحيات الإدارة', allowed: (a) => a.manages,
       child: StaffRefreshList(onRefresh: () async => ref.refresh(staffMeProvider.future), children: [
         const Text('أدخل ID الإداري لعرض نوع إدارته وصلاحياته:'),
         StaffUserLookup(onSelected: (v) => setState(() => user = v)),
-        if (user != null && role == null)
+        if (self) const Text('لا يمكنك تعديل صلاحياتك بنفسك.'),
+        if (user != null && found == null)
           const Text('هذا المستخدم ليس لديه إدارة نشطة.'),
         if (role != null) ...[
           staffCard('نوع الإدارة: ${staffRoles[role.role] ?? role.role}',
