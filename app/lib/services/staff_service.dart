@@ -33,7 +33,11 @@ class StaffAccess {
         assignedBy = j['assignedBy'] == null ? null : StaffUser.fromJson(staffJson(j['assignedBy'])),
         permissions = staffIds(j['permissions']).toSet(),
         panels = Map<String, bool>.from(j['panels'] as Map),
-        allowedItemIds = staffIds(j['allowedItemIds']);
+        allowedItemIds = staffIds(j['allowedItemIds']),
+        vipCap = staffJson(j['grantCaps'] ?? const {})['vip'] as int? ??
+            (staffJson(j['panels'])['manager'] == true ? 10 : 5),
+        levelCap = staffJson(j['grantCaps'] ?? const {})['level'] as int? ??
+            (staffJson(j['panels'])['manager'] == true ? 30 : 20);
   final String? role, status;
   final int? roleId;
   final DateTime? startedAt, expiresAt;
@@ -41,6 +45,7 @@ class StaffAccess {
   final Set<String> permissions;
   final Map<String, bool> panels;
   final List<String> allowedItemIds;
+  final int vipCap, levelCap;
   bool get manager => panels['manager'] == true;
   bool get rolePanel => manager || panels['superAdmin'] == true || panels['admin'] == true;
   bool get ban => panels['ban'] == true;

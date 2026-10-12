@@ -86,6 +86,9 @@ import '../services/screen_record_service.dart';
 
 final isAndroid = !kIsWeb && Platform.isAndroid;
 
+// Reserved for the future game winnings and gifts strip above the mic rows.
+const double kRoomWinsStripSlot = 48.0;
+
 enum _RoomImageType { roomImage, background }
 
 class RoomScreen extends ConsumerStatefulWidget {
@@ -4395,19 +4398,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
 
-    // ✅ main sizes
     const bottomBarH = 64.0;
-    final chatH = size.height * 0.30;
-
-    // ✅ Activity should be 30% of chat height
-    final activityH = chatH * 0.30;
-
-    // ✅ Right side chat width (like you had)
-    final chatW = size.width * 0.62;
-
-    // ✅ Activity panel is left next to chat => use remaining width
-    final activityW = (size.width - chatW - 8 - 8 - 8).clamp(120.0, size.width);
-    // 8 left margin + 8 gap + 8 right padding feel
+    const seatsWaveDepth = 40.0;
+    const roomHorizontalPadding = 12.0;
+    const roomHeaderApproxH = 72.0;
+    final minChatH = size.height * 0.30;
+    final seatsMaxH = size.height * 0.50;
+    final seatsGridW = (size.width - roomHorizontalPadding * 2).clamp(0.0, size.width).toDouble();
+    final seatsGridH = SeatsGrid.heightFor(
+      width: seatsGridW,
+      seatCount: state.seatCount,
+      maxHeight: seatsMaxH,
+    );
+    final seatsBoxH = seatsGridH + seatsWaveDepth;
+    final chatBottom = bottomBarH + 10 + 55;
+    final chatBottomEdge = size.height - chatBottom;
+    final seatsBottomEdge = roomHeaderApproxH + kRoomWinsStripSlot + seatsBoxH;
+    final chatPanelH = (chatBottomEdge - seatsBottomEdge - 12).clamp(minChatH, size.height).toDouble();
 
     // Find my seat
     int? mySeatNumber;
@@ -4553,18 +4560,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       }
     });
 
-    // ✅ compute seats height so it doesn't fill the screen
-    // header ~ 70, padding ~ 24 => keep safe and stable
-    const headerApproxH = 72.0;
-    const topPaddingApproxH = 16.0;
-    final overlaysTotalH = bottomBarH + chatH + 16; // bottom bar + panels area + gap
-
-    final availableForSeats = (size.height - headerApproxH - topPaddingApproxH - overlaysTotalH)
-        .clamp(180.0, size.height);
     bool isKeyboardVisible = kb > 0;  // Check if the keyboard is visible
 
     final bottomMargin = size.height * 0.09; // 5% bottom margin
-    final seatsH = size.height * 0.50;
 
     final onlineCount = state.onlineUsers.length;
 
@@ -4864,12 +4862,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
                 // ✅ Seats area NOT full screen (fixed height)
+                const SizedBox(height: kRoomWinsStripSlot),
                 SizedBox(
-                  height: seatsH,
+                  height: seatsBoxH,
                   child: ClipPath(
-                    clipper: BottomWaveClipper(depth: 40), // 👈 ADD THIS
+                    clipper: BottomWaveClipper(depth: seatsWaveDepth), // 👈 ADD THIS
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.only(
+                        left: roomHorizontalPadding,
+                        right: roomHorizontalPadding,
+                        bottom: seatsWaveDepth,
+                      ),
                       child: SeatsGrid(
                         seats: state.seats,
                         seatCount: state.seatCount,
@@ -4919,7 +4922,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               child: Center(
                 child: SizedBox(
                   width: MediaQuery.of(context).size.width * 0.90,
-                  height: MediaQuery.of(context).size.height * 0.30,
+                  height: chatPanelH,
                   child: RoomChatPanel(
                     roomId: widget.roomId,
                     // هدايا الحظ: the app-wide winners ticker lives with the

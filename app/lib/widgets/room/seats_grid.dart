@@ -74,7 +74,7 @@ class SeatsGrid extends StatelessWidget {
   static const double _spacing = 8;
 
   /// Nobody needs a 120px seat in a two-person room.
-  static const double _maxSeatSize = 68;
+  static const double _maxSeatSize = 54;
   static const double _minSeatSize = 26;
 
   /// The column count that makes the seats biggest while still fitting every
@@ -96,6 +96,8 @@ class SeatsGrid extends StatelessWidget {
       if (size > bestSize) {
         bestSize = size;
         bestColumns = columns;
+      } else if (size == bestSize && (count / columns).ceil() < (count / bestColumns).ceil()) {
+        bestColumns = columns;
       }
     }
 
@@ -105,6 +107,21 @@ class SeatsGrid extends StatelessWidget {
     return (columns: bestColumns, seatSize: bestSize.clamp(_minSeatSize, _maxSeatSize).toDouble());
   }
 
+  /// What the packed rows need for [seatCount] seats in [width], at most
+  /// [maxHeight] — the room sizes the mic box with it and gives the chat the rest.
+  static double heightFor({
+    required double width,
+    required int seatCount,
+    required double maxHeight,
+  }) {
+    final safeCount = seatCount.clamp(1, _maxSeats);
+    final solved = _solve(Size(width, maxHeight), safeCount);
+    final rows = (safeCount / solved.columns).ceil();
+    final neededHeight =
+        rows * (solved.seatSize + _labelHeight) + (rows - 1) * _spacing;
+    return neededHeight.clamp(0.0, maxHeight).toDouble();
+  }
+
   @override
   Widget build(BuildContext context) {
     final safeCount = seatCount.clamp(1, _maxSeats);
@@ -112,10 +129,12 @@ class SeatsGrid extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        // The room sizes this box with [heightFor]; it sits under the header,
+        // not at the screen's bottom edge, so the system bar inset is not ours.
         final box = Size(
           constraints.maxWidth,
           constraints.hasBoundedHeight
-              ? constraints.maxHeight - MediaQuery.of(context).padding.bottom
+              ? constraints.maxHeight
               : MediaQuery.of(context).size.height * 0.5,
         );
         final solved = _solve(box, safeCount);
@@ -128,14 +147,13 @@ class SeatsGrid extends StatelessWidget {
         // reachable.
         final neededHeight =
             rows * (solved.seatSize + _labelHeight) + (rows - 1) * _spacing;
-        final overflows = box.height > 0 && neededHeight > box.height;
+        // Half a pixel of slack: heightFor's own result must not read as overflow.
+        final overflows = box.height > 0 && neededHeight > box.height + 0.5;
 
         final grid = Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).padding.bottom,
-          ),
+          padding: EdgeInsets.zero,
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               for (int row = 0; row < rows; row++)

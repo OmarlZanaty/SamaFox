@@ -41,8 +41,8 @@ class StaffPanelScreen extends ConsumerWidget {
         ],
         if (me.has('grant_vip') || me.has('grant_level') || me.has('grant_frame') || me.has('grant_entry') || me.has('grant_bubble')) ...[
           staffHeading('المنح المؤقتة — ٧ أيام'),
-          if (me.has('grant_vip')) _tile(context, '💎 منح VIP', 'VIP 1 → VIP 5', Icons.workspace_premium, const StaffGrantScreen(kind: 'vip')),
-          if (me.has('grant_level')) _tile(context, '⭐ منح Level', 'Level 1 → Level 20', Icons.trending_up, const StaffGrantScreen(kind: 'level')),
+          if (me.has('grant_vip')) _tile(context, '💎 منح VIP', 'VIP 1 → VIP ${me.vipCap}', Icons.workspace_premium, const StaffGrantScreen(kind: 'vip')),
+          if (me.has('grant_level')) _tile(context, '⭐ منح Level', 'Level 1 → Level ${me.levelCap}', Icons.trending_up, const StaffGrantScreen(kind: 'level')),
           if (me.has('grant_frame') || me.has('grant_entry') || me.has('grant_bubble'))
             _tile(context, '🎁 منح المنتجات', 'إطار / دخولية / فقاعة دردشة من القائمة المسموحة', Icons.card_giftcard, const StaffGrantScreen(kind: 'item')),
           _tile(context, '📋 المنح السابقة', 'المنح السارية والمنتهية', Icons.history, const StaffGrantsListScreen()),

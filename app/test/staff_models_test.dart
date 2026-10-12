@@ -26,6 +26,43 @@ void main() {
     expect(me.has('grant_vip'), isTrue);
   });
 
+  test('grant caps are parsed from staff/me', () {
+    final me = StaffAccess.fromJson({
+      'role': 'ADMIN',
+      'roleId': 1,
+      'status': 'ACTIVE',
+      'permissions': <String>[],
+      'panels': {'manager': false, 'admin': true},
+      'allowedItemIds': <String>[],
+      'grantCaps': {'vip': 7, 'level': 24},
+    });
+    expect(me.vipCap, 7);
+    expect(me.levelCap, 24);
+  });
+
+  test('grant caps fall back for older staff/me responses', () {
+    final manager = StaffAccess.fromJson({
+      'role': 'MANAGER',
+      'roleId': 1,
+      'status': 'ACTIVE',
+      'permissions': <String>[],
+      'panels': {'manager': true},
+      'allowedItemIds': <String>[],
+    });
+    final admin = StaffAccess.fromJson({
+      'role': 'ADMIN',
+      'roleId': 2,
+      'status': 'ACTIVE',
+      'permissions': <String>[],
+      'panels': {'manager': false, 'admin': true},
+      'allowedItemIds': <String>[],
+    });
+    expect(manager.vipCap, 10);
+    expect(manager.levelCap, 30);
+    expect(admin.vipCap, 5);
+    expect(admin.levelCap, 20);
+  });
+
   test('catalog, lookup, members and a staff file', () {
     final catalog = staffList(fixture('permissions_catalog'), StaffPermissionDefinition.fromJson);
     expect(catalog.map((d) => d.key), contains('ban_users'));

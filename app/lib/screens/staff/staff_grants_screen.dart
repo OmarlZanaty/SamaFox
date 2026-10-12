@@ -6,7 +6,7 @@ import 'staff_widgets.dart';
 
 const _itemKinds = {'frame': ('🖼️ إطار', 'grant_frame'), 'entry': ('🚪 دخولية', 'grant_entry'), 'bubble': ('💬 فقاعة دردشة', 'grant_bubble')};
 
-/// منح VIP (1–5) / Level (1–20) / منتج — always 7 days; the server ends it on
+/// منح VIP / Level حسب حدود السيرفر / منتج — always 7 days; the server ends it on
 /// its own and puts the user back to what he had (spec 3, 4, 8).
 class StaffGrantScreen extends ConsumerStatefulWidget {
   const StaffGrantScreen({super.key, required this.kind});
@@ -49,6 +49,7 @@ class _StaffGrantScreenState extends StaffActionState<StaffGrantScreen> {
   @override
   Widget build(BuildContext context) {
     final me = ref.watch(staffMeProvider).valueOrNull;
+    final cap = widget.kind == 'vip' ? me?.vipCap ?? 5 : me?.levelCap ?? 20;
     final kinds = {for (final e in _itemKinds.entries) if (me?.has(e.value.$2) == true) e.key: e.value.$1};
     if (widget.kind == 'item' && itemKind.isEmpty && kinds.isNotEmpty) itemKind = kinds.keys.first;
     return StaffScreen(title: title, allowed: allowed,
@@ -57,7 +58,7 @@ class _StaffGrantScreenState extends StaffActionState<StaffGrantScreen> {
         header: [
           StaffUserLookup(onSelected: (v) => setState(() => user = v)),
           if (widget.kind != 'item') staffSelect(widget.kind == 'vip' ? 'مستوى VIP' : 'المستوى', '$level',
-              {for (var i = 1; i <= (widget.kind == 'vip' ? 5 : 20); i++) '$i': widget.kind == 'vip' ? 'VIP $i' : 'Level $i'},
+              {for (var i = 1; i <= cap; i++) '$i': widget.kind == 'vip' ? 'VIP $i' : 'Level $i'},
               (v) => setState(() => level = int.parse(v))),
           if (widget.kind == 'item') staffSelect('نوع المنتج', itemKind, kinds, (v) { setState(() { itemKind = v; item = null; }); reload(); }),
           const Text('المدة: ٧ أيام فقط. إن كان لدى المستخدم مستوى أعلى أصلاً يرفض السيرفر المنحة، ولا يُفقد المستخدم ما يملكه بعد انتهائها.'),
