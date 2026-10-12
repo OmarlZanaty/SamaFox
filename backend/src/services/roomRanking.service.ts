@@ -57,6 +57,45 @@ export function invalidateRoomPins() {
   pinCache = null;
 }
 
+/**
+ * إزالة غرفة من الرائج (client, 12/10): "ازيل غرف لكن متقفلش — لو صاحب الغرفه
+ * دخل يفتحها تاني يفتحها عادي". A hidden room stays open and anyone with the
+ * link/ID still enters; it is only left out of the home list (its owner still
+ * sees it). The owner entering it puts it back.
+ */
+export const ROOM_HIDDEN_KEY = 'room_hidden_ids';
+let hiddenCache: { at: number; ids: number[] } | null = null;
+
+export async function getHiddenRooms(): Promise<number[]> {
+  if (hiddenCache && Date.now() - hiddenCache.at < PIN_TTL_MS) return hiddenCache.ids;
+  const row = await db.appSetting.findUnique({ where: { key: ROOM_HIDDEN_KEY } });
+  let ids: number[] = [];
+  try {
+    const raw = JSON.parse(row?.value ?? '[]');
+    if (Array.isArray(raw)) ids = [...new Set(raw.map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))];
+  } catch { /* a broken row hides nothing */ }
+  hiddenCache = { at: Date.now(), ids };
+  return ids;
+}
+
+export async function setHiddenRooms(ids: number[], tx: any = db): Promise<void> {
+  const value = JSON.stringify([...new Set(ids)]);
+  await tx.appSetting.upsert({ where: { key: ROOM_HIDDEN_KEY }, update: { value }, create: { key: ROOM_HIDDEN_KEY, value } });
+  hiddenCache = null;
+}
+
+export function invalidateHiddenRooms() {
+  hiddenCache = null;
+}
+
+/** The owner opened his room again: back on the list. True when it was hidden. */
+export async function unhideRoom(roomId: number): Promise<boolean> {
+  const ids = await getHiddenRooms();
+  if (!ids.includes(roomId)) return false;
+  await setHiddenRooms(ids.filter((id) => id !== roomId));
+  return true;
+}
+
 type Row = { id: number; ownerId: number; createdAt: Date; owner: { displayId: number | null } | null };
 
 /**
@@ -101,12 +140,16 @@ export function orderRooms(
     .map((r) => r.id);
 }
 
-/** Every room matching [where], in list order, plus the live counts used. */
-export async function rankedRoomIds(where: any, featuredId: number) {
-  const rows: Row[] = await db.room.findMany({
+/**
+ * Every room matching [where], in list order, plus the live counts used.
+ * Rooms removed from the list are left out, except for their own owner.
+ */
+export async function rankedRoomIds(where: any, featuredId: number, viewerId?: number | null) {
+  const hidden = new Set(await getHiddenRooms());
+  const rows: Row[] = (await db.room.findMany({
     where,
     select: { id: true, ownerId: true, createdAt: true, owner: { select: { displayId: true } } },
-  });
+  })).filter((r: Row) => !hidden.has(r.id) || (viewerId != null && r.ownerId === viewerId));
   const pins = await getRoomPins();
   const pinRanks = resolvePinRanks(pins, rows);
   const live = getLiveRoomCounts();

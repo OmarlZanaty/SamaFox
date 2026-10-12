@@ -337,6 +337,20 @@
         </table>
       </div>
 
+      <div class="form-card" id="roomHiddenCard">
+        <div class="form-card-title">إزالة غرفة من الرائج</div>
+        <p class="section-sub">الغرفة تختفي من قائمة الغرف في التطبيق لكنها لا تُقفل: اللي جوه يفضل جوه، وصاحبها يشوفها عادي. أول ما صاحب الغرفة يدخلها ترجع للقائمة تلقائياً.</p>
+        <div class="form-row">
+          <input id="rh_add" class="form-input" placeholder="ID صاحب الغرفة أو رقم الغرفة" inputmode="numeric" />
+          <input id="rh_reason" class="form-input" placeholder="السبب (إجباري)" />
+          <button class="btn btn-primary" onclick="rhHide()">إزالة من الرائج</button>
+        </div>
+        <table class="data-table" id="rhTable" style="margin-top:8px">
+          <thead><tr><th>الغرفة</th><th>ID صاحبها</th><th>الموجودون الآن</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
       <div class="form-card">
         <div class="form-card-title">نوع الغرفة والدخول المخفي</div>
         <p class="section-sub">OFFICIAL_ROOM لا تُغلق تلقائياً ولا يغلقها مالكها — الإغلاق من هنا فقط أو بصلاحية «إدارة الغرف الرسمية».</p>
@@ -2031,11 +2045,11 @@
     <div class="modal-header">
       <div>
         <h3 class="modal-title">Change User Display ID</h3>
-        <p class="modal-sub">Enter new ID (10000 or higher)</p>
+        <p class="modal-sub">اكتب الـ ID الجديد — أي عدد أرقام</p>
       </div>
     </div>
     <div style="margin-top:12px">
-      <input id="newDisplayIdInput" class="form-input" type="number" min="10000" placeholder="10042" />
+      <input id="newDisplayIdInput" class="form-input" type="number" min="1" max="2147483647" step="1" placeholder="أي عدد أرقام" />
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeDisplayIdModal()">إلغاء</button>
@@ -2110,8 +2124,8 @@
   <div id="uploadBarLabel" style="margin-bottom:6px">جارٍ الرفع…</div>
   <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
 </div>
-<script src="app.js?v=20261005-tl"></script>
-<script src="economy-admin.js?v=20261005"></script>
+<script src="app.js?v=20261012"></script>
+<script src="economy-admin.js?v=20261012"></script>
 <script src="staff-admin.js?v=20261011"></script>
 </body>
 </html>

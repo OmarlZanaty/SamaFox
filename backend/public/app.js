@@ -349,8 +349,8 @@ window.confirmDisplayIdChange = async function() {
   const input = document.getElementById('newDisplayIdInput');
   const newDisplayId = Number(input?.value || 0);
   if (!changeIdUserId) return;
-  if (!newDisplayId || newDisplayId < 10000) {
-    showToast('displayId must be >= 10000');
+  if (!Number.isSafeInteger(newDisplayId) || newDisplayId < 1 || newDisplayId > 2147483647) {
+    showToast('الـ ID لازم يكون رقم صحيح من 1 إلى 2147483647');
     return;
   }
   try {

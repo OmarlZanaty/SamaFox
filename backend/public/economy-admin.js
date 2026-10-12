@@ -677,6 +677,39 @@
     roPins = (res?.data?.pins || []).map((p) => ({ pin: p.pin, room: p.room }));
     roRender();
     roRenderPreview(res?.data?.preview);
+    rhRender(res?.data?.hidden);
+  }
+  // إزالة غرفة من الرائج — hidden from the list, never closed.
+  function rhRender(list) {
+    const tbody = document.querySelector("#rhTable tbody");
+    if (!tbody) return;
+    tbody.innerHTML = (list || []).map((r) => `
+      <tr><td>${esc(r.name || "")}<div class="cell-muted">رقم الغرفة: ${esc(r.id)}${r.isActive ? "" : " · مقفولة"}</div></td><td>${esc(r.ownerDisplayId ?? "")}</td><td>${n(r.liveCount)}</td>
+        <td><button class="btn btn-outline btn-sm" onclick="rhShow(${Number(r.id)})">إرجاع للقائمة</button></td></tr>`).join("")
+      || '<tr><td colspan="4" class="cell-muted">لا توجد غرف مخفية</td></tr>';
+  }
+  async function rhSend(body) {
+    const res = await call("/admin-dashboard/room-hidden", "PUT", body);
+    roRenderPreview(res?.data?.preview);
+    rhRender(res?.data?.hidden);
+    return res;
+  }
+  async function rhHide() {
+    const id = intOrEmpty("rh_add");
+    if (!id || id <= 0) return toast("اكتب ID صحيح");
+    const reason = reasonFrom("rh_reason");
+    if (!reason) return;
+    await rhSend({ add: id, reason });
+    $("rh_add").value = "";
+    $("rh_reason").value = "";
+    toast("✅ اتشالت من الرائج — الغرفة لسه مفتوحة");
+  }
+  async function rhShow(roomId) {
+    const reason = reasonFrom("rh_reason");
+    if (!reason) return;
+    await rhSend({ remove: roomId, reason });
+    $("rh_reason").value = "";
+    toast("✅ رجعت للقائمة");
   }
   function roAdd() {
     const id = intOrEmpty("ro_add");
@@ -724,6 +757,6 @@
     tgSearch, tgSave, tgCancel,
     auLoad,
     rmLoad, rmSave,
-    roLoad, roAdd, roMove, roRemove, roSave,
+    roLoad, roAdd, roMove, roRemove, roSave, rhHide, rhShow,
   });
 })();

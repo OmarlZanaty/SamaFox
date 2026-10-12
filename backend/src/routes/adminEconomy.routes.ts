@@ -19,7 +19,7 @@ import { invalidateCpEffectsCache } from '../services/cpEffect.service';
 import { computeCpLevel, readCpSettings } from '../services/cpUnlock.service';
 import { FEATURE_CATALOG, FeatureError, grantFeature, isFeatureKey, listUserFeaturesAdmin, revokeFeature } from '../services/features.service';
 import { TargetError, cancelHostTarget, getHostTargetView, listHostTargets, setHostTarget } from '../services/hostTarget.service';
-import { MAX_ROOM_PINS, ROOM_PIN_KEY, getRoomPins, invalidateRoomPins, parsePins, rankedRoomIds, resolvePinRanks } from '../services/roomRanking.service';
+import { MAX_ROOM_PINS, ROOM_PIN_KEY, getHiddenRooms, getRoomPins, invalidateHiddenRooms, invalidateRoomPins, parsePins, rankedRoomIds, resolvePinRanks, setHiddenRooms } from '../services/roomRanking.service';
 import { FEATURED_ROOM_ID } from '../controllers/room.controller';
 import { buildTargetBalance } from '../agencies/agency.controller';
 
@@ -783,9 +783,16 @@ async function describeRoomOrder() {
   };
   const roomByRank = new Map<number, number>();
   for (const [roomId, rank] of pinRanks) roomByRank.set(rank, roomId);
+  const hiddenIds = await getHiddenRooms();
+  const hiddenRows = hiddenIds.length ? await db.room.findMany({
+    where: { id: { in: hiddenIds } },
+    select: { id: true, name: true, isActive: true, owner: { select: { name: true, displayId: true } } },
+  }) : [];
   return {
     pins: pins.map((pin, i) => ({ pin, rank: i + 1, room: roomByRank.has(i) ? card(roomByRank.get(i)!) : null })),
     preview: top.map((id, i) => ({ position: i + 1, pinned: pinRanks.has(id), featured: id === FEATURED_ROOM_ID, ...card(id) })),
+    hidden: hiddenRows.map((x: any) => ({ id: x.id, name: x.name, isActive: x.isActive, ownerName: x.owner?.name ?? null,
+      ownerDisplayId: x.owner?.displayId ?? null, liveCount: live.get(x.id) ?? 0 })),
   };
 }
 
@@ -828,6 +835,49 @@ r.put('/room-order', requireSuperAdmin, async (req, res) => {
     return ok(res, await describeRoomOrder());
   } catch (e) {
     console.error('[admin.room-order.put]', e);
+    return bad(res, 500, 'Server error');
+  }
+});
+
+// ════════════════════ إزالة غرفة من الرائج ════════════════════
+// { add: ID } or { remove: roomId }, + reason. The room stays open; its owner
+// entering it puts it back (socket join_room). The ID is read like a pin: the
+// owner's displayId (his newest active room) or a room id.
+r.put('/room-hidden', requireSuperAdmin, async (req, res) => {
+  try {
+    const reason = needReason(req, res);
+    if (!reason) return;
+    const before = await getHiddenRooms();
+    let after = before;
+    let roomId: number | null = null;
+    if (req.body?.add != null) {
+      const pin = Math.floor(Number(req.body.add));
+      if (!Number.isSafeInteger(pin) || pin <= 0) return bad(res, 400, 'اكتب ID صحيح');
+      const rows = await db.room.findMany({
+        where: { isActive: true },
+        select: { id: true, ownerId: true, createdAt: true, owner: { select: { displayId: true } } },
+      });
+      const found = [...resolvePinRanks([pin], rows).keys()][0];
+      if (found == null) return bad(res, 400, `لا توجد غرفة مفتوحة لهذا الـ ID: ${pin}`, 'ROOM_NOT_FOUND');
+      roomId = found;
+      after = [...new Set([...before, found])];
+    } else if (req.body?.remove != null) {
+      roomId = Math.floor(Number(req.body.remove));
+      after = before.filter((id) => id !== roomId);
+    } else return bad(res, 400, 'add أو remove مطلوب');
+    await db.$transaction(async (tx: any) => {
+      await setHiddenRooms(after, tx);
+      await recordAdminAudit(
+        { adminId: adminId(req), action: req.body?.add != null ? 'ROOM_HIDE' : 'ROOM_UNHIDE', targetType: 'room',
+          targetId: roomId ?? 0, before, after, ...auditContext(req), reason },
+        tx,
+      );
+    });
+    // A read during the transaction may have cached the old list.
+    invalidateHiddenRooms();
+    return ok(res, await describeRoomOrder());
+  } catch (e) {
+    console.error('[admin.room-hidden.put]', e);
     return bad(res, 500, 'Server error');
   }
 });

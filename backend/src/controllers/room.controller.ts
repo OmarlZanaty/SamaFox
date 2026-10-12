@@ -50,7 +50,7 @@ export const getRooms = async (req: Request, res: Response) => {
     // ترتيب الغرف: الإدارة, then the dashboard's pinned IDs, then most people
     // in the room right now. The order is computed over every matching room
     // (a light query) and only the page is loaded in full.
-    const { ids, live, pinRanks } = await rankedRoomIds(where, FEATURED_ROOM_ID);
+    const { ids, live, pinRanks } = await rankedRoomIds(where, FEATURED_ROOM_ID, userId);
     const total = ids.length;
     // "الغرف اخرها 20 — لو حد فتح غرفه بعد ال 20 بيقفل غرفه تانية" (03/10):
     // nothing closed them. The home screen asks for page 1 with limit=20 and

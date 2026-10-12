@@ -460,7 +460,8 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
     return { role: r?.role ?? null, roleId: r?.id ?? null, status: r?.status ?? (latest && latest.status === 'ACTIVE' && latest.expiresAt <= c.now ? 'EXPIRED' : latest?.status ?? null),
       startedAt: r?.startedAt ?? null, expiresAt: r?.expiresAt ?? null, assignedBy, permissions: c.access.permissions, banSystem: ban,
       panels: { manager: r?.role === 'MANAGER', superAdmin: r?.role === 'SUPER_ADMIN' && panel, admin: r?.role === 'ADMIN' && panel, ban },
-      allowedItemIds: r?.role === 'MANAGER' ? await pool(c.db) : r?.allowedItemIds ?? [], rank: rules.rank(r?.role) };
+      allowedItemIds: r?.role === 'MANAGER' ? await pool(c.db) : r?.allowedItemIds ?? [], rank: rules.rank(r?.role),
+      grantCaps: { vip: rules.grantCap(r?.role, 'VIP'), level: rules.grantCap(r?.role, 'LEVEL') } };
   }
   if (op === 'catalog') return rules.PERMISSION_CATALOG;
   if (op === 'lookup') {
@@ -633,7 +634,7 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
     }
     const type = op === 'vipGrant' ? 'VIP' : 'LEVEL';
     const value = body.level;
-    if (!Number.isInteger(value) || value < 1 || value > (type === 'VIP' ? 5 : 20)) fail(400, 'المستوى المطلوب غير صالح');
+    if (!Number.isInteger(value) || value < 1 || value > rules.grantCap(c.access.role?.role, type)) fail(400, 'المستوى المطلوب غير صالح');
     // A delayed sweep must not turn an expired temporary column into a new base.
     const expired = await c.db.temporaryEntitlement.findMany({ where: { userId: user.id, type, status: 'ACTIVE', expiresAt: { lte: c.now } }, orderBy: { id: 'asc' } });
     for (const grant of expired) await endGrant({ ...c, userId: 0 }, grant, 'EXPIRED');

@@ -7,6 +7,10 @@ export const DAY = 86_400_000;
 export const GRANT_DAYS = 7;
 export const BAN_DURATIONS = { '1d': 1, '7d': 7, '30d': 30, '365d': 365, permanent: null } as const;
 export const PERMISSION_DAYS = [1, 7, 30, 365];
+/** Highest VIP / Level a role may grant for seven days (client, 12/10: Manager only → VIP 10 / Level 30). */
+export function grantCap(role: string | null | undefined, type: 'VIP' | 'LEVEL'): number {
+  return role === 'MANAGER' ? (type === 'VIP' ? 10 : 30) : (type === 'VIP' ? 5 : 20);
+}
 const staffRoles: StaffRoleName[] = ['SUPER_ADMIN', 'ADMIN'];
 export const PERMISSION_CATALOG = [
   { key: 'role_panel', label: 'نظام {role}', roles: staffRoles },

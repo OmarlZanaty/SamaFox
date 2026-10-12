@@ -167,8 +167,10 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
     const newDisplayId = Number(req.body?.newDisplayId);
 
     if (!userId) return res.status(400).json({ success: false, message: 'Invalid user id' });
-    if (!newDisplayId || newDisplayId < 100000 || newDisplayId > 999999) {
-      return res.status(400).json({ success: false, message: 'displayId must be a 6-digit number (100000-999999)' });
+    // New accounts get 6 digits (utils/displayId); a hand-picked ID may have any
+    // length the INT4 column holds (client, 12/10: "اي عدد 6 ارقام او اكتر او اقل").
+    if (!Number.isSafeInteger(newDisplayId) || newDisplayId < 1 || newDisplayId > 2_147_483_647) {
+      return res.status(400).json({ success: false, message: 'الـ ID لازم يكون رقم صحيح من 1 إلى 2147483647' });
     }
 
     const taken = await prisma.user.findFirst({

@@ -1734,6 +1734,14 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         socket.emit('join_denied', { roomId: rid, reason: 'closed' });
         return;
       }
+      // A room the dashboard took off the home list returns when its owner
+      // opens it again. (Imported lazily: roomRanking imports this module.)
+      if (roomRow.ownerId === uid) {
+        void import('./roomRanking.service')
+          .then((m) => m.unhideRoom(rid))
+          .then((was) => { if (was) console.log('[room hidden] owner reopened', { rid, uid }); })
+          .catch(() => {});
+      }
 
       // Already admitted and just re-syncing after a reconnect: the gate was
       // passed on the way in, so do not ask for the password again.

@@ -307,3 +307,14 @@ test('the dashboard appoints Super Admins / Admins under a live Manager it names
   assert.equal(admin.parentUserId, 2);
   assert.deepEqual((await call(9, 'me')).permissions.sort(), ['manage_host_agency', 'role_panel']);
 });
+test('only a Manager grants up to VIP 10 / Level 30; Super Admins stay at VIP 5 / Level 20', async () => {
+  assert.equal((await call(1, 'vipGrant', { userId: 8, level: 10 })).value, 10);
+  assert.equal((await call(1, 'levelGrant', { userId: 8, level: 30 })).value, 30);
+  await reject(call(1, 'vipGrant', { userId: 9, level: 11 }), 400);
+  await reject(call(1, 'levelGrant', { userId: 9, level: 31 }), 400);
+  tables.staffPermission!.push({ id: 900, userId: 2, staffRoleId: 2, permission: 'grant_level', status: 'ACTIVE', expiresAt: null });
+  await reject(call(2, 'vipGrant', { userId: 10, level: 6 }), 400);
+  await reject(call(2, 'levelGrant', { userId: 10, level: 21 }), 400);
+  assert.deepEqual((await call(1, 'me')).grantCaps, { vip: 10, level: 30 });
+  assert.deepEqual((await call(2, 'me')).grantCaps, { vip: 5, level: 20 });
+});
