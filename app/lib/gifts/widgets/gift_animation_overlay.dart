@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/device_tier.dart';
+import '../../services/memory_guard.dart';
 import '../models/gift.dart';
 import '../services/gift_socket_service.dart';
 import 'broadcast_banner_layer.dart';
@@ -57,7 +59,10 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   static const Duration _giftSoundThrottle = Duration(milliseconds: 320);
   DateTime? _lastGiftSoundAt;
 
-  static const int _maxConcurrent = 24;
+  /// Gift flights on screen at once. A x50 burst in a busy room (room 87 took
+  /// 40k gifts on 05/10) keeps this full; on a 2–4 GB phone a third of it,
+  /// and two under 3 GB (10/10).
+  static int get _maxConcurrent => DeviceTier.ultraLite ? 2 : DeviceTier.lite ? 8 : 24;
   static const int _staggerMs = 180;
 
   @override
@@ -65,6 +70,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     super.initState();
     widget.socket.bind();
     _sentSub = widget.socket.sentStream.listen(_onGift);
+    MemoryGuard.pressure.addListener(_onMemoryPressure);
     _vipPlayer.setReleaseMode(ReleaseMode.stop);
     _giftPlayer.setReleaseMode(ReleaseMode.stop);
     // Low latency mode keeps the asset decoded so playback starts immediately
@@ -106,8 +112,13 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     // spawning one flight per unit as before.
     if (event.gift.format == GiftFormat.video) {
       _spawnVideoShow(event);
+    } else if (DeviceTier.ultraLite && event.gift.tier == GiftTier.small) {
+      // Under 3 GB a small gift is left to GiftAnnouncementBar, which names
+      // every gift anyway; its flights are the decodes the phone can't spare.
     } else {
-      final qty = event.quantity.clamp(1, 30);
+      // Past [_maxConcurrent] each new flight only evicts an older one, so
+      // spawning more than that is decode work nobody sees.
+      final qty = event.quantity.clamp(1, DeviceTier.ultraLite ? _maxConcurrent : 30);
       for (int i = 0; i < qty; i++) {
         Future.delayed(Duration(milliseconds: i * _staggerMs), () {
           if (!mounted) return;
@@ -209,14 +220,39 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     }();
   }
 
+  /// The phone is short of memory: clear the stage. Every gift is still named
+  /// by GiftAnnouncementBar; only the flights, the VIP burst and a running
+  /// video clip go.
+  void _onMemoryPressure() {
+    if (!mounted) return;
+    if (_flights.isEmpty && _vipBursts.isEmpty && _videoShows.isEmpty) return;
+    final gone = List.of(_flights);
+    // Stopped now so none completes (and disposes itself) before the frame.
+    for (final f in gone) {
+      f.controller.stop();
+    }
+    setState(() {
+      _flights.clear();
+      _vipBursts.clear();
+      _videoShows.clear();
+    });
+    // Once the frame without them is out: their widgets still listen until then.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final f in gone) {
+        f.controller.dispose();
+      }
+    });
+  }
+
   @override
   void dispose() {
+    MemoryGuard.pressure.removeListener(_onMemoryPressure);
     _sentSub?.cancel();
     for (final f in _flights) {
       f.controller.dispose();
     }
-    _vipPlayer.dispose();
-    _giftPlayer.dispose();
+    _vipPlayer.dispose().catchError((Object _) {});
+    _giftPlayer.dispose().catchError((Object _) {});
     super.dispose();
   }
 

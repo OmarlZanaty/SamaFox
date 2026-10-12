@@ -13,6 +13,9 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:dio/dio.dart';
 
+import '../gifts/widgets/video_gift_player.dart';
+import '../widgets/product_video_layer.dart';
+import 'device_tier.dart';
 import 'dio_client.dart';
 
 /// Why the app died, in the app's own words.
@@ -228,7 +231,7 @@ class CrashReporter {
     await _recoverPreviousSession();
     await _markSessionOpen();
     _startRssSampling();
-    breadcrumb('app start $_appVersion');
+    breadcrumb('app start $_appVersion ${DeviceTier.summary}');
   }
 
   /// Runs [body] in a zone that catches everything escaping it, so an error
@@ -334,9 +337,37 @@ class CrashReporter {
       return 'pss=${mb('total-pss')} java=${mb('java-heap')} '
           'native=${mb('native-heap')} gfx=${mb('graphics')} '
           'code=${mb('code')} other=${mb('private-other')} '
-          'sys=${mb('system')}';
+          'sys=${mb('system')} '
+          // Video decoders are the main holder of graphics memory we control;
+          // this says whether a high gfx comes with them or without them.
+          'vid=${ProductVideoLayer.activeCount}+${VideoGiftPlayer.liveCount}';
     } catch (_) {
       return '';
+    }
+  }
+
+  /// Android's record of why the previous process died, e.g.
+  /// "exit LOW_MEMORY while background pss=612MB rss=780MB (lmk)".
+  /// Null below Android 11, or when the OS kept no record.
+  ///
+  /// For a native crash, `trace` is the crashing thread's backtrace decoded
+  /// from the tombstone (Android 12+), sent as the report's stack.
+  static Future<({String message, String? trace})?> _lastExit() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      final raw = await _memChannel
+          .invokeMethod<Map<Object?, Object?>>('lastExit')
+          .timeout(const Duration(seconds: 5));
+      if (raw == null) return null;
+      final desc = raw['description']?.toString() ?? '';
+      return (
+        message: 'exit ${raw['reason']} while ${raw['importance']} '
+            'pss=${raw['pssMb']}MB rss=${raw['rssMb']}MB status=${raw['status']}'
+            '${desc.isEmpty ? '' : ' ($desc)'}',
+        trace: raw['trace']?.toString(),
+      );
+    } catch (_) {
+      return null;
     }
   }
 
@@ -455,10 +486,14 @@ class CrashReporter {
         await f.delete();
         final data = jsonDecode(raw);
         if (data is Map) {
+          final exit = await _lastExit();
           final report = <String, dynamic>{
             'kind': 'processKilled',
-            'message':
+            // The OS's own verdict leads the message: it is the one field the
+            // server keeps verbatim, and the one the log viewer searches.
+            'message': exit?.message ??
                 'previous session ended without a clean shutdown (OS kill or native crash)',
+            if (exit?.trace != null) 'stack': exit!.trace,
             'at': DateTime.now().toIso8601String(),
             'previousSession': data,
           };

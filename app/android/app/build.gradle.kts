@@ -75,3 +75,16 @@ android {
 flutter {
     source = "../.."
 }
+
+// Dev-only: `YUMMY_TEST=1 flutter build apk --profile` makes a side-by-side
+// test copy (…samafox.yummytest) that installs next to the Play build instead
+// of clashing with its signature. google-services.json only knows the real
+// package, so its task is skipped for that copy. Never set for store builds.
+if (System.getenv("YUMMY_TEST") != null) {
+    android.buildTypes.matching { it.name == "profile" }.configureEach {
+        applicationIdSuffix = ".yummytest"
+    }
+    tasks.matching { it.name.contains("GoogleServices") }.configureEach {
+        enabled = false
+    }
+}

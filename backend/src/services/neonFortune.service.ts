@@ -11,7 +11,8 @@ import {
   releasePrize,
   reservePrize,
   scalePaytable,
-  settlePrize,
+  payPrize,
+  revokeStakeValue,
 } from './halalGames.service';
 
 const GAME = 'neon_fortune' as const;
@@ -910,12 +911,20 @@ export async function claimLuckyDrop(userId: number) {
   luckyClaims.set(userId, Date.now());
   let balance = 0;
   try {
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: { coinsBalance: { increment: LUCKY_DROP_REWARD } },
-      select: { coinsBalance: true },
-    });
-    balance = user.coinsBalance;
+    // 2026-09-26: the drop is paid from نيون's prize pool like any win — it
+    // used to be minted, which is exactly what the economy rules forbid. An
+    // empty pool means no drop this time (the cooldown is not spent).
+    const paid = await payPrize(null, userId, GAME, LUCKY_DROP_REWARD, `lucky-drop:${userId}:${Date.now()}`);
+    if (paid.paid <= 0) {
+      luckyClaims.delete(userId);
+      return {
+        ok: false as const,
+        code: 'PRIZE_POOL_LOW',
+        message: 'صندوق الجوائز فارغ حالياً — حاول لاحقاً',
+        lucky: await getLuckyDrop(userId),
+      };
+    }
+    balance = paid.balance ?? 0;
   } catch (err) {
     luckyClaims.delete(userId);
     console.error('[neon-fortune] lucky drop credit failed', { userId, err });
@@ -970,7 +979,7 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
   // Charge first, atomically, same guard as بلينكو and أثيرفول so parallel spins
   // can never overdraw a balance.
   // Promise the prize this spin could bring before the stake is taken.
-  const reserved = await reservePrize(userId, GAME, bet * PRIZE_RESERVE_MULTIPLE + Math.max(...Object.values(poolValues())));
+  const reserved = await reservePrize(userId, GAME, bet * PRIZE_RESERVE_MULTIPLE + Math.max(...Object.values(poolValues())), bet);
   if (!reserved.ok) return { ok: false as const, code: reserved.code, message: reserved.message };
 
   const charged = await prisma.user.updateMany({
@@ -1005,11 +1014,11 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
     contribute(pools, bet);
     spin = settleSpin(computed, pools);
 
-    if (spin.grandTotal > 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { coinsBalance: { increment: spin.grandTotal } },
-      });
+    // Whatever the spin paid is a prize from this game's pool: debited,
+    // credited and booked in one transaction, cut only by the game's caps.
+    const paid = await payPrize(reserved.token, userId, GAME, spin.grandTotal, `${userId}:${nonce}`, bet);
+    if (paid.capped) {
+      spin = { ...spin, grandTotal: paid.paid, capped: true, requestedTotal: paid.requested } as SpinResult;
     }
   } catch (err) {
     // Never keep the stake if the spin failed to resolve.
@@ -1017,13 +1026,12 @@ export async function resolveSpin(userId: number, rawBet: unknown) {
       where: { id: userId },
       data: { coinsBalance: { increment: bet } },
     });
+    await revokeStakeValue(userId, GAME, bet, `${userId}:${nonce}`);
     releasePrize(reserved.token);
     console.error('[neon-fortune] spin failed, bet refunded', { userId, bet, err });
     return { ok: false as const, code: 'SPIN_FAILED', message: 'تعذر تنفيذ الجولة' };
   }
 
-  // Whatever the spin paid is a prize from the fund.
-  settlePrize(reserved.token, userId, GAME, spin.grandTotal, `${userId}:${nonce}`);
 
   const wonTier = spin.vault?.wonTier ?? null;
   await persistPools(wonTier !== null);

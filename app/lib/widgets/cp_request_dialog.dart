@@ -106,7 +106,7 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
                 CircleAvatar(
                   radius: 22,
                   backgroundColor: const Color(0xFF2A1A5E),
-                  backgroundImage: avatar != null ? NetworkImage(avatar) : null,
+                  backgroundImage: avatar != null ? appImage(avatar, 44) : null,
                   child: avatar == null
                       ? Text(
                           r.senderName.isNotEmpty

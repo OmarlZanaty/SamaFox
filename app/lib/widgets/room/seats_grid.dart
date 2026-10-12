@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/socket_service.dart';
 import 'seat_card.dart';
+import 'cp_seat_effect.dart';
 
 /// The mic grid.
 ///
@@ -40,6 +41,10 @@ class SeatsGrid extends StatelessWidget {
   /// userId -> coins received in this room (last 24h)
   final Map<int, int> seatEarnings;
 
+  /// CP partners on the mics (from the server). Only pairs sitting on
+  /// NEIGHBOURING seats of the same row get the effect.
+  final List<CpSeatLink> cpLinks;
+
   const SeatsGrid({
     super.key,
     required this.seats,
@@ -54,6 +59,7 @@ class SeatsGrid extends StatelessWidget {
     this.mutedSeats = const {},
     this.seatEarnings = const {},
     this.scrollable = true,
+    this.cpLinks = const [],
   });
 
   /// Rooms can be configured up to 30 mics.
@@ -68,7 +74,7 @@ class SeatsGrid extends StatelessWidget {
   static const double _spacing = 8;
 
   /// Nobody needs a 120px seat in a two-person room.
-  static const double _maxSeatSize = 68;
+  static const double _maxSeatSize = 54;
   static const double _minSeatSize = 26;
 
   /// The column count that makes the seats biggest while still fitting every
@@ -90,6 +96,8 @@ class SeatsGrid extends StatelessWidget {
       if (size > bestSize) {
         bestSize = size;
         bestColumns = columns;
+      } else if (size == bestSize && (count / columns).ceil() < (count / bestColumns).ceil()) {
+        bestColumns = columns;
       }
     }
 
@@ -99,6 +107,21 @@ class SeatsGrid extends StatelessWidget {
     return (columns: bestColumns, seatSize: bestSize.clamp(_minSeatSize, _maxSeatSize).toDouble());
   }
 
+  /// What the packed rows need for [seatCount] seats in [width], at most
+  /// [maxHeight] — the room sizes the mic box with it and gives the chat the rest.
+  static double heightFor({
+    required double width,
+    required int seatCount,
+    required double maxHeight,
+  }) {
+    final safeCount = seatCount.clamp(1, _maxSeats);
+    final solved = _solve(Size(width, maxHeight), safeCount);
+    final rows = (safeCount / solved.columns).ceil();
+    final neededHeight =
+        rows * (solved.seatSize + _labelHeight) + (rows - 1) * _spacing;
+    return neededHeight.clamp(0.0, maxHeight).toDouble();
+  }
+
   @override
   Widget build(BuildContext context) {
     final safeCount = seatCount.clamp(1, _maxSeats);
@@ -106,10 +129,12 @@ class SeatsGrid extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        // The room sizes this box with [heightFor]; it sits under the header,
+        // not at the screen's bottom edge, so the system bar inset is not ours.
         final box = Size(
           constraints.maxWidth,
           constraints.hasBoundedHeight
-              ? constraints.maxHeight - MediaQuery.of(context).padding.bottom
+              ? constraints.maxHeight
               : MediaQuery.of(context).size.height * 0.5,
         );
         final solved = _solve(box, safeCount);
@@ -122,14 +147,13 @@ class SeatsGrid extends StatelessWidget {
         // reachable.
         final neededHeight =
             rows * (solved.seatSize + _labelHeight) + (rows - 1) * _spacing;
-        final overflows = box.height > 0 && neededHeight > box.height;
+        // Half a pixel of slack: heightFor's own result must not read as overflow.
+        final overflows = box.height > 0 && neededHeight > box.height + 0.5;
 
         final grid = Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).padding.bottom,
-          ),
+          padding: EdgeInsets.zero,
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisAlignment: MainAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               for (int row = 0; row < rows; row++)
@@ -155,13 +179,51 @@ class SeatsGrid extends StatelessWidget {
           ),
         );
 
-        if (!scrollable || !overflows) return grid;
+        // CP effect: drawn BEHIND the seats, so it can never cover a face, a
+        // mic, a name or the coins line.
+        final seatOfUser = <int, int>{};
+        seats.forEach((n, s) {
+          if (s.userId != null && n <= safeCount) seatOfUser[s.userId!] = n;
+        });
+        final neighbourLinks = <CpEffectPair>[];
+        for (final l in cpLinks) {
+          final a = seatOfUser[l.userA];
+          final b = seatOfUser[l.userB];
+          if (a == null || b == null) continue;
+          final sameRow = (a - 1) ~/ solved.columns == (b - 1) ~/ solved.columns;
+          if (sameRow && (a - b).abs() == 1) {
+            neighbourLinks.add(CpEffectPair(link: l, seatA: a, seatB: b));
+          }
+        }
+        neighbourLinks.sort((x, y) => y.link.priority.compareTo(x.link.priority));
+        final withEffect = neighbourLinks.isEmpty
+            ? grid
+            : Stack(
+                // Passthrough: the grid must get exactly the constraints it
+                // gets without the effect, or it collapses to the top.
+                fit: StackFit.passthrough,
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CpSeatEffectLayer(
+                        pairs: neighbourLinks,
+                        seatKeys: seatKeys,
+                        seatSize: solved.seatSize,
+                      ),
+                    ),
+                  ),
+                  grid,
+                ],
+              );
+
+        if (!scrollable || !overflows) return withEffect;
 
         // BouncingScrollPhysics so the scroll is discoverable: a grid that
         // merely clipped gave no hint there were more seats below.
         return SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          child: grid,
+          child: withEffect,
         );
       },
     );

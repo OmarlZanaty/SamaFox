@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/agency_service.dart';
+import '../widgets/app_network_image.dart';
 
 /// Hosting-agency panel.
 /// Agent (وكيل): search users by ID and invite them, see members with their
@@ -547,7 +548,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
                       backgroundImage: (u['avatarUrl'] ?? '').toString().isNotEmpty
-                          ? NetworkImage(u['avatarUrl'])
+                          ? appImage(u['avatarUrl'], 40)
                           : null,
                       child: (u['avatarUrl'] ?? '').toString().isEmpty
                           ? const Icon(Icons.person)
@@ -658,7 +659,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: CircleAvatar(
                     backgroundImage: (user['avatarUrl'] ?? '').toString().isNotEmpty
-                        ? NetworkImage(user['avatarUrl'])
+                        ? appImage(user['avatarUrl'], 40)
                         : null,
                     child: (user['avatarUrl'] ?? '').toString().isEmpty
                         ? const Icon(Icons.person)

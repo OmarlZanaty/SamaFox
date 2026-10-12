@@ -1,7 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
-
-import 'package:device_info_plus/device_info_plus.dart';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -10,7 +7,9 @@ import 'package:samafox/services/socket_service.dart';
 
 import '../config/app_config.dart';
 import '../utils/storage_service.dart';
+import 'device_identity.dart';
 import 'token_refresher.dart';
+import 'idempotency_interceptor.dart';
 
 class DioClient {
   static Dio? _dio;
@@ -41,6 +40,11 @@ class DioClient {
     // ✅ Always attach token (fix 401 on sendGift, etc.)
     _dio!.interceptors.add(AuthInterceptor());
 
+    // ✅ Money-moving calls carry an Idempotency-Key and are retried with the
+    // SAME key after a network failure, so a weak connection can never pay,
+    // charge or roll twice.
+    _dio!.interceptors.add(IdempotencyInterceptor(_dio!));
+
     // ✅ Nice logs only in debug
     if (kDebugMode) {
       _dio!.interceptors.add(
@@ -68,26 +72,6 @@ class AuthInterceptor extends Interceptor {
   // Each pending 401 gets its own completer so it can be individually resolved.
   final List<Completer<String>> _pendingCompleters = [];
 
-  /// F4 — resolved once and kept. Reading it from the platform on every
-  /// request would put a channel round-trip in front of all network traffic.
-  static String? _deviceId;
-
-  static Future<String?> _cachedDeviceId() async {
-    if (_deviceId != null) return _deviceId;
-    try {
-      if (kIsWeb) return _deviceId = 'web';
-      if (Platform.isAndroid) {
-        _deviceId = (await DeviceInfoPlugin().androidInfo).id;
-      } else if (Platform.isIOS) {
-        _deviceId = (await DeviceInfoPlugin().iosInfo).identifierForVendor;
-      }
-    } catch (_) {
-      // A device that will not identify itself is still allowed to use the
-      // app — the IP half of the ban still applies to it.
-    }
-    return _deviceId;
-  }
-
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
     String? token = await StorageService.getAccessToken();
@@ -99,7 +83,7 @@ class AuthInterceptor extends Interceptor {
     // F4 — the server has read `x-device-id` since the device ban shipped, but
     // nothing ever sent it outside guest login, so a ban could only ever be
     // placed on an IP and an admin had no way to discover a device id at all.
-    final deviceId = await _cachedDeviceId();
+    final deviceId = await DeviceIdentity.get();
     if (deviceId != null && deviceId.isNotEmpty) {
       options.headers['x-device-id'] = deviceId;
     }

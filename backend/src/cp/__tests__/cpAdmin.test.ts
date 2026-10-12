@@ -386,6 +386,7 @@ describe('app side: the /cp API surface', () => {
       'DELETE /requests/:id',
       'GET /partners',
       'GET /partners/:userId',
+      'GET /partners/:userId/break-quote',
       'GET /requests/pending',
       'GET /unlock/status',
       'PATCH /featured',

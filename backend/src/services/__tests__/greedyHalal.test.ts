@@ -1,4 +1,4 @@
-import { balances, settings } from './halalStubs';
+import { accounts, balances, settings } from './halalStubs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -14,18 +14,19 @@ test('greedy: new table is balanced at 79.75% and the layout says so', () => {
   assert.deepEqual(byKey, { chicken: 45, tomato: 4, goat: 15, pepper: 4, fish: 25, carrot: 4, shrimp: 8, corn: 4 });
 });
 
-test('greedy: a stake whose prize the fund cannot cover is refused before charging; clear frees the fund', async () => {
+test('greedy: a stake whose prize the pool cannot cover is refused before charging; clear frees it', async () => {
   halal.__resetHalalForTests();
-  settings.set('game_config', JSON.stringify({ 'greedy-cat': { enabled: true, minBet: null, maxBet: 50_000 } }));
-  // 45,000 of prize room for this player.
-  settings.set('halal_games', JSON.stringify({ dailyPrizeBudget: 1e9, perUserDailyPrizeCap: 45_000, xpPerCoin: 1 }));
+  settings.set('game_config', JSON.stringify({ 'greedy-cat': { enabled: true, minBet: null, maxBet: 50_000, maxWinPerRound: 1_000_000, dailyMaxWinPerUser: 5_000_000 } }));
+  require(B + 'gameConfig.service').invalidateGameConfigCache();
+  // 45,000 of prize room in the pool.
+  accounts.set('GAME_POOL:greedy-cat', 45_000);
   balances.set(40, 100_000);
   greedy.startGreedyCatEngine(io);
 
   const ok = await greedy.placeBet(40, 'chicken', 1_000); // reserves 45,000
   assert.equal(ok.ok, true, JSON.stringify(ok));
   const no = await greedy.placeBet(40, 'tomato', 100); // needs 400 more
-  assert.deepEqual([no.ok, no.code], [false, 'PRIZE_CAP_REACHED']);
+  assert.deepEqual([no.ok, no.code], [false, 'PRIZE_POOL_LOW']);
   assert.equal(balances.get(40), 99_000);
 
   await greedy.clearBets(40);

@@ -1,10 +1,14 @@
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
+import { getHostTargetView, setHostTarget } from '../services/hostTarget.service';
+import { giftWindow, targetBalance } from './targetMath';
+import { recordTargetMovement } from '../services/targetMovement.service';
 
 const db = prisma as any;
 
@@ -240,10 +244,16 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
         // updateMany with a `gte` guard does the check and the debit in one
         // statement, so two concurrent charges can't both pass a read-then-write
         // check and push the agent negative.
-        const debited = await tx.user.updateMany({
-          where: { id: funderId, coinsBalance: { gte: coins } },
-          data: { coinsBalance: { decrement: coins } },
-        });
+        //
+        // A sale, not a spend: the platform-wide coin freeze does not stop it;
+        // an agent frozen by id is still stopped (coinFreeze.ts). Awaited
+        // inside the callback — a Prisma query runs where it is awaited.
+        const debited = await runWithCoinFreezeBypass('global', async () =>
+          await tx.user.updateMany({
+            where: { id: funderId, coinsBalance: { gte: coins } },
+            data: { coinsBalance: { decrement: coins } },
+          }),
+        );
         if (debited.count === 0) {
           // Carry the balance so the caller can be told how short they are.
           const wallet = await tx.user.findUnique({
@@ -268,6 +278,18 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
           where: { id: membership.id },
           data: { targetAdjustmentCoins: { increment: BigInt(coins) } },
         });
+        await recordTargetMovement(
+          {
+            memberId: membership.id,
+            userId: funderId,
+            agencyId: membership.agencyId,
+            kind: 'charge',
+            amountCoins: coins,
+            actorId: funderId,
+            counterpartId: targetUserId,
+          },
+          tx,
+        );
 
         await tx.user.update({
           where: { id: targetUserId },
@@ -322,6 +344,41 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
   }
 };
 
+// ── وكالة المضيفين: دعوات (2026-09-26, item 15) ─────────────────────────
+// PENDING → ACCEPTED | REJECTED | EXPIRED. Stored lower-case (the value older
+// app builds compare against) and returned upper-case as `state` too.
+//
+// Two bugs this fixes:
+//  • "الوكيل لا يستطيع إرسال دعوة": the table is unique on (agency, invitee),
+//    so re-inviting anyone who had once rejected, accepted-then-left, or let an
+//    invite lapse hit the unique index and returned a bare 500. A re-invite now
+//    REOPENS that row.
+//  • "المضيف يقبل ولا ينضم": accepting flipped the status and upserted the
+//    membership with no checks, so a host already in another hosting agency, or
+//    accepting an invite into an agency no longer approved, "joined" into a
+//    state no screen shows. Acceptance is now one transaction that checks
+//    everything and only reports success after the commit.
+const INVITE_TTL_MS = 7 * 86_400_000;
+
+const inviteState = (inv: any) => {
+  const st = String(inv?.status ?? '').toLowerCase();
+  if (st === 'pending' && inv?.expiresAt && new Date(inv.expiresAt) <= new Date()) return 'EXPIRED';
+  return st.toUpperCase();
+};
+
+class InviteError extends Error {
+  constructor(public status: number, public code: string, message: string) {
+    super(message);
+  }
+}
+
+/** The approved HOSTING agency a user already belongs to, other than `exceptAgencyId`. */
+const otherHostingMembership = async (tx: any, userId: number, exceptAgencyId: number) =>
+  tx.agencyMember.findFirst({
+    where: { userId, agencyId: { not: exceptAgencyId }, agency: { type: 'HOSTING', status: 'approved' } },
+    include: { agency: { select: { id: true, agencyName: true } } },
+  });
+
 // POST /agencies/invite/:userId
 export const inviteMember = async (req: AuthReq, res: Response) => {
   try {
@@ -330,6 +387,7 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
 
     const inviteeId = Number(req.params.userId);
     if (!inviteeId) return fail(res, 400, 'Invalid userId');
+    if (inviteeId === ownerId) return fail(res, 400, 'لا يمكنك دعوة نفسك');
 
     // Same type filter the roster uses. Without it an agent who owns BOTH a
     // HOSTING and a CHARGING agency (#8) invites into whichever they joined
@@ -340,15 +398,37 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
     const m = await findManagerMembership(ownerId, inviteType);
     if (!m) return fail(res, 403, 'Not an agency owner or branch');
 
-    const existing = await db.agencyInvite.findFirst({
-      where: { agencyId: m.agencyId, inviteeId, status: 'pending' },
-    });
-    if (existing) return fail(res, 400, 'Already invited');
+    const invitee = await db.user.findUnique({ where: { id: inviteeId }, select: { id: true } });
+    if (!invitee) return fail(res, 404, 'المستخدم غير موجود');
 
-    const invite = await db.agencyInvite.create({
-      data: { agencyId: m.agencyId, inviterId: ownerId, inviteeId },
-      include: { agency: { select: { agencyName: true } } },
+    const alreadyMember = await db.agencyMember.findFirst({ where: { agencyId: m.agencyId, userId: inviteeId } });
+    if (alreadyMember) return fail(res, 400, 'المستخدم عضو في وكالتك بالفعل');
+
+    if (m.agency?.type === 'HOSTING') {
+      const other = await otherHostingMembership(db, inviteeId, m.agencyId);
+      if (other) return fail(res, 409, `المستخدم مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId})`);
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + INVITE_TTL_MS);
+    const existing = await db.agencyInvite.findUnique({
+      where: { agencyId_inviteeId: { agencyId: m.agencyId, inviteeId } },
     });
+    if (existing && inviteState(existing) === 'PENDING') {
+      return fail(res, 400, 'Already invited');
+    }
+
+    // One row per (agency, invitee): reopen it rather than insert a second.
+    const invite = existing
+      ? await db.agencyInvite.update({
+          where: { id: existing.id },
+          data: { status: 'pending', inviterId: ownerId, expiresAt, respondedAt: null, updatedAt: now },
+          include: { agency: { select: { agencyName: true } } },
+        })
+      : await db.agencyInvite.create({
+          data: { agencyId: m.agencyId, inviterId: ownerId, inviteeId, expiresAt },
+          include: { agency: { select: { agencyName: true } } },
+        });
 
     // The invitee learns about it from notifications/messages.
     try {
@@ -364,7 +444,7 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
       console.warn('agency invite notification failed:', e);
     }
 
-    return res.status(201).json({ success: true, data: invite });
+    return res.status(201).json({ success: true, data: { ...invite, state: inviteState(invite) } });
   } catch (e) {
     // Was a blind `catch {}` that hid the real cause behind a generic 500 —
     // that opacity was #35 "invite shows an error with no detail". Log it.
@@ -384,40 +464,108 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
 
     if (!['accept', 'reject'].includes(String(action))) return fail(res, 400, 'action must be accept or reject');
 
-    const invite = await db.agencyInvite.findUnique({ where: { id: inviteId } });
-    if (!invite || invite.inviteeId !== userId) return fail(res, 403, 'Not your invite');
-    if (invite.status !== 'pending') return fail(res, 400, 'Already processed');
-
-    await db.$transaction(async (tx: any) => {
-      await tx.agencyInvite.update({
-        where: { id: inviteId },
-        data: { status: action === 'accept' ? 'accepted' : 'rejected' },
-      });
-
-      if (action === 'accept') {
-        await tx.agencyMember.upsert({
-          where: { agencyId_userId: { agencyId: invite.agencyId, userId } },
-          update: { role: 'MEMBER' },
-          create: { agencyId: invite.agencyId, userId, role: 'MEMBER' },
-        });
+    // A lapsed invite is marked EXPIRED for good — outside the transaction
+    // below, whose rollback would otherwise undo the mark.
+    const pre = await db.agencyInvite.findUnique({ where: { id: inviteId } });
+    if (pre && pre.inviteeId === userId && inviteState(pre) === 'EXPIRED') {
+      if (pre.status === 'pending') {
+        await db.agencyInvite.updateMany({ where: { id: inviteId, status: 'pending' }, data: { status: 'expired', updatedAt: new Date() } });
       }
-    });
-
-    try {
-      await createNotification({
-        userId: invite.inviterId,
-        actorId: userId,
-        type: 'AGENCY_INVITE_RESPONSE',
-        title: action === 'accept' ? 'انضمام مضيف جديد' : 'تم رفض الدعوة',
-        body: action === 'accept' ? 'قبل المستخدم دعوة الانضمام إلى وكالتك' : 'رفض المستخدم دعوة الانضمام إلى وكالتك',
-        data: { inviteId, agencyId: invite.agencyId },
-      });
-    } catch (e) {
-      console.warn('agency invite response notification failed:', e);
+      return res.status(410).json({ success: false, code: 'EXPIRED', message: 'انتهت صلاحية الدعوة' });
     }
 
-    return res.json({ success: true });
-  } catch {
+    const result = await db.$transaction(
+      async (tx: any) => {
+        // 1. The invite exists and is this user's.
+        const invite = await tx.agencyInvite.findUnique({
+          where: { id: inviteId },
+          include: { agency: { select: { id: true, agencyName: true, type: true, status: true } } },
+        });
+        if (!invite || invite.inviteeId !== userId) throw new InviteError(403, 'NOT_YOURS', 'Not your invite');
+
+        const state = inviteState(invite);
+        if (state === 'ACCEPTED') {
+          // Accepting twice is not an error — as long as the membership is there.
+          const member = await tx.agencyMember.findFirst({ where: { agencyId: invite.agencyId, userId } });
+          if (action === 'accept' && member) return { invite, member, alreadyDone: true };
+          throw new InviteError(400, 'ALREADY_PROCESSED', 'Already processed');
+        }
+        // 2. Not expired.
+        if (state === 'EXPIRED') {
+          if (invite.status === 'pending') {
+            await tx.agencyInvite.update({ where: { id: inviteId }, data: { status: 'expired', updatedAt: new Date() } });
+          }
+          throw new InviteError(410, 'EXPIRED', 'انتهت صلاحية الدعوة');
+        }
+        if (state !== 'PENDING') throw new InviteError(400, 'ALREADY_PROCESSED', 'Already processed');
+
+        if (action === 'reject') {
+          const r = await tx.agencyInvite.updateMany({
+            where: { id: inviteId, status: 'pending' },
+            data: { status: 'rejected', respondedAt: new Date(), updatedAt: new Date() },
+          });
+          if (r.count !== 1) throw new InviteError(409, 'ALREADY_PROCESSED', 'Already processed');
+          return { invite, member: null, alreadyDone: false };
+        }
+
+        // The agency must still be operating.
+        if (invite.agency?.status !== 'approved') throw new InviteError(409, 'AGENCY_INACTIVE', 'الوكالة غير مفعلة حالياً');
+
+        // 3. One hosting agency at a time.
+        if (invite.agency?.type === 'HOSTING') {
+          const other = await otherHostingMembership(tx, userId, invite.agencyId);
+          if (other) {
+            throw new InviteError(409, 'ALREADY_IN_AGENCY', `أنت مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId}) — غادرها أولاً`);
+          }
+        }
+
+        // 6 first, conditionally: whoever flips pending→accepted owns the join.
+        const flipped = await tx.agencyInvite.updateMany({
+          where: { id: inviteId, status: 'pending' },
+          data: { status: 'accepted', respondedAt: new Date(), updatedAt: new Date() },
+        });
+        if (flipped.count !== 1) throw new InviteError(409, 'ALREADY_PROCESSED', 'Already processed');
+
+        // 4–5. The membership — the host's agency link.
+        const member = await tx.agencyMember.upsert({
+          where: { agencyId_userId: { agencyId: invite.agencyId, userId } },
+          update: {},
+          create: { agencyId: invite.agencyId, userId, role: 'MEMBER' },
+        });
+        return { invite, member, alreadyDone: false };
+      },
+      { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
+    );
+    // 7. Committed — only now is "تم الانضمام" true.
+
+    if (!result.alreadyDone) {
+      try {
+        await createNotification({
+          userId: result.invite.inviterId,
+          actorId: userId,
+          type: 'AGENCY_INVITE_RESPONSE',
+          title: action === 'accept' ? 'انضمام مضيف جديد' : 'تم رفض الدعوة',
+          body: action === 'accept' ? 'قبل المستخدم دعوة الانضمام إلى وكالتك' : 'رفض المستخدم دعوة الانضمام إلى وكالتك',
+          data: { inviteId, agencyId: result.invite.agencyId },
+        });
+      } catch (e) {
+        console.warn('agency invite response notification failed:', e);
+      }
+    }
+
+    return res.json({
+      success: true,
+      state: action === 'accept' ? 'ACCEPTED' : 'REJECTED',
+      joined: action === 'accept',
+      agency: action === 'accept' ? { id: result.invite.agencyId, name: result.invite.agency?.agencyName ?? null } : null,
+      membershipId: result.member?.id ?? null,
+    });
+  } catch (e: any) {
+    if (e instanceof InviteError) {
+      return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+    }
+    if (e?.code === 'P2034') return fail(res, 409, 'حاول مرة أخرى');
+    console.error('[agency.respondInvite] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -442,19 +590,29 @@ export const requestJoinHostingAgency = async (req: AuthReq, res: Response) => {
 
     const alreadyMember = await db.agencyMember.findFirst({ where: { agencyId, userId } });
     if (alreadyMember) return fail(res, 400, 'Already a member');
+    const other = await otherHostingMembership(db, userId, agencyId);
+    if (other) return fail(res, 409, `أنت مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId}) — غادرها أولاً`);
 
-    const existing = await db.agencyInvite.findFirst({
-      where: { agencyId, inviteeId: userId, status: 'pending' },
-      select: { id: true },
+    const existing = await db.agencyInvite.findUnique({
+      where: { agencyId_inviteeId: { agencyId, inviteeId: userId } },
     });
-    if (existing) return fail(res, 400, 'Request already pending');
+    if (existing && inviteState(existing) === 'PENDING') return fail(res, 400, 'Request already pending');
 
-    const invite = await db.agencyInvite.create({
-      data: { agencyId, inviterId: agency.userId, inviteeId: userId, status: 'pending' },
-    });
+    // Same (agency, user) row as an invite would use: reopen it, never insert
+    // a duplicate (that is what used to 500).
+    const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+    const invite = existing
+      ? await db.agencyInvite.update({
+          where: { id: existing.id },
+          data: { status: 'pending', inviterId: agency.userId, expiresAt, respondedAt: null, updatedAt: new Date() },
+        })
+      : await db.agencyInvite.create({
+          data: { agencyId, inviterId: agency.userId, inviteeId: userId, status: 'pending', expiresAt },
+        });
 
-    return res.status(201).json({ success: true, data: invite });
-  } catch {
+    return res.status(201).json({ success: true, data: { ...invite, state: inviteState(invite) } });
+  } catch (e) {
+    console.error('[agency.requestJoinHostingAgency] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -514,6 +672,10 @@ export const reviewJoinRequest = async (req: AuthReq, res: Response) => {
 
     const invite = await db.agencyInvite.findUnique({ where: { id: inviteId } });
     if (!invite || invite.status !== 'pending') return fail(res, 404, 'Pending request not found');
+    if (inviteState(invite) === 'EXPIRED') {
+      await db.agencyInvite.update({ where: { id: inviteId }, data: { status: 'expired', updatedAt: new Date() } });
+      return fail(res, 410, 'انتهت صلاحية الطلب');
+    }
 
     const ownerMembership = await db.agencyMember.findFirst({
       where: { userId, agencyId: invite.agencyId, role: { in: ['OWNER', 'BRANCH'] } },
@@ -521,22 +683,32 @@ export const reviewJoinRequest = async (req: AuthReq, res: Response) => {
     });
     if (!ownerMembership || ownerMembership.agency.type !== 'HOSTING') return fail(res, 403, 'Not allowed');
 
-    await db.$transaction(async (tx: any) => {
-      await tx.agencyInvite.update({
-        where: { id: inviteId },
-        data: { status: action === 'accept' ? 'accepted' : 'rejected' },
-      });
-      if (action === 'accept') {
-        await tx.agencyMember.upsert({
-          where: { agencyId_userId: { agencyId: invite.agencyId, userId: invite.inviteeId } },
-          update: { role: 'MEMBER' },
-          create: { agencyId: invite.agencyId, userId: invite.inviteeId, role: 'MEMBER' },
+    await db.$transaction(
+      async (tx: any) => {
+        if (action === 'accept') {
+          const other = await otherHostingMembership(tx, invite.inviteeId, invite.agencyId);
+          if (other) throw new InviteError(409, 'ALREADY_IN_AGENCY', 'المستخدم مرتبط بوكالة أخرى');
+        }
+        const flipped = await tx.agencyInvite.updateMany({
+          where: { id: inviteId, status: 'pending' },
+          data: { status: action === 'accept' ? 'accepted' : 'rejected', respondedAt: new Date(), updatedAt: new Date() },
         });
-      }
-    });
+        if (flipped.count !== 1) throw new InviteError(409, 'ALREADY_PROCESSED', 'Already processed');
+        if (action === 'accept') {
+          await tx.agencyMember.upsert({
+            where: { agencyId_userId: { agencyId: invite.agencyId, userId: invite.inviteeId } },
+            update: {},
+            create: { agencyId: invite.agencyId, userId: invite.inviteeId, role: 'MEMBER' },
+          });
+        }
+      },
+      { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
+    );
 
-    return res.json({ success: true });
-  } catch {
+    return res.json({ success: true, state: action === 'accept' ? 'ACCEPTED' : 'REJECTED' });
+  } catch (e: any) {
+    if (e instanceof InviteError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+    console.error('[agency.reviewJoinRequest] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };
@@ -548,7 +720,11 @@ export const getMyInvites = async (req: AuthReq, res: Response) => {
     if (!userId) return fail(res, 401, 'Unauthorized');
 
     const invites = await db.agencyInvite.findMany({
-      where: { inviteeId: userId, status: 'pending' },
+      where: {
+        inviteeId: userId,
+        status: 'pending',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       include: { agency: { select: { id: true, agencyName: true, logoUrl: true, type: true } } },
     });
 
@@ -704,11 +880,10 @@ export const getMembersStats = async (req: AuthReq, res: Response) => {
       members.map(async (member: any) => {
         // Target = gifts RECEIVED since joining (self-gifts excluded, #19/#21)
         // plus/minus anything بيع التارجيت moved on this row.
-        const earnedBase = await memberTargetEarned(member);
         // The owner's commission (#4) is part of HIS target, not his wallet —
-        // add it here so the agent row shows what he actually earned. 0 for
-        // every non-owner row.
-        const earnedCoins = earnedBase + Number(member.commissionTargetCoins ?? 0n);
+        // memberTargetTotal adds it (0 for every non-owner row) before
+        // clamping, so a swapped-out commission doesn't reappear here.
+        const earnedCoins = await memberTargetTotal(member);
         const goal = Number(member.targetGoalCoins ?? 0n);
         return {
           memberId: member.id,
@@ -1300,10 +1475,25 @@ export const removeBranch = async (req: AuthReq, res: Response) => {
  * callers that deal with owner rows, since it is role-specific.
  */
 export const memberTargetEarnedRaw = async (m: {
+  id: number;
   userId: number;
   joinedAt: Date;
   targetAdjustmentCoins?: bigint | number | null;
 }): Promise<number> => {
+  // Gifts count on ONE seat per user (see giftWindow): a row outside the
+  // user's target seats, or fully shadowed by a higher-priority one, carries
+  // only its بيع/تبديل/admin movements.
+  const seats = await db.agencyMember.findMany({
+    where: targetMembershipWhere(m.userId),
+    select: { id: true, joinedAt: true, agency: { select: { type: true } } },
+  });
+  const window = giftWindow(
+    seats.map((s: any) => ({ id: s.id, joinedAt: s.joinedAt, hosting: s.agency?.type === 'HOSTING' })),
+    m.id,
+  );
+  const adjustment = Number(m.targetAdjustmentCoins ?? 0);
+  if (!window) return adjustment;
+
   // SELF-GIFTS COUNT (client rule, 2026-08: "لما يرمي على نفسه يتخصم سعر الهدية
   // كامل من محفظته وأيضاً يذهب إلى التارجيت سعر الهدية كامل").
   //
@@ -1316,11 +1506,11 @@ export const memberTargetEarnedRaw = async (m: {
   const agg = await db.giftTransaction.aggregate({
     where: {
       recipientId: m.userId,
-      createdAt: { gte: m.joinedAt },
+      createdAt: window.to ? { gte: window.from, lt: window.to } : { gte: window.from },
     },
     _sum: { totalCoins: true },
   });
-  return Number(agg._sum.totalCoins ?? 0) + Number(m.targetAdjustmentCoins ?? 0);
+  return Number(agg._sum.totalCoins ?? 0) + adjustment;
 };
 
 /**
@@ -1334,15 +1524,36 @@ export const memberTargetEarnedRaw = async (m: {
  * stop working for agents.
  */
 export const memberTargetEarned = async (m: {
+  id: number;
   userId: number;
   joinedAt: Date;
   targetAdjustmentCoins?: bigint | number | null;
 }): Promise<number> => Math.max(0, await memberTargetEarnedRaw(m));
 
+/**
+ * رصيد التارجت — the ONE figure every surface shows for a membership: gifts
+ * since joining, ± بيع/تبديل/admin adjustments, plus the owner's commission
+ * (#4), floored at zero only at the very end.
+ *
+ * The order matters. Callers used to do `memberTargetEarned(m) + commission`,
+ * which clamps the adjustment BEFORE the commission is added: a وكيل who
+ * swapped her whole $40 (a $5 gift part + $35 commission) showed $0 in the app
+ * but $35 on the dashboard — "حولت الأربعين دولار ومع ذلك فاضل خمسة وتلاتين"
+ * (2026-09-30). Same arithmetic getMyTarget and convertTarget already use.
+ */
+export const memberTargetTotal = async (m: {
+  id: number;
+  userId: number;
+  joinedAt: Date;
+  targetAdjustmentCoins?: bigint | number | null;
+  commissionTargetCoins?: bigint | number | null;
+}): Promise<number> =>
+  targetBalance(await memberTargetEarnedRaw(m), 0, m.commissionTargetCoins);
+
 export const computeAgencyEarnedCoins = async (agencyId: number): Promise<number> => {
   const members = await db.agencyMember.findMany({
     where: { agencyId },
-    select: { userId: true, joinedAt: true, targetAdjustmentCoins: true },
+    select: { id: true, userId: true, joinedAt: true, targetAdjustmentCoins: true },
   });
   if (members.length === 0) return 0;
 
@@ -1435,6 +1646,7 @@ export const computeCommissionSplit = async (owner: {
   const sources = await db.agencyMember.findMany({
     where: { agencyId: owner.agencyId, commissionGeneratedCoins: { gt: 0 } },
     select: {
+      id: true,
       userId: true,
       joinedAt: true,
       targetGoalCoins: true,
@@ -1491,72 +1703,82 @@ const targetMembershipWhere = (userId: number) => ({
   ],
 });
 
+/**
+ * رصيد التارجت per membership — what the target card, تبديل and بيع all
+ * spend from. Shared by the app (getMyTarget) and the dashboard's Target
+ * المضيف page, so both print the same coins and dollars.
+ */
+export const buildTargetBalance = async (userId: number) => {
+  // Hosting memberships. Owners are included too: an agent earns gifts like
+  // any host and has their own convertedTargetCoins row, so excluding them
+  // left تبديل الكوينزات permanently empty for every وكيل.
+  //
+  // 2026-08-23 — a وكيل شحن and his فروع hold target as well
+  // ("وكيل الشحن ملوش تارجيت ... المطلوب هينزله تارجيت لانه وكيل لكن بدون
+  // نسبه"). They are OWNER/BRANCH rows on a CHARGING agency: gifts they
+  // receive and target they BUY from others land here, while the 20%
+  // commission stays hosting-only because their cut was already taken at
+  // charge time.
+  const memberships = await db.agencyMember.findMany({
+    where: targetMembershipWhere(userId),
+    include: { agency: { select: { id: true, agencyName: true, type: true } } },
+    orderBy: { joinedAt: 'asc' },
+  });
+
+  const items = await Promise.all(
+    memberships.map(async (mm: any) => {
+      const earnedBase = await memberTargetEarnedRaw(mm);
+      // Owner rows carry their accumulated agency commission (#4) as target,
+      // so it shows in التارجت and is convertible at the same 50% rate.
+      // The commission is always COUNTED here; the part whose source member
+      // hasn't completed their target yet is held out of `convertibleCoins`
+      // only (see computeCommissionSplit).
+      // No commission on a charging agency — "بدون نسبه لان نسبته اخذها
+      // وقت الشحن".
+      const commission = mm.agency?.type === 'CHARGING'
+          ? { accrued: 0, locked: 0, released: 0 }
+          : await computeCommissionSplit({
+              agencyId: mm.agencyId,
+              userId,
+              commissionTargetCoins: mm.commissionTargetCoins,
+            });
+      const earnedCoins = Math.max(0, earnedBase + commission.accrued);
+      const goal = Number(mm.targetGoalCoins ?? 0n);
+      const converted = Number(mm.convertedTargetCoins ?? 0n);
+      return {
+        agencyId: mm.agency.id,
+        agencyName: mm.agency.agencyName,
+        joinedAt: mm.joinedAt,
+        earnedCoins,
+        targetGoalCoins: goal,
+        remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
+        earnedDollars: await coinsToDollars(earnedCoins),
+        convertedTargetCoins: converted,
+        convertibleCoins: Math.max(0, earnedCoins - commission.locked),
+        // Commission breakdown, so the panel can show "محسوبة" vs "معلقة"
+        // instead of silently offering less than the target implies.
+        commissionCoins: commission.accrued,
+        commissionLockedCoins: commission.locked,
+        commissionReleasedCoins: commission.released,
+      };
+    }),
+  );
+
+  const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
+  return { items, totalEarned, totalDollars: await coinsToDollars(totalEarned) };
+};
+
 export const getMyTarget = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId;
     if (!userId) return fail(res, 401, 'Unauthorized');
-
-    // Hosting memberships. Owners are included too: an agent earns gifts like
-    // any host and has their own convertedTargetCoins row, so excluding them
-    // left تبديل الكوينزات permanently empty for every وكيل.
-    //
-    // 2026-08-23 — a وكيل شحن and his فروع hold target as well
-    // ("وكيل الشحن ملوش تارجيت ... المطلوب هينزله تارجيت لانه وكيل لكن بدون
-    // نسبه"). They are OWNER/BRANCH rows on a CHARGING agency: gifts they
-    // receive and target they BUY from others land here, while the 20%
-    // commission stays hosting-only because their cut was already taken at
-    // charge time.
-    const memberships = await db.agencyMember.findMany({
-      where: targetMembershipWhere(userId),
-      include: { agency: { select: { id: true, agencyName: true, type: true } } },
-      orderBy: { joinedAt: 'asc' },
-    });
-
-    const items = await Promise.all(
-      memberships.map(async (mm: any) => {
-        const earnedBase = await memberTargetEarnedRaw(mm);
-        // Owner rows carry their accumulated agency commission (#4) as target,
-        // so it shows in التارجت and is convertible at the same 50% rate.
-        // The commission is always COUNTED here; the part whose source member
-        // hasn't completed their target yet is held out of `convertibleCoins`
-        // only (see computeCommissionSplit).
-        // No commission on a charging agency — "بدون نسبه لان نسبته اخذها
-        // وقت الشحن".
-        const commission = mm.agency?.type === 'CHARGING'
-            ? { accrued: 0, locked: 0, released: 0 }
-            : await computeCommissionSplit({
-                agencyId: mm.agencyId,
-                userId,
-                commissionTargetCoins: mm.commissionTargetCoins,
-              });
-        const earnedCoins = Math.max(0, earnedBase + commission.accrued);
-        const goal = Number(mm.targetGoalCoins ?? 0n);
-        const converted = Number(mm.convertedTargetCoins ?? 0n);
-        return {
-          agencyId: mm.agency.id,
-          agencyName: mm.agency.agencyName,
-          joinedAt: mm.joinedAt,
-          earnedCoins,
-          targetGoalCoins: goal,
-          remainingCoins: goal > 0 ? Math.max(0, goal - earnedCoins) : 0,
-          earnedDollars: await coinsToDollars(earnedCoins),
-          convertedTargetCoins: converted,
-          convertibleCoins: Math.max(0, earnedCoins - commission.locked),
-          // Commission breakdown, so the panel can show "محسوبة" vs "معلقة"
-          // instead of silently offering less than the target implies.
-          commissionCoins: commission.accrued,
-          commissionLockedCoins: commission.locked,
-          commissionReleasedCoins: commission.released,
-        };
-      }),
-    );
 
     // 2026-08-23 — the card is for وكيل and مضيف ONLY. It used to fall back to
     // "lifetime gift earnings" for anyone, which is why an unregistered user
     // saw a target he has no claim to: he already took his 5% at support time
     // ("الشخص غير المسجل (وكيل- مضيف) بيظهر له تارجيت — المطلوب لا يظهر له").
     // `hasTarget` below is what the app gates the card on.
-    const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
+    const { items, totalEarned, totalDollars } = await buildTargetBalance(userId);
 
     const totalGifts = await db.giftTransaction.aggregate({
       where: { recipientId: userId, senderId: { not: userId } },
@@ -1586,10 +1808,23 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
     // sellable pool is per item (`convertibleCoins`).
     const canSell = items.some((i) => i.convertibleCoins > 0);
 
-    const totalDollars = await coinsToDollars(totalEarned);
+    // Target المضيف — the single source (host_targets). When a target is set
+    // there it is THE goal: every item shows it, so an installed app that only
+    // knows `targetGoalCoins` displays the same number as the dashboard.
+    const hostTarget = await getHostTargetView(userId);
+    if (hostTarget) {
+      for (const it of items) {
+        it.targetGoalCoins = hostTarget.targetCoins;
+        it.remainingCoins = hostTarget.remainingCoins;
+      }
+    }
+
+    // Never serve a stale target from an intermediate cache.
+    res.setHeader('Cache-Control', 'no-store');
     return res.json({
       success: true,
       data: {
+        hostTarget,
         totalEarned,
         totalDollars,
         totalGifts: Number(totalGifts._sum.quantity ?? 0),
@@ -1604,8 +1839,8 @@ export const getMyTarget = async (req: AuthReq, res: Response) => {
         // Only a hosting-agency member (مضيف) or an agency owner (وكيل) has a
         // target at all — everyone else gets no card. `hasGoal` says whether
         // there is an agency-set goal to show progress against.
-        hasTarget: items.length > 0 || agentTargets.length > 0,
-        hasGoal: items.length > 0,
+        hasTarget: items.length > 0 || agentTargets.length > 0 || hostTarget != null,
+        hasGoal: items.length > 0 || hostTarget != null,
         items,
       },
     });
@@ -1765,6 +2000,18 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
             },
           });
           if (guard.count === 0) throw new TargetRaceError();
+          await recordTargetMovement(
+            {
+              memberId: membership.id,
+              userId,
+              agencyId: membership.agencyId,
+              kind: 'convert',
+              amountCoins: -amount,
+              actorId: userId,
+              note: `تبديل إلى ${credit} كوينز`,
+            },
+            tx,
+          );
           return tx.user.update({
             where: { id: userId },
             data: { coinsBalance: { increment: credit } },
@@ -1924,6 +2171,30 @@ export const sellTarget = async (req: AuthReq, res: Response) => {
               dollarsValue,
             },
           });
+          await recordTargetMovement(
+            {
+              memberId: sellerMembership.id,
+              userId: sellerId,
+              agencyId: sellerMembership.agencyId,
+              kind: 'sale_out',
+              amountCoins: -amount,
+              actorId: sellerId,
+              counterpartId: buyer.id,
+            },
+            tx,
+          );
+          await recordTargetMovement(
+            {
+              memberId: buyerMembership.id,
+              userId: buyer.id,
+              agencyId: buyerMembership.agencyId,
+              kind: 'sale_in',
+              amountCoins: amount,
+              actorId: sellerId,
+              counterpartId: sellerId,
+            },
+            tx,
+          );
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -1935,10 +2206,12 @@ export const sellTarget = async (req: AuthReq, res: Response) => {
     }
 
     const sellerTargetNow = Math.max(0, earnedCoins - amount);
-    const buyerTargetNow = await memberTargetEarned({
+    const buyerTargetNow = await memberTargetTotal({
+      id: buyerMembership.id,
       userId: buyer.id,
       joinedAt: buyerMembership.joinedAt,
       targetAdjustmentCoins: Number(buyerMembership.targetAdjustmentCoins ?? 0n) + amount,
+      commissionTargetCoins: buyerMembership.commissionTargetCoins,
     });
     const buyerGoal = Number(buyerMembership.targetGoalCoins ?? 0n);
 
@@ -2005,6 +2278,18 @@ export const setMemberTarget = async (req: AuthReq, res: Response) => {
     await db.agencyMember.update({
       where: { id: member.id },
       data: { targetGoalCoins: BigInt(Math.floor(goal)) },
+    });
+    // Mirror into the single source (host_targets). An ADMIN target, if one is
+    // active, still outranks this.
+    const now = new Date();
+    await setHostTarget({
+      hostId: targetId,
+      targetCoins: Math.floor(goal),
+      periodStart: now,
+      periodEnd: new Date(now.getTime() + 30 * 86_400_000),
+      source: 'AGENCY',
+      agencyId: owner.agencyId,
+      actorId: ownerId,
     });
 
     try {

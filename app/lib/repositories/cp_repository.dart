@@ -80,7 +80,16 @@ class CpRepository {
         .toList();
   }
 
-  /// "الغاء CP مع فلان؟ نعم / لا" — ends the pairing, refunds nothing.
+  /// فك CP: what breaking with [partnerId] costs me (program fee + partner fee,
+  /// from my custom fee or the global one) and my balance — shown BEFORE the
+  /// user confirms. The server charges exactly its own quote.
+  Future<CpBreakQuote> breakQuote(int partnerId) async {
+    final body = await _get('cp/partners/$partnerId/break-quote');
+    return CpBreakQuote.fromJson(Map<String, dynamic>.from((body['data'] as Map?) ?? const {}));
+  }
+
+  /// "الغاء CP مع فلان؟ نعم / لا" — ends the pairing and charges the quoted
+  /// fee in one server transaction. `INSUFFICIENT_COINS` means nothing moved.
   Future<void> removePartner(int partnerId) => _delete('cp/partners/$partnerId');
 
   // ---- صلاحيات فتح CP (2026-09-22) -------------------------------------
@@ -492,6 +501,34 @@ class CpPartner {
       cpValue: (json['cpValue'] as num?)?.toInt(),
       cpDays: (json['days'] as num?)?.toInt(),
       featured: json['featured'] is bool ? json['featured'] as bool : null,
+    );
+  }
+}
+
+
+/// The fee to break a CP pair, as the server quotes it.
+class CpBreakQuote {
+  const CpBreakQuote({
+    required this.programFee,
+    required this.partnerFee,
+    required this.totalFee,
+    required this.balance,
+    required this.shortfall,
+  });
+  final int programFee;
+  final int partnerFee;
+  final int totalFee;
+  final int balance;
+  final int shortfall;
+
+  factory CpBreakQuote.fromJson(Map<String, dynamic> j) {
+    int n(String k) => (j[k] as num?)?.toInt() ?? 0;
+    return CpBreakQuote(
+      programFee: n('programFee'),
+      partnerFee: n('partnerFee'),
+      totalFee: n('totalFee'),
+      balance: n('balance'),
+      shortfall: n('shortfall'),
     );
   }
 }

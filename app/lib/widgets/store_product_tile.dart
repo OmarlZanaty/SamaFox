@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/product.dart';
+import 'app_network_image.dart';
 
 class StoreProductTile extends StatelessWidget {
   final Product product;
@@ -23,7 +24,7 @@ class StoreProductTile extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               image: DecorationImage(
-                image: NetworkImage(product.previewUrl),
+                image: appImage(product.previewUrl, 240),
                 fit: BoxFit.cover,
               ),
             ),

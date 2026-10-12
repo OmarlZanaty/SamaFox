@@ -40,5 +40,5 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
   },
-  "exclude": ["node_modules", "dist", "prisma", "scripts"]
+  "exclude": ["node_modules", "dist", "prisma", "scripts", "tests"]
 }

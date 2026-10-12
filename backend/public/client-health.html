@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>صحة التطبيق — SamaFox</title>
+<style>
+  :root { --bg:#0f0a1f; --card:#1a1233; --line:#2b2050; --fg:#eee; --mut:#a79fc4;
+          --err:#ff5c7a; --warn:#ffb84d; --info:#7bd88f; --acc:#8b6cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif; }
+  header { position:sticky; top:0; z-index:2; background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  header h1 { font-size:16px; margin:0 8px 0 0; }
+  input, select, button { background:#120c26; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit; }
+  button { background:var(--acc); border-color:var(--acc); cursor:pointer; }
+  a { color:var(--acc); }
+  .sum { color:var(--mut); font-size:12px; margin-inline-start:auto; }
+  main { padding:12px 16px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .card .v { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .card .l { color:var(--mut); font-size:12px; }
+  .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; }
+  table { border-collapse:collapse; width:100%; min-width:980px; font-variant-numeric:tabular-nums; }
+  th, td { padding:7px 9px; border-bottom:1px solid var(--line); text-align:center; white-space:nowrap; }
+  th { background:#150e2c; color:var(--mut); font-weight:600; font-size:12px; position:sticky; top:0; }
+  td.day { color:var(--mut); direction:ltr; }
+  td.app { direction:ltr; font-weight:700; }
+  tr.first td { border-top:2px solid var(--acc); }
+  .bad { color:var(--err); font-weight:800; } .meh { color:var(--warn); } .ok { color:var(--info); }
+  .note { color:var(--mut); font-size:12px; margin-top:10px; line-height:1.8; }
+  #login { max-width:380px; margin:60px auto; background:var(--card); padding:20px; border-radius:12px; display:none; }
+  #login input { width:100%; margin-bottom:10px; }
+  .empty { color:var(--mut); padding:40px; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>صحة التطبيق</h1>
+  <select id="days">
+    <option value="1">آخر يوم</option>
+    <option value="3">آخر 3 أيام</option>
+    <option value="7" selected>آخر أسبوع</option>
+    <option value="14">آخر أسبوعين</option>
+  </select>
+  <label style="color:var(--mut);font-size:12px"><input type="checkbox" id="small" style="min-width:0"> إظهار النسخ الصغيرة (أقل من 5 جلسات)</label>
+  <button id="refresh">تحديث</button>
+  <a href="/client-logs" style="font-size:12px">سجل العملاء ›</a>
+  <span class="sum" id="sum"></span>
+</header>
+
+<div id="login">
+  <h3 style="margin-top:0">دخول الأدمن</h3>
+  <input id="email" placeholder="الإيميل" type="email" autocomplete="username">
+  <input id="password" placeholder="كلمة المرور" type="password" autocomplete="current-password">
+  <button id="loginBtn" style="width:100%">دخول</button>
+  <div id="loginErr" style="color:var(--err);margin-top:8px"></div>
+</div>
+
+<main id="main"><div class="empty">…</div></main>
+
+<script>
+// Reads /api/v1/admin-dashboard/client-health with the dashboard's cookie
+// session (same login as admin-dashboard.html).
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const per100 = (n, s) => s ? (100 * n / s) : 0;
+let rows = [];
+
+// Per 100 sessions: above `bad` is red, above `meh` amber.
+function rate(n, sessions, meh, bad) {
+  if (!sessions) return `<td>${n}</td>`;
+  const r = per100(n, sessions);
+  const cls = r >= bad ? 'bad' : r >= meh ? 'meh' : n ? '' : 'ok';
+  return `<td class="${cls}" title="${r.toFixed(1)} لكل 100 جلسة">${n}</td>`;
+}
+function mem(v, meh, bad) {
+  if (v == null) return '<td>—</td>';
+  return `<td class="${v >= bad ? 'bad' : v >= meh ? 'meh' : 'ok'}">${v}</td>`;
+}
+
+function render() {
+  const show = rows.filter((r) => $('small').checked || r.sessions >= 5);
+  if (!show.length) { $('main').innerHTML = '<div class="empty">لا توجد بيانات في هذه الفترة</div>'; return; }
+  const tot = show.reduce((a, r) => {
+    a.s += r.sessions; a.lm += r.kills.lowMemory; a.anr += r.kills.anr; a.fl += r.forcedLogouts; a.sd += r.socketDrops;
+    return a;
+  }, { s: 0, lm: 0, anr: 0, fl: 0, sd: 0 });
+  const cards = [
+    ['جلسات', tot.s],
+    ['قفل بسبب الذاكرة', tot.lm, per100(tot.lm, tot.s)],
+    ['تهنيج (ANR)', tot.anr, per100(tot.anr, tot.s)],
+    ['خروج إجباري', tot.fl, per100(tot.fl, tot.s)],
+    ['انقطاع اتصال', tot.sd, per100(tot.sd, tot.s)],
+  ].map(([l, v, r]) => `<div class="card"><div class="v">${v}</div><div class="l">${l}${r != null ? ` · ${r.toFixed(1)} لكل 100 جلسة` : ''}</div></div>`).join('');
+  let lastDay = '';
+  const body = show.map((r) => {
+    const first = r.day !== lastDay; lastDay = r.day;
+    return `<tr class="${first ? 'first' : ''}">
+      <td class="day">${first ? esc(r.day) : ''}</td>
+      <td class="app">${esc(r.app)}</td>
+      <td>${r.sessions}</td><td>${r.users}</td>
+      ${rate(r.kills.lowMemory, r.sessions, 3, 8)}
+      ${rate(r.kills.anr, r.sessions, 1, 3)}
+      ${rate(r.kills.signaled + r.kills.unclean + r.kills.other, r.sessions, 10, 25)}
+      ${rate(r.uncaughtErrors, r.sessions, 10, 30)}
+      ${rate(r.forcedLogouts, r.sessions, 1, 3)}
+      ${rate(r.socketDrops, r.sessions, 30, 80)}
+      ${rate(r.hostLookupFails, r.sessions, 50, 150)}
+      ${mem(r.rssMedian, 600, 900)}${mem(r.rssP90, 1000, 1400)}
+      ${mem(r.gfxMedian, 400, 600)}${mem(r.gfxP90, 700, 1000)}
+    </tr>`;
+  }).join('');
+  $('main').innerHTML = `<div class="cards">${cards}</div>
+    <div class="wrap"><table>
+      <thead><tr>
+        <th>اليوم (UTC)</th><th>النسخة</th><th>جلسات</th><th>مستخدمين</th>
+        <th>قفل ذاكرة</th><th>ANR</th><th>قفل آخر</th><th>أخطاء</th><th>خروج إجباري</th>
+        <th>انقطاع اتصال</th><th>فشل الوصول للسيرفر</th>
+        <th>الذاكرة (وسيط)</th><th>الذاكرة (أعلى 10%)</th><th>الجرافيكس (وسيط)</th><th>الجرافيكس (أعلى 10%)</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>
+    <div class="note">
+      الذاكرة بالميجابايت. اللون حسب المعدل لكل 100 جلسة: <span class="bad">أحمر</span> عالي، <span class="meh">برتقالي</span> متوسط.
+      "قفل آخر" = Android قفل التطبيق لسبب غير الذاكرة أو التهنيج. "فشل الوصول للسيرفر" غالباً من نت المستخدم نفسه.
+    </div>`;
+}
+
+async function load() {
+  $('sum').textContent = 'جاري التحميل…';
+  const r = await fetch('/api/v1/admin-dashboard/client-health?days=' + $('days').value, { credentials: 'include' });
+  if (r.status === 401 || r.status === 403) { $('login').style.display = 'block'; $('main').innerHTML = ''; $('sum').textContent = ''; return; }
+  $('login').style.display = 'none';
+  const j = await r.json();
+  rows = j.rows || [];
+  $('sum').textContent = j.generatedAt ? 'محسوب ' + new Date(j.generatedAt).toLocaleTimeString('ar-EG', { hour12: false }) : '';
+  render();
+}
+
+$('loginBtn').onclick = async () => {
+  $('loginErr').textContent = '';
+  const r = await fetch('/api/v1/admin-dashboard-auth/login', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
+  if (!r.ok) { $('loginErr').textContent = 'بيانات غير صحيحة'; return; }
+  load();
+};
+$('refresh').onclick = load;
+$('days').onchange = load;
+$('small').onchange = render;
+load();
+</script>
+</body>
+</html>

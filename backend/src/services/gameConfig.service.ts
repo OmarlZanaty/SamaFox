@@ -27,6 +27,19 @@ export interface GameSettings {
   /** null = fall back to the game's own built-in limit. */
   minBet: number | null;
   maxBet: number | null;
+  // ── اقتصاد الألعاب (2026-09-26) — all enforced in halalGames.service ──
+  /** No single round pays more than this. null = no round cap (pool still limits). */
+  maxWinPerRound: number | null;
+  /** Per player, per Cairo day, for this game. null = no daily cap. */
+  dailyMaxWinPerUser: number | null;
+  /** No round pays more than stake × this. null = the game's natural maximum. */
+  maxPayoutRatio: number | null;
+  /** The RTP the owner wants, in basis points (7500 = 75%). Monitoring target. */
+  rtpTargetBp: number | null;
+  /** The program's cut of every stake, in basis points; the rest feeds the pool. */
+  programShareBp: number;
+  /** Wins of at least stake × this are announced to every player. null = 50. */
+  broadcastMinX?: number | null;
 }
 
 export type GameConfigMap = Record<string, GameSettings>;
@@ -38,6 +51,11 @@ export const KNOWN_GAMES = [
   'crazy-wheel',
   'greedy-cat',
   'neon-fortune',
+  'yummy',
+  'fruitwheel',
+  'roulette',
+  'carwheel',
+  'fruit-jackpot',
   'aetherfall',
   'asterion',
   'olympus',
@@ -46,7 +64,80 @@ export const KNOWN_GAMES = [
   'wheel',
 ] as const;
 
-const DEFAULTS: GameSettings = { enabled: true, minBet: null, maxBet: null };
+const DEFAULTS: GameSettings = {
+  enabled: true,
+  minBet: null,
+  maxBet: null,
+  maxWinPerRound: 1_000_000,
+  dailyMaxWinPerUser: 5_000_000,
+  maxPayoutRatio: null,
+  rtpTargetBp: 7000,
+  programShareBp: 2500,
+};
+
+/** The share the client asked for: 25% program / 75% players' prize pool. */
+export const DEFAULT_PROGRAM_SHARE_BP = 2500;
+
+/**
+ * The largest multiple of the stake each game can legitimately pay — what
+ * `maxPayoutRatio` falls back to, and the lower bound the dashboard warns about
+ * (a ratio under it cuts real wins). Mirrors the reservation multiples the
+ * engines already use.
+ */
+const NATURAL_MAX_MULTIPLIER: Record<string, number> = {
+  crash: Number(process.env.CRASH_MAX_MULTIPLIER ?? 100),
+  plinko: 1000,
+  'crazy-wheel': 500,
+  'greedy-cat': 45,
+  'neon-fortune': 1000,
+  yummy: 1500,
+  fruitwheel: 3,
+  roulette: 26,
+  carwheel: 88,
+  'fruit-jackpot': 1000,
+  aetherfall: 1000,
+  asterion: 1000,
+  olympus: 1000,
+  boxing: 1,
+  dice: 1,
+  wheel: 1,
+};
+
+export function naturalMaxMultiplier(game: string): number | null {
+  return NATURAL_MAX_MULTIPLIER[game] ?? null;
+}
+
+/**
+ * Reject settings that make no sense before they are stored. Returns the
+ * reason in Arabic for the dashboard, or null when the settings are sound.
+ */
+export function validateGameSettings(game: string, s: GameSettings): string | null {
+  const nonNeg = (v: number | null) => v == null || (Number.isFinite(v) && v >= 0);
+  if (!nonNeg(s.minBet) || !nonNeg(s.maxBet)) return 'قيم الرهان يجب أن تكون صفر أو أكثر';
+  if (s.minBet != null && s.maxBet != null && s.minBet > s.maxBet) return 'أقل رهان أكبر من أعلى رهان';
+  if (!nonNeg(s.maxWinPerRound) || !nonNeg(s.dailyMaxWinPerUser)) return 'حدود المكسب يجب أن تكون صفر أو أكثر';
+  if (s.maxWinPerRound != null && s.dailyMaxWinPerUser != null && s.maxWinPerRound > s.dailyMaxWinPerUser) {
+    return 'أقصى مكسب للجولة أكبر من أقصى مكسب يومي';
+  }
+  if (s.maxPayoutRatio != null && (!Number.isFinite(s.maxPayoutRatio) || s.maxPayoutRatio < 1)) {
+    return 'أقصى نسبة دفع يجب أن تكون 1 أو أكثر';
+  }
+  if (s.broadcastMinX != null && (!Number.isFinite(s.broadcastMinX) || s.broadcastMinX < 1)) {
+    return 'حد إعلان الفوز يجب أن يكون 1 أو أكثر';
+  }
+  if (!Number.isInteger(s.programShareBp) || s.programShareBp < 0 || s.programShareBp > 10_000) {
+    return 'حصة البرنامج بين 0% و 100%';
+  }
+  if (s.rtpTargetBp != null) {
+    if (!Number.isInteger(s.rtpTargetBp) || s.rtpTargetBp < 0 || s.rtpTargetBp > 10_000) return 'RTP بين 0% و 100%';
+    // The pool only receives (100% − program share) of every stake; a target
+    // above that drains it.
+    if (s.rtpTargetBp > 10_000 - s.programShareBp) {
+      return `RTP المستهدف (${s.rtpTargetBp / 100}%) أعلى من نصيب صندوق اللاعبين (${(10_000 - s.programShareBp) / 100}%)`;
+    }
+  }
+  return null;
+}
 
 // A settings read on every bet would put a query in front of the hot path, so
 // the map is cached briefly. Writes clear it, which is what makes a dashboard
@@ -80,12 +171,17 @@ export async function getGameSettings(game: string): Promise<GameSettings> {
   return { ...DEFAULTS, ...(map[game] ?? {}) };
 }
 
+export class GameSettingsError extends Error {}
+
 export async function setGameSettings(
   game: string,
   patch: Partial<GameSettings>,
 ): Promise<GameSettings> {
+  invalidateGameConfigCache();
   const map = await getGameConfig();
   const next: GameSettings = { ...DEFAULTS, ...(map[game] ?? {}), ...patch };
+  const invalid = validateGameSettings(game, next);
+  if (invalid) throw new GameSettingsError(invalid);
   const merged: GameConfigMap = { ...map, [game]: next };
 
   const value = JSON.stringify(merged);

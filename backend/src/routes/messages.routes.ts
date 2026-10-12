@@ -13,6 +13,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { getPublicBaseUrl } from '../utils/public-url';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 const router = Router();
 
@@ -30,7 +31,7 @@ router.post('/send', requireAuth, sendMessage);
 
 // قفل الرسائل الخاصة — the gate, and paying through it.
 router.get('/access/:partnerId', requireAuth, getDmAccess);
-router.post('/conversations/:conversationId/unlock', requireAuth, unlockConversation);
+router.post('/conversations/:conversationId/unlock', requireAuth, idempotent('dm_unlock'), unlockConversation);
 
 // mark read
 router.post('/conversations/:conversationId/read', requireAuth, markConversationRead);

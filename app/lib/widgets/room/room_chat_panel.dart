@@ -51,7 +51,17 @@ class RoomChatPanel extends ConsumerStatefulWidget {
     String? avatarUrl,
   })? onUserTap;
 
-  const RoomChatPanel({super.key, required this.roomId, this.onUserTap});
+  /// Shown between the tabs and the messages — the هدايا الحظ winners ticker.
+  /// It used to float over the bottom bar and cover the message input
+  /// ("شريط هدايا الحظ ... مغطى على ارسال الرسالة", 29/09).
+  final Widget? header;
+
+  const RoomChatPanel({
+    super.key,
+    required this.roomId,
+    this.onUserTap,
+    this.header,
+  });
 
   @override
   ConsumerState<RoomChatPanel> createState() => _RoomChatPanelState();
@@ -473,6 +483,15 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
             _buildFilterTabs(),
 
             const SizedBox(height: 12),
+
+            if (widget.header != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: widget.header,
+                ),
+              ),
 
             // ==========================
             // 🔥 ONE LIST (CHAT + EVENTS)

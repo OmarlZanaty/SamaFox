@@ -56,6 +56,12 @@ export async function roomSupportTotal(roomId: number): Promise<number> {
   return Number(agg._sum?.totalCoins ?? 0);
 }
 
+export { rungDue } from './roomCupMath';
+import { rungDue } from './roomCupMath';
+
+/** Advisory-lock namespace for room cup payouts (one lock per room). */
+const ROOM_CUP_LOCK = 41501;
+
 /**
  * A15a — pay the room owner any كأس الروم rung this room has now crossed.
  *
@@ -63,9 +69,8 @@ export async function roomSupportTotal(roomId: number): Promise<number> {
  * is not an approved hosting-agency member earns nothing here.
  *
  * Best-effort by design: a reward misconfiguration must never fail the gift
- * that triggered it. Idempotency comes from the unique (rewardId, roomId) index
- * — two gifts landing at once both try to insert, one loses, and nobody is paid
- * twice.
+ * that triggered it. Two gifts landing at once are serialised on a per-room
+ * advisory lock, so a rung is never paid twice for one window.
  */
 export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
   try {
@@ -88,6 +93,7 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
     });
     if (!hosting) return;
 
+    const hours = await getRoomSupportWindowHours();
     const total = await roomSupportTotal(roomId);
 
     for (const rung of rungs) {
@@ -96,20 +102,24 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
       const coins = Number(rung.rewardCoins ?? 0);
       if (coins <= 0) continue;
 
-      try {
-        // Claim the rung FIRST. If the insert loses the race, the catch below
-        // swallows it and no coins move — the ledger row is the lock.
-        await db.roomCupRewardPayout.create({
+      const paid = await db.$transaction(async (tx: any) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ROOM_CUP_LOCK}::int, ${roomId}::int)`;
+        const last = await tx.roomCupRewardPayout.findFirst({
+          where: { rewardId: rung.id, roomId },
+          orderBy: { paidAt: 'desc' },
+          select: { paidAt: true },
+        });
+        if (!rungDue(last?.paidAt, hours)) return false;
+        await tx.roomCupRewardPayout.create({
           data: { rewardId: rung.id, roomId, userId: room.ownerId, coins: BigInt(coins) },
         });
-      } catch {
-        continue; // already paid for this room
-      }
-
-      await db.user.update({
-        where: { id: room.ownerId },
-        data: { coinsBalance: { increment: coins } },
+        await tx.user.update({
+          where: { id: room.ownerId },
+          data: { coinsBalance: { increment: coins } },
+        });
+        return true;
       });
+      if (!paid) continue;
 
       createNotification({
         userId: room.ownerId,

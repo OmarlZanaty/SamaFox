@@ -65,6 +65,11 @@ DEFINES=()
 [[ -n "$TURN_CREDENTIAL" ]] && DEFINES+=("--dart-define=TURN_CREDENTIAL=$TURN_CREDENTIAL")
 [[ -n "$API_BASE_URL" ]]    && DEFINES+=("--dart-define=API_BASE_URL=$API_BASE_URL")
 [[ -n "$SOCKET_URL" ]]      && DEFINES+=("--dart-define=SOCKET_URL=$SOCKET_URL")
+# Every game card shows by default; a flag set to false hides one:
+#   FRUIT_WHEEL=false ./build-release.sh
+for flag in FRUIT_JACKPOT YUMMY FRUIT_WHEEL ROULETTE CAR_WHEEL; do
+  if [[ -n "${!flag:-}" ]]; then DEFINES+=("--dart-define=$flag=${!flag}"); fi
+done
 
 # G1 — the direct-download APK was ONE universal binary carrying arm64, armv7
 # and x86 native code, so every user downloaded three architectures to run one.

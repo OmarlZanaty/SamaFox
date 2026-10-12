@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import * as authController from '../controllers/auth.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { deviceBanMiddleware } from '../middlewares/deviceBan.middleware';
+import { refreshIpLimiter, refreshTokenLimiter } from '../middlewares/refreshLimit';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ const loginLimiter = rateLimit({
 router.post('/register', authLimiter, deviceBanMiddleware, authController.register);
 router.post('/login', loginLimiter, deviceBanMiddleware, authController.login);
 router.post('/google/mobile', authLimiter, deviceBanMiddleware, authController.googleLogin);
-router.post('/refresh', authLimiter, authController.refreshToken);
+router.post('/refresh', refreshIpLimiter, refreshTokenLimiter, authController.refreshToken);
 router.post('/facebook', deviceBanMiddleware, authController.facebookLogin);
 router.get('/me', authMiddleware, authController.getCurrentUser);
 router.post('/logout', authMiddleware, authController.logout);

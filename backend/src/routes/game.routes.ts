@@ -1,4 +1,13 @@
 import { Router } from 'express';
+import { getYummyState, spinYummy, getYummyHistory, getYummyFairness, setYummyClientSeed, rotateYummySeed, verifyYummySpin,
+  getYummyFeed, getYummyLeaderboard, getYummyMissions, claimYummyMission } from '../controllers/yummy.controller';
+import { getFruitWheelState, spinFruitWheel, getFruitWheelHistory, getFruitWheelFairness, setFruitWheelClientSeed,
+  rotateFruitWheelSeed, verifyFruitWheelSpin, getFruitWheelFeed, getFruitWheelLeaderboard, getFruitWheelToday } from '../controllers/fruitWheel.controller';
+import { getRouletteState, placeRouletteBet, undoRouletteBet, clearRouletteBets, repeatRouletteBets, getRouletteHistory,
+  getRouletteRanking } from '../controllers/roulette.controller';
+import { getCarWheelState, placeCarWheelBet, undoCarWheelBet, clearCarWheelBets, repeatCarWheelBets, getCarWheelHistory,
+  getCarWheelRanking } from '../controllers/carWheel.controller';
+import { getFruitJackpotState, spinFruitJackpot, getFruitJackpotHistory, getFruitJackpotFairness, setFruitJackpotClientSeed, rotateFruitJackpotSeed, verifyFruitJackpotSpin, getFruitJackpotRank } from '../controllers/fruitJackpot.controller';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middlewares/auth.middleware';
 import {
@@ -96,6 +105,7 @@ import {
   verifyNeonFortuneSpin,
 } from '../controllers/neonFortune.controller';
 import { gameGuard } from '../services/gameConfig.service';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 // G3(d) — one guard per game in front of the STAKE-TAKING endpoints only.
 // Cash-outs, cancels and verifies are deliberately left open: taking a game
@@ -163,12 +173,12 @@ const boxingLimiter = rateLimit({
   message: { success: false, message: 'Too many requests, slow down' },
 });
 
-router.post('/dice/play', authenticate, diceLimiter, gameGuard('dice'), playDice);
+router.post('/dice/play', authenticate, idempotent('game:dice:play'), diceLimiter, gameGuard('dice'), playDice);
 router.get('/dice/round', authenticate, getDiceRound);
-router.post('/dice/round/join', authenticate, skillDiceLimiter, gameGuard('dice'), joinDiceRound);
+router.post('/dice/round/join', authenticate, idempotent('game:dice:round:join'), skillDiceLimiter, gameGuard('dice'), joinDiceRound);
 router.post('/dice/round/submit', authenticate, skillDiceLimiter, submitDiceRound);
 router.get('/wheel/round', authenticate, getWheelRound);
-router.post('/wheel/round/join', authenticate, skillWheelLimiter, gameGuard('wheel'), joinWheelRoundHandler);
+router.post('/wheel/round/join', authenticate, idempotent('game:wheel:round:join'), skillWheelLimiter, gameGuard('wheel'), joinWheelRoundHandler);
 router.post('/wheel/round/submit', authenticate, skillWheelLimiter, submitWheelRoundHandler);
 // Crash (طيّار): rounds cycle every ~10s and a player may bet on two panels and
 // cash both out, so this needs a much higher allowance than the skill games.
@@ -213,16 +223,16 @@ router.get('/halal-terms', authenticate, async (_req: any, res: any) => {
 });
 
 router.get('/crash/state', authenticate, getCrashState);
-router.post('/crash/bet', authenticate, crashLimiter, gameGuard('crash'), placeCrashBetHandler);
-router.post('/crash/cancel', authenticate, crashLimiter, cancelCrashBetHandler);
-router.post('/crash/cashout', authenticate, crashCashOutLimiter, cashOutCrashHandler);
+router.post('/crash/bet', authenticate, idempotent('game:crash:bet'), crashLimiter, gameGuard('crash'), placeCrashBetHandler);
+router.post('/crash/cancel', authenticate, idempotent('game:crash:cancel'), crashLimiter, cancelCrashBetHandler);
+router.post('/crash/cashout', authenticate, idempotent('game:crash:cashout'), crashCashOutLimiter, cashOutCrashHandler);
 router.get('/crash/history', authenticate, getCrashHistoryHandler);
 router.get('/crash/fair/:roundId', authenticate, getCrashFairnessHandler);
 router.post('/crash/seed', authenticate, crashLimiter, setCrashClientSeedHandler);
 router.get('/crash/stats', authenticate, getCrashStatsHandler);
 router.get('/crash/chat', authenticate, getCrashChatHandler);
 router.post('/crash/chat', authenticate, crashChatLimiter, postCrashChatHandler);
-router.post('/crash/rain/claim', authenticate, crashLimiter, claimCrashRainHandler);
+router.post('/crash/rain/claim', authenticate, idempotent('game:crash:rain:claim'), crashLimiter, claimCrashRainHandler);
 
 // عجلة الحظ (Crazy Wheel): a player can stack chips on all 8 spots inside a
 // 20s betting window and still repeat/clear, so this needs crash-level headroom.
@@ -236,9 +246,9 @@ const crazyWheelLimiter = rateLimit({
 });
 
 router.get('/crazy/state', authenticate, getCrazyState);
-router.post('/crazy/bet', authenticate, crazyWheelLimiter, gameGuard('crazy-wheel'), placeCrazyBet);
-router.post('/crazy/clear', authenticate, crazyWheelLimiter, clearCrazyBets);
-router.post('/crazy/repeat', authenticate, crazyWheelLimiter, gameGuard('crazy-wheel'), repeatCrazyBets);
+router.post('/crazy/bet', authenticate, idempotent('game:crazy:bet'), crazyWheelLimiter, gameGuard('crazy-wheel'), placeCrazyBet);
+router.post('/crazy/clear', authenticate, idempotent('game:crazy:clear'), crazyWheelLimiter, clearCrazyBets);
+router.post('/crazy/repeat', authenticate, idempotent('game:crazy:repeat'), crazyWheelLimiter, gameGuard('crazy-wheel'), repeatCrazyBets);
 router.post('/crazy/pick', authenticate, crazyWheelLimiter, submitCrazyPick);
 router.get('/crazy/history', authenticate, getCrazyHistory);
 
@@ -254,10 +264,10 @@ const greedyCatLimiter = rateLimit({
 });
 
 router.get('/greedy/state', authenticate, getGreedyState);
-router.post('/greedy/bet', authenticate, greedyCatLimiter, gameGuard('greedy-cat'), placeGreedyBet);
-router.post('/greedy/reduce', authenticate, greedyCatLimiter, reduceGreedyBet);
-router.post('/greedy/clear', authenticate, greedyCatLimiter, clearGreedyBets);
-router.post('/greedy/repeat', authenticate, greedyCatLimiter, gameGuard('greedy-cat'), repeatGreedyBets);
+router.post('/greedy/bet', authenticate, idempotent('game:greedy:bet'), greedyCatLimiter, gameGuard('greedy-cat'), placeGreedyBet);
+router.post('/greedy/reduce', authenticate, idempotent('game:greedy:reduce'), greedyCatLimiter, reduceGreedyBet);
+router.post('/greedy/clear', authenticate, idempotent('game:greedy:clear'), greedyCatLimiter, clearGreedyBets);
+router.post('/greedy/repeat', authenticate, idempotent('game:greedy:repeat'), greedyCatLimiter, gameGuard('greedy-cat'), repeatGreedyBets);
 router.get('/greedy/history', authenticate, getGreedyHistory);
 router.get('/greedy/ranking', authenticate, getGreedyRanking);
 
@@ -273,7 +283,7 @@ const plinkoLimiter = rateLimit({
 });
 
 router.get('/plinko/state', authenticate, getPlinkoState);
-router.post('/plinko/drop', authenticate, plinkoLimiter, gameGuard('plinko'), dropPlinkoBall);
+router.post('/plinko/drop', authenticate, idempotent('game:plinko:drop'), plinkoLimiter, gameGuard('plinko'), dropPlinkoBall);
 router.get('/plinko/history', authenticate, getPlinkoHistory);
 router.get('/plinko/fair', authenticate, getPlinkoFairness);
 router.post('/plinko/seed', authenticate, plinkoLimiter, setPlinkoClientSeed);
@@ -293,7 +303,7 @@ const aetherfallLimiter = rateLimit({
 });
 
 router.get('/aetherfall/state', authenticate, getAetherfallState);
-router.post('/aetherfall/spin', authenticate, aetherfallLimiter, gameGuard('aetherfall'), spinAetherfall);
+router.post('/aetherfall/spin', authenticate, idempotent('game:aetherfall:spin'), aetherfallLimiter, gameGuard('aetherfall'), spinAetherfall);
 router.get('/aetherfall/history', authenticate, getAetherfallHistory);
 router.get('/aetherfall/fair', authenticate, getAetherfallFairness);
 router.post('/aetherfall/seed', authenticate, aetherfallLimiter, setAetherfallClientSeed);
@@ -313,7 +323,7 @@ const asterionLimiter = rateLimit({
 });
 
 router.get('/asterion/state', authenticate, getAsterionState);
-router.post('/asterion/spin', authenticate, asterionLimiter, gameGuard('asterion'), spinAsterion);
+router.post('/asterion/spin', authenticate, idempotent('game:asterion:spin'), asterionLimiter, gameGuard('asterion'), spinAsterion);
 router.get('/asterion/history', authenticate, getAsterionHistory);
 router.get('/asterion/fair', authenticate, getAsterionFairness);
 router.post('/asterion/seed', authenticate, asterionLimiter, setAsterionClientSeed);
@@ -333,7 +343,7 @@ const olympusLimiter = rateLimit({
 });
 
 router.get('/olympus/state', authenticate, getOlympusState);
-router.post('/olympus/spin', authenticate, olympusLimiter, gameGuard('olympus'), spinOlympus);
+router.post('/olympus/spin', authenticate, idempotent('game:olympus:spin'), olympusLimiter, gameGuard('olympus'), spinOlympus);
 router.get('/olympus/history', authenticate, getOlympusHistory);
 router.get('/olympus/fair', authenticate, getOlympusFairness);
 router.post('/olympus/seed', authenticate, olympusLimiter, setOlympusClientSeed);
@@ -352,10 +362,10 @@ const neonFortuneLimiter = rateLimit({
 });
 
 router.get('/neon/state', authenticate, getNeonFortuneState);
-router.post('/neon/spin', authenticate, neonFortuneLimiter, gameGuard('neon-fortune'), spinNeonFortune);
+router.post('/neon/spin', authenticate, idempotent('game:neon:spin'), neonFortuneLimiter, gameGuard('neon-fortune'), spinNeonFortune);
 router.get('/neon/jackpots', authenticate, getNeonFortuneJackpots);
 router.get('/neon/lucky', authenticate, getNeonFortuneLucky);
-router.post('/neon/lucky/claim', authenticate, neonFortuneLimiter, claimNeonFortuneLucky);
+router.post('/neon/lucky/claim', authenticate, idempotent('game:neon:lucky:claim'), neonFortuneLimiter, claimNeonFortuneLucky);
 router.get('/neon/history', authenticate, getNeonFortuneHistory);
 router.get('/neon/fair', authenticate, getNeonFortuneFairness);
 router.post('/neon/seed', authenticate, neonFortuneLimiter, setNeonFortuneClientSeed);
@@ -363,11 +373,71 @@ router.post('/neon/seed/rotate', authenticate, neonFortuneLimiter, rotateNeonFor
 router.post('/neon/verify', authenticate, verifyNeonFortuneSpin);
 
 router.get('/boxing/round', authenticate, getBoxingRound);
-router.post('/boxing/round/join', authenticate, boxingLimiter, gameGuard('boxing'), joinBoxingRound);
+router.post('/boxing/round/join', authenticate, idempotent('game:boxing:round:join'), boxingLimiter, gameGuard('boxing'), joinBoxingRound);
 router.post('/boxing/round/submit', authenticate, boxingLimiter, submitBoxingRound);
 router.get('/leaderboard', getLeaderboard);
 router.get('/stats/:userId', getUserGameStats);
-router.post('/fish/shoot', authenticate, fishShotLimiter, fireFishShot);
-router.post('/fish/capture', authenticate, fishCaptureLimiter, captureFish);
+router.post('/fish/shoot', authenticate, idempotent('game:fish:shoot'), fishShotLimiter, fireFishShot);
+router.post('/fish/capture', authenticate, idempotent('game:fish:capture'), fishCaptureLimiter, captureFish);
+
+const yummyLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`yummy:${req.userId ?? req.ip}` });
+router.get('/yummy/state', authenticate, getYummyState);
+router.post('/yummy/spin', authenticate, yummyLimiter, idempotent('game:yummy:spin'), gameGuard('yummy'), spinYummy);
+router.get('/yummy/history', authenticate, getYummyHistory);
+router.get('/yummy/fair', authenticate, getYummyFairness);
+router.post('/yummy/seed', authenticate, yummyLimiter, setYummyClientSeed);
+router.post('/yummy/seed/rotate', authenticate, yummyLimiter, rotateYummySeed);
+router.post('/yummy/verify', authenticate, yummyLimiter, verifyYummySpin);
+router.get('/yummy/feed', authenticate, getYummyFeed);
+router.get('/yummy/leaderboard', authenticate, getYummyLeaderboard);
+router.get('/yummy/missions', authenticate, getYummyMissions);
+router.post('/yummy/missions/:key/claim', authenticate, yummyLimiter, claimYummyMission);
+
+const fruitWheelLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`fruitwheel:${req.userId ?? req.ip}` });
+router.get('/fruitwheel/state', authenticate, getFruitWheelState);
+router.post('/fruitwheel/spin', authenticate, fruitWheelLimiter, idempotent('game:fruitwheel:spin'), gameGuard('fruitwheel'), spinFruitWheel);
+router.get('/fruitwheel/history', authenticate, getFruitWheelHistory);
+router.get('/fruitwheel/fair', authenticate, getFruitWheelFairness);
+router.post('/fruitwheel/seed', authenticate, fruitWheelLimiter, setFruitWheelClientSeed);
+router.post('/fruitwheel/seed/rotate', authenticate, fruitWheelLimiter, rotateFruitWheelSeed);
+router.post('/fruitwheel/verify', authenticate, fruitWheelLimiter, verifyFruitWheelSpin);
+router.get('/fruitwheel/feed', authenticate, getFruitWheelFeed);
+router.get('/fruitwheel/leaderboard', authenticate, getFruitWheelLeaderboard);
+router.get('/fruitwheel/today', authenticate, getFruitWheelToday);
+
+// A chip per tap, so the limit is generous; every bet still settles one at a time per player.
+const rouletteLimiter = rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`roulette:${req.userId ?? req.ip}` });
+router.get('/roulette/state', authenticate, getRouletteState);
+router.post('/roulette/bet', authenticate, rouletteLimiter, idempotent('game:roulette:bet'), placeRouletteBet);
+router.post('/roulette/undo', authenticate, rouletteLimiter, idempotent('game:roulette:undo'), undoRouletteBet);
+router.post('/roulette/clear', authenticate, rouletteLimiter, idempotent('game:roulette:clear'), clearRouletteBets);
+router.post('/roulette/repeat', authenticate, rouletteLimiter, idempotent('game:roulette:repeat'), gameGuard('roulette'), repeatRouletteBets);
+router.get('/roulette/history', authenticate, getRouletteHistory);
+router.get('/roulette/ranking', authenticate, getRouletteRanking);
+
+// A chip per tap, so the limit is generous; every bet still settles one at a time per player.
+const carWheelLimiter = rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`carwheel:${req.userId ?? req.ip}` });
+router.get('/carwheel/state', authenticate, getCarWheelState);
+router.post('/carwheel/bet', authenticate, carWheelLimiter, idempotent('game:carwheel:bet'), placeCarWheelBet);
+router.post('/carwheel/undo', authenticate, carWheelLimiter, idempotent('game:carwheel:undo'), undoCarWheelBet);
+router.post('/carwheel/clear', authenticate, carWheelLimiter, idempotent('game:carwheel:clear'), clearCarWheelBets);
+router.post('/carwheel/repeat', authenticate, carWheelLimiter, idempotent('game:carwheel:repeat'), gameGuard('carwheel'), repeatCarWheelBets);
+router.get('/carwheel/history', authenticate, getCarWheelHistory);
+router.get('/carwheel/ranking', authenticate, getCarWheelRanking);
+
+const fruitJackpotLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`fruitJackpot:${req.userId ?? req.ip}` });
+router.get('/fruit-jackpot/state', authenticate, getFruitJackpotState);
+router.post('/fruit-jackpot/spin', authenticate, fruitJackpotLimiter, idempotent('game:fruit-jackpot:spin'), gameGuard('fruit-jackpot'), spinFruitJackpot);
+router.get('/fruit-jackpot/history', authenticate, getFruitJackpotHistory);
+router.get('/fruit-jackpot/fair', authenticate, getFruitJackpotFairness);
+router.post('/fruit-jackpot/seed', authenticate, fruitJackpotLimiter, setFruitJackpotClientSeed);
+router.post('/fruit-jackpot/seed/rotate', authenticate, fruitJackpotLimiter, rotateFruitJackpotSeed);
+router.post('/fruit-jackpot/verify', authenticate, fruitJackpotLimiter, verifyFruitJackpotSpin);
+router.get('/fruit-jackpot/rank', authenticate, getFruitJackpotRank);
 
 export default router;

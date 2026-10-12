@@ -6,11 +6,31 @@ export const balances = new Map<number, number>();
 export const ledger: any[] = [];
 export const xpAwards: Array<{ userId: number; xp: number }> = [];
 export const settings = new Map<string, string>();
+/** economy_accounts: PROGRAM and GAME_POOL:<game>. */
+export const accounts = new Map<string, number>();
+export const economyLedger: any[] = [];
 const seeds = new Map<string, any>();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const n = (v: unknown) => Number(typeof v === 'bigint' ? v : v ?? 0);
+
+function ledgerMatch(r: any, where: any) {
+  if (where.day != null && r.day !== where.day) return false;
+  if (where.kind != null && r.kind !== where.kind) return false;
+  if (where.userId != null && r.userId !== where.userId) return false;
+  if (where.game != null) {
+    const g = where.game;
+    if (typeof g === 'object' && Array.isArray(g.in)) {
+      if (!g.in.includes(r.game)) return false;
+    } else if (r.game !== g) return false;
+  }
+  return true;
+}
+
 export const fakePrisma: any = {
   appSetting: {
     findUnique: async ({ where }: any) => (settings.has(where.key) ? { key: where.key, value: settings.get(where.key) } : null),
+    findMany: async ({ where }: any) =>
+      [...settings.entries()].filter(([k]) => !where?.key?.in || where.key.in.includes(k)).map(([key, value]) => ({ key, value })),
     upsert: async ({ where, create }: any) => { settings.set(where.key, create.value); return {}; },
   },
   user: {
@@ -32,9 +52,28 @@ export const fakePrisma: any = {
   gameLedger: {
     create: async ({ data }: any) => { ledger.push(data); return data; },
     aggregate: async ({ where }: any) => ({
-      _sum: { amount: ledger.filter((r) => r.day === where.day && r.kind === where.kind && (where.userId == null || r.userId === where.userId)).reduce((s, r) => s + r.amount, 0) },
+      _sum: { amount: ledger.filter((r) => ledgerMatch(r, where)).reduce((s, r) => s + r.amount, 0) },
     }),
   },
+  economyAccount: {
+    findUnique: async ({ where }: any) => (accounts.has(where.key) ? { key: where.key, balance: BigInt(accounts.get(where.key)!) } : null),
+    upsert: async ({ where, update, create }: any) => {
+      const cur = accounts.get(where.key);
+      const next =
+        cur == null
+          ? n(create.balance)
+          : cur + n(update.balance?.increment) - n(update.balance?.decrement);
+      accounts.set(where.key, next);
+      return { key: where.key, balance: BigInt(next) };
+    },
+    updateMany: async ({ where, data }: any) => {
+      const cur = accounts.get(where.key);
+      if (cur == null || cur < n(where.balance?.gte)) return { count: 0 };
+      accounts.set(where.key, cur - n(data.balance?.decrement) + n(data.balance?.increment));
+      return { count: 1 };
+    },
+  },
+  economyLedger: { create: async ({ data }: any) => { economyLedger.push(data); return data; } },
   gameDailyStat: { findMany: async () => [], upsert: async () => ({}) },
   gameFairSeed: {
     findUnique: async ({ where }: any) => seeds.get(where.userId_game.userId + ':' + where.userId_game.game) ?? null,

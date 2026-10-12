@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../providers/localization_provider.dart';
+import '../l10n/app_strings.dart';
 import '../theme/app_theme.dart';
 import '../widgets/force_update_gate.dart';
 
@@ -74,9 +75,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundDarkPurple,
-      body: Center(
+      body: SafeArea(child: _appIdentity(strings)),
+    );
+  }
+
+  Widget _appIdentity(AppStrings strings) {
+    return Center(
+      child: SingleChildScrollView(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Custom Logo
             Image.asset(

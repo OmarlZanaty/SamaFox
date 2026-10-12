@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --require ./scripts/test-env.js --require ts-node/register --test \"src/**/__tests__/*.test.ts\"",
+    "test:e2e": "tsc && node --require ts-node/register/transpile-only --test --test-concurrency=1 tests/e2e/*.e2e.ts",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
@@ -15,6 +16,7 @@
     "sim:asterion": "ts-node --transpile-only scripts/asterion-sim.ts",
     "sim:greedy": "ts-node --transpile-only scripts/greedy-cat-sim.ts",
     "sim:neon-fortune": "ts-node --transpile-only scripts/neon-fortune-sim.ts",
+    "sim:yummy": "ts-node --transpile-only scripts/yummy-sim.ts",
     "sim:olympus": "ts-node --transpile-only scripts/olympus-sim.ts",
     "dump:olympus": "ts-node --transpile-only scripts/olympus-dump-samples.ts",
     "check:greedy": "ts-node --transpile-only scripts/greedy-cat-check.ts",
@@ -81,6 +83,7 @@
     "@types/sanitize-html": "^2.13.0",
     "nodemon": "^3.1.10",
     "prisma": "6.17.1",
+    "socket.io-client": "^4.8.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

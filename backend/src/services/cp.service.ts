@@ -530,6 +530,10 @@ export async function listCpPartners(userId: number) {
       days: lvl.days,
       nextLevelAt: lvl.nextLevelAt,
       levelBasis: lvl.basis,
+      // «CP Level Management» artwork for this level (null when unset).
+      levelBadgeUrl: lvl.badgeUrl ?? null,
+      levelFrameUrl: lvl.frameUrl ?? null,
+      levelEffectKey: lvl.effectKey ?? null,
       // "مستخدم CP الظاهر" — the OWNER's choice, so a visitor sees the same
       // pair the owner sees. Falls back to the newest pair when unset.
       featured: featuredId != null && partner.id === featuredId,

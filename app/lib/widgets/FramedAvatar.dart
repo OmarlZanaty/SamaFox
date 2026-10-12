@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../config/app_config.dart';
 import '../models/product_layout.dart';
+import '../services/device_tier.dart';
 import '../utils/image_opaque_bounds.dart';
 import '../widgets/app_network_image.dart';
 import 'product_video_layer.dart';
@@ -125,13 +126,13 @@ class FramedAvatar extends StatelessWidget {
               top: hole.top,
               right: hole.right,
               bottom: hole.bottom,
-              child: ClipOval(child: _avatarChild()),
+              child: ClipOval(child: _avatarChild(context)),
             )
           else
             SizedBox(
               width: f != null ? size * f.innerScale : avatarSize,
               height: f != null ? size * f.innerScale : avatarSize,
-              child: ClipOval(child: _avatarChild()),
+              child: ClipOval(child: _avatarChild(context)),
             ),
           // The frame occupies the seat box itself. An unmeasured frame has its
           // artwork auto-fitted instead, so a file with a wide transparent
@@ -191,6 +192,8 @@ class FramedAvatar extends StatelessWidget {
         url,
         fit: BoxFit.contain,
         cacheWidth: (size * dpr * 1.5).round(),
+        // Under 3 GB an animated frame holds its first frame (10/10).
+        still: DeviceTier.ultraLite,
         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
       );
     }
@@ -210,12 +213,16 @@ class FramedAvatar extends StatelessWidget {
     return const SizedBox.shrink();
   }
 
-  Widget _avatarChild() {
+  Widget _avatarChild(BuildContext context) {
     final url = imageUrl;
     if (url != null && url.isNotEmpty) {
+      // At the seat's size: the photo used to decode at full resolution on
+      // every seat and in every chat line that showed it.
+      final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 2.0;
       return AppNetworkImage(
         _absoluteUrl(url),
         fit: BoxFit.cover,
+        cacheWidth: (size * dpr).round(),
         errorBuilder: (_, __, ___) => _fallback(),
       );
     }

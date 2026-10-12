@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware, optionalAuth } from '../middlewares/auth.middleware';
 import * as A from './agency.controller';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 const router = Router();
 
@@ -10,20 +11,20 @@ router.get('/charging', optionalAuth, A.listChargingAgencies);
 router.get('/hosting', optionalAuth, A.listHostingAgencies);
 router.post('/request', authMiddleware, A.requestAgency);
 router.get('/my-agency', authMiddleware, A.getMyAgency);
-router.post('/send-coins', authMiddleware, A.sendCoinsToUser);
+router.post('/send-coins', authMiddleware, idempotent('agency_send_coins'), A.sendCoinsToUser);
 // Branch (فرع) management — owner adds/lists/removes partners who can also sell coins.
 router.get('/branches', authMiddleware, A.listBranches);
 router.post('/branches', authMiddleware, A.addBranch);
 router.delete('/branches/:userId', authMiddleware, A.removeBranch);
 router.post('/invite/:userId', authMiddleware, A.inviteMember);
-router.post('/invite/:inviteId/respond', authMiddleware, A.respondInvite);
+router.post('/invite/:inviteId/respond', authMiddleware, idempotent('agency_invite_respond'), A.respondInvite);
 router.get('/my-invites', authMiddleware, A.getMyInvites);
 router.get('/search-user', authMiddleware, A.searchUserForInvite);
 router.get('/members-stats', authMiddleware, A.getMembersStats);
 // Target system (#13, #24)
 router.get('/my-target', authMiddleware, A.getMyTarget);
-router.post('/target/convert', authMiddleware, A.convertTarget);
-router.post('/target/sell', authMiddleware, A.sellMemberTarget);
+router.post('/target/convert', authMiddleware, idempotent('target_convert'), A.convertTarget);
+router.post('/target/sell', authMiddleware, idempotent('target_sell'), A.sellMemberTarget);
 router.patch('/members/:userId/target', authMiddleware, A.setMemberTarget);
 // وقت البث — days/hours on air for me, or for a member of my agency.
 router.get('/broadcast-time', authMiddleware, A.getBroadcastTime);

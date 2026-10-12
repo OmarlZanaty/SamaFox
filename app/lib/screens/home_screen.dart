@@ -17,6 +17,9 @@ import 'create_room_dialog.dart';
 import '../widgets/user_trail.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../widgets/app_network_image.dart';
+import '../services/device_tier.dart';
+import '../services/room_audio_keepalive.dart';
+import '../utils/app_route_observer.dart';
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -24,7 +27,8 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with SingleTickerProviderStateMixin, RouteAware {
   final _controller = TextEditingController();
   Timer? _debounce;
   List<SearchResult> _results = [];
@@ -181,10 +185,59 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
       ..repeat(reverse: true);
     _controller.addListener(_onChanged);
+    // The number on each room card is the people in it NOW, and the order
+    // follows it — so it has to be refreshed while the list is on screen,
+    // not only when the app opens.
+    _roomsRefresh = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!mounted) return;
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+      if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+      if (_controller.text.trim().isNotEmpty) return;
+      ref.read(roomsProvider.notifier).loadRooms();
+    });
+    // Once per install, a moment after home is on screen (not on top of the
+    // splash or another permission dialog).
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+      unawaited(RoomAudioKeepAlive.instance.askBatteryExemptionOnce());
+    });
+  }
+
+  Timer? _roomsRefresh;
+
+  /// 10/10 — a room is pushed on top of this screen, and everything here stays
+  /// built underneath it: on a 2–4 GB phone the room covers alone held a few
+  /// dozen MB of graphics memory the room needed. While covered the tiles drop
+  /// their pictures; they come back from the disk cache on the way out.
+  bool _covered = false;
+  ModalRoute<void>? _route;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _route) {
+      if (_route != null) appRouteObserver.unsubscribe(this);
+      _route = route;
+      if (route != null) appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    if (DeviceTier.lite && !_covered && mounted) setState(() => _covered = true);
+  }
+
+  @override
+  void didPopNext() {
+    if (_covered && mounted) setState(() => _covered = false);
   }
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
+    _roomsRefresh?.cancel();
     _debounce?.cancel();
     _controller.removeListener(_onChanged);
     _controller.dispose();
@@ -206,7 +259,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
     // here is what stops it being drawn a second time inside the normal grid.
     final featuredIndex = rooms.indexWhere((r) => r.isFeatured == true);
     final featuredRoom = featuredIndex >= 0 ? rooms.removeAt(featuredIndex) : null;
-    rooms.shuffle(Random(7));
+    // No shuffle: the server orders the list (the dashboard's pinned rooms,
+    // then the rooms with the most people in them now).
 
     final w = MediaQuery.of(context).size.width;
     final crossAxisCount = w >= 900 ? 4 : (w >= 520 ? 3 : 3);
@@ -401,65 +455,73 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
                             subtitle: strings.createFirstRoom,
                           ),
                         )
-                      else if (!isSearchMode)
+                      else if (!isSearchMode) ...[
 
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 130),
-                          sliver: SliverList(
-                            delegate: SliverChildListDelegate([
-
-                              // A16 — the pinned admin room, full width and
-                              // taller than a grid tile, above everything else.
-                              if (featuredRoom != null) ...[
-                                SizedBox(
-                                  height: 168,
-                                  child: _RoomTile(
-                                    stringsOnline: strings.online,
-                                    room: featuredRoom,
-                                    isFeatured: true,
-                                    onTap: () => Navigator.pushNamed(
-                                      context,
-                                      '/room',
-                                      arguments: featuredRoom.id,
-                                    ),
+                        // A16 — the pinned admin room, full width and
+                        // taller than a grid tile, above everything else.
+                        if (featuredRoom != null)
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                            sliver: SliverToBoxAdapter(
+                              child: SizedBox(
+                                height: 168,
+                                child: _RoomTile(
+                                  stringsOnline: strings.online,
+                                  room: featuredRoom,
+                                  isFeatured: true,
+                                  showCover: !_covered,
+                                  onTap: () => Navigator.pushNamed(
+                                    context,
+                                    '/room',
+                                    arguments: featuredRoom.id,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                              ],
-
-                              // A16 — the hardcoded "غرفة سما فوكس / ADMIN ROOM"
-                              // card used to sit here, two thirds of the width,
-                              // above every real room. It was also dead: it
-                              // pushed '/room' with the String "samafox" while
-                              // the route casts its argument to int, so tapping
-                              // it threw. The real pinned room is the featured
-                              // card above; every other room now goes through
-                              // the grid below.
-                              // 📦 REST GRID (normal 3 columns)
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: rooms.length,
-                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 3,
-                                  mainAxisSpacing: 6,
-                                  crossAxisSpacing: 6,
-                                  childAspectRatio: 1,
-                                ),
-                                itemBuilder: (context, index) {
-                                  final room = rooms[index];
-
-                                  return _RoomTile(
-                                    stringsOnline: strings.online,
-                                    room: room,
-                                    isFeatured: false,
-                                    onTap: () => Navigator.pushNamed(context, '/room', arguments: room.id),
-                                  );
-                                },
                               ),
-                            ]),
+                            ),
+                          ),
+
+                        // A16 — the hardcoded "غرفة سما فوكس / ADMIN ROOM"
+                        // card used to sit here, two thirds of the width,
+                        // above every real room. It was also dead: it
+                        // pushed '/room' with the String "samafox" while
+                        // the route casts its argument to int, so tapping
+                        // it threw. The real pinned room is the featured
+                        // card above; every other room now goes through
+                        // the grid below.
+                        // 📦 REST GRID (normal 3 columns)
+                        //
+                        // 10/10: a SliverGrid, not a shrinkWrap GridView in a
+                        // SliverList. The shrinkWrap grid built EVERY tile at
+                        // once — 178 room covers alive within 15 s of start,
+                        // ~750 MB of graphics memory — and Android killed the
+                        // app on 4 GB phones (HONOR NLA-L31) before the home
+                        // screen finished loading. Now only visible tiles exist.
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 130),
+                          sliver: SliverGrid(
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              mainAxisSpacing: 6,
+                              crossAxisSpacing: 6,
+                              childAspectRatio: 1,
+                            ),
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) {
+                                final room = rooms[index];
+
+                                return _RoomTile(
+                                  stringsOnline: strings.online,
+                                  room: room,
+                                  isFeatured: false,
+                                  showCover: !_covered,
+                                  onTap: () => Navigator.pushNamed(context, '/room', arguments: room.id),
+                                );
+                              },
+                              childCount: rooms.length,
+                            ),
                           ),
                         ),
+                      ],
 
 
                   ],
@@ -573,7 +635,7 @@ class SearchResultTile extends StatelessWidget {
           child: CircleAvatar(
             backgroundColor: Colors.white24,
             backgroundImage: (result.imageUrl != null && result.imageUrl!.isNotEmpty)
-                ? NetworkImage(result.imageUrl!)
+                ? appImage(result.imageUrl!, 40)
                 : null,
             child: (result.imageUrl == null || result.imageUrl!.isEmpty)
                 ? Icon(
@@ -934,6 +996,7 @@ class _RoomTile extends StatelessWidget {
     required this.room,
     required this.onTap,
     required this.isFeatured,
+    this.showCover = true,
   });
 
   final String stringsOnline; // used instead of hardcoded "LIVE"
@@ -941,12 +1004,15 @@ class _RoomTile extends StatelessWidget {
   final VoidCallback onTap;
   final bool isFeatured;
 
+  /// False while a room covers the home screen (see _HomeScreenState._covered).
+  final bool showCover;
+
   static const _brand = Color(0xFF6B4CE6);
   static const _live = Color(0xFFFF2D55);
 
   @override
   Widget build(BuildContext context) {
-    final cover = room.coverImageUrl as String?;
+    final cover = showCover ? room.coverImageUrl as String? : null;
 
     return InkWell(
       borderRadius: BorderRadius.circular(22),
@@ -983,6 +1049,12 @@ class _RoomTile extends StatelessWidget {
                   fit: BoxFit.cover,
                   width: double.infinity,
                   height: double.infinity,
+                  // A grid tile is a third of the screen; decode it at that,
+                  // not at the full screen width (9× the pixels).
+                  cacheWidth: (MediaQuery.sizeOf(context).width /
+                          (isFeatured ? 1 : 3) *
+                          MediaQuery.devicePixelRatioOf(context))
+                      .round(),
                   errorBuilder: (_, __, ___) => const SizedBox(),
                 ),
               ),

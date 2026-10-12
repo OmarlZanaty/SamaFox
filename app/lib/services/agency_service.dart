@@ -90,12 +90,29 @@ class AgencyService {
     }
   }
 
+  /// Answer an agency invite. Returns normally only once the server has
+  /// COMMITTED the answer — for an accept, that the membership now exists
+  /// (`joined: true`). Anything else throws with the server's own reason
+  /// (already in another agency, invite expired, …).
   Future<void> respondInvite(int inviteId, bool accept) async {
-    await DioClient.dio.post(
-      '/agencies/invite/$inviteId/respond',
-      data: {'action': accept ? 'accept' : 'reject'},
-      options: await _auth(),
-    );
+    try {
+      final res = await DioClient.dio.post(
+        '/agencies/invite/$inviteId/respond',
+        data: {'action': accept ? 'accept' : 'reject'},
+        options: await _auth(),
+      );
+      final body = res.data;
+      if (body is! Map || body['success'] != true) {
+        throw Exception((body is Map ? body['message'] : null) ?? 'فشل الرد على الدعوة');
+      }
+      // Older servers do not send `joined`; treat success as joined there.
+      if (accept && body.containsKey('joined') && body['joined'] != true) {
+        throw Exception('لم يكتمل الانضمام — حاول مرة أخرى');
+      }
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      throw Exception((data is Map ? data['message'] : null) ?? e.error?.toString() ?? 'فشل الرد على الدعوة');
+    }
   }
 
   /// [agencyType] disambiguates the same way [inviteUser] does.

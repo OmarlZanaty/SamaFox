@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { intParam } from '../utils/http';
 import { isValidPositiveAmount, MAX_COINS_BALANCE } from '../utils/coins';
 import { evaluateVip } from '../services/vip.service';
@@ -118,10 +119,16 @@ export const removeCoins = async (req: Request, res: Response) => {
 
     if (toBigInt(user.coinsBalance) < amtBig) return res.status(400).json({ message: 'Insufficient coins' });
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userIdNum },
-      data: { coinsBalance: { decrement: Number(amtBig) } },
-    });
+    // An admin correction, not the user spending: allowed through any coin
+    // freeze (coinFreeze.ts).
+    // Awaited inside the callback: a Prisma query is lazy and runs where it is
+    // awaited, which must be inside the bypass.
+    const updatedUser = await runWithCoinFreezeBypass('all', async () =>
+      await prisma.user.update({
+        where: { id: userIdNum },
+        data: { coinsBalance: { decrement: Number(amtBig) } },
+      }),
+    );
 
     try {
       await prisma.transaction.create({
@@ -214,6 +221,15 @@ const requireSuper = async (req: Request): Promise<boolean> => {
   return Boolean(u?.isSuperAdmin);
 };
 
+/** An OFFICIAL_ROOM may only be closed in-app by a holder of OFFICIAL_ROOM_MANAGE. */
+async function officialRoomBlocked(roomId: number, userId: number | undefined): Promise<boolean> {
+  const room = await prisma.room.findUnique({ where: { id: roomId }, select: { roomType: true } });
+  if (room?.roomType !== 'OFFICIAL_ROOM') return false;
+  if (!userId) return true;
+  const { hasFeature } = await import('../services/features.service');
+  return !(await hasFeature(userId, 'OFFICIAL_ROOM_MANAGE'));
+}
+
 export const deleteRoom = async (req: Request, res: Response) => {
   try {
     if (!(await requireSuper(req))) {
@@ -221,6 +237,9 @@ export const deleteRoom = async (req: Request, res: Response) => {
     }
     const roomIdNum = intParam(req.params.roomId);
     if (!roomIdNum) return res.status(400).json({ message: 'Invalid roomId' });
+    if (await officialRoomBlocked(roomIdNum, (req as any).userId)) {
+      return res.status(403).json({ code: 'OFFICIAL_ROOM', message: 'غرفة رسمية: تحتاج صلاحية إدارة الغرف الرسمية' });
+    }
     await prisma.room.delete({ where: { id: roomIdNum } });
     return res.json({ message: 'Room deleted successfully' });
   } catch (error) {
@@ -239,6 +258,9 @@ export const setRoomActive = async (req: Request, res: Response) => {
     const roomIdNum = intParam(req.params.roomId);
     if (!roomIdNum) return res.status(400).json({ message: 'Invalid roomId' });
     const isActive = Boolean(req.body?.isActive);
+    if (!isActive && (await officialRoomBlocked(roomIdNum, (req as any).userId))) {
+      return res.status(403).json({ code: 'OFFICIAL_ROOM', message: 'غرفة رسمية: تحتاج صلاحية إدارة الغرف الرسمية' });
+    }
 
     const room = await prisma.room.update({ where: { id: roomIdNum }, data: { isActive } });
 

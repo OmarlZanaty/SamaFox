@@ -8,11 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:convert';
-import 'dart:io';
 import '../services/api_service.dart';
 import '../services/dio_client.dart';
+import '../services/device_identity.dart';
 import '../models/auth.dart';
 import '../models/user.dart';
 import '../utils/storage_service.dart';
@@ -161,21 +160,7 @@ class AuthRepository {
   // ============================================
 
   Future<String> getDeviceId() async {
-    if (kIsWeb) return 'web';
-    try {
-      final deviceInfo = DeviceInfoPlugin();
-      if (Platform.isAndroid) {
-        final androidInfo = await deviceInfo.androidInfo;
-        return androidInfo.id;
-      } else if (Platform.isIOS) {
-        final iosInfo = await deviceInfo.iosInfo;
-        return iosInfo.identifierForVendor ?? 'unknown';
-      }
-      return 'unknown';
-    } catch (e) {
-      debugPrint('❌ [AUTH REPO] Error getting device ID: $e');
-      return 'unknown';
-    }
+    return await DeviceIdentity.get() ?? 'unknown';
   }
 
   // ============================================

@@ -663,8 +663,14 @@ export async function closeRoomAsSuperAdmin(req: Request, res: Response) {
       return res.status(403).json({ error: 'سوبر أدمن فقط يمكنه إغلاق الغرفة' });
     }
 
-    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true } });
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true, roomType: true } });
     if (!room) return res.status(404).json({ error: 'Room not found' });
+    if (room.roomType === 'OFFICIAL_ROOM') {
+      const { hasFeature } = await import('../services/features.service');
+      if (!(await hasFeature(requesterId, 'OFFICIAL_ROOM_MANAGE'))) {
+        return res.status(403).json({ code: 'OFFICIAL_ROOM', error: 'غرفة رسمية: تُغلق من لوحة التحكم فقط' });
+      }
+    }
 
     await prisma.room.update({ where: { id: roomId }, data: { isActive: false } });
     io.to(`room:${roomId}`).emit('room_force_closed', { roomId, reason });

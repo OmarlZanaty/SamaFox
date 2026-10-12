@@ -8,10 +8,11 @@ import {
   listCpPartners,
   listPendingCpRequests,
   rejectCpRequest,
-  removeCpPair,
   setFeaturedPartner,
 } from '../services/cp.service';
 import { confirmCpUnlock, getCpUnlockStatus } from '../services/cpUnlock.service';
+import { breakCpPair, getBreakQuote } from '../services/cpBreak.service';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 /**
  * A15 / #20 / #44 — نظام الـ CP.
@@ -53,7 +54,7 @@ const fail = (res: any, err: unknown) => {
 
 const requireUserId = (req: any) => Number(req.userId ?? req.authUser?.id) || 0;
 
-router.post('/requests', authMiddleware, async (req, res) => {
+router.post('/requests', authMiddleware, idempotent('cp_request'), async (req, res) => {
   try {
     const senderId = requireUserId(req);
     if (!senderId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
@@ -87,7 +88,7 @@ router.get('/requests/pending', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/requests/:id/accept', authMiddleware, async (req, res) => {
+router.post('/requests/:id/accept', authMiddleware, idempotent('cp_accept'), async (req, res) => {
   try {
     const userId = requireUserId(req);
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
@@ -101,7 +102,7 @@ router.post('/requests/:id/accept', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/requests/:id/reject', authMiddleware, async (req, res) => {
+router.post('/requests/:id/reject', authMiddleware, idempotent('cp_reject'), async (req, res) => {
   try {
     const userId = requireUserId(req);
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
@@ -134,7 +135,7 @@ router.get('/unlock/status', authMiddleware, async (req, res) => {
   }
 });
 
-router.post('/unlock/confirm', authMiddleware, async (req, res) => {
+router.post('/unlock/confirm', authMiddleware, idempotent('cp_unlock'), async (req, res) => {
   try {
     const userId = requireUserId(req);
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
@@ -184,12 +185,33 @@ router.get('/partners/:userId', async (req, res) => {
   }
 });
 
-router.delete('/partners/:userId', authMiddleware, async (req, res) => {
+// فك CP (2026-09-26): the fee is quoted first (the app shows it before the
+// user confirms), then charged in the same transaction that removes the pair.
+router.get('/partners/:userId/break-quote', authMiddleware, async (req, res) => {
   try {
     const userId = requireUserId(req);
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
-    await removeCpPair(userId, Number(req.params.userId));
-    return res.json({ success: true });
+    return res.json({ success: true, data: await getBreakQuote(userId, Number(req.params.userId)) });
+  } catch (e) {
+    return fail(res, e);
+  }
+});
+
+router.delete('/partners/:userId', authMiddleware, idempotent('cp_break'), async (req, res) => {
+  try {
+    const userId = requireUserId(req);
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+    const r = await breakCpPair(userId, Number(req.params.userId));
+    return res.json({
+      success: true,
+      data: {
+        programFee: r.quote.programFee,
+        partnerFee: r.quote.partnerFee,
+        totalFee: r.quote.totalFee,
+        feeSource: r.quote.feeSource,
+        balance: r.balance,
+      },
+    });
   } catch (e) {
     return fail(res, e);
   }
