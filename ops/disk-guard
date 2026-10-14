@@ -1,0 +1,37 @@
+#!/bin/bash
+# disk-guard — run every 10 min from /etc/cron.d/disk-guard.
+# 2026-10-14: Docker's build cache (43.7 GB) filled / to 100%, samafox-db
+# PANICked for 6 hours and every user was logged out. This warns on Telegram
+# (same bot as the restic backups) past 85%, and past 90% trims the build cache
+# on its own — it is only leftovers of `docker build`, nothing running uses it.
+set -u
+WARN_AT=85
+PRUNE_AT=90
+STAMP=/var/lib/disk-guard.last-alert
+HOST=$(hostname)
+
+usage() { df --output=pcent / | tail -1 | tr -dc 0-9; }
+
+pct=$(usage)
+if [ "$pct" -lt "$WARN_AT" ]; then
+  rm -f "$STAMP"
+  exit 0
+fi
+
+note=""
+if [ "$pct" -ge "$PRUNE_AT" ]; then
+  docker builder prune -af --max-used-space 10GB >/dev/null 2>&1
+  note=" — مسحت كاش الـ Docker build تلقائياً، بقت $(usage)%"
+fi
+
+# Without an automatic action, one message every 6 hours is enough.
+if [ -z "$note" ] && [ -f "$STAMP" ] && [ $(( $(date +%s) - $(stat -c %Y "$STAMP") )) -lt 21600 ]; then
+  exit 0
+fi
+
+eval "$(grep -E '^TELEGRAM_(BOT_TOKEN|CHAT_ID)=' /etc/restic/samafox.env)"
+[ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ] || exit 0
+curl -fsS -m 20 -o /dev/null "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+  --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+  --data-urlencode "text=⚠️ الديسك على ${HOST} وصل ${pct}%${note}" \
+  && touch "$STAMP"
