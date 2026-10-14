@@ -70,9 +70,6 @@ class FruitWheelSfx {
     _haptic(HapticFeedback.heavyImpact);
   }
 
-  void bonus() => _fire('bonus', .7);
-  void orb() => _fire('orb', .7);
-
   void dispose() {
     _disposed = true;
     for (final p in [..._pool, if (_tick != null) _tick!]) {

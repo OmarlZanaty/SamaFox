@@ -8,8 +8,13 @@ const sharp = require('../backend/node_modules/sharp');
 // Every file is validated and a review sheet written before anything is replaced.
 const source = process.argv[2];
 if (!source) throw new Error('usage: node tools/fruit_wheel_art_prep.cjs <source dir>');
-const names = ['background', 'watermelon', 'plum', 'sevens', 'bonus', 'capsule_watermelon', 'capsule_plum',
+//   node tools/fruit_wheel_art_prep.cjs <dir> sevens capsule_sevens   ← only those files
+const all = ['background', 'watermelon', 'plum', 'sevens', 'bonus', 'capsule_watermelon', 'capsule_plum',
   'capsule_sevens', 'crown', 'orb', 'logo', 'card'];
+const picked = process.argv.slice(3);
+const unknown = picked.filter(n => !all.includes(n));
+if (unknown.length) throw new Error('unknown asset: ' + unknown.join(', '));
+const names = picked.length ? picked : all;
 const clear = {r: 0, g: 0, b: 0, alpha: 0};
 const limit = 250000;
 

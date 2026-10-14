@@ -394,6 +394,20 @@ router.get('/yummy/leaderboard', authenticate, getYummyLeaderboard);
 router.get('/yummy/missions', authenticate, getYummyMissions);
 router.post('/yummy/missions/:key/claim', authenticate, yummyLimiter, claimYummyMission);
 
+// Shared v2 routes are namespaced so installed v1 clients keep their contract.
+import { getFruitWheelRoundState, placeFruitWheelRoundBet, undoFruitWheelRoundBet,
+  clearFruitWheelRoundBets, repeatFruitWheelRoundBets, getFruitWheelRoundHistory,
+  getFruitWheelRoundRanking } from '../controllers/fruitWheelRound.controller';
+const fruitWheelRoundLimiter = rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false,
+  keyGenerator:(req:any)=>`fruitwheel:shared:${req.userId ?? req.ip}` });
+router.get('/fruitwheel/shared/state', authenticate, getFruitWheelRoundState);
+router.post('/fruitwheel/shared/bet', authenticate, fruitWheelRoundLimiter, idempotent('game:fruitwheel:shared:bet'), placeFruitWheelRoundBet);
+router.post('/fruitwheel/shared/undo', authenticate, fruitWheelRoundLimiter, idempotent('game:fruitwheel:shared:undo'), undoFruitWheelRoundBet);
+router.post('/fruitwheel/shared/clear', authenticate, fruitWheelRoundLimiter, idempotent('game:fruitwheel:shared:clear'), clearFruitWheelRoundBets);
+router.post('/fruitwheel/shared/repeat', authenticate, fruitWheelRoundLimiter, idempotent('game:fruitwheel:shared:repeat'), repeatFruitWheelRoundBets);
+router.get('/fruitwheel/shared/history', authenticate, getFruitWheelRoundHistory);
+router.get('/fruitwheel/shared/ranking', authenticate, getFruitWheelRoundRanking);
+
 const fruitWheelLimiter = rateLimit({ windowMs:60_000, max:120, standardHeaders:true, legacyHeaders:false,
   keyGenerator:(req:any)=>`fruitwheel:${req.userId ?? req.ip}` });
 router.get('/fruitwheel/state', authenticate, getFruitWheelState);

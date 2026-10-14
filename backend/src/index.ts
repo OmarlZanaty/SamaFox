@@ -42,6 +42,7 @@ import { startCrazyWheelEngine } from './services/crazyWheel.service';
 import { startGreedyCatEngine } from './services/greedyCat.service';
 import { startRouletteEngine } from './services/roulette.service';
 import { startCarWheelEngine } from './services/carWheel.service';
+import { startFruitWheelRoundEngine } from './services/fruitWheelRound.service';
 import { startBoxingEngine } from './services/boxing.service';
 import adminProductRoutes from "./routes/adminProduct.routes";
 import agencyRoutes from './agencies/agency.routes';
@@ -322,6 +323,7 @@ startCrazyWheelEngine(io);
 startGreedyCatEngine(io);
 startRouletteEngine(io).catch(err => console.error('[roulette] engine failed to start', err));
 startCarWheelEngine(io).catch(err => console.error('[carwheel] engine failed to start', err));
+startFruitWheelRoundEngine(io).catch(err => console.error('[fruitwheel] shared engine failed to start', err));
 startBoxingEngine(io);
 
 // error handler

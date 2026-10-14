@@ -10,300 +10,272 @@ import 'package:samafox/repositories/fruit_wheel_repository.dart';
 import 'package:samafox/screens/games/fruit_wheel_engine.dart';
 import 'package:samafox/screens/games/fruit_wheel_screen.dart';
 import 'package:samafox/screens/games/fruit_wheel_sheets.dart';
+import 'package:samafox/screens/games/fruit_wheel_strings.dart';
 
 class _Auth extends StateNotifier<AuthState> implements AuthNotifier {
-  _Auth(int coins)
-      : super(AuthState(user: User(id: 701, name: 'Test', coinsBalance: coins)));
+  _Auth()
+      : super(
+          AuthState(user: User(id: 701, name: 'Test', coinsBalance: 50000)),
+        );
   @override
-  void updateCoinsBalance(int newBalance) => state =
-      state.copyWith(user: state.user!.copyWith(coinsBalance: newBalance));
+  void updateCoinsBalance(int n) =>
+      state = state.copyWith(user: state.user!.copyWith(coinsBalance: n));
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
 }
 
-/// Plays [outcomes] in order; every spin is answered like the server would.
 class _Repository extends FruitWheelRepository {
-  int balance, calls = 0, round = 7;
-  List<String> outcomes;
-  final List<FruitBets> received = [];
+  int balance = 50000, calls = 0, repeats = 0;
+  final Map<String, int> stakes = {};
+  final List<String> chips = [];
   Completer<void>? gate;
-  _Repository({this.balance = 50000, this.outcomes = const ['watermelon']});
-
+  Map<String, dynamic> snapshot = {
+    'round': 7,
+    'phase': 'betting',
+    'msLeft': 30000,
+    'history': [],
+  };
+  Map<String, dynamic> get reply => {
+        'round': snapshot['round'],
+        'balance': balance,
+        'stakes': Map.of(stakes),
+      };
   @override
   Future<Map<String, dynamic>> fetchState() async => {
         'balance': balance,
-        'history': [],
-        'rounds': round,
-        'today': {
-          'totals': {'watermelon': 62000, 'sevens': 54000, 'plum': 21000},
+        'layout': {'maxPerKey': 1000},
+        'state': {
+          ...snapshot,
+          'me': {
+            'stakes': Map.of(stakes),
+            'staked': stakes.values.fold(0, (a, b) => a + b),
+            'payout': 0,
+          },
         },
-        'layout': {'minBet': 100, 'maxBet': 300000, 'mathRtp': .694},
       };
   @override
-  Future<Map<String, dynamic>> leaderboard() async =>
-      {'entries': [], 'me': {'rank': 22, 'won': 0}};
-  @override
-  Future<Map<String, dynamic>> fairness() async =>
-      {'fairness': {'serverSeedHash': 'ab', 'clientSeed': 'c', 'nonce': 1}};
+  Future<Map<String, dynamic>> bet(String key, int amount) async {
+    calls++;
+    if (gate != null) await gate!.future;
+    balance -= amount;
+    stakes[key] = (stakes[key] ?? 0) + amount;
+    chips.add(key);
+    return reply;
+  }
 
   @override
-  Future<FruitRound> spin(FruitBets bets, {String? requestId}) async {
-    calls++;
-    received.add(bets.copy());
-    if (gate != null) await gate!.future;
-    final outcome = outcomes[(calls - 1) % outcomes.length];
-    final segment = fruitSegments.indexOf(outcome);
-    var prize = 0, bonusPrize = 0;
-    if (outcome == 'bonus') {
-      bonusPrize = (bets.total * .1 * 5).floor();
-      prize = bonusPrize;
-    } else {
-      prize = bets[outcome] * fruitMultipliers[outcome]!;
+  Future<Map<String, dynamic>> undo() async {
+    if (chips.isNotEmpty) {
+      final key = chips.removeLast();
+      stakes[key] = stakes[key]! - 100;
+      balance += 100;
     }
-    balance += prize - bets.total;
-    round++;
-    return FruitRound.fromJson({
-      'id': 'r$round',
-      'at': DateTime.now().toIso8601String(),
-      'round': round,
-      'balance': balance,
-      'spin': {
-        'bets': bets.json,
-        'totalBet': bets.total,
-        'outcome': outcome,
-        'segment': segment,
-        'offset': .5,
-        'winner': outcome == 'bonus' ? null : outcome,
-        'cardPrize': prize - bonusPrize,
-        'orbs': outcome == 'bonus' ? [5, 2, 3] : null,
-        'bonusPrize': bonusPrize,
-        'totalPrize': prize,
-      },
-    });
+    return reply;
   }
+
+  @override
+  Future<Map<String, dynamic>> clear() async {
+    balance += stakes.values.fold(0, (a, b) => a + b);
+    stakes.clear();
+    chips.clear();
+    return reply;
+  }
+
+  @override
+  Future<Map<String, dynamic>> repeat() async {
+    repeats++;
+    return reply;
+  }
+
+  @override
+  Future<Map<String, dynamic>> ranking() async => {
+        'entries': [],
+        'me': {'net': 0},
+      };
+  @override
+  Future<List<Map<String, dynamic>>> history() async => [];
 }
 
 Future<FruitWheelScreenState> _mount(
-  WidgetTester tester,
-  _Repository repository, {
-  int coins = 50000,
-  Map<String, Object> prefs = const {},
-  bool settle = true,
+  WidgetTester t,
+  _Repository repo, {
+  Size size = const Size(390, 844),
 }) async {
-  tester.view.physicalSize = const Size(1080, 2400);
-  tester.view.devicePixelRatio = 3;
-  addTearDown(tester.view.reset);
-  SharedPreferences.setMockInitialValues({
-    'fruitwheel.701.sound': false,
-    'fruitwheel.701.motion': false,
-    ...prefs,
-  });
-  await tester.pumpWidget(
+  t.view.physicalSize = size;
+  t.view.devicePixelRatio = 1;
+  addTearDown(t.view.reset);
+  SharedPreferences.setMockInitialValues(
+    {'fruitwheel.701.sound': false, 'fruitwheel.701.motion': false},
+  );
+  await t.pumpWidget(
     ProviderScope(
-      overrides: [authStateProvider.overrideWith((ref) => _Auth(coins))],
-      child: MaterialApp(home: FruitWheelScreen(repository: repository)),
+      overrides: [authStateProvider.overrideWith((_) => _Auth())],
+      child: MaterialApp(home: FruitWheelScreen(repository: repo, live: false)),
     ),
   );
-  if (settle) {
-    await tester.pumpAndSettle();
-  } else {
-    // With motion on the rim bulbs never stop, so time is stepped instead.
-    for (var i = 0; i < 10; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-  }
-  return tester.state<FruitWheelScreenState>(find.byType(FruitWheelScreen));
+  await t.pumpAndSettle();
+  return t.state<FruitWheelScreenState>(find.byType(FruitWheelScreen));
 }
-
-Future<void> _unmount(WidgetTester tester) async {
-  await tester.pumpWidget(const SizedBox());
-  await tester.pump(const Duration(seconds: 2));
-}
-
-int _coins(WidgetTester tester) => ProviderScope.containerOf(
-      tester.element(find.byType(FruitWheelScreen)),
-    ).read(authStateProvider).user!.coinsBalance ?? 0;
 
 void main() {
-  group('engine', () {
-    test('the stop angle puts the chosen point under the pointer', () {
-      for (var segment = 0; segment < fruitSegments.length; segment++) {
-        for (final offset in [.15, .5, .85]) {
-          final angle = fruitStopAngle(1.234, segment, offset, 6);
-          expect(fruitSegmentAt(angle), segment);
-          expect(angle - 1.234, greaterThanOrEqualTo(6 * 2 * pi));
-          expect(angle - 1.234, lessThan(7 * 2 * pi));
-        }
-      }
-    });
-    test('spin plans stay within 5–8 turns and 3–4.5 s', () {
-      final random = Random(3);
-      for (var i = 0; i < 200; i++) {
-        final plan = fruitSpinPlan(random);
-        expect(plan.turns, inInclusiveRange(5, 8));
-        expect(plan.ms, inInclusiveRange(3000, 4500));
-      }
-    });
-    test('bets respect the table maximum', () {
-      final bets = FruitBets();
-      expect(bets.add('watermelon', 1000, 1500), isTrue);
-      expect(bets.add('plum', 1000, 1500), isFalse);
-      expect(bets.add('banana', 100, 1500), isFalse);
-      expect(bets.total, 1000);
-      bets.clear();
-      expect(bets.isEmpty, isTrue);
-      expect(FruitBets.fromJson({'plum': 'x'}), isNull);
-    });
-    test('the ticker keeps the newest 12 outcomes', () {
-      var ticker = <String>[];
-      for (var i = 0; i < 20; i++) {
-        ticker = fruitPushTicker(ticker, i.isEven ? 'plum' : 'watermelon');
-      }
-      expect(ticker.length, 12);
-      expect(ticker.first, 'watermelon');
-    });
-    test('compact numbers', () {
-      expect(fruitCompact(950), '950');
-      expect(fruitCompact(62000), '62K');
-      expect(fruitCompact(1500000), '1.5M');
-    });
-    test('a corrupt round still parses to safe defaults', () {
-      final round = FruitRound.fromJson({'spin': 'nope'});
-      expect(round.totalPrize, 0);
-      expect(round.bets.isEmpty, isTrue);
-    });
+  test('per-card cap and two distinct cards, 77 pays ×8, no bonus', () {
+    final bets = FruitBets();
+    expect(bets.add('watermelon', 1000, 1000), true);
+    expect(bets.add('sevens', 1000, 1000), true);
+    expect(bets.total, 2000);
+    expect(bets.add('plum', 100, 1000), false);
+    expect(bets.add('watermelon', 100, 1000), false);
+    expect(bets.add('crown', 100, 1000), false);
+    expect(fruitMultipliers['sevens'], 8);
+    expect(fruitSegments.last, 'crown');
+    expect(fruitTickerLength, 10);
   });
-
-  testWidgets('a winning round debits once, pays the card and advances the round',
-      (tester) async {
-    final repository = _Repository();
-    final screen = await _mount(tester, repository);
-    expect(find.text('62K'), findsOneWidget);
-    expect(find.text('x3'), findsOneWidget);
-    expect(find.text('الجولة: 8'), findsOneWidget);
-    screen.placeChip('watermelon');
-    screen.placeChip('plum');
-    await tester.pump();
-    expect(screen.bets.total, 200);
-    unawaited(screen.spin());
-    unawaited(screen.spin()); // a second press while spinning does nothing
-    await tester.pumpAndSettle();
-    expect(repository.calls, 1);
-    expect(repository.received.single.json, {'watermelon': 100, 'sevens': 0, 'plum': 100});
-    expect(_coins(tester), 50000 - 200 + 200);
-    expect(find.text('+200'), findsOneWidget);
-    expect(find.text('الجولة: 9'), findsOneWidget);
-    expect(screen.phase, FruitPhase.idle);
-    await _unmount(tester);
-  });
-
-  testWidgets('REPEAT replays the last chips; insufficient coins never call the server',
-      (tester) async {
-    final repository = _Repository(balance: 1000, outcomes: ['plum']);
-    final screen = await _mount(tester, repository, coins: 1000);
-    for (var i = 0; i < 3; i++) {
-      screen.placeChip('sevens');
+  test('server segment and offset land under pointer across all ten wedges',
+      () {
+    for (var segment = 0; segment < 10; segment++) {
+      for (final offset in [.15, .5, .85]) {
+        final end = fruitStopAngle(1.7 * pi, segment, offset, 5);
+        expect(fruitSegmentAt(end), segment);
+        expect(end, greaterThan(10 * pi));
+      }
     }
-    unawaited(screen.spin());
-    await tester.pumpAndSettle();
-    expect(find.text('كرر'), findsOneWidget);
-    await tester.tap(find.text('كرر'));
-    await tester.pumpAndSettle();
-    expect(repository.calls, 2);
-    expect(repository.received.last['sevens'], 300);
-    // 1000 − 300 − 300 = 400 left; a third repeat fits, a fourth does not.
-    unawaited(screen.spin());
-    await tester.pumpAndSettle();
-    unawaited(screen.spin());
-    await tester.pumpAndSettle();
-    expect(repository.calls, 3);
-    expect(find.text('رصيدك لا يكفي لهذا الرهان.'), findsOneWidget);
-    await _unmount(tester);
   });
-
-  testWidgets('BONUS opens the orb pick and pays the decided value', (tester) async {
-    final repository = _Repository(outcomes: ['bonus']);
-    final screen = await _mount(tester, repository);
-    screen.placeChip('watermelon');
-    unawaited(screen.spin());
-    await tester.pumpAndSettle();
-    expect(find.byType(FruitBonusDialog), findsOneWidget);
-    expect(screen.phase, FruitPhase.bonus);
-    await tester.tap(find.bySemanticsLabel('اختر كرة 3'));
-    await tester.pumpAndSettle();
-    expect(find.text('×5'), findsOneWidget);
-    await tester.tap(find.text('متابعة'));
-    await tester.pumpAndSettle();
-    expect(find.byType(FruitBonusDialog), findsNothing);
-    expect(_coins(tester), 50000 - 100 + 50);
-    await _unmount(tester);
-  });
-
-  testWidgets('skipping the animation never changes the result', (tester) async {
-    final repository = _Repository(outcomes: ['sevens']);
-    final screen = await _mount(
-      tester,
-      repository,
-      prefs: {'fruitwheel.701.motion': true},
-      settle: false,
-    );
-    screen.placeChip('sevens');
-    unawaited(screen.spin());
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(screen.phase, FruitPhase.spinning);
-    screen.skip();
-    for (var i = 0; i < 20; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-    expect(screen.phase, FruitPhase.idle);
-    expect(find.text('+300'), findsOneWidget);
-    expect(repository.calls, 1);
-    await _unmount(tester);
-  });
-
-  testWidgets('language switches direction and settings persist', (tester) async {
-    final repository = _Repository();
-    await _mount(tester, repository);
-    Directionality direction() => tester.widget<Directionality>(
-          find
-              .descendant(
-                of: find.byType(FruitWheelScreen),
-                matching: find.byType(Directionality),
-              )
-              .first,
-        );
-    expect(direction().textDirection, TextDirection.rtl);
-    await tester.tap(find.byTooltip('الإعدادات'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('English'));
-    await tester.pumpAndSettle();
-    expect(direction().textDirection, TextDirection.ltr);
-    expect(find.text('FRUIT WHEEL'), findsOneWidget);
-    await tester.tap(find.byTooltip('Sound on'));
-    await tester.pumpAndSettle();
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool('fruitwheel.701.arabic'), isFalse);
-    expect(prefs.getBool('fruitwheel.701.sound'), isTrue);
-    await _unmount(tester);
-  });
-
-  testWidgets('fits a 320 px phone without overflow', (tester) async {
-    tester.view.physicalSize = const Size(640, 1136);
-    tester.view.devicePixelRatio = 2;
-    addTearDown(tester.view.reset);
-    SharedPreferences.setMockInitialValues({
-      'fruitwheel.701.sound': false,
-      'fruitwheel.701.motion': false,
+  test('shared state accepts crown and preserves server geometry', () {
+    final s = FruitWheelState.fromJson({
+      'round': 3,
+      'phase': 'result',
+      'result': 'crown',
+      'segment': 9,
+      'offset': .23,
+      'history': ['watermelon', 'bonus', 'crown'],
+      'me': {
+        'stakes': {'sevens': 100},
+        'staked': 100,
+        'payout': 0,
+      },
     });
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [authStateProvider.overrideWith((ref) => _Auth(50000))],
-        child: MaterialApp(home: FruitWheelScreen(repository: _Repository())),
-      ),
+    expect(s.result, 'crown');
+    expect(s.segment, 9);
+    expect(s.offset, .23);
+    expect(s.history, ['watermelon', 'crown']);
+    expect(s.myStaked, 100);
+    expect(s.betting, false);
+  });
+  testWidgets(
+      'countdown replaces spin button and third card shows Arabic notice',
+      (t) async {
+    final repo = _Repository();
+    final game = await _mount(t, repo);
+    expect(find.text('30'), findsOneWidget);
+    expect(find.text('دوّر'), findsNothing);
+    expect(find.text('كرر'), findsNothing);
+    expect(find.text('×8'), findsOneWidget);
+    game.placeChip('watermelon');
+    await t.pumpAndSettle();
+    game.placeChip('sevens');
+    await t.pumpAndSettle();
+    game.placeChip('plum');
+    await t.pump();
+    expect(repo.calls, 2);
+    expect(repo.balance, 49800);
+    expect(find.text('تقدر تراهن على خيارين بس في الجولة'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+      'last five seconds warn, close rejects chips, shared spin is automatic',
+      (t) async {
+    final repo = _Repository();
+    final game = await _mount(t, repo);
+    game.applyState({'round': 7, 'phase': 'betting', 'msLeft': 5000});
+    await t.pump();
+    expect(find.text('الوقت قرب يخلص'), findsOneWidget);
+    game.applyState({'round': 7, 'phase': 'closing', 'msLeft': 1000});
+    game.placeChip('plum');
+    expect(repo.calls, 0);
+    game.applyState({
+      'round': 7,
+      'phase': 'spinning',
+      'msLeft': 6000,
+      'result': 'sevens',
+      'segment': 4,
+      'offset': .5,
+    });
+    await t.pump();
+    expect(game.state!.phase, 'spinning');
+    game.applyState(
+      {
+        'round': 7,
+        'phase': 'result',
+        'msLeft': 5000,
+        'result': 'sevens',
+        'segment': 4,
+        'offset': .5,
+        'winners': [
+          {'name': 'Winner', 'staked': 100, 'payout': 800},
+        ],
+        'me': {'staked': 100, 'payout': 800},
+      },
+      mine: true,
     );
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    expect(find.text('x2'), findsNWidgets(2));
-    await _unmount(tester);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.byType(FruitWinners), findsOneWidget);
+    expect(find.text('حظاً سعيداً'), findsOneWidget);
+    expect(find.text('Winner'), findsOneWidget);
+    await t.pump(const Duration(seconds: 5));
+    await t.pumpAndSettle();
+    expect(find.byType(FruitWinners), findsNothing);
+    await t.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+      'public snapshots retain own stakes; next round clears and stale state is ignored',
+      (t) async {
+    final repo = _Repository();
+    final game = await _mount(t, repo);
+    game.placeChip('sevens');
+    await t.pumpAndSettle();
+    game.applyState(
+      {'round': 7, 'phase': 'betting', 'msLeft': 10000, 'me': null},
+    );
+    expect(game.bets['sevens'], 100);
+    game.applyState({'round': 8, 'phase': 'betting', 'msLeft': 30000});
+    expect(game.bets.isEmpty, true);
+    game.applyState({'round': 7, 'phase': 'result', 'result': 'plum'});
+    expect(game.state!.round, 8);
+    await t.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+      'undo frees third-card slot; repeat places bets without starting a spin',
+      (t) async {
+    final repo = _Repository();
+    final game = await _mount(t, repo);
+    game.placeChip('watermelon');
+    await t.pumpAndSettle();
+    game.placeChip('sevens');
+    await t.pumpAndSettle();
+    await t.tap(find.byTooltip('تراجع'));
+    await t.pumpAndSettle();
+    game.placeChip('plum');
+    await t.pumpAndSettle();
+    expect(repo.calls, 3);
+    await t.tap(find.byTooltip('إعادة الرهان'));
+    await t.pumpAndSettle();
+    expect(repo.repeats, 1);
+    expect(game.state!.phase, 'betting');
+    await t.pumpWidget(const SizedBox());
+  });
+  testWidgets('one-screen layout fits 360 × 640', (t) async {
+    await _mount(t, _Repository(), size: const Size(360, 640));
+    expect(t.takeException(), isNull);
+    await t.pumpWidget(const SizedBox());
+  });
+  test('rules disclose weighted crown odds, program share and per-card limits',
+      () {
+    const s = FruitWheelStrings(true);
+    expect(s.text('odds'), contains('8.75%'));
+    expect(s.text('odds'), contains('21.25%'));
+    expect(s.text('odds'), contains('70%'));
+    expect(s.text('poolHelp'), contains('30%'));
+    expect(s.text('sevens'), '77');
   });
 }

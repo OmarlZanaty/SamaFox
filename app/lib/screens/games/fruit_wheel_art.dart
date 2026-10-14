@@ -84,7 +84,7 @@ class _Sevens extends StatelessWidget {
           child: Stack(
             children: [
               Text(
-                '777',
+                '77',
                 style: TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.w900,
@@ -102,7 +102,7 @@ class _Sevens extends StatelessWidget {
                   colors: [fwCream, fwGold, fwGoldDark],
                 ).createShader(r),
                 child: const Text(
-                  '777',
+                  '77',
                   style: TextStyle(
                     fontSize: 40,
                     fontWeight: FontWeight.w900,
@@ -127,9 +127,22 @@ class _SymbolPainter extends CustomPainter {
     final c = Offset(s / 2, s / 2);
     switch (name) {
       case 'watermelon':
-        final rect = Rect.fromCircle(center: c.translate(0, -s * .1), radius: s * .42);
-        canvas.drawArc(rect, 0, pi, true, Paint()..color = const Color(0xFF1E8A3A));
-        canvas.drawArc(rect.deflate(s * .04), 0, pi, true, Paint()..color = const Color(0xFFE8F5C8));
+        final rect =
+            Rect.fromCircle(center: c.translate(0, -s * .1), radius: s * .42);
+        canvas.drawArc(
+          rect,
+          0,
+          pi,
+          true,
+          Paint()..color = const Color(0xFF1E8A3A),
+        );
+        canvas.drawArc(
+          rect.deflate(s * .04),
+          0,
+          pi,
+          true,
+          Paint()..color = const Color(0xFFE8F5C8),
+        );
         canvas.drawArc(
           rect.deflate(s * .07),
           0,
@@ -142,14 +155,25 @@ class _SymbolPainter extends CustomPainter {
             ).createShader(rect),
         );
         final seed = Paint()..color = const Color(0xFF1A1A1A);
-        for (final p in const [Offset(-.18, .05), Offset(0, .12), Offset(.18, .05), Offset(-.08, .22), Offset(.1, .22)]) {
+        for (final p in const [
+          Offset(-.18, .05),
+          Offset(0, .12),
+          Offset(.18, .05),
+          Offset(-.08, .22),
+          Offset(.1, .22),
+        ]) {
           canvas.drawOval(
-            Rect.fromCenter(center: c.translate(p.dx * s, p.dy * s - s * .08), width: s * .045, height: s * .07),
+            Rect.fromCenter(
+              center: c.translate(p.dx * s, p.dy * s - s * .08),
+              width: s * .045,
+              height: s * .07,
+            ),
             seed,
           );
         }
       case 'plum':
-        final body = Rect.fromCircle(center: c.translate(0, s * .05), radius: s * .36);
+        final body =
+            Rect.fromCircle(center: c.translate(0, s * .05), radius: s * .36);
         canvas.drawOval(
           body,
           Paint()
@@ -161,8 +185,18 @@ class _SymbolPainter extends CustomPainter {
         );
         final leaf = Path()
           ..moveTo(c.dx, c.dy - s * .28)
-          ..quadraticBezierTo(c.dx + s * .3, c.dy - s * .48, c.dx + s * .34, c.dy - s * .3)
-          ..quadraticBezierTo(c.dx + s * .14, c.dy - s * .2, c.dx, c.dy - s * .28);
+          ..quadraticBezierTo(
+            c.dx + s * .3,
+            c.dy - s * .48,
+            c.dx + s * .34,
+            c.dy - s * .3,
+          )
+          ..quadraticBezierTo(
+            c.dx + s * .14,
+            c.dy - s * .2,
+            c.dx,
+            c.dy - s * .28,
+          );
         canvas.drawPath(leaf, Paint()..color = fwGreen);
         canvas.drawLine(
           c.translate(0, -s * .28),
@@ -172,33 +206,6 @@ class _SymbolPainter extends CustomPainter {
             ..strokeWidth = s * .035
             ..strokeCap = StrokeCap.round,
         );
-      case 'bonus':
-        final box = Rect.fromCenter(center: c.translate(0, s * .08), width: s * .74, height: s * .5);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(box, Radius.circular(s * .08)),
-          Paint()
-            ..shader = const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [fwPurpleLight, fwPurpleDeep],
-            ).createShader(box),
-        );
-        final band = Paint()..color = fwGold;
-        canvas.drawRect(Rect.fromCenter(center: box.center, width: s * .12, height: box.height), band);
-        canvas.drawRect(Rect.fromCenter(center: box.center.translate(0, -s * .08), width: box.width, height: s * .07), band);
-        _star(canvas, c.translate(0, -s * .28), s * .16, Paint()..color = fwGold);
-      case 'orb':
-        final orb = Rect.fromCircle(center: c, radius: s * .42);
-        canvas.drawOval(
-          orb,
-          Paint()
-            ..shader = const RadialGradient(
-              center: Alignment(-.35, -.4),
-              colors: [fwCream, fwGold, fwGoldDark],
-              stops: [0, .45, 1],
-            ).createShader(orb),
-        );
-        _star(canvas, c, s * .18, Paint()..color = fwPurple);
       case 'crown':
         final p = Path()
           ..moveTo(s * .1, s * .75)
@@ -218,21 +225,22 @@ class _SymbolPainter extends CustomPainter {
               colors: [fwCream, fwGold, fwGoldDark],
             ).createShader(Offset.zero & size),
         );
-        canvas.drawCircle(Offset(s * .5, s * .6), s * .07, Paint()..color = fwPink);
-        canvas.drawCircle(Offset(s * .28, s * .64), s * .05, Paint()..color = fwBlueBright);
-        canvas.drawCircle(Offset(s * .72, s * .64), s * .05, Paint()..color = fwBlueBright);
+        canvas.drawCircle(
+          Offset(s * .5, s * .6),
+          s * .07,
+          Paint()..color = fwPink,
+        );
+        canvas.drawCircle(
+          Offset(s * .28, s * .64),
+          s * .05,
+          Paint()..color = fwBlueBright,
+        );
+        canvas.drawCircle(
+          Offset(s * .72, s * .64),
+          s * .05,
+          Paint()..color = fwBlueBright,
+        );
     }
-  }
-
-  static void _star(Canvas canvas, Offset c, double r, Paint paint) {
-    final path = Path();
-    for (var i = 0; i < 10; i++) {
-      final a = -pi / 2 + i * pi / 5;
-      final rr = i.isEven ? r : r * .45;
-      final p = c + Offset(cos(a) * rr, sin(a) * rr);
-      i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
-    }
-    canvas.drawPath(path..close(), paint);
   }
 
   @override
@@ -257,7 +265,10 @@ class _CapsulePainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [fwBlueBright.withValues(alpha: .55), fwBlue.withValues(alpha: .25)],
+          colors: [
+            fwBlueBright.withValues(alpha: .55),
+            fwBlue.withValues(alpha: .25),
+          ],
         ).createShader(glass.outerRect),
     );
     canvas.drawRRect(
@@ -283,10 +294,10 @@ class _CapsulePainter extends CustomPainter {
   bool shouldRepaint(_CapsulePainter old) => false;
 }
 
-/// Segment fill per outcome: blues for fruit, pink for 777, purple for BONUS.
+/// Segment fill per outcome: blues for fruit, pink for 77, purple for BONUS.
 Color fruitSegmentColor(int index) => switch (fruitSegments[index]) {
       'sevens' => fwPink,
-      'bonus' => const Color(0xFF8F2CC7),
+      'crown' => fwGoldDark,
       _ => index.isEven ? const Color(0xFF087EDB) : const Color(0xFF0B5FC4),
     };
 
@@ -317,7 +328,10 @@ class FruitWheelPainter extends CustomPainter {
       outer,
       Paint()
         ..shader = RadialGradient(
-          colors: [fwBlueBright.withValues(alpha: .35), fwPurple.withValues(alpha: 0)],
+          colors: [
+            fwBlueBright.withValues(alpha: .35),
+            fwPurple.withValues(alpha: 0),
+          ],
         ).createShader(Rect.fromCircle(center: c, radius: outer)),
     );
 
@@ -336,7 +350,11 @@ class FruitWheelPainter extends CustomPainter {
         true,
         Paint()
           ..shader = RadialGradient(
-            colors: [Color.lerp(base, Colors.white, .25)!, base, Color.lerp(base, Colors.black, .35)!],
+            colors: [
+              Color.lerp(base, Colors.white, .25)!,
+              base,
+              Color.lerp(base, Colors.black, .35)!,
+            ],
             stops: const [0, .6, 1],
           ).createShader(faceRect),
       );
@@ -355,7 +373,11 @@ class FruitWheelPainter extends CustomPainter {
       ..strokeWidth = s * .008;
     for (var i = 0; i < fruitSegments.length; i++) {
       final a = -pi / 2 + i * seg;
-      canvas.drawLine(Offset(cos(a), sin(a)) * face * .3, Offset(cos(a), sin(a)) * face, divider);
+      canvas.drawLine(
+        Offset(cos(a), sin(a)) * face * .3,
+        Offset(cos(a), sin(a)) * face,
+        divider,
+      );
     }
     canvas.restore();
 
@@ -378,7 +400,15 @@ class FruitWheelPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = outer - face
         ..shader = const SweepGradient(
-          colors: [fwGold, fwCream, fwGoldDark, fwGold, fwCream, fwGoldDark, fwGold],
+          colors: [
+            fwGold,
+            fwCream,
+            fwGoldDark,
+            fwGold,
+            fwCream,
+            fwGoldDark,
+            fwGold,
+          ],
         ).createShader(rimRect),
     );
     canvas.drawCircle(
@@ -460,7 +490,11 @@ class FruitPointerPainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
     canvas.drawCircle(Offset(w / 2, h * .3), w * .14, Paint()..color = fwPink);
-    canvas.drawCircle(Offset(w * .46, h * .26), w * .05, Paint()..color = Colors.white70);
+    canvas.drawCircle(
+      Offset(w * .46, h * .26),
+      w * .05,
+      Paint()..color = Colors.white70,
+    );
   }
 
   @override

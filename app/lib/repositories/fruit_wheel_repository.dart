@@ -1,28 +1,26 @@
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 import '../services/dio_client.dart';
-import '../screens/games/fruit_wheel_engine.dart';
 
+/// REST for عجلة السيارات. Chips, undo, clear and repeat move coins, so they go
+/// through here; the socket (`fruitwheel_state`) only pushes the shared table.
 class FruitWheelRepository {
   final Dio? _injectedDio;
   FruitWheelRepository({Dio? dio}) : _injectedDio = dio;
   Dio get _dio => _injectedDio ?? DioClient.dio;
+
   Future<Map<String, dynamic>> request(
     String path, {
     Map<String, dynamic>? data,
-    String? requestId,
   }) async {
     try {
       final response = data == null
-          ? await _dio.get<Map<String, dynamic>>('games/fruitwheel/$path')
+          ? await _dio
+              .get<Map<String, dynamic>>('games/fruitwheel/shared/$path')
           : await _dio.post<Map<String, dynamic>>(
-              'games/fruitwheel/$path',
+              'games/fruitwheel/shared/$path',
               data: data,
-              options: Options(
-                headers: {
-                  if (requestId != null) 'Idempotency-Key': requestId,
-                },
-              ),
+              options: Options(headers: {'Idempotency-Key': const Uuid().v4()}),
             );
       final body = response.data ?? {};
       if (body['success'] != true) {
@@ -38,21 +36,17 @@ class FruitWheelRepository {
   }
 
   Future<Map<String, dynamic>> fetchState() => request('state');
-  Future<FruitRound> spin(FruitBets bets, {String? requestId}) async =>
-      FruitRound.fromJson(
-        await request(
-          'spin',
-          data: {'bets': bets.json},
-          requestId: requestId ?? const Uuid().v4(),
-        ),
-      );
-  Future<Map<String, dynamic>> leaderboard() => request('leaderboard');
-  Future<Map<String, dynamic>> today() => request('today');
-  Future<Map<String, dynamic>> fairness() => request('fair');
-  Future<Map<String, dynamic>> rotateSeed() =>
-      request('seed/rotate', data: const {});
-  Future<Map<String, dynamic>> setClientSeed(String seed) =>
-      request('seed', data: {'clientSeed': seed});
+  Future<Map<String, dynamic>> bet(String key, int amount) =>
+      request('bet', data: {'key': key, 'amount': amount});
+  Future<Map<String, dynamic>> undo() => request('undo', data: const {});
+  Future<Map<String, dynamic>> clear() => request('clear', data: const {});
+  Future<Map<String, dynamic>> repeat() => request('repeat', data: const {});
+  Future<List<Map<String, dynamic>>> history() async =>
+      ((await request('history'))['history'] as List? ?? const [])
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+  Future<Map<String, dynamic>> ranking() => request('ranking');
 }
 
 class FruitWheelException implements Exception {

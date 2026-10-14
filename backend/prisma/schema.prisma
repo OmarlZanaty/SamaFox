@@ -2338,3 +2338,39 @@ model BanRecord {
   @@index([bannedById, startedAt])
   @@map("ban_records")
 }
+
+
+model FruitWheelSharedRound {
+  id        Int             @id @default(autoincrement())
+  seedHash  String
+  seed      String
+  result    String?
+  totalBet  Int             @default(0)
+  players   Int             @default(0)
+  createdAt DateTime        @default(now())
+  settledAt DateTime?
+  stakes    FruitWheelStake[]
+
+  @@index([settledAt])
+  @@map("fruit_wheel_shared_rounds")
+}
+
+/// One chip on the shared FRUIT WHEEL table. Written with the balance charge, so a
+/// restart can refund every chip still `open` from a round that never settled.
+model FruitWheelStake {
+  id        Int           @id @default(autoincrement())
+  roundId   Int
+  userId    Int
+  betKey    String
+  payout    Int           @default(0)
+  amount    Int
+  /// open → settled (round paid) | refunded (undo, clear, or a lost round)
+  status    String        @default("open")
+  createdAt DateTime      @default(now())
+  round     FruitWheelSharedRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, userId])
+  @@index([status])
+  @@index([userId, createdAt])
+  @@map("fruit_wheel_stakes")
+}

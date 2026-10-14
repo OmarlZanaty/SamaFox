@@ -11,7 +11,7 @@ import '../utils/storage_service.dart';
 
 /// Dev-only entry point that boots straight into FRUIT WHEEL with an
 /// in-memory stand-in for the server. Not referenced by the app; nothing here
-/// ships, and its odds only approximate fruitWheel.math.ts.
+/// ships, and its odds only approximate fruitWheelRound.math.ts.
 ///
 ///   flutter run -t lib/dev/fruit_wheel_preview.dart -d web-server --web-port 5763
 Future<void> main() async {
@@ -23,7 +23,10 @@ Future<void> main() async {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData(fontFamily: 'ElMessiri'),
-        home: FruitWheelScreen(repository: PreviewFruitWheelRepository()),
+        home: FruitWheelScreen(
+          live: false,
+          repository: PreviewFruitWheelRepository(),
+        ),
       ),
     ),
   );
@@ -43,95 +46,180 @@ class _PreviewAuth extends StateNotifier<AuthState> implements AuthNotifier {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Local fake shared table; no network, wallet or production pool.
 class PreviewFruitWheelRepository extends FruitWheelRepository {
-  final _random = Random();
-  int balance = 1000000, round = 2445, nonce = 0;
-  final List<Map<String, dynamic>> rounds = [];
-  final Map<String, int> totals = {'watermelon': 62000, 'sevens': 54000, 'plum': 21000};
+  final _started = DateTime.now();
+  int balance = 1000000, round = 2445;
+  int _cycle = -1;
+  bool _settled = false;
+  String _outcome = 'watermelon';
+  int _payout = 0;
+  final Map<String, int> _stakes = {};
+  Map<String, int> _previous = {};
+  final List<({String key, int amount})> _chips = [];
+  final List<String> _results = [];
+  final List<Map<String, dynamic>> _history = [];
+  int get _elapsed => DateTime.now().difference(_started).inMilliseconds;
+  String get _phase {
+    final ms = _elapsed % 42000;
+    return ms < 30000
+        ? 'betting'
+        : ms < 31000
+            ? 'closing'
+            : ms < 37000
+                ? 'spinning'
+                : 'result';
+  }
 
-  @override
-  Future<Map<String, dynamic>> fetchState() async => {
-        'balance': balance,
-        'history': rounds,
-        'rounds': round,
-        'today': {'totals': totals},
-        'layout': {
-          'minBet': 100,
-          'maxBet': 300000,
-          'mathRtp': .694,
-          'dailyMaxWinPerUser': 5000000,
-        },
-      };
-
-  @override
-  Future<Map<String, dynamic>> leaderboard() async => {
-        'endsIn': 3 * 86400000 + 5 * 3600000,
-        'me': {'rank': 22, 'won': 4200},
-        'entries': [
-          for (final (i, name) in ['لوزة', 'روووح', 'غمزة', 'نجمة', 'Sam', 'Nour'].indexed)
-            {'rank': i + 1, 'userId': i, 'name': name, 'avatar': null, 'won': 90000 - i * 12000},
-        ],
-      };
-
-  @override
-  Future<Map<String, dynamic>> fairness() async => {
-        'fairness': {'serverSeedHash': 'ab' * 32, 'clientSeed': 'preview', 'nonce': nonce},
-      };
-
-  @override
-  Future<Map<String, dynamic>> rotateSeed() async =>
-      {'revealed': {'serverSeed': 'cd' * 32}};
-
-  @override
-  Future<FruitRound> spin(FruitBets bets, {String? requestId}) async {
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    if (bets.total > balance) throw const FruitWheelException('INSUFFICIENT');
-    final roll = _random.nextInt(10000);
-    final outcome = roll < 3300
-        ? 'watermelon'
-        : roll < 6600
-            ? 'plum'
-            : roll < 8800
-                ? 'sevens'
-                : 'bonus';
-    final slots = [
-      for (var i = 0; i < fruitSegments.length; i++)
-        if (fruitSegments[i] == outcome) i,
-    ];
-    List<int>? orbs;
-    var prize = 0, bonusPrize = 0;
-    if (outcome == 'bonus') {
-      orbs = ([2, 3, 5]..shuffle(_random));
-      bonusPrize = (bets.total * .1 * orbs.first).floor();
-      prize = bonusPrize;
-    } else {
-      prize = bets[outcome] * fruitMultipliers[outcome]!;
+  void _advance() {
+    final cycle = _elapsed ~/ 42000;
+    if (_cycle != cycle) {
+      if (_cycle >= 0 && !_settled) _settle();
+      _cycle = cycle;
+      round = 2445 + cycle;
+      _stakes.clear();
+      _chips.clear();
+      _payout = 0;
+      _settled = false;
+      final roll = Random(round).nextInt(10000);
+      _outcome = roll < 3500
+          ? 'watermelon'
+          : roll < 7000
+              ? 'plum'
+              : roll < 7875
+                  ? 'sevens'
+                  : 'crown';
     }
-    balance += prize - bets.total;
-    round++;
-    nonce++;
-    final json = {
-      'id': 'r$round',
-      'at': DateTime.now().toUtc().toIso8601String(),
+    if (_phase == 'result' && !_settled) _settle();
+  }
+
+  void _settle() {
+    _settled = true;
+    _payout = (_stakes[_outcome] ?? 0) * (fruitMultipliers[_outcome] ?? 0);
+    balance += _payout;
+    if (_stakes.isNotEmpty) _previous = Map.of(_stakes);
+    _results.add(_outcome);
+    _history.insert(0, {
       'round': round,
+      'at': DateTime.now().toIso8601String(),
+      'result': _outcome,
+      'bet': _stakes.values.fold(0, (a, b) => a + b),
+      'prize': _payout,
+    });
+  }
+
+  Map<String, dynamic> _reply() =>
+      {'balance': balance, 'round': round, 'stakes': Map.of(_stakes)};
+  @override
+  Future<Map<String, dynamic>> fetchState() async {
+    _advance();
+    final ms = _elapsed % 42000;
+    final end = ms < 30000
+        ? 30000
+        : ms < 31000
+            ? 31000
+            : ms < 37000
+                ? 37000
+                : 42000;
+    final total = _stakes.values.fold(0, (a, b) => a + b);
+    return {
       'balance': balance,
-      'serverSeedHash': 'ab' * 32,
-      'clientSeed': 'preview',
-      'nonce': nonce,
-      'spin': {
-        'bets': bets.json,
-        'totalBet': bets.total,
-        'outcome': outcome,
-        'segment': slots[_random.nextInt(slots.length)],
-        'offset': .15 + _random.nextDouble() * .7,
-        'winner': outcome == 'bonus' ? null : outcome,
-        'cardPrize': prize - bonusPrize,
-        'orbs': orbs,
-        'bonusPrize': bonusPrize,
-        'totalPrize': prize,
+      'layout': {'minBet': 100, 'maxPerKey': 1000000},
+      'state': {
+        'round': round,
+        'phase': _phase,
+        'msLeft': end - ms,
+        'result': _phase == 'spinning' || _phase == 'result' ? _outcome : null,
+        'segment': fruitSegments.indexOf(_outcome),
+        'offset': .5,
+        'totals': Map.of(_stakes),
+        'totalBet': total,
+        'playerCount': total > 0 ? 1 : 0,
+        'history': _results.reversed.take(10).toList().reversed.toList(),
+        'seedHash': 'preview',
+        'me': {'stakes': Map.of(_stakes), 'staked': total, 'payout': _payout},
+        'winners': _payout > 0
+            ? [
+                {'name': 'Preview', 'staked': total, 'payout': _payout},
+              ]
+            : [],
       },
     };
-    rounds.insert(0, json);
-    return FruitRound.fromJson(json);
   }
+
+  void _check() {
+    _advance();
+    if (_phase != 'betting') throw const FruitWheelException('BETTING_CLOSED');
+  }
+
+  @override
+  Future<Map<String, dynamic>> bet(String key, int amount) async {
+    _check();
+    final next = FruitBets(_stakes);
+    if (!_stakes.containsKey(key) && _stakes.length >= 2) {
+      throw const FruitWheelException('MAX_CARDS');
+    }
+    if (!next.add(key, amount, 1000000)) {
+      throw const FruitWheelException('MAX_BET');
+    }
+    if (amount > balance) throw const FruitWheelException('INSUFFICIENT_COINS');
+    _stakes[key] = next[key];
+    _chips.add((key: key, amount: amount));
+    balance -= amount;
+    return _reply();
+  }
+
+  @override
+  Future<Map<String, dynamic>> undo() async {
+    _check();
+    if (_chips.isNotEmpty) {
+      final chip = _chips.removeLast();
+      balance += chip.amount;
+      final left = _stakes[chip.key]! - chip.amount;
+      if (left > 0) {
+        _stakes[chip.key] = left;
+      } else {
+        _stakes.remove(chip.key);
+      }
+    }
+    return _reply();
+  }
+
+  @override
+  Future<Map<String, dynamic>> clear() async {
+    _check();
+    balance += _stakes.values.fold(0, (a, b) => a + b);
+    _stakes.clear();
+    _chips.clear();
+    return _reply();
+  }
+
+  @override
+  Future<Map<String, dynamic>> repeat() async {
+    _check();
+    if (_previous.isEmpty) throw const FruitWheelException('NO_PREVIOUS');
+    final next = FruitBets(_stakes);
+    final amount = _previous.values.fold(0, (a, b) => a + b);
+    if ({..._stakes.keys, ..._previous.keys}.length > 2) {
+      throw const FruitWheelException('MAX_CARDS');
+    }
+    for (final e in _previous.entries) {
+      if (!next.add(e.key, e.value, 1000000)) {
+        throw const FruitWheelException('MAX_BET');
+      }
+    }
+    if (amount > balance) throw const FruitWheelException('INSUFFICIENT_COINS');
+    for (final e in _previous.entries) {
+      await bet(e.key, e.value);
+    }
+    return _reply();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> history() async => _history;
+  @override
+  Future<Map<String, dynamic>> ranking() async => {
+        'entries': [],
+        'me': {'net': 0},
+      };
 }
