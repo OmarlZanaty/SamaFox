@@ -42,14 +42,37 @@ import 'widgets/cp_request_dialog.dart';
 import 'widgets/global_notification_bar.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+/// Per-step start-up timings, sent once the reporter is up.
+final Map<String, int> _bootMs = {};
+
+/// One start-up step, capped. Everything awaited here runs while Android still
+/// shows its own launch screen (the icon on black): the app's splash is a
+/// Flutter frame, and no frame is drawn until `runApp`. A step that stalls —
+/// a slow disk, a busy main thread on a phone at 3% battery — left that icon
+/// up with nothing moving (14/10, "البرنامج مش عاوز يفتح"). A capped step that
+/// times out keeps running in the background; start-up just stops waiting.
+Future<void> _bootStep(String name, Future<void> Function() step, Duration cap) async {
+  final sw = Stopwatch()..start();
+  try {
+    await step().timeout(cap);
+  } on TimeoutException {
+    _bootMs['$name!timeout'] = sw.elapsedMilliseconds;
+    return;
+  } catch (e) {
+    debugPrint('[boot] $name failed: $e');
+  }
+  _bootMs[name] = sw.elapsedMilliseconds;
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final bootClock = Stopwatch()..start();
 
   // Decoded images: 60 MB instead of Flutter's 100 MB. Phones in a room sat at
   // img=100MB with ~350 MB of graphics beside it, and a realme RMX3760 died at
   // 1.2 GB (29/09). Evicted pictures are re-decoded from the disk cache.
   // Half that on a 2–4 GB phone, a quarter under 3 GB (see DeviceTier).
-  await DeviceTier.init();
+  await _bootStep('deviceTier', DeviceTier.init, const Duration(seconds: 3));
   PaintingBinding.instance.imageCache.maximumSizeBytes =
       (DeviceTier.ultraLite ? 16 : DeviceTier.lite ? 32 : 60) << 20;
 
@@ -57,7 +80,7 @@ void main() async {
   // kind, which is why "التطبيق يقفل بعد دقيقة" could only ever be guessed at:
   // a Dart error left nothing behind, and an OS kill for memory left even less.
   // CrashReporter catches the first and DETECTS the second on the next launch.
-  await CrashReporter.install();
+  await _bootStep('crashReporter', CrashReporter.install, const Duration(seconds: 4));
   MemoryGuard.install();
   // Play's Photo and Video Permissions policy: pick photos through the system
   // photo picker everywhere, not only on Android 13+, so no media permission
@@ -75,13 +98,31 @@ void main() async {
     );
   }*/
 
-  await StorageService.init();
+  // The token migration inside may keep running past the cap; StorageService
+  // fetches its prefs lazily, so nothing reads a half-initialised service.
+  await _bootStep('storage', StorageService.init, const Duration(seconds: 3));
+  // Not capped: the providers need it, and it is the same instance StorageService
+  // already asked for, so it is normally ready by now.
+  final prefsClock = Stopwatch()..start();
   final sharedPreferences = await SharedPreferences.getInstance();
+  _bootMs['prefs'] = prefsClock.elapsedMilliseconds;
   final _ = DioClient.dio;
   DioClient.init();
   // Which voice engine rooms use (mesh or SFU): cached value now, server value
   // refreshed in the background. Never blocks startup.
-  await VoiceEngineConfig.load();
+  await _bootStep('voiceEngine', VoiceEngineConfig.load, const Duration(seconds: 2));
+
+  // How long Android's launch screen stayed up. Sent for every start so a
+  // slow phone shows in /client-logs before anyone has to report it.
+  final bootTotal = bootClock.elapsedMilliseconds;
+  CrashReporter.event(
+    'startup',
+    'boot ${bootTotal}ms ${DeviceTier.summary}',
+    level: bootTotal > 3000 || _bootMs.keys.any((k) => k.endsWith('!timeout'))
+        ? 'warn'
+        : 'info',
+    data: {'totalMs': bootTotal, ..._bootMs},
+  );
 
   // Inside the guard: an error that escapes the widget callbacks lands here
   // instead of disappearing.
