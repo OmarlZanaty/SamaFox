@@ -1198,7 +1198,7 @@
       <div class="section-header">
         <div>
           <h2 class="section-title">إدارة اقتصاد الألعاب</h2>
-          <p class="section-sub">25% حصة البرنامج · 75% صندوق جوائز اللاعبين لكل لعبة · المكاسب تُدفع من صندوق اللعبة فقط ولا تُنشأ كوينز</p>
+          <p class="section-sub">30% حصة البرنامج · 70% صندوق جوائز اللاعبين لكل لعبة · المكاسب تُدفع من صندوق اللعبة فقط ولا تُنشأ كوينز · اترك حدود المكسب فارغة = بدون حد</p>
         </div>
         <div class="section-actions">
           <input id="econ_from" type="date" class="form-input form-input--sm" />
@@ -1227,7 +1227,7 @@
         <div class="form-row">
           <label>الحالة <select id="econ_enabled" class="form-input"><option value="1">تعمل</option><option value="0">متوقفة</option></select></label>
           <label>أقل رهان <input id="econ_minBet" type="number" min="0" class="form-input" placeholder="الأصلي" /></label>
-          <label>أعلى رهان <input id="econ_maxBet" type="number" min="0" class="form-input" placeholder="الأصلي" /></label>
+          <label><span id="econ_maxBetLabel">أعلى رهان</span> <input id="econ_maxBet" type="number" min="0" class="form-input" placeholder="الأصلي" /></label>
           <label>أقصى مكسب للجولة <input id="econ_maxWinPerRound" type="number" min="0" class="form-input" placeholder="بدون حد" /></label>
         </div>
         <div class="form-row">

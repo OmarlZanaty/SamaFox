@@ -108,8 +108,8 @@ test('one transaction debits once, splits the stake, pays, numbers the round and
   const result:any=await resolveSpin(701,bets(1000,0,1000),'first');
   assert.equal(transactionCount,1);
   assert.equal(result.balance,500000-2000+result.spin.totalPrize);
-  assert.equal(accounts.get('PROGRAM'),500);
-  assert.equal(accounts.get('GAME_POOL:fruitwheel'),100000000+1500-result.spin.totalPrize);
+  assert.equal(accounts.get('PROGRAM'),600);
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'),100000000+1400-result.spin.totalPrize);
   assert.equal(result.round,1);assert.equal(rounds.size,1);assert.equal(ledger.length,2);
   const second:any=await resolveSpin(701,bets(100),'second');
   assert.equal(second.round,2);assert.notEqual(second.nonce,result.nonce);

@@ -98,8 +98,8 @@ test('one transaction debits stake, credits prize, splits pool, awards XP and pe
   const result:any=await resolveSpin(701,100,8,'single');
   assert.equal(transactionCount,1);
   assert.equal(result.balance,50000-100+result.spin.totalPrize);
-  assert.equal(accounts.get('PROGRAM'),25);
-  assert.equal(accounts.get('GAME_POOL:fruit-jackpot'),100000000+75-result.spin.totalPrize);
+  assert.equal(accounts.get('PROGRAM'),30);
+  assert.equal(accounts.get('GAME_POOL:fruit-jackpot'),100000000+70-result.spin.totalPrize);
   assert.equal(xpAwards.length,1);assert.equal(rounds.size,1);assert.equal(ledger.length,2);
 });
 test('insufficient balance cannot debit, write history or credit prizes',async()=>{

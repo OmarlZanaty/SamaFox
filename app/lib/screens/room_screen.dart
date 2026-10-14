@@ -67,6 +67,7 @@ import '../repositories/user_repository.dart';
 import '../utils/country_flag.dart';
 import '../utils/result.dart';
 import '../widgets/room/seats_grid.dart';
+import '../widgets/room/room_seats_chat_layout.dart';
 import 'package:video_player/video_player.dart';
 import '../models/room_event.dart';
 import '../screens/messages_screen.dart';
@@ -85,9 +86,6 @@ import '../services/audio_route.dart';
 import '../services/screen_record_service.dart';
 
 final isAndroid = !kIsWeb && Platform.isAndroid;
-
-// Reserved for the future game winnings and gifts strip above the mic rows.
-const double kRoomWinsStripSlot = 48.0;
 
 enum _RoomImageType { roomImage, background }
 
@@ -4401,20 +4399,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     const bottomBarH = 64.0;
     const seatsWaveDepth = 40.0;
     const roomHorizontalPadding = 12.0;
-    const roomHeaderApproxH = 72.0;
-    final minChatH = size.height * 0.30;
-    final seatsMaxH = size.height * 0.50;
-    final seatsGridW = (size.width - roomHorizontalPadding * 2).clamp(0.0, size.width).toDouble();
-    final seatsGridH = SeatsGrid.heightFor(
-      width: seatsGridW,
-      seatCount: state.seatCount,
-      maxHeight: seatsMaxH,
-    );
-    final seatsBoxH = seatsGridH + seatsWaveDepth;
-    final chatBottom = bottomBarH + 10 + 55;
-    final chatBottomEdge = size.height - chatBottom;
-    final seatsBottomEdge = roomHeaderApproxH + kRoomWinsStripSlot + seatsBoxH;
-    final chatPanelH = (chatBottomEdge - seatsBottomEdge - 12).clamp(minChatH, size.height).toDouble();
 
     // Find my seat
     int? mySeatNumber;
@@ -4863,9 +4847,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                 // ✅ Seats area NOT full screen (fixed height)
                 const SizedBox(height: kRoomWinsStripSlot),
-                SizedBox(
-                  height: seatsBoxH,
-                  child: ClipPath(
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: bottomBarH + 10 + 55),
+                    child: RoomSeatsChatLayout(
+                      seatCount: state.seatCount,
+                      seats: ClipPath(
                     clipper: BottomWaveClipper(depth: seatsWaveDepth), // 👈 ADD THIS
                     child: Padding(
                       padding: const EdgeInsets.only(
@@ -4874,6 +4861,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         bottom: seatsWaveDepth,
                       ),
                       child: SeatsGrid(
+                        scrollable: false,
                         seats: state.seats,
                         seatCount: state.seatCount,
                         seatKeys: _seatKeys,
@@ -4891,39 +4879,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                   ),
-                ),
-
-                // ✅ leave some air under seats so panels don't feel stuck
-                const SizedBox(height: 12),
-
-                // Remaining space (empty / background)
-                const Expanded(child: SizedBox()),
-              ],
-            ),
-
-
-
-
-            // ==========================================================
-            // ✅ Bottom panels: Activity LEFT next to Chat (horizontal)
-            // Activity height = 30% of chat height, showing ~3 lines
-            // ==========================================================
-            // The 55px overlap used to be a Transform.translate. That moves
-            // the PAINTING but not the layout box, and a RenderBox only hit
-            // tests inside its own box — so the whole panel was drawn 55px
-            // above the region that actually received touches, and taps on the
-            // messages landed on nothing. Putting the offset in `bottom` gives
-            // the identical look with a hit area that matches what is on
-            // screen.
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: bottomBarH + 10 + 55, // 🔥 deeper overlap
-              child: Center(
-                child: SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.90,
-                  height: chatPanelH,
-                  child: RoomChatPanel(
+                      chat: RoomChatPanel(
                     roomId: widget.roomId,
                     // هدايا الحظ: the app-wide winners ticker lives with the
                     // messages. Tap → the winner's card (متابعة / رسالة / مسار).
@@ -4944,10 +4900,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           avatarUrl: avatarUrl,
                         ),
                   ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-
 
             if (_showChatPanel)
               Positioned(

@@ -86,7 +86,7 @@ class SeatsGrid extends StatelessWidget {
     for (final columns in _columnChoices) {
       if (columns > count && bestSize > 0) break; // more columns than seats
       final rows = (count / columns).ceil();
-      final tileW = (box.width - _spacing * (columns - 1)) / columns;
+      final tileW = (box.width - _spacing * columns) / columns;
       final tileH = (box.height - _spacing * (rows - 1)) / rows;
       // A tile holds the avatar plus its label, so the avatar is the smaller
       // of "as wide as the tile" and "as tall as the tile minus the label".
@@ -217,7 +217,14 @@ class SeatsGrid extends StatelessWidget {
                 ],
               );
 
-        if (!scrollable || !overflows) return withEffect;
+        if (!overflows) return withEffect;
+        if (!scrollable) {
+          return FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.topCenter,
+            child: SizedBox(width: box.width, height: neededHeight, child: withEffect),
+          );
+        }
 
         // BouncingScrollPhysics so the scroll is discoverable: a grid that
         // merely clipped gave no hint there were more seats below.

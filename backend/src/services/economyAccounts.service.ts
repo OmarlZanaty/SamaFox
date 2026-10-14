@@ -4,9 +4,9 @@ import prisma from '../utils/prisma';
 /**
  * Non-user balances (2026-09-26).
  *
- *   PROGRAM            the platform's share: 25% of game stakes, the program
+ *   PROGRAM            the platform's share: 30% of game stakes, the program
  *                      part of every lucky gift, the program part of a CP break
- *   GAME_POOL:<game>   each game's prize pool: 75% of its stakes, and the only
+ *   GAME_POOL:<game>   each game's prize pool: 70% of its stakes, and the only
  *                      money its prizes are ever paid from
  *
  * Every movement writes an economy_ledger row with the balance it left behind,
@@ -99,7 +99,7 @@ async function writeLedger(tx: Tx, account: string, delta: bigint, balanceAfter:
   });
 }
 
-/** Basis-point share of an amount, floored. 2500 bp of 1000 = 250. */
+/** Basis-point share of an amount, floored. 3000 bp of 1000 = 300. */
 export function bpShare(amount: number, bp: number): number {
   return Math.floor((Math.max(0, amount) * Math.max(0, bp)) / 10_000);
 }

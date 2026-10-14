@@ -20,8 +20,8 @@ const db = prisma as any;
 // Every game goes through this one module; the engines keep their own maths.
 //
 //   STAKE  (grantStakeValue, when the stake can no longer be refunded)
-//     programShareBp (default 25%) → the PROGRAM account
-//     the rest       (default 75%) → that game's prize pool (GAME_POOL:<game>)
+//     programShareBp (default 30%) → the PROGRAM account
+//     the rest       (default 70%) → that game's prize pool (GAME_POOL:<game>)
 //     + the XP the stake buys, as before
 //
 //   PRIZE  (payPrize)

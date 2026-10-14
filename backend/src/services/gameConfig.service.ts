@@ -68,15 +68,15 @@ const DEFAULTS: GameSettings = {
   enabled: true,
   minBet: null,
   maxBet: null,
-  maxWinPerRound: 1_000_000,
-  dailyMaxWinPerUser: 5_000_000,
+  maxWinPerRound: null,
+  dailyMaxWinPerUser: null,
   maxPayoutRatio: null,
   rtpTargetBp: 7000,
-  programShareBp: 2500,
+  programShareBp: 3000,
 };
 
-/** The share the client asked for: 25% program / 75% players' prize pool. */
-export const DEFAULT_PROGRAM_SHARE_BP = 2500;
+/** The share the client asked for: 30% program / 70% players' prize pool. */
+export const DEFAULT_PROGRAM_SHARE_BP = 3000;
 
 /**
  * The largest multiple of the stake each game can legitimately pay — what
@@ -91,7 +91,7 @@ const NATURAL_MAX_MULTIPLIER: Record<string, number> = {
   'greedy-cat': 45,
   'neon-fortune': 1000,
   yummy: 1500,
-  fruitwheel: 3,
+  fruitwheel: 8,
   roulette: 26,
   carwheel: 88,
   'fruit-jackpot': 1000,
@@ -229,7 +229,8 @@ export async function checkGamePlayable(
         message: `أقل رهان في هذه اللعبة ${cfg.minBet} كوينز`,
       };
     }
-    if (cfg.maxBet != null && bet > cfg.maxBet) {
+    // Greedy Cat checks cumulative stakes per symbol, including category splits.
+    if (game !== 'greedy-cat' && cfg.maxBet != null && bet > cfg.maxBet) {
       return {
         ok: false,
         status: 400,

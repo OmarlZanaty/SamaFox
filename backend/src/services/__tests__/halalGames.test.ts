@@ -1,4 +1,4 @@
-// The game economy layer (2026-09-26): stakes split 25% program / 75% the
+// The game economy layer (2026-09-26): stakes split 30% program / 70% the
 // game's pool, prizes paid only from that pool, per-game caps. Against the real
 // engines with an in-memory Prisma. The real-database version of these checks
 // is tests/e2e/economy.e2e.ts.
@@ -60,7 +60,7 @@ test('payPrize never mints: an empty pool pays nothing', async () => {
   assert.equal(balances.get(6), 0);
 });
 
-test('plinko: stake splits 25/75, payout equals the shown multiplier and comes from the pool', async () => {
+test('plinko: stake splits 30/70, payout equals the shown multiplier and comes from the pool', async () => {
   reset({ plinko: 10_000_000 });
   balances.set(10, 100_000);
   const r = await plinko.dropBall(10, 'high', 16, 1_000);
@@ -70,10 +70,30 @@ test('plinko: stake splits 25/75, payout equals the shown multiplier and comes f
   assert.equal(r.drop.payout, Math.floor(1_000 * shown));
   assert.equal(balances.get(10), 100_000 - 1_000 + r.drop.payout);
   assert.deepEqual(xpAwards, [{ userId: 10, xp: 1_000 }]);
-  assert.equal(accounts.get('PROGRAM'), 250);
-  assert.equal(accounts.get('GAME_POOL:plinko'), 10_000_000 + 750 - r.drop.payout);
+  assert.equal(accounts.get('PROGRAM'), 300);
+  assert.equal(accounts.get('GAME_POOL:plinko'), 10_000_000 + 700 - r.drop.payout);
   const stake = ledger.find((l) => l.kind === 'stake');
-  assert.deepEqual([stake.amount, stake.programShare, stake.poolShare], [1_000, 250, 750]);
+  assert.deepEqual([stake.amount, stake.programShare, stake.poolShare], [1_000, 300, 700]);
+});
+
+test('payPrize: null round and daily caps pay a large prize in full when the pool holds it', async () => {
+  reset({ x: 3_000_000 }, { x: { maxWinPerRound: null, dailyMaxWinPerUser: null, maxPayoutRatio: null } });
+  balances.set(7, 0);
+  const t = await halal.reservePrize(7, 'x', 2_000_000);
+  assert.equal(t.ok, true, JSON.stringify(t));
+  const paid = await halal.payPrize(t.token, 7, 'x', 2_000_000, 'r2');
+  assert.deepEqual([paid.paid, paid.requested, paid.capped], [2_000_000, 2_000_000, false]);
+  assert.equal(balances.get(7), 2_000_000);
+  assert.equal(accounts.get('GAME_POOL:x'), 1_000_000);
+});
+
+test('reservePrize refuses a bet whose possible prize exceeds the pool', async () => {
+  reset({ x: 1_999_999 }, { x: { maxWinPerRound: null, dailyMaxWinPerUser: null, maxPayoutRatio: null } });
+  balances.set(8, 0);
+  const t = await halal.reservePrize(8, 'x', 2_000_000);
+  assert.deepEqual([t.ok, t.code], [false, 'PRIZE_POOL_LOW']);
+  assert.equal(balances.get(8), 0);
+  assert.equal(ledger.length, 0);
 });
 
 test('plinko: an empty prize pool refuses the drop before any coin moves', async () => {
@@ -147,15 +167,46 @@ test('skill dice: best play pays under the entry; joining delivers XP and funds 
   assert.equal(j.ok, true, JSON.stringify(j));
   assert.ok(j.maxReward < 1_000, String(j.maxReward));
   assert.deepEqual(xpAwards, [{ userId: 30, xp: 1_000 }]);
-  assert.equal(accounts.get('GAME_POOL:dice'), 1_000_000 + 750);
+  assert.equal(accounts.get('GAME_POOL:dice'), 1_000_000 + 700);
   (dice.stopSkillDiceEngine ?? dice.stopDiceEngine)?.();
 });
 
 test('game settings: nonsense is refused (RTP over the pool share, round cap over the daily cap)', () => {
-  const base = { enabled: true, minBet: null, maxBet: null, maxWinPerRound: 100, dailyMaxWinPerUser: 1_000, maxPayoutRatio: null, rtpTargetBp: 7000, programShareBp: 2500 };
+  const base = { enabled: true, minBet: null, maxBet: null, maxWinPerRound: 100, dailyMaxWinPerUser: 1_000, maxPayoutRatio: null, rtpTargetBp: 7000, programShareBp: 3000 };
   assert.equal(gameConfig.validateGameSettings('x', base), null);
-  assert.ok(gameConfig.validateGameSettings('x', { ...base, rtpTargetBp: 8000 }));
+  assert.ok(gameConfig.validateGameSettings('x', { ...base, rtpTargetBp: 7001 }));
   assert.ok(gameConfig.validateGameSettings('x', { ...base, maxWinPerRound: 5_000 }));
   assert.ok(gameConfig.validateGameSettings('x', { ...base, minBet: 10, maxBet: 5 }));
   assert.ok(gameConfig.validateGameSettings('x', { ...base, maxPayoutRatio: 0.5 }));
+});
+
+test('game settings defaults are 30% program with no win caps', async () => {
+  reset({}, {});
+  const s = await gameConfig.getGameSettings('plinko');
+  assert.deepEqual(
+    [s.programShareBp, s.rtpTargetBp, s.maxWinPerRound, s.dailyMaxWinPerUser],
+    [3000, 7000, null, null],
+  );
+  assert.equal(gameConfig.naturalMaxMultiplier('fruitwheel'), 8);
+});
+
+test('game settings persist cleared caps, including an old payout-ratio override', async () => {
+  reset({}, { carwheel: { maxWinPerRound: 1_000_000, dailyMaxWinPerUser: 5_000_000, maxPayoutRatio: 3 } });
+  await gameConfig.setGameSettings('carwheel', {
+    maxWinPerRound: null, dailyMaxWinPerUser: null, maxPayoutRatio: null,
+  });
+  const saved = await gameConfig.getGameSettings('carwheel');
+  assert.deepEqual([saved.maxWinPerRound, saved.dailyMaxWinPerUser, saved.maxPayoutRatio], [null, null, null]);
+  assert.deepEqual(JSON.parse(settings.get('game_config')!).carwheel.maxWinPerRound, null);
+});
+
+test('game guard retains minimum, disabled and other games maximum checks', async () => {
+  reset({}, {
+    'greedy-cat': { minBet: 100, maxBet: 20_000 },
+    carwheel: { maxBet: 20_000 },
+    plinko: { enabled: false },
+  });
+  assert.equal((await gameConfig.checkGamePlayable('greedy-cat', 50)).code, 'BET_TOO_LOW');
+  assert.equal((await gameConfig.checkGamePlayable('carwheel', 80_000)).code, 'BET_TOO_HIGH');
+  assert.equal((await gameConfig.checkGamePlayable('plinko', 100)).code, 'GAME_DISABLED');
 });

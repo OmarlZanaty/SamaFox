@@ -8,10 +8,10 @@ import crypto from 'crypto';
  * likely: the round's committed seed is hashed and reduced mod 37.
  *
  * Payouts are TOTAL returns (stake included), cut from the casino table so the
- * game fits the platform's 25% program / 75% prize-pool split — the same
- * reasoning that took القط الجشع from 97% to 79.75%. Standard European play
- * returns 97.3%, more than the pool ever receives. Here every bet returns
- * close to 70%:
+ * original table targeted roughly 70% returns. The current economy sends
+ * 30% to the program and 70% to the pool; these fixed payouts are unchanged,
+ * and reservations enforce the available pool before accepting a bet.
+ * Standard European play returns 97.3%. Here every bet returns close to 70%:
  *
  *   bet          covers  pays   return
  *   straight       1     ×26    70.3%

@@ -13,6 +13,7 @@
   const pct = (v) => (v == null || !Number.isFinite(Number(v)) ? "—" : (Number(v) * 100).toFixed(2) + "%");
   const bpToPct = (bp) => (bp == null ? "" : (Number(bp) / 100).toString());
   const pctToBp = (p) => (p === "" || p == null ? null : Math.round(Number(p) * 100));
+  const capText = (v) => (v == null ? "بدون حد" : n(v));
   const esc = (s) => (typeof escapeHtml === "function" ? escapeHtml(String(s ?? "")) : String(s ?? ""));
   const toast = (m) => (typeof showToast === "function" ? showToast(m) : alert(m));
   const val = (id) => ($(id)?.value ?? "").trim();
@@ -97,6 +98,7 @@
     $("econ_enabled").value = s.enabled ? "1" : "0";
     $("econ_minBet").value = s.minBet ?? "";
     $("econ_maxBet").value = s.maxBet ?? "";
+    $("econ_maxBetLabel").textContent = game === "greedy-cat" ? "أعلى رهان للخيار الواحد" : "أعلى رهان";
     $("econ_maxWinPerRound").value = s.maxWinPerRound ?? "";
     $("econ_dailyMaxWinPerUser").value = s.dailyMaxWinPerUser ?? "";
     $("econ_maxPayoutRatio").value = s.maxPayoutRatio ?? "";
@@ -106,6 +108,7 @@
     $("econNatural").textContent =
       `أعلى مضاعف طبيعي للعبة: ×${g.naturalMaxMultiplier ?? "—"} — نسبة دفع أقل منه تقص المكاسب الكبيرة. ` +
       `صندوق اللاعبين يأخذ ${(100 - Number(s.programShareBp) / 100).toFixed(2)}% من كل رهان، فـ RTP المستهدف يجب ألا يتجاوزها.`;
+    $("econNatural").textContent += ` حد الجولة: ${capText(s.maxWinPerRound)} · حد اليوم: ${capText(s.dailyMaxWinPerUser)}.`;
     $("econEditCard").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 

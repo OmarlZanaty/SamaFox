@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -460,29 +459,16 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
 
     return Align(
       child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 20, 10, 10),
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
         decoration: const BoxDecoration(
           color: Colors.transparent, // 🔥 important
         ),
         child: Column(
           children: [
-            // drag handle
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-            ),
-
-            // ✅ Updated: Filter Tabs (Right Aligned, Glass Design, Bigger)
+            // Plain text filters directly below the microphone area.
             _buildFilterTabs(),
 
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
 
             if (widget.header != null)
               Padding(
@@ -738,20 +724,20 @@ _bubbleSkin(m,                                     Container(
     );
   }
 
-  // ✅ Updated: Tab Builder (Explicitly Right Aligned for RTL)
+  // ✅ Filter tabs: plain text, like the room reference under the mics.
   Widget _buildFilterTabs() {
     return Align(
       alignment: Alignment.centerRight, // 👈 Force alignment to the right
       child: Padding(
-        padding: const EdgeInsets.only(right: 16),
+        padding: const EdgeInsets.only(right: 18),
         child: Row(
           mainAxisSize: MainAxisSize.min, // 👈 Only take needed space
           children: [
             _tabItem(0, "الكل"),
-            const SizedBox(width: 12),
-            _tabItem(1, "الهدايا"),
-            const SizedBox(width: 12),
-            _tabItem(2, "الدردشة"),
+            const SizedBox(width: 14),
+            _tabItem(1, "هدية"),
+            const SizedBox(width: 14),
+            _tabItem(2, "دردشة"),
           ],
         ),
       ),
@@ -762,37 +748,22 @@ _bubbleSkin(m,                                     Container(
     final isSelected = _filterIndex == index;
     return GestureDetector(
       onTap: () => setState(() => _filterIndex = index),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(25),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), // ✅ Glass effect
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10), // ✅ Bigger button
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? Colors.white.withOpacity(0.25) // Selected glass
-                  : Colors.white.withOpacity(0.08), // Unselected glass
-              borderRadius: BorderRadius.circular(25),
-              border: Border.all(
-                color: isSelected ? Colors.white54 : Colors.white12,
-                width: 1,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white.withOpacity(0.66),
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            shadows: const [
+              Shadow(
+                blurRadius: 6,
+                color: Colors.black54,
+                offset: Offset(0, 1),
               ),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white60,
-                fontSize: 14, // ✅ Bigger text
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                shadows: isSelected ? [
-                  const Shadow(
-                    blurRadius: 10.0,
-                    color: Colors.black45,
-                    offset: Offset(2.0, 2.0),
-                  ),
-                ] : null,
-              ),
-            ),
+            ],
           ),
         ),
       ),

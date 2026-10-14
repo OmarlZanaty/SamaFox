@@ -464,36 +464,58 @@ function splitCategory(target: CategoryKey, amount: number): Record<string, numb
   return out;
 }
 
-/** This player's total stake in the current round, all symbols. */
-function roundStakeOf(userId: number): number {
-  const bets = round?.players.get(userId)?.bets ?? {};
-  return Object.values(bets).reduce((a, b) => a + b, 0);
-}
-
 /**
  * Stakes charged but not yet written into the round. The balance charge is an
  * await, so two bets sent at once both passed a check that only counted what
  * was already on the table — this counts them before the await.
  */
-const stakeInFlight = new Map<number, number>();
+const stakeInFlight = new Map<string, number>();
+const inFlightKey = (userId: number, symbol: string) => `${userId}:${symbol}`;
 
 /**
- * "أقصى رهان" from لوحة التحكم, applied to the player's TOTAL for the round.
- * The route guard only ever saw one request's amount, so the same limit could
- * be stacked on one symbol, and "تكرار الرهان" (no amount in the body) was
- * never checked at all. Null = no round limit set.
+ * Dashboard maxBet applies separately to each symbol after category splitting.
+ * An unset dashboard limit uses the game's per-symbol safety limit.
  */
-async function roundLimit(): Promise<number | null> {
+async function symbolLimit(): Promise<number> {
   try {
-    return (await getGameSettings(GAME_CONFIG_KEY)).maxBet;
+    // The dashboard can lower the game's own safety limit, never raise it.
+    const set = (await getGameSettings(GAME_CONFIG_KEY)).maxBet;
+    return set == null ? MAX_BET_PER_SYMBOL : Math.min(set, MAX_BET_PER_SYMBOL);
   } catch (e) {
     console.warn('[greedyCat] could not read the bet limit:', (e as Error).message);
-    return null;
+    return MAX_BET_PER_SYMBOL;
   }
 }
 
-const roundLimitMessage = (limit: number, used: number) =>
-  `الحد الأقصى لرهاناتك في الجولة ${limit} كوينز — المتبقي لك ${Math.max(0, limit - used)}`;
+const symbolLimitMessage = (limit: number) =>
+  `الحد الأقصى للرهان على الخيار الواحد ${limit} كوينز`;
+
+function checkSymbolLimit(userId: number, additions: Record<string, number>, limit: number) {
+  const existing = round?.players.get(userId)?.bets ?? {};
+  for (const [key, add] of Object.entries(additions)) {
+    const committed = (existing[key] ?? 0) + (stakeInFlight.get(inFlightKey(userId, key)) ?? 0);
+    if (committed + add > limit) {
+      return { ok: false as const, code: 'BET_TOO_HIGH', message: symbolLimitMessage(limit) };
+    }
+  }
+  return { ok: true as const };
+}
+
+function holdInFlight(userId: number, additions: Record<string, number>) {
+  for (const [key, add] of Object.entries(additions)) {
+    const k = inFlightKey(userId, key);
+    stakeInFlight.set(k, (stakeInFlight.get(k) ?? 0) + add);
+  }
+}
+
+function releaseInFlight(userId: number, additions: Record<string, number>) {
+  for (const [key, add] of Object.entries(additions)) {
+    const k = inFlightKey(userId, key);
+    const left = (stakeInFlight.get(k) ?? 0) - add;
+    if (left > 0) stakeInFlight.set(k, left);
+    else stakeInFlight.delete(k);
+  }
+}
 
 export async function placeBet(userId: number, target: string, amount: number) {
   if (!round || round.phase !== 'betting') {
@@ -521,37 +543,30 @@ export async function placeBet(userId: number, target: string, amount: number) {
     ? splitCategory(target as CategoryKey, amount)
     : { [target]: amount };
 
-  const limit = await roundLimit();
+  const limit = await symbolLimit();
   // Everything from here to the reservation is synchronous, so no other bet
   // from this player can slip in between the check and the reserve.
   if (!round || round.phase !== 'betting') {
     return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' };
   }
 
-  const existing = round.players.get(userId)?.bets ?? {};
-  for (const [key, add] of Object.entries(additions)) {
-    if ((existing[key] ?? 0) + add > MAX_BET_PER_SYMBOL) {
-      return { ok: false as const, code: 'MAX_BET', message: 'تجاوزت الحد الأقصى للرهان' };
-    }
-  }
-
-  const committed = roundStakeOf(userId) + (stakeInFlight.get(userId) ?? 0);
-  if (limit != null && committed + amount > limit) {
-    return { ok: false as const, code: 'BET_TOO_HIGH', message: roundLimitMessage(limit, committed) };
-  }
-  stakeInFlight.set(userId, (stakeInFlight.get(userId) ?? 0) + amount);
+  const allowed = checkSymbolLimit(userId, additions, limit);
+  if (!allowed.ok) return allowed;
+  holdInFlight(userId, additions);
   const roundId = round.id;
-  const release = () => {
-    const left = (stakeInFlight.get(userId) ?? 0) - amount;
-    if (left > 0) stakeInFlight.set(userId, left);
-    else stakeInFlight.delete(userId);
-  };
+  const release = () => releaseInFlight(userId, additions);
 
   // Promise the biggest prize this stake could bring before taking it.
   const maxPrize = Math.max(
     ...Object.entries(additions).map(([key, add]) => add * BY_KEY.get(key as SymbolKey)!.multiplier),
   );
-  const reserved = await reservePrize(userId, GAME_CONFIG_KEY, maxPrize, amount);
+  let reserved;
+  try {
+    reserved = await reservePrize(userId, GAME_CONFIG_KEY, maxPrize, amount);
+  } catch (e) {
+    release();
+    throw e;
+  }
   if (!reserved.ok) {
     release();
     return { ok: false as const, code: reserved.code, message: reserved.message };
@@ -598,7 +613,18 @@ export async function placeBet(userId: number, target: string, amount: number) {
         select: { name: true, avatarUrl: true, countryCode: true },
       })
       .catch(() => null);
-    player = {
+    // A concurrent bet may have created the player while display data loaded,
+    // or the round may have closed. Never overwrite that bet or charge late.
+    if (!round || round.phase !== 'betting' || round.id !== roundId) {
+      release();
+      releasePrize(prizeToken);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { coinsBalance: { increment: amount } },
+      });
+      return { ok: false as const, code: 'BETTING_CLOSED', message: 'أُغلق باب الاختيار' };
+    }
+    player = round.players.get(userId) ?? {
       userId,
       name: user?.name ?? 'لاعب',
       avatarUrl: user?.avatarUrl ?? null,
@@ -617,7 +643,7 @@ export async function placeBet(userId: number, target: string, amount: number) {
   const tokens = prizeTokens.get(tokenKey(roundId, userId)) ?? [];
   tokens.push(prizeToken);
   prizeTokens.set(tokenKey(roundId, userId), tokens);
-  // On the table now, so roundStakeOf() counts it; drop the reservation.
+  // On the table now, so the per-symbol check counts it from player.bets.
   release();
   if (isCategory) {
     player.categories[target] = (player.categories[target] ?? 0) + amount;
@@ -730,14 +756,9 @@ export async function repeatBets(userId: number) {
   if (!previous || Object.keys(previous).length === 0) {
     return { ok: false as const, code: 'NO_PREVIOUS', message: 'لا يوجد رهان سابق' };
   }
-  // All or nothing against the round limit: replaying bet by bet would place
-  // part of the previous round and then stop, leaving the player half-bet.
-  const replayTotal = Object.values(previous).reduce((a, b) => a + (b > 0 ? b : 0), 0);
-  const limit = await roundLimit();
-  const committed = roundStakeOf(userId) + (stakeInFlight.get(userId) ?? 0);
-  if (limit != null && committed + replayTotal > limit) {
-    return { ok: false as const, code: 'BET_TOO_HIGH', message: roundLimitMessage(limit, committed) };
-  }
+  const limit = await symbolLimit();
+  const allowed = checkSymbolLimit(userId, previous, limit);
+  if (!allowed.ok) return allowed;
   // Replayed as symbol stakes, never as categories — the split already happened
   // last round, and re-splitting would quadruple the stake.
   for (const [key, amount] of Object.entries(previous)) {

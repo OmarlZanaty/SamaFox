@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samafox/services/socket_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:samafox/providers/room_controller_provider.dart';
+import 'package:samafox/widgets/room/room_chat_panel.dart';
+import 'package:samafox/widgets/room/room_seats_chat_layout.dart';
 import 'package:samafox/widgets/room/seat_card.dart';
 import 'package:samafox/widgets/room/seats_grid.dart';
 
 const _gridBoxKey = Key('seats-grid-box');
+
+class _TestRoom extends StateNotifier<RoomControllerState>
+    implements RoomControllerNotifier {
+  _TestRoom() : super(const RoomControllerState(roomId: 1));
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 SeatData _seat(int n) => SeatData(
       seatNumber: n,
@@ -25,7 +37,9 @@ Widget _grid(int seatCount, {double? height, double bottomInset = 0}) {
       );
 
   return MediaQuery(
-    data: MediaQueryData(size: const Size(360, 800), padding: EdgeInsets.only(bottom: bottomInset)),
+    data: MediaQueryData(
+        size: const Size(360, 800),
+        padding: EdgeInsets.only(bottom: bottomInset)),
     child: Directionality(
       textDirection: TextDirection.ltr,
       child: Material(
@@ -87,13 +101,104 @@ void main() {
     );
   });
 
-  testWidgets('a navigation-bar inset neither shrinks the mics nor makes them scroll', (tester) async {
+  testWidgets(
+      'a navigation-bar inset neither shrinks the mics nor makes them scroll',
+      (tester) async {
     await tester.pumpWidget(_grid(10, bottomInset: 48));
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(find.byType(SingleChildScrollView), findsNothing);
     for (final card in tester.widgetList<SeatCard>(find.byType(SeatCard))) {
       expect(card.seatSize, 54);
+    }
+  });
+
+  testWidgets('room chat starts below the mic box on compact and tall phones',
+      (tester) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    for (final size in const [Size(360, 640), Size(412, 915)]) {
+      for (var seatCount = 1; seatCount <= 30; seatCount++) {
+        await tester.binding.setSurfaceSize(size);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              roomControllerProvider(1).overrideWith((ref) => _TestRoom())
+            ],
+            child: MaterialApp(
+              home: MediaQuery(
+                data: MediaQueryData(
+                    size: size,
+                    padding: const EdgeInsets.only(top: 24, bottom: 24)),
+                child: SafeArea(
+                  bottom: false,
+                  child: Column(
+                    children: [
+                      // Exercise a header taller than the old 72 dp estimate.
+                      const SizedBox(height: 96),
+                      const SizedBox(height: kRoomWinsStripSlot),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 129),
+                          child: RoomSeatsChatLayout(
+                            seatCount: seatCount,
+                            seats: Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 40),
+                              child: SeatsGrid(
+                                seats: {
+                                  for (var i = 1; i <= seatCount; i++)
+                                    i: _seat(i)
+                                },
+                                seatCount: seatCount,
+                                scrollable: false,
+                                myUserId: 99,
+                                isAdmin: false,
+                                onSeatTap: (_, __) {},
+                                ownerId: 0,
+                                adminIds: const [],
+                                lockedSeats: const {},
+                                seatKeys: {},
+                              ),
+                            ),
+                            chat: const RoomChatPanel(
+                                roomId: 1, header: SizedBox(height: 30)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        final reason = '$seatCount seats at ${size.width}x${size.height}';
+        expect(tester.takeException(), isNull, reason: reason);
+        final seatsRect =
+            tester.getRect(find.byKey(RoomSeatsChatLayout.seatsBoxKey));
+        final chatRect =
+            tester.getRect(find.byKey(RoomSeatsChatLayout.chatBoxKey));
+        expect(chatRect.top, greaterThanOrEqualTo(seatsRect.bottom + 12 - .01),
+            reason: reason);
+        expect(chatRect.bottom, lessThanOrEqualTo(size.height - 129),
+            reason: reason);
+        expect(find.byType(SeatCard), findsNWidgets(seatCount));
+        for (final card in find.byType(SeatCard).evaluate()) {
+          final rect = tester.getRect(find.byWidget(card.widget));
+          expect(rect.bottom, lessThanOrEqualTo(seatsRect.bottom),
+              reason: reason);
+          expect(rect.top, greaterThanOrEqualTo(seatsRect.top), reason: reason);
+        }
+        for (final label in ['الكل', 'هدية', 'دردشة']) {
+          expect(tester.getTopLeft(find.text(label)).dy,
+              greaterThanOrEqualTo(seatsRect.bottom),
+              reason: reason);
+        }
+        await tester.tap(find.text('هدية'));
+        await tester.pump();
+        expect(
+            tester.widget<Text>(find.text('هدية')).style?.color, Colors.white);
+      }
     }
   });
 }

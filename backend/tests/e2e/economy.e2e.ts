@@ -348,7 +348,7 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
     assert.equal(await bal(U.a), a0);
   });
 
-  test('games: stake splits 25% program / 75% pool; prizes come only from the pool', async () => {
+  test('games: stake splits 30% program / 70% pool; prizes come only from the pool', async () => {
     const f = await api('POST', '/admin-dashboard/games-economy/plinko/fund', U.admin, { amount: 5_000_000, reason: 'e2e seed' });
     assert.equal(f.status, 200, JSON.stringify(f.body));
     const [a0, prog0, pool0] = [await bal(U.a), await account('PROGRAM'), await account('GAME_POOL:plinko')];
@@ -356,10 +356,10 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const payout = r.body.drop?.payout ?? r.body.data?.drop?.payout;
     assert.equal(await bal(U.a), a0 - 1000 + payout);
-    assert.equal(await account('PROGRAM'), prog0 + 250);
-    assert.equal(await account('GAME_POOL:plinko'), pool0 + 750 - payout);
+    assert.equal(await account('PROGRAM'), prog0 + 300);
+    assert.equal(await account('GAME_POOL:plinko'), pool0 + 700 - payout);
     const stake = await db.gameLedger.findFirst({ where: { kind: 'stake', userId: U.a }, orderBy: { id: 'desc' } });
-    assert.deepEqual([stake.programShare, stake.poolShare], [250, 750]);
+    assert.deepEqual([stake.programShare, stake.poolShare], [300, 700]);
   });
 
   test('games: max win per round caps the payout, daily cap refuses up front, min/max bet enforced', async () => {
@@ -381,12 +381,12 @@ describe('2026-09-26 economy / CP / rooms / features (E2E)', { skip: SKIP ? 'E2E
       r = await api('POST', '/games/plinko/drop', U.c, { risk: 'high', rows: 16, amount: 1000 });
       assert.equal(r.body.code, 'DAILY_WIN_CAP');
     }
-    r = await api('PATCH', '/admin-dashboard/games-economy/plinko', U.admin, { minBet: 200, maxWinPerRound: 1_000_000, dailyMaxWinPerUser: 5_000_000, reason: 'e2e minbet' });
+    r = await api('PATCH', '/admin-dashboard/games-economy/plinko', U.admin, { minBet: 200, maxWinPerRound: null, dailyMaxWinPerUser: null, reason: 'e2e minbet' });
     const low = await api('POST', '/games/plinko/drop', U.c, { risk: 'low', rows: 8, amount: 100 });
     assert.equal(low.body.code, 'BET_TOO_LOW');
     assert.ok((await bal(U.c)) <= c0);
     const rtp = await api('PATCH', '/admin-dashboard/games-economy/plinko', U.admin, { rtpTargetBp: 8000, reason: 'x' });
-    assert.equal(rtp.status, 400, 'RTP target above the 75% pool share');
+    assert.equal(rtp.status, 400, 'RTP target above the 70% pool share');
   });
 
   test('games: duplicate play request (same key) is charged once', async () => {
