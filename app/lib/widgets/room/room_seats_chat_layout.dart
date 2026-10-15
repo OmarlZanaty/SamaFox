@@ -2,10 +2,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'seats_grid.dart';
 
-// Reserved above the microphones for the game winnings and gifts strip.
-const double kRoomWinsStripSlot = 48;
-
-/// Seats and chat share the remaining space below the actual room header.
+/// Seats and chat share the space below the room header.
+///
+/// 15/10, client: «الكل / هدية / دردشة» sit just under the coins of the last
+/// mic row (≤ 1 cm) and move up and down with the mics; the messages must never
+/// disappear. So the chat keeps a minimum height and the mics shrink to leave
+/// it, and the chat starts right under the last row — over the empty wave the
+/// seats box keeps at its bottom, not after it.
 class RoomSeatsChatLayout extends StatelessWidget {
   const RoomSeatsChatLayout({
     super.key,
@@ -21,34 +24,44 @@ class RoomSeatsChatLayout extends StatelessWidget {
   static const seatsBoxKey = ValueKey('room-seats-box');
   static const chatBoxKey = ValueKey('room-chat-box');
 
+  /// The empty band [seats] keeps under its last row (the wave clip).
+  static const waveDepth = 40.0;
+
+  /// From the last row's coins to the top of the chat panel.
+  static const gapUnderSeats = 6.0;
+
+  /// The chat never gets less: tabs, the winners strip and a few messages.
+  static double minChatHeight(double available) =>
+      (available * .32).clamp(170.0, 260.0).toDouble();
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
-          const waveDepth = 40.0;
-          const gap = 12.0;
-          // Leave room for tabs and the winners ticker on compact phones.
+          final available = constraints.maxHeight;
           final gridMax =
-              math.max(0.0, constraints.maxHeight - waveDepth - gap - 96);
+              math.max(0.0, available - gapUnderSeats - minChatHeight(available));
           final gridHeight = SeatsGrid.heightFor(
             width: math.max(0.0, constraints.maxWidth - 24),
             seatCount: seatCount,
             maxHeight: gridMax,
           );
-          final seatsHeight =
-              math.min(constraints.maxHeight, gridHeight + waveDepth);
-          // The chat takes everything under the mics (12/10: "the chat grows
-          // into the space the mics free") — and never more: on 14/10 a
-          // 30% minimum pushed it up over the last row of mics.
-          final chatHeight =
-              math.max(0.0, constraints.maxHeight - seatsHeight - gap);
-          return Column(
+          final chatTop = math.min(available, gridHeight + gapUnderSeats);
+          return Stack(
             children: [
-              SizedBox(key: seatsBoxKey, height: seatsHeight, child: seats),
-              const SizedBox(height: gap),
-              SizedBox(
+              Positioned(
+                key: seatsBoxKey,
+                top: 0,
+                left: 0,
+                right: 0,
+                height: math.min(available, gridHeight + waveDepth),
+                child: seats,
+              ),
+              Positioned(
                 key: chatBoxKey,
-                width: constraints.maxWidth * .90,
-                height: chatHeight,
+                top: chatTop,
+                bottom: 0,
+                left: constraints.maxWidth * .05,
+                right: constraints.maxWidth * .05,
                 child: ClipRect(child: chat),
               ),
             ],

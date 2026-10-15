@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:samafox/services/socket_service.dart';
@@ -135,7 +136,6 @@ void main() {
                     children: [
                       // Exercise a header taller than the old 72 dp estimate.
                       const SizedBox(height: 96),
-                      const SizedBox(height: kRoomWinsStripSlot),
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.only(bottom: 129),
@@ -178,21 +178,27 @@ void main() {
             tester.getRect(find.byKey(RoomSeatsChatLayout.seatsBoxKey));
         final chatRect =
             tester.getRect(find.byKey(RoomSeatsChatLayout.chatBoxKey));
-        expect(chatRect.top, greaterThanOrEqualTo(seatsRect.bottom + 12 - .01),
-            reason: reason);
         expect(chatRect.bottom, lessThanOrEqualTo(size.height - 129),
             reason: reason);
+        // 15/10: the messages disappeared under 20 mics. The chat keeps room
+        // for the tabs, the winners strip and a few lines.
+        expect(chatRect.height, greaterThanOrEqualTo(170 - .01),
+            reason: reason);
         expect(find.byType(SeatCard), findsNWidgets(seatCount));
+        var lastSeatBottom = 0.0;
         for (final card in find.byType(SeatCard).evaluate()) {
           final rect = tester.getRect(find.byWidget(card.widget));
-          expect(rect.bottom, lessThanOrEqualTo(seatsRect.bottom),
-              reason: reason);
+          expect(rect.bottom, lessThanOrEqualTo(chatRect.top + .01),
+              reason: '$reason: a mic is under the chat');
           expect(rect.top, greaterThanOrEqualTo(seatsRect.top), reason: reason);
+          lastSeatBottom = max(lastSeatBottom, rect.bottom);
         }
+        // «الكل / هدية / دردشة» right under the last row: ≤ 1 cm (≈ 63 dp).
         for (final label in ['الكل', 'هدية', 'دردشة']) {
-          expect(tester.getTopLeft(find.text(label)).dy,
-              greaterThanOrEqualTo(seatsRect.bottom),
-              reason: reason);
+          final top = tester.getTopLeft(find.text(label)).dy;
+          expect(top, greaterThanOrEqualTo(lastSeatBottom), reason: reason);
+          expect(top - lastSeatBottom, lessThanOrEqualTo(63),
+              reason: '$reason: tabs too far below the mics');
         }
         await tester.tap(find.text('هدية'));
         await tester.pump();

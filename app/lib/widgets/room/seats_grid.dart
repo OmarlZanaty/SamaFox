@@ -157,10 +157,19 @@ class SeatsGrid extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               for (int row = 0; row < rows; row++)
-                Padding(
-                  padding: EdgeInsets.only(bottom: row == rows - 1 ? 0 : _spacing),
+                Container(
+                  // Every row takes at least what heightFor counted for it, so
+                  // the chat placed under the box sits under the last row
+                  // (15/10: small seats left their rows short and the tabs
+                  // drifted 1.2 cm below the mics). A minimum, not a fixed
+                  // height: a name plus a coins line can run a little taller.
+                  constraints:
+                      BoxConstraints(minHeight: solved.seatSize + _labelHeight),
+                  margin: EdgeInsets.only(bottom: row == rows - 1 ? 0 : _spacing),
+                  alignment: Alignment.topCenter,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       for (int col = 0; col < solved.columns; col++)

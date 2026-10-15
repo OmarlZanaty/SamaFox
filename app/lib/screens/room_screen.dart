@@ -4846,7 +4846,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
                 // ✅ Seats area NOT full screen (fixed height)
-                const SizedBox(height: kRoomWinsStripSlot),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: bottomBarH + 10 + 55),
