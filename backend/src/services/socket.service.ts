@@ -11,6 +11,7 @@ import { checkDmAccess } from './dmAccess.service';
 import { createNotification } from './notification.service';
 import { hasFeature, isFeatureOn } from './features.service';
 import { cpSeatLinks } from './cpEffect.service';
+import { createPublishGuard, liveKitRoomApiFromEnv } from './livekitPublishGuard';
 import { DICE_TABLE_ROOM, getCurrentRoundPublic } from './skillDice.service';
 import { WHEEL_TABLE_ROOM, getCurrentWheelRoundPublic } from './skillWheel.service';
 import { CRAZY_ROOM, getPublicState as getCrazyWheelState } from './crazyWheel.service';
@@ -650,6 +651,7 @@ await Promise.all(
   // (see voiceSnapshot): someone just became, or stopped being, a speaker that
   // the listeners need a connection to.
   await emitVoiceUsers(io, rid);
+  void publishGuard.sync(rid);
 }
 
 /**
@@ -696,6 +698,27 @@ function isLiveKitRoom(rid: number): boolean {
       .catch((e) => console.warn('[voice] settings refresh failed:', (e as Error).message));
   }
   return !!voiceSettingsCache && voiceEngineForRoom(voiceSettingsCache, rid) === 'livekit';
+}
+
+/** Only seat holders may publish on the SFU (see livekitPublishGuard). */
+const publishGuard = createPublishGuard({
+  api: liveKitRoomApiFromEnv(),
+  seatedUserIds: (rid) => new Set(roomSeats.get(rid)?.values() ?? []),
+  isLiveKitRoom,
+});
+const PUBLISH_SWEEP_MS = 5_000;
+// Restored seats land at start-up; give phones time to rejoin before judging.
+const PUBLISH_SWEEP_START_DELAY_MS = 30_000;
+
+function startPublishGuardSweep() {
+  let running = false;
+  setTimeout(() => {
+    setInterval(() => {
+      if (running) return;
+      running = true;
+      publishGuard.sweep().finally(() => { running = false; });
+    }, PUBLISH_SWEEP_MS).unref?.();
+  }, PUBLISH_SWEEP_START_DELAY_MS).unref?.();
 }
 
 async function emitVoiceUsers(io: Server, rid: number) {
@@ -1014,6 +1037,7 @@ export const initializeSocketHandlers = (io: Server) => {
   _io = io;
   setGameBroadcastEmitter((event, payload) => io.emit(event, payload));
   startRoomStatePersistence(io);
+  startPublishGuardSweep();
   io.use(async (socket: AuthenticatedSocket, next) => {
   let payload: { userId: number };
   try {
@@ -1643,6 +1667,8 @@ try {
 }
 
   getMuted(rid).set(uid, true); // start muted
+  // The SFU must let them publish before the phone hears about the seat.
+  await publishGuard.syncWithin(rid);
 
   // Airtime starts the moment the seat is held (owner request: أيام وساعات
   // البث). Fire-and-forget — never let bookkeeping fail a seat claim.
@@ -2299,6 +2325,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   seats.set(seatNum, targetId);
   getMuted(rid).set(targetId, false);
+  await publishGuard.syncWithin(rid);
 
   const u = await prisma.user.findUnique({
     where: { id: targetId },
@@ -2447,6 +2474,7 @@ socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
 
     seats.set(seatNum, uid);
     getMuted(rid).set(uid, false);
+    await publishGuard.syncWithin(rid);
 
     const u = await prisma.user.findUnique({
       where: { id: uid },
