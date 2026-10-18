@@ -138,7 +138,11 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   /// recipient must answer, and only then is anyone charged.
   bool _selectedGiftIsCp = false;
   static const List<int> _kQuantities = [1, 7, 10, 20, 50];
-  int _quantity = _kQuantities.first;
+  // 2026-10-18 — "I send 10 My Cats (gift ×10 = 100 coins), win ×5,
+  // and get only 50 instead of 500." Keep the choice across sheet opens
+  // for this app session so reopening does not silently reset it to 1.
+  static int _lastQuantity = 1;
+  int _quantity = _lastQuantity;
   int _selectedGiftCost = 0; // coin cost of the currently selected gift (for optimistic deduction)
   bool _sending = false;
   late Set<int> _selectedRecipientIds;
@@ -646,7 +650,12 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
           .map((q) => PopupMenuItem(value: q, child: Text('x$q', style: const TextStyle(color: Colors.white))))
           .toList(),
     );
-    if (selected != null) setState(() => _quantity = selected);
+    if (selected != null) {
+      setState(() {
+        _quantity = selected;
+        _lastQuantity = selected;
+      });
+    }
   }
 
   Widget _footer() {
@@ -848,6 +857,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   }
 
   Future<void> _sendSingle(String giftId, int recipientId, int prevBalance) async {
+    // Capture the stake before awaiting: the picker can change during the send.
+    final sentCost = _selectedGiftCost * _quantity;
     try {
       final result = await widget.repository.send(
         giftId: giftId,
@@ -864,7 +875,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       } else if (lucky.pending) {
         _toast('🎲 هديتك دخلت الجولة — بانتظار لاعب آخر لتبدأ المنافسة');
       } else if (lucky.won) {
-        _toast('🎉 كسبت ×${lucky.multiplier} — ${lucky.payoutCoins} كوينز رجعت لرصيدك');
+        _toast('🎉 كسبت ×${lucky.multiplier} على $sentCost كوينز — ${lucky.payoutCoins} كوينز رجعت لرصيدك');
       } else {
         _toast('🎲 حظ أوفر المرة الجاية — ${lucky.hostCoins} كوينز راحت للمضيف', warning: true);
       }
