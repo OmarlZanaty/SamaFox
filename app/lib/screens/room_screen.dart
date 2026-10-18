@@ -4550,9 +4550,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final onlineCount = state.onlineUsers.length;
 
-    if (_isMinimized) return _buildPip();
-
-    return Scaffold(
+    final screen = _isMinimized ? _buildPip() : Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -4661,6 +4659,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               if (ownerDid == null || ownerDid == 0) return const SizedBox.shrink();
                               return Text(
                                 'ID: $ownerDid',
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(color: Colors.white60, fontSize: 11),
                               );
                             }),
@@ -4669,176 +4670,196 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ),
                       ),
 
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: () => _openUsersList(context, state),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.remove_red_eye, color: Colors.white70, size: 16),
-                                const SizedBox(width: 5),
-                                Text('${state.voiceUserIds.length}'),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      // #43 — "أيقونة الكأس مش موجودة في الروم". The room cup
-                      // was reachable only from inside the ⋮ menu; it now has
-                      // its own place in the header, and the room-actions menu
-                      // it used to hide behind stays where it is.
-
-                      // A3 — "ايقونة السماعه" on the bar itself. The toggle
-                      // existed only inside the ⋮ menu, so the client saw no
-                      // speaker icon in the room and reported it missing; and
-                      // there was no way to see WHICH route you were on
-                      // without opening the menu. Green when the loudspeaker
-                      // is on, so the state reads at a glance.
-                      const SizedBox(width: 6),
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: _toggleSpeaker,
-                          child: Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: AudioRoute.instance.speakerOn
-                                  ? Colors.greenAccent.withOpacity(0.22)
-                                  : Colors.black.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Icon(
-                              AudioRoute.instance.speakerOn
-                                  ? Icons.volume_up_rounded
-                                  : Icons.hearing,
-                              color: AudioRoute.instance.speakerOn
-                                  ? Colors.greenAccent
-                                  : Colors.white70,
-                              size: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(width: 6),
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => SupportersBoardScreen(roomId: widget.roomId),
-                            ),
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.withOpacity(0.22),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Icon(Icons.emoji_events, color: Color(0xFFFFD700), size: 16),
-                          ),
-                        ),
-                      ),
-                      if (isAdmin) ...[
-                        const SizedBox(width: 6),
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(20),
-                            onTap: () => _showModerationSheet(context),
-                            child: Container(
-                              padding: const EdgeInsets.all(7),
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent.withOpacity(0.25),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: const Icon(Icons.gavel, color: Colors.white, size: 16),
-                            ),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(width: 8),
-
-                      // ✅ ADD before the close IconButton in the header Row
-                      if (!_isMinimized)
-                        IconButton(
-                          icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white70, size: 20),
-                          onPressed: () {
-                            final state = ref.read(roomControllerProvider(widget.roomId));
-                            // Set BEFORE the pop: dispose runs synchronously
-                            // from it and reads this to keep the audio alive.
-                            _handedOffToPip = true;
-                            ref.read(pipProvider.notifier).activate(
-                              roomId: widget.roomId,
-                              roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
-                              roomImageUrl: state.roomImageUrl,
-                            );
-                            Navigator.of(context).pop(); // ✅ pop room screen, pip stays floating
-                          },
-                        ),
-
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              backgroundColor: const Color(0xFF2A1655),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              title: const Text(
-                                'مغادرة الغرفة',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                textAlign: TextAlign.right,
-                              ),
-                              content: const Text(
-                                'هل أنت متأكد أنك تريد مغادرة الغرفة؟',
-                                style: TextStyle(color: Colors.white70),
-                                textAlign: TextAlign.right,
-                              ),
-                              actionsAlignment: MainAxisAlignment.start,
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: const Text(
-                                    'إلغاء',
-                                    style: TextStyle(color: Colors.white70),
-                                  ),
-                                ),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.redAccent,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                      // 2026-10-18 — "ده شكل الغرف فى بعض التليفونات": name gone, ID vertical on narrow phones.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.55),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: () => _openUsersList(context, state),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.5),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.remove_red_eye, color: Colors.white70, size: 16),
+                                        const SizedBox(width: 5),
+                                        Text('${state.voiceUserIds.length}'),
+                                      ],
                                     ),
                                   ),
-                                  onPressed: () {
-                                    Navigator.pop(ctx); // close dialog
-                                    Navigator.of(context).pop(); // leave room
-                                  },
-                                  child: const Text(
-                                    'مغادرة',
-                                    style: TextStyle(color: Colors.white),
+                                ),
+                              ),
+                              // #43 — "أيقونة الكأس مش موجودة في الروم". The room cup
+                              // was reachable only from inside the ⋮ menu; it now has
+                              // its own place in the header, and the room-actions menu
+                              // it used to hide behind stays where it is.
+
+                              // A3 — "ايقونة السماعه" on the bar itself. The toggle
+                              // existed only inside the ⋮ menu, so the client saw no
+                              // speaker icon in the room and reported it missing; and
+                              // there was no way to see WHICH route you were on
+                              // without opening the menu. Green when the loudspeaker
+                              // is on, so the state reads at a glance.
+                              const SizedBox(width: 6),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: _toggleSpeaker,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(7),
+                                    decoration: BoxDecoration(
+                                      color: AudioRoute.instance.speakerOn
+                                          ? Colors.greenAccent.withOpacity(0.22)
+                                          : Colors.black.withOpacity(0.5),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Icon(
+                                      AudioRoute.instance.speakerOn
+                                          ? Icons.volume_up_rounded
+                                          : Icons.hearing,
+                                      color: AudioRoute.instance.speakerOn
+                                          ? Colors.greenAccent
+                                          : Colors.white70,
+                                      size: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(width: 6),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => SupportersBoardScreen(roomId: widget.roomId),
+                                    ),
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(7),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.withOpacity(0.22),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: const Icon(Icons.emoji_events, color: Color(0xFFFFD700), size: 16),
+                                  ),
+                                ),
+                              ),
+                              if (isAdmin) ...[
+                                const SizedBox(width: 6),
+                                Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(20),
+                                    onTap: () => _showModerationSheet(context),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(7),
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent.withOpacity(0.25),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: const Icon(Icons.gavel, color: Colors.white, size: 16),
+                                    ),
                                   ),
                                 ),
                               ],
-                            ),
-                          );
-                        },
+                              const SizedBox(width: 8),
+
+                              // ✅ ADD before the close IconButton in the header Row
+                              if (!_isMinimized)
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                  icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white70, size: 20),
+                                  onPressed: () {
+                                    final state = ref.read(roomControllerProvider(widget.roomId));
+                                    // Set BEFORE the pop: dispose runs synchronously
+                                    // from it and reads this to keep the audio alive.
+                                    _handedOffToPip = true;
+                                    ref.read(pipProvider.notifier).activate(
+                                      roomId: widget.roomId,
+                                      roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+                                      roomImageUrl: state.roomImageUrl,
+                                    );
+                                    Navigator.of(context).pop(); // ✅ pop room screen, pip stays floating
+                                  },
+                                ),
+
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                icon: const Icon(Icons.close, color: Colors.white),
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      backgroundColor: const Color(0xFF2A1655),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      title: const Text(
+                                        'مغادرة الغرفة',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        textAlign: TextAlign.right,
+                                      ),
+                                      content: const Text(
+                                        'هل أنت متأكد أنك تريد مغادرة الغرفة؟',
+                                        style: TextStyle(color: Colors.white70),
+                                        textAlign: TextAlign.right,
+                                      ),
+                                      actionsAlignment: MainAxisAlignment.start,
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx),
+                                          child: const Text(
+                                            'إلغاء',
+                                            style: TextStyle(color: Colors.white70),
+                                          ),
+                                        ),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.redAccent,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                          ),
+                                          onPressed: () {
+                                            Navigator.pop(ctx); // close dialog
+                                            Navigator.of(context).pop(); // leave room
+                                          },
+                                          child: const Text(
+                                            'مغادرة',
+                                            style: TextStyle(color: Colors.white),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -5019,9 +5040,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     Icon(Icons.chat_bubble_outline,
                                         color: Colors.white54, size: 18),
                                     SizedBox(width: 6),
-                                    Text(
-                                      "تكلم  ...",
-                                      style: TextStyle(color: Colors.white54),
+                                    Flexible(
+                                      child: Text(
+                                        "تكلم  ...",
+                                        maxLines: 1,
+                                        softWrap: false,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: Colors.white54),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -5245,6 +5271,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           ],
         ),
       ),
+    );
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.15,
+      child: screen,
     );
   }
 
