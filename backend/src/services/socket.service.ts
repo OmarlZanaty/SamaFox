@@ -348,7 +348,7 @@ function voiceRelayTarget(from: number | undefined, to: any, roomId: any): strin
   return null;
 }
 
-async function mayListen(uid: number, rid: number): Promise<boolean> {
+export async function mayListen(uid: number, rid: number): Promise<boolean> {
   for (let i = 0; i < 40 && userCurrentRoom.get(uid) !== rid; i++) {
     await new Promise((r) => setTimeout(r, 100));
   }

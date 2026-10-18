@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart'
     show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
@@ -419,6 +420,12 @@ class LiveKitVoiceEngine implements VoiceEngine {
       );
       _log('reconnect failed: $e');
       _rejoining = false;
+      // Still at the PIN dialog: the server already waits up to 4 s for entry.
+      if (e is DioException && e.response?.statusCode == 403) {
+        _rejoinAttempt = 0;
+        _scheduleRejoin(const Duration(seconds: 2), 'not admitted');
+        return;
+      }
       // The SFU being briefly unreachable is the common case; with no network
       // at all there is no point hammering, resume/socket-back will wake us.
       final secs = attempt < 3 ? 3 : (attempt < 6 ? 8 : 20);

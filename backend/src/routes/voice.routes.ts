@@ -3,6 +3,7 @@ import { AccessToken } from 'livekit-server-sdk';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import prisma from '../utils/prisma';
 import { readSettings, voiceEngineForRoom } from '../controllers/settings.controller';
+import { mayListen } from '../services/socket.service';
 
 /**
  * Voice engine access — the SFU side of the room's audio.
@@ -69,6 +70,18 @@ router.post('/token', authMiddleware, async (req, res) => {
     ]);
     if (!room?.isActive) {
       return res.status(404).json({ success: false, message: 'room not found' });
+    }
+
+    // Customer report (2026-10-18): audio was audible while the PIN dialog
+    // was up. The SFU token must respect the room's ban and admission gates.
+    const ban = await prisma.roomBan.findUnique({
+      where: { roomId_userId: { roomId, userId } },
+    });
+    if (ban && (!ban.expiresAt || ban.expiresAt > new Date())) {
+      return res.status(403).json({ success: false, message: 'banned', code: 'banned' });
+    }
+    if (!(await mayListen(userId, roomId))) {
+      return res.status(403).json({ success: false, message: 'not admitted to this room', code: 'not_admitted' });
     }
 
     const at = new AccessToken(cfg.apiKey, cfg.apiSecret, {
