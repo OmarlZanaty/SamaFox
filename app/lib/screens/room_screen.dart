@@ -5272,10 +5272,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         ),
       ),
     );
-    return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: 1.15,
-      child: screen,
-    );
+    // Font scaling and narrow screens are handled app-wide by AppScale.
+    return screen;
   }
 
 

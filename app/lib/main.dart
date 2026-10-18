@@ -31,6 +31,7 @@ import 'theme/app_theme.dart';
 import 'utils/storage_service.dart';
 import 'providers/localization_provider.dart';
 import 'package:samafox/screens/games_hub_screen.dart';
+import 'widgets/app_scale.dart';
 import 'widgets/pip_overlay.dart';
 import 'services/socket_service.dart';
 import 'services/device_tier.dart';
@@ -482,21 +483,25 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
 
       builder: (context, child) {
         final isArabic = locale.languageCode.toLowerCase() == 'ar';
-        return Directionality(
-          textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
-          child: Stack(
-            children: [
-              child!,
-              Consumer(
-                builder: (context, ref, _) => const PipOverlay(),
-              ),
-              // D6/D7 — this cannot be reordered to sit under the room's
-              // banners: they live inside `child` above, so any sibling after
-              // it paints over them regardless of order. The overlap is solved
-              // by moving the notification DOWN instead — see kBelowGiftBarOffset
-              // where the banner is built.
-              const GlobalNotificationBar(),
-            ],
+        // Same layout on every phone: no system font scaling, and a screen
+        // under 360 dp is drawn as a scaled-down 360 dp one (see AppScale).
+        return AppScale(
+          child: Directionality(
+            textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
+            child: Stack(
+              children: [
+                child!,
+                Consumer(
+                  builder: (context, ref, _) => const PipOverlay(),
+                ),
+                // D6/D7 — this cannot be reordered to sit under the room's
+                // banners: they live inside `child` above, so any sibling after
+                // it paints over them regardless of order. The overlap is solved
+                // by moving the notification DOWN instead — see kBelowGiftBarOffset
+                // where the banner is built.
+                const GlobalNotificationBar(),
+              ],
+            ),
           ),
         );
       },
