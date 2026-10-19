@@ -187,7 +187,7 @@ test('game settings defaults are 30% program with no win caps', async () => {
     [s.programShareBp, s.rtpTargetBp, s.maxWinPerRound, s.dailyMaxWinPerUser],
     [3000, 7000, null, null],
   );
-  assert.equal(gameConfig.naturalMaxMultiplier('fruitwheel'), 8);
+  assert.equal(gameConfig.naturalMaxMultiplier('fruitwheel'), 5.6);
 });
 
 test('game settings persist cleared caps, including an old payout-ratio override', async () => {

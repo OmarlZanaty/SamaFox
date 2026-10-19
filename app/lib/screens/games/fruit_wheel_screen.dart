@@ -56,6 +56,8 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
   FruitWheelStrings get _s => FruitWheelStrings(_arabic);
   int get _balance => ref.read(authStateProvider).user?.coinsBalance ?? 0;
   int get _maxBet => (_layout?['maxPerKey'] as num?)?.toInt() ?? 1000000;
+  Map<String, double> get _multipliers =>
+      fruitTableMultipliers(_layout?['multipliers']);
   List<int> get _chips => fruitChips;
   bool get _reduced => !_motion || MediaQuery.disableAnimationsOf(context);
   bool get _betting => state?.betting == true && state!.left.inMilliseconds > 0;
@@ -259,7 +261,9 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
       _glow.value = 1;
       if (mine && _announced != next.round) {
         _announced = next.round;
-        if (_payout > 0) _sfx.win(_payout >= next.myStaked * 8);
+        if (_payout > 0) {
+          _sfx.win(_payout >= next.myStaked * _multipliers['sevens']!);
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted &&
               state?.round == next.round &&
@@ -271,7 +275,6 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                 winners: next.winners,
                 staked: next.myStaked,
                 payout: next.myPayout,
-                crown: next.result == 'crown',
                 duration: next.left,
               ),
             );
@@ -948,11 +951,6 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           painter: FruitPointerPainter(glow: _glow.value),
                         ),
                       ),
-                      Positioned(
-                        top: -size * .1,
-                        left: size / 2 - size * .07,
-                        child: FruitArt('crown', size: size * .14),
-                      ),
                       Center(
                         child: Transform.scale(
                           scale: _urgent && !_reduced
@@ -1109,7 +1107,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
     return Semantics(
       button: true,
       label:
-          '${_s.text(card)} ×${fruitMultipliers[card]}, ${_s.text('yourBet')}: $mine${won > 0 ? ', ${_s.text('won')} $won' : ''}',
+          '${_s.text(card)} ${fruitMultiplierLabel(_multipliers[card]!)}, ${_s.text('yourBet')}: $mine${won > 0 ? ', ${_s.text('won')} $won' : ''}',
       child: _Pressable(
         onTap: _busy ? null : () => placeChip(card),
         child: AnimatedBuilder(
@@ -1158,7 +1156,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                 const SizedBox(height: 2),
                 FruitArt('capsule_$card', size: 58),
                 Text(
-                  '×${fruitMultipliers[card]}',
+                  fruitMultiplierLabel(_multipliers[card]!),
                   style: const TextStyle(
                     color: fwGold,
                     fontSize: 24,

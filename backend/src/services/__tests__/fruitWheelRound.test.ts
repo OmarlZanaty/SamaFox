@@ -71,25 +71,43 @@ async function playOut() {
 test('balanced table: each card returns 70%, crown cannot be staked', () => {
   assert.doesNotThrow(assertBalancedTable);
   assert.deepEqual(WHEEL_ORDER, ['watermelon', 'plum', 'watermelon', 'plum', 'sevens', 'watermelon', 'plum', 'watermelon', 'plum', 'crown']);
-  for (const s of SEGMENTS) if (s.key !== 'crown') assert.equal(returnOf(s.key), .7);
+  assert.equal(SEGMENTS.reduce((sum, s) => sum + s.weight, 0), 10000);
+  assert.equal(SEGMENTS.find(s => s.key === 'crown')!.weight, 0);
+  for (const s of SEGMENTS) if (s.key !== 'crown') {
+    assert.equal(s.multiplierX10 * s.weight, 70000);
+    assert.equal(returnOf(s.key), .7);
+  }
   for (const bad of ['crown', 'bonus', '777', 'constructor', '__proto__', '', null]) assert.equal(parseBetKey(bad), null);
-  assert.equal(maxPayout({ watermelon: 1000, sevens: 100 }), 2000);
-  assert.equal(payoutFor({ sevens: 100 }, 'sevens'), 800);
+  assert.equal(maxPayout({ watermelon: 1000, sevens: 100 }), 1600);
+  assert.equal(payoutFor({ watermelon: 1000 }, 'watermelon'), 1600);
+  assert.equal(payoutFor({ sevens: 100 }, 'sevens'), 560);
+  assert.equal(payoutFor({ plum: 101 }, 'plum'), 161);
+  assert.equal(payoutFor({ sevens: 101 }, 'sevens'), 565);
   assert.equal(payoutFor({ watermelon: 1000, sevens: 100 }, 'crown'), 0);
 });
-test('committed seed weights and presentation match the outcome', () => {
+test('committed seed weights never roll crown and presentation stays in slots 0–8', () => {
   const counts: Record<string, number> = Object.fromEntries(SEGMENTS.map(s => [s.key, 0]));
-  for (let i = 0; i < 200000; i++) counts[rollFromSeed('seed', i)]!++;
+  for (let i = 0; i < 200000; i++) counts[rollFromSeed(`seed-${i}`, i)]!++;
+  assert.equal(counts.crown, 0);
+  assert.throws(() => presentationFor('crown'), /Invalid FRUIT WHEEL outcome/);
   for (const s of SEGMENTS) {
+    if (s.weight === 0) continue;
     const expected = 200000 * s.weight / 10000;
     assert.ok(Math.abs(counts[s.key]! - expected) < 6 * Math.sqrt(expected));
     for (let i = 0; i < 100; i++) {
       const p = presentationFor(s.key);
       assert.equal(WHEEL_ORDER[p.segment], s.key);
+      assert.ok(p.segment >= 0 && p.segment <= 8);
       assert.ok(p.offset >= .15 && p.offset <= .85);
     }
   }
   assert.equal(rollFromSeed('abc', 7), rollFromSeed('abc', 7));
+});
+
+test('table config publishes decimal multipliers and compatible wheel indices', async () => {
+  const layout = await getLayout();
+  assert.deepEqual(layout.multipliers, { watermelon: 1.6, sevens: 5.6, plum: 1.6 });
+  assert.deepEqual(layout.wheel, WHEEL_ORDER);
 });
 
 // ── The shared round ────────────────────────────────────────
@@ -241,10 +259,10 @@ test('repeat union cannot add a third card and charges nothing on rejection', as
   assert.equal(balances.get(1), before);
   assert.equal(stakes.size, 1);
 });
-test('reserve real maximum, split 30/70 at close, pay only pool, crown loses', async () => {
+test('reserve real maximum, split 30/70 at close, defensively pay nothing for old crown', async () => {
   await placeBet(1, 'watermelon', 1000);
   await placeBet(1, 'sevens', 100);
-  assert.equal(round().players.get(1)!.reserved, 2000);
+  assert.equal(round().players.get(1)!.reserved, 1600);
   await __test.advance();
   assert.equal(accounts.get('PROGRAM'), 330);
   assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000770);
@@ -255,15 +273,15 @@ test('reserve real maximum, split 30/70 at close, pay only pool, crown loses', a
   assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000770);
   assert.equal(balances.get(1), 98900);
 });
-test('77 pays eight times from pool and history records actual payment', async () => {
+test('77 pays 5.6 times from pool and history records actual payment', async () => {
   await placeBet(1, 'sevens', 1000);
   await __test.advance(); await __test.advance();
   round().result = 'sevens';
   await __test.advance();
-  assert.equal(getPublicState(1)!.me!.payout, 8000);
-  assert.equal(balances.get(1), 107000);
-  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000000 + 700 - 8000);
-  assert.equal((await getHistory(1))[0]!.prize, 8000);
+  assert.equal(getPublicState(1)!.me!.payout, 5600);
+  assert.equal(balances.get(1), 104600);
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000000 + 700 - 5600);
+  assert.equal((await getHistory(1))[0]!.prize, 5600);
   assert.equal(getPublicState()!.winners[0]!.staked, 1000);
 });
 test('empty rounds still spin; number advances and history retains ten results', async () => {

@@ -17,8 +17,6 @@ class FruitWheelStrings {
   }
 
   static const _english = {
-    'crownRound': 'Crown round — no winner',
-    'crown': 'Crown',
     'win': 'Win',
     'goodLuck': 'Good luck',
     'totalBet': 'Table bets',
@@ -38,7 +36,6 @@ class FruitWheelStrings {
     'MAX_CARDS': 'You can bet on only two cards per round.',
     'poolHelp':
         'The program takes 30% of stakes; 70% goes to this game’s prize pool. All prizes are paid only from that pool.',
-    'crownHelp': 'Crown round — no winner. There are no bonus orbs.',
     'NETWORK':
         'Connection lost. Your balance and stakes will refresh from the server.',
     'limits': 'Bet per card',
@@ -49,9 +46,9 @@ class FruitWheelStrings {
     'repeatHelp':
         'Undo and clear refund chips during betting. Repeat bets adds your previous stakes to this round; it never starts a spin.',
     'odds':
-        'Watermelon: 35% ×2. Plum: 35% ×2. 77: 8.75% ×8. Crown: 21.25%, all cards lose. Each card has an average return of 70%; the equal wheel wedges are presentation only.',
+        'Watermelon: 43.75% ×1.6. Plum: 43.75% ×1.6. 77: 12.5% ×5.6. Each card has an average return of 70%; the equal wheel wedges are presentation only.',
     'rules':
-        'One shared table: 30 seconds to bet, 1 second closing, 6 seconds spinning, then 5 seconds of results. Choose a chip and tap at most two cards. The wheel spins automatically. Returns include the winning stake.',
+        'One shared table: 30 seconds to bet, 1 second closing, 6 seconds spinning, then 5 seconds of results. Choose a chip and tap at most two cards. The wheel spins automatically and every spin lands on a fruit card. Returns include the winning stake.',
     'title': 'FRUIT WHEEL',
     'spinning': 'Spinning…',
     'balance': 'Balance',
@@ -106,8 +103,6 @@ class FruitWheelStrings {
   };
 
   static const _arabic = {
-    'crownRound': 'جولة التاج — لا فائز',
-    'crown': 'التاج',
     'win': 'فوز',
     'goodLuck': 'حظاً سعيداً',
     'totalBet': 'رهانات الطاولة',
@@ -127,7 +122,6 @@ class FruitWheelStrings {
     'MAX_CARDS': 'تقدر تراهن على خيارين بس في الجولة',
     'poolHelp':
         'يحصل البرنامج على 30% من الرهانات ويذهب 70% لصندوق جوائز اللعبة. تُدفع كل الجوائز من هذا الصندوق فقط.',
-    'crownHelp': 'جولة التاج — لا فائز. لا توجد كرات مكافأة.',
     'NETWORK': 'انقطع الاتصال. سيُحدَّث رصيدك ورهاناتك من الخادم.',
     'limits': 'الرهان لكل بطاقة',
     'emptyBoard': 'لا يوجد فائزون اليوم بعد.',
@@ -137,9 +131,9 @@ class FruitWheelStrings {
     'repeatHelp':
         'التراجع والمسح يعيدان الشرائح أثناء الرهان. إعادة الرهان تضيف رهانات الجولة السابقة لهذه الجولة ولا تبدأ الدوران.',
     'odds':
-        'البطيخ: 35% ×2. البرقوق: 35% ×2. 77: ‏8.75% ×8. التاج: 21.25% وتخسر كل البطاقات. متوسط عائد كل بطاقة 70%؛ القطاعات المتساوية للعرض فقط.',
+        'البطيخ: 43.75% ×1.6. البرقوق: 43.75% ×1.6. 77: ‏12.5% ×5.6. متوسط عائد كل بطاقة 70%؛ القطاعات المتساوية للعرض فقط.',
     'rules':
-        'طاولة واحدة للجميع: 30 ثانية للرهان، ثانية للإغلاق، 6 ثوانٍ للدوران، ثم 5 ثوانٍ للنتائج. اختر شريحة واضغط على خيارين كحد أقصى. العجلة تدور تلقائيًا والعائد يشمل الرهان الفائز.',
+        'طاولة واحدة للجميع: 30 ثانية للرهان، ثانية للإغلاق، 6 ثوانٍ للدوران، ثم 5 ثوانٍ للنتائج. اختر شريحة واضغط على خيارين كحد أقصى. العجلة تدور تلقائيًا وكل لفة تقف على بطاقة فواكه. العائد يشمل الرهان الفائز.',
     'title': 'عجلة الفواكه',
     'spinning': 'جاري الدوران...',
     'balance': 'الرصيد',

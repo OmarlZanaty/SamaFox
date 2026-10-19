@@ -475,7 +475,7 @@ export async function startFruitWheelRoundEngine(server: Server) {
     throw err;
   }
   startRound();
-  console.log('[fruitwheel] engine started — three cards and crown, 70% return');
+  console.log('[fruitwheel] engine started — three cards, no crown, 70% return');
 }
 
 export function stopFruitWheelRoundEngine() {

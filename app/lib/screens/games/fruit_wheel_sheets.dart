@@ -87,7 +87,6 @@ class FruitHelp extends StatelessWidget {
           for (final key in [
             'rules',
             'odds',
-            'crownHelp',
             'poolHelp',
             'repeatHelp',
             'fairHelp',
@@ -130,7 +129,12 @@ class FruitHistory extends StatelessWidget {
           if (rounds.isEmpty) Text(strings.text('emptyHistory')),
           for (final r in rounds)
             ListTile(
-              leading: FruitArt(r['result']?.toString() ?? 'crown', size: 40),
+              leading: r['result'] == null
+                  ? const SizedBox.square(
+                      dimension: 40,
+                      child: Icon(Icons.remove, color: fwMuted),
+                    )
+                  : FruitArt(r['result'].toString(), size: 40),
               title: Text(
                 strings.round((r['round'] as num?)?.toInt() ?? 0),
                 style: const TextStyle(color: fwCream),
@@ -152,7 +156,6 @@ class FruitWinners extends StatefulWidget {
   final FruitWheelStrings strings;
   final List<Map<String, dynamic>> winners;
   final int staked, payout;
-  final bool crown;
   final Duration duration;
   const FruitWinners({
     super.key,
@@ -160,7 +163,6 @@ class FruitWinners extends StatefulWidget {
     required this.winners,
     required this.staked,
     required this.payout,
-    required this.crown,
     required this.duration,
   });
   @override
@@ -210,11 +212,6 @@ class _FruitWinnersState extends State<FruitWinners> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (widget.crown)
-                Text(
-                  s.text('crownRound'),
-                  style: const TextStyle(color: fwCream),
-                ),
               for (final w in widget.winners.take(3))
                 ListTile(
                   contentPadding: EdgeInsets.zero,

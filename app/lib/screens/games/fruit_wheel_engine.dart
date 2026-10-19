@@ -6,12 +6,31 @@ import 'dart:math';
 /// where the wheel must stop to show it.
 
 const fruitCards = ['watermelon', 'sevens', 'plum'];
-const fruitMultipliers = {'watermelon': 2, 'sevens': 8, 'plum': 2};
+const Map<String, double> fruitMultipliers = {
+  'watermelon': 1.6,
+  'sevens': 5.6,
+  'plum': 1.6,
+};
 
-/// Ten equal segments, clockwise from the pointer. Mirrors fruitWheelRound.math.ts.
+/// Prefer the table config, with defaults for absent or invalid card values.
+Map<String, double> fruitTableMultipliers(Object? raw) => {
+      for (final card in fruitCards)
+        card: raw is Map &&
+                raw[card] is num &&
+                (raw[card] as num).isFinite &&
+                (raw[card] as num) > 0
+            ? (raw[card] as num).toDouble()
+            : fruitMultipliers[card]!,
+    };
+
+String fruitMultiplierLabel(double value) =>
+    '×${value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toString()}';
+
+// 2026-10-19: "التاج ده ملوش مكسب شيله خالص" — remove the crown.
+/// Nine equal segments, matching server indices 0–8; its unused slot 9 stays.
 const fruitSegments = [
   'watermelon', 'plum', 'watermelon', 'plum', 'sevens', //
-  'watermelon', 'plum', 'watermelon', 'plum', 'crown',
+  'watermelon', 'plum', 'watermelon', 'plum',
 ];
 const fruitChips = [100, 1000, 10000, 100000];
 const fruitTickerLength = 10;
@@ -68,7 +87,10 @@ class FruitBets {
 
 /// Newest outcome first, at most [fruitTickerLength].
 List<String> fruitPushTicker(List<String> ticker, String outcome) =>
-    [outcome, ...ticker].take(fruitTickerLength).toList();
+    [outcome, ...ticker]
+        .where(fruitCards.contains)
+        .take(fruitTickerLength)
+        .toList();
 
 /// "62000" → "62K", "1500000" → "1.5M".
 String fruitCompact(int value) {
@@ -97,7 +119,7 @@ class FruitWheelState {
 
   FruitWheelState.fromJson(Map<String, dynamic> j)
       : tableId = j['tableId']?.toString() ?? '',
-        segment = _int(j['segment']).clamp(0, 9),
+        segment = _int(j['segment']).clamp(0, 8),
         offset = ((j['offset'] as num?)?.toDouble() ?? .5).clamp(.15, .85),
         round = _int(j['round']),
         msLeft = _int(j['msLeft']),
@@ -107,13 +129,13 @@ class FruitWheelState {
         seedHash = j['seedHash']?.toString() ?? '',
         seed = j['seed']?.toString(),
         result =
-            fruitSegments.contains(j['result']) ? j['result'] as String : null,
+            fruitCards.contains(j['result']) ? j['result'] as String : null,
         totals = _ints(j['totals']),
         players = _maps(j['players']),
         winners = _maps(j['winners']),
         history = (j['history'] is List ? j['history'] as List : const [])
             .whereType<String>()
-            .where((v) => fruitSegments.contains(v))
+            .where((v) => fruitCards.contains(v))
             .toList(),
         myStakes = _ints(_me(j)?['stakes']),
         myChips = _maps(_me(j)?['chipList']),

@@ -82,20 +82,19 @@ class PreviewFruitWheelRepository extends FruitWheelRepository {
       _payout = 0;
       _settled = false;
       final roll = Random(round).nextInt(10000);
-      _outcome = roll < 3500
+      _outcome = roll < 4375
           ? 'watermelon'
-          : roll < 7000
+          : roll < 8750
               ? 'plum'
-              : roll < 7875
-                  ? 'sevens'
-                  : 'crown';
+              : 'sevens';
     }
     if (_phase == 'result' && !_settled) _settle();
   }
 
   void _settle() {
     _settled = true;
-    _payout = (_stakes[_outcome] ?? 0) * (fruitMultipliers[_outcome] ?? 0);
+    final multiplierX10 = (fruitMultipliers[_outcome]! * 10).round();
+    _payout = (_stakes[_outcome] ?? 0) * multiplierX10 ~/ 10;
     balance += _payout;
     if (_stakes.isNotEmpty) _previous = Map.of(_stakes);
     _results.add(_outcome);
@@ -124,7 +123,11 @@ class PreviewFruitWheelRepository extends FruitWheelRepository {
     final total = _stakes.values.fold(0, (a, b) => a + b);
     return {
       'balance': balance,
-      'layout': {'minBet': 100, 'maxPerKey': 1000000},
+      'layout': {
+        'minBet': 100,
+        'maxPerKey': 1000000,
+        'multipliers': fruitMultipliers,
+      },
       'state': {
         'round': round,
         'phase': _phase,

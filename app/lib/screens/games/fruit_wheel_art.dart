@@ -294,11 +294,12 @@ class _CapsulePainter extends CustomPainter {
   bool shouldRepaint(_CapsulePainter old) => false;
 }
 
-/// Segment fill per outcome: blues for fruit, pink for 77, purple for BONUS.
+/// Blues alternate around the seam; pink 77 separates the two blue runs.
 Color fruitSegmentColor(int index) => switch (fruitSegments[index]) {
       'sevens' => fwPink,
-      'crown' => fwGoldDark,
-      _ => index.isEven ? const Color(0xFF087EDB) : const Color(0xFF0B5FC4),
+      _ => (index < 4 ? index : index - 1).isEven
+          ? const Color(0xFF087EDB)
+          : const Color(0xFF0B5FC4),
     };
 
 /// The wheel face, rim and bulbs. [angle] turns only the face.
