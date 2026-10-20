@@ -388,6 +388,8 @@ describe('app side: the /cp API surface', () => {
       'GET /partners/:userId',
       'GET /partners/:userId/break-quote',
       'GET /requests/pending',
+      // SPEC52 #8 — read-only CP Top 30 for the room strip (reviewed 2026-10-20).
+      'GET /top',
       'GET /unlock/status',
       'PATCH /featured',
       'POST /requests',
