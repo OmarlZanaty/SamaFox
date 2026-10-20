@@ -296,7 +296,7 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
           data: { coinsBalance: { increment: coins }, totalRecharge: { increment: coins } },
         });
 
-        await tx.transaction.create({
+        const txRow = await tx.transaction.create({
           data: {
             userId: targetUserId,
             type: 'AGENCY_TOPUP',
@@ -308,6 +308,23 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
             // "who charged this user" during complaint investigations.
             agencyId: membership.agencyId,
             senderId,
+          },
+        });
+
+        // SPEC52 #36 — one transfer row per charge: parent agency, branch (if
+        // a branch charged), actor, user, amount/coins, time, transaction id.
+        const branch = await (tx as any).agencyBranch
+          ?.findUnique?.({ where: { parentAgencyId_ownerUserId: { parentAgencyId: membership.agencyId, ownerUserId: funderId } } })
+          .catch(() => null);
+        await (tx as any).agencyTransfer.create({
+          data: {
+            agencyId: membership.agencyId,
+            toUserId: targetUserId,
+            amount: Number(coins),
+            note: 'send-coins',
+            actorUserId: funderId,
+            branchId: membership.role === 'BRANCH' && branch ? branch.id : null,
+            transactionId: (txRow as any).id,
           },
         });
       });
@@ -409,26 +426,23 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
       if (other) return fail(res, 409, `المستخدم مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId})`);
     }
 
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + INVITE_TTL_MS);
-    const existing = await db.agencyInvite.findUnique({
-      where: { agencyId_inviteeId: { agencyId: m.agencyId, inviteeId } },
-    });
-    if (existing && inviteState(existing) === 'PENDING') {
-      return fail(res, 400, 'Already invited');
+    // SPEC52 #35 — every invitation is its own row (pending → accepted /
+    // rejected / expired / cancelled). After a rejection or expiry a NEW
+    // invitation is created (that path used to fail); while one is still
+    // pending no second one is made — the app offers «إعادة إرسال» instead.
+    const { newAgencyInvite } = await import('../services/agencyInvites.service');
+    const { invite: created, existing: stillPending } = await newAgencyInvite(m.agencyId, ownerId, inviteeId);
+    if (stillPending) {
+      return res.status(200).json({
+        success: true,
+        message: 'الدعوة ما زالت بانتظار الرد — يمكنك إعادة إرسالها',
+        data: { ...created, state: inviteState(created), canResend: true },
+      });
     }
-
-    // One row per (agency, invitee): reopen it rather than insert a second.
-    const invite = existing
-      ? await db.agencyInvite.update({
-          where: { id: existing.id },
-          data: { status: 'pending', inviterId: ownerId, expiresAt, respondedAt: null, updatedAt: now },
-          include: { agency: { select: { agencyName: true } } },
-        })
-      : await db.agencyInvite.create({
-          data: { agencyId: m.agencyId, inviterId: ownerId, inviteeId, expiresAt },
-          include: { agency: { select: { agencyName: true } } },
-        });
+    const invite = await db.agencyInvite.findUnique({
+      where: { id: created.id },
+      include: { agency: { select: { agencyName: true } } },
+    });
 
     // The invitee learns about it from notifications/messages.
     try {
@@ -593,22 +607,10 @@ export const requestJoinHostingAgency = async (req: AuthReq, res: Response) => {
     const other = await otherHostingMembership(db, userId, agencyId);
     if (other) return fail(res, 409, `أنت مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId}) — غادرها أولاً`);
 
-    const existing = await db.agencyInvite.findUnique({
-      where: { agencyId_inviteeId: { agencyId, inviteeId: userId } },
-    });
-    if (existing && inviteState(existing) === 'PENDING') return fail(res, 400, 'Request already pending');
-
-    // Same (agency, user) row as an invite would use: reopen it, never insert
-    // a duplicate (that is what used to 500).
-    const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
-    const invite = existing
-      ? await db.agencyInvite.update({
-          where: { id: existing.id },
-          data: { status: 'pending', inviterId: agency.userId, expiresAt, respondedAt: null, updatedAt: new Date() },
-        })
-      : await db.agencyInvite.create({
-          data: { agencyId, inviterId: agency.userId, inviteeId: userId, status: 'pending', expiresAt },
-        });
+    // SPEC52 #35 — a new row per attempt; a pending one is not duplicated.
+    const { newAgencyInvite } = await import('../services/agencyInvites.service');
+    const { invite, existing: stillPending } = await newAgencyInvite(agencyId, agency.userId, userId);
+    if (stillPending) return fail(res, 400, 'Request already pending');
 
     return res.status(201).json({ success: true, data: { ...invite, state: inviteState(invite) } });
   } catch (e) {

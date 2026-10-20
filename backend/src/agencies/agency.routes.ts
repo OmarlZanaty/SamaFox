@@ -1,3 +1,4 @@
+import * as I from './agencyIdentity.controller';
 import { Router } from 'express';
 import { authMiddleware, optionalAuth } from '../middlewares/auth.middleware';
 import * as A from './agency.controller';
@@ -17,6 +18,34 @@ router.get('/branches', authMiddleware, A.listBranches);
 router.post('/branches', authMiddleware, A.addBranch);
 router.delete('/branches/:userId', authMiddleware, A.removeBranch);
 router.post('/invite/:userId', authMiddleware, A.inviteMember);
+// SPEC52 #35 — resend / cancel a still-pending invitation.
+router.post('/invites/:inviteId/resend', authMiddleware, async (req: any, res) => {
+  try {
+    const { changePendingInvite } = await import('../services/agencyInvites.service');
+    return res.json({ success: true, data: await changePendingInvite(req.userId, Number(req.params.inviteId), true) });
+  } catch (e) {
+    const { agencyError } = await import('./agencyIdentity.controller');
+    return agencyError(res, e);
+  }
+});
+router.post('/invites/:inviteId/cancel', authMiddleware, async (req: any, res) => {
+  try {
+    const { changePendingInvite } = await import('../services/agencyInvites.service');
+    return res.json({ success: true, data: await changePendingInvite(req.userId, Number(req.params.inviteId), false) });
+  } catch (e) {
+    const { agencyError } = await import('./agencyIdentity.controller');
+    return agencyError(res, e);
+  }
+});
+// SPEC52 #35 — agency name / image (owner) + history.
+router.patch('/:id/profile', authMiddleware, I.profile);
+router.get('/:id/profile-history', authMiddleware, I.profileHistory);
+// SPEC52 #36 — charging-agency branches, isolated per branch.
+router.get('/:id/branches', authMiddleware, I.branches());
+router.post('/:id/branches', authMiddleware, I.createBranch);
+router.patch('/:id/branches/:branchId', authMiddleware, I.patchBranch());
+router.get('/:id/branches/:branchId/transfers', authMiddleware, I.branchTransfers);
+router.get('/:id/transfers', authMiddleware, I.branchTransfers);
 router.post('/invite/:inviteId/respond', authMiddleware, idempotent('agency_invite_respond'), A.respondInvite);
 router.get('/my-invites', authMiddleware, A.getMyInvites);
 router.get('/search-user', authMiddleware, A.searchUserForInvite);

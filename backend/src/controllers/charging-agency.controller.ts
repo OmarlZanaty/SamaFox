@@ -282,8 +282,15 @@ export const myAgencyTransfers = async (req: Request, res: Response) => {
 
     if (!agency) return res.status(404).json({ message: 'No approved agency for this user' });
 
+    // SPEC52 #36 — a branch sees only its own charges; the agency owner sees
+    // all of them (optionally one branch with ?branchId=).
+    const owner = await prisma.chargingAgency.findUnique({ where: { id: agency.id }, select: { userId: true } });
+    const isOwner = owner?.userId === userId;
+    const branchFilter = isOwner
+      ? (req.query.branchId ? { branchId: Number(req.query.branchId) } : {})
+      : { actorUserId: userId };
     const items = await prisma.agencyTransfer.findMany({
-      where: { agencyId: agency.id },
+      where: { agencyId: agency.id, ...(branchFilter as any) },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -292,8 +299,11 @@ export const myAgencyTransfers = async (req: Request, res: Response) => {
         amount: true,
         note: true,
         createdAt: true,
+        branchId: true,
+        actorUserId: true,
+        transactionId: true,
         toUser: { select: { id: true, name: true, avatarUrl: true } },
-      },
+      } as any,
     });
 
     return res.json(items);
@@ -435,8 +445,20 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
 
       const updatedUser = { id: updatedUserDb.id, coinsBalance: BigInt(updatedUserDb.coinsBalance) };
 
+      // SPEC52 #36 — who charged (owner or which branch), from the funder's own
+      // membership, never from the request.
+      const branch = await (tx as any).agencyBranch
+        ?.findUnique?.({ where: { parentAgencyId_ownerUserId: { parentAgencyId: agency.id, ownerUserId: funderId } } })
+        .catch(() => null);
       const transfer = await tx.agencyTransfer.create({
-        data: { agencyId: agency.id, toUserId, amount: Number(BigInt(amount)), note },
+        data: {
+          agencyId: agency.id,
+          toUserId,
+          amount: Number(BigInt(amount)),
+          note,
+          actorUserId: funderId,
+          branchId: branch ? branch.id : null,
+        } as any,
         select: { id: true },
       });
 
