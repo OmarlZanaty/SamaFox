@@ -69,6 +69,7 @@
     <a href="#" class="nav-item" data-section="roomSessions">🛰️ جلسات الغرف</a>
     <a href="#" class="nav-item" data-section="perms" data-owner-only>🔐 الصلاحيات المالية</a>
     <a href="#" class="nav-item" data-section="giftlists">🎁 قوائم الهدايا</a>
+    <a href="#" class="nav-item" data-section="rocketpk">🚀 الصاروخ و PK</a>
     <a href="#" class="nav-item" data-section="rewards">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
       المكافآت
@@ -1470,6 +1471,46 @@
         </div>
         <div class="table-meta" id="tlMeta"></div>
         <p class="cell-muted" style="margin-top:8px">التبديل والشحن متسجلين من 3/10/2026. تعديلات الإدارة وبيع التارجت متسجلة من الأول.</p>
+      </div>
+    </section>
+
+    <section class="section" id="section-rocketpk">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">صاروخ الهدايا و PK</h2>
+          <p class="section-sub">كل الحسابات والسحب على السيرفر. الجوائز تُصرف من صندوقها (يُموَّل من رصيد البرنامج)، وكل نتيجة تُسجل في سجل المراجعة. يحتاج صلاحية «اقتصاد» من المالك.</p>
+        </div>
+        <div class="section-actions"><button class="btn btn-outline" onclick="rocketPkLoad()">تحديث</button></div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title">🚀 الصاروخ — رصيد الصندوق: <span id="rk_pool">0</span> <button class="btn btn-outline btn-sm" onclick="eventFund('rocket')" data-perm="economy.settings">تمويل</button></div>
+        <div class="form-row">
+          <label>الهدف (كوينز) <input id="rk_target" type="number" min="1" class="form-input"></label>
+          <label>نسبة كأس الغرفة % <input id="rk_pct" type="number" min="0" max="100" step="0.5" class="form-input" title="نسبة قيمة كل هدية تُحسب للصاروخ"></label>
+          <label>مدة الحدث (دقيقة) <input id="rk_minutes" type="number" min="1" class="form-input"></label>
+          <label>عدد الفائزين <input id="rk_winners" type="number" min="1" class="form-input"></label>
+          <label>أقصى جائزة للمستخدم (كوينز) <input id="rk_max" type="number" min="0" class="form-input"></label>
+          <label>مهلة الاستلام (ثانية) <input id="rk_window" type="number" min="10" class="form-input"></label>
+          <label><input id="rk_active" type="checkbox"> مفعّل</label>
+        </div>
+        <div class="form-card-title" style="margin-top:8px">الجوائز (السحب عشوائي حسب الوزن)</div>
+        <div id="rk_rewards"></div>
+        <div class="form-row"><button class="btn btn-outline" onclick="evAddReward()">+ جائزة</button><button class="btn btn-primary" onclick="rocketSave()" data-perm="economy.settings">حفظ الصاروخ</button></div>
+        <div class="table-wrap" style="margin-top:10px"><table id="rkEvents"><thead><tr><th>الغرفة</th><th>الحالة</th><th>التقدم</th><th>البداية</th><th>الانطلاق</th><th>المستلمون</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div class="form-card-title">⚔️ PK — رصيد الصندوق: <span id="pk_pool">0</span> <button class="btn btn-outline btn-sm" onclick="eventFund('pk')" data-perm="economy.settings">تمويل</button></div>
+        <div class="form-row">
+          <label>المدد المسموحة بالثواني <input id="pk_durations" class="form-input" placeholder="180,300,600"></label>
+          <label>نقاط لكل كوين <input id="pk_ppc" type="number" min="1" class="form-input"></label>
+          <label>قاعدة التعادل <select id="pk_tie" class="form-input"><option value="TIE">تعادل</option><option value="FIRST_TO_REACH">الأسبق للنتيجة يفوز</option></select></label>
+          <label><input id="pk_enabled" type="checkbox"> مفعّل</label>
+        </div>
+        <label>الهدايا المحتسبة (لا شيء محدد = كل الهدايا) <select id="pk_gifts" multiple class="form-input" style="height:120px"></select></label>
+        <div class="form-card-title" style="margin-top:8px">جائزة الفائز</div>
+        <div id="pk_win"></div>
+        <div class="form-row"><button class="btn btn-primary" onclick="pkSave()" data-perm="economy.settings">حفظ PK</button></div>
+        <div class="table-wrap" style="margin-top:10px"><table id="pkEvents"><thead><tr><th>النوع</th><th>الغرف</th><th>الحالة</th><th>النتيجة</th><th>الفائز</th><th>الوقت</th></tr></thead><tbody></tbody></table></div>
       </div>
     </section>
 

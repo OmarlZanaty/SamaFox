@@ -11,6 +11,7 @@ import '../widgets/room/room_cp_top.dart';
 import '../widgets/room/room_games_host.dart';
 import '../widgets/room/room_emoji.dart';
 import '../widgets/room/room_game_win_strip.dart';
+import '../widgets/room/room_events.dart';
 import '../services/effects_prefs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -4905,6 +4906,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                 // SPEC52 #39 — real game wins of people in this room.
                 RoomGameWinStrip(roomId: widget.roomId),
+                // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
+                RoomPkBar(roomId: widget.roomId),
 
                 // SPEC52 #8 — CP Top 3 (+ «عرض المزيد» → Top 30 over the room).
                 RoomCpTopStrip(
@@ -4963,6 +4966,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             top: 2,
                             child: RoomLeftRail(
                               onGames: () => _openGamesSheet(context),
+                              // SPEC52 #29 — PK above the rocket.
+                              pk: RoomPkButton(
+                                roomId: widget.roomId,
+                                canStart: isAdmin,
+                                seated: {
+                                  for (final s in state.seats.values)
+                                    if (s.userId != null) s.userId!: s.username ?? 'User #${s.userId}',
+                                },
+                              ),
+                              // SPEC52 #28 — the gift rocket above the games.
+                              rocket: RoomRocketButton(roomId: widget.roomId),
                             ),
                           ),
                         ],

@@ -227,6 +227,106 @@
 
   Object.assign(window, { giftListsLoad, glAdd, glSave, glDelete, glMove, glToggle, glUploadImage, glRenderGifts });
 
+  // ── SPEC52 #28 / #29: الصاروخ و PK ────────────────────────────────────────
+  let evProducts = [];
+  let evGifts = [];
+  const key = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+  async function callKey(path, method, body) {
+    try {
+      return await apiFetch(path, {
+        method,
+        headers: { "Content-Type": "application/json", "Idempotency-Key": key() },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      toast("❌ " + (e?.message || "فشل"));
+      throw e;
+    }
+  }
+  function rewardRow(r = {}) {
+    const opts = evProducts.map((p) => `<option value="${esc(p.id)}" ${p.id === r.itemId ? "selected" : ""}>${esc(p.name)}${p.durationDays ? ` (${p.durationDays} يوم)` : ""}</option>`).join("");
+    return `<div class="form-row ev-reward" style="gap:6px">
+      <select class="form-input ev-type" style="max-width:110px"><option value="coins" ${r.type !== "item" ? "selected" : ""}>كوينز</option><option value="item" ${r.type === "item" ? "selected" : ""}>منتج</option></select>
+      <input class="form-input ev-coins" type="number" min="1" placeholder="عدد الكوينز" value="${r.coins ?? ""}" style="max-width:120px">
+      <select class="form-input ev-item" style="max-width:220px"><option value="">— المنتج —</option>${opts}</select>
+      <input class="form-input ev-weight" type="number" min="1" placeholder="الوزن (الاحتمال)" value="${r.weight ?? 1}" style="max-width:110px">
+      <input class="form-input ev-qty" type="number" min="1" placeholder="الكمية" value="${r.quantity ?? 1}" style="max-width:80px">
+      <button class="btn btn-outline btn-sm" onclick="this.parentElement.remove()">حذف</button></div>`;
+  }
+  function readRewards(container) {
+    return [...container.querySelectorAll(".ev-reward")].map((row) => {
+      const type = row.querySelector(".ev-type").value;
+      const r = { type, weight: Number(row.querySelector(".ev-weight").value || 1), quantity: Number(row.querySelector(".ev-qty").value || 1) };
+      if (type === "coins") r.coins = Number(row.querySelector(".ev-coins").value || 0);
+      else r.itemId = row.querySelector(".ev-item").value;
+      return r;
+    });
+  }
+  async function rocketPkLoad() {
+    await loadCaps();
+    const [rk, pk] = await Promise.all([call("/admin-dashboard/rocket"), call("/admin-dashboard/pk")]);
+    const R = rk?.data || {};
+    const P = pk?.data || {};
+    evProducts = R.products || [];
+    evGifts = P.gifts || [];
+    const c = R.config || {};
+    $("rk_target").value = c.targetCoins ?? 1000000;
+    $("rk_pct").value = c.roomCupPercent != null ? c.roomCupPercent / 100 : 10;
+    $("rk_minutes").value = c.durationMinutes ?? 30;
+    $("rk_winners").value = c.winnersCount ?? 10;
+    $("rk_max").value = c.maxRewardPerUserCoins ?? 1000;
+    $("rk_window").value = c.claimWindowSeconds ?? 90;
+    $("rk_active").checked = !!c.isActive;
+    $("rk_rewards").innerHTML = (c.rewards || [{ type: "coins", coins: 100, weight: 1, quantity: 1 }]).map(rewardRow).join("");
+    $("rk_pool").textContent = n(R.poolBalance);
+    $("rkEvents").querySelector("tbody").innerHTML = (R.events || []).map((e) => `<tr><td>${esc(e.roomId)}</td><td>${esc(e.status)}</td><td>${n(e.currentCoins)} / ${n(e.targetCoins)}</td><td>${dt(e.startedAt)}</td><td>${dt(e.launchedAt)}</td><td>${(e.claims || []).length}</td></tr>`).join("") || '<tr><td colspan="6" class="cell-muted">لا توجد أحداث</td></tr>';
+    const q = P.config || {};
+    $("pk_durations").value = (q.allowedDurations || [180, 300, 600]).join(",");
+    $("pk_ppc").value = q.pointsPerCoin ?? 1;
+    $("pk_tie").value = q.tieRule || "TIE";
+    $("pk_enabled").checked = !!q.enabled;
+    $("pk_gifts").innerHTML = evGifts.map((g) => `<option value="${esc(g.id)}" ${(q.countedGiftIds || []).includes(g.id) ? "selected" : ""}>${esc(g.nameAr || g.name)}</option>`).join("");
+    $("pk_win").innerHTML = rewardRow(q.rewards?.winner || { type: "coins", coins: 0, weight: 1, quantity: 1 });
+    $("pk_pool").textContent = n(P.poolBalance);
+    $("pkEvents").querySelector("tbody").innerHTML = (P.events || []).map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.room1Id)} / ${esc(e.room2Id)}</td><td>${esc(e.status)}</td><td>${n(e.room1Score)} : ${n(e.room2Score)}</td><td>${esc(e.winner || "—")}</td><td>${dt(e.createdAt)}</td></tr>`).join("") || '<tr><td colspan="6" class="cell-muted">لا توجد مباريات</td></tr>';
+  }
+  async function rocketSave() {
+    await callKey("/admin-dashboard/rocket/config", "PUT", {
+      targetCoins: Number(val("rk_target")),
+      roomCupPercent: Math.round(Number(val("rk_pct")) * 100),
+      durationMinutes: Number(val("rk_minutes")),
+      winnersCount: Number(val("rk_winners")),
+      maxRewardPerUserCoins: Number(val("rk_max")),
+      claimWindowSeconds: Number(val("rk_window")),
+      isActive: $("rk_active").checked,
+      rewards: readRewards($("rk_rewards")),
+    });
+    toast("✅ تم حفظ إعدادات الصاروخ");
+    rocketPkLoad();
+  }
+  async function pkSave() {
+    const winner = readRewards($("pk_win"))[0];
+    await callKey("/admin-dashboard/pk/config", "PUT", {
+      allowedDurations: val("pk_durations").split(",").map((x) => Number(x.trim())).filter(Boolean),
+      countedGiftIds: [...$("pk_gifts").selectedOptions].map((o) => o.value),
+      pointsPerCoin: Number(val("pk_ppc") || 1),
+      winCondition: "HIGHER_SCORE",
+      tieRule: val("pk_tie"),
+      enabled: $("pk_enabled").checked,
+      rewards: winner && ((winner.type === "coins" && winner.coins > 0) || winner.itemId) ? { winner } : {},
+    });
+    toast("✅ تم حفظ إعدادات PK");
+    rocketPkLoad();
+  }
+  async function eventFund(kind) {
+    const amount = Number(prompt(kind === "rocket" ? "مبلغ تمويل صندوق الصاروخ (كوينز):" : "مبلغ تمويل صندوق PK (كوينز):", "100000"));
+    if (!amount) return;
+    await callKey(`/admin-dashboard/${kind}/fund`, "POST", { amount });
+    toast("✅ تم التمويل");
+    rocketPkLoad();
+  }
+  Object.assign(window, { rocketPkLoad, rocketSave, pkSave, eventFund, evAddReward: () => $("rk_rewards").insertAdjacentHTML("beforeend", rewardRow()) });
+
   // ── section router hook (called from app.js navigate) ───────────────────
   let sessionsPage = 1;
   async function roomSessionsLoad(page = 1) {
@@ -253,7 +353,7 @@
   }
   window.roomSessionsLoad = roomSessionsLoad;
   window.roomSessionsPage = delta => roomSessionsLoad(sessionsPage + delta);
-  const loaders = { perms: permsLoad, giftlists: giftListsLoad, roomSessions: roomSessionsLoad };
+  const loaders = { perms: permsLoad, giftlists: giftListsLoad, roomSessions: roomSessionsLoad, rocketpk: rocketPkLoad };
   window.spec52Register = (sec, fn) => {
     loaders[sec] = fn;
   };
