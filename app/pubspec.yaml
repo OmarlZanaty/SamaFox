@@ -137,6 +137,9 @@ flutter:
     # Directory entries are NOT recursive, so the crash artwork needs its own
     # line even though it lives under assets/images/.
     - assets/images/cp/
+    # SPEC52 — room emoji stickers and rocket / PK / handshake art.
+    - assets/images/emoji/
+    - assets/images/spec52/
     - assets/images/crash/
     # عجلة الحظ artwork — same non-recursive rule as the crash folder.
     - assets/images/crazy/
