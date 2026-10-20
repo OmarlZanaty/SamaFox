@@ -1579,6 +1579,7 @@ model CpPair {
   levelReachedAt DateTime?
 
   @@unique([userAId, userBId])
+  @@index([cpValue(sort: Desc), cpCoins(sort: Desc)], map: "cp_pairs_rank_idx")
   @@index([userAId])
   @@index([userBId])
   @@map("cp_pairs")
