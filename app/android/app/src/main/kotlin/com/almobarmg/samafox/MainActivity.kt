@@ -23,6 +23,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import com.android.installreferrer.api.InstallReferrerClient
+import com.android.installreferrer.api.InstallReferrerStateListener
 
 /**
  * A23 — the Dart side asks for the mic foreground service to be running while
@@ -70,6 +72,11 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "installReferrer" -> readInstallReferrer(result)
+                    "ackInstallReferrer" -> {
+                        getSharedPreferences("room_links", MODE_PRIVATE).edit().putBoolean("referrer_read", true).apply()
+                        result.success(null)
+                    }
                     "start" -> {
                         RoomAudioService.start(
                             this,
@@ -86,10 +93,12 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RECORD_CHANNEL)
-            .setMethodCallHandler { call, result ->
+        val recordChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RECORD_CHANNEL)
+        ScreenRecordService.events = { data -> recordChannel.invokeMethod("stateChanged", data) }
+        recordChannel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "isRecording" -> result.success(ScreenRecordService.isRecording)
+                    "roomAudioIncluded" -> result.success(ScreenRecordService.roomAudioIncluded)
 
                     "start" -> {
                         if (ScreenRecordService.isRecording) {
@@ -110,10 +119,7 @@ class MainActivity : FlutterActivity() {
                     }
 
                     "stop" -> {
-                        ScreenRecordService.stop(this)
-                        // The path is captured when the file is created, so it
-                        // is already known by the time stop is asked for.
-                        result.success(ScreenRecordService.lastOutputPath)
+                        ScreenRecordService.stop(this) { uri -> result.success(uri) }
                     }
 
                     else -> result.notImplemented()
@@ -347,7 +353,8 @@ class MainActivity : FlutterActivity() {
         val cb = object : AudioManager.AudioRecordingCallback() {
             override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>?) {
                 val others = configs.orEmpty().any {
-                    it.clientAudioSource != MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                    it.clientAudioSource != MediaRecorder.AudioSource.VOICE_COMMUNICATION &&
+                        !ScreenRecordingEncoder.ownsCapture(it.clientAudioSessionId)
                 }
                 if (others == othersRecording) return
                 othersRecording = others
@@ -367,6 +374,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        ScreenRecordService.events = null
         unwatchRecordings()
         memHandler.removeCallbacks(memPoll)
         memThread.quitSafely()
@@ -508,12 +516,53 @@ class MainActivity : FlutterActivity() {
         pendingRecordResult = null
 
         if (resultCode == Activity.RESULT_OK && data != null) {
-            ScreenRecordService.start(this, resultCode, data)
-            result?.success(true)
+            ScreenRecordService.start(this, resultCode, data) { started -> result?.success(started) }
         } else {
             // Declined, or dismissed. Not an error — the user said no.
             result?.success(false)
         }
+    }
+
+    private fun readInstallReferrer(result: MethodChannel.Result) {
+        val prefs = getSharedPreferences("room_links", MODE_PRIVATE)
+        if (prefs.getBoolean("referrer_read", false)) { result.success(null); return }
+        // Until Dart acknowledges durable storage, retry the same first-launch
+        // value after a crash. This avoids losing a deferred invite at login.
+        val cached = prefs.getString("referrer_pending", null)
+        if (cached != null) { result.success(cached); return }
+        val client = InstallReferrerClient.newBuilder(this).build()
+        var replied = false
+        fun finish(value: String?) {
+            if (replied) return
+            replied = true
+            runCatching { client.endConnection() }
+            result.success(value)
+        }
+        val timeout = Runnable { finish(null) }
+        mainHandler.postDelayed(timeout, 8000)
+        try {
+            client.startConnection(object : InstallReferrerStateListener {
+                override fun onInstallReferrerSetupFinished(responseCode: Int) {
+                    mainHandler.post {
+                        if (replied) return@post
+                        mainHandler.removeCallbacks(timeout)
+                        when (responseCode) {
+                            InstallReferrerClient.InstallReferrerResponse.OK -> {
+                                val value = runCatching { client.installReferrer.installReferrer }.getOrNull()
+                                if (value != null) prefs.edit().putString("referrer_pending", value).apply()
+                                finish(value)
+                            }
+                            InstallReferrerClient.InstallReferrerResponse.FEATURE_NOT_SUPPORTED -> {
+                                prefs.edit().putBoolean("referrer_read", true).apply()
+                                finish(null)
+                            }
+                            else -> finish(null) // transient Play failure: retry next launch
+                        }
+                    }
+                }
+                override fun onInstallReferrerServiceDisconnected() { mainHandler.post { finish(null) } }
+            })
+        } catch (_: Exception) { mainHandler.removeCallbacks(timeout); finish(null) }
     }
 }
 

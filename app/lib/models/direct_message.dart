@@ -10,6 +10,7 @@ class DirectMessage {
 
   final String text;
   final String type; // text | image | voice | system
+  final Map<String, dynamic>? metadata;
   final String createdAt; // ISO
 
   final String? deliveredAt;
@@ -44,6 +45,7 @@ class DirectMessage {
     required this.pinnedAt,
     required this.localStatus,
     this.bubbleUrl,
+    this.metadata,
     this.bubbleLayout = ProductLayout.empty,
   });
 
@@ -82,6 +84,7 @@ class DirectMessage {
       localStatus: localStatus ?? this.localStatus,
       bubbleUrl: bubbleUrl ?? this.bubbleUrl,
       bubbleLayout: bubbleLayout ?? this.bubbleLayout,
+      metadata: metadata,
     );
   }
 
@@ -107,6 +110,7 @@ class DirectMessage {
       senderId: _i(j['senderId']),
       text: (j['text'] ?? j['content'] ?? '') as String,
       type: (j['type'] ?? 'text') as String,
+      metadata: j['metadata'] is Map ? Map<String, dynamic>.from(j['metadata'] as Map) : null,
       createdAt: (j['createdAt'] ?? DateTime.now().toIso8601String()) as String,
       deliveredAt: j['deliveredAt'] as String?,
       readAt: j['readAt'] as String?,
@@ -127,6 +131,7 @@ class DirectMessage {
     'senderId': senderId,
     'text': text,
     'type': type,
+    'metadata': metadata,
     'createdAt': createdAt,
     'deliveredAt': deliveredAt,
     'readAt': readAt,

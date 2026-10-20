@@ -20,6 +20,10 @@
 # The voice engine. Its Java layer is called from native code, so R8 cannot see
 # the references and would strip them.
 -keep class org.webrtc.** { *; }
+-keep class com.cloudwebrtc.webrtc.FlutterWebRTCPlugin { *; }
+-keep class com.cloudwebrtc.webrtc.MethodCallHandlerImpl { *; }
+-keep class com.cloudwebrtc.webrtc.audio.RecordSamplesReadyCallbackAdapter { *; }
+-keep class com.cloudwebrtc.webrtc.audio.PlaybackSamplesReadyCallbackAdapter { *; }
 -dontwarn org.webrtc.**
 -keep class com.cloudwebrtc.webrtc.** { *; }
 

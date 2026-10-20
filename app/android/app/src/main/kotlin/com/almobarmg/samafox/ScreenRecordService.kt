@@ -1,319 +1,207 @@
 package com.almobarmg.samafox
 
-import android.app.Activity
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
-import android.content.Context
-import android.content.Intent
+import android.app.*
+import android.content.*
 import android.content.pm.ServiceInfo
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.media.MediaRecorder
+import android.media.MediaScannerConnection
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.os.Build
-import android.os.Environment
-import android.os.IBinder
+import android.net.Uri
+import android.os.*
+import android.provider.MediaStore
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
-/**
- * A11 — "تسجيل الشاشة بدون صوت".
- *
- * ── Why this class has to exist at all ───────────────────────────────────────
- *
- * The client is recording with the phone's own built-in recorder and getting
- * silence. That is not an app bug and no amount of app code can fix it: the
- * system recorder captures internal audio through `AudioPlaybackCapture`, and
- * that API is FORBIDDEN BY THE PLATFORM from capturing streams whose usage is
- * `USAGE_VOICE_COMMUNICATION`. WebRTC uses exactly that usage for the room's
- * voice, and it is the same rule that stops any app recording a phone call.
- *
- * So a recorder inside the app, capturing the MICROPHONE, is the only route to
- * a recording with sound. What that gives:
- *
- *   • the user's own voice — always, cleanly;
- *   • the other speakers in the room — when the room is on the LOUDSPEAKER,
- *     because their voices come out of the speaker and back in through the mic.
- *     On the earpiece they will be faint or absent, and no API can change that.
- *
- * This is worth stating to the owner plainly rather than letting him discover
- * it: "record the room's audio exactly as the app hears it" is not something
- * Android permits, for anyone.
- *
- * ── Notes on the implementation ──────────────────────────────────────────────
- *
- * From Android 10 a MediaProjection capture must run inside a foreground
- * service, and from Android 14 that service must already be in the foreground
- * *before* the projection is obtained — hence [start] taking the consent Intent
- * and doing the projection work in [onStartCommand] rather than in the
- * Activity.
- *
- * Follows RoomAudioService: platform `Notification.Builder`, no androidx, so
- * this module keeps needing no dependency of its own.
- */
+/** Owns projection consent, foreground lifetime and gallery publication.
+ * Codecs, mixing and storage finalization run on the encoder worker. */
 class ScreenRecordService : Service() {
-
     companion object {
-        private const val TAG = "ScreenRecordService"
-
-        const val ACTION_START = "com.almobarmg.samafox.action.START_RECORD"
-        const val ACTION_STOP = "com.almobarmg.samafox.action.STOP_RECORD"
-
-        private const val EXTRA_RESULT_CODE = "resultCode"
-        private const val EXTRA_RESULT_INTENT = "resultIntent"
-
-        private const val CHANNEL_ID = "samafox_screen_record"
-        private const val NOTIFICATION_ID = 4202
-
-        /** Set while a recording is running; read by the method channel. */
-        @Volatile
-        var isRecording: Boolean = false
+        private const val START = "samafox.record.START"
+        private const val STOP = "samafox.record.STOP"
+        private const val CHANNEL = "samafox_screen_record"
+        private const val NOTIFICATION = 4202
+        @Volatile var isRecording = false
             private set
-
-        /** Path of the finished file, for the Dart side to report back. */
-        @Volatile
-        var lastOutputPath: String? = null
+        @Volatile var lastOutputPath: String? = null
             private set
+        @Volatile var roomAudioIncluded = false
+            private set
+        var events: ((Map<String, Any?>) -> Unit)? = null
+        private var startReply: ((Boolean) -> Unit)? = null
+        private val stopReplies = mutableListOf<(String?) -> Unit>()
+        private var instance: ScreenRecordService? = null
+        private var starting = false
+        private var stopRequested = false
 
-        fun start(context: Context, resultCode: Int, data: Intent) {
-            val intent = Intent(context, ScreenRecordService::class.java).apply {
-                action = ACTION_START
-                putExtra(EXTRA_RESULT_CODE, resultCode)
-                putExtra(EXTRA_RESULT_INTENT, data)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+        fun start(context: Context, code: Int, data: Intent, reply: (Boolean) -> Unit) {
+            if (starting || instance != null) { reply(false); return }
+            starting = true; stopRequested = false; startReply = reply
+            lastOutputPath = null; roomAudioIncluded = false
+            val intent = Intent(context, ScreenRecordService::class.java).setAction(START)
+                .putExtra("code", code).putExtra("data", data)
+            try {
+                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+            } catch (e: Exception) {
+                starting = false; startReply = null; reply(false)
+                events?.invoke(mapOf("recording" to false, "error" to "تعذر بدء التسجيل"))
             }
         }
 
-        fun stop(context: Context) {
-            context.startService(
-                Intent(context, ScreenRecordService::class.java).apply { action = ACTION_STOP }
-            )
+        fun stop(context: Context, reply: (String?) -> Unit = {}) {
+            if (instance == null && !starting) { reply(null); return }
+            stopReplies.add(reply)
+            stopRequested = true
+            instance?.encoder?.stop()
         }
     }
 
     private var projection: MediaProjection? = null
-    private var virtualDisplay: VirtualDisplay? = null
-    private var recorder: MediaRecorder? = null
+    private var encoder: ScreenRecordingEncoder? = null
+    private var outputUri: Uri? = null
     private var outputFile: File? = null
-
-    /**
-     * Android 14 revokes a projection when the app stops it from elsewhere, and
-     * requires a registered callback. Without one, `getMediaProjection` throws.
-     */
+    private var outputName = ""
+    private val main = Handler(Looper.getMainLooper())
+    private var finished = false
     private val projectionCallback = object : MediaProjection.Callback() {
-        override fun onStop() {
-            Log.i(TAG, "projection stopped by the system")
-            stopRecording()
-        }
+        override fun onStop() { encoder?.stop() }
+    }
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) { encoder?.stop() }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), RECEIVER_NOT_EXPORTED)
+        else @Suppress("DEPRECATION") registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopRecording()
-                stopSelf()
-            }
-            ACTION_START -> {
-                // Foreground FIRST — on Android 14 the projection cannot be
-                // obtained until the service is already foregrounded.
-                goForeground()
-
-                val code = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
-                @Suppress("DEPRECATION")
-                val data = intent.getParcelableExtra<Intent>(EXTRA_RESULT_INTENT)
-                if (code != Activity.RESULT_OK || data == null) {
-                    Log.w(TAG, "no projection consent; stopping")
-                    stopSelf()
-                    return START_NOT_STICKY
+        if (intent?.action == STOP) { encoder?.stop(); return START_NOT_STICKY }
+        if (intent?.action != START || encoder != null) return START_NOT_STICKY
+        try {
+            goForeground()
+            val code = intent.getIntExtra("code", Activity.RESULT_CANCELED)
+            @Suppress("DEPRECATION") val data = intent.getParcelableExtra<Intent>("data")
+            require(code == Activity.RESULT_OK && data != null)
+            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val mp = manager.getMediaProjection(code, data) ?: error("Projection unavailable")
+            projection = mp
+            mp.registerCallback(projectionCallback, main)
+            outputName = "SAMAFOX_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.mp4"
+            var descriptor: ParcelFileDescriptor? = null
+            if (Build.VERSION.SDK_INT >= 29) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, outputName)
+                    put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                    put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/SamaFox")
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
                 }
-                if (!beginRecording(code, data)) stopSelf()
+                outputUri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                    ?: error("MediaStore insert failed")
+                descriptor = contentResolver.openFileDescriptor(outputUri!!, "rw") ?: error("MediaStore open failed")
+            } else {
+                val directory = File(getExternalFilesDir(Environment.DIRECTORY_MOVIES), "recordings").apply { mkdirs() }
+                outputFile = File(directory, outputName)
             }
+            encoder = ScreenRecordingEncoder(this, mp, metrics(), descriptor, outputFile,
+                started = { roomAudio -> main.post {
+                    roomAudioIncluded = roomAudio
+                    isRecording = !stopRequested
+                    starting = false
+                    startReply?.invoke(!stopRequested); startReply = null
+                    events?.invoke(mapOf("recording" to isRecording, "roomAudioIncluded" to roomAudio))
+                    if (stopRequested) encoder?.stop()
+                } },
+                completed = { usable, error -> finalizeOutput(usable, error) })
+            encoder!!.start()
+        } catch (e: Exception) {
+            Log.e("SamaFoxRecord", "start failed", e)
+            Thread({ finalizeOutput(false, e.message) }, "samafox-record-cleanup").start()
         }
         return START_NOT_STICKY
     }
 
-    private fun goForeground() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "تسجيل الشاشة",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply { setShowBadge(false) }
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
-        }
-
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-
-        val notification = builder
-            .setContentTitle("جارٍ تسجيل الشاشة")
-            .setContentText("اضغط لإيقاف التسجيل من داخل التطبيق")
-            .setSmallIcon(android.R.drawable.presence_video_online)
-            .setOngoing(true)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-    }
-
-    private fun beginRecording(resultCode: Int, data: Intent): Boolean {
-        return try {
-            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val mp = manager.getMediaProjection(resultCode, data) ?: return false
-            projection = mp
-            mp.registerCallback(projectionCallback, null)
-
-            val metrics = screenMetrics()
-            // Cap the long edge at 1280 so a 1440p phone does not produce a
-            // file too large to share — the point of these recordings is to
-            // send them to someone.
-            val scale = minOf(1f, 1280f / maxOf(metrics.widthPixels, metrics.heightPixels))
-            // Encoders reject odd dimensions; round to an even number.
-            val width = ((metrics.widthPixels * scale).toInt() / 2) * 2
-            val height = ((metrics.heightPixels * scale).toInt() / 2) * 2
-
-            val file = newOutputFile()
-            outputFile = file
-
-            val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(this)
-            } else {
-                @Suppress("DEPRECATION")
-                MediaRecorder()
-            }
-
-            // Order matters to MediaRecorder: sources, then format, then the
-            // per-track settings, then prepare.
-            //
-            // Not an internal-audio capture: see the class comment. The room's
-            // voice is USAGE_VOICE_COMMUNICATION and the platform does not
-            // allow it to be captured, so the microphone is the only source.
-            //
-            // A11 — but NOT AudioSource.MIC. WebRTC is already capturing when
-            // this runs, and Android's concurrent-capture rules hand the mic to
-            // the most recent client: taking MIC here silenced the room's own
-            // track, so the user recorded and simultaneously dropped out of the
-            // conversation they were recording. VOICE_COMMUNICATION is the
-            // source the platform expects during a call — it is the one an
-            // ongoing VoIP capture is allowed to share, and it arrives
-            // echo-cancelled, which also stops the loudspeaker's output being
-            // recorded back in as a howl.
-            rec.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-            rec.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            rec.setAudioEncodingBitRate(128_000)
-            rec.setAudioSamplingRate(44_100)
-            rec.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            rec.setVideoSize(width, height)
-            rec.setVideoFrameRate(30)
-            rec.setVideoEncodingBitRate(width * height * 4)
-            rec.setOutputFile(file.absolutePath)
-            rec.prepare()
-
-            virtualDisplay = mp.createVirtualDisplay(
-                "SamaFoxScreen",
-                width,
-                height,
-                metrics.densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                rec.surface,
-                null,
-                null,
-            )
-
-            rec.start()
-            recorder = rec
-            isRecording = true
-            lastOutputPath = file.absolutePath
-            Log.i(TAG, "recording to ${file.absolutePath} at ${width}x$height")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "failed to start recording", e)
-            releaseAll()
-            false
-        }
-    }
-
-    private fun stopRecording() {
-        if (!isRecording && recorder == null) return
+    private fun finalizeOutput(usable: Boolean, error: String?) {
+        var uri: Uri? = null
+        var legacyPublished: File? = null
         try {
-            // stop() throws if the recorder never got a frame — a recording
-            // ended within a few hundred ms of starting. The file is useless
-            // either way; do not let it crash the app.
-            recorder?.stop()
-        } catch (e: Exception) {
-            Log.w(TAG, "recorder.stop() failed (recording was probably too short)", e)
-            outputFile?.delete()
-            lastOutputPath = null
+            if (usable && Build.VERSION.SDK_INT >= 29) {
+                check(contentResolver.update(outputUri!!, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null) == 1)
+                uri = outputUri
+            } else if (usable) {
+                @Suppress("DEPRECATION")
+                val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "SamaFox").apply { mkdirs() }
+                val published = File(directory, outputName)
+                legacyPublished = published
+                outputFile!!.copyTo(published, overwrite = false)
+                val scanned = CountDownLatch(1)
+                var scannedUri: Uri? = null
+                MediaScannerConnection.scanFile(this, arrayOf(published.absolutePath), arrayOf("video/mp4")) { _, result ->
+                    scannedUri = result; scanned.countDown()
+                }
+                scanned.await(10, TimeUnit.SECONDS)
+                uri = scannedUri
+            }
+        } catch (e: Exception) { Log.e("SamaFoxRecord", "gallery publish failed", e) }
+        if (uri == null) {
+            outputUri?.let { runCatching { contentResolver.delete(it, null, null) } }
+            legacyPublished?.delete()
         }
-        releaseAll()
+        outputFile?.delete()
+        val saved = uri?.toString()
+        main.post {
+            if (finished) return@post
+            finished = true
+            if (error != null) Log.w("SamaFoxRecord", error)
+            isRecording = false; starting = false; lastOutputPath = saved
+            startReply?.invoke(false); startReply = null
+            val replies = stopReplies.toList(); stopReplies.clear()
+            replies.forEach { it(saved) }
+            events?.invoke(mapOf("recording" to false, "uri" to saved,
+                "error" to if (saved == null) "تعذر حفظ التسجيل أو كان قصيراً جداً" else null))
+            projection?.unregisterCallback(projectionCallback)
+            projection?.stop(); projection = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
-    private fun releaseAll() {
-        try { recorder?.reset() } catch (_: Exception) {}
-        try { recorder?.release() } catch (_: Exception) {}
-        recorder = null
-
-        try { virtualDisplay?.release() } catch (_: Exception) {}
-        virtualDisplay = null
-
-        try { projection?.unregisterCallback(projectionCallback) } catch (_: Exception) {}
-        try { projection?.stop() } catch (_: Exception) {}
-        projection = null
-
-        isRecording = false
-
-        // minSdk is 24, so STOP_FOREGROUND_REMOVE (API 24) always exists here.
-        stopForeground(STOP_FOREGROUND_REMOVE)
-    }
-
-    private fun newOutputFile(): File {
-        val dir = File(
-            getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: filesDir,
-            "recordings",
-        )
-        if (!dir.exists()) dir.mkdirs()
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return File(dir, "samafox_$stamp.mp4")
+    private fun goForeground() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, "تسجيل الشاشة", NotificationManager.IMPORTANCE_LOW))
+        val stop = PendingIntent.getService(this, 0, Intent(this, ScreenRecordService::class.java).setAction(STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        @Suppress("DEPRECATION")
+        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else Notification.Builder(this)
+        val notification = builder.setContentTitle("جارٍ تسجيل الشاشة").setContentText("اضغط لإيقاف التسجيل وحفظه")
+            .setSmallIcon(android.R.drawable.presence_video_online).setContentIntent(stop).setOngoing(true).build()
+        // Android 14 throws for a microphone-type service without RECORD_AUDIO;
+        // the projection alone still records screen + app playback.
+        val micGranted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                (if (micGranted) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0))
+        else startForeground(NOTIFICATION, notification)
     }
 
     @Suppress("DEPRECATION")
-    private fun screenMetrics(): DisplayMetrics {
-        val metrics = DisplayMetrics()
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        wm.defaultDisplay.getRealMetrics(metrics)
-        return metrics
+    private fun metrics(): DisplayMetrics = DisplayMetrics().also {
+        (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(it)
     }
 
     override fun onDestroy() {
-        stopRecording()
+        encoder?.stop()
+        runCatching { unregisterReceiver(screenOff) }
+        if (instance === this) instance = null
         super.onDestroy()
     }
 }

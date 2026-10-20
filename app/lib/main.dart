@@ -1,4 +1,6 @@
 import 'services/effects_prefs.dart';
+import 'services/room_link_handler.dart';
+import 'services/screen_record_service.dart';
 import 'services/active_room.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -155,11 +157,22 @@ class SamaFoxApp extends ConsumerStatefulWidget {
 
 class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _globalNotificationSub;
+  StreamSubscription<Map<String, dynamic>>? _recordingSub;
   late final SocketService _socketService;
 
   @override
   void initState() {
     super.initState();
+    unawaited(RoomLinkHandler.instance.initialize(navigatorKey));
+    _recordingSub = ScreenRecordService.instance.events.listen((state) {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      final message = state['uri'] != null ? 'تم حفظ التسجيل في الاستوديو'
+          : state['error']?.toString() ??
+            (state['recording'] == true && state['roomAudioIncluded'] == false
+              ? ScreenRecordService.fallbackHint : null);
+      if (message != null) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(message)));
+    });
 
     // A10 — "طول ما المستخدم داخل التطبيق الشاشة ما تفصلش تلقائي", and
     // deliberately independent of the phone's own sleep timeout. Held for the
@@ -405,6 +418,8 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
 
   @override
   void dispose() {
+    RoomLinkHandler.instance.dispose();
+    _recordingSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _applyWakelock(false);
     _globalNotificationSub?.cancel();

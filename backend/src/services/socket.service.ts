@@ -5,6 +5,7 @@ import { Server, Socket } from 'socket.io';
 import { setGameBroadcastEmitter } from './gameBroadcast.service';
 import { verifyAccessToken } from '../utils/jwt';
 import prisma from '../utils/prisma';
+import { shareInviter } from './roomShare.service';
 import { readSettings, voiceEngineForRoom } from '../controllers/settings.controller';
 import { getBanState } from '../utils/banGuard';
 import { startBroadcast, endBroadcast } from './broadcast.service';
@@ -228,9 +229,9 @@ export function isHiddenInRoom(userId: number, roomId: number): boolean {
 /** Open room_entry_logs rows, closed (exitedAt) when the user leaves. */
 const openEntryLogs = new Map<string, number>();
 
-async function openEntryLog(uid: number, rid: number, hidden: boolean, lockBypass: string | null) {
+async function openEntryLog(uid: number, rid: number, hidden: boolean, lockBypass: string | null, invitedBy: number | null = null) {
   try {
-    const row = await (prisma as any).roomEntryLog.create({ data: { userId: uid, roomId: rid, hidden, lockBypass } });
+    const row = await prisma.roomEntryLog.create({ data: { userId: uid, roomId: rid, hidden, lockBypass, invitedBy } });
     openEntryLogs.set(`${rid}:${uid}`, row.id);
   } catch (e) {
     console.warn('[entry-log] write failed', { uid, rid, e: (e as Error).message });
@@ -1907,7 +1908,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
     // ----------------------------
     // Join room (chat/seats)
     // ----------------------------
-    socket.on('join_room', async ({ roomId, code, hiddenBypass, reconnectCount, lastDisconnectReason, seatLeaseVersion }: any) => {
+    socket.on('join_room', async ({ roomId, code, hiddenBypass, reconnectCount, lastDisconnectReason, seatLeaseVersion, shareToken }: any) => {
       try {
       const uid = socket.userId;
       const rid = toInt(roomId);
@@ -1976,8 +1977,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         .findUnique({
           where: { roomId_userId: { roomId: rid, userId: uid } },
           select: { expiresAt: true, reason: true },
-        })
-        .catch(() => null);
+        });
       if (ban && (!ban.expiresAt || ban.expiresAt > new Date())) {
         console.log('[join_denied]', { uid, rid, reason: 'banned', until: ban.expiresAt });
         socket.emit('join_denied', {
@@ -1991,6 +1991,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       }
 
       await sessionStartup;
+      const invitedBy = await shareInviter(shareToken, rid);
       if (!socket.connected) return;
       sweepSeatLeases(io);
       const locked = getLockedSeats(rid);
@@ -2036,8 +2037,8 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       }
 
       if (!alreadyInside) {
-        if (hiddenEntry || (lockBypass && lockBypass !== 'OWNER')) {
-          await openEntryLog(uid, rid, hiddenEntry, lockBypass);
+        if (invitedBy != null || hiddenEntry || (lockBypass && lockBypass !== 'OWNER')) {
+          await openEntryLog(uid, rid, hiddenEntry, lockBypass, invitedBy);
         }
       }
 

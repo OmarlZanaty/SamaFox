@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/direct_message.dart';
+import '../../services/room_link_handler.dart';
 import 'chat_ui_helpers.dart';
 import 'reaction_picker.dart';
 import 'voice_message_bubble.dart';
@@ -73,7 +74,24 @@ class MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: align,
           children: [
-            Text(
+            if (m.type == 'room_invite' && m.metadata != null) ...[
+              Text('${m.metadata!['inviterName'] ?? ''} يدعوك للانضمام إلى غرفة:',
+                  style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 13)),
+              if (m.metadata!['roomImageUrl'] is String)
+                Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Image.network(
+                  m.metadata!['roomImageUrl'] as String, height: 100, width: double.infinity,
+                  fit: BoxFit.cover, cacheWidth: 480,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.meeting_room, size: 48),
+                )),
+              Text('${m.metadata!['roomName'] ?? ''}',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+              Text('ID: ${m.metadata!['roomDisplayId'] ?? m.metadata!['roomId'] ?? ''}',
+                  style: TextStyle(color: isDark ? Colors.white60 : Colors.black54, fontSize: 12)),
+              TextButton.icon(onPressed: () {
+                final token = m.metadata!['token'];
+                if (token is String) RoomLinkHandler.instance.accept(token);
+              }, icon: const Icon(Icons.login), label: const Text('دخول الغرفة')),
+            ] else Text(
               m.text,
               style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
             ),

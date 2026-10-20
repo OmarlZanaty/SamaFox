@@ -87,6 +87,7 @@ import '../screens/wallet_screen.dart';
 import 'chat_screen.dart';
 import 'games_hub_screen.dart';
 import 'package:share_plus/share_plus.dart';
+import '../widgets/room_share_sheet.dart';
 import '../widgets/FramedAvatar.dart';
 import '../widgets/user_trail.dart';
 import '../screens/profile_screen.dart'; // adjust path to your project
@@ -183,6 +184,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// A11 — mirrors the native service so the menu entry reads correctly.
   bool _isScreenRecording = false;
+  bool _screenRecordBusy = false;
+  StreamSubscription<Map<String, dynamic>>? _recordingSub;
 
   int? _activeConversationId;
   int? _activeUserId;
@@ -2523,53 +2526,34 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
-  /// A11 — start/stop the in-app screen recording.
-  ///
-  /// The hint about the loudspeaker is shown BEFORE the first recording rather
-  /// than after: the mic is the only source Android will let the app record, so
-  /// on the earpiece the other speakers come out faint. Better to say so than
-  /// to let someone record five minutes and report it as broken.
+  /// Native completion is reported after the MP4 becomes visible in Gallery.
   Future<void> _toggleScreenRecording() async {
+    if (_screenRecordBusy) return;
+    _screenRecordBusy = true;
     final svc = ScreenRecordService.instance;
-
-    if (_isScreenRecording) {
-      final path = await svc.stop();
-
-      // A11 — two captures ran side by side for the length of the recording.
-      // Even sharing VOICE_COMMUNICATION, some devices hand the mic back in a
-      // state WebRTC does not notice, and the user stays silent to the room
-      // with no sign anything is wrong. Re-assert the seat's mic state so the
-      // track is put back the way it was.
-      try {
-        if (_audioService.isMicMuted) {
-          await _audioService.muteAudio();
-        } else {
-          await _audioService.unmuteAudio();
+    try {
+      if (_isScreenRecording) {
+        await svc.stop();
+        // A11 — some devices hand the mic back in a state WebRTC does not
+        // notice (fallback capture path); re-assert the seat's mic state.
+        try {
+          if (_audioService.isMicMuted) {
+            await _audioService.muteAudio();
+          } else {
+            await _audioService.unmuteAudio();
+          }
+        } catch (e) {
+          debugPrint('[ScreenRecord] mic re-assert failed: $e');
         }
-      } catch (e) {
-        debugPrint('[ScreenRecord] mic re-assert failed: $e');
+        return;
       }
-
-      if (!mounted) return;
-      setState(() => _isScreenRecording = false);
-      _showRoomSnack(
-        path == null ? 'التسجيل كان قصيراً جداً' : 'تم حفظ التسجيل',
-      );
-      return;
-    }
-
-    if (!AudioRoute.instance.speakerOn) {
-      _showRoomSnack(ScreenRecordService.speakerHint);
-    }
-
-    // false also means "the user declined the system dialog", which needs no
-    // message of its own.
-    final started = await svc.start();
-    if (!mounted) return;
-    if (started) {
-      setState(() => _isScreenRecording = true);
-      _showRoomSnack('بدأ تسجيل الشاشة');
-    }
+      final started = await svc.start();
+      if (!mounted) { if (started) await svc.stop(); return; }
+      if (started) {
+        setState(() => _isScreenRecording = true);
+        _showRoomSnack('بدأ تسجيل الشاشة');
+      }
+    } finally { _screenRecordBusy = false; }
   }
 
   /// A3 — flip between loudspeaker and earpiece for EVERYTHING: the room's
@@ -2800,9 +2784,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   void _shareRoom() {
-    final room = ref.read(roomsProvider).findById(widget.roomId);
-    final roomName = room?.name ?? 'SamaFox Room';
-    Share.share('Join my room on SamaFox\nRoom: $roomName\nID: ${widget.roomId}');
+    RoomShareSheet.show(context, widget.roomId);
   }
 
   void _openReportDialog(BuildContext context) {
@@ -2971,6 +2953,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     CrashReporter.breadcrumb('room ${widget.roomId} enter');
     CrashReporter.setRoom(widget.roomId);
     super.initState();
+    _recordingSub = ScreenRecordService.instance.events.listen((state) {
+      if (mounted) setState(() => _isScreenRecording = state['recording'] == true);
+    });
     AudioController.instance.initialize();
     AudioRoute.instance.register(_audioPlayer);
     // SPEC52 #3 — automatic routing needs BLUETOOTH_CONNECT on Android 12+;
@@ -3512,6 +3497,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
+    _recordingSub?.cancel();
+    unawaited(ScreenRecordService.instance.stop());
     // Close the room and dispose resources
     debugPrint('🟣 RoomScreen.dispose room=${widget.roomId} pip=$_handedOffToPip');
     CrashReporter.breadcrumb(
@@ -4446,7 +4433,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       await _toggleMicFromMenu();
                     }),
 
-                    roomMenuItem(Icons.share, "مشاركة", Colors.white70, () {
+                    roomMenuItem(Icons.share, "مشاركة الغرفة", Colors.white70, () {
                       Navigator.pop(context);
                       _shareRoom();
                     }),

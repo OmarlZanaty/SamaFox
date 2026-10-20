@@ -1,4 +1,5 @@
 import '../services/token_refresher.dart';
+import '../services/room_link_handler.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -96,6 +97,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   @override
   set state(AuthState value) {
     super.state = value;
+    if (!value.isAuthenticated) RoomLinkHandler.instance.signedOut();
     CrashReporter.setUser(value.user?.id);
   }
 

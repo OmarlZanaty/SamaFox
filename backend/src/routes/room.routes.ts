@@ -10,8 +10,12 @@ import {
 } from '../controllers/room.controller';
 import { authMiddleware, optionalAuth } from '../middlewares/auth.middleware';
 import prisma from '../utils/prisma';
+import { createRoomShare, resolveRoomShare, shareRateLimit } from '../controllers/roomShare.controller';
+import { idempotent } from '../middlewares/idempotency.middleware';
 
 const router = Router();
+router.get('/share/:token', authMiddleware, resolveRoomShare);
+router.post('/:roomId/share', authMiddleware, shareRateLimit, idempotent('room_share'), createRoomShare);
 
 /* ===========================
    ROOMS LISTING & DETAILS

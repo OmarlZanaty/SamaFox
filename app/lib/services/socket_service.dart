@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'room_share_service.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
@@ -1221,6 +1222,7 @@ class SocketService {
       'roomId': roomId,
       'userId': userId,
       'username': username,
+      if (RoomShareService.joinTokens[roomId] != null) 'shareToken': RoomShareService.joinTokens[roomId],
       if (code != null && code.isNotEmpty) 'code': code,
       if (hiddenBypass) 'hiddenBypass': true,
       // SPEC52 #5/#47/#48 — this client sends seat_heartbeat (the server stops

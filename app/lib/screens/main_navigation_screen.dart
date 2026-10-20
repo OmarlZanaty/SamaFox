@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/room_link_handler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:samafox/screens/games_hub_screen.dart';
 import '../providers/locale_provider.dart';
@@ -29,6 +30,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) RoomLinkHandler.instance.homeReady();
+    });
     _screens = [
       const HomeScreen(),           // Index 0
       const ProfileScreen(),        // Index 1

@@ -267,6 +267,7 @@ export async function getMessages(req: AuthedRequest, res: Response) {
       text: m.text,
       imageUrl: m.imageUrl,
       type: m.type,
+      metadata: m.metadata,
       audioUrl: (m as any).audioUrl ?? null,
       createdAt: m.createdAt.toISOString(),
       sender: m.sender,

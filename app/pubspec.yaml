@@ -38,6 +38,7 @@ dependencies:
   flutter_riverpod: ^2.4.10
 
   # Navigation
+  app_links: ^6.4.1
   go_router: ^13.0.0
 
   # Networking

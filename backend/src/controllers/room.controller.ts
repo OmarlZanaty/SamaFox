@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma';
+import { roomAdmission, shareInviter } from '../services/roomShare.service';
 import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
@@ -421,6 +422,8 @@ export const joinRoom = async (req: Request, res: Response) => {
 
     if (!room) return res.status(404).json({ error: 'Room not found' });
     if (!room.isActive) return res.status(400).json({ error: 'Room is not active' });
+    const admission = await roomAdmission(roomIdNum, userId);
+    if (admission.error) return res.status(403).json(admission.error);
 
     // The same locked-room rule the socket join enforces (2026-09-26): only
     // the owner enters without the PIN, unless a server-checked grant applies.
@@ -442,8 +445,13 @@ export const joinRoom = async (req: Request, res: Response) => {
 
     if (existing) return res.status(409).json({ error: 'Already a member of this room' });
 
-    const membership = await prisma.roomMember.create({
-      data: { userId, roomId: roomIdNum, role: 'member', isMuted: false },
+    const invitedBy = await shareInviter(req.body?.shareToken, roomIdNum);
+    const membership = await prisma.$transaction(async (tx) => {
+      const member = await tx.roomMember.create({
+        data: { userId, roomId: roomIdNum, role: 'member', isMuted: false },
+      });
+      if (invitedBy != null) await tx.roomEntryLog.create({ data: { userId, roomId: roomIdNum, invitedBy } });
+      return member;
     });
 
     return res.status(201).json(membership);

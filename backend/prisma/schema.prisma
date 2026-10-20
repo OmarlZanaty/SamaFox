@@ -1374,6 +1374,7 @@ model DirectMessage {
   senderId       Int
 
   text      String?
+  metadata  Json?
   imageUrl  String?
   type      String   @default("text")
   createdAt DateTime @default(now())
@@ -2248,6 +2249,7 @@ model RoomEntryLog {
   id         Int       @id @default(autoincrement())
   userId     Int
   roomId     Int
+  invitedBy  Int?
   hidden     Boolean   @default(false)
   lockBypass String? // OWNER | HIDDEN_MODE | ROOM_LOCK_BYPASS
   enteredAt  DateTime  @default(now())
@@ -2257,6 +2259,23 @@ model RoomEntryLog {
   @@index([userId, enteredAt])
   @@index([hidden, enteredAt])
   @@map("room_entry_logs")
+}
+
+model RoomShareToken {
+  id           Int       @id @default(autoincrement())
+  token        String    @unique
+  roomId       Int
+  inviterId    Int
+  roomName     String
+  roomImageUrl String?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP + '7 days'::interval)"))
+  revokedAt    DateTime?
+  useCount     Int       @default(0)
+  lastUsedAt   DateTime?
+
+  @@index([roomId, expiresAt])
+  @@map("room_share_tokens")
 }
 
 /// The one source of a host's target (التارجت). The app reads it from the
