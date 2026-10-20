@@ -1764,6 +1764,14 @@ export const buildTargetBalance = async (userId: number) => {
     }),
   );
 
+  // The app's تبديل/بيع dialogs have no agency picker — they act on
+  // `items[0]`. A وكيل holding two seats (e.g. a CHARGING one joined first and
+  // a HOSTING one later) had all his gifts on the second seat (giftWindow puts
+  // hosting first), so the dialog always offered 0 while the card showed the
+  // full balance (2026-10-16, #999999 "مهما رميت عليه دايما صفر"). Spendable
+  // seat first; the stable sort keeps joinedAt order on ties.
+  items.sort((a, b) => b.convertibleCoins - a.convertibleCoins);
+
   const totalEarned = items.reduce((s, i) => s + i.earnedCoins, 0);
   return { items, totalEarned, totalDollars: await coinsToDollars(totalEarned) };
 };
