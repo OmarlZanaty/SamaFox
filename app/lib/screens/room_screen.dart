@@ -8,6 +8,7 @@ import '../widgets/room/room_info_sheet.dart';
 import '../widgets/room/room_left_rail.dart';
 import '../widgets/room/agency_bell.dart';
 import '../widgets/room/room_cp_top.dart';
+import '../widgets/room/room_games_host.dart';
 import '../services/effects_prefs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -4231,78 +4232,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
   }
 
+  /// SPEC52 #11 — games in a ⅔-height sheet with ← / ✕; the room stays.
   void _openGamesSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.6, // ✅ 60% height
-          minChildSize: 0.4,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFF0F0F12),
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(22),
-                ),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 10),
-
-                  // drag handle
-                  Container(
-                    width: 46,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // header
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        Icon(Icons.sports_esports, color: Colors.white),
-                        SizedBox(width: 8),
-                        Text(
-                          "الألعاب",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // ✅ GAME SCREEN
-                  const Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(22),
-                      ),
-                      child: GamesHubScreen(),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
+    RoomGamesHost.show(context);
   }
 
   void _openMoreMenu(BuildContext context) {

@@ -1,3 +1,4 @@
+import '../widgets/room/room_games_host.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'games/aetherfall_screen.dart';
@@ -175,13 +176,17 @@ class _WithWinTicker extends StatelessWidget {
 }
 
 class GamesHubScreen extends ConsumerWidget {
-  const GamesHubScreen({super.key});
+  const GamesHubScreen({super.key, this.embedded = false});
+
+  /// SPEC52 #11 — inside the room's games sheet: no app bar (the sheet has
+  /// its own ← / ✕) and games open inside the sheet, scaled to it.
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: const Color(0xFF07030F),
-      appBar: AppBar(
+      appBar: embedded ? null : AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: const Text(
@@ -273,7 +278,10 @@ class GamesHubScreen extends ConsumerWidget {
       default:
         return;
     }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    Navigator.push(
+      context,
+      embedded ? roomGameRoute(screen) : MaterialPageRoute(builder: (_) => screen),
+    );
   }
 }
 
