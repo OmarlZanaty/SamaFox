@@ -1,3 +1,4 @@
+import 'link_phone_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -409,6 +410,28 @@ class SettingsScreen extends ConsumerWidget {
                     SnackBar(content: Text(strings.searchComingSoon)),
                   );
                 },
+                theme: theme,
+                isDark: isDark,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // SPEC52 #37 — Account: link a phone number to this account.
+          _buildSectionTitle('الحساب', theme, isDark),
+          const SizedBox(height: 12),
+          _buildSettingsCard(
+            theme: theme,
+            isDark: isDark,
+            children: [
+              _buildSettingsTile(
+                icon: Icons.phone_iphone_outlined,
+                title: 'ربط رقم الهاتف',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LinkPhoneScreen()),
+                ),
                 theme: theme,
                 isDark: isDark,
               ),

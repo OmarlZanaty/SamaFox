@@ -35,6 +35,20 @@ router.post('/google/mobile', authLimiter, deviceBanMiddleware, authController.g
 router.post('/refresh', refreshIpLimiter, refreshTokenLimiter, authController.refreshToken);
 router.post('/facebook', deviceBanMiddleware, authController.facebookLogin);
 router.get('/me', authMiddleware, authController.getCurrentUser);
+
+// SPEC52 #37 — link a verified phone number to the current account.
+const phoneRoute = (fn: (req: any) => Promise<unknown>) => async (req: any, res: any) => {
+  try {
+    return res.json({ success: true, data: await fn(req) });
+  } catch (e: any) {
+    if (e?.name === 'Error' && e?.status) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+    console.error('[auth.phone]', e);
+    return res.status(500).json({ success: false, message: 'تعذر إتمام العملية' });
+  }
+};
+router.get('/phone', authMiddleware, phoneRoute(async (req) => (await import('../services/phoneLink.service')).linkedPhone(req.userId)));
+router.post('/phone/send-otp', authMiddleware, authLimiter, phoneRoute(async (req) => (await import('../services/phoneLink.service')).sendPhoneOtp(req.userId, req.body?.phone)));
+router.post('/phone/verify', authMiddleware, authLimiter, phoneRoute(async (req) => (await import('../services/phoneLink.service')).verifyPhoneOtp(req.userId, req.body?.phone, req.body?.code)));
 router.post('/logout', authMiddleware, authController.logout);
 
 export default router;

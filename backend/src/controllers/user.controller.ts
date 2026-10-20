@@ -194,7 +194,9 @@ export const updateProfile = async (req: Request, res: Response) => {
       if (denial) return res.status(403).json({ success: false, code: 'ANIMATED_AVATAR_NOT_ALLOWED', message: denial });
       data.avatarUrl = avatarUrl;
     }
-    if (phone) data.phone = phone;
+    // SPEC52 #37 — a phone number is linked only through the OTP flow
+    // (/auth/phone/*). Accepting it here would let anyone claim any number.
+    void phone;
     if (age !== undefined && age !== null) {
       const a = Number(age);
       if (Number.isFinite(a) && a >= 1 && a <= 120) data.age = Math.floor(a);
