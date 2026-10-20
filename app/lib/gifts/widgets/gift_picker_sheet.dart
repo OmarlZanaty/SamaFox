@@ -555,7 +555,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
             ),
             const SizedBox(height: 2),
             Text(
-              r.seatNumber != null ? '${r.seatNumber}' : r.name,
+              r.seatNumber == 0 ? 'المالك' : (r.seatNumber != null ? '${r.seatNumber}' : r.name),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,

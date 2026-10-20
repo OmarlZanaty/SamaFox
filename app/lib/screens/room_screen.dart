@@ -5156,30 +5156,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         // 🎁 GIFT
                         GestureDetector(
                           onTap: () {
-                            final state = ref.read(roomControllerProvider(widget.roomId));
                             final auth = ref.read(authStateProvider);
                             final me = auth.user;
                             if (me == null) return;
-                            // Collect all room users (incl. seated + online), self always included.
-                            final ids = <int>{};
-                            final list = <GiftRecipient>[];
-                            void add(int id, String name, String? avatarUrl, {int? seatNumber}) {
-                              if (ids.add(id)) {
-                                list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl, seatNumber: seatNumber));
-                              }
-                            }
-                            // Self first
-                            add(me.id, me.name ?? 'أنا', me.avatarUrl);
-                            // Seated users
-                            for (final s in state.seats.values) {
-                              if (s.userId != null) {
-                                add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl, seatNumber: s.seatNumber);
-                              }
-                            }
-                            // Other online users
-                            for (final u in state.onlineUsers.values) {
-                              add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
-                            }
+                            // SPEC52 #16 — seats (me included, with my seat), the
+                            // absent owner's seat, then everyone else online.
+                            final list = _giftRecipients();
                             GiftPickerSheet.show(
                               context,
                               repository: _giftRepository,
@@ -5526,22 +5508,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       );
       return;
     }
-    final me = auth.user!;
-    final state = ref.read(roomControllerProvider(widget.roomId));
-    final ids = <int>{};
-    final list = <GiftRecipient>[];
-    void add(int id, String name, String? avatarUrl, {int? seatNumber}) {
-      if (ids.add(id)) list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl, seatNumber: seatNumber));
-    }
-    // Pre-selected user first, self, then everyone else
-    add(r.id, r.name, r.avatarUrl);
-    add(me.id, me.name ?? 'أنا', me.avatarUrl);
-    for (final s in state.seats.values) {
-      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl, seatNumber: s.seatNumber);
-    }
-    for (final u in state.onlineUsers.values) {
-      add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
-    }
+    // Pre-selected user first, then the seats / owner / others (SPEC52 #16).
+    final list = _giftRecipients(firstId: r.id, firstName: r.name, firstAvatar: r.avatarUrl);
 
     GiftPickerSheet.show(
       context,
@@ -7298,6 +7266,49 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
 
+
+  /// SPEC52 #16 — ONE recipient list for every gift entry point, built from
+  /// the room's SEATS (not only who is online):
+  ///   1. the pre-selected person (if any),
+  ///   2. every occupied mic in seat order — me included, WITH my seat number
+  ///      (self used to be added first without it, so "المايكات" skipped me),
+  ///   3. the room owner even when he is not here, as the owner's seat
+  ///      (seatNumber 0). He is a real account, so a gift to him lands in his
+  ///      own balance like any other,
+  ///   4. everyone else online.
+  /// «الجميع على المايك» therefore = all occupied mics + the absent owner.
+  List<GiftRecipient> _giftRecipients({int? firstId, String? firstName, String? firstAvatar}) {
+    final me = ref.read(authStateProvider).user;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final room = ref.read(roomsProvider).findById(widget.roomId);
+    final ids = <int>{};
+    final list = <GiftRecipient>[];
+    final seatOf = <int, int>{
+      for (final s in state.seats.values)
+        if (s.userId != null) s.userId!: s.seatNumber,
+    };
+    void add(int id, String name, String? avatarUrl, {int? seatNumber}) {
+      if (id <= 0 || !ids.add(id)) return;
+      list.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl, seatNumber: seatNumber ?? seatOf[id]));
+    }
+
+    if (firstId != null) add(firstId, firstName ?? 'User #$firstId', firstAvatar);
+    final seated = state.seats.values.where((s) => s.userId != null).toList()
+      ..sort((a, b) => a.seatNumber.compareTo(b.seatNumber));
+    for (final s in seated) {
+      add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl, seatNumber: s.seatNumber);
+    }
+    final ownerId = state.ownerId != 0 ? state.ownerId : (room?.ownerId ?? room?.owner?.id ?? 0);
+    if (ownerId > 0 && !seatOf.containsKey(ownerId)) {
+      add(ownerId, room?.owner?.name ?? 'صاحب الغرفة', room?.owner?.avatarUrl, seatNumber: 0);
+    }
+    if (me != null) add(me.id, me.name ?? 'أنا', me.avatarUrl);
+    for (final u in state.onlineUsers.values) {
+      add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
+    }
+    return list;
+  }
+
   /// Open the gift sheet for sending gifts
   void _openGiftSheet(BuildContext context) {
     final auth = ref.read(authStateProvider);
@@ -7310,22 +7321,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
-    final me = auth.user!;
-    final state = ref.read(roomControllerProvider(widget.roomId));
-
-    // All room users (incl. self). Self listed first.
-    final ids = <int>{};
-    final recipients = <GiftRecipient>[];
-    void add(int id, String name, String? avatarUrl) {
-      if (ids.add(id)) recipients.add(GiftRecipient(id: id, name: name, avatarUrl: avatarUrl));
-    }
-    add(me.id, me.name ?? 'أنا', me.avatarUrl);
-    for (final s in state.seats.values) {
-      if (s.userId != null) add(s.userId!, s.username ?? 'User #${s.userId}', s.avatarUrl);
-    }
-    for (final u in state.onlineUsers.values) {
-      add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
-    }
+    final recipients = _giftRecipients();
 
     GiftPickerSheet.show(
       context,
