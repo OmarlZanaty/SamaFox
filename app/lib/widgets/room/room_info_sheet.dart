@@ -188,7 +188,10 @@ class RoomInfoSheet extends StatelessWidget {
           children: [
             Icon(icon, color: const Color(0xFFFFD54F), size: 20),
             const SizedBox(height: 4),
-            Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+            // "3 / 10" must read left-to-right even inside the RTL sheet.
+            Text(value,
+                textDirection: TextDirection.ltr,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
             Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11)),
           ],
         ),
