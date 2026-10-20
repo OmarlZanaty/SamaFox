@@ -28,57 +28,47 @@ router.post("/buy", buyLimiter, idempotent("store_buy"), async (req: any, res) =
       if (!item) return { ok: false as const, status: 404, message: "المنتج غير موجود" };
       if (!item.isPurchasable) return { ok: false as const, status: 403, message: "هذا المنتج غير متاح للشراء" };
 
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-        select: { coinsBalance: true },
+      // SPEC52 #51 — decide ownership FIRST (a failed INSERT aborts a
+      // PostgreSQL transaction, so "create then catch P2002" could never
+      // reach the rental-extension branch), then one guarded debit, the
+      // ledger row and the grant — all or nothing.
+      const expiresAt = expiryFromDuration((item as any).durationDays);
+      const existing = await tx.userItem.findUnique({
+        where: { userId_itemId: { userId, itemId } },
+        select: { id: true, expiresAt: true },
       });
-
-      if (!user) return { ok: false as const, status: 404, message: "المستخدم غير موجود" };
-
-      const itemPrice = BigInt(item.priceCoins);
-      const userBalance = BigInt(user.coinsBalance);
-      if (userBalance < itemPrice) {
-        return { ok: false as const, status: 400, message: "الرصيد غير كافٍ" };
+      const stillOwned = existing && ((existing as any).expiresAt === null || new Date((existing as any).expiresAt) > new Date());
+      // A permanent copy (or a permanent purchase over a live one) — nothing to sell.
+      if (stillOwned && (!expiresAt || (existing as any).expiresAt === null)) {
+        return { ok: false as const, status: 409, message: "تم الشراء مسبقاً" };
       }
 
-      await tx.user.update({
-        where: { id: userId },
-        data: { coinsBalance: { decrement: Number(itemPrice) } },
+      const debited = await tx.user.updateMany({
+        where: { id: userId, coinsBalance: { gte: item.priceCoins } },
+        data: { coinsBalance: { decrement: item.priceCoins } },
+      });
+      if (debited.count !== 1) return { ok: false as const, status: 400, message: "الرصيد غير كافٍ" };
+      await tx.transaction.create({
+        data: { userId, type: "STORE_PURCHASE", amountCoins: item.priceCoins, status: "completed", externalId: `store_item:${itemId}` },
       });
 
-      // Time-limited products: stamp the term at purchase. Re-buying an
-      // expired item is allowed, and buying one you already own EXTENDS it
-      // rather than failing, which is what a rental is supposed to do.
-      const expiresAt = expiryFromDuration((item as any).durationDays);
-      try {
+      if (!existing) {
         const userItem = await tx.userItem.create({
           data: { userId, itemId, expiresAt, source: "purchase" } as any,
         });
         return { ok: true as const, userItemId: userItem.id, expiresAt };
-      } catch (err: any) {
-        if (err?.code === "P2002") {
-          const existing = await tx.userItem.findUnique({
-            where: { userId_itemId: { userId, itemId } },
-            select: { id: true, expiresAt: true },
-          });
-          // A permanent copy is already owned — nothing to sell them.
-          if (!expiresAt || !existing || (existing as any).expiresAt === null) {
-            return { ok: false as const, status: 409, message: "تم الشراء مسبقاً" };
-          }
-          const base = new Date(
-            Math.max(Date.now(), new Date((existing as any).expiresAt).getTime()),
-          );
-          const extended = new Date(
-            base.getTime() + Number((item as any).durationDays) * 24 * 60 * 60 * 1000,
-          );
-          await tx.userItem.update({
-            where: { id: existing.id },
-            data: { expiresAt: extended } as any,
-          });
-          return { ok: true as const, userItemId: existing.id, expiresAt: extended };
-        }
-        throw err;
       }
+      // Re-buying a rental EXTENDS it from whichever is later: now or its end.
+      // An expired row is simply restarted.
+      const base = new Date(Math.max(Date.now(), existing.expiresAt ? new Date((existing as any).expiresAt).getTime() : 0));
+      const renewed = stillOwned
+        ? new Date(base.getTime() + Number((item as any).durationDays) * 24 * 60 * 60 * 1000)
+        : expiresAt;
+      await tx.userItem.update({
+        where: { id: existing.id },
+        data: { expiresAt: renewed, status: "active", source: "purchase" } as any,
+      });
+      return { ok: true as const, userItemId: existing.id, expiresAt: renewed };
     });
 
     if (!purchaseResult.ok) {
@@ -139,21 +129,42 @@ router.post("/send", buyLimiter, idempotent("store_send"), async (req: any, res)
       const sender = await tx.user.findUnique({ where: { id: senderId }, select: { coinsBalance: true, name: true } });
       if (!sender) return { ok: false as const, status: 404, message: "المرسل غير موجود" };
 
-      if (BigInt(sender.coinsBalance) < BigInt(item.priceCoins)) {
-        return { ok: false as const, status: 400, message: "الرصيد غير كافٍ" };
+      // SPEC52 #51 — the sender used to pay even when the recipient already
+      // owned the product (upsert with an empty update). Decide first, then
+      // one guarded debit + ledger + grant in the same transaction.
+      const expiresAt = expiryFromDuration((item as any).durationDays);
+      const owned = await tx.userItem.findUnique({
+        where: { userId_itemId: { userId: toUserId, itemId } },
+        select: { id: true, expiresAt: true },
+      });
+      const stillOwned = owned && ((owned as any).expiresAt === null || new Date((owned as any).expiresAt) > new Date());
+      if (stillOwned && (!expiresAt || (owned as any).expiresAt === null)) {
+        return { ok: false as const, status: 409, message: "المستلم يملك هذا المنتج بالفعل" };
       }
 
-      await tx.user.update({
-        where: { id: senderId },
+      const debited = await tx.user.updateMany({
+        where: { id: senderId, coinsBalance: { gte: item.priceCoins } },
         data: { coinsBalance: { decrement: item.priceCoins } },
       });
-
-      // Grant to recipient; tolerate them already owning it.
-      await tx.userItem.upsert({
-        where: { userId_itemId: { userId: toUserId, itemId } },
-        update: {},
-        create: { userId: toUserId, itemId, source: "gift", grantedBy: senderId } as any,
+      if (debited.count !== 1) return { ok: false as const, status: 400, message: "الرصيد غير كافٍ" };
+      await tx.transaction.create({
+        data: { userId: senderId, type: "STORE_SEND", amountCoins: item.priceCoins, status: "completed", externalId: `store_item:${itemId}:to:${toUserId}` },
       });
+
+      if (!owned) {
+        await tx.userItem.create({
+          data: { userId: toUserId, itemId, expiresAt, source: "gift", grantedBy: senderId } as any,
+        });
+      } else {
+        const base = new Date(Math.max(Date.now(), owned.expiresAt ? new Date((owned as any).expiresAt).getTime() : 0));
+        await tx.userItem.update({
+          where: { id: owned.id },
+          data: {
+            expiresAt: stillOwned ? new Date(base.getTime() + Number((item as any).durationDays) * 86_400_000) : expiresAt,
+            status: "active", source: "gift", grantedBy: senderId,
+          } as any,
+        });
+      }
 
       return {
         ok: true as const,
