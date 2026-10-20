@@ -153,10 +153,14 @@ class _MusicPlayerBarState extends ConsumerState<MusicPlayerBar> {
                       ),
                   ],
                 ),
+                const SizedBox(height: 3),
+                // SPEC52 #21 — progress of the current track.
+                _MusicProgress(notifier: notifier),
                 const SizedBox(height: 2),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
+                    _ctrl(Icons.volume_up_rounded, 'مستوى الصوت', () => _openVolume(notifier)),
                     _ctrl(Icons.fast_rewind, 'السابق', notifier.previous),
                     _ctrl(
                       Icons.play_arrow,
@@ -176,6 +180,26 @@ class _MusicPlayerBarState extends ConsumerState<MusicPlayerBar> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openVolume(RoomMusicNotifier notifier) {
+    double v = notifier.localVolume;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2A1655),
+        title: const Text('صوت الموسيقى', style: TextStyle(color: Colors.white, fontSize: 15)),
+        content: StatefulBuilder(
+          builder: (ctx, set) => Slider(
+            value: v,
+            onChanged: (x) {
+              set(() => v = x);
+              notifier.setLocalVolume(x);
+            },
           ),
         ),
       ),
@@ -203,6 +227,71 @@ class _MusicPlayerBarState extends ConsumerState<MusicPlayerBar> {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// Thin progress line + "1:23 / 3:40" for the playing track (SPEC52 #21).
+class _MusicProgress extends StatefulWidget {
+  const _MusicProgress({required this.notifier});
+  final RoomMusicNotifier notifier;
+
+  @override
+  State<_MusicProgress> createState() => _MusicProgressState();
+}
+
+class _MusicProgressState extends State<_MusicProgress> {
+  Duration _pos = Duration.zero;
+  Duration _dur = Duration.zero;
+  StreamSubscription<Duration>? _p;
+  StreamSubscription<Duration>? _d;
+
+  @override
+  void initState() {
+    super.initState();
+    _p = widget.notifier.positionStream.listen((x) {
+      if (mounted) setState(() => _pos = x);
+    });
+    _d = widget.notifier.durationStream.listen((x) {
+      if (mounted) setState(() => _dur = x);
+    });
+    widget.notifier.currentDuration().then((x) {
+      if (mounted && x != null) setState(() => _dur = x);
+    });
+  }
+
+  @override
+  void dispose() {
+    _p?.cancel();
+    _d?.cancel();
+    super.dispose();
+  }
+
+  String _fmt(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _dur.inMilliseconds;
+    final value = total <= 0 ? 0.0 : (_pos.inMilliseconds / total).clamp(0.0, 1.0);
+    return Row(
+      children: [
+        Text(_fmt(_pos), style: const TextStyle(color: Colors.white54, fontSize: 9)),
+        const SizedBox(width: 4),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 3,
+              backgroundColor: Colors.white12,
+              color: Colors.greenAccent,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(_fmt(_dur), style: const TextStyle(color: Colors.white54, fontSize: 9)),
+      ],
     );
   }
 }

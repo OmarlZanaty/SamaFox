@@ -53,8 +53,13 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
   Future<void> _pickAndUpload() async {
     FilePickerResult? result;
     try {
+      // SPEC52 #21 — the system document picker (no storage permission is
+      // asked for), limited to the formats the room plays: MP3/M4A/WAV/AAC.
+      // file_picker copies the chosen document into the app cache, so even a
+      // Drive/Downloads content:// item comes back with a readable path.
       result = await FilePicker.platform.pickFiles(
-        type: FileType.audio,
+        type: FileType.custom,
+        allowedExtensions: const ['mp3', 'm4a', 'wav', 'aac'],
         allowMultiple: true,
       );
     } catch (e) {
@@ -70,7 +75,16 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
 
     for (final file in result.files) {
       final path = file.path;
-      if (path == null || path.isEmpty) continue;
+      if (path == null || path.isEmpty) {
+        // Used to be skipped silently, which looked like "the picker does
+        // nothing". Say why instead.
+        _snack('تعذر قراءة الملف "${file.name}" — اختره من مدير الملفات', error: true);
+        continue;
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        _snack('الملف "${file.name}" أكبر من 25MB', error: true);
+        continue;
+      }
       final title = file.name.replaceAll(RegExp(r'\.[^.]+$'), '');
       final track = await notifier.upload(path: path, title: title);
       if (!mounted) return;

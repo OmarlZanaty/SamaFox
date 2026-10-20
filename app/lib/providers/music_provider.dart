@@ -327,7 +327,22 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
   void resync() => _socket.emit('music_sync', {'roomId': roomId});
 
   void _onRoomMute() {
-    unawaited(_player.setVolume(AudioRoute.instance.roomMuted.value ? 0 : 1).catchError((_) {}));
+    unawaited(_player.setVolume(AudioRoute.instance.roomMuted.value ? 0 : _localVolume).catchError((_) {}));
+  }
+
+  // SPEC52 #21 — progress and this listener's own volume.
+  double _localVolume = 1.0;
+  double get localVolume => _localVolume;
+  Stream<Duration> get positionStream => _player.onPositionChanged;
+  Stream<Duration> get durationStream => _player.onDurationChanged;
+  Future<Duration?> currentPosition() => _player.getCurrentPosition();
+  Future<Duration?> currentDuration() => _player.getDuration();
+
+  Future<void> setLocalVolume(double v) async {
+    _localVolume = v.clamp(0.0, 1.0);
+    if (!AudioRoute.instance.roomMuted.value) {
+      await _player.setVolume(_localVolume).catchError((_) {});
+    }
   }
 
   @override
