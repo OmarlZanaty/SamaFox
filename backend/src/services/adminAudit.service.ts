@@ -72,6 +72,33 @@ export const AUDIT_ACTIONS = {
   ROOM_CLOSE: 'ROOM_CLOSE',
   ROOM_ORDER_UPDATE: 'ROOM_ORDER_UPDATE',
   AGENCY_ACTION: 'AGENCY_ACTION',
+  // 2026-10-20 (SPEC52)
+  OWNER_PERMISSION_GRANT: 'OWNER_PERMISSION_GRANT',
+  OWNER_PERMISSION_REVOKE: 'OWNER_PERMISSION_REVOKE',
+  VIP_LEVEL_UPDATE: 'VIP_LEVEL_UPDATE',
+  VIP_NAME_COLOR_UPDATE: 'VIP_NAME_COLOR_UPDATE',
+  USER_VIP_CHANGE: 'USER_VIP_CHANGE',
+  USER_PROGRESSION_UPDATE: 'USER_PROGRESSION_UPDATE',
+  GATES_UPDATE: 'GATES_UPDATE',
+  ITEM_GRANT: 'ITEM_GRANT',
+  PRODUCT_CREATE: 'PRODUCT_CREATE',
+  PRODUCT_UPDATE: 'PRODUCT_UPDATE',
+  PRODUCT_DELETE: 'PRODUCT_DELETE',
+  GIFT_CREATE: 'GIFT_CREATE',
+  GIFT_UPDATE: 'GIFT_UPDATE',
+  GIFT_DELETE: 'GIFT_DELETE',
+  GIFT_CATEGORY_CREATE: 'GIFT_CATEGORY_CREATE',
+  GIFT_CATEGORY_UPDATE: 'GIFT_CATEGORY_UPDATE',
+  GIFT_CATEGORY_DELETE: 'GIFT_CATEGORY_DELETE',
+  GIFT_MOVE: 'GIFT_MOVE',
+  AGENCY_PROFILE_UPDATE: 'AGENCY_PROFILE_UPDATE',
+  STORE_CATEGORY_CREATE: 'STORE_CATEGORY_CREATE',
+  STORE_CATEGORY_UPDATE: 'STORE_CATEGORY_UPDATE',
+  STORE_CATEGORY_DELETE: 'STORE_CATEGORY_DELETE',
+  ROCKET_CONFIG_UPDATE: 'ROCKET_CONFIG_UPDATE',
+  ROCKET_REWARD: 'ROCKET_REWARD',
+  PK_CONFIG_UPDATE: 'PK_CONFIG_UPDATE',
+  PK_RESULT: 'PK_RESULT',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -88,6 +115,7 @@ export interface AdminAuditInput {
   reason?: string | null;
   sessionId?: string | null;
   userAgent?: string | null;
+  device?: string | null;
 }
 
 /** Minimal shape of the client the writer needs — the real prisma or a tx. */
@@ -95,12 +123,24 @@ export interface AuditWriter {
   adminAuditLog: { create: (args: { data: any }) => Promise<unknown> };
 }
 
-const json = (v: unknown) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v ?? null)));
+const json = (v: unknown) =>
+  v === undefined ? undefined : JSON.parse(JSON.stringify(v ?? null, (_k, x) => (typeof x === 'bigint' ? x.toString() : x)));
 
-export async function recordAdminAudit(input: AdminAuditInput, db: AuditWriter = prisma as any): Promise<void> {
-  try {
-    await db.adminAuditLog.create({
-      data: {
+/** Short device label from the User-Agent / X-Device header ("Android 14 · SM-A266B", "Chrome · Windows"). */
+export function deviceFrom(userAgent?: string | null, explicit?: string | null): string | null {
+  if (explicit) return String(explicit).slice(0, 120);
+  const ua = String(userAgent ?? '');
+  if (!ua) return null;
+  const android = /Android\s+([\d.]+);\s*([^;)]+)/.exec(ua);
+  if (android) return `Android ${android[1]} · ${(android[2] ?? '').trim()}`.slice(0, 120);
+  if (/Dart\//.test(ua)) return 'SamaFox app';
+  const browser = /(Edg|Chrome|Firefox|Safari)\//.exec(ua)?.[1] ?? 'Browser';
+  const os = /Windows|Mac OS X|Linux|iPhone|iPad/.exec(ua)?.[0] ?? '';
+  return `${browser === 'Edg' ? 'Edge' : browser}${os ? ' · ' + os : ''}`;
+}
+
+function auditData(input: AdminAuditInput) {
+  return {
         adminId: input.adminId,
         action: String(input.action),
         targetUserId: input.targetUserId ?? null,
@@ -112,11 +152,25 @@ export async function recordAdminAudit(input: AdminAuditInput, db: AuditWriter =
         reason: input.reason ? String(input.reason).slice(0, 500) : null,
         sessionId: input.sessionId ? String(input.sessionId).slice(0, 200) : null,
         userAgent: input.userAgent ? String(input.userAgent).slice(0, 300) : null,
-      },
-    });
+        device: deviceFrom(input.userAgent, input.device),
+  };
+}
+
+export async function recordAdminAudit(input: AdminAuditInput, db: AuditWriter = prisma as any): Promise<void> {
+  try {
+    await db.adminAuditLog.create({ data: auditData(input) });
   } catch (err) {
     console.error('[adminAudit] failed:', (err as Error).message);
   }
+}
+
+/**
+ * Mandatory audit (SPEC52 item 43): written with the caller's transaction and
+ * NOT swallowed — if the row cannot be written the whole change rolls back.
+ * Use for permissions, VIP config, prices and anything money-related.
+ */
+export async function recordAdminAuditStrict(db: AuditWriter, input: AdminAuditInput): Promise<void> {
+  await db.adminAuditLog.create({ data: auditData(input) });
 }
 
 /** Best-effort client IP for the audit row. */
@@ -131,12 +185,13 @@ export function requestIp(req: any): string | null {
  * any dashboard call can carry one; the session/device come from the headers
  * the dashboard sends (`X-Session-Id`) or, failing that, the JWT's jti.
  */
-export function auditContext(req: any): Pick<AdminAuditInput, 'ip' | 'reason' | 'sessionId' | 'userAgent'> {
+export function auditContext(req: any): Pick<AdminAuditInput, 'ip' | 'reason' | 'sessionId' | 'userAgent' | 'device'> {
   const reason = req?.body?.reason ?? req?.headers?.['x-admin-reason'] ?? null;
   return {
     ip: requestIp(req),
     reason: reason == null || reason === '' ? null : String(reason),
     sessionId: (req?.headers?.['x-session-id'] as string) ?? req?.tokenJti ?? null,
     userAgent: (req?.headers?.['user-agent'] as string) ?? null,
+    device: (req?.headers?.['x-device'] as string) ?? null,
   };
 }

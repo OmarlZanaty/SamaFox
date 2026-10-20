@@ -1,3 +1,4 @@
+import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import * as adminController from '../controllers/admin.controller';
@@ -43,8 +44,8 @@ router.get('/dashboard', adminController.getDashboardStats);
 
 // User management
 router.get('/users', adminController.getAllUsers);
-router.post('/users/:userId/coins/add', adminController.addCoins);
-router.post('/users/:userId/coins/remove', adminController.removeCoins);
+router.post('/users/:userId/coins/add', requireOwnerPermission('finance.coins'), adminController.addCoins);
+router.post('/users/:userId/coins/remove', requireOwnerPermission('finance.coins'), adminController.removeCoins);
 router.put('/users/:userId/admin', adminController.toggleAdminStatus);
 // 2026-08-23: the app issues PATCH here. Only PUT was registered, so every
 // in-app ban 404'd — the client's "السوبر ادمن يظهر له حظر المستخدم لكن الحظر
@@ -54,22 +55,22 @@ router.patch('/users/:userId/ban', adminController.toggleUserBan);
 router.patch('/users/:id/display-id', adminChangeUserDisplayId);
 
 // CP / target settings (professional defaults, admin-editable)
-router.patch('/settings', require('../controllers/settings.controller').updateSettings);
+router.patch('/settings', requireOwnerPermission('economy.settings'), require('../controllers/settings.controller').updateSettings);
 
 // Room management (super admin only — enforced in the controller, group 11)
 router.delete('/rooms/:roomId', adminController.deleteRoom);
 router.patch('/rooms/:roomId/active', adminController.setRoomActive);
 
 // ✅ ADD THIS BELOW
-router.delete('/products/:id', adminController.deleteProduct);
+router.delete('/products/:id', requireOwnerPermission('store.products'), adminController.deleteProduct);
 
 // Transactions
 router.get('/transactions', adminController.getAllTransactions);
 
 // Legacy-compatible gift management under /api/v1/admin/*
 router.get('/gifts', adminListGifts);
-router.post('/gifts', adminCreateGift);
-router.patch('/gifts/:id', adminUpdateGift);
-router.delete('/gifts/:id', adminDeleteGift);
+router.post('/gifts', requireOwnerPermission('gifts.prices'), adminCreateGift);
+router.patch('/gifts/:id', requireOwnerPermission('gifts.prices'), adminUpdateGift);
+router.delete('/gifts/:id', requireOwnerPermission('gifts.prices'), adminDeleteGift);
 
 export default router;

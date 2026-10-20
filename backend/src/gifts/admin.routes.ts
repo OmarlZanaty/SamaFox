@@ -1,3 +1,4 @@
+import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -16,8 +17,8 @@ const router = Router();
 
 router.use(authMiddleware, adminMiddleware);
 
-const adminRate = rateLimitMw('admin_write', (req) => req.userId ?? null);
-const uploadRate = rateLimitMw('upload', (req) => req.userId ?? null);
+const adminRate = [rateLimitMw('admin_write', (req) => req.userId ?? null), requireOwnerPermission('gifts.prices')];
+const uploadRate = [rateLimitMw('upload', (req) => req.userId ?? null), requireOwnerPermission('gifts.prices')];
 
 router.get('/', admin.listAll);
 // B4/B5/B6 — قوائم الهدايا. MUST stay above the '/:id' routes below, otherwise

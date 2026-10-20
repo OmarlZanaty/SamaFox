@@ -66,6 +66,7 @@
       المشرفون
     </a>
     <a href="#" class="nav-item" data-section="staff">👑 نظام الإدارة</a>
+    <a href="#" class="nav-item" data-section="perms" data-owner-only>🔐 الصلاحيات المالية</a>
     <a href="#" class="nav-item" data-section="rewards">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
       المكافآت
@@ -752,7 +753,7 @@
         <table id="vipTable">
           <thead>
             <tr>
-              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>سعر البيع</th><th>المدة</th><th>الشارة</th><th>إطار المقعد</th><th title="أقل مستوى مُفعّل يمنح الخاصية له ولما فوقه">صورة متحركة</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
+              <th>المستوى</th><th>الاسم</th><th>عتبة الشحن (coins)</th><th>سعر البيع</th><th>المدة</th><th>الشارة</th><th>إطار المقعد</th><th title="أقل مستوى مُفعّل يمنح الخاصية له ولما فوقه">صورة متحركة</th><th title="لون اسم المستخدم في كل مكان بالتطبيق">لون الاسم</th><th>المنتجات الممنوحة</th><th>إجراءات</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -1442,6 +1443,26 @@
       </div>
     </section>
 
+    <section class="section" id="section-perms">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">الصلاحيات المالية (المالك فقط)</h2>
+          <p class="section-sub">الأسعار والكوينز والشحن ووكالات الشحن والمتجر والهدايا والاقتصاد لا تُعطى تلقائياً لأي Manager / Super Admin / Admin — فقط بمنح صريح هنا. كل منح وسحب يُسجل في سجل المراجعة.</p>
+        </div>
+        <div class="section-actions"><button class="btn btn-outline" onclick="permsLoad()">تحديث</button></div>
+      </div>
+      <div id="permsBody" class="form-card">
+        <div class="form-row">
+          <input id="perm_user" class="form-input" placeholder="ID المشرف (Display ID أو الرقم الداخلي)" />
+          <select id="perm_key" class="form-input"></select>
+          <button class="btn btn-primary" onclick="permsGrant()">منح الصلاحية</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="permsTable"><thead><tr><th>#</th><th>المشرف</th><th>الصلاحية</th><th>منحها</th><th>التاريخ</th><th>الحالة</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="section-audit">
       <div class="section-header">
         <div>
@@ -1459,9 +1480,22 @@
             <option value="GAME_*">الألعاب</option>
             <option value="LUCKY_*">المحظوظ</option>
             <option value="ROOM_*">الغرف</option>
+            <option value="OWNER_PERMISSION_*">الصلاحيات المالية</option>
+            <option value="VIP_*">إعدادات VIP وألوان الأسماء</option>
+            <option value="USER_*">تغيير VIP/مستوى مستخدم</option>
+            <option value="GIFT_*">الهدايا وقوائمها</option>
+            <option value="PRODUCT_*">منتجات المتجر</option>
+            <option value="STORE_*">قوائم المتجر</option>
+            <option value="ITEM_*">منح المنتجات</option>
+            <option value="AGENCY_*">الوكالات</option>
+            <option value="ROCKET_*">الصاروخ</option>
+            <option value="PK_*">PK</option>
+            <option value="GATES_*">متطلبات VIP</option>
             <option value="DASHBOARD_*">عمليات أخرى في اللوحة</option>
           </select>
           <input id="au_user" class="form-input" placeholder="ID المستخدم المستهدف" />
+          <input id="au_admin" class="form-input" placeholder="ID المشرف (رقم داخلي)" />
+          <input id="au_type" class="form-input" placeholder="نوع الهدف (user, gift, vip_level…)" />
           <input id="au_from" type="date" class="form-input" />
           <input id="au_to" type="date" class="form-input" />
           <button class="btn btn-primary" onclick="auLoad(1)">عرض</button>
@@ -2124,8 +2158,9 @@
   <div id="uploadBarLabel" style="margin-bottom:6px">جارٍ الرفع…</div>
   <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
 </div>
-<script src="app.js?v=20261012"></script>
-<script src="economy-admin.js?v=20261012"></script>
+<script src="app.js?v=20261020"></script>
+<script src="economy-admin.js?v=20261020"></script>
 <script src="staff-admin.js?v=20261011"></script>
+<script src="spec52-admin.js?v=20261020"></script>
 </body>
 </html>

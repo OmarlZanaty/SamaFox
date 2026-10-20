@@ -7,7 +7,7 @@ import prisma from '../utils/prisma';
 import { probeGiftVideo, needsTranscode, transcodeToH264 } from '../gifts/videoValidate';
 import { getPublicBaseUrl } from '../utils/public-url';
 import { firstStr } from '../utils/http';
-import { canUseAnimatedAvatar, isAnimatedImage } from '../services/animatedAvatar.service';
+import { canUseAnimatedAvatar, isAnimatedUpload } from '../services/animatedAvatar.service';
 /**
  * Upload a general image (for rooms, gifts, etc.)
  * Returns the image URL that can be used in the application
@@ -34,7 +34,7 @@ export const uploadImage = async (req: Request, res: Response) => {
     const uploaderId = (req as any).userId as number | undefined;
     if (
       uploaderId &&
-      isAnimatedImage({ filename: file.filename, mimetype: file.mimetype })
+      isAnimatedUpload({ filename: file.filename, mimetype: file.mimetype, filePath: file.path })
     ) {
       const uploader = await prisma.user.findUnique({
         where: { id: uploaderId },
@@ -266,7 +266,7 @@ if (!userId) {
     // A16 - an animated avatar is a VIP perk configured per tier in the
     // dashboard. Checked here, at the only place an avatar file enters the
     // system, so a client that skips the UI gate still cannot use one.
-    if (isAnimatedImage({ filename: file.filename, mimetype: file.mimetype })) {
+    if (isAnimatedUpload({ filename: file.filename, mimetype: file.mimetype, filePath: file.path })) {
       const { allowed, minLevel } = await canUseAnimatedAvatar(userId);
       if (!allowed) {
         try {

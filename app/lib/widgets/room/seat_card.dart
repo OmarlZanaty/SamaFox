@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../user_name_text.dart';
 import '../../services/socket_service.dart';
 import '../FramedAvatar.dart';
 
@@ -151,9 +152,10 @@ class SeatCard extends StatelessWidget {
                   ? Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    // ✅ Show username if seat is taken
+                  UserNameText(
+                    // ✅ Show username if seat is taken — in his VIP colour (SPEC52 #7)
                     username,
+                    nameColor: seat.nameColor,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import '../widgets/user_name_text.dart';
 
 import '../widgets/vip_badge.dart';
 import '../widgets/cp_relationship.dart';
@@ -1143,8 +1144,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     _buildProfileAvatar(user, context, isOwnProfile: isOwnProfile),
                     const SizedBox(height: 8),
 
-                    Text(
+                    UserNameText(
                       user.name,
+                      nameColor: user.nameColor,
+                      nameGradient: user.nameGradient,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 24,

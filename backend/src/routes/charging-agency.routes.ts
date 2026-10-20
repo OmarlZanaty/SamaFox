@@ -1,3 +1,4 @@
+import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import {
@@ -36,9 +37,9 @@ router.get('/my/topups', authMiddleware, myTopupRequests);
 
 // Admin
 router.get('/admin/topups', authMiddleware, adminListTopups);
-router.patch('/topup/:id/review', authMiddleware, idempotent('agency_topup_review'), reviewTopupRequest);
+router.patch('/topup/:id/review', authMiddleware, requireOwnerPermission('finance.recharge'), idempotent('agency_topup_review'), reviewTopupRequest);
 
-router.patch('/:id/balance', authMiddleware, adminAdjustAgencyBalance);
+router.patch('/:id/balance', authMiddleware, requireOwnerPermission('finance.charging_agency'), adminAdjustAgencyBalance);
 router.patch('/:id/status', authMiddleware, updateChargingAgencyStatus);
 
 export default router;

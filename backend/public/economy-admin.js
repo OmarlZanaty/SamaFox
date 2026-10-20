@@ -609,6 +609,8 @@
     const q = new URLSearchParams({ page: String(page || 1) });
     if (val("au_action")) q.set("action", val("au_action"));
     if (val("au_user")) q.set("user", val("au_user"));
+    if (val("au_admin")) q.set("admin", val("au_admin"));
+    if (val("au_type")) q.set("targetType", val("au_type"));
     if (val("au_from")) q.set("from", val("au_from"));
     if (val("au_to")) q.set("to", new Date(new Date(val("au_to")).getTime() + 86_400_000).toISOString().slice(0, 10));
     const res = await call("/admin-dashboard/audit-log?" + q.toString());
@@ -620,7 +622,7 @@
         <td><strong>${esc(r.action)}</strong></td>
         <td>${esc(r.targetType || "")} ${esc(r.targetId || "")}${r.targetUser ? `<div class="cell-muted">${esc(r.targetUser.name || "")} · ID ${esc(r.targetUser.displayId ?? r.targetUser.id)}</div>` : ""}</td>
         <td>${j(r.before)}</td><td>${j(r.after)}</td><td>${esc(r.reason || "—")}</td>
-        <td class="cell-muted">${esc(r.ip || "")}<div>${esc((r.userAgent || "").slice(0, 60))}</div></td></tr>`).join("");
+        <td class="cell-muted">${esc(r.ip || "")}<div>${esc(r.device || (r.userAgent || "").slice(0, 60))}</div></td></tr>`).join("");
     const pages = Math.max(1, Math.ceil(d.total / 50));
     $("auMeta").innerHTML = `${n(d.total)} عملية · صفحة ${d.page} من ${pages} ` +
       (d.page > 1 ? `<button class="btn btn-outline btn-sm" onclick="auLoad(${d.page - 1})">السابق</button>` : "") +

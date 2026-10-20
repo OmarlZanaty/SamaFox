@@ -1,3 +1,4 @@
+import { withNameStyle } from '../services/vipStyle.service';
 // File: src/controllers/auth.controller.ts
 
 import { Request, Response } from 'express';
@@ -97,7 +98,7 @@ const isValidGender = (gender?: string) => {
 
 const formatUserResponse = (user: any) => {
   const { passwordHash, ...safe } = user;
-  return safe;
+  return withNameStyle(safe);
 };
 
 async function createUserWithDisplayId(

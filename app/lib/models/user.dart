@@ -38,6 +38,12 @@ class User {
 
   final String? vipExpiresAt;
 
+  /// SPEC52 #7 — name colour of this user's active VIP tier, decided by the
+  /// server ("#RRGGBB"/"#AARRGGBB"); null = default colour. nameGradient is an
+  /// optional 2–4 colour list (future).
+  final String? nameColor;
+  final List<String>? nameGradient;
+
   @JsonKey(defaultValue: false)
   final bool? isAdmin;
   /// قفل الرسائل الخاصة — public | friends | paid, and the fee for `paid`.
@@ -106,6 +112,8 @@ class User {
     this.coinsBalance,
     this.vipLevel,
     this.vipExpiresAt,
+    this.nameColor,
+    this.nameGradient,
     this.isAdmin,
     this.dmPrivacy,
     this.dmPriceCoins,
@@ -158,6 +166,8 @@ class User {
 
       vipLevel: asInt(source['vipLevel']),
       vipExpiresAt: source['vipExpiresAt']?.toString(),
+      nameColor: source['nameColor']?.toString(),
+      nameGradient: (source['nameGradient'] as List?)?.map((e) => e.toString()).toList(),
       isAdmin: asBool(source['isAdmin']),
       dmPrivacy: source['dmPrivacy']?.toString(),
       dmPriceCoins: source['dmPriceCoins'] == null ? null : asInt(source['dmPriceCoins']),
@@ -219,6 +229,8 @@ class User {
     int? coinsBalance,
     int? vipLevel,
     String? vipExpiresAt,
+    String? nameColor,
+    List<String>? nameGradient,
     bool? isAdmin,
     bool? isOnline,
     int? followersCount,
@@ -257,6 +269,8 @@ class User {
       coinsBalance: coinsBalance ?? this.coinsBalance,
       vipLevel: vipLevel ?? this.vipLevel,
       vipExpiresAt: vipExpiresAt ?? this.vipExpiresAt,
+      nameColor: nameColor ?? this.nameColor,
+      nameGradient: nameGradient ?? this.nameGradient,
       isAdmin: isAdmin ?? this.isAdmin,
       dmPrivacy: dmPrivacy,
       dmPriceCoins: dmPriceCoins,

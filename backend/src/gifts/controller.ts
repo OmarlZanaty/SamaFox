@@ -1,3 +1,4 @@
+import { withNameStyle } from '../services/vipStyle.service';
 import type { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { sendGiftAtomic, GiftSendError } from './giftService';
@@ -464,7 +465,7 @@ async function buildSupportersBoard(opts: { roomId?: number; limit: number; sinc
 
   return rows.map((r, i) => ({
     rank: i + 1,
-    user: byId.get(r.senderId) ?? { id: r.senderId, name: 'Unknown', avatarUrl: null, displayId: null, level: 1, vipLevel: 0 },
+    user: withNameStyle(byId.get(r.senderId) ?? { id: r.senderId, name: 'Unknown', avatarUrl: null, displayId: null, level: 1, vipLevel: 0 }),
     coins: Number(r._sum.totalCoins ?? 0),
     gifts: Number(r._sum.quantity ?? 0),
   }));

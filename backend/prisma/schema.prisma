@@ -44,6 +44,10 @@ model User {
   // and super-admins (#23). A plain isAdmin can use the dashboard but cannot
   // manage the admin roster.
   isSuperAdmin             Boolean                   @default(false)
+  // SPEC52 #42 — the Owner: full control, and the only one who issues the
+  // financial permissions in admin_permission_grants. While no account has it,
+  // super-admins act as owner (ownerPermissions.service bootstrap rule).
+  isOwner                  Boolean                   @default(false)
   isBanned                 Boolean                   @default(false)
   bannedAt                 DateTime?
   banReason                String?
@@ -705,6 +709,10 @@ model VipLevelConfig {
   // dashboard switches on per tier ("مثلاً VIP10 وما فوق"). Off everywhere by
   // default, so no existing tier silently gains the permission.
   allowAnimatedAvatar Boolean  @default(false)
+  // SPEC52 #7 — name colour of users at this tier, "#RRGGBB" / "#AARRGGBB".
+  // nameGradient (optional, future) = ["#hex", "#hex", …].
+  nameColor           String?
+  nameGradient        Json?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -1661,6 +1669,7 @@ model AdminAuditLog {
   reason       String?
   sessionId    String?
   userAgent    String?
+  device       String?
   createdAt    DateTime @default(now())
 
   @@index([adminId, createdAt])
@@ -2373,4 +2382,19 @@ model FruitWheelStake {
   @@index([status])
   @@index([userId, createdAt])
   @@map("fruit_wheel_stakes")
+}
+
+// SPEC52 #42 — owner-issued financial/product permissions. One active row per
+// (userId, permission), held by a partial unique index in the migration.
+model AdminPermissionGrant {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  permission String
+  grantedBy  Int
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+  revokedBy  Int?
+
+  @@index([userId, revokedAt])
+  @@map("admin_permission_grants")
 }

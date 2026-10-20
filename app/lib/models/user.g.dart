@@ -53,6 +53,8 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'coins': instance.coins,
       'coinsBalance': instance.coinsBalance,
       'vipLevel': instance.vipLevel,
+      'nameColor': instance.nameColor,
+      'nameGradient': instance.nameGradient,
       'vipExpiresAt': instance.vipExpiresAt,
       'isAdmin': instance.isAdmin,
       'isOnline': instance.isOnline,

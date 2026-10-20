@@ -1376,6 +1376,9 @@ class SocketMessage {
   final int level;
   final int vipLevel;
 
+  /// SPEC52 #7 — server-decided VIP name colour (null = default).
+  final String? nameColor;
+
   /// A20 — the PUBLIC six-digit id. The profile card opened from a chat
   /// message used to fall back to the internal row id, which is not the
   /// number anyone can search, report or block by.
@@ -1406,6 +1409,7 @@ class SocketMessage {
     this.avatar,
     this.level = 1,
     this.vipLevel = 0,
+    this.nameColor,
     this.displayId,
     this.bubbleUrl,
     this.type = 'text',
@@ -1431,6 +1435,7 @@ class SocketMessage {
       avatar: json['avatar'] as String? ?? json['avatarUrl'] as String?,
       level: _i(json['level'] ?? 1),
       vipLevel: _i(json['vipLevel'] ?? 0),
+      nameColor: json['nameColor']?.toString(),
       displayId: json['displayId'] == null ? null : _i(json['displayId']),
       bubbleUrl: json['bubbleUrl'] as String?,
       type: (json['type'] ?? 'text').toString(),
@@ -1668,6 +1673,9 @@ class SeatData {
   final int? userId;
   final int? displayId;
   final int vipLevel;
+
+  /// SPEC52 #7 — server-decided VIP name colour (null = default).
+  final String? nameColor;
   final String? username;
   final String? avatarUrl;
   final String? avatarFrameUrl; // ✅ NEW
@@ -1692,6 +1700,7 @@ class SeatData {
     required this.userId,
     this.displayId,
     this.vipLevel = 0,
+    this.nameColor,
     required this.username,
     required this.avatarUrl,
     this.avatarFrameUrl, // ✅ NEW
@@ -1725,6 +1734,7 @@ class SeatData {
     int? userId,
     int? displayId,
     int? vipLevel,
+    String? nameColor,
     String? username,
     String? avatarUrl,
     String? avatarFrameUrl,
@@ -1742,6 +1752,7 @@ class SeatData {
       userId: userId ?? this.userId,
       displayId: displayId ?? this.displayId,
       vipLevel: vipLevel ?? this.vipLevel,
+      nameColor: nameColor ?? this.nameColor,
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
@@ -1771,6 +1782,7 @@ class SeatData {
           ? null
           : toInt(json['displayId'] ?? json['display_id'] ?? json['userDisplayId']),
       vipLevel: toInt(json['vipLevel'] ?? json['vip_level']),
+      nameColor: json['nameColor']?.toString(),
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
       avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),

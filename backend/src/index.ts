@@ -341,6 +341,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 const PORT = Number(process.env.PORT) || 3000;
 httpServer.listen(PORT, '0.0.0.0', () => {
+  void import('./services/vipStyle.service').then((m) => m.warmVipStyles()).catch(() => undefined);
   console.log(`🚀 SamaFox API Server is running on port ${PORT}`);
   // Retire time-limited products, lapsed VIP terms and rented room
   // backgrounds. Runs on boot and every 15 minutes.

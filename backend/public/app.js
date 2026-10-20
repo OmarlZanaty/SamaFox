@@ -53,6 +53,7 @@ const sectionTitles = {
   games:     "إدارة اقتصاد الألعاب",
   moderation: "الرسائل والحظر",
   settings:  "الإعدادات",
+  perms:     "الصلاحيات المالية",
 };
 
 navItems.forEach(item => {
@@ -85,6 +86,7 @@ function navigate(sec) {
   if (sec === "audit") window.auLoad?.(1).catch(e => showToast("خطأ: " + e.message));
   if (sec === "targetlog") tlLoad(1).catch(e => showToast("خطأ: " + e.message));
   if (sec === "moderation") loadModeration().catch(e => showToast("خطأ: " + e.message));
+  window.spec52Load?.(sec);
   if (sec === "settings") { try { window.loadCpSettings && window.loadCpSettings(); } catch (_) {} try { window.loadTargetTiers && window.loadTargetTiers(); } catch (_) {} try { window.loadTargetSellPolicy && window.loadTargetSellPolicy(); } catch (_) {} try { window.loadCoinFreeze && window.loadCoinFreeze(); } catch (_) {} }
 }
 
@@ -2607,11 +2609,31 @@ window.loadVipLevels = async function () {
         <input id="vip_anim_avatar_${level}" type="checkbox" ${c.allowAnimatedAvatar ? "checked" : ""}
                title="الصورة الشخصية المتحركة (GIF). أقل مستوى مُفعّل يمنح الخاصية له ولكل ما فوقه." />
       </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input id="vip_color_pick_${level}" type="color" value="${(/^#[0-9a-fA-F]{6}/.exec(c.nameColor || VIP_DEFAULT_NAME_COLORS[level] || '#FFFFFF') || ['#FFFFFF'])[0]}"
+                 oninput="document.getElementById('vip_color_${level}').value=this.value.toUpperCase();vipColorPreview(${level})" style="width:36px;height:30px;padding:0;border:none;background:none" />
+          <input id="vip_color_${level}" class="form-input" style="max-width:110px;direction:ltr" placeholder="#FFD700"
+                 value="${escapeHtml(c.nameColor || "")}" oninput="vipColorPreview(${level})" title="لون اسم المستخدم لهذا المستوى (HEX). فارغ = اللون الافتراضي" />
+          <span id="vip_color_preview_${level}" style="font-weight:800;padding:2px 8px;border-radius:6px;background:#1b1530;color:${escapeHtml(c.nameColor || VIP_DEFAULT_NAME_COLORS[level] || '#FFFFFF')}">اسم المستخدم</span>
+        </div>
+      </td>
       <td><button class="btn btn-outline" id="vip_rewards_btn_${level}" onclick="openVipRewardsModal(${level})">🎁 منتجات (${vipRewardSelections[level].size})</button></td>
       <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button></td>
     `;
     tbody.appendChild(tr);
   }
+};
+
+// SPEC52 #7 — default name colours (server applies the same defaults).
+const VIP_DEFAULT_NAME_COLORS = { 1: "#FFFFFF", 2: "#4CAF50", 3: "#2196F3", 4: "#9C27B0", 5: "#FFD700" };
+window.vipColorPreview = function (level) {
+  const v = (document.getElementById(`vip_color_${level}`)?.value || "").trim();
+  const el = document.getElementById(`vip_color_preview_${level}`);
+  if (!el) return;
+  el.style.color = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v) ? v : (VIP_DEFAULT_NAME_COLORS[level] || "#FFFFFF");
+  const pick = document.getElementById(`vip_color_pick_${level}`);
+  if (pick && /^#[0-9a-fA-F]{6}$/.test(v)) pick.value = v;
 };
 
 // Add a brand-new tier: save level + required coins, then edit it in the table.
@@ -2720,7 +2742,10 @@ window.saveVipLevel = async function (level) {
       // tier as the floor, so ticking VIP10 alone grants VIP10 and everything
       // above it - "VIP10 وما فوق".
       allowAnimatedAvatar: !!document.getElementById(`vip_anim_avatar_${level}`)?.checked,
+      // SPEC52 #7 — '' = back to the default colour of this tier.
+      nameColor: (document.getElementById(`vip_color_${level}`)?.value || "").trim(),
     };
+    if (body.nameColor && !/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(body.nameColor)) return showToast("❗ اللون يجب أن يكون HEX مثل #FFD700");
     await apiFetchAny(["/admin-dashboard/vip-levels", "/admin/vip-levels"], {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -29,6 +29,7 @@ import {
   setTargetSellGlobalBlock,
 } from '../utils/targetLock';
 import { getCoinFreezePolicy, setCoinsGloballyFrozen, setUserCoinsFrozen } from '../utils/coinFreeze';
+import { invalidateVipStyleCache, isHexColor } from '../services/vipStyle.service';
 
 const db = prisma as any;
 
@@ -254,6 +255,20 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
       data,
       select: { id: true, name: true, level: true, xp: true, vipLevel: true },
     });
+    // SPEC52 #43 — VIP/level changes carry their real before/after.
+    {
+      const { recordAdminAudit, auditContext: ctx } = await import('../services/adminAudit.service');
+      await recordAdminAudit({
+        adminId: Number(req.userId),
+        action: updated.vipLevel !== before.vipLevel ? 'USER_VIP_CHANGE' : 'USER_PROGRESSION_UPDATE',
+        targetUserId: id,
+        targetType: 'user',
+        targetId: id,
+        before: { level: before.level, xp: before.xp, vipLevel: before.vipLevel },
+        after: { level: updated.level, xp: updated.xp, vipLevel: updated.vipLevel },
+        ...ctx(req),
+      });
+    }
 
     // Promotions only: lowering a level never strips items the user already owns.
     if (updated.vipLevel > before.vipLevel) {
@@ -1984,11 +1999,51 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
         ? { allowAnimatedAvatar: !!req.body.allowAnimatedAvatar }
         : {}),
     };
-    const saved = await (prisma as any).vipLevelConfig.upsert({
-      where: { level },
-      update: data,
-      create: { level, ...data },
+    // SPEC52 #7 — name colour per tier ("#RRGGBB"/"#AARRGGBB", '' clears it)
+    // and an optional gradient list for later.
+    if (req.body?.nameColor !== undefined) {
+      const raw = req.body.nameColor == null ? '' : String(req.body.nameColor).trim();
+      if (raw && !isHexColor(raw)) return res.status(400).json({ success: false, message: 'لون غير صالح — استخدم HEX مثل #FFD700' });
+      data.nameColor = raw ? raw.toUpperCase() : null;
+    }
+    if (req.body?.nameGradient !== undefined) {
+      const g = req.body.nameGradient;
+      if (g == null || (Array.isArray(g) && g.length === 0)) data.nameGradient = null;
+      else if (Array.isArray(g) && g.length >= 2 && g.length <= 4 && g.every((c: unknown) => isHexColor(String(c)))) {
+        data.nameGradient = g.map((c: unknown) => String(c).toUpperCase());
+      } else return res.status(400).json({ success: false, message: 'التدرج يجب أن يكون 2-4 ألوان HEX' });
+    }
+    const { recordAdminAuditStrict, auditContext: ctx } = await import('../services/adminAudit.service');
+    const saved = await prisma.$transaction(async (tx: any) => {
+      const before = await tx.vipLevelConfig.findUnique({ where: { level } });
+      const row = await tx.vipLevelConfig.upsert({
+        where: { level },
+        update: data,
+        create: { level, ...data },
+      });
+      const changed: Record<string, unknown> = {};
+      const prev: Record<string, unknown> = {};
+      for (const k of Object.keys(data)) {
+        if (data[k] === undefined) continue;
+        if (JSON.stringify(before?.[k] ?? null) !== JSON.stringify(row[k] ?? null)) {
+          prev[k] = before?.[k] ?? null;
+          changed[k] = row[k] ?? null;
+        }
+      }
+      if (Object.keys(changed).length) {
+        await recordAdminAuditStrict(tx, {
+          adminId: Number(req.userId),
+          action: 'nameColor' in changed || 'nameGradient' in changed ? 'VIP_NAME_COLOR_UPDATE' : 'VIP_LEVEL_UPDATE',
+          targetType: 'vip_level',
+          targetId: level,
+          before: prev,
+          after: changed,
+          ...ctx(req),
+        });
+      }
+      return row;
     });
+    invalidateVipStyleCache();
 
     // C11 — rewards are granted at the moment a user CROSSES a tier, so adding
     // an item to a tier gave it to nobody: every existing VIP had already

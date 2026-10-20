@@ -1,3 +1,4 @@
+import { nameColorSync } from './vipStyle.service';
 import { Server, Socket } from 'socket.io';
 import { setGameBroadcastEmitter } from './gameBroadcast.service';
 import { verifyAccessToken } from '../utils/jwt';
@@ -615,6 +616,7 @@ await Promise.all(
       username: u?.name ?? null,
       displayId: u?.displayId ?? null,
       vipLevel: u?.vipLevel ?? 0,
+      nameColor: nameColorSync(u?.vipLevel),
       avatarUrl: u?.avatarUrl ?? null,
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
       frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,
@@ -752,6 +754,7 @@ async function buildRoomUsers(io: Server, rid: number, viewerId?: number) {
     displayId: u.displayId ?? null,
     level: u.level ?? 1,
     vipLevel: u.vipLevel ?? 0,
+    nameColor: nameColorSync(u.vipLevel),
   }));
 }
 
@@ -1712,6 +1715,7 @@ try {
     level: u?.level ?? 1,
     displayId: u?.displayId ?? null,
     vipLevel: u?.vipLevel ?? 0,
+    nameColor: nameColorSync(u?.vipLevel),
     isMuted: true,
   });
 
@@ -1924,6 +1928,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
             displayId: entrant?.displayId ?? null,
             level: entrant?.level ?? 1,
             vipLevel: entrant?.vipLevel ?? 0,
+            nameColor: nameColorSync(entrant?.vipLevel),
             bannerUrl: activeBanner?.item?.assetUrl ?? null,
             bannerMeta: activeBanner?.item?.meta ?? null,
             // The entrance line reads "فهد VIP 6 · LV 8 دخل الغرفة" and shows
@@ -1992,6 +1997,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
           displayId: joiner?.displayId ?? null,
           level: joiner?.level ?? 1,
           vipLevel: joiner?.vipLevel ?? 0,
+          nameColor: nameColorSync(joiner?.vipLevel),
         };
         // A hidden entrant is told about himself only.
         if (hiddenEntry) socket.emit('user_joined', joinedPayload);
@@ -2196,6 +2202,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
         // Group 12: level-tiered + custom chat bubbles.
         level: user?.level ?? 1,
         vipLevel: user?.vipLevel ?? 0,
+        nameColor: nameColorSync(user?.vipLevel),
         displayId: user?.displayId ?? null,
         bubbleUrl,
         bubbleMeta,

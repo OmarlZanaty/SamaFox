@@ -261,8 +261,9 @@ export async function luckyLog(q: {
 
 // ── Audit log viewer ─────────────────────────────────────────
 
-export async function auditLog(q: { action?: string; adminId?: number; targetUserId?: number; from?: Date; to?: Date; page?: number }) {
+export async function auditLog(q: { action?: string; adminId?: number; targetUserId?: number; targetType?: string; from?: Date; to?: Date; page?: number }) {
   const where: any = {};
+  if (q.targetType) where.targetType = q.targetType;
   if (q.action) where.action = q.action.endsWith('*') ? { startsWith: q.action.slice(0, -1) } : q.action;
   if (q.adminId) where.adminId = q.adminId;
   if (q.targetUserId) where.targetUserId = q.targetUserId;

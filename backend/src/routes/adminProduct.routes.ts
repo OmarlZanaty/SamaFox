@@ -1,3 +1,4 @@
+import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from "express";
 import multer from "multer";
 import prisma from "../utils/prisma";
@@ -38,14 +39,14 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-router.post("/products", authMiddleware, adminMiddleware, upload.single("file"), createProduct);
+router.post("/products", authMiddleware, adminMiddleware, requireOwnerPermission('store.products'), upload.single("file"), createProduct);
 
 // ✅ FIX: register cascade-safe delete (clears activeFrameId, removes userItems before deleting item)
-router.delete("/products/:id", authMiddleware, adminMiddleware, deleteProduct);
+router.delete("/products/:id", authMiddleware, adminMiddleware, requireOwnerPermission('store.products'), deleteProduct);
 
 // Group 9: dashboard list (incl. private store), visibility toggle, manual grant by ID
 router.get("/products", authMiddleware, adminMiddleware, listProductsAdmin);
-router.patch("/products/:id", authMiddleware, adminMiddleware, setProductVisibility);
+router.patch("/products/:id", authMiddleware, adminMiddleware, requireOwnerPermission('store.products'), setProductVisibility);
 router.post("/grant", authMiddleware, adminMiddleware, grantProduct);
 
 export default router;

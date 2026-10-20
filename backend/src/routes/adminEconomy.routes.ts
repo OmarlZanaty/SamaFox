@@ -1,3 +1,4 @@
+import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router, type Request, type Response } from 'express';
 import prisma from '../utils/prisma';
 import { requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
@@ -90,7 +91,7 @@ r.get('/games-economy', async (req, res) => {
   }
 });
 
-r.patch('/games-economy/:game', requireSuperAdmin, async (req, res) => {
+r.patch('/games-economy/:game', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const game = String(req.params.game);
     if (!(KNOWN_GAMES as readonly string[]).includes(game)) return bad(res, 404, 'Unknown game');
@@ -131,7 +132,7 @@ r.patch('/games-economy/:game', requireSuperAdmin, async (req, res) => {
   }
 });
 
-r.post('/games-economy/:game/fund', requireSuperAdmin, async (req, res) => {
+r.post('/games-economy/:game/fund', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const game = String(req.params.game);
     if (!(KNOWN_GAMES as readonly string[]).includes(game)) return bad(res, 404, 'Unknown game');
@@ -183,7 +184,7 @@ r.get('/lucky-mgmt', async (req, res) => {
   }
 });
 
-r.patch('/lucky-mgmt/settings', requireSuperAdmin, async (req, res) => {
+r.patch('/lucky-mgmt/settings', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -219,7 +220,7 @@ r.patch('/lucky-mgmt/settings', requireSuperAdmin, async (req, res) => {
   }
 });
 
-r.put('/lucky-mgmt/tiers', requireSuperAdmin, async (req, res) => {
+r.put('/lucky-mgmt/tiers', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -293,7 +294,7 @@ r.get('/lucky-mgmt/log', async (req, res) => {
   }
 });
 
-r.post('/lucky-mgmt/fund', requireSuperAdmin, async (req, res) => {
+r.post('/lucky-mgmt/fund', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -328,7 +329,7 @@ r.get('/cp-economy/break-fees', async (_req, res) => {
   }
 });
 
-r.put('/cp-economy/break-fees', requireSuperAdmin, async (req, res) => {
+r.put('/cp-economy/break-fees', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -385,7 +386,7 @@ r.get('/cp-economy/custom-fee/:user', async (req, res) => {
   }
 });
 
-r.put('/cp-economy/custom-fee/:userId', requireSuperAdmin, async (req, res) => {
+r.put('/cp-economy/custom-fee/:userId', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -456,7 +457,7 @@ r.get('/cp-economy/levels', async (_req, res) => {
   }
 });
 
-r.put('/cp-economy/levels/:level', requireSuperAdmin, async (req, res) => {
+r.put('/cp-economy/levels/:level', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -506,7 +507,7 @@ r.put('/cp-economy/levels/:level', requireSuperAdmin, async (req, res) => {
   }
 });
 
-r.delete('/cp-economy/levels/:level', requireSuperAdmin, async (req, res) => {
+r.delete('/cp-economy/levels/:level', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -528,7 +529,7 @@ r.delete('/cp-economy/levels/:level', requireSuperAdmin, async (req, res) => {
   }
 });
 
-r.put('/cp-economy/effects/:key', requireSuperAdmin, async (req, res) => {
+r.put('/cp-economy/effects/:key', requireOwnerPermission('economy.settings'), async (req, res) => {
   try {
     const reason = needReason(req, res);
     if (!reason) return;
@@ -897,6 +898,7 @@ r.get('/audit-log', async (req, res) => {
       res,
       await auditLog({
         action: req.query.action ? String(req.query.action) : undefined,
+        targetType: req.query.targetType ? String(req.query.targetType) : undefined,
         adminId: req.query.admin ? Number(req.query.admin) || undefined : undefined,
         targetUserId,
         from: from && Number.isFinite(from.getTime()) ? from : undefined,

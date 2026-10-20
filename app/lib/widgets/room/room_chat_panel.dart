@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../user_name_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/room_controller_provider.dart';
@@ -557,8 +558,9 @@ _bubbleSkin(m,                                     Container(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   Flexible(
-                                                    child: Text(
+                                                    child: UserNameText(
                                                       m.username,
+                                                      nameColor: m.nameColor,
                                                       maxLines: 1,
                                                       overflow: TextOverflow.ellipsis,
                                                       style: const TextStyle(

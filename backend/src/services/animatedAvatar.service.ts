@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import prisma from '../utils/prisma';
 
 /**
@@ -50,4 +52,61 @@ export async function canUseAnimatedAvatar(userId: number): Promise<{ allowed: b
   // An expired bought tier grants nothing.
   const vipActive = !user.vipExpiresAt || user.vipExpiresAt.getTime() > Date.now();
   return { allowed: vipActive && user.vipLevel >= minLevel, minLevel };
+}
+
+/**
+ * SPEC52 #6 (2026-10-20) — the gate was being sidestepped: a GIF sent with a
+ * `.jpg` name / `image/jpeg` type, or an animated URL written straight into the
+ * profile through PUT /users/me. These two helpers close both holes: the file's
+ * own bytes decide whether it moves, and every avatar assignment is checked.
+ */
+export function isAnimatedFile(filePath: string): boolean {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(256 * 1024);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    const b = buf.subarray(0, n);
+    if (b.length >= 6 && /^GIF8[79]a/.test(b.subarray(0, 6).toString('latin1'))) return true;
+    // APNG: a PNG with an acTL chunk before the first IDAT.
+    if (b.length > 8 && b[0] === 0x89 && b.subarray(1, 4).toString('latin1') === 'PNG') {
+      const idat = b.indexOf('IDAT', 8, 'latin1');
+      const actl = b.indexOf('acTL', 8, 'latin1');
+      return actl !== -1 && (idat === -1 || actl < idat);
+    }
+    // Animated WebP: RIFF....WEBP with a VP8X ANIM flag or an ANIM chunk.
+    if (b.length > 16 && b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') {
+      if (b.subarray(12, 16).toString('latin1') === 'VP8X' && b.length > 20 && ((b[20] ?? 0) & 0x02) !== 0) return true;
+      return b.indexOf('ANIM', 12, 'latin1') !== -1;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    if (fd != null) try { fs.closeSync(fd); } catch { /* ignore */ }
+  }
+}
+
+/** True when an uploaded file or URL is (or may be) animated. */
+export function isAnimatedUpload(opts: { filename?: string | null; mimetype?: string | null; filePath?: string | null }): boolean {
+  if (isAnimatedImage(opts)) return true;
+  return !!opts.filePath && isAnimatedFile(opts.filePath);
+}
+
+/** Resolve one of OUR /uploads/ URLs to its file on disk (null for foreign URLs). */
+export function localUploadPath(url: string): string | null {
+  const m = /\/uploads\/(?:v2\/)?([A-Za-z0-9._-]+)(?:\?|$)/.exec(url);
+  if (!m) return null;
+  const p = path.join(process.cwd(), 'uploads', m[1] ?? '');
+  return fs.existsSync(p) ? p : null;
+}
+
+/** Is assigning this avatar URL allowed for the user? (null = allowed) */
+export async function animatedAvatarUrlDenial(userId: number, url: string): Promise<string | null> {
+  const local = localUploadPath(url);
+  const animated = isAnimatedImage({ filename: url }) || (local ? isAnimatedFile(local) : false);
+  if (!animated) return null;
+  const { allowed, minLevel } = await canUseAnimatedAvatar(userId);
+  if (allowed) return null;
+  return minLevel == null ? 'الصورة المتحركة غير متاحة حالياً' : `الصورة المتحركة متاحة لأعضاء VIP ${minLevel} فما فوق`;
 }

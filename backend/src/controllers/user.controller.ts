@@ -1,3 +1,4 @@
+import { withNameStyle } from '../services/vipStyle.service';
 // File: src/controllers/user.controller.ts
 
 import { Request, Response } from 'express';
@@ -128,7 +129,7 @@ export const getUserById = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       user: {
-        ...pickPublicUserFields(user),
+        ...withNameStyle(pickPublicUserFields(user) as any),
         followerCount, followingCount, followersCount: followerCount,
         agencyRole: agencyInfo?.agencyRole ?? null,
         agencyName: agencyInfo?.agencyName ?? null,
@@ -184,7 +185,15 @@ export const updateProfile = async (req: Request, res: Response) => {
     if (gender) data.gender = gender.toLowerCase();
     if (countryCode) data.countryCode = countryCode.toUpperCase();
     if (country !== undefined) data.country = country;
-    if (avatarUrl) data.avatarUrl = avatarUrl;
+    if (avatarUrl) {
+      // SPEC52 #6 — an animated avatar written straight into the profile went
+      // around the upload gate. Same VIP rule here, judged by the file itself.
+      const { animatedAvatarUrlDenial } = await import('../services/animatedAvatar.service');
+      const current = await prisma.user.findUnique({ where: { id: Number(userId) }, select: { avatarUrl: true } });
+      const denial = current?.avatarUrl === avatarUrl ? null : await animatedAvatarUrlDenial(Number(userId), String(avatarUrl));
+      if (denial) return res.status(403).json({ success: false, code: 'ANIMATED_AVATAR_NOT_ALLOWED', message: denial });
+      data.avatarUrl = avatarUrl;
+    }
     if (phone) data.phone = phone;
     if (age !== undefined && age !== null) {
       const a = Number(age);

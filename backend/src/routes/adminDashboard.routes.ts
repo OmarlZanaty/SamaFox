@@ -95,8 +95,31 @@ import {
 import { adminBackgroundsRouter, adminCpRouter } from './adminCp.routes';
 import { adminEconomyRouter } from './adminEconomy.routes';
 import { auditContext, recordAdminAudit } from '../services/adminAudit.service';
+import {
+  OWNER_PERMISSIONS,
+  OWNER_PERMISSION_DENIED,
+  capabilitiesFor,
+  grantPermission,
+  hasOwnerPermission,
+  isOwnerPermission,
+  listGrants,
+  requireOwner,
+  requireOwnerPermission,
+  revokePermission,
+} from '../services/ownerPermissions.service';
 
 const router = express.Router();
+
+// PATCH /settings is a generic key/value store. Keys that move money (prices,
+// rates, pools, recharge) need an owner permission; display toggles do not.
+const FINANCIAL_SETTING = /price|coin|recharge|reward|pool|fee|commission|rate|payout|exchange|dollar|bonus|package|wallet/i;
+async function requireFinancialSettingsPermission(req: any, res: any, next: any) {
+  const keys = Object.keys(req.body ?? {});
+  if (!keys.some((k) => FINANCIAL_SETTING.test(k))) return next();
+  const perm = keys.some((k) => /recharge|package|dollar|exchange/i.test(k)) ? 'finance.recharge' : 'economy.settings';
+  if (await hasOwnerPermission(Number(req.userId), perm)) return next();
+  return res.status(403).json({ success: false, code: 'OWNER_PERMISSION_REQUIRED', permission: perm, message: OWNER_PERMISSION_DENIED });
+}
 
 router.use(authenticate);
 router.use(requireAdminDashboard);
@@ -145,6 +168,46 @@ router.get('/overview', adminDashboardOverview);
 // Admin roster (#23). Reading the roster + own role needs only dashboard access;
 // mutating it requires super-admin.
 router.get('/me', adminDashboardMe);
+// SPEC52 #42 — what this admin may do with money/prices/products (the server
+// still checks every call), and the owner's grant management.
+router.get('/me/capabilities', async (req: any, res) => {
+  try {
+    return res.json({ success: true, data: await capabilitiesFor(Number(req.userId)) });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: (e as Error).message });
+  }
+});
+router.get('/permissions/catalog', (_req, res) => {
+  res.json({
+    success: true,
+    data: Object.entries(OWNER_PERMISSIONS).map(([key, label]) => ({ key, label, delegable: key !== 'admin.permissions' })),
+  });
+});
+router.get('/permissions/grants', requireOwner, async (_req, res) => {
+  try {
+    return res.json({ success: true, data: await listGrants() });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: (e as Error).message });
+  }
+});
+router.post('/permissions/grants', requireOwner, async (req: any, res) => {
+  try {
+    const userId = Number(req.body?.userId);
+    const permission = req.body?.permission;
+    if (!userId || !isOwnerPermission(permission)) return res.status(400).json({ success: false, message: 'userId و permission مطلوبة' });
+    if (permission === 'admin.permissions') return res.status(400).json({ success: false, message: 'هذه الصلاحية للمالك فقط ولا تُمنح' });
+    return res.json({ success: true, data: await grantPermission(req, userId, permission) });
+  } catch (e: any) {
+    return res.status(e?.status ?? 500).json({ success: false, message: e?.message ?? 'failed' });
+  }
+});
+router.delete('/permissions/grants/:id', requireOwner, async (req: any, res) => {
+  try {
+    return res.json({ success: true, data: await revokePermission(req, Number(req.params.id)) });
+  } catch (e: any) {
+    return res.status(e?.status ?? 500).json({ success: false, message: e?.message ?? 'failed' });
+  }
+});
 router.get('/admins', adminListAdmins);
 router.post('/admins/:userId/grant', requireSuperAdmin, adminGrantAdmin);
 router.post('/admins/:userId/revoke', requireSuperAdmin, adminRevokeAdmin);
@@ -164,12 +227,12 @@ router.patch('/target-sell-policy', requireSuperAdmin, adminDashboardSetTargetSe
 // تجميد الكوينزات (owner request, 2026-10-01). Same split as the target freeze:
 // the platform-wide switch is super-admin only, freezing one account is not.
 router.get('/coin-freeze', adminDashboardGetCoinFreeze);
-router.patch('/coin-freeze', requireSuperAdmin, adminDashboardSetCoinFreezeGlobal);
-router.patch('/users/:id/coin-freeze', adminDashboardSetUserCoinFreeze);
+router.patch('/coin-freeze', requireOwnerPermission('finance.coins'), adminDashboardSetCoinFreezeGlobal);
+router.patch('/users/:id/coin-freeze', requireOwnerPermission('finance.coins'), adminDashboardSetUserCoinFreeze);
 router.get('/transactions', adminDashboardTransactions);
 router.post('/broadcast', adminDashboardBroadcast);
 router.get('/topup-requests', adminDashboardTopupRequests);
-router.patch('/topup-requests/:id/review', adminDashboardReviewTopupRequest);
+router.patch('/topup-requests/:id/review', requireOwnerPermission('finance.recharge'), adminDashboardReviewTopupRequest);
 router.get('/analytics', adminDashboardAnalytics);
 router.get('/reports', adminDashboardReports);
 router.patch('/reports/:id', adminDashboardUpdateReport);
@@ -191,11 +254,11 @@ router.get('/agency-requests', adminListAgencyRequests);
 router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
 router.post('/agencies/assign', adminAssignAgency);
 router.get('/agencies/assigned-by-me', adminListAssignedAgencies);
-router.patch('/agencies/:id/topup', adminTopupAgency);
+router.patch('/agencies/:id/topup', requireOwnerPermission('finance.charging_agency'), adminTopupAgency);
 // B11 — automatic charge rewards ladder
 router.get('/agency-charge-rewards', adminListAgencyChargeRewards);
-router.post('/agency-charge-rewards', adminSaveAgencyChargeReward);
-router.delete('/agency-charge-rewards/:id', adminDeleteAgencyChargeReward);
+router.post('/agency-charge-rewards', requireOwnerPermission('finance.charging_agency'), adminSaveAgencyChargeReward);
+router.delete('/agency-charge-rewards/:id', requireOwnerPermission('finance.charging_agency'), adminDeleteAgencyChargeReward);
 router.patch('/agencies/:id/target', adminSetAgencyTarget);
 router.get('/agencies/:id/members', adminListAgencyMembers);
 router.delete('/agency-members/:memberId', adminRemoveAgencyMember);
@@ -210,12 +273,12 @@ router.get('/target-movements', adminListTargetMovements);
 router.get('/top-supporters', adminListTopSupporters);
 router.post('/users/:id/reset-supporter-counter', adminResetSupporterCounter);
 router.get('/gifts', authenticate, adminListGifts);
-router.post('/gifts', authenticate, adminCreateGift);
-router.patch('/gifts/:id', authenticate, adminUpdateGift);
-router.delete('/gifts/:id', authenticate, adminDeleteGift);
+router.post('/gifts', authenticate, requireOwnerPermission('gifts.prices'), adminCreateGift);
+router.patch('/gifts/:id', authenticate, requireOwnerPermission('gifts.prices'), adminUpdateGift);
+router.delete('/gifts/:id', authenticate, requireOwnerPermission('gifts.prices'), adminDeleteGift);
 
 router.get('/vip-levels', adminListVipLevels);
-router.post('/vip-levels', adminUpsertVipLevel);
+router.post('/vip-levels', requireOwnerPermission('vip.config'), adminUpsertVipLevel);
 
 router.get('/levels', adminListLevels);
 router.post('/levels', adminUpsertLevel);
@@ -230,16 +293,16 @@ router.delete('/target-tiers/:id', adminDeleteTargetTier);
 // CP / target settings — on the dashboard router so the dashboard token (authenticate +
 // requireAdminDashboard) is accepted. It was previously only on /admin/settings, which
 // uses a different auth the dashboard doesn't hold → the save returned 401.
-router.patch('/settings', require('../controllers/settings.controller').updateSettings);
+router.patch('/settings', requireFinancialSettingsPermission, require('../controllers/settings.controller').updateSettings);
 
 
 // ── A15: قائمة المكافآت ──────────────────────────────────────────────────
 router.get('/rewards/room-cup', adminListRoomCupRewards);
-router.post('/rewards/room-cup', adminSaveRoomCupReward);
-router.delete('/rewards/room-cup/:id', adminDeleteRoomCupReward);
+router.post('/rewards/room-cup', requireOwnerPermission('economy.settings'), adminSaveRoomCupReward);
+router.delete('/rewards/room-cup/:id', requireOwnerPermission('economy.settings'), adminDeleteRoomCupReward);
 router.get('/rewards/supporters', adminListSupporterRewards);
-router.post('/rewards/supporters', adminSaveSupporterReward);
-router.delete('/rewards/supporters/:id', adminDeleteSupporterReward);
+router.post('/rewards/supporters', requireOwnerPermission('economy.settings'), adminSaveSupporterReward);
+router.delete('/rewards/supporters/:id', requireOwnerPermission('economy.settings'), adminDeleteSupporterReward);
 
 // ── A14: مدة تصفير إجمالي دعم الروم ──────────────────────────────────────
 router.get('/rewards/room-support-window', adminGetRoomSupportWindow);
@@ -267,11 +330,11 @@ const retiredLucky = (_req: any, res: any) =>
   res.status(410).json({ success: false, message: 'استخدم صفحة الألعاب ← إدارة المحظوظ' });
 router.post('/lucky/tiers', retiredLucky);
 router.post('/lucky/topup', retiredLucky);
-router.post('/gates', adminSetGates);
+router.post('/gates', requireOwnerPermission('vip.config'), adminSetGates);
 
 // ── G3(d): لوحة تحكم الألعاب ─────────────────────────────────────────────
 router.get('/games', adminListGameConfig);
-router.post('/games/:game', adminSetGameConfig);
+router.post('/games/:game', requireOwnerPermission('economy.settings'), adminSetGameConfig);
 router.get('/games-halal', adminGetHalalGames);
 // Per game, per Cairo day: coins staked vs coins paid out, from game_ledger.
 // GET /admin-dashboard/games-rtp?days=14
