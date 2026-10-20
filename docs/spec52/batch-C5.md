@@ -1,6 +1,6 @@
 # Batch C5 — Real room sharing (DM card + HTTPS App Links + deferred install) and screen recording with sound saved to the gallery
 Spec items: 1, 32. Read `docs/spec52/RULES.md`, then AUDIT.md sections 1, 32.
-Migration dir: `backend/prisma/migrations/20261020000060_room_share_tokens/`.
+Migration dir: `backend/prisma/migrations/20261020000080_room_share_tokens/`.
 Domain: `https://samafox.almobarmg.com` (Caddy → node :3000 serves everything except /livekit).
 Android package: check `app/android/app/build.gradle*` (applicationId). No Firebase Dynamic Links.
 
@@ -69,3 +69,5 @@ Android package: check `app/android/app/build.gradle*` (applicationId). No Fireb
   interceptor path is available.
 
 Notes file: `docs/spec52/notes-C5.md`. Mark clearly what needs a device test.
+
+NOTE: another developer is concurrently changing `app/lib/screens/charging_agent_screen.dart` and `app/lib/services/agency_service.dart` — do not touch them. The gift engine (`app/lib/gifts/**`, `backend/src/gifts/**`) was just rewritten — do not modify it.
