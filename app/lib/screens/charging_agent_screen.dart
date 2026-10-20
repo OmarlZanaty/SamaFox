@@ -14,6 +14,7 @@ import '../utils/storage_service.dart';
 import '../utils/result.dart';
 import 'package:dio/dio.dart';
 import '../widgets/app_network_image.dart';
+import 'agency_branches_screen.dart';
 
 /// Charging Agent Screen - وكيل الشحن
 class ChargingAgentScreen extends ConsumerStatefulWidget {
@@ -309,6 +310,7 @@ Future<void> _showChargingActions(
   required bool isAgencyAdmin,
   required bool isOwner,
 }) async {
+  final role = ref.read(myMembershipsProvider).valueOrNull?[agency.id];
   // Read once, before the sheet builds — ref.watch is only legal inside a
   // widget build. This is the seller's own wallet, فرع included.
   int agencyBalance = 0;
@@ -356,19 +358,27 @@ Future<void> _showChargingActions(
                   await _sendAgencyCoinsToUser(context, ref);
                 },
               ),
-              // Branches (فرع) — same system access, no ownership (#2-4). Only
-              // the owner manages who the branches are.
-              if (isOwner) ...[
+              // SPEC52 #36 — branches are real entities now (Branch ID, name,
+              // owner, status). The owner manages them and sees every branch's
+              // charges; a branch sees only its own. The server scopes both.
+              if (role == 'OWNER' || role == 'BRANCH')
                 ListTile(
                   textColor: Colors.white,
                   iconColor: Colors.white,
                   leading: const Icon(Icons.groups),
-                  title: const Text('الفروع (حتى 3)'),
+                  title: Text(role == 'OWNER' ? 'الفروع (حتى 3)' : 'فرعي وعمليات الشحن'),
                   onTap: () async {
                     Navigator.pop(context);
-                    await _manageBranches(context, agency, agencyType: 'CHARGING');
+                    await Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => AgencyBranchesScreen(
+                        agencyId: agency.id,
+                        agencyName: agency.agencyName,
+                        isOwner: role == 'OWNER',
+                      ),
+                    ));
                   },
                 ),
+              if (isOwner) ...[
                 // #7: backend already supported this for CHARGING agencies —
                 // it just wasn't exposed from this screen (only the hosting
                 // panel had the button).
