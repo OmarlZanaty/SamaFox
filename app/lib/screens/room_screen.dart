@@ -5752,7 +5752,33 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           isLocked: false,
         );
 
-    _onSeatTap(context, seat.seatNumber, seat, myId, isAdmin);
+    if (seated != null) {
+      _onSeatTap(context, seat.seatNumber, seat, myId, isAdmin);
+      return;
+    }
+    // SPEC52 #33 — a name tapped in the chat (not on a mic): read the live
+    // public profile first, so the card always shows the real picture, frame,
+    // VIP, level, ID and name colour — not whatever the message carried.
+    unawaited(() async {
+      SeatData resolved = seat;
+      try {
+        final res = await DioClient.dio.get('/users/$userId').timeout(const Duration(seconds: 4));
+        final u = (res.data is Map ? res.data['user'] : null) as Map?;
+        if (u != null) {
+          resolved = seat.copyWith(
+            username: (u['name'] ?? seat.username)?.toString(),
+            avatarUrl: (u['avatarUrl'] ?? seat.avatarUrl)?.toString(),
+            avatarFrameUrl: u['avatarFrameUrl']?.toString(),
+            level: (u['level'] as num?)?.toInt() ?? seat.level,
+            vipLevel: (u['vipLevel'] as num?)?.toInt() ?? seat.vipLevel,
+            displayId: (u['displayId'] as num?)?.toInt() ?? seat.displayId,
+            nameColor: u['nameColor']?.toString(),
+          );
+        }
+      } catch (_) {/* open with what we know */}
+      if (!mounted) return;
+      _onSeatTap(context, resolved.seatNumber, resolved, myId, isAdmin);
+    }());
   }
 
   /// Show seat actions for admins/occupants
