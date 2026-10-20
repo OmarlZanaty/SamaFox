@@ -922,11 +922,137 @@ model PkBattle {
   isActive   Boolean  @default(true)
   xp         Int      @default(0)
   level      Int      @default(1)
+  type       String   @default("GLOBAL")
+  status     String   @default("CANCELLED")
+  sideAUserId Int?
+  sideBUserId Int?
+  startedAt  DateTime?
+  durationSec Int     @default(300)
+  configSnapshot Json @default("{}")
+  winner     String?
+  createdBy  Int      @default(0)
+  createdAt  DateTime @default(now())
+  scoreReachedA DateTime?
+  scoreReachedB DateTime?
+  contributions PkContribution[]
+  roomLocks PkRoomLock[]
 
   room1 Room @relation("PkBattleRoom1", fields: [room1Id], references: [id])
   room2 Room @relation("PkBattleRoom2", fields: [room2Id], references: [id])
 
   @@map("pk_battles")
+}
+
+model RocketConfig {
+  id Int @id @default(autoincrement())
+  targetCoins Int @default(1000000)
+  roomCupPercent Int @default(1000)
+  durationMinutes Int @default(30)
+  winnersCount Int @default(10)
+  maxRewardPerUserCoins Int @default(1000)
+  claimWindowSeconds Int @default(90)
+  rewards Json @default("[]")
+  isActive Boolean @default(false)
+  updatedBy Int @default(0)
+  createdAt DateTime @default(now())
+  @@map("rocket_configs")
+}
+
+model RocketEvent {
+  id String @id @default(cuid())
+  roomId Int
+  configSnapshot Json
+  targetCoins Int
+  currentCoins Int @default(0)
+  status String @default("ACTIVE")
+  startedAt DateTime @default(now())
+  endsAt DateTime
+  launchedAt DateTime?
+  contributions RocketContribution[]
+  claims RocketClaim[]
+  @@index([roomId, status])
+  @@map("rocket_events")
+}
+
+model RocketContribution {
+  id Int @id @default(autoincrement())
+  eventId String
+  giftTransactionId String @unique
+  userId Int
+  coins Int
+  event RocketEvent @relation(fields: [eventId], references: [id])
+  @@map("rocket_contributions")
+}
+
+model RocketClaim {
+  id Int @id @default(autoincrement())
+  rocketEventId String
+  userId Int
+  rewardJson Json
+  claimedAt DateTime @default(now())
+  event RocketEvent @relation(fields: [rocketEventId], references: [id])
+  @@unique([rocketEventId, userId])
+  @@map("rocket_claims")
+}
+
+model PkConfig {
+  id Int @id @default(autoincrement())
+  allowedDurations Json @default("[180,300,600]")
+  countedGiftIds Json @default("[]")
+  pointsPerCoin Int @default(1)
+  winCondition String @default("HIGHER_SCORE")
+  tieRule String @default("TIE")
+  rewards Json @default("{}")
+  enabled Boolean @default(false)
+  updatedBy Int @default(0)
+  createdAt DateTime @default(now())
+  @@map("pk_configs")
+}
+
+model PkContribution {
+  id Int @id @default(autoincrement())
+  pkId String
+  giftTransactionId String @unique
+  side String
+  points Int
+  createdAt DateTime @default(now())
+  pk PkBattle @relation(fields: [pkId], references: [id])
+  @@map("pk_contributions")
+}
+
+// A unique row per occupied room also excludes overlapping GLOBAL/ROOM invitations.
+model PkRoomLock {
+  roomId Int @id
+  pkId String
+  pk PkBattle @relation(fields: [pkId], references: [id])
+  @@map("pk_room_locks")
+}
+
+// Durable gift outbox: inserted with the gift, consumed only after it commits.
+model RoomGiftJob {
+  giftTransactionId String @id
+  createdAt DateTime @default(now())
+  processedAt DateTime?
+  @@index([processedAt, createdAt])
+  @@map("room_gift_jobs")
+}
+
+model GameWinEvent {
+  id Int @id @default(autoincrement())
+  userId Int
+  roomId Int?
+  gameId String
+  gameName String
+  winCoins Int
+  name String @default("")
+  avatar String?
+  transactionRef String? @unique
+  stake Int @default(0)
+  createdAt DateTime @default(now())
+  broadcastAt DateTime?
+  @@index([roomId, createdAt])
+  @@index([createdAt])
+  @@map("game_win_events")
 }
 
 model ChargingAgency {

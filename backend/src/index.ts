@@ -30,6 +30,8 @@ import voiceRoutes from './routes/voice.routes';
 import messageRoutes from './routes/messages.routes';
 import uploadRoutes from './routes/upload.routes';
 import gameRoutes from './routes/game.routes';
+import { roomEventsRouter } from './routes/roomEvents.routes';
+import { startRoomEvents } from './services/roomEvents.service';
 import roomAdminRoutes from './routes/room-admin.routes';
 import musicRoutes from './routes/music.routes';
 import adminDashboardRoutes from './routes/adminDashboard.routes';
@@ -221,6 +223,7 @@ app.use('/admin-dashboard', adminDashboardRoutes); // backward-compatible path
 
 // other routes
 app.use('/api/v1/games', gameRoutes);
+app.use('/api/v1', roomEventsRouter);
 app.use('/api/v1/charging-agencies', chargingAgencyRoutes);
 app.use('/api/v1/agencies', agencyRoutes);
 app.use('/api/v1/auth', authRoutes);
@@ -317,6 +320,7 @@ io.engine.on('connection_error', (err: any) => {
 });
 
 initializeSocketHandlers(io);
+startRoomEvents();
 setGiftIo(io);
 startSkillDiceEngine(io);
 startSkillWheelEngine(io);
