@@ -3835,22 +3835,63 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// Grid of store background products; tapping one sets it as the room bg.
   Future<void> _openStoreBackgroundPicker() async {
+    // SPEC52 #22 — «خلفياتي» = free + bought + granted to ME only (from the
+    // server); the store tab lists what can still be bought.
     List<dynamic> backgrounds = [];
+    List<dynamic> storeOnly = [];
     try {
-      final res = await DioClient.dio.get('/store/products');
+      final res = await DioClient.dio.get('/room-admin/backgrounds/mine');
       final data = res.data?['data'];
-      if (data is List) {
-        backgrounds = data
-            .where((p) => (p['type']?.toString() ?? '') == 'background')
-            .toList();
+      if (data is Map) {
+        backgrounds = [
+          for (final p in (data['mine'] as List? ?? const []))
+            {'name': p['name'], 'preview_url': p['previewUrl'], 'file_url': p['url'], 'source': p['source']}
+        ];
+        storeOnly = [
+          for (final p in (data['store'] as List? ?? const []))
+            {'name': p['name'], 'preview_url': p['previewUrl'], 'file_url': p['url'], 'price': p['priceCoins']}
+        ];
       }
     } catch (e) {
       _showRoomSnack('تعذر تحميل الخلفيات: $e', error: true);
       return;
     }
     if (!mounted) return;
+    if (backgrounds.isEmpty && storeOnly.isEmpty) {
+      _showRoomSnack('لا توجد خلفيات بعد', error: true);
+      return;
+    }
+    if (storeOnly.isNotEmpty) {
+      final pick = await showModalBottomSheet<String>(
+        context: context,
+        backgroundColor: const Color(0xFF1A0E3E),
+        builder: (c) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(
+                leading: const Icon(Icons.collections, color: Colors.amberAccent),
+                title: Text('خلفياتي (${backgrounds.length})', style: const TextStyle(color: Colors.white)),
+                onTap: () => Navigator.pop(c, 'mine'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.storefront, color: Colors.lightBlueAccent),
+                title: Text('المتجر (${storeOnly.length})', style: const TextStyle(color: Colors.white)),
+                subtitle: const Text('اشترِ الخلفية من المتجر لتظهر في خلفياتي', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                onTap: () => Navigator.pop(c, 'store'),
+              ),
+            ]),
+          ),
+        ),
+      );
+      if (!mounted || pick == null) return;
+      if (pick == 'store') {
+        Navigator.pushNamed(context, '/store');
+        return;
+      }
+    }
     if (backgrounds.isEmpty) {
-      _showRoomSnack('لا توجد خلفيات في المتجر بعد', error: true);
+      _showRoomSnack('لا توجد خلفيات في «خلفياتي» بعد', error: true);
       return;
     }
     showModalBottomSheet(
@@ -3867,7 +3908,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             children: [
               const Padding(
                 padding: EdgeInsets.all(14),
-                child: Text('خلفيات المتجر',
+                child: Text('خلفياتي',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,

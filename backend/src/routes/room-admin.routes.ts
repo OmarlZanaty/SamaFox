@@ -31,6 +31,8 @@ router.post('/lock', roomAdminController.toggleRoomLock);
 router.post('/max-seats', roomAdminController.updateMaxSeats);
 router.post('/background-music', roomAdminController.setBackgroundMusic);
 router.post('/background-image', roomAdminController.updateRoomBackground);
+// SPEC52 #22 — «خلفياتي»: free + bought + granted to me only.
+router.get('/backgrounds/mine', roomAdminController.myRoomBackgrounds);
 router.post('/sound-settings', roomAdminController.toggleSoundSettings);
 
 // Chat management

@@ -319,7 +319,7 @@ export const grantProduct = async (req: Request, res: Response) => {
       for (let i = 0; i < users.length; i += CHUNK) {
         const slice = users.slice(i, i + CHUNK);
         const result = await prisma.userItem.createMany({
-          data: slice.map((u) => ({ userId: u.id, itemId, expiresAt })),
+          data: slice.map((u) => ({ userId: u.id, itemId, expiresAt, source: "grant", grantedBy: Number((req as any).userId) || null })) as any,
           skipDuplicates: true,
         });
         granted += result.count;
@@ -361,7 +361,7 @@ export const grantProduct = async (req: Request, res: Response) => {
 
     try {
       await prisma.userItem.create({
-        data: { userId: user.id, itemId, expiresAt: expiryFromItem(item) },
+        data: { userId: user.id, itemId, expiresAt: expiryFromItem(item), source: "grant", grantedBy: Number((req as any).userId) || null } as any,
       });
     } catch (err: any) {
       if (err?.code === "P2002") {

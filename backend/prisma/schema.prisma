@@ -829,6 +829,11 @@ model UserItem {
   isActive   Boolean   @default(false)
   xp         Int       @default(0)
   level      Int       @default(1)
+  // SPEC52 #22 — how it was obtained: purchase | gift | grant (null = before
+  // this was recorded), who granted it, and active | expired | revoked.
+  source     String?
+  grantedBy  Int?
+  status     String    @default("active")
 
   user User @relation(fields: [userId], references: [id])
   item Item @relation(fields: [itemId], references: [id])

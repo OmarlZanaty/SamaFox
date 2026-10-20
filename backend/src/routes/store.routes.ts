@@ -52,7 +52,7 @@ router.post("/buy", buyLimiter, idempotent("store_buy"), async (req: any, res) =
       const expiresAt = expiryFromDuration((item as any).durationDays);
       try {
         const userItem = await tx.userItem.create({
-          data: { userId, itemId, expiresAt } as any,
+          data: { userId, itemId, expiresAt, source: "purchase" } as any,
         });
         return { ok: true as const, userItemId: userItem.id, expiresAt };
       } catch (err: any) {
@@ -152,7 +152,7 @@ router.post("/send", buyLimiter, idempotent("store_send"), async (req: any, res)
       await tx.userItem.upsert({
         where: { userId_itemId: { userId: toUserId, itemId } },
         update: {},
-        create: { userId: toUserId, itemId },
+        create: { userId: toUserId, itemId, source: "gift", grantedBy: senderId } as any,
       });
 
       return {

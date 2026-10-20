@@ -488,6 +488,35 @@ export async function setBackgroundMusic(req: Request, res: Response) {
   }
 }
 
+/**
+ * SPEC52 #22 — «خلفياتي»: the room backgrounds THIS user may use — the free
+ * ones, the ones he bought and the ones granted to him (never someone else's).
+ * `store` lists the purchasable ones he does not own yet.
+ */
+export async function myRoomBackgrounds(req: Request, res: Response) {
+  try {
+    const userId = (req as any).userId as number;
+    const items = await (prisma as any).item.findMany({
+      where: { type: { in: ['background', 'BACKGROUND', 'ROOM_BACKGROUND'] } },
+      select: { id: true, name: true, assetUrl: true, previewUrl: true, priceCoins: true, isPurchasable: true, durationDays: true },
+    });
+    const owned = await (prisma as any).userItem.findMany({
+      where: { userId, itemId: { in: items.map((i: any) => i.id) }, status: 'active', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+      select: { itemId: true, source: true, expiresAt: true },
+    });
+    const own = new Map<string, any>(owned.map((o: any) => [o.itemId, o]));
+    const view = (i: any, extra: any = {}) => ({ id: i.id, name: i.name, url: i.assetUrl, previewUrl: i.previewUrl ?? i.assetUrl, priceCoins: i.priceCoins, durationDays: i.durationDays, ...extra });
+    const mine = items
+      .filter((i: any) => own.has(i.id) || (i.isPurchasable && i.priceCoins === 0))
+      .map((i: any) => view(i, { source: own.get(i.id)?.source ?? (own.has(i.id) ? 'owned' : 'free'), expiresAt: own.get(i.id)?.expiresAt ?? null }));
+    const store = items.filter((i: any) => i.isPurchasable && i.priceCoins > 0 && !own.has(i.id)).map((i: any) => view(i));
+    return res.json({ success: true, data: { mine, store } });
+  } catch (e) {
+    console.error('myRoomBackgrounds error:', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+}
+
 export async function updateRoomBackground(req: Request, res: Response) {
   try {
     const roomId = toInt(req.body.roomId);
@@ -503,7 +532,34 @@ export async function updateRoomBackground(req: Request, res: Response) {
     // A background uploaded from the device is rented, not bought: the owner
     // set 1,000 coins for 20 days. Both are AppSettings so the price and the
     // term can be retuned from the dashboard without a deploy.
-    const chargeUpload = req.body.chargeUpload === true || req.body.chargeUpload === 'true';
+    let chargeUpload = req.body.chargeUpload === true || req.body.chargeUpload === 'true';
+
+    // SPEC52 #22 — a STORE background may be used only if it is free or this
+    // user owns it (bought or granted to him); anything else that is not a
+    // store background is a device upload and is always rented (the server
+    // decides, whatever the client says). Platform admins are exempt.
+    if (backgroundImageUrl) {
+      const me = await prisma.user.findUnique({ where: { id: requesterId }, select: { isAdmin: true, isSuperAdmin: true } });
+      const platformStaff = !!(me?.isAdmin || me?.isSuperAdmin);
+      const current = await prisma.room.findUnique({ where: { id: roomId }, select: { backgroundImageUrl: true } });
+      const item = await (prisma as any).item.findFirst({
+        where: { type: { in: ['background', 'BACKGROUND', 'ROOM_BACKGROUND'] }, OR: [{ assetUrl: backgroundImageUrl }, { previewUrl: backgroundImageUrl }] },
+        select: { id: true, priceCoins: true, isPurchasable: true },
+      });
+      if (item) {
+        chargeUpload = false;
+        const free = item.isPurchasable && item.priceCoins === 0;
+        if (!free && !platformStaff) {
+          const owned = await (prisma as any).userItem.findFirst({
+            where: { userId: requesterId, itemId: item.id, status: 'active', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+            select: { id: true },
+          });
+          if (!owned) return res.status(403).json({ error: 'NOT_OWNED', message: 'هذه الخلفية ليست ضمن خلفياتك — اشترها من المتجر أولاً' });
+        }
+      } else if (backgroundImageUrl !== current?.backgroundImageUrl && !platformStaff) {
+        chargeUpload = true;
+      }
+    }
     let backgroundExpiresAt: Date | null = null;
     if (chargeUpload) {
       const [priceRow, daysRow] = await Promise.all([
@@ -513,17 +569,19 @@ export async function updateRoomBackground(req: Request, res: Response) {
       const cost = Math.max(0, Math.floor(Number(priceRow?.value ?? 1000)) || 1000);
       const days = Math.max(1, Math.floor(Number(daysRow?.value ?? 20)) || 20);
 
-      const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { coinsBalance: true } });
-      if (!u || u.coinsBalance < cost) {
+      // One guarded debit (no read-then-write race), ledger in the same transaction.
+      const paid = await prisma.$transaction(async (tx) => {
+        const d = await tx.user.updateMany({ where: { id: requesterId, coinsBalance: { gte: cost } }, data: { coinsBalance: { decrement: cost } } });
+        if (d.count === 0) return false;
+        await tx.transaction.create({ data: { userId: requesterId, type: 'ROOM_BACKGROUND', amountCoins: -cost, status: 'completed' } });
+        return true;
+      });
+      if (!paid) {
         return res.status(400).json({
           error: 'INSUFFICIENT_COINS',
           message: `رصيد الكوينز غير كافٍ (تكلفة الخلفية ${cost.toLocaleString('en-US')})`,
         });
       }
-      await prisma.user.update({ where: { id: requesterId }, data: { coinsBalance: { decrement: cost } } });
-      await prisma.transaction.create({
-        data: { userId: requesterId, type: 'ROOM_BACKGROUND', amountCoins: -cost, status: 'completed' },
-      });
       backgroundExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     }
 
