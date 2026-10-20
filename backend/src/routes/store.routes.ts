@@ -457,6 +457,29 @@ router.get("/my-frames", async (req: any, res) => {
   }
 });
 
+// SPEC52 #41 — owner-created lists (e.g. «ID مميز») and their purchase.
+router.get("/custom-categories", async (_req, res) => {
+  try {
+    const { publicCategories } = await import("../services/storeLists.service");
+    return res.json({ success: true, data: await publicCategories() });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: "Failed" });
+  }
+});
+router.post("/custom/:productId/buy", buyLimiter, async (req: any, res) => {
+  try {
+    const { buyStoreProduct } = await import("../services/storeLists.service");
+    const key = String(req.get("Idempotency-Key") || req.body?.requestId || "");
+    const order = await buyStoreProduct(Number(req.userId ?? req.user?.id), Number(req.params.productId), key);
+    if (order.status === "FAILED") return res.status(409).json({ success: false, message: order.failureReason, data: order });
+    return res.json({ success: true, data: order });
+  } catch (e: any) {
+    if (e?.status) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+    console.error("[store.custom.buy]", e);
+    return res.status(500).json({ success: false, message: "تعذر إتمام الشراء" });
+  }
+});
+
 router.get("/products", async (_req, res) => {
   try {
     // Private-store items (isPurchasable=false) are hidden from the app —

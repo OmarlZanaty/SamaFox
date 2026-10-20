@@ -204,6 +204,26 @@ router.get('/me/capabilities', async (req: any, res) => {
     return res.status(500).json({ success: false, message: (e as Error).message });
   }
 });
+// SPEC52 #41 — store lists + products (owner permission store.products).
+const storeWrap = (fn: (req: any) => Promise<unknown>) => async (req: any, res: any) => {
+  try {
+    return res.json({ success: true, data: await fn(req) });
+  } catch (e: any) {
+    if (e?.status) return res.status(e.status).json({ success: false, message: e.message });
+    console.error('[admin.store-lists]', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
+const SL = () => import('../services/storeLists.service');
+router.get('/store-lists', storeWrap(async () => (await SL()).adminList()));
+router.post('/store-lists', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).saveCategory(req)));
+router.patch('/store-lists/:id', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).saveCategory(req)));
+router.delete('/store-lists/:id', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).deleteCategory(req)));
+router.post('/store-lists/products', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).saveProduct(req)));
+router.patch('/store-lists/products/:productId', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).saveProduct(req)));
+router.delete('/store-lists/products/:productId', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).deleteProduct(req)));
+router.post('/store-lists/bulk-ids', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).bulkAddIds(req)));
+
 router.get('/permissions/catalog', (_req, res) => {
   res.json({
     success: true,

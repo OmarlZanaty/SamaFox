@@ -35,7 +35,11 @@ export async function nextDisplayId(tx: Prisma.TransactionClient): Promise<numbe
   // Defensive: skip any already-taken id (e.g. after a manual admin change).
   for (let i = 0; i < 1000; i++) {
     const taken = await tx.user.findUnique({ where: { displayId: candidate } });
-    if (!taken) break;
+    // SPEC52 #41 — a number listed for sale in «ID مميز» is never handed out.
+    const listed = await (tx as any).storeProduct
+      ?.findFirst?.({ where: { specialDisplayId: candidate }, select: { id: true } })
+      .catch(() => null);
+    if (!taken && !listed) break;
     candidate++;
   }
   return candidate;

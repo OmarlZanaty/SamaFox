@@ -2661,3 +2661,69 @@ model Friendship {
   @@index([requesterId, status])
   @@map("friendships")
 }
+
+// SPEC52 #41 — owner-created store lists (e.g. «ID مميز») and their products.
+model StoreCategory {
+  id        Int            @id @default(autoincrement())
+  name      String
+  imageUrl  String?
+  sortOrder Int            @default(0)
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @default(now()) @updatedAt
+  products  StoreProduct[]
+
+  @@map("store_categories")
+}
+
+model StoreProduct {
+  id               Int           @id @default(autoincrement())
+  categoryId       Int
+  category         StoreCategory @relation(fields: [categoryId], references: [id])
+  kind             String        @default("special_id") // special_id | item
+  name             String
+  imageUrl         String?
+  priceCoins       Int
+  currency         String        @default("coins")
+  durationDays     Int?
+  stock            Int? // null = unlimited
+  isAvailable      Boolean       @default(true)
+  specialDisplayId Int?          @unique
+  itemId           String? // kind=item → the existing Item granted
+  sortOrder        Int           @default(0)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @default(now()) @updatedAt
+
+  @@index([categoryId, isAvailable])
+  @@map("store_products")
+}
+
+model StoreOrder {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  productId      Int
+  status         String    @default("PENDING") // PENDING | COMPLETED | FAILED
+  priceCoins     Int
+  oldDisplayId   Int?
+  newDisplayId   Int?
+  idempotencyKey String    @unique
+  failureReason  String?
+  transactionId  Int?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  @@index([userId, createdAt])
+  @@map("store_orders")
+}
+
+model DisplayIdHistory {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  oldId     Int?
+  newId     Int
+  orderId   Int?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("display_id_history")
+}
