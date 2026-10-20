@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/room_controller_provider.dart';
+import '../../services/effects_prefs.dart';
 import '../../utils/image_intrinsic_size.dart';
 import '../product_video_layer.dart';
 
@@ -79,6 +80,8 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
 
   void _enqueue(EntranceEvent e) {
     if (!_eligible(e)) return;
+    // SPEC52 #23 — entry effects switched off by this user.
+    if (!EffectsPrefs.instance.entryEffects.value) return;
     _queue.add(e);
     _maybePlay();
   }

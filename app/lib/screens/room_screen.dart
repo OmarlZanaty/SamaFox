@@ -7,6 +7,7 @@ import '../widgets/room/room_header_glass.dart';
 import '../widgets/room/room_info_sheet.dart';
 import '../widgets/room/room_left_rail.dart';
 import '../widgets/room/agency_bell.dart';
+import '../services/effects_prefs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import '../config/app_config.dart';
@@ -277,6 +278,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Future<void> _playSeatBackgroundVideo(String videoUrl) async {
     final normalizedUrl = videoUrl.trim();
     if (normalizedUrl.isEmpty) return;
+    // SPEC52 #23 — entry effects off for this user: skip the entrance clip.
+    if (!EffectsPrefs.instance.entryEffects.value) {
+      _isPlayingEffect = false;
+      return;
+    }
 
     final now = DateTime.now();
     if (_lastPlayedSeatEffectUrl == normalizedUrl &&
@@ -304,7 +310,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
-    await _seatVideoController!.setVolume(1.0);
+    await _seatVideoController!.setVolume(AudioRoute.instance.roomMuted.value ? 0.0 : 1.0);
 
     if (!mounted) {
       _isPlayingEffect = false;
@@ -2594,6 +2600,33 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // SPEC52 #23 — personal display switches (this phone only),
+                  // applied immediately.
+                  const Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text('لي فقط', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: EffectsPrefs.instance.giftEffects,
+                    builder: (_, on, __) => SwitchListTile.adaptive(
+                      value: on,
+                      onChanged: (v) => EffectsPrefs.instance.setGiftEffects(v),
+                      title: const Text('تأثيرات الهدايا', style: TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: EffectsPrefs.instance.entryEffects,
+                    builder: (_, on, __) => SwitchListTile.adaptive(
+                      value: on,
+                      onChanged: (v) => EffectsPrefs.instance.setEntryEffects(v),
+                      title: const Text('تأثيرات الدخول', style: TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                  const Divider(color: Colors.white24),
+                  const Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text('أصوات الغرفة (للجميع)', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  ),
                   SwitchListTile.adaptive(
                     value: !muteGifts,
                     onChanged: (value) => setModalState(() => muteGifts = !value),
@@ -2941,6 +2974,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       unawaited(AudioRoute.instance.ensureBluetoothPermission());
       unawaited(AudioRoute.instance.applyAutomatic());
       _roomMuted = AudioRoute.instance.roomMuted.value;
+      unawaited(_loadImageGiftPolicy());
     });
 
     // The engine is per ROOM (the server can put one room on the SFU while
@@ -3517,6 +3551,24 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   bool _sendingRoomImage = false;
+
+  // SPEC52 #17 — image-gift policy from the server (never decided locally).
+  bool _imageGiftAllowed = true;
+  String _imageGiftMode = 'lock';
+  int _imageGiftMinVip = 0;
+
+  Future<void> _loadImageGiftPolicy() async {
+    try {
+      final res = await DioClient.dio.get('/messages/room-image-policy');
+      final d = (res.data is Map ? res.data['data'] : null) as Map?;
+      if (d == null || !mounted) return;
+      setState(() {
+        _imageGiftAllowed = d['allowed'] != false;
+        _imageGiftMode = d['mode']?.toString() == 'hide' ? 'hide' : 'lock';
+        _imageGiftMinVip = (d['minVip'] as num?)?.toInt() ?? 0;
+      });
+    } catch (_) {/* keep the button usable; the server still checks the send */}
+  }
   StreamSubscription<Map<String, dynamic>>? _roomMsgRejectedSub;
 
   /// صور في شات الروم — same picker settings as the DM picture, same upload
@@ -4994,13 +5046,32 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     children: [
                       // صور في شات الروم — pick, upload, send. The server
                       // decides the VIP bar; a refusal comes back as a snack.
-                      IconButton(
-                        icon: _sendingRoomImage
-                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))
-                            : const Icon(Icons.image_outlined, color: Colors.white70),
-                        tooltip: 'صورة',
-                        onPressed: _sendingRoomImage ? null : _pickAndSendRoomImage,
-                      ),
+                      // SPEC52 #17 — "إرسال صورة كهدية": shown, locked or
+                      // hidden according to the owner's Image Gift min VIP.
+                      if (_imageGiftAllowed || _imageGiftMode != 'hide')
+                        IconButton(
+                          icon: _sendingRoomImage
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))
+                              : Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Icon(Icons.image_outlined,
+                                        color: _imageGiftAllowed ? Colors.white70 : Colors.white30),
+                                    if (!_imageGiftAllowed)
+                                      const Positioned(
+                                        right: -4,
+                                        bottom: -4,
+                                        child: Icon(Icons.lock, size: 12, color: Color(0xFFFFD54F)),
+                                      ),
+                                  ],
+                                ),
+                          tooltip: 'صورة',
+                          onPressed: _sendingRoomImage
+                              ? null
+                              : (_imageGiftAllowed
+                                  ? _pickAndSendRoomImage
+                                  : () => _showRoomSnack('إرسال الصور متاح لـ VIP $_imageGiftMinVip فأعلى', error: true)),
+                        ),
                       Expanded(
                         child: TextField(
                           controller: _externalTextController,

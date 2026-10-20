@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../config/app_config.dart';
@@ -137,6 +138,40 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   /// go through the normal send path at all: it raises an invitation the
   /// recipient must answer, and only then is anyone charged.
   bool _selectedGiftIsCp = false;
+
+  /// SPEC52 #26 — lucky gifts: after a successful send a 5-second
+  /// "إرسال مرة أخرى" circle repeats the exact same gift/quantity/recipients.
+  /// Each tap is a NEW send (new idempotency key) charged by the server only
+  /// when it succeeds; nothing is sent automatically when it runs out.
+  bool _selectedGiftIsLucky = false;
+  int _repeatLeft = 0;
+  Timer? _repeatTimer;
+
+  void _startRepeatWindow() {
+    _repeatTimer?.cancel();
+    setState(() => _repeatLeft = 5);
+    _repeatTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      setState(() => _repeatLeft = _repeatLeft - 1);
+      if (_repeatLeft <= 0) t.cancel();
+    });
+  }
+
+  void _stopRepeatWindow() {
+    _repeatTimer?.cancel();
+    if (mounted && _repeatLeft != 0) setState(() => _repeatLeft = 0);
+  }
+
+  Future<void> _repeatSend() async {
+    if (_sending) return;
+    final cost = _selectedGiftCost * _quantity * _selectedRecipientIds.length;
+    if (cost > _balance) {
+      _stopRepeatWindow();
+      _toast('الرصيد غير كافٍ', error: true);
+      return;
+    }
+    await _send();
+  }
   static const List<int> _kQuantities = [1, 7, 10, 20, 50];
   // 2026-10-18 — "I send 10 My Cats (gift ×10 = 100 coins), win ×5,
   // and get only 50 instead of 500." Keep the choice across sheet opens
@@ -180,6 +215,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   @override
   void dispose() {
     GiftPickerSheet.liveBalance.removeListener(_onLiveBalance);
+    _repeatTimer?.cancel();
     _tab?.dispose();
     super.dispose();
   }
@@ -549,6 +585,9 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         _selectedGiftId = gift.id;
         _selectedGiftCost = gift.coinCost;
         _selectedGiftIsCp = (gift.category ?? '').toLowerCase() == _kCpCategoryKey;
+        _selectedGiftIsLucky = gift.isLucky;
+        _repeatTimer?.cancel();
+        _repeatLeft = 0;
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -686,6 +725,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               ),
             ),
             const SizedBox(width: 10),
+            if (_repeatLeft > 0) ...[
+              _repeatCircle(),
+              const SizedBox(width: 8),
+            ],
             // Send button with attached quantity dropdown — last, renders on the LEFT in RTL.
             Expanded(
               child: Container(
@@ -738,6 +781,54 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                     ),
                   ],
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _repeatCircle() {
+    return GestureDetector(
+      onTap: _repeatSend,
+      child: SizedBox(
+        width: 58,
+        height: 58,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: 58,
+              height: 58,
+              child: TweenAnimationBuilder<double>(
+                key: ValueKey(_repeatLeft),
+                tween: Tween(begin: _repeatLeft / 5, end: (_repeatLeft - 1).clamp(0, 5) / 5),
+                duration: const Duration(seconds: 1),
+                builder: (_, v, __) => CircularProgressIndicator(
+                  value: v,
+                  strokeWidth: 4,
+                  color: const Color(0xFFFFD54F),
+                  backgroundColor: Colors.white12,
+                ),
+              ),
+            ),
+            Container(
+              width: 48,
+              height: 48,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(colors: [Color(0xFFFF8F00), Color(0xFFFFD54F)]),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('$_repeatLeft',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, height: 1)),
+                  const Text('إرسال مرة أخرى',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w700, height: 1.1)),
+                ],
               ),
             ),
           ],
@@ -869,6 +960,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       if (!mounted) return;
       setState(() => _balance = result.senderBalance);
       widget.onBalanceChanged(result.senderBalance);
+      if (_selectedGiftIsLucky) _startRepeatWindow();
       final lucky = result.lucky;
       if (lucky == null) {
         _toast('تم إرسال الهدية!');
@@ -881,6 +973,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       }
     } on GiftRepositoryException catch (e) {
       if (!mounted) return;
+      _stopRepeatWindow();
       setState(() => _balance = prevBalance);
       widget.onBalanceChanged(prevBalance);
       _toast(e.message, error: true);
@@ -905,6 +998,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       if (!mounted) return;
       setState(() => _balance = result.senderBalance);
       widget.onBalanceChanged(result.senderBalance);
+      if (_selectedGiftIsLucky && result.sent > 0) _startRepeatWindow();
 
       if (result.sent == result.requested) {
         _toast('تم إرسال الهدية إلى ${result.sent} مستلمين');

@@ -3055,12 +3055,14 @@ export const adminGetGates = async (_req: AdminReq, res: Response) => {
       import('../follow/relations.controller'),
       import('./messages.controller'),
     ]);
-    const [visitorsMinLevel, messageImageMinVip, roomImageMinVip] = await Promise.all([
+    const { getImageGiftMode } = await import('./messages.controller');
+    const [visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode] = await Promise.all([
       getVisitorsMinLevel(),
       getMessageImageMinVip(),
       getRoomImageMinVip(),
+      getImageGiftMode(),
     ]);
-    return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip } });
+    return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode } });
   } catch (e) {
     console.error('adminGetGates error:', e);
     return fail(res, 500, 'Server error');
@@ -3069,8 +3071,19 @@ export const adminGetGates = async (_req: AdminReq, res: Response) => {
 
 export const adminSetGates = async (req: AdminReq, res: Response) => {
   try {
-    const out: Record<string, number> = {};
+    const out: Record<string, number | string> = {};
     const body = req.body as any;
+    const { getVisitorsMinLevel: gv } = await import('../follow/relations.controller');
+    const mc = await import('./messages.controller');
+    const before = {
+      visitorsMinLevel: await gv(),
+      messageImageMinVip: await mc.getMessageImageMinVip(),
+      roomImageMinVip: await mc.getRoomImageMinVip(),
+      imageGiftMode: await mc.getImageGiftMode(),
+    };
+    if (body?.imageGiftMode != null) {
+      out.imageGiftMode = await mc.setImageGiftMode(String(body.imageGiftMode));
+    }
 
     if (body?.visitorsMinLevel != null) {
       const v = Math.floor(Number(body.visitorsMinLevel));
@@ -3092,6 +3105,17 @@ export const adminSetGates = async (req: AdminReq, res: Response) => {
     }
     if (Object.keys(out).length === 0) return fail(res, 400, 'nothing to update');
 
+    // SPEC52 #43 — VIP requirements carry their before/after.
+    const { recordAdminAudit, auditContext: ctx } = await import('../services/adminAudit.service');
+    await recordAdminAudit({
+      adminId: Number(req.userId),
+      action: 'GATES_UPDATE',
+      targetType: 'setting',
+      targetId: 'gates',
+      before: Object.fromEntries(Object.keys(out).map((k) => [k, (before as any)[k]])),
+      after: out,
+      ...ctx(req),
+    });
     return ok(res, { data: out });
   } catch (e) {
     console.error('adminSetGates error:', e);

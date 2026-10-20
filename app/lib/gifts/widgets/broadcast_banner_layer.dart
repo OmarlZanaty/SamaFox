@@ -1,3 +1,4 @@
+import '../../widgets/room/room_jump.dart';
 import 'dart:async';
 import 'dart:collection';
 
@@ -101,9 +102,9 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
         child: SafeArea(
           child: GestureDetector(
             onTap: () {
-              // Tapping the banner takes the viewer into the gift's room.
+              // SPEC52 #4 — confirm, check the room is open, then go.
               if (ev.roomId != null) {
-                Navigator.of(context).pushNamed('/room', arguments: ev.roomId);
+                confirmAndJumpToRoom(ev.roomId!);
               }
             },
             child: Padding(

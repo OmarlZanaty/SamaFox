@@ -405,8 +405,9 @@ export async function receivedSummary(req: Request, res: Response) {
  *   • the whole app (الكاس في البرنامج) — top 30, no room filter
  *   • one room (الكاس في الروم) — top 20, that room's gifts only
  *
- * Self-gifts never count: sending to yourself supports nobody, and it let an
- * agent buy the top of the board at half price.
+ * SPEC52 #9 (2026-10-20): self-support COUNTS, in the room cup and the app
+ * cup alike (owner's decision, reversing the earlier rule). Each gift row is
+ * one transaction and is summed exactly once, so there is no double count.
  *
  * B9 — "تصفير العداد": an account the dashboard has reset (`supportersResetAt`)
  * only counts the gifts it sent AFTER that moment. The client asked for this so
@@ -433,7 +434,6 @@ async function buildSupportersBoard(opts: { roomId?: number; limit: number; sinc
       AND: [
         ...(roomId != null ? [{ roomId }] : []),
         ...(sinceMs ? [{ createdAt: { gte: new Date(Date.now() - sinceMs) } }] : []),
-        { NOT: { senderId: { equals: prisma.giftTransaction.fields.recipientId } } },
         ...(resetIds.length
           ? [
               {

@@ -1,3 +1,4 @@
+import 'services/effects_prefs.dart';
 import 'services/active_room.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -68,6 +69,9 @@ Future<void> _bootStep(String name, Future<void> Function() step, Duration cap) 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // SPEC52 #23 — personal gift/entry effect switches.
+  // ignore: unawaited_futures
+  EffectsPrefs.instance.load();
   final bootClock = Stopwatch()..start();
 
   // Decoded images: 60 MB instead of Flutter's 100 MB. Phones in a room sat at

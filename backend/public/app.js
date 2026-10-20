@@ -3312,6 +3312,7 @@ async function loadModeration() {
   document.getElementById("gate_visitors").value    = gates?.data?.visitorsMinLevel ?? 0;
   document.getElementById("gate_image_vip").value   = gates?.data?.messageImageMinVip ?? 0;
   document.getElementById("gate_room_image_vip").value = gates?.data?.roomImageMinVip ?? 0;
+  if (document.getElementById("gate_image_gift_mode")) document.getElementById("gate_image_gift_mode").value = gates?.data?.imageGiftMode ?? "lock";
 
   const rows = bans?.data ?? [];
   const body = document.querySelector("#deviceBansTable tbody");
@@ -3395,7 +3396,8 @@ async function saveGates() {
   const visitorsMinLevel   = Number(document.getElementById("gate_visitors").value || 0);
   const messageImageMinVip = Number(document.getElementById("gate_image_vip").value || 0);
   const roomImageMinVip    = Number(document.getElementById("gate_room_image_vip").value || 0);
-  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip, roomImageMinVip });
+  const imageGiftMode = document.getElementById("gate_image_gift_mode")?.value || "lock";
+  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode });
   showToast("✅ تم الحفظ");
 }
 

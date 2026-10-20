@@ -6,6 +6,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/device_tier.dart';
+import '../../services/effects_prefs.dart';
 import '../../services/memory_guard.dart';
 import '../models/gift.dart';
 import '../services/gift_socket_service.dart';
@@ -84,6 +85,9 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   /// the fanfare instead, so neither doubles up with this.
   void _playGiftSound(GiftSendEvent event) {
     if (AudioRoute.instance.roomMuted.value) return; // SPEC52 #18
+    // SPEC52 #25 — image gifts never ring. Only video gifts make sound, and
+    // they carry it in their own clip.
+    if (event.gift.format != GiftFormat.video) return;
     if (event.gift.tier == GiftTier.legendary) return;
     if (event.gift.format == GiftFormat.video) return;
     final now = DateTime.now();
@@ -105,6 +109,10 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     // Fire the sound FIRST, before any animation work, so it is as close to the
     // socket event as possible on every device.
     _playGiftSound(event);
+
+    // SPEC52 #23 — the user switched gift effects off: nothing is drawn for
+    // him (the event itself was still received and counted elsewhere).
+    if (!EffectsPrefs.instance.giftEffects.value) return;
 
     // Video gifts carry sound and a real clip — repeating that N times for a
     // ×N send would replay the same video N times over each other. They play
@@ -214,6 +222,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     () async {
       try {
         if (AudioRoute.instance.roomMuted.value) return; // SPEC52 #18
+        if (event.gift.format != GiftFormat.video) return; // SPEC52 #25 — image gifts are silent
         await _vipPlayer.stop();
         await _vipPlayer.play(AssetSource('sounds/vip_gift.wav'), volume: 0.9);
       } catch (e) {
@@ -261,7 +270,12 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
 
   @override
   Widget build(BuildContext context) {
-    return IgnorePointer(
+    // SPEC52 #4 — the effects never take touches, but the cross-room gift
+    // banner must: it sits OUTSIDE the IgnorePointer, on top.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        IgnorePointer(
       ignoring: true,
       child: Stack(
         fit: StackFit.expand,
@@ -304,10 +318,12 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
           for (final v in _vipBursts)
             _VipBanner(key: ValueKey('vip-banner-${v.id}'), event: v.event),
 
-          // Cross-room broadcasts (small toast for legendary in other rooms).
-          BroadcastBannerLayer(socket: widget.socket),
         ],
       ),
+        ),
+        // Cross-room broadcasts — tappable: «هل تريد الانتقال إلى هذه الغرفة؟».
+        BroadcastBannerLayer(socket: widget.socket),
+      ],
     );
   }
 }

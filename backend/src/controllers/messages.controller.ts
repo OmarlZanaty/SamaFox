@@ -50,6 +50,50 @@ export async function setRoomImageMinVip(level: number): Promise<number> {
   return Number(value);
 }
 
+/**
+ * SPEC52 #17 — "إرسال صورة كهدية" (the picture button in room chat) uses the
+ * room_image_min_vip bar above as its "Image Gift Minimum VIP". What a user
+ * BELOW the bar sees is the owner's choice: 'lock' (icon shown with a lock) or
+ * 'hide' (no icon). The send itself is re-checked on the server every time.
+ */
+export const IMAGE_GIFT_MODE_KEY = 'image_gift_locked_mode';
+
+export async function getImageGiftMode(): Promise<'lock' | 'hide'> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: IMAGE_GIFT_MODE_KEY } });
+    return row?.value === 'hide' ? 'hide' : 'lock';
+  } catch {
+    return 'lock';
+  }
+}
+
+export async function setImageGiftMode(mode: string): Promise<'lock' | 'hide'> {
+  const value = mode === 'hide' ? 'hide' : 'lock';
+  await prisma.appSetting.upsert({
+    where: { key: IMAGE_GIFT_MODE_KEY },
+    update: { value },
+    create: { key: IMAGE_GIFT_MODE_KEY, value },
+  });
+  return value;
+}
+
+/** GET /messages/room-image-policy — what the picture button should look like for me. */
+export const getRoomImagePolicy = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId as number;
+    const [minVip, mode, me] = await Promise.all([
+      getRoomImageMinVip(),
+      getImageGiftMode(),
+      prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, vipExpiresAt: true } }),
+    ]);
+    const vipActive = !me?.vipExpiresAt || me.vipExpiresAt.getTime() > Date.now();
+    const myVip = vipActive ? me?.vipLevel ?? 0 : 0;
+    return res.json({ success: true, data: { minVip, mode, allowed: minVip <= 0 || myVip >= minVip } });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
+
 export async function setMessageImageMinVip(level: number): Promise<number> {
   const value = String(Math.max(0, Math.floor(level)));
   await (prisma as any).appSetting.upsert({

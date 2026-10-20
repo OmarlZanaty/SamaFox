@@ -136,13 +136,12 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
 
 /**
  * A15b — how much [userId] has gifted, for supporter-reward eligibility.
- * Scoped to a room when the rung names one. Self-gifts never count.
+ * Scoped to a room when the rung names one. SPEC52 #9 — self-gifts count.
  */
 async function supporterGifted(userId: number, roomId: number | null): Promise<number> {
   const agg = await db.giftTransaction.aggregate({
     where: {
       senderId: userId,
-      NOT: { recipientId: userId },
       ...(roomId != null ? { roomId } : {}),
     },
     _sum: { totalCoins: true },
