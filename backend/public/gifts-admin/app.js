@@ -295,7 +295,8 @@ function renderEditor() {
           </div>
         ` : `
           <div class="field">
-            <label>Video upload (MP4 / WebM)</label>
+            <label>نسخة احتياطية (MP4 / WebM)</label>
+            <p>${d.videoFallbackUrl ? 'نسخة H.264 احتياطية جاهزة للأجهزة الضعيفة' : 'لا توجد نسخة احتياطية بعد — تُنشأ عند الرفع'}</p>
             <input id="f-videoUpload" type="file" accept="video/mp4,video/webm,video/quicktime">
             <input id="f-animationUrl" type="text" value="${escapeHtml(d.animationUrl || '')}" placeholder="/assets/videos/..." style="margin-top:8px">
           </div>
@@ -388,6 +389,9 @@ function bindFieldEvents() {
     if (res.success) {
       d.animationUrl = res.url;
       d.videoHasAlpha = res.hasAlpha;
+      d.videoFallbackUrl = res.videoFallbackUrl;
+      d.videoMeta = res.videoMeta;
+      d.hasSound = res.hasSound;
       d.animationMs = Math.round(res.duration * 1000);
       document.getElementById('f-animationUrl').value = res.url;
       document.getElementById('f-animationMs').value = d.animationMs;

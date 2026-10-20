@@ -1,10 +1,11 @@
+import { createGiftFallback } from '../utils/mediaOptimize';
 import { Request, Response } from 'express';
 import { optimizeUpload, GIF_POLICY, GifRole } from '../utils/mediaOptimize';
 import path from 'path';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import prisma from '../utils/prisma';
-import { probeGiftVideo, needsTranscode, transcodeToH264 } from '../gifts/videoValidate';
+import { probeGiftVideo, giftVideoMeta, needsTranscode, transcodeToH264 } from '../gifts/videoValidate';
 import { getPublicBaseUrl } from '../utils/public-url';
 import { firstStr } from '../utils/http';
 import { canUseAnimatedAvatar, isAnimatedUpload } from '../services/animatedAvatar.service';
@@ -158,6 +159,10 @@ export const uploadVideoAsset = async (req: Request, res: Response) => {
       if (shrunk.changed) console.log(`✅ Gift video shrunk ${shrunk.before}→${shrunk.after} bytes`);
     }
 
+    // SPEC52 #24 — plus a H.264 Baseline ≤720p/30fps rendition for weak
+    // devices and decode errors. A failed rendition never fails the upload.
+    let fallback: string | null = null;
+    try { fallback = await createGiftFallback(file.path); } catch (err) { console.error('[uploadVideoAsset] fallback failed', err); }
     const baseUrl = getPublicBaseUrl(req);
     const url = `${baseUrl}/uploads/${file.filename}`;
     console.log(
@@ -173,6 +178,9 @@ export const uploadVideoAsset = async (req: Request, res: Response) => {
       filename: file.filename,
       size: probe.fileSize,
       mimetype: file.mimetype,
+      videoFallbackUrl: fallback ? `${baseUrl}/uploads/${path.basename(fallback)}` : null,
+      videoMeta: giftVideoMeta(probe),
+      hasSound: probe.hasAudio,
       durationMs: probe.durationMs,
       hasAlpha: probe.hasAlpha,
       codec: transcoded ? 'h264' : probe.codec,

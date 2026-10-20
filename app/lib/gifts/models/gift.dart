@@ -76,6 +76,12 @@ class Gift {
   final GiftFormat format;
   final String? animationHtml;
   final String? animationUrl;
+  /// SPEC52 #24 — H.264 Baseline <=720p rendition for weak devices / decode errors.
+  final String? videoFallbackUrl;
+  /// SPEC52 #45 — false for a clip without (or with muted) sound.
+  final bool hasSound;
+  /// 'flight' | 'fullscreen' | 'banner' | 'none' (null = by tier, as before).
+  final String? effectType;
   final bool videoHasAlpha;
   final bool fireworksEnabled;
   final List<String> fireworksColors;
@@ -98,6 +104,9 @@ class Gift {
     required this.format,
     this.animationHtml,
     this.animationUrl,
+    this.videoFallbackUrl,
+    this.hasSound = true,
+    this.effectType,
     this.videoHasAlpha = false,
     this.fireworksEnabled = false,
     this.fireworksColors = const [],
@@ -131,6 +140,9 @@ class Gift {
       format: format,
       animationHtml: json['animationHtml'] as String?,
       animationUrl: animationUrl,
+      videoFallbackUrl: _absoluteUrl(json['videoFallbackUrl'] as String?),
+      hasSound: json['hasSound'] as bool? ?? true,
+      effectType: json['effectType'] as String?,
       videoHasAlpha: json['videoHasAlpha'] as bool? ?? false,
       fireworksEnabled: json['fireworksEnabled'] as bool? ?? false,
       fireworksColors: colors is List
@@ -154,12 +166,15 @@ class GiftUser {
   final int id;
   final String name;
   final String? avatarUrl;
-  const GiftUser({required this.id, required this.name, this.avatarUrl});
+  /// SPEC52 #45 — the VIP name colour (#RRGGBB) or null.
+  final String? nameColor;
+  const GiftUser({required this.id, required this.name, this.avatarUrl, this.nameColor});
 
   factory GiftUser.fromJson(Map<String, dynamic> json) => GiftUser(
         id: (json['id'] as num).toInt(),
         name: json['name'] as String? ?? '',
         avatarUrl: json['avatarUrl'] as String?,
+        nameColor: json['nameColor'] as String?,
       );
 }
 
@@ -180,6 +195,15 @@ class GiftSendEvent {
   final GiftUser? recipient;
   final Gift gift;
   final DateTime ts;
+  // SPEC52 #45 — unified gift event (eventVersion 2). All optional so an
+  // older server's payload still parses.
+  final String? giftType;
+  final int? seatId;
+  final String? effectType;
+  final bool cpActivate;
+  final int cpXp;
+  final String targetType;
+  final int eventVersion;
 
   const GiftSendEvent({
     required this.transactionId,
@@ -196,6 +220,13 @@ class GiftSendEvent {
     this.recipient,
     required this.gift,
     required this.ts,
+    this.giftType,
+    this.seatId,
+    this.effectType,
+    this.cpActivate = false,
+    this.cpXp = 0,
+    this.targetType = 'user',
+    this.eventVersion = 1,
   }) : recipientCoins = recipientCoins ?? totalCoins;
 
   factory GiftSendEvent.fromJson(Map<String, dynamic> json) {
@@ -227,6 +258,13 @@ class GiftSendEvent {
       ts: DateTime.fromMillisecondsSinceEpoch(
         (json['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
       ),
+      giftType: json['giftType'] as String?,
+      seatId: (json['seatId'] as num?)?.toInt(),
+      effectType: json['effectType'] as String? ?? giftMap['effectType'] as String?,
+      cpActivate: json['cpActivate'] as bool? ?? false,
+      cpXp: (json['cpXp'] as num?)?.toInt() ?? 0,
+      targetType: json['targetType'] as String? ?? 'user',
+      eventVersion: (json['eventVersion'] as num?)?.toInt() ?? 1,
     );
   }
 }

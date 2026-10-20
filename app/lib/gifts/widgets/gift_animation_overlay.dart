@@ -371,13 +371,24 @@ class _FullscreenVideoGift extends StatelessWidget {
     final gift = show.event.gift;
     final senderName = show.event.sender?.name ?? '';
     final recipientName = show.event.recipient?.name ?? '';
+    final fullscreen = (show.event.effectType ?? gift.effectType) == 'fullscreen';
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Backdrop, so a portrait clip doesn't show the room through its bars.
-        Container(color: Colors.black.withOpacity(0.72)),
-        GiftPlayer(gift: gift, onComplete: onDone, onError: onDone),
+        // SPEC52 #24 — the mics stay visible: a centred area of at most 70%
+        // of the screen height and no opaque backdrop, unless the gift is
+        // configured «fullscreen» in the dashboard.
+        if (fullscreen) Container(color: Colors.black.withOpacity(0.72)),
+        if (fullscreen)
+          GiftPlayer(gift: gift, onComplete: onDone, onError: onDone)
+        else
+          Center(
+            child: FractionallySizedBox(
+              heightFactor: 0.7,
+              child: GiftPlayer(gift: gift, onComplete: onDone, onError: onDone),
+            ),
+          ),
         if (senderName.isNotEmpty || recipientName.isNotEmpty)
           Positioned(
             left: 16,

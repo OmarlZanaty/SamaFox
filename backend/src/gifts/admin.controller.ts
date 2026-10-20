@@ -1,12 +1,14 @@
+import { recordAdminAuditStrict } from '../services/adminAudit.service';
 import type { Request, Response } from 'express';
-import { optimizeImage, optimizeGif } from '../utils/mediaOptimize';
+import { Prisma } from '@prisma/client';
+import { optimizeImage, optimizeGif, createGiftFallback } from '../utils/mediaOptimize';
 import path from 'path';
 import fs from 'fs/promises';
 import prisma from '../utils/prisma';
 import { sanitizeGiftHtml, MAX_HTML_BYTES } from './sanitize';
 import { bumpCatalogVersion } from './catalogCache';
 import { recordGiftAudit } from './audit';
-import { validateGiftVideo, isAllowedVideoExtension, MAX_VIDEO_BYTES } from './videoValidate';
+import { validateGiftVideo, giftVideoMeta, isAllowedVideoExtension, MAX_VIDEO_BYTES } from './videoValidate';
 import { GIFT_TEMPLATES } from './templates';
 import { getPublicBaseUrl } from '../utils/public-url';
 
@@ -30,6 +32,11 @@ interface GiftWriteInput {
   animationHtml?: string | null;
   animationUrl?: string | null;
   videoHasAlpha?: boolean;
+  videoFallbackUrl?: string | null;
+  videoMeta?: any;
+  hasSound?: boolean;
+  soundUrl?: string | null;
+  effectType?: string | null;
   fireworksEnabled?: boolean;
   fireworksColors?: unknown;
   coinCost?: number;
@@ -61,6 +68,11 @@ function normalize(input: GiftWriteInput, existing?: any) {
   if (input.format !== undefined) out.format = input.format;
   if (input.animationHtml !== undefined) out.animationHtml = input.animationHtml;
   if (input.animationUrl !== undefined) out.animationUrl = input.animationUrl;
+  if (input.videoFallbackUrl !== undefined) out.videoFallbackUrl = input.videoFallbackUrl;
+  if (input.videoMeta !== undefined) out.videoMeta = input.videoMeta ?? Prisma.DbNull;
+  if (input.hasSound !== undefined) out.hasSound = !!input.hasSound;
+  if (input.soundUrl !== undefined) out.soundUrl = input.soundUrl;
+  if (input.effectType !== undefined) out.effectType = input.effectType;
   if (input.videoHasAlpha !== undefined) out.videoHasAlpha = !!input.videoHasAlpha;
   if (input.fireworksEnabled !== undefined) out.fireworksEnabled = !!input.fireworksEnabled;
   if (input.fireworksColors !== undefined) out.fireworksColors = input.fireworksColors ?? null;
@@ -81,6 +93,7 @@ function normalize(input: GiftWriteInput, existing?: any) {
 }
 
 function validateForWrite(payload: any): string | null {
+  if (payload.effectType != null && !['flight', 'fullscreen', 'banner', 'none'].includes(payload.effectType)) return 'effectType is invalid';
   if (!payload.name) return 'name is required';
   if (!payload.iconUrl) return 'iconUrl is required';
   if (!FORMATS.has(payload.format)) return 'format must be SVG_CSS or VIDEO';
@@ -110,7 +123,7 @@ export async function listAll(req: Request, res: Response) {
       where: includeDeleted ? {} : { isActive: true },
       orderBy: [{ tier: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'desc' }],
     });
-    return res.json({ success: true, total: gifts.length, gifts });
+    return res.json({ success: true, total: gifts.length, gifts, data: gifts });
   } catch (err) {
     console.error('[admin.gifts.listAll]', err);
     return res.status(500).json({ success: false, message: 'Failed to list gifts' });
@@ -122,7 +135,7 @@ export async function getOne(req: Request, res: Response) {
     const id = String(req.params.id);
     const gift = await prisma.gift.findUnique({ where: { id } });
     if (!gift) return res.status(404).json({ success: false, message: 'Not found' });
-    return res.json({ success: true, gift });
+    return res.json({ success: true, gift, data: gift });
   } catch (err) {
     console.error('[admin.gifts.getOne]', err);
     return res.status(500).json({ success: false, message: 'Failed' });
@@ -144,10 +157,14 @@ export async function create(req: Request, res: Response) {
     }
     data.createdBy = adminId;
 
-    const gift = await prisma.gift.create({ data });
+    const gift = await prisma.$transaction(async tx => {
+      const gift = await tx.gift.create({ data });
+      await recordAdminAuditStrict(tx, { adminId, action: 'GIFT_CREATE', targetType: 'gift', targetId: gift.id, before: null, after: gift });
+      return gift;
+    });
     await bumpCatalogVersion();
     await recordGiftAudit({ adminId, giftId: gift.id, action: 'CREATE', after: gift });
-    return res.status(201).json({ success: true, gift });
+    return res.status(201).json({ success: true, gift, data: gift });
   } catch (err: any) {
     console.error('[admin.gifts.create]', err);
     return res.status(500).json({ success: false, message: 'Create failed', detail: err?.message });
@@ -175,14 +192,19 @@ export async function update(req: Request, res: Response) {
     delete data.createdAt;
     delete data.updatedAt;
 
-    const gift = await prisma.gift.update({ where: { id }, data });
+    const gift = await prisma.$transaction(async tx => {
+      const current = await tx.gift.findUnique({ where: { id } });
+      const gift = await tx.gift.update({ where: { id }, data });
+      await recordAdminAuditStrict(tx, { adminId, action: 'GIFT_UPDATE', targetType: 'gift', targetId: id, before: current, after: gift });
+      return gift;
+    }, { isolationLevel: 'Serializable' });
     await bumpCatalogVersion();
     const action: any =
       before.isActive && !gift.isActive ? 'DEACTIVATE'
       : !before.isActive && gift.isActive ? 'ACTIVATE'
       : 'UPDATE';
     await recordGiftAudit({ adminId, giftId: gift.id, action, before, after: gift });
-    return res.json({ success: true, gift });
+    return res.json({ success: true, gift, data: gift });
   } catch (err: any) {
     console.error('[admin.gifts.update]', err);
     return res.status(500).json({ success: false, message: 'Update failed', detail: err?.message });
@@ -260,10 +282,20 @@ export async function uploadVideo(req: Request, res: Response) {
     await fs.rename(file.path, target);
     // Absolute — the Flutter video player parses this straight into a Uri, and a
     // relative path there resolves to nothing playable.
+    // SPEC52 #24 — baseline rendition for weak devices; never fails the upload.
+    let videoFallbackUrl: string | null = null;
+    try {
+      const fallback = await createGiftFallback(target);
+      videoFallbackUrl = `${getPublicBaseUrl(req)}/assets/videos/${path.basename(fallback)}`;
+    } catch (err) { console.error('[admin.gifts.uploadVideo] fallback failed', err); }
     const url = `${getPublicBaseUrl(req)}/assets/videos/${path.basename(target)}`;
     return res.json({
       success: true,
       url,
+      videoFallbackUrl,
+      videoMeta: giftVideoMeta(probe),
+      hasSound: probe.hasAudio,
+      durationMs: probe.durationMs,
       duration: probe.durationMs / 1000,
       hasAlpha: probe.hasAlpha,
       fileSize: probe.fileSize,

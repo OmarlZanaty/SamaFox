@@ -39,6 +39,13 @@ interface AuthenticatedSocket extends Socket {
 const roomSeats = new Map<number, Map<number, number>>();
 const roomLeases = new Map<number, Map<number, SeatLease>>();
 let sessionStartup: Promise<void> = Promise.resolve();
+/** Copy the live beneficiary snapshot; callers cannot mutate voice seats. */
+export function giftSeatSnapshot(roomId: number): Array<{ recipientId: number; seatNumber: number }> {
+  return [...(roomSeats.get(roomId)?.entries() ?? [])]
+    .sort(([a], [b]) => a - b)
+    .map(([seatNumber, recipientId]) => ({ recipientId, seatNumber }));
+}
+
 
 // SPEC52 #20 — the room emoji catalogue (must match the app's) + rate limit.
 const ROOM_EMOJI_IDS = new Set([

@@ -1769,6 +1769,8 @@ window.uploadGiftImage = async function () {
   showToast("✓ تم رفع صورة الهدية");
 };
 
+let giftVideoRendition = null;
+
 window.uploadGiftVideo = async function () {
   const fileInput = document.getElementById("gift_videoFile");
   const file = fileInput?.files?.[0];
@@ -1781,6 +1783,7 @@ window.uploadGiftVideo = async function () {
   const videoUrl = d?.url || d?.imageUrl;
   if (!videoUrl) throw new Error("لم يتم إرجاع رابط الفيديو");
 
+  giftVideoRendition = { animationUrl: videoUrl, videoFallbackUrl: d.videoFallbackUrl, videoMeta: d.videoMeta, hasSound: d.hasSound };
   document.getElementById("gift_animationUrl").value = videoUrl;
   // The server probes the clip; store its real length so the app plays the whole
   // video instead of cutting it at the 3 ثانية default.
@@ -1797,6 +1800,7 @@ window.uploadGiftVideo = async function () {
 };
 
 window.openGiftModal = async function (id = null) {
+  giftVideoRendition = null;
   if (!_giftCategories.length) await loadGiftCategories();
   const modal = document.getElementById('giftModal');
   const title = document.getElementById('giftModalTitle');
@@ -1815,8 +1819,10 @@ window.openGiftModal = async function (id = null) {
     document.getElementById('gift_nameAr').value = gift.nameAr || gift.name || '';
     document.getElementById('gift_imageUrl').value = gift.iconUrl || '';
     document.getElementById('gift_animationUrl').value = gift.animationUrl || '';
+    giftVideoRendition = { animationUrl: gift.animationUrl, videoFallbackUrl: gift.videoFallbackUrl, videoMeta: gift.videoMeta, hasSound: gift.hasSound };
     document.getElementById('gift_animationMs').value = gift.animationMs ?? '';
     document.getElementById('gift_videoHasAlpha').value = gift.videoHasAlpha ? '1' : '0';
+    const fx = document.getElementById('gift_effectType'); if (fx) fx.value = gift.effectType === 'fullscreen' ? 'fullscreen' : '';
     const info = document.getElementById('giftVideoInfo');
     if (info) {
       if (gift.animationUrl) {
@@ -1882,6 +1888,11 @@ window.saveGift = async function () {
   };
   // Video gifts play their clip on send; image gifts use the flying-image animation.
   payload.format = payload.animationUrl ? 'VIDEO' : 'SVG_CSS';
+  if (giftVideoRendition?.animationUrl === payload.animationUrl) Object.assign(payload, giftVideoRendition);
+  else { payload.videoFallbackUrl = null; payload.videoMeta = null; }
+  const fxSel = document.getElementById('gift_effectType');
+  if (fxSel) payload.effectType = fxSel.value === 'fullscreen' ? 'fullscreen' : 'flight';
+
   if (payload.animationUrl) {
     const ms = Number(document.getElementById('gift_animationMs').value || 0);
     if (ms > 0) payload.animationMs = ms;

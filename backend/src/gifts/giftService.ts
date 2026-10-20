@@ -1,3 +1,5 @@
+import { buildGiftEvent } from './giftEvent';
+import type { GiftTransactionContext } from './giftOperation';
 import prisma from '../utils/prisma';
 import { coinFreezeReason } from '../utils/coinFreeze';
 import { getLuckyConfig, isLuckyGift, luckyHostCoins, rollLucky, type LuckyRollResult, type SettledEntry } from './lucky.service';
@@ -14,9 +16,18 @@ export interface SendGiftInput {
   giftId: string;
   quantity?: number;
   comboKey?: string | null;
+  clientRequestId?: string | null;
+  operationId?: string | null;
+  seatNumber?: number | null;
+  targetType?: 'user' | 'seat' | 'all_mics' | 'all_room';
+  batchSize?: number;
+  cpActivate?: boolean;
+  cpXp?: number;
+
 }
 
 export interface SendGiftResult {
+  event: any;
   transactionId: string;
   totalCoins: number;
   /** What counts for the recipient (target, seat total): the full value, or a
@@ -41,6 +52,11 @@ export interface SendGiftResult {
     animationMs: number;
     animationHtml: string | null;
     animationUrl: string | null;
+    videoFallbackUrl?: string | null;
+    videoMeta?: unknown;
+    hasSound?: boolean;
+    effectType?: string | null;
+    soundUrl?: string | null;
     videoHasAlpha: boolean;
     fireworksEnabled: boolean;
     fireworksColors: unknown;
@@ -69,11 +85,33 @@ const BROADCAST_TTL_MS = 30 * 1000;
  * Returns the full gift object so the socket layer can emit a payload
  * the client can render without an extra lookup.
  */
-export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResult> {
+export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransactionContext): Promise<SendGiftResult> {
+  if (!context) {
+    let effects: GiftTransactionContext['afterCommit'] = [];
+    const result = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
+      const ctx: GiftTransactionContext = { tx, afterCommit: [], beforeCommit: [] };
+      const result = await sendGiftAtomic(input, ctx);
+      for (const check of ctx.beforeCommit) check();
+      effects = ctx.afterCommit;
+      return result;
+    }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 30000 }));
+    for (const effect of effects) await effect().catch(e => console.warn('[gift post-commit]', e));
+    return result;
+  }
+  const db = context.tx;
+  if (!Number.isInteger(input.quantity ?? 1) || (input.quantity ?? 1) < 1 || (input.quantity ?? 1) > MAX_QUANTITY) {
+    throw new GiftSendError('INVALID_QUANTITY', 'الكمية غير صالحة');
+  }
+  const recipient = await db.user.findUnique({ where: { id: input.recipientId }, select: { id: true } });
+  if (!recipient) throw new GiftSendError('INVALID_RECIPIENT', 'المستلم غير موجود', 404);
+  if (input.roomId != null && input.seatNumber == null) {
+    const { giftSeatSnapshot } = await import('../services/socket.service');
+    input = { ...input, seatNumber: giftSeatSnapshot(input.roomId).find(s => s.recipientId === input.recipientId)?.seatNumber ?? null };
+  }
   const quantity = Math.max(1, Math.min(MAX_QUANTITY, Math.floor(input.quantity ?? 1)));
   // Self-gift is allowed (used for displaying animation to oneself / testing in empty rooms).
 
-  const gift = await prisma.gift.findUnique({ where: { id: input.giftId } });
+  const gift = await db.gift.findUnique({ where: { id: input.giftId } });
   if (!gift || !gift.isActive) throw new GiftSendError('INVALID_GIFT', 'Gift not found or inactive', 404);
 
   // CP accrual rate (admin-configurable; professional default = 1 CP per coin).
@@ -114,7 +152,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   let comboCount = 1;
   if (input.comboKey && gift.isComboEligible) {
     const cutoff = new Date(Date.now() - 10_000); // 10s combo window
-    const existing = await prisma.giftTransaction.count({
+    const existing = await db.giftTransaction.count({
       where: {
         comboKey: input.comboKey,
         senderId: input.senderId,
@@ -130,8 +168,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   // at once — every lucky gift touches the pool row. The whole transaction is
   // retried: it either commits once or rolls back completely, so a retry can
   // never double-charge.
-  const result = await withSerializableRetry(() => prisma.$transaction(
-    async (tx) => {
+  const result = await (async (tx: any) => {
       const decremented = await tx.user.updateMany({
         where: { id: input.senderId, coinsBalance: { gte: totalCoins } },
         data: { coinsBalance: { decrement: totalCoins } },
@@ -311,6 +348,10 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
 
       const txRow = await tx.giftTransaction.create({
         data: {
+          clientRequestId: input.clientRequestId ?? null,
+          operationId: input.operationId ?? null,
+          seatNumber: input.seatNumber ?? null,
+          targetType: input.targetType ?? 'user',
           senderId: input.senderId,
           recipientId: input.recipientId,
           roomId: input.roomId ?? null,
@@ -349,7 +390,8 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       if (broadcast) {
         await tx.giftBroadcast.create({
           data: {
-            transactionId: txRow.id,
+            createdAt: txRow.createdAt,
+        transactionId: txRow.id,
             fromRoomId: input.roomId ?? null,
             giftId: gift.id,
             expiresAt: new Date(Date.now() + BROADCAST_TTL_MS),
@@ -369,6 +411,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
 
       return {
         transactionId: txRow.id,
+        createdAt: txRow.createdAt,
         senderBalance,
         recipientBalance,
         recipientCredit,
@@ -378,10 +421,9 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         lucky,
         luckySettled,
       };
-    },
-    { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
-  ));
+    })(db);
 
+  context.afterCommit.push(async () => {
   // Level-up notice, once the XP/level/item grants are safely committed.
   if (result.levelUp) {
     await notifyLevelUp(
@@ -486,11 +528,13 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
     console.warn('achievement check failed:', e);
   }
 
+  });
+
   // CP level: NOT raised here. Only CP gifts raise it, and they go through
   // cp.service (invitation accept / CP gift to a partner), which counts each
   // gift transaction exactly once — see cpGift.service.
 
-  return {
+  const output = {
     transactionId: result.transactionId,
     totalCoins,
     recipientCoins,
@@ -512,6 +556,11 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       animationMs: gift.animationMs,
       animationHtml: gift.animationHtml,
       animationUrl: gift.animationUrl,
+      videoFallbackUrl: gift.videoFallbackUrl,
+      videoMeta: gift.videoMeta,
+      hasSound: gift.hasSound,
+      effectType: gift.effectType,
+      soundUrl: gift.soundUrl,
       videoHasAlpha: gift.videoHasAlpha,
       fireworksEnabled: gift.fireworksEnabled,
       fireworksColors: gift.fireworksColors,
@@ -520,6 +569,19 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       isLucky: isLuckyGift(gift),
     },
   };
+  const event = await buildGiftEvent(db, output.gift, {
+    senderId: input.senderId, recipientId: input.recipientId, seatNumber: input.seatNumber,
+    targetType: input.targetType, batchSize: input.batchSize, cpActivate: input.cpActivate, cpXp: input.cpXp,
+    transactionId: output.transactionId, totalCoins: output.totalCoins, recipientCoins: output.recipientCoins,
+    comboKey: input.comboKey ?? null, comboCount: output.comboCount, broadcast: output.broadcast,
+    createdAt: result.createdAt,
+    quantity, roomId: input.roomId ?? null,
+    lucky: result.lucky && result.lucky.status !== 'PENDING'
+      ? { multiplier: result.lucky.multiplier, payoutCoins: result.lucky.payoutCoins, hostCoins: result.lucky.hostCoins } : null,
+  });
+  await db.giftTransaction.update({ where: { id: result.transactionId }, data: { eventSnapshot: JSON.parse(JSON.stringify(event)) } });
+  await db.giftDelivery.create({ data: { transactionId: result.transactionId, payload: JSON.parse(JSON.stringify(event)) } });
+  return { ...output, event };
 }
 
 /** Retry a Serializable transaction that lost a conflict (P2034 / 40001). */

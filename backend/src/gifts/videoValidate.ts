@@ -75,6 +75,7 @@ export interface VideoValidationResult {
   height: number;
   framerate: number;
   hasAlpha: boolean;
+  hasAudio: boolean;
   codec: string;
   fileSize: number;
 }
@@ -114,6 +115,7 @@ export async function validateGiftVideo(filePath: string): Promise<VideoValidati
   const hasAlpha = /yuva|argb|rgba|bgra|ya/i.test(pixFmt);
 
   return {
+    hasAudio: !!probe.streams?.some(s => s.codec_type === 'audio'),
     durationMs,
     width,
     height,
@@ -162,6 +164,7 @@ export async function probeGiftVideo(filePath: string): Promise<VideoValidationR
   const pixFmt = stream.pix_fmt ?? '';
 
   return {
+    hasAudio: !!probe.streams?.some(s => s.codec_type === 'audio'),
     durationMs,
     width,
     height,
@@ -278,3 +281,10 @@ export function isAllowedVideoExtension(filename: string): boolean {
   const ext = path.extname(filename).toLowerCase();
   return ext === '.mp4' || ext === '.webm' || ext === '.mov';
 }
+
+/** Stored metadata describes the preserved original, not the baseline copy. */
+export const giftVideoMeta = (p: VideoValidationResult) => ({
+  codec: p.codec, w: p.width, h: p.height, durationMs: p.durationMs,
+  hasAlpha: p.hasAlpha, hasAudio: p.hasAudio,
+  fallbackCodec: 'h264', fallbackProfile: 'baseline', fallbackLevel: '3.1',
+});

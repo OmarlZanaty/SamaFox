@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+import { giftOperationId, runGiftOperation } from './giftOperation';
 import { withNameStyle } from '../services/vipStyle.service';
 import type { Request, Response } from 'express';
 import prisma from '../utils/prisma';
@@ -10,6 +12,45 @@ import type { Server } from 'socket.io';
 let ioRef: Server | null = null;
 export function setGiftIo(io: Server) {
   ioRef = io;
+  void flushGiftDeliveries();
+  if (!deliveryTimer) {
+    deliveryTimer = setInterval(() => { void flushGiftDeliveries(); }, 5000);
+    deliveryTimer.unref();
+  }
+}
+
+let deliveryTimer: NodeJS.Timeout | null = null;
+let delivering = false;
+/** Durable at-least-once delivery. Flutter deduplicates by transactionId. */
+export async function flushGiftDeliveries() {
+  if (!ioRef || delivering) return;
+  delivering = true;
+  try {
+    const rows = await prisma.giftDelivery.findMany({ where: { deliveredAt: null }, orderBy: { createdAt: 'asc' }, take: 100 });
+    for (const row of rows) {
+      const payload = row.payload as any;
+      emitGiftSent(payload, [payload.senderId, payload.recipientId]);
+      await prisma.giftDelivery.update({ where: { transactionId: row.transactionId }, data: { deliveredAt: new Date() } });
+    }
+    // Delivered rows are only an outbox; the gift itself lives in gift_transactions.
+    if (Math.random() < 0.02) {
+      await prisma.giftDelivery.deleteMany({ where: { deliveredAt: { lt: new Date(Date.now() - 86_400_000) } } });
+    }
+  } catch (e) { console.warn('[gift delivery]', e); }
+  finally { delivering = false; }
+}
+
+function operationRequest(req: Request, senderId: number, res: Response) {
+  if (res.locals.giftOperation) return res.locals.giftOperation as { id: string; senderId: number; requestHash: string };
+  const key = req.get('Idempotency-Key');
+  return {
+    senderId,
+    id: giftOperationId(senderId, key ?? crypto.randomUUID()),
+    requestHash: (resHash(req)),
+  };
+}
+function resHash(req: Request) {
+  return crypto.createHash('sha256').update(`${req.method}|${req.baseUrl}${req.path}|${JSON.stringify(req.body ?? {})}`).digest('hex');
 }
 
 /**
@@ -27,7 +68,6 @@ export function emitGiftSent(payload: any, alsoUserIds: number[] = []) {
     payload.roomId != null ? [`room:${payload.roomId}`] : [payload.recipientId.toString()],
   );
   for (const uid of alsoUserIds) targets.add(uid.toString());
-  ioRef.to([...targets]).emit('gift_sent', payload);
   if (payload.gift.tier === 'LEGENDARY') {
     // Pre-warm clients before main event.
     ioRef.emit('gift_legendary_incoming', {
@@ -36,6 +76,7 @@ export function emitGiftSent(payload: any, alsoUserIds: number[] = []) {
       fromRoomId: payload.roomId,
     });
   }
+  ioRef.to([...targets]).emit('gift_sent', payload);
   if (payload.broadcast) {
     ioRef.emit('gift_broadcast', payload);
   }
@@ -201,6 +242,11 @@ export async function listCatalog(_req: Request, res: Response) {
         format: g.format,
         animationHtml: g.animationHtml,
         animationUrl: g.animationUrl,
+        videoFallbackUrl: g.videoFallbackUrl,
+        videoMeta: g.videoMeta,
+        hasSound: g.hasSound,
+        effectType: g.effectType,
+        soundUrl: g.soundUrl,
         videoHasAlpha: g.videoHasAlpha,
         fireworksEnabled: g.fireworksEnabled,
         fireworksColors: g.fireworksColors,
@@ -238,88 +284,29 @@ export async function send(req: Request, res: Response) {
     if (!Number.isFinite(recipient) || recipient <= 0) {
       return res.status(400).json({ success: false, message: 'recipientId is required' });
     }
-    const result = await sendGiftAtomic({
-      senderId,
-      recipientId: recipient,
-      roomId: roomId != null ? Number(roomId) : null,
-      giftId,
-      quantity: quantity != null ? Number(quantity) : 1,
-      comboKey: comboKey ?? null,
+    const operation = operationRequest(req, senderId, res);
+    const completed = await runGiftOperation(operation, async (context) => {
+      const result = await sendGiftAtomic({
+        senderId, recipientId: recipient,
+        roomId: roomId != null ? Number(roomId) : null,
+        giftId, quantity: quantity != null ? Number(quantity) : 1,
+        comboKey: comboKey ?? null,
+        clientRequestId: operation.id, operationId: operation.id,
+      }, context);
+      context.afterCommit.push(async () => {
+        await flushGiftDeliveries();
+        if (result.lucky) await emitLuckyOutcome({ own: result.lucky, settled: result.luckySettled, senderId, roomId: result.event.roomId });
+        emitGiftAnnouncement({ ...result.event,
+          senderName: result.event.sender?.name, senderAvatarUrl: result.event.sender?.avatarUrl,
+          recipientName: result.event.recipient?.name, recipientCount: 1,
+        });
+        await maybeCreateRelationRequestFromRing({ senderId, receiverId: recipient, giftId });
+      });
+      return { success: true, transactionId: result.transactionId, senderBalance: result.senderBalance,
+        comboCount: result.comboCount, broadcast: result.broadcast, ...luckyResponse(result.lucky) };
     });
-
-    const sender = await prisma.user.findUnique({
-      where: { id: senderId },
-      select: { id: true, name: true, avatarUrl: true },
-    });
-    const recipientUser = await prisma.user.findUnique({
-      where: { id: recipient },
-      select: { id: true, name: true, avatarUrl: true },
-    });
-
-    const payload = {
-      transactionId: result.transactionId,
-      senderId,
-      recipientId: recipient,
-      roomId: roomId != null ? Number(roomId) : null,
-      quantity: quantity != null ? Number(quantity) : 1,
-      totalCoins: result.totalCoins,
-      // The recipient's side of it (a lucky gift's host share), for the
-      // under-mic total — so a live update matches the server's own total.
-      recipientCoins: result.recipientCoins,
-      comboKey: comboKey ?? null,
-      comboCount: result.comboCount,
-      broadcast: result.broadcast,
-      sender,
-      recipient: recipientUser,
-      gift: result.gift,
-      lucky: result.lucky && result.lucky.status !== 'PENDING'
-        ? { multiplier: result.lucky.multiplier, payoutCoins: result.lucky.payoutCoins, hostCoins: result.lucky.hostCoins }
-        : null,
-      ts: Date.now(),
-    };
-
-    emitGiftSent(payload);
-
-    if (result.lucky) {
-      await emitLuckyOutcome({ own: result.lucky, settled: result.luckySettled, senderId, roomId: payload.roomId });
-    }
-
-    // A22 - the centred announcement bar ("<sender> اهدى <gift> الى <recipient>").
-    // Emitted for ordinary single sends too, so the bar is not a fan-out-only
-    // feature; the batch endpoint emits the "الى الجميع" variant of the same event.
-    emitGiftAnnouncement({
-      senderId,
-      senderName: sender?.name ?? null,
-      senderAvatarUrl: sender?.avatarUrl ?? null,
-      gift: {
-        id: result.gift.id,
-        name: result.gift.name,
-        nameAr: result.gift.nameAr,
-        iconUrl: result.gift.iconUrl,
-      },
-      quantity: payload.quantity,
-      recipientCount: 1,
-      recipientName: recipientUser?.name ?? null,
-      roomId: payload.roomId,
-      totalCoins: result.totalCoins,
-      ts: Date.now(),
-    });
-
-    // Fire-and-forget: if the gift is a relation-ring, auto-create a relation request.
-    maybeCreateRelationRequestFromRing({
-      senderId,
-      receiverId: recipient,
-      giftId,
-    }).catch((e) => console.error('[gifts.send] relation ring hook failed', e));
-
-    return res.json({
-      success: true,
-      transactionId: result.transactionId,
-      senderBalance: result.senderBalance,
-      comboCount: result.comboCount,
-      broadcast: result.broadcast,
-      ...luckyResponse(result.lucky),
-    });
+    if (completed.replayed) res.setHeader('Idempotent-Replayed', 'true');
+    return res.json(completed.body);
   } catch (err) {
     if (err instanceof GiftSendError) {
       return res.status(err.status).json({ success: false, code: err.code, message: err.message });
@@ -562,162 +549,60 @@ export async function sendBatch(req: Request, res: Response) {
   try {
     const senderId = req.userId ?? req.authUser?.id;
     if (!senderId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
-
-    const { giftId, recipientIds, roomId, quantity, comboKey } = req.body ?? {};
-    if (!giftId || typeof giftId !== 'string') {
-      return res.status(400).json({ success: false, message: 'giftId is required' });
-    }
-    const ids = [
-      ...new Set(
-        (Array.isArray(recipientIds) ? recipientIds : [])
-          .map((v: unknown) => Number(v))
-          .filter((n: number) => Number.isFinite(n) && n > 0),
-      ),
-    ];
-    if (ids.length === 0) {
-      return res.status(400).json({ success: false, message: 'recipientIds is required' });
-    }
-    // A whole room is the realistic upper bound; anything larger is a client bug.
-    if (ids.length > 60) {
-      return res.status(400).json({ success: false, message: 'Too many recipients' });
-    }
-
-    const qty = Math.max(1, Math.min(99, Math.floor(Number(quantity ?? 1))));
-    const gift = await prisma.gift.findUnique({ where: { id: giftId } });
-    if (!gift || !gift.isActive) {
-      return res.status(404).json({ success: false, code: 'INVALID_GIFT', message: 'Gift not found or inactive' });
-    }
-
-    // Up-front affordability check for the ENTIRE fan-out. sendGiftAtomic still
-    // guards each individual debit, so this is a friendlier failure, not the
-    // safety mechanism.
-    const perRecipient = gift.coinCost * qty;
-    const grandTotal = perRecipient * ids.length;
-    const sender = await prisma.user.findUnique({
-      where: { id: senderId },
-      select: { id: true, name: true, avatarUrl: true, coinsBalance: true },
-    });
-    if (!sender) return res.status(401).json({ success: false, message: 'Unauthenticated' });
-    if (sender.coinsBalance < grandTotal) {
-      return res.status(402).json({
-        success: false,
-        code: 'INSUFFICIENT_COINS',
-        message: `رصيدك لا يكفي — الهدية لـ${ids.length} مستلمين تكلف ${grandTotal} كوينز`,
-      });
-    }
-
-    const recipientUsers = await prisma.user.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, name: true, avatarUrl: true },
-    });
-    const recipientById = new Map(recipientUsers.map((u) => [u.id, u]));
-
-    const results: Array<{ recipientId: number; transactionId: string }> = [];
-    const failures: Array<{ recipientId: number; code: string; message: string }> = [];
-    let senderBalance = sender.coinsBalance;
-    let anyBroadcast = false;
-
-    for (const rid of ids) {
-      if (!recipientById.has(rid)) {
-        failures.push({ recipientId: rid, code: 'INVALID_RECIPIENT', message: 'المستخدم غير موجود' });
-        continue;
-      }
-      try {
-        const result = await sendGiftAtomic({
-          senderId,
-          recipientId: rid,
-          roomId: roomId != null ? Number(roomId) : null,
-          giftId,
-          quantity: qty,
-          comboKey: comboKey ?? null,
+    const { giftId, recipientIds, roomId, quantity, comboKey, targetType } = req.body ?? {};
+    if (typeof giftId !== 'string' || !giftId) throw new GiftSendError('INVALID_GIFT', 'giftId is required');
+    const rid = roomId == null ? null : Number(roomId);
+    if (rid != null && (!Number.isInteger(rid) || rid <= 0)) throw new GiftSendError('INVALID_ROOM', 'رقم الغرفة غير صالح');
+    const operation = operationRequest(req, senderId, res);
+    const completed = await runGiftOperation(operation, async (context) => {
+      const { giftSeatSnapshot } = await import('../services/socket.service');
+      let targets: Array<{ recipientId: number; seatNumber: number | null }>;
+      if (targetType === 'all_mics') {
+        if (rid == null) throw new GiftSendError('INVALID_ROOM', 'roomId is required');
+        const room = await context.tx.room.findUnique({ where: { id: rid }, select: { ownerId: true } });
+        if (!room) throw new GiftSendError('INVALID_ROOM', 'الغرفة غير موجودة', 404);
+        const snapshot = giftSeatSnapshot(rid);
+        const fingerprint = JSON.stringify(snapshot);
+        targets = [...new Map(snapshot.map(s => [s.recipientId, s])).values()];
+        if (!targets.some(s => s.recipientId === room.ownerId)) targets.push({ recipientId: room.ownerId, seatNumber: null });
+        context.beforeCommit.push(() => {
+          if (JSON.stringify(giftSeatSnapshot(rid)) !== fingerprint) throw new GiftSendError('SEATS_CHANGED', 'تغيّرت المايكات أثناء الإرسال، حاول مرة أخرى', 409);
         });
-        senderBalance = result.senderBalance;
-        anyBroadcast = anyBroadcast || result.broadcast;
-        results.push({ recipientId: rid, transactionId: result.transactionId });
-
-        // Per-recipient event so each seat still gets its own flying gift.
-        // `batchSize` tells the client this belongs to a fan-out, so it renders
-        // ONE "إلى الجميع" banner instead of N stacked ones (A22).
-        emitGiftSent({
-          transactionId: result.transactionId,
-          senderId,
-          recipientId: rid,
-          roomId: roomId != null ? Number(roomId) : null,
-          quantity: qty,
-          totalCoins: result.totalCoins,
-          recipientCoins: result.recipientCoins,
-          comboKey: comboKey ?? null,
-          comboCount: result.comboCount,
-          broadcast: result.broadcast,
-          sender: { id: sender.id, name: sender.name, avatarUrl: sender.avatarUrl },
-          recipient: recipientById.get(rid) ?? null,
-          gift: result.gift,
-          batchSize: ids.length,
-          lucky: result.lucky && result.lucky.status !== 'PENDING'
-            ? { multiplier: result.lucky.multiplier, payoutCoins: result.lucky.payoutCoins, hostCoins: result.lucky.hostCoins }
-            : null,
-          ts: Date.now(),
-        });
-
-        if (result.lucky) {
-          await emitLuckyOutcome({
-            own: result.lucky,
-            settled: result.luckySettled,
-            senderId,
-            roomId: roomId != null ? Number(roomId) : null,
-          });
-        }
-
-        maybeCreateRelationRequestFromRing({ senderId, receiverId: rid, giftId }).catch((e) =>
-          console.error('[gifts.sendBatch] relation ring hook failed', e),
-        );
-      } catch (err) {
-        if (err instanceof GiftSendError) {
-          failures.push({ recipientId: rid, code: err.code, message: err.message });
-          // A balance that ran out mid-fan-out will fail for everyone left, so
-          // stop rather than burning through 20 doomed transactions.
-          if (err.code === 'INSUFFICIENT_COINS' || err.code === 'COINS_FROZEN') break;
-        } else {
-          console.error('[gifts.sendBatch]', err);
-          failures.push({ recipientId: rid, code: 'SEND_FAILED', message: 'فشل الإرسال' });
-        }
+      } else {
+        const ids = [...new Set<number>((Array.isArray(recipientIds) ? recipientIds : []).map(Number))];
+        if (ids.some(id => !Number.isInteger(id) || id <= 0)) throw new GiftSendError('INVALID_RECIPIENT', 'مستلم غير صالح');
+        const seats = rid == null ? [] : giftSeatSnapshot(rid);
+        targets = ids.map(recipientId => ({ recipientId, seatNumber: seats.find(s => s.recipientId === recipientId)?.seatNumber ?? null }));
       }
-    }
-
-    // A22 — the centred announcement bar. One event for the whole fan-out:
-    // "فلان أهدى <هدية> إلى الجميع" when it went to more than one person.
-    if (results.length > 0) {
-      emitGiftAnnouncement({
-        senderId,
-        senderName: sender.name,
-        senderAvatarUrl: sender.avatarUrl,
-        gift: {
-          id: gift.id,
-          name: gift.name,
-          nameAr: gift.nameAr,
-          iconUrl: gift.iconUrl,
-        },
-        quantity: qty,
-        recipientCount: results.length,
-        // Single-recipient batches still name the person; multi says "الجميع".
-        recipientName:
-          results.length === 1 ? recipientById.get(results[0]!.recipientId)?.name ?? null : null,
-        roomId: roomId != null ? Number(roomId) : null,
-        totalCoins: perRecipient * results.length,
-        ts: Date.now(),
+      if (!targets.length || targets.length > 60) throw new GiftSendError('INVALID_RECIPIENTS', 'عدد المستلمين غير صالح');
+      const sends: Awaited<ReturnType<typeof sendGiftAtomic>>[] = [];
+      for (const target of targets) {
+        sends.push(await sendGiftAtomic({ senderId, ...target, roomId: rid, giftId,
+          quantity: quantity == null ? 1 : Number(quantity), comboKey: comboKey ?? null,
+          targetType: targetType === 'all_mics' ? 'all_mics' : 'user', batchSize: targets.length,
+          operationId: operation.id, clientRequestId: `${operation.id}:${target.recipientId}`,
+        }, context));
+      }
+      context.afterCommit.push(async () => {
+        await flushGiftDeliveries();
+        for (const result of sends) {
+          if (result.lucky) await emitLuckyOutcome({ own: result.lucky, settled: result.luckySettled, senderId, roomId: rid });
+          await maybeCreateRelationRequestFromRing({ senderId, receiverId: result.event.recipientId, giftId });
+        }
+        const first = sends[0]!;
+        emitGiftAnnouncement({ ...first.event, senderName: first.event.sender?.name,
+          senderAvatarUrl: first.event.sender?.avatarUrl,
+          recipientName: targets.length === 1 ? first.event.recipient?.name : null,
+          recipientCount: targets.length, totalCoins: sends.reduce((n, s) => n + s.totalCoins, 0) });
       });
-    }
-
-    return res.json({
-      success: results.length > 0,
-      sent: results.length,
-      requested: ids.length,
-      senderBalance,
-      broadcast: anyBroadcast,
-      results,
-      failures,
+      return { success: true, operationId: operation.id, sent: sends.length, requested: targets.length,
+        senderBalance: sends[sends.length - 1]!.senderBalance, broadcast: sends.some(s => s.broadcast),
+        results: sends.map(s => ({ recipientId: s.event.recipientId, transactionId: s.transactionId })), failures: [] };
     });
+    if (completed.replayed) res.setHeader('Idempotent-Replayed', 'true');
+    return res.json(completed.body);
   } catch (err) {
+    if (err instanceof GiftSendError) return res.status(err.status).json({ success: false, code: err.code, message: err.message });
     console.error('[gifts.sendBatch]', err);
     return res.status(500).json({ success: false, message: 'Send failed' });
   }

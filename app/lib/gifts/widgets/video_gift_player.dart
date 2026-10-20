@@ -1,4 +1,5 @@
 import '../../services/audio_route.dart';
+import '../../services/device_tier.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -36,6 +37,10 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
   Timer? _hardTimer;
   bool _completed = false;
   bool _initialized = false;
+  /// SPEC52 #24 — the H.264 Baseline copy is used on weak devices, and once
+  /// after the original fails to initialise or decode.
+  bool _usingFallback = false;
+  bool get _hasFallback => (widget.gift.videoFallbackUrl ?? '').isNotEmpty;
 
   @override
   void initState() {
@@ -64,8 +69,26 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     widget.onError?.call();
   }
 
+  /// Swap to the fallback rendition once; true if a retry was started.
+  bool _retryWithFallback(String stage, Object? error) {
+    if (_usingFallback || !_hasFallback || _completed) return false;
+    debugPrint('🎬 [VideoGiftPlayer] $stage failed for ${widget.gift.id} (${widget.gift.animationUrl}): $error — retrying H.264 baseline');
+    final old = _controller;
+    _controller = null;
+    old?.removeListener(_onTick);
+    old?.dispose();
+    _usingFallback = true;
+    if (mounted) setState(() => _initialized = false);
+    _initialize();
+    return true;
+  }
+
   Future<void> _initialize() async {
-    final url = widget.gift.animationUrl;
+    // Alpha clips keep the original: the baseline copy has no alpha channel.
+    if (!_usingFallback && _hasFallback && (DeviceTier.lite || DeviceTier.ultraLite) && !widget.gift.videoHasAlpha) {
+      _usingFallback = true;
+    }
+    final url = _usingFallback ? widget.gift.videoFallbackUrl : widget.gift.animationUrl;
     if (url == null || url.isEmpty) {
       _reportFailure('lookup', 'gift has no animationUrl');
       _markComplete();
@@ -99,7 +122,7 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
       // phone to their ear. The room's own speaker toggle stays the one place
       // that decides.
       // SPEC52 #18 — silent while the user muted the room.
-      await controller.setVolume(AudioRoute.instance.roomMuted.value ? 0.0 : 1.0);
+      await controller.setVolume(AudioRoute.instance.roomMuted.value || !widget.gift.hasSound ? 0.0 : 1.0);
       controller.addListener(_onTick);
       if (!mounted) return;
       setState(() => _initialized = true);
@@ -118,6 +141,7 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
 
       await controller.play();
     } catch (e) {
+      if (_retryWithFallback('playback', e)) return;
       _reportFailure('playback', e);
       _markComplete();
     }
@@ -127,6 +151,7 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     final c = _controller;
     if (c == null) return;
     if (c.value.hasError) {
+      if (_retryWithFallback('decode', c.value.errorDescription)) return;
       _reportFailure('decode', c.value.errorDescription);
       _markComplete();
       return;

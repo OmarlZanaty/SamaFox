@@ -114,7 +114,7 @@ export async function recordCpGiftValue(
   db: any = prisma,
 ) {
   const giftTransactionId = String(input.giftTransactionId);
-  return db.$transaction(async (tx: any) => {
+  const apply = async (tx: any) => {
     const already = await tx.cpValueEvent.findFirst({ where: { giftTransactionId } });
     if (already) {
       const pair = await tx.cpPair.findUnique({ where: { id: input.pairId } });
@@ -164,7 +164,8 @@ export async function recordCpGiftValue(
       ? await tx.cpValueEvent.update({ where: { id: input.eventId }, data })
       : await tx.cpValueEvent.create({ data: { ...data, requestKey: cleanKey(input.requestKey) } });
     return { counted: true, event, cpValue: Number(pair.cpValue) };
-  });
+  };
+  return typeof db.$transaction === 'function' ? db.$transaction(apply) : apply(db);
 }
 
 // ---------------------------------------------------------------------------

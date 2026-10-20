@@ -1,7 +1,9 @@
+import crypto from 'crypto';
+import { runGiftOperation, giftOperationId, type GiftTransactionContext } from '../gifts/giftOperation';
 import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
 import { sendGiftAtomic } from '../gifts/giftService';
-import { emitGiftSent, emitGiftAnnouncement } from '../gifts/controller';
+import { flushGiftDeliveries, emitGiftAnnouncement } from '../gifts/controller';
 import { CpError, assertCpUnlocked, computeCpLevel, readCpSettings } from './cpUnlock.service';
 import {
   cpPointsFor,
@@ -151,8 +153,8 @@ export async function createCpRequest(input: CreateCpRequestInput) {
 }
 
 /** The level a pair shows for a given value, under the current settings. */
-async function levelOf(pairId: number) {
-  const [pair, settings] = await Promise.all([prisma.cpPair.findUnique({ where: { id: pairId } }), readCpSettings()]);
+async function levelOf(pairId: number, db: any = prisma) {
+  const [pair, settings] = await Promise.all([db.cpPair.findUnique({ where: { id: pairId } }), readCpSettings(db)]);
   if (!pair) return null;
   return computeCpLevel({ cpValue: pair.cpValue, createdAt: pair.createdAt, levelOverride: pair.levelOverride }, settings);
 }
@@ -168,7 +170,16 @@ async function sendCpGiftToPartner(
   pairId: number,
   gift: { id: string; coinCost: number; cpLevelPoints?: number | null; name: string; nameAr: string | null },
   quantity: number,
-) {
+  context?: GiftTransactionContext,
+): Promise<any> {
+  if (!context) {
+    const operation = { senderId: input.senderId, id: giftOperationId(input.senderId, `cp:${input.requestKey ?? crypto.randomUUID()}`), requestHash: JSON.stringify({ ...input, quantity }) };
+    return (await runGiftOperation(operation, ctx => sendCpGiftToPartner(input, pairId, gift, quantity, ctx))).body;
+  }
+  const db = context.tx;
+  const currentGift = await db.gift.findUnique({ where: { id: gift.id } });
+  if (!isCpGift(currentGift)) throw new CpError('INVALID_GIFT', 'الهدية غير مناسبة لـ CP');
+  gift = currentGift;
   const eventInput = {
     pairId,
     senderId: input.senderId,
@@ -178,59 +189,29 @@ async function sendCpGiftToPartner(
     source: 'partner_gift' as const,
     requestKey: input.requestKey ?? null,
   };
-  const before = await levelOf(pairId);
-  const { event, duplicate } = await reserveCpGiftEvent(eventInput);
-  if (duplicate) {
-    const now = await levelOf(pairId);
-    return {
-      kind: 'partner_gift' as const,
-      duplicate: true,
-      pairId,
-      pointsAdded: Number(duplicate.points),
-      cpValue: now?.cpValue ?? Number(duplicate.cpValueAfter ?? 0),
-      level: now?.level ?? null,
-      levelName: now?.levelName ?? null,
-      previousLevel: now?.level ?? null,
-      leveledUp: false,
-      balance: null,
-      transactionId: duplicate.giftTransactionId,
-    };
-  }
-
-  let giftResult;
-  try {
-    giftResult = await sendGiftAtomic({
-      senderId: input.senderId,
-      recipientId: input.recipientId,
-      roomId: input.roomId ?? null,
-      giftId: gift.id,
-      quantity,
-    });
-  } catch (e) {
-    await releaseCpGiftEvent(event?.id).catch(() => undefined);
-    throw e;
-  }
-
+  const before = await levelOf(pairId, db);
+  if (!before) throw new CpError('NOT_FOUND', 'ارتباط CP غير موجود', 404);
   const points = cpPointsFor(gift, quantity);
-  const recorded = await recordCpGiftValue({
-    ...eventInput,
-    points,
-    giftTransactionId: giftResult.transactionId,
-    eventId: event?.id ?? null,
-  });
-  const after = await levelOf(pairId);
+  const giftResult = await sendGiftAtomic({
+    senderId: input.senderId, recipientId: input.recipientId, roomId: input.roomId ?? null,
+    giftId: gift.id, quantity, cpXp: points,
+    clientRequestId: input.requestKey ? giftOperationId(input.senderId, `cp:${input.requestKey}`) : null,
+  }, context);
+  const recorded = await recordCpGiftValue({ ...eventInput, points, giftTransactionId: giftResult.transactionId }, db);
+  const after = await levelOf(pairId, db);
 
   const [sender, recipient] = await Promise.all([
-    prisma.user.findUnique({ where: { id: input.senderId }, select: { id: true, name: true, avatarUrl: true } }),
-    prisma.user.findUnique({ where: { id: input.recipientId }, select: { id: true, name: true, avatarUrl: true } }),
+    db.user.findUnique({ where: { id: input.senderId }, select: { id: true, name: true, avatarUrl: true } }),
+    db.user.findUnique({ where: { id: input.recipientId }, select: { id: true, name: true, avatarUrl: true } }),
   ]);
+  const leveledUp = !!before && !!after && after.level > before.level;
+  context.afterCommit.push(async () => {
   emitCpGift(
     { senderId: input.senderId, recipientId: input.recipientId, roomId: input.roomId ?? null, quantity },
     giftResult,
     sender,
     recipient,
   );
-  const leveledUp = !!before && !!after && after.level > before.level;
   await createNotification({
     userId: input.recipientId,
     actorId: input.senderId,
@@ -240,6 +221,7 @@ async function sendCpGiftToPartner(
     data: { pairId, giftId: gift.id, points, cpValue: recorded.cpValue, level: after?.level ?? null },
   }).catch((e) => console.warn('[cp] partner gift notification failed:', e));
 
+  });
   return {
     kind: 'partner_gift' as const,
     duplicate: false,
@@ -268,25 +250,7 @@ function emitCpGift(
   sender: { id: number; name: string | null; avatarUrl: string | null } | null,
   recipient: { id: number; name: string | null; avatarUrl: string | null } | null,
 ) {
-  emitGiftSent(
-    {
-      transactionId: giftResult.transactionId,
-      senderId: req.senderId,
-      recipientId: req.recipientId,
-      roomId: req.roomId,
-      quantity: req.quantity,
-      totalCoins: giftResult.totalCoins,
-      comboKey: null,
-      comboCount: giftResult.comboCount,
-      broadcast: giftResult.broadcast,
-      sender,
-      recipient,
-      gift: giftResult.gift,
-      isCp: true,
-      ts: Date.now(),
-    },
-    [req.senderId, req.recipientId],
-  );
+  void flushGiftDeliveries();
   emitGiftAnnouncement({
     senderId: req.senderId,
     senderName: sender?.name ?? null,
@@ -319,36 +283,43 @@ async function loadPending(requestId: number, recipientId: number) {
  * Accept: the gift is sent for real (full price off the sender, value into the
  * recipient's target through the normal crediting rules) and the pair is made.
  */
-export async function acceptCpRequest(requestId: number, recipientId: number) {
-  const request = await loadPending(requestId, recipientId);
+export async function acceptCpRequest(requestId: number, recipientId: number, context?: GiftTransactionContext): Promise<any> {
+  if (!context) {
+    return (await runGiftOperation({ senderId: recipientId, id: giftOperationId(recipientId, `cp-accept:${requestId}`), requestHash: `cp-accept:${requestId}:${recipientId}` },
+      ctx => acceptCpRequest(requestId, recipientId, ctx))).body;
+  }
+  const db = context.tx;
+  const request = await db.cpRequest.findUnique({ where: { id: requestId } });
+  if (!request || request.recipientId !== recipientId) throw new CpError('FORBIDDEN', 'غير مصرح', 403);
+  if (request.status !== 'pending') throw new CpError('ALREADY_RESOLVED', 'تم الرد على هذا الطلب بالفعل');
+  const gift = await db.gift.findUnique({ where: { id: request.giftId } });
+  if (!isCpGift(gift) || !canActivateCp(gift)) throw new CpError('INVALID_GIFT', 'هدية التفعيل غير صالحة');
 
   // Claim the invitation BEFORE any coins move: of two taps (or an accept
   // racing a reject/cancel) exactly one gets here, so the gift can never be
   // charged or counted twice.
-  const claimed = await prisma.cpRequest.updateMany({
+  const claimed = await db.cpRequest.updateMany({
     where: { id: request.id, status: 'pending' },
     data: { status: 'accepting' },
   });
   if (claimed.count === 0) throw new CpError('ALREADY_RESOLVED', 'تم الرد على هذا الطلب بالفعل');
 
-  let giftResult;
-  try {
-    giftResult = await sendGiftAtomic({
-      senderId: request.senderId,
-      recipientId: request.recipientId,
-      roomId: request.roomId,
-      giftId: request.giftId,
-      quantity: request.quantity,
-    });
-  } catch (e) {
-    // Nothing was charged (sendGiftAtomic is one transaction): back to pending.
-    await prisma.cpRequest.updateMany({ where: { id: request.id, status: 'accepting' }, data: { status: 'pending' } });
-    throw e;
-  }
+  // One transaction with the claim above: if the gift fails (e.g. the sender
+  // can no longer afford it) the whole accept rolls back and the invitation is
+  // still pending — nothing to undo by hand.
+  const giftResult = await sendGiftAtomic({
+    senderId: request.senderId,
+    recipientId: request.recipientId,
+    roomId: request.roomId,
+    giftId: request.giftId,
+    quantity: request.quantity,
+    clientRequestId: giftOperationId(request.senderId, `cp-accept-gift:${request.id}`),
+    cpActivate: true, cpXp: cpPointsFor(gift, request.quantity),
+  }, context);
 
   const [aId, bId] = orderPair(request.senderId, request.recipientId);
   // A re-pair between the same two people keeps what they already built up.
-  const pair = await prisma.cpPair.upsert({
+  const pair = await db.cpPair.upsert({
     where: { userAId_userBId: { userAId: aId, userBId: bId } },
     update: { giftId: request.giftId },
     create: { userAId: aId, userBId: bId, giftId: request.giftId, cpValue: 0 },
@@ -356,7 +327,6 @@ export async function acceptCpRequest(requestId: number, recipientId: number) {
 
   // The accepting gift is the pair's first CP value — by the gift's configured
   // "مقدار رفع مستوى CP", logged once per gift transaction.
-  const gift = await prisma.gift.findUnique({ where: { id: request.giftId } });
   await recordCpGiftValue({
     pairId: pair.id,
     senderId: request.senderId,
@@ -366,27 +336,28 @@ export async function acceptCpRequest(requestId: number, recipientId: number) {
     source: 'accept',
     points: gift ? cpPointsFor(gift, request.quantity) : giftResult.totalCoins,
     giftTransactionId: giftResult.transactionId,
-  });
+  }, db);
 
   // "مستخدم CP الظاهر": only someone with no choice yet gets this partner.
-  await pinFeaturedIfUnset(request.senderId, request.recipientId);
+  await pinFeaturedIfUnset(request.senderId, request.recipientId, db);
 
-  await prisma.cpRequest.update({
+  await db.cpRequest.update({
     where: { id: request.id },
     data: { status: 'accepted', resolvedAt: new Date() },
   });
 
   const [sender, recipient] = await Promise.all([
-    prisma.user.findUnique({
+    db.user.findUnique({
       where: { id: request.senderId },
       select: { id: true, name: true, avatarUrl: true },
     }),
-    prisma.user.findUnique({
+    db.user.findUnique({
       where: { id: request.recipientId },
       select: { id: true, name: true, avatarUrl: true },
     }),
   ]);
 
+  context.afterCommit.push(async () => {
   // The gift only actually moves NOW, so this is where the animation belongs.
   emitCpGift(
     { senderId: request.senderId, recipientId: request.recipientId, roomId: request.roomId, quantity: request.quantity },
@@ -424,6 +395,7 @@ export async function acceptCpRequest(requestId: number, recipientId: number) {
     data: { cpRequestId: request.id, pairId: pair.id, partnerId: request.recipientId },
   }).catch((e) => console.warn('[cp] accept notification failed:', e));
 
+  });
   return { request, pair, gift: giftResult };
 }
 

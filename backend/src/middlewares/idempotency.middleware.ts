@@ -1,3 +1,4 @@
+import { giftOperationId, assertGiftReplay } from '../gifts/giftOperation';
 import crypto from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 import prisma from '../utils/prisma';
@@ -56,9 +57,31 @@ export function idempotent(scope: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const userId = (req as any).userId as number | undefined;
     const key = readKey(req);
-    if (!userId || !key) return next();
+    const giftScope = scope === 'gift_send' || scope === 'gift_send_batch';
+    if (!userId) return next();
+    if (!key) {
+      if (giftScope && Number(req.get('X-Gift-Event-Version') ?? req.body?.eventVersion ?? 1) >= 2) {
+        return res.status(400).json({ success: false, code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key is required' });
+      }
+      if (giftScope) console.warn('[gifts] legacy request without Idempotency-Key', { userId, scope });
+      return next();
+    }
 
     const requestHash = hashRequest(req, scope);
+    if (giftScope) {
+      const id = giftOperationId(userId, key);
+      res.locals.giftOperation = { id, senderId: userId, requestHash };
+      try {
+        const committed = await db.giftOperation.findUnique({ where: { id } });
+        if (committed) {
+          const body = assertGiftReplay(committed, userId, requestHash);
+          res.setHeader('Idempotent-Replayed', 'true');
+          return res.status(200).json(body);
+        }
+      } catch (e: any) {
+        return res.status(e?.status ?? 503).json({ success: false, code: e?.code ?? 'IDEMPOTENCY_UNAVAILABLE', message: 'الخدمة غير متاحة مؤقتاً، حاول مرة أخرى' });
+      }
+    }
 
     try {
       await db.idempotencyKey.create({ data: { userId, key, scope, requestHash } });
@@ -72,7 +95,7 @@ export function idempotent(scope: string) {
       const row = await db.idempotencyKey.findUnique({ where: { userId_key: { userId, key } } });
       if (!row) return res.status(409).json({ success: false, code: 'REQUEST_IN_PROGRESS', message: IN_PROGRESS_MESSAGE });
       if (row.requestHash !== requestHash || row.scope !== scope) {
-        return res.status(422).json({
+        return res.status(giftScope ? 409 : 422).json({
           success: false,
           code: 'IDEMPOTENCY_KEY_REUSED',
           message: 'هذا الطلب استُخدم مفتاحه لعملية أخرى',
@@ -82,7 +105,15 @@ export function idempotent(scope: string) {
         res.setHeader('Idempotent-Replayed', 'true');
         return res.status(row.responseStatus).json(row.responseBody ?? {});
       }
-      return res.status(409).json({ success: false, code: 'REQUEST_IN_PROGRESS', message: IN_PROGRESS_MESSAGE });
+      // SPEC52 #46 — a gift key left "processing" by a crash. Nothing was
+      // committed (no gift operation row, checked above), so one retry may
+      // claim it atomically and run again; the operation id stays unique, so
+      // even a racing original can never charge twice.
+      const stale = giftScope && row.createdAt && Date.now() - new Date(row.createdAt).getTime() > 30_000;
+      const claimed = stale
+        ? await db.idempotencyKey.updateMany({ where: { userId, key, status: { not: 'done' }, createdAt: row.createdAt }, data: { createdAt: new Date() } }).then((r: any) => r.count === 1).catch(() => false)
+        : false;
+      if (!claimed) return res.status(409).json({ success: false, code: 'REQUEST_IN_PROGRESS', message: IN_PROGRESS_MESSAGE });
     }
 
     // Capture whatever the handler answers and store it against the key —

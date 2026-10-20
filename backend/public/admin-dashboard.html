@@ -2255,6 +2255,13 @@
       <input id="gift_sortOrder" type="hidden" />
 
       <input id="gift_nameAr" class="form-input" placeholder="اسم الهدية" />
+      <!-- SPEC52 #24 — a video gift plays in a centred area so the mics stay visible, unless set to full screen. -->
+      <label style="font-size:13px;color:#aaa">طريقة عرض الفيديو
+        <select id="gift_effectType" class="form-input">
+          <option value="">وسط الشاشة (المايكات ظاهرة)</option>
+          <option value="fullscreen">ملء الشاشة</option>
+        </select>
+      </label>
 
       <!-- D3 — القائمة التي تظهر فيها الهدية داخل التطبيق. تغييرها هنا هو
            "نقل الهدية من قائمة لقائمة" الذي طلبه العميل. -->

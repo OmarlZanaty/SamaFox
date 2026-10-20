@@ -1426,6 +1426,11 @@ model Gift {
   format           GiftFormat
   animationHtml    String?    @db.Text
   animationUrl     String?
+  videoFallbackUrl String?
+  videoMeta        Json?
+  hasSound         Boolean    @default(true)
+  effectType       String?
+  soundUrl         String?
   videoHasAlpha    Boolean    @default(false)
   fireworksEnabled Boolean    @default(false)
   fireworksColors  Json?
@@ -1484,7 +1489,30 @@ model GiftCategory {
   @@map("gift_categories")
 }
 
+model GiftOperation {
+  id           String   @id
+  senderId     Int
+  requestHash  String
+  responseBody Json
+  createdAt    DateTime @default(now())
+  @@map("gift_operations")
+}
+
+model GiftDelivery {
+  transactionId String @id
+  payload       Json
+  deliveredAt   DateTime?
+  createdAt     DateTime @default(now())
+  @@index([deliveredAt, createdAt])
+  @@map("gift_deliveries")
+}
+
 model GiftTransaction {
+  clientRequestId String? @unique
+  operationId     String?
+  seatNumber      Int?
+  targetType      String?
+  eventSnapshot   Json?
   id          String   @id @default(cuid())
   senderId    Int
   recipientId Int

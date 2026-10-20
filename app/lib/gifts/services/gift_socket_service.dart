@@ -12,7 +12,8 @@ class GiftSocketService {
 
   final SocketService _socket;
   final StreamController<GiftSendEvent> _sent = StreamController.broadcast();
-  final StreamController<GiftSendEvent> _legendaryIncoming = StreamController.broadcast();
+  // Small pre-warm payload {giftId, senderId, fromRoomId} — NOT a gift event.
+  final StreamController<Map<String, dynamic>> _legendaryIncoming = StreamController.broadcast();
   final StreamController<GiftSendEvent> _broadcast = StreamController.broadcast();
   // A22 — شريط إعلان الهدية. A separate, deliberately light event: it
   // carries only who/what/to-whom, and one event covers a whole fan-out so a
@@ -28,7 +29,7 @@ class GiftSocketService {
   bool _bound = false;
 
   Stream<GiftSendEvent> get sentStream => _sent.stream;
-  Stream<GiftSendEvent> get legendaryIncomingStream => _legendaryIncoming.stream;
+  Stream<Map<String, dynamic>> get legendaryIncomingStream => _legendaryIncoming.stream;
   Stream<GiftSendEvent> get broadcastStream => _broadcast.stream;
   Stream<GiftAnnouncement> get announcementStream => _announcements.stream;
   Stream<LuckyRollEvent> get luckyWinStream => _luckyWins.stream;
@@ -55,7 +56,11 @@ class GiftSocketService {
     }
 
     listen('gift_sent', (data) => _dispatch(data, _sent));
-    listen('gift_legendary_incoming', (data) => _dispatch(data, _legendaryIncoming));
+    // SPEC52 #45 — its own tiny parser: it used to go through the full
+    // GiftSendEvent parser and throw on every legendary gift.
+    listen('gift_legendary_incoming', (data) {
+      if (data is Map) _legendaryIncoming.add(Map<String, dynamic>.from(data));
+    });
     listen('gift_broadcast', (data) => _dispatch(data, _broadcast));
     listen('gift_announcement', _dispatchAnnouncement);
     listen('lucky_win', (data) => _dispatchLucky(data, _luckyWins));
@@ -94,10 +99,23 @@ class GiftSocketService {
     }
   }
 
+  /// SPEC52 #45 — the server delivers at least once (room + user rooms, and a
+  /// durable outbox that may re-send after a crash): play each transaction once.
+  final List<String> _seenOrder = [];
+  final Set<String> _seen = {};
+  bool _firstTime(StreamController controller, String txId) {
+    final key = '${identityHashCode(controller)}:$txId';
+    if (!_seen.add(key)) return false;
+    _seenOrder.add(key);
+    if (_seenOrder.length > 300) _seen.remove(_seenOrder.removeAt(0));
+    return true;
+  }
+
   void _dispatch(dynamic data, StreamController<GiftSendEvent> controller) {
     if (data is! Map) return;
     try {
       final event = GiftSendEvent.fromJson(Map<String, dynamic>.from(data));
+      if (!_firstTime(controller, event.transactionId)) return;
       controller.add(event);
     } catch (e, st) {
       debugPrint('[GiftSocketService] parse failed: $e\n$st\nraw=$data');

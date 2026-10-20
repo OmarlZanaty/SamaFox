@@ -1,7 +1,9 @@
+import { recordAdminAuditStrict } from '../services/adminAudit.service';
 import { Request, Response } from 'express';
 
 export type AdminReq = Request & { userId?: number };
 import prisma from '../utils/prisma';
+import { Prisma } from '@prisma/client';
 import { computeAgencyEarnedCoins, computeCommissionSplit, memberTargetEarned, memberTargetTotal } from '../agencies/agency.controller';
 import { bumpCatalogVersion } from '../gifts/catalogCache';
 import { invalidateBanCache } from '../utils/banGuard';
@@ -1704,12 +1706,17 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
   const resolvedFormat = giftFormatFor(animationUrl, format);
   const resolvedMs = giftAnimationMsFor(animationMs);
 
-  const gift = await prisma.gift.create({
+  const gift = await prisma.$transaction(async tx => {
+  const gift = await tx.gift.create({
     data: {
       name: String(name ?? nameAr),
       nameAr: String(nameAr),
       iconUrl: String(iconUrl),
       animationUrl: animationUrl ?? null,
+      videoFallbackUrl: req.body.videoFallbackUrl ?? null,
+      videoMeta: req.body.videoMeta ?? undefined,
+      hasSound: req.body.hasSound !== false,
+      effectType: ['flight', 'fullscreen', 'banner', 'none'].includes(req.body.effectType) ? req.body.effectType : null,
       coinCost: Number(coinCost),
       sortOrder: Number(sortOrder ?? 0),
       format: resolvedFormat as any,
@@ -1728,6 +1735,10 @@ export const adminCreateGift = async (req: AdminReq, res: Response) => {
     },
   });
 
+  await recordAdminAuditStrict(tx, { adminId: req.userId!, action: 'GIFT_CREATE', targetType: 'gift', targetId: gift.id, before: null, after: gift });
+  return gift;
+  });
+
   // Without this the /gifts catalog keeps serving the cached payload and the new
   // gift does not reach the app until the cache expires.
   await bumpCatalogVersion();
@@ -1739,13 +1750,19 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
   const { nameAr, iconUrl, animationUrl, coinCost, sortOrder, isActive, name, tier, format, cpEligible, animationMs, videoHasAlpha, category } = req.body;
   const resolvedMs = giftAnimationMsFor(animationMs);
 
-  const gift = await prisma.gift.update({
+  const gift = await prisma.$transaction(async tx => {
+  const before = await tx.gift.findUnique({ where: { id } });
+  const gift = await tx.gift.update({
     where: { id },
     data: {
       ...(nameAr !== undefined && { nameAr: String(nameAr) }),
       ...(name !== undefined && { name: String(name) }),
       ...(iconUrl !== undefined && { iconUrl: String(iconUrl) }),
       ...(animationUrl !== undefined && { animationUrl }),
+      ...(req.body.videoFallbackUrl !== undefined && { videoFallbackUrl: req.body.videoFallbackUrl }),
+      ...(req.body.videoMeta !== undefined && { videoMeta: req.body.videoMeta ?? Prisma.DbNull }),
+      ...(req.body.hasSound !== undefined && { hasSound: !!req.body.hasSound }),
+      ...(['flight', 'fullscreen', 'banner', 'none'].includes(req.body.effectType) && { effectType: req.body.effectType }),
       ...(coinCost !== undefined && { coinCost: Number(coinCost) }),
       ...(sortOrder !== undefined && { sortOrder: Number(sortOrder) }),
       ...(isActive !== undefined && { isActive: Boolean(isActive) }),
@@ -1765,6 +1782,9 @@ export const adminUpdateGift = async (req: AdminReq, res: Response) => {
     },
   });
 
+  await recordAdminAuditStrict(tx, { adminId: req.userId!, action: 'GIFT_UPDATE', targetType: 'gift', targetId: id, before, after: gift });
+  return gift;
+  }, { isolationLevel: 'Serializable' });
   await bumpCatalogVersion();
   return res.json({ success: true, data: gift });
 };

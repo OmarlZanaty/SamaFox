@@ -15,6 +15,29 @@ import path from 'path';
 
 const ffmpegPath = () => process.env.FFMPEG_PATH?.trim() || 'ffmpeg';
 
+/** Always keep the original. This compatibility rendition is not size-optional. */
+export async function createGiftFallback(file: string): Promise<string> {
+  const target = `${file}.baseline.mp4`;
+  const pending = `${file}.baseline.pending.mp4`;
+  try {
+    await run(ffmpegPath(), [
+      '-y', '-loglevel', 'error', '-i', file,
+      '-map', '0:v:0', '-map', '0:a:0?',
+      '-vf', "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
+      '-c:v', 'libx264', '-profile:v', 'baseline', '-level:v', '3.1',
+      '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '24',
+      '-maxrate', '4M', '-bufsize', '8M',
+      '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '128k',
+      '-movflags', '+faststart', pending,
+    ]);
+    await fs.rename(pending, target);
+    return target;
+  } catch (e) {
+    await fs.unlink(pending).catch(() => {});
+    throw e;
+  }
+}
+
 async function sizeOf(p: string) {
   try {
     return (await fs.stat(p)).size;
