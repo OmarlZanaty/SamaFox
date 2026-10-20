@@ -1037,23 +1037,6 @@ model RoomGiftJob {
   @@map("room_gift_jobs")
 }
 
-model GameWinEvent {
-  id Int @id @default(autoincrement())
-  userId Int
-  roomId Int?
-  gameId String
-  gameName String
-  winCoins Int
-  name String @default("")
-  avatar String?
-  transactionRef String? @unique
-  stake Int @default(0)
-  createdAt DateTime @default(now())
-  broadcastAt DateTime?
-  @@index([roomId, createdAt])
-  @@index([createdAt])
-  @@map("game_win_events")
-}
 
 model ChargingAgency {
   id             Int                  @id @default(autoincrement())
