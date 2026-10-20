@@ -2979,6 +2979,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       _roomMuted = AudioRoute.instance.roomMuted.value;
       unawaited(_loadImageGiftPolicy());
       CpActivatedPopup.wireOnce(); // SPEC52 #10
+      // SPEC52 #48 — what the heartbeat reports as my voice state.
+      SocketService().voiceStateProvider = () => _currentSeatNumber == null
+          ? 'listening'
+          : (_currentSeatMuted ? 'muted' : 'publishing');
     });
 
     // The engine is per ROOM (the server can put one room on the SFU while
@@ -3347,6 +3351,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     super.didChangeAppLifecycleState(appState);
     final user = ref.read(authStateProvider).user;
     if (user == null) return;
+    // SPEC52 #47 — back in the foreground after a failed reconnect cycle:
+    // start a new one straight away.
+    if (appState == AppLifecycleState.resumed && SocketService().gaveUp.value) {
+      SocketService().retryNow();
+    }
 
     if (appState == AppLifecycleState.paused ||
         appState == AppLifecycleState.detached) {
@@ -5301,6 +5310,39 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                 ),
               ),
+
+            // ===== SPEC52 #47: reconnect cycle failed → banner + retry =====
+            Positioned(
+              top: 70,
+              left: 12,
+              right: 12,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: SocketService().gaveUp,
+                builder: (_, gaveUp, __) => !gaveUp
+                    ? const SizedBox.shrink()
+                    : Material(
+                        color: const Color(0xEEB71C1C),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.wifi_off_rounded, color: Colors.white, size: 18),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text('انقطع الاتصال — مايكك محفوظ لمدة 5 دقائق',
+                                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                              ),
+                              TextButton(
+                                onPressed: () => SocketService().retryNow(),
+                                child: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+            ),
 
             // ===== SPEC52 #20: animated emoji over the sender's mic =====
             Positioned.fill(

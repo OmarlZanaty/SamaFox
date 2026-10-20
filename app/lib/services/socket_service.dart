@@ -264,10 +264,10 @@ class SocketService {
         .setTransports(['websocket', 'polling'])
         .enableAutoConnect()
         .enableReconnection()
-        .setReconnectionDelay(AppConfig.socketReconnectionDelay)
-        // Unlimited attempts (A2) would otherwise hammer a dead network
-        // once a second forever; cap the backoff at 10s.
-        .setReconnectionDelayMax(10000)
+        .setReconnectionDelay(1000)
+        // SPEC52 #47 — 1, 2, 4, 8, 16 s (+ jitter) for the 5 attempts.
+        .setReconnectionDelayMax(16000)
+        .setRandomizationFactor(0.3)
         .setAuth({'token': jwt}) // ✅ EXACTLY what server expects
         .build();
 
@@ -319,6 +319,58 @@ class SocketService {
     }
   }
 
+
+  // ── SPEC52 #5 / #47 ──────────────────────────────────────────────────────
+
+  /// True after a 5-attempt reconnect cycle failed (the room shows a banner).
+  final ValueNotifier<bool> gaveUp = ValueNotifier<bool>(false);
+  int reconnectCount = 0;
+  String? lastDisconnectReason;
+
+  /// Start a fresh reconnect cycle (banner button, network back, app resumed).
+  void retryNow() {
+    final s = _socket;
+    if (s == null || s.connected) {
+      gaveUp.value = false;
+      return;
+    }
+    gaveUp.value = false;
+    try {
+      s.connect();
+    } catch (e) {
+      AppLogger.warning('retry connect failed: $e');
+    }
+  }
+
+  /// Every 12 s while in a room (also while the room is kept in PiP): renews
+  /// this user's mic lease on the server. A missed heartbeat for 45 s turns
+  /// the seat to "held"; 5 minutes without one frees it.
+  Timer? _heartbeat;
+  int? _heartbeatRoomId;
+
+  /// Supplies the voice state sent with the heartbeat (set by the room).
+  String Function()? voiceStateProvider;
+
+  void _startSeatHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(const Duration(seconds: 12), (_) => _beat());
+    _beat();
+  }
+
+  void _beat() {
+    final rid = _heartbeatRoomId;
+    if (rid == null) return;
+    emit('seat_heartbeat', {
+      'roomId': rid,
+      if (voiceStateProvider != null) 'voiceState': voiceStateProvider!(),
+    });
+  }
+
+  void stopSeatHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    _heartbeatRoomId = null;
+  }
 
   void disconnect() {
     _socket?.disconnect();
@@ -814,6 +866,7 @@ class SocketService {
     _socket!.onDisconnect((reason) {
       // Every drop is worth a line: a room going silent for someone almost
       // always starts here, and the reason tells transport from server.
+      lastDisconnectReason = '$reason';
       CrashReporter.event('socket', 'disconnected: $reason', level: 'warn');
       AppLogger.info('❌ Socket disconnected');
       _connectionController.add(false);
@@ -823,15 +876,16 @@ class SocketService {
     // unlimited attempts this should not fire, but when it did the room stayed
     // on screen with dead signalling and no way back short of restarting the
     // app, so the belt-and-braces is worth the four lines.
+    // SPEC52 #47 — the 5-attempt cycle is over. No silent infinite retry: the
+    // UI shows «انقطع الاتصال» with «إعادة المحاولة», and a new cycle starts on
+    // that tap, when the network comes back or the app is resumed.
     _socket!.on('reconnect_failed', (_) {
-      AppLogger.warning('⚠️ Socket gave up reconnecting — forcing a new attempt');
-      Future.delayed(const Duration(seconds: 5), () {
-        try {
-          if (_socket != null && !(_socket!.connected)) _socket!.connect();
-        } catch (e) {
-          AppLogger.warning('forced reconnect failed: $e');
-        }
-      });
+      AppLogger.warning('⚠️ Socket gave up after ${AppConfig.socketReconnectionAttempts} attempts');
+      CrashReporter.event('socket', 'reconnect cycle exhausted', level: 'warn');
+      gaveUp.value = true;
+    });
+    _socket!.on('reconnect_attempt', (_) {
+      reconnectCount++;
     });
 
     _socket!.onReconnect((_) {
@@ -1169,7 +1223,14 @@ class SocketService {
       'username': username,
       if (code != null && code.isNotEmpty) 'code': code,
       if (hiddenBypass) 'hiddenBypass': true,
+      // SPEC52 #5/#47/#48 — this client sends seat_heartbeat (the server stops
+      // using engine pongs for its lease), plus why/how often it reconnected.
+      'seatLeaseVersion': 1,
+      'reconnectCount': reconnectCount,
+      if (lastDisconnectReason != null) 'lastDisconnectReason': lastDisconnectReason,
     });
+    _heartbeatRoomId = roomId;
+    _startSeatHeartbeat();
     // ONE event. `join_room` on the server already answers with the full
     // seats snapshot (emitRoomState), the roster (`room_users`), the mic
     // queue and the music state. The six extra emits that used to follow it
@@ -1188,6 +1249,8 @@ class SocketService {
     required int roomId,
     required int userId,
   }) {
+    stopSeatHeartbeat(); // SPEC52 #5 — an explicit leave frees the mic now
+
     emit('leave_room', {'roomId': roomId, 'userId': userId});
     AppLogger.info('🚪 Left room $roomId');
   }
@@ -1676,6 +1739,11 @@ class SeatData {
 
   /// SPEC52 #7 — server-decided VIP name colour (null = default).
   final String? nameColor;
+
+  /// SPEC52 #5 — 'occupied' or 'held' (the occupant lost connection; the mic
+  /// is kept for him for up to 5 minutes).
+  final String? leaseStatus;
+  bool get isHeld => leaseStatus == 'held';
   final String? username;
   final String? avatarUrl;
   final String? avatarFrameUrl; // ✅ NEW
@@ -1701,6 +1769,7 @@ class SeatData {
     this.displayId,
     this.vipLevel = 0,
     this.nameColor,
+    this.leaseStatus,
     required this.username,
     required this.avatarUrl,
     this.avatarFrameUrl, // ✅ NEW
@@ -1753,6 +1822,7 @@ class SeatData {
       displayId: displayId ?? this.displayId,
       vipLevel: vipLevel ?? this.vipLevel,
       nameColor: nameColor ?? this.nameColor,
+      leaseStatus: leaseStatus,
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       avatarFrameUrl: avatarFrameUrl ?? this.avatarFrameUrl,
@@ -1783,6 +1853,7 @@ class SeatData {
           : toInt(json['displayId'] ?? json['display_id'] ?? json['userDisplayId']),
       vipLevel: toInt(json['vipLevel'] ?? json['vip_level']),
       nameColor: json['nameColor']?.toString(),
+      leaseStatus: json['status']?.toString(),
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),
       avatarFrameUrl: (json['frameImageUrl'] ?? json['avatarFrameUrl'] ?? json['avatar_frame_url'])?.toString(),

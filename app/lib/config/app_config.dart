@@ -75,7 +75,10 @@ class AppConfig {
   /// The library defaults this to double.infinity when the option is absent,
   /// which is exactly what we want and cannot be expressed as an int. Any value
   /// <= 0 here means "leave it unset"; see SocketService.
-  static const int socketReconnectionAttempts = 0;
+  // SPEC52 #47 — a bounded cycle: 5 attempts with backoff, then the app shows
+  // «انقطع الاتصال — إعادة المحاولة» and a new cycle starts on tap, on network
+  // return or when the app comes back to the foreground.
+  static const int socketReconnectionAttempts = 5;
   static const int socketReconnectionDelay = 1000;
   
   // Pagination

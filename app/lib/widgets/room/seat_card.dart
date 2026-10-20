@@ -95,6 +95,21 @@ class SeatCard extends StatelessWidget {
                   if (_isOccupied && seat.isSpeaking)
                     IgnorePointer(child: _SpeakingRing(size: outerSize)),
 
+                  // SPEC52 #5 — the occupant lost connection: the mic is kept
+                  // for him (up to 5 min); dim it and show "reconnecting".
+                  if (_isOccupied && seat.isHeld)
+                    IgnorePointer(
+                      child: Container(
+                        width: innerAvatar,
+                        height: innerAvatar,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withOpacity(0.55),
+                        ),
+                        child: Icon(Icons.wifi_off_rounded, color: Colors.white70, size: innerAvatar * 0.38),
+                      ),
+                    ),
+
                   if (!_isOccupied)
                   // Empty seat: mic icon with gradient ring
                     Container(
