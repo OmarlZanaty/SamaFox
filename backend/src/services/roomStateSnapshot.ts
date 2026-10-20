@@ -1,3 +1,4 @@
+import { SeatLease, SEAT_LEASE_MS } from './seatLease';
 import fs from 'fs';
 import path from 'path';
 
@@ -21,6 +22,7 @@ export const SNAPSHOT_MAX_AGE_MS = 3 * 60 * 1000;
 
 export interface RoomSnapshot {
   rid: number;
+  leases?: [number, SeatLease][];
   seats: [number, number][]; // [seatNumber, userId]
   muted: [number, boolean][]; // [userId, muted]
   locked: number[];
@@ -38,6 +40,7 @@ export interface StateSnapshot {
 
 export interface RoomStateMaps {
   roomSeats: Map<number, Map<number, number>>;
+  roomLeases?: Map<number, Map<number, SeatLease>>;
   roomMuted: Map<number, Map<number, boolean>>;
   roomLockedSeats: Map<number, Set<number>>;
   roomAdminMutedSeats: Map<number, Set<number>>;
@@ -62,6 +65,7 @@ export function buildSnapshot(m: RoomStateMaps, now = Date.now()): StateSnapshot
     const room: RoomSnapshot = {
       rid,
       seats,
+      leases: Array.from(m.roomLeases?.get(rid)?.entries() ?? []),
       // Only the people on a seat: a mute flag means nothing off the mic.
       muted: Array.from(m.roomMuted.get(rid)?.entries() ?? []).filter(([uid]) => seated.has(uid)),
       locked: Array.from(m.roomLockedSeats.get(rid) ?? []),
@@ -115,6 +119,14 @@ export function applySnapshot(
       // A seat belongs to someone inside the room; never hold one for a user
       // the snapshot places elsewhere.
       if (m.userCurrentRoom.get(uid) !== r.rid) continue;
+      if (m.roomLeases) {
+        const saved = Array.isArray(r.leases) ? r.leases.find(e => Array.isArray(e) && e[0] === sn)?.[1] : undefined;
+        // Legacy snapshots use their timestamp, never a fresh restart deadline.
+        const lease: SeatLease = saved ?? { userId: uid, sessionId: '', status: 'held', lastHeartbeat: s.at, leaseExpiresAt: s.at + SEAT_LEASE_MS };
+        if (lease.userId !== uid || !Number.isFinite(lease.lastHeartbeat) || !Number.isFinite(lease.leaseExpiresAt)) continue;
+        if (!m.roomLeases.has(r.rid)) m.roomLeases.set(r.rid, new Map());
+        m.roomLeases.get(r.rid)!.set(sn, { ...lease, status: 'held' });
+      }
       seats.set(sn, uid);
       seatedUsers.add(uid);
     }

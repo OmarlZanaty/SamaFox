@@ -2410,3 +2410,25 @@ model AdminPermissionGrant {
   @@index([userId, revokedAt])
   @@map("admin_permission_grants")
 }
+
+// SPEC52 C4: observational telemetry, never room/seat authority.
+model RoomSession {
+  id               String   @id
+  userId           Int
+  roomId           Int
+  joinedAt         DateTime @default(now())
+  lastHeartbeat    DateTime @default(now())
+  wsState          String   @default("connected")
+  voiceState       String   @default("listening")
+  seatNumber       Int?
+  lastApi          String?
+  disconnectReason String?
+  reconnectCount   Int      @default(0)
+  leftAt           DateTime?
+  leaveReason      String?
+
+  @@index([userId, joinedAt])
+  @@index([roomId, joinedAt])
+  @@index([joinedAt])
+  @@map("room_sessions")
+}

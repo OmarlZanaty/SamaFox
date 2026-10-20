@@ -1,3 +1,4 @@
+import { rememberLastRoomApi } from './middlewares/roomSession.middleware';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -144,6 +145,7 @@ app.use(cors({
 
 
 // ✅ body + cookie parsers BEFORE routes
+app.use(rememberLastRoomApi);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

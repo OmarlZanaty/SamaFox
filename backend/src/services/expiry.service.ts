@@ -31,6 +31,9 @@ export async function sweepExpired(now: Date = new Date()): Promise<{
   vips: number;
   backgrounds: number;
 }> {
+  await prisma.roomSession.deleteMany({
+    where: { joinedAt: { lt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) } },
+  }).catch(e => console.warn('[expiry] room sessions:', (e as Error).message));
   let items = 0;
   let vips = 0;
   let backgrounds = 0;

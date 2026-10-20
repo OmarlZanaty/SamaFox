@@ -1,4 +1,5 @@
 import express from 'express';
+import prisma from '../utils/prisma';
 import { authenticate } from '../middlewares/auth.middleware';
 import { requireAdminDashboard, requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
 import { clientLogFiles, tailJsonl } from './appDownload.routes';
@@ -123,6 +124,32 @@ async function requireFinancialSettingsPermission(req: any, res: any, next: any)
 
 router.use(authenticate);
 router.use(requireAdminDashboard);
+
+router.get('/room-sessions', async (req, res) => {
+  try {
+    const where: any = {};
+    for (const key of ['userId', 'roomId'] as const) {
+      if (!req.query[key]) continue;
+      const value = Number(req.query[key]);
+      if (!Number.isSafeInteger(value) || value <= 0) return res.status(400).json({ success: false, message: 'Invalid filter' });
+      where[key] = value;
+    }
+    const from = req.query.from ? new Date(String(req.query.from)) : new Date(Date.now() - 7 * 86400000);
+    const to = req.query.to ? new Date(String(req.query.to)) : new Date();
+    if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || from > to) {
+      return res.status(400).json({ success: false, message: 'Invalid dates' });
+    }
+    where.joinedAt = { gte: from, lte: to };
+    const page = Math.min(10000, Math.max(1, Math.floor(Number(req.query.page) || 1)));
+    const rows = await prisma.roomSession.findMany({
+      where, orderBy: [{ joinedAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * 100, take: 101,
+    });
+    return res.json({ success: true, data: rows.slice(0, 100), page, hasMore: rows.length > 100 });
+  } catch (e) {
+    console.error('[admin.room-sessions]', e);
+    return res.status(500).json({ success: false, message: 'Unable to load sessions' });
+  }
+});
 
 // Item 20 — every administrative change is in admin_audit_logs. The pages that
 // write their own detailed rows (before/after, reason) are skipped here; every
