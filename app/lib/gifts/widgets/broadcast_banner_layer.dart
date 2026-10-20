@@ -47,7 +47,13 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
   }
 
   void _enqueue(GiftSendEvent event) {
+    // SPEC52 #44 — bounded: during a gift storm only the newest few wait;
+    // an ever-growing queue kept banners (and their images) alive for minutes.
+    if (_queue.any((e) => e.transactionId == event.transactionId)) return;
     _queue.add(event);
+    while (_queue.length > 4) {
+      _queue.removeFirst();
+    }
     _pump();
   }
 

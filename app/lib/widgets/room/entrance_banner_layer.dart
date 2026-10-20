@@ -83,6 +83,10 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
     // SPEC52 #23 — entry effects switched off by this user.
     if (!EffectsPrefs.instance.entryEffects.value) return;
     _queue.add(e);
+    // SPEC52 #44 — a crowd entering at once keeps only the latest few.
+    while (_queue.length > 5) {
+      _queue.removeAt(0);
+    }
     _maybePlay();
   }
 
