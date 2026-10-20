@@ -1,4 +1,5 @@
 import { requireOwnerPermission } from '../services/ownerPermissions.service';
+import { adminRoomEventsRouter } from './roomEvents.routes';
 import { Router, type Request, type Response } from 'express';
 import prisma from '../utils/prisma';
 import { requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
@@ -44,6 +45,7 @@ const db = prisma as any;
  */
 export const adminEconomyRouter = Router();
 const r = adminEconomyRouter;
+r.use(adminRoomEventsRouter);
 
 const adminId = (req: Request) => Number((req as any).userId);
 const ok = (res: Response, data: unknown) =>

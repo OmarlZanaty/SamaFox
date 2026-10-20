@@ -305,6 +305,10 @@ export function isUserInRoom(userId: number, roomId: number): boolean {
   return userCurrentRoom.get(userId) === roomId;
 }
 
+export function getSeatedUserIds(roomId: number): number[] {
+  return [...new Set(roomSeats.get(roomId)?.values() ?? [])].filter(uid => isUserInRoom(uid, roomId));
+}
+
 /**
  * May this user receive a room's audio and events? Found while testing on two
  * devices (2026-09-26): `user_joined_voice` and `init_room_seats` put the

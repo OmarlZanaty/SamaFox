@@ -322,6 +322,9 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
           comboCount,
         },
       });
+      if (input.roomId) {
+        await (tx as any).roomGiftJob.create({ data: { giftTransactionId: txRow.id } });
+      }
 
       // The entry, inside the same transaction: shares booked, round joined,
       // and — once the round is competitive — drawn and paid from the pool.
@@ -453,6 +456,12 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
   // After the transaction commits, and swallowing its own failures: a reward
   // misconfiguration must never roll back a gift that already went through.
   if (input.roomId) {
+    try {
+      const { processRoomGift } = await import('../services/roomEvents.service');
+      await processRoomGift(result.transactionId);
+    } catch (e) {
+      console.warn('room event gift queued for recovery:', e);
+    }
     try {
       const { evaluateRoomCupRewards } = await import('../services/roomReward.service');
       await evaluateRoomCupRewards(input.roomId);
