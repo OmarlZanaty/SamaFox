@@ -233,6 +233,9 @@
     loaders[sec] = fn;
   };
   window.spec52Load = (sec) => {
+    // Refresh what this admin may see on every page change (covers logging in
+    // after the page loaded).
+    loadCaps();
     const fn = loaders[sec];
     if (fn) Promise.resolve(fn()).catch((e) => toast("خطأ: " + (e?.message || e)));
   };
