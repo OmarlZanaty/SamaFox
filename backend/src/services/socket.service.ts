@@ -1,3 +1,5 @@
+import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS } from './seatLease';
+import { sessionFor, joinRoomSession, sessionHeartbeat, sessionDisconnected, sessionSeat, endRoomSession, reconcileRoomSessions, LeaveReason } from './roomSession.service';
 import { nameColorSync } from './vipStyle.service';
 import { Server, Socket } from 'socket.io';
 import { setGameBroadcastEmitter } from './gameBroadcast.service';
@@ -35,6 +37,8 @@ interface AuthenticatedSocket extends Socket {
 }
 
 const roomSeats = new Map<number, Map<number, number>>();
+const roomLeases = new Map<number, Map<number, SeatLease>>();
+let sessionStartup: Promise<void> = Promise.resolve();
 
 // SPEC52 #20 — the room emoji catalogue (must match the app's) + rate limit.
 const ROOM_EMOJI_IDS = new Set([
@@ -357,6 +361,11 @@ function voiceRelayTarget(from: number | undefined, to: any, roomId: any): strin
   return null;
 }
 
+export function mayPublish(uid: number, rid: number): boolean {
+  return userCurrentRoom.get(uid) === rid && [...getSeats(rid).leases.values()]
+    .some(l => l.userId === uid && l.status === 'occupied' && l.leaseExpiresAt > Date.now());
+}
+
 export async function mayListen(uid: number, rid: number): Promise<boolean> {
   for (let i = 0; i < 40 && userCurrentRoom.get(uid) !== rid; i++) {
     await new Promise((r) => setTimeout(r, 100));
@@ -398,7 +407,7 @@ export async function kickBannedUser(
     // A ban is not a dropped connection: skip the disconnect grace window and
     // free their seat / room slot right now.
     cancelPendingRelease(userId);
-    releaseUserFromRooms(_io, userId);
+    releaseUserFromRooms(_io, userId, 'ban');
   } catch (e) {
     console.warn('[kickBannedUser] failed:', e);
   }
@@ -429,9 +438,52 @@ function isUserOnline(uid: number): boolean {
   return onlineSockets.has(uid);
 }
 
-function getSeats(roomId: number): Map<number, number> {
-  if (!roomSeats.has(roomId)) roomSeats.set(roomId, new Map());
-  return roomSeats.get(roomId)!;
+function getSeats(roomId: number): LeasedSeats {
+  const old = roomSeats.get(roomId);
+  if (old instanceof LeasedSeats) return old;
+  const seats = new LeasedSeats(uid => sessionFor(uid)?.id ?? '', sessionSeat);
+  const restored = roomLeases.get(roomId);
+  for (const [sn, uid] of old ?? []) {
+    seats.set(sn, uid);
+    const lease = restored?.get(sn);
+    if (lease) seats.leases.set(sn, lease);
+  }
+  roomSeats.set(roomId, seats);
+  roomLeases.set(roomId, seats.leases);
+  return seats;
+}
+
+function releaseSeat(io: Server, rid: number, sn: number, uid: number, reason: string) {
+  const seats = getSeats(rid);
+  if (seats.get(sn) !== uid) return;
+  seats.delete(sn);
+  getMuted(rid).delete(uid);
+  endBroadcast(uid).catch(() => {});
+  console.log('[seat release]', { rid, sn, uid, reason });
+  io.to(`room:${rid}`).emit('seat_updated', {
+    seatId: sn, seatNumber: sn, userId: null, micEnabled: false, isSpeaking: false, isMuted: true,
+  });
+  io.to(`room:${rid}`).emit('seat_released', { roomId: rid, seatNumber: sn, userId: uid, reason });
+  void publishGuard.sync(rid);
+}
+
+function sweepSeatLeases(io: Server) {
+  const now = Date.now();
+  for (const rid of roomSeats.keys()) {
+    const seats = getSeats(rid);
+    let changed = false;
+    for (const [sn, lease] of seats.leases) {
+      if (lease.leaseExpiresAt <= now) {
+        releaseSeat(io, rid, sn, lease.userId, 'lease_expired');
+        endRoomSession(lease.userId, 'lease_expired');
+        if (!roomSocketUserIds(rid).has(lease.userId)) releaseUserFromRooms(io, lease.userId, 'lease_expired');
+        changed = true;
+      } else if (now - lease.lastHeartbeat > SEAT_STALE_MS) {
+        changed = seats.hold(lease.userId) || changed;
+      }
+    }
+    if (changed) { void publishGuard.sync(rid); emitRoomState(io, rid).catch(console.error); }
+  }
 }
 
 function getMuted(roomId: number): Map<number, boolean> {
@@ -481,6 +533,7 @@ function cleanupRoomStateIfEmpty(roomId: number) {
   if (hasSeats || hasQueue || hasVoice) return;
 
   roomSeats.delete(roomId);
+  roomLeases.delete(roomId);
   roomMuted.delete(roomId);
   roomMicQueue.delete(roomId);
   roomAdmins.delete(roomId);
@@ -633,7 +686,10 @@ await Promise.all(
       activeFrameId: u?.activeFrameId ?? null,
       relationPartner,
       level: u?.level ?? 1,
-      isMuted: occupant ? (mutedMap.get(occupant) ?? true) : true,
+      status: occupant ? getSeats(rid).leases.get(seatNumber)?.status ?? 'occupied' : null,
+      leaseExpiresAt: occupant ? getSeats(rid).leases.get(seatNumber)?.leaseExpiresAt ?? null : null,
+      sessionId: occupant ? getSeats(rid).leases.get(seatNumber)?.sessionId ?? null : null,
+      isMuted: occupant ? (getSeats(rid).leases.get(seatNumber)?.status === 'held' || (mutedMap.get(occupant) ?? true)) : true,
       isLocked: locked.has(seatNumber),
     };
   });
@@ -713,7 +769,7 @@ function isLiveKitRoom(rid: number): boolean {
 /** Only seat holders may publish on the SFU (see livekitPublishGuard). */
 const publishGuard = createPublishGuard({
   api: liveKitRoomApiFromEnv(),
-  seatedUserIds: (rid) => new Set(roomSeats.get(rid)?.values() ?? []),
+  seatedUserIds: (rid) => new Set([...getSeats(rid).leases.values()].filter(l => l.status === 'occupied' && l.leaseExpiresAt > Date.now()).map(l => l.userId)),
   isLiveKitRoom,
 });
 const PUBLISH_SWEEP_MS = 5_000;
@@ -852,8 +908,17 @@ function cancelPendingRelease(uid: number) {
 /** Hold a disconnected user's seat / room for the grace window. */
 function holdForReconnect(io: Server, uid: number) {
   cancelPendingRelease(uid);
+  const rid = userCurrentRoom.get(uid);
+  const seats = rid ? getSeats(rid) : null;
+  const lease = [...(seats?.leases.values() ?? [])].find(l => l.userId === uid);
+  if (lease && seats?.hold(uid) && rid) {
+    void publishGuard.sync(rid);
+    emitRoomState(io, rid).catch(console.error);
+  }
+  const delay = lease ? Math.max(0, lease.leaseExpiresAt - Date.now()) : DISCONNECT_GRACE_MS;
   const timer = setTimeout(() => {
     pendingRoomRelease.delete(uid);
+    if (lease) { sweepSeatLeases(io); return; }
     // Safety net for the case where they reconnected but never re-joined
     // the room (app relaunched onto the home screen): only a socket that
     // is actually back inside the room keeps the seat. A real re-join
@@ -864,7 +929,7 @@ function holdForReconnect(io: Server, uid: number) {
         releaseUserFromRooms(io, uid);
       })
       .catch(() => releaseUserFromRooms(io, uid));
-  }, DISCONNECT_GRACE_MS);
+  }, delay);
   timer.unref?.();
   pendingRoomRelease.set(uid, timer);
 }
@@ -881,6 +946,7 @@ const RESTORE_SETTLE_MS = 2 * 60 * 1000;
 function roomStateMaps() {
   return {
     roomSeats,
+    roomLeases,
     roomMuted,
     roomLockedSeats,
     roomAdminMutedSeats,
@@ -901,6 +967,12 @@ function saveRoomState() {
 function restoreRoomState(io: Server) {
   const restored = applySnapshot(takeSnapshotFile(), roomStateMaps());
   if (!restored) return;
+  for (const rid of roomSeats.keys()) getSeats(rid);
+  sweepSeatLeases(io);
+  for (const uid of restored.users) {
+    const rid = userCurrentRoom.get(uid);
+    if (rid && [...getSeats(rid).values()].includes(uid)) holdForReconnect(io, uid);
+  }
   console.log('[room state] restored', { users: restored.users.length, seats: restored.seats });
   const settle = setTimeout(() => {
     let released = 0;
@@ -928,6 +1000,7 @@ function startRoomStatePersistence(io: Server) {
   if (roomStatePersistenceStarted) return;
   roomStatePersistenceStarted = true;
   restoreRoomState(io);
+  setInterval(() => sweepSeatLeases(io), 15_000).unref?.();
   setInterval(saveRoomState, SNAPSHOT_EVERY_MS).unref?.();
   // pm2 reload sends SIGINT. A listener replaces Node's default exit, so exit
   // here once the state is on disk.
@@ -966,7 +1039,9 @@ function dropUserFromVoice(io: Server, uid: number) {
   }
 }
 
-function releaseUserFromRooms(io: Server, uid: number) {
+function releaseUserFromRooms(io: Server, uid: number, reason: LeaveReason = 'leave') {
+  cancelPendingRelease(uid);
+  endRoomSession(uid, reason);
   const lastRoom = userCurrentRoom.get(uid) ?? null;
   userCurrentRoom.delete(uid); // #25/#31: no longer in any room
   const notifiedRooms = new Set<number>();
@@ -1062,10 +1137,18 @@ export function invalidateAdminCacheAndRefresh(roomId: number) {
 export function broadcastRoomClosed(roomId: number) {
   if (!_io) return;
   _io.to(`room:${roomId}`).emit('room_closed', { roomId });
+  for (const [uid, rid] of userCurrentRoom) if (rid === roomId) evictRoomUser(roomId, uid, 'room_closed');
+}
+
+export function evictRoomUser(rid: number, uid: number, reason: LeaveReason) {
+  if (!_io || userCurrentRoom.get(uid) !== rid) return;
+  releaseUserFromRooms(_io, uid, reason);
+  _io.in(`user:${uid}`).socketsLeave(`room:${rid}`);
 }
 
 export const initializeSocketHandlers = (io: Server) => {
   _io = io;
+  sessionStartup = reconcileRoomSessions().catch(e => console.warn('[room session restart]', e));
   setGameBroadcastEmitter((event, payload) => io.emit(event, payload));
   startRoomStatePersistence(io);
   startPublishGuardSweep();
@@ -1809,7 +1892,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
     // ----------------------------
     // Join room (chat/seats)
     // ----------------------------
-    socket.on('join_room', async ({ roomId, code, hiddenBypass }: any) => {
+    socket.on('join_room', async ({ roomId, code, hiddenBypass, reconnectCount, lastDisconnectReason, seatLeaseVersion }: any) => {
       try {
       const uid = socket.userId;
       const rid = toInt(roomId);
@@ -1892,6 +1975,9 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         return;
       }
 
+      await sessionStartup;
+      if (!socket.connected) return;
+      sweepSeatLeases(io);
       const locked = getLockedSeats(rid);
 
       // Already counted as being in this room → this join is a re-sync after a
@@ -1907,7 +1993,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       const previousRoom = userCurrentRoom.get(uid);
       if (previousRoom && previousRoom !== rid) {
         console.log('[join_room] leaving previous room first', { uid, previousRoom, rid });
-        await performLeaveRoom(io, socket, uid, previousRoom);
+        await performLeaveRoom(io, socket, uid, previousRoom, 'switch_room');
       }
 
       // Hidden entry: decided once per entrance (a re-sync keeps whatever the
@@ -1922,6 +2008,10 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       cancelPendingRelease(uid); // back in time — keep whatever they still hold
       socket.join(`room:${rid}`);
       userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
+      socket.data.seatLeaseVersion = seatLeaseVersion === 1 ? 1 : 0;
+      const session = joinRoomSession(uid, rid, socket.id, reconnectCount, lastDisconnectReason);
+      getSeats(rid).renew(uid, session.id);
+      for (const [sn, occupant] of getSeats(rid)) if (occupant === uid) sessionSeat(uid, sn);
       await populateAdmins(rid);
 
       // Their voice join was held back until the gate let them in: complete it.
@@ -2098,7 +2188,11 @@ async function performLeaveRoom(
   socket: AuthenticatedSocket,
   uid: number,
   rid: number,
+  reason: LeaveReason = 'leave',
 ) {
+  if (userCurrentRoom.get(uid) !== rid) return;
+  cancelPendingRelease(uid);
+  endRoomSession(uid, reason);
   socket.leave(`room:${rid}`);
   if (userCurrentRoom.get(uid) === rid) userCurrentRoom.delete(uid); // #25/#31
   // A deliberate exit ends the debounce window: coming back in is a real
@@ -2516,6 +2610,7 @@ socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
     pendingSeatInvites.delete(String(inviteId));
 
     const rid = invite.roomId;
+    if (userCurrentRoom.get(uid) !== rid || !socket.rooms.has(`room:${rid}`)) return;
     const seatNum = invite.seatNumber;
 
     if (!accept) {
@@ -2678,25 +2773,7 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
           return socket.emit('error', { message: 'Not your seat' });
         }
 
-        seats.delete(seatNum);
-        getMuted(rid).delete(uid);
-        getVoiceSet(rid).delete(uid);
-
-        console.log('[leave_seat]', { uid, rid, seatNum });
-
-        io.to(`room:${rid}`).emit('seat_updated', {
-          seatId: seatNum,
-          seatNumber: seatNum,
-          userId: null,
-          micEnabled: false,
-          isSpeaking: false,
-          isMuted: true,
-        });
-
-        io.to(`room:${rid}`).emit('seat_released', {
-          seatNumber: seatNum,
-          userId: uid,
-        });
+        releaseSeat(io, rid, seatNum, uid, 'leave');
 
         socket.emit('left_seat', { seatId: seatNum, seatNumber: seatNum, roomId: rid });
 
@@ -2851,13 +2928,39 @@ socket.on('webrtc_ice_candidate', ({ to, candidate, roomId }: any) => {
 });
 
 
+    // Installed clients predate application heartbeats. Engine.IO pong is their
+    // liveness fallback; new clients must send the explicit room heartbeat.
+    socket.conn.on('packet', (packet: { type: string }) => {
+      if (packet.type !== 'pong' || socket.data.seatLeaseVersion === 1) return;
+      const uid = socket.userId;
+      const session = uid ? sessionFor(uid) : null;
+      if (!uid || !session || session.socketId !== socket.id || !socket.rooms.has(`room:${session.roomId}`)) return;
+      getSeats(session.roomId).renew(uid, session.id);
+      sessionHeartbeat(uid, socket.id, undefined);
+    });
+
+    socket.on('seat_heartbeat', (payload: any = {}) => {
+      const uid = socket.userId;
+      const rid = toInt(payload?.roomId);
+      if (!uid || !rid || userCurrentRoom.get(uid) !== rid || !socket.rooms.has(`room:${rid}`)) return;
+      const session = sessionFor(uid);
+      if (!session || session.socketId !== socket.id || session.roomId !== rid) return;
+      sweepSeatLeases(io);
+      const seats = getSeats(rid);
+      const wasHeld = [...seats.leases.values()].some(l => l.userId === uid && l.status === 'held');
+      seats.renew(uid, session.id);
+      sessionHeartbeat(uid, socket.id, payload.voiceState);
+      if (wasHeld) { void publishGuard.sync(rid); emitRoomState(io, rid).catch(console.error); }
+    });
+
     // ----------------------------
     // Disconnect cleanup (ONE ONLY)
     // ----------------------------
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
       const uid = socket.userId;
       if (!uid) return;
 
+      if (sessionDisconnected(uid, socket.id, String(reason))) holdForReconnect(io, uid);
       // Another device/tab of the same user is still connected → nothing to
       // tear down, they're demonstrably still here.
       if (!markOffline(uid, socket.id)) {

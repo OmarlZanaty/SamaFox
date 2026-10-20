@@ -228,7 +228,32 @@
   Object.assign(window, { giftListsLoad, glAdd, glSave, glDelete, glMove, glToggle, glUploadImage, glRenderGifts });
 
   // ── section router hook (called from app.js navigate) ───────────────────
-  const loaders = { perms: permsLoad, giftlists: giftListsLoad };
+  let sessionsPage = 1;
+  async function roomSessionsLoad(page = 1) {
+    const params = new URLSearchParams({ page: String(page) });
+    for (const [id, key] of [['rsUser', 'userId'], ['rsRoom', 'roomId']]) if (val(id)) params.set(key, val(id));
+    for (const [id, key] of [['rsFrom', 'from'], ['rsTo', 'to']]) {
+      if (val(id)) {
+        const date = new Date(val(id));
+        if (!Number.isFinite(date.getTime())) return toast('تاريخ غير صالح');
+        params.set(key, date.toISOString());
+      }
+    }
+    try {
+      const result = await call('/admin-dashboard/room-sessions?' + params);
+      sessionsPage = result.page;
+      const labels = { connected: 'متصل', disconnected: 'منقطع', listening: 'يستمع', publishing: 'يتحدث', muted: 'مكتوم', reconnecting: 'يعيد الاتصال', failed: 'فشل', leave: 'مغادرة', kick: 'طرد', ban: 'حظر', lease_expired: 'انتهت مهلة المايك', room_closed: 'أُغلقت الغرفة', switch_room: 'انتقل لغرفة أخرى', server_restart: 'إعادة تشغيل السيرفر' };
+      $('roomSessionsTable').querySelector('tbody').innerHTML = (result.data || []).map(r =>
+        '<tr>' + [r.id, r.userId, r.roomId, dt(r.joinedAt), dt(r.lastHeartbeat), labels[r.wsState] || r.wsState, labels[r.voiceState] || r.voiceState, r.seatNumber ?? '—', r.lastApi, r.disconnectReason, r.reconnectCount, dt(r.leftAt), labels[r.leaveReason] || r.leaveReason].map(v => '<td>' + esc(v) + '</td>').join('') + '</tr>'
+      ).join('') || '<tr><td colspan="13" class="cell-muted">لا توجد جلسات</td></tr>';
+      $('rsPrev').disabled = sessionsPage <= 1;
+      $('rsNext').disabled = !result.hasMore;
+      $('rsPage').textContent = String(sessionsPage);
+    } catch (_) { $('roomSessionsTable').querySelector('tbody').innerHTML = '<tr><td colspan="13" class="cell-muted">تعذر تحميل الجلسات</td></tr>'; }
+  }
+  window.roomSessionsLoad = roomSessionsLoad;
+  window.roomSessionsPage = delta => roomSessionsLoad(sessionsPage + delta);
+  const loaders = { perms: permsLoad, giftlists: giftListsLoad, roomSessions: roomSessionsLoad };
   window.spec52Register = (sec, fn) => {
     loaders[sec] = fn;
   };

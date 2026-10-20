@@ -66,6 +66,7 @@
       المشرفون
     </a>
     <a href="#" class="nav-item" data-section="staff">👑 نظام الإدارة</a>
+    <a href="#" class="nav-item" data-section="roomSessions">🛰️ جلسات الغرف</a>
     <a href="#" class="nav-item" data-section="perms" data-owner-only>🔐 الصلاحيات المالية</a>
     <a href="#" class="nav-item" data-section="giftlists">🎁 قوائم الهدايا</a>
     <a href="#" class="nav-item" data-section="rewards">
@@ -146,7 +147,34 @@
   <!-- CONTENT AREA -->
   <main class="content" id="mainContent">
 
-    <section class="section" id="section-staff" dir="rtl" aria-label="نظام الإدارة">
+    <section id="section-roomSessions" class="section" dir="rtl">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">جلسات الغرف</h2>
+          <p class="section-sub">لكل مستخدم داخل غرفة: وقت الدخول، آخر نبضة، حالة الاتصال والصوت، المايك، آخر API، سبب الانقطاع والخروج وعدد مرات إعادة الاتصال. للمراجعة فقط.</p>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <input id="rsUser" type="number" min="1" class="form-input" placeholder="رقم المستخدم (داخلي)" />
+          <input id="rsRoom" type="number" min="1" class="form-input" placeholder="رقم الغرفة" />
+          <input id="rsFrom" type="datetime-local" class="form-input" title="من" />
+          <input id="rsTo" type="datetime-local" class="form-input" title="إلى" />
+          <button class="btn btn-primary" onclick="roomSessionsLoad(1)">عرض</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px;overflow-x:auto">
+          <table id="roomSessionsTable"><thead><tr>
+            <th>الجلسة</th><th>المستخدم</th><th>الغرفة</th><th>الدخول</th><th>آخر نبضة</th><th>الاتصال</th><th>الصوت</th><th>المايك</th><th>آخر API</th><th>سبب الانقطاع</th><th>مرات إعادة الاتصال</th><th>الخروج</th><th>سبب الخروج</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+          <button class="btn btn-outline" id="rsPrev" onclick="roomSessionsPage(-1)">السابق</button>
+          <span id="rsPage" class="cell-muted"></span>
+          <button class="btn btn-outline" id="rsNext" onclick="roomSessionsPage(1)">التالي</button>
+        </div>
+      </div>
+    </section>
+<section class="section" id="section-staff" dir="rtl" aria-label="نظام الإدارة">
       <div class="section-header">
         <h2 class="section-title">👑 نظام الإدارة</h2>
         <p class="section-sub">الإداريون والصلاحيات والمنتجات والسجلات</p>

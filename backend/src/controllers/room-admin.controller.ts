@@ -3,7 +3,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { io } from '../index';
-import { invalidateAdminCacheAndRefresh } from '../services/socket.service';
+import { evictRoomUser, invalidateAdminCacheAndRefresh } from '../services/socket.service';
 
 const toInt = (v: any): number | null => {
   const n = Number(v);
@@ -261,6 +261,7 @@ export async function banUser(req: Request, res: Response) {
 
     await prisma.roomMember.deleteMany({ where: { roomId, userId } });
 
+    evictRoomUser(roomId, userId, 'ban');
     // Live removal, exactly like kickUser. Without this the ban only deleted a
     // membership row: the banned user stayed sitting in the room until he left
     // on his own, so from the admin's side the button "did nothing" — the
@@ -707,6 +708,7 @@ export async function kickUser(req: Request, res: Response) {
     });
     await prisma.roomMember.deleteMany({ where: { roomId, userId } });
 
+    evictRoomUser(roomId, userId, 'kick');
     // Live removal: tell the target to leave the room now.
     io.to(`user:${userId}`).emit('kicked_from_room', {
       roomId,

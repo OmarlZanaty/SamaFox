@@ -89,11 +89,10 @@ router.post('/token', authMiddleware, async (req, res) => {
       name: user?.name ?? `user-${userId}`,
       ttl: TOKEN_TTL,
     });
-    // canPublish is granted to everyone in the room and the APP decides when
-    // to publish (only while holding a seat), exactly as the mesh engine did.
-    // Seat rules are enforced by the room's socket handlers; a client that
-    // publishes without a seat is a rogue client either way, and the room
-    // moderation tools (mute / remove) still reach it through the seat state.
+    // canPublish stays granted to everyone in the room, as before: taking a
+    // seat must not wait for a new token. The publish guard (seat leases,
+    // SPEC52 #5) revokes it from anyone publishing without an occupied seat,
+    // including a seat that is only "held" after a disconnect.
     at.addGrant({
       room: `room-${roomId}`,
       roomJoin: true,
