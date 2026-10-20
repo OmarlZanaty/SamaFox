@@ -4767,8 +4767,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       // SPEC52 #14 — name + ID on a glass plate, with the width
                       // the speaker / keep buttons used to take.
                       Expanded(
-                        child: Align(
-                          alignment: AlignmentDirectional.centerStart,
+                        child: SizedBox(
+                          width: double.infinity,
                           child: RoomHeaderGlass(
                             name: roomName.isNotEmpty ? roomName : 'Room #${widget.roomId}',
                             idLabel: () {
@@ -4915,8 +4915,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       seats: ClipPath(
                     clipper: BottomWaveClipper(depth: seatsWaveDepth), // 👈 ADD THIS
                     child: Padding(
+                      // SPEC52 #19/#27 — a narrow left gutter holds the
+                      // PK › rocket › games rail, so it never covers a mic.
                       padding: const EdgeInsets.only(
-                        left: roomHorizontalPadding,
+                        left: roomHorizontalPadding + kRoomRailGutter,
                         right: roomHorizontalPadding,
                         bottom: seatsWaveDepth,
                       ),
@@ -4969,8 +4971,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
             // SPEC52 #19/#28/#29 — PK › rocket › games, top-left under the header.
             Positioned(
-              left: 8,
-              top: 64,
+              left: 6,
+              top: 66,
               child: RoomLeftRail(
                 onGames: () => _openGamesSheet(context),
               ),

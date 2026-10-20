@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'room_left_rail.dart';
 import 'seats_grid.dart';
 
 /// Seats and chat share the space below the room header.
@@ -41,7 +42,8 @@ class RoomSeatsChatLayout extends StatelessWidget {
           final gridMax =
               math.max(0.0, available - gapUnderSeats - minChatHeight(available));
           final gridHeight = SeatsGrid.heightFor(
-            width: math.max(0.0, constraints.maxWidth - 24),
+            // 24 = horizontal padding, + the left rail gutter (SPEC52 #19).
+            width: math.max(0.0, constraints.maxWidth - 24 - kRoomRailGutter),
             seatCount: seatCount,
             maxHeight: gridMax,
           );

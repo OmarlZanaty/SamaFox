@@ -1,3 +1,4 @@
+import 'package:samafox/widgets/room/room_left_rail.dart';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -142,7 +143,8 @@ void main() {
                           child: RoomSeatsChatLayout(
                             seatCount: seatCount,
                             seats: Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 40),
+                              // Same as the room: + the left rail gutter (SPEC52 #19).
+                              padding: const EdgeInsets.fromLTRB(12 + kRoomRailGutter, 0, 12, 40),
                               child: SeatsGrid(
                                 seats: {
                                   for (var i = 1; i <= seatCount; i++)

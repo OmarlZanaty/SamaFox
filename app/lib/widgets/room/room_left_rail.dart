@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+/// Width the seats area leaves free on the left for the rail.
+const double kRoomRailGutter = 40;
+
 /// SPEC52 #19 / #28 / #29 — the column at the top-LEFT of the room, under the
 /// header: [PK] above [Rocket] above [Games]. Physically left in RTL too (the
 /// caller positions it with `left:`), and it only takes its own width, so the
@@ -63,15 +66,15 @@ class RoomRailButton extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               Container(
-                width: 38,
-                height: 38,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.black.withOpacity(0.45),
                   border: Border.all(color: color.withOpacity(0.7), width: 1.2),
                   boxShadow: [BoxShadow(color: color.withOpacity(0.25), blurRadius: 8)],
                 ),
-                child: Icon(icon, color: color, size: 20),
+                child: Icon(icon, color: color, size: 18),
               ),
               if (badge != null)
                 Positioned(
