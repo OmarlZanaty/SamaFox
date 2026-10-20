@@ -3795,7 +3795,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
               ListTile(
                 leading: const Icon(Icons.storefront, color: Colors.amberAccent),
-                title: const Text('اختيار من المتجر',
+                title: const Text('خلفياتي والمتجر',
                     style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(ctx);
