@@ -1150,6 +1150,10 @@ export const initializeSocketHandlers = (io: Server) => {
   _io = io;
   sessionStartup = reconcileRoomSessions().catch(e => console.warn('[room session restart]', e));
   setGameBroadcastEmitter((event, payload) => io.emit(event, payload));
+  // SPEC52 #39 — committed game wins → the player's room strip.
+  void import('./gameWinFeed.service').then((m) =>
+    m.startGameWinFeed((rid, win) => io.to(`room:${rid}`).emit('game_win', win), (uid) => userCurrentRoom.get(uid) ?? null),
+  );
   startRoomStatePersistence(io);
   startPublishGuardSweep();
   io.use(async (socket: AuthenticatedSocket, next) => {

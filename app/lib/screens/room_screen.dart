@@ -10,6 +10,7 @@ import '../widgets/room/agency_bell.dart';
 import '../widgets/room/room_cp_top.dart';
 import '../widgets/room/room_games_host.dart';
 import '../widgets/room/room_emoji.dart';
+import '../widgets/room/room_game_win_strip.dart';
 import '../services/effects_prefs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -4901,6 +4902,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                 ),
 
+
+                // SPEC52 #39 — real game wins of people in this room.
+                RoomGameWinStrip(roomId: widget.roomId),
 
                 // SPEC52 #8 — CP Top 3 (+ «عرض المزيد» → Top 30 over the room).
                 RoomCpTopStrip(

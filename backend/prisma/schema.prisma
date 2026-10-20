@@ -2433,3 +2433,19 @@ model RoomSession {
   @@index([joinedAt])
   @@map("room_sessions")
 }
+
+// SPEC52 #39 — one row per announced game win (from a committed game_ledger
+// prize row), with the room the player was in. Drives the room's win strip.
+model GameWinEvent {
+  id        Int      @id @default(autoincrement())
+  ledgerId  Int      @unique
+  userId    Int
+  roomId    Int?
+  gameId    String
+  gameName  String
+  winCoins  Int
+  createdAt DateTime @default(now())
+
+  @@index([roomId, id])
+  @@map("game_win_events")
+}

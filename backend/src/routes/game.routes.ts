@@ -173,6 +173,16 @@ const boxingLimiter = rateLimit({
   message: { success: false, message: 'Too many requests, slow down' },
 });
 
+// SPEC52 #39 — latest real wins for a room's strip (or the whole app).
+router.get('/wins/recent', authenticate, async (req, res) => {
+  try {
+    const { recentRoomWins } = await import('../services/gameWinFeed.service');
+    const roomId = Number(req.query.roomId) || null;
+    return res.json({ success: true, data: await recentRoomWins(roomId, Number(req.query.limit) || 10) });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+});
 router.post('/dice/play', authenticate, idempotent('game:dice:play'), diceLimiter, gameGuard('dice'), playDice);
 router.get('/dice/round', authenticate, getDiceRound);
 router.post('/dice/round/join', authenticate, idempotent('game:dice:round:join'), skillDiceLimiter, gameGuard('dice'), joinDiceRound);
