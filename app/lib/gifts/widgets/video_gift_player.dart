@@ -1,3 +1,4 @@
+import '../../services/audio_route.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -97,7 +98,8 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
       // is a gift that blasts out of the speaker while the user is holding the
       // phone to their ear. The room's own speaker toggle stays the one place
       // that decides.
-      await controller.setVolume(1.0);
+      // SPEC52 #18 — silent while the user muted the room.
+      await controller.setVolume(AudioRoute.instance.roomMuted.value ? 0.0 : 1.0);
       controller.addListener(_onTick);
       if (!mounted) return;
       setState(() => _initialized = true);

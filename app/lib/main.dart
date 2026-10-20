@@ -1,3 +1,4 @@
+import 'services/active_room.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker_android/image_picker_android.dart';
@@ -267,6 +268,9 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       final bool isGiftReceived = type.contains('gift');
       final bool isAgentPercentage =
           type.contains('commission') || type.contains('agency') || type.contains('target');
+      // SPEC52 #31 — inside a room these go to the 🔔 above the messages
+      // (with a badge) instead of a bar across the room.
+      if (isAgentPercentage && ActiveRoom.instance.roomId != null) return;
 
       GlobalNotificationService.instance.show(
         GlobalNotificationEvent(

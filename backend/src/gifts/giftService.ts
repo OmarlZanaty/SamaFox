@@ -227,7 +227,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
       // SOURCE member's row (`commissionGeneratedCoins`) keeps the commission
       // locked until that member completes their target — see
       // `computeCommissionSplit` in agency.controller.
-      let commission: { ownerId: number; agencyId: number; amount: number } | null = null;
+      let commission: { ownerId: number; agencyId: number; amount: number; ratePercent: number; productionCoins: number } | null = null;
       if (hostMembership) {
         const COMMISSION_RATE = Number(process.env.AGENCY_COMMISSION_RATE ?? 0.2);
         const owner = await tx.agencyMember.findFirst({
@@ -257,7 +257,7 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
                 data: { commissionGeneratedCoins: { increment: BigInt(amount) } },
               });
             }
-            commission = { ownerId: owner.userId, agencyId: hostMembership.agencyId, amount };
+            commission = { ownerId: owner.userId, agencyId: hostMembership.agencyId, amount, ratePercent: Math.round(COMMISSION_RATE * 10000) / 100, productionCoins: recipientCoins };
           }
         }
       }
@@ -416,12 +416,33 @@ export async function sendGiftAtomic(input: SendGiftInput): Promise<SendGiftResu
         where: { id: input.recipientId },
         select: { name: true },
       });
+      // SPEC52 #31 — everything the bell's list shows, frozen at accrual:
+      // agency, rate, period, the production it came from and the amount.
+      const agency = await (prisma as any).chargingAgency.findUnique({
+        where: { id: result.commission.agencyId },
+        select: { agencyName: true },
+      }).catch(() => null);
+      const now = new Date();
+      const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+      const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
       await createNotification({
         userId: result.commission.ownerId,
         type: 'AGENCY_COMMISSION',
         title: '💰 عمولة وكيل',
         body: `أضيفت ${result.commission.amount} كوينز إلى التارجت الخاص بك كعمولة من هدية استلمها ${recipientUser?.name ?? 'أحد أعضاء وكالتك'} — تصبح قابلة للتبديل بعد إكماله التارجت المحدد`,
-        data: { agencyId: result.commission.agencyId, amount: result.commission.amount, fromUserId: input.recipientId },
+        data: {
+          agencyId: result.commission.agencyId,
+          agencyName: agency?.agencyName ?? null,
+          amount: result.commission.amount,
+          commissionCoins: result.commission.amount,
+          ratePercent: result.commission.ratePercent,
+          productionCoins: result.commission.productionCoins,
+          periodStart: periodStart.toISOString(),
+          periodEnd: periodEnd.toISOString(),
+          period: `${periodStart.getUTCFullYear()}-${String(periodStart.getUTCMonth() + 1).padStart(2, '0')}`,
+          fromUserId: input.recipientId,
+          fromUserName: recipientUser?.name ?? null,
+        },
       });
     } catch (e) {
       console.warn('agency commission notification failed:', e);

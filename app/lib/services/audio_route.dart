@@ -1,8 +1,14 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
+import 'package:livekit_client/livekit_client.dart' show Hardware;
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../utils/permission_gate.dart';
 
 /// A3 / G3(e) — the single source of truth for "speaker or earpiece".
 ///
@@ -72,7 +78,9 @@ class AudioRoute {
   Future<void> restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      speakerOn = prefs.getBool(_speakerKey) ?? speakerOn;
+      // SPEC52 #3 — routing is automatic now (headset if one is connected,
+      // loudspeaker otherwise), so an old "earpiece" choice is not restored.
+      speakerOn = true;
       masterVolume = (prefs.getDouble(_volumeKey) ?? masterVolume).clamp(0.0, 1.0);
     } catch (e) {
       // A preferences failure must not cost anyone their audio; the defaults
@@ -91,6 +99,65 @@ class AudioRoute {
     }
   }
 
+  // ── SPEC52 #3: automatic audio routing ────────────────────────────────────
+  //
+  // No speaker button any more. A wired headset or a Bluetooth headset/earbuds
+  // takes BOTH the sound and the microphone as soon as it is connected (Android
+  // AudioSwitch: Bluetooth HFP/SCO first, then wired); when it goes away the
+  // phone's loudspeaker and microphone come back. An output-only (A2DP)
+  // Bluetooth device has no call microphone, so the phone mic stays and the
+  // system picks the best output. Nothing here touches the room connection or
+  // the published track — a route change never drops anyone from the room.
+
+  StreamSubscription<dynamic>? _deviceSub;
+  Timer? _routeDebounce;
+  bool _btAsked = false;
+
+  /// Apply the automatic route now and keep following device changes.
+  Future<void> applyAutomatic() async {
+    _watchDevices();
+    if (kIsWeb) return;
+    try {
+      if (Platform.isAndroid) {
+        await rtc.Helper.setSpeakerphoneOnButPreferBluetooth();
+      } else if (Platform.isIOS) {
+        // iOS already prefers a connected headset over the speaker.
+        await rtc.Helper.setSpeakerphoneOn(true);
+      }
+    } catch (e) {
+      debugPrint('[AudioRoute] automatic route failed: $e');
+    }
+  }
+
+  void _watchDevices() {
+    if (_deviceSub != null) return;
+    try {
+      _deviceSub = Hardware.instance.onDeviceChange.stream.listen((_) {
+        _routeDebounce?.cancel();
+        // A headset connecting fires several changes in a row; settle first.
+        _routeDebounce = Timer(const Duration(milliseconds: 400), () {
+          unawaited(applyAutomatic());
+        });
+      });
+    } catch (e) {
+      debugPrint('[AudioRoute] device watch failed: $e');
+    }
+  }
+
+  /// Android 12+ needs BLUETOOTH_CONNECT to see a Bluetooth headset at all.
+  /// Asked once per app run, never blocks entering the room.
+  Future<void> ensureBluetoothPermission() async {
+    if (_btAsked || kIsWeb || !Platform.isAndroid) return;
+    _btAsked = true;
+    try {
+      final st = await PermissionGate.request(Permission.bluetoothConnect)
+          .timeout(const Duration(seconds: 20));
+      if (st.isGranted) await applyAutomatic();
+    } catch (e) {
+      debugPrint('[AudioRoute] bluetooth permission: $e');
+    }
+  }
+
   /// Flip the route and remember it.
   Future<void> setSpeaker(bool on) async {
     speakerOn = on;
@@ -105,6 +172,20 @@ class AudioRoute {
     await _persist();
   }
 
+  /// SPEC52 #18 — "كتم صوت الغرفة": silences everything the ROOM plays for
+  /// this user only (voice, music, gift/entrance sounds). The user's own
+  /// microphone is untouched. Renderers read it when they start a sound, and
+  /// listen to it to react mid-play.
+  final ValueNotifier<bool> roomMuted = ValueNotifier<bool>(false);
+
+  /// What players should use right now: 0 while the room is muted.
+  double get effectiveVolume => roomMuted.value ? 0.0 : masterVolume;
+
+  Future<void> setRoomMuted(bool muted) async {
+    roomMuted.value = muted;
+    await applyVolume();
+  }
+
   /// Push [masterVolume] to every registered player.
   Future<void> applyVolume() async {
     // Iterate a snapshot: each await yields, and a screen closing meanwhile
@@ -113,7 +194,7 @@ class AudioRoute {
     for (final p in List.of(_players)) {
       if (!_players.contains(p)) continue;
       try {
-        await p.setVolume(masterVolume);
+        await p.setVolume(effectiveVolume);
       } catch (e) {
         debugPrint('[AudioRoute] volume failed: $e');
       }

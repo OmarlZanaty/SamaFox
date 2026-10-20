@@ -1,3 +1,4 @@
+import '../../services/audio_route.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -82,6 +83,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   /// animation. VIDEO gifts carry their own audio track and LEGENDARY gifts get
   /// the fanfare instead, so neither doubles up with this.
   void _playGiftSound(GiftSendEvent event) {
+    if (AudioRoute.instance.roomMuted.value) return; // SPEC52 #18
     if (event.gift.tier == GiftTier.legendary) return;
     if (event.gift.format == GiftFormat.video) return;
     final now = DateTime.now();
@@ -211,6 +213,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     // Sound — best-effort, never throws. Asset must exist at assets/sounds/vip_gift.mp3
     () async {
       try {
+        if (AudioRoute.instance.roomMuted.value) return; // SPEC52 #18
         await _vipPlayer.stop();
         await _vipPlayer.play(AssetSource('sounds/vip_gift.wav'), volume: 0.9);
       } catch (e) {

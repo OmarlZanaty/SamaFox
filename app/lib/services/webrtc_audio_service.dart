@@ -1090,8 +1090,9 @@ class WebRTCAudioService implements VoiceEngine {
   Future<void> _applyAndroidAudioRoute({required bool speakerOn}) async {
     if (kIsWeb || !Platform.isAndroid) return;
     try {
-      await Helper.setSpeakerphoneOn(speakerOn);
-      _log('Android route -> speakerOn=$speakerOn');
+      // SPEC52 #3 — automatic: a connected headset wins, else the speaker.
+      await AudioRoute.instance.applyAutomatic();
+      _log('Android route -> automatic (headset if connected, else speaker)');
     } catch (e) {
       _log('⚠️ _applyAndroidAudioRoute failed: $e');
     }

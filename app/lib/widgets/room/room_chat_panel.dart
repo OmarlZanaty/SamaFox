@@ -56,11 +56,16 @@ class RoomChatPanel extends ConsumerStatefulWidget {
   /// ("شريط هدايا الحظ ... مغطى على ارسال الرسالة", 29/09).
   final Widget? header;
 
+  /// SPEC52 #31 — sits at the far end of the tabs row, just above the
+  /// messages: the agency notifications bell.
+  final Widget? tabsTrailing;
+
   const RoomChatPanel({
     super.key,
     required this.roomId,
     this.onUserTap,
     this.header,
+    this.tabsTrailing,
   });
 
   @override
@@ -727,21 +732,33 @@ _bubbleSkin(m,                                     Container(
   }
 
   // ✅ Filter tabs: plain text, like the room reference under the mics.
+  // SPEC52 #27 — compact segmented pill (~26px) so the tabs never push into
+  // or cover the mics on small phones.
   Widget _buildFilterTabs() {
-    return Align(
-      alignment: Alignment.centerRight, // 👈 Force alignment to the right
-      child: Padding(
-        padding: const EdgeInsets.only(right: 18),
-        child: Row(
-          mainAxisSize: MainAxisSize.min, // 👈 Only take needed space
-          children: [
-            _tabItem(0, "الكل"),
-            const SizedBox(width: 14),
-            _tabItem(1, "هدية"),
-            const SizedBox(width: 14),
-            _tabItem(2, "دردشة"),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Row(
+        children: [
+          Container(
+            height: 26,
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.35),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: Colors.white.withOpacity(0.10)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _tabItem(0, "الكل"),
+                _tabItem(1, "هدية"),
+                _tabItem(2, "دردشة"),
+              ],
+            ),
+          ),
+          const Spacer(),
+          if (widget.tabsTrailing != null) widget.tabsTrailing!,
+        ],
       ),
     );
   }
@@ -751,21 +768,23 @@ _bubbleSkin(m,                                     Container(
     return GestureDetector(
       onTap: () => setState(() => _filterIndex = index),
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(11),
+          gradient: isSelected
+              ? const LinearGradient(colors: [Color(0xFF7C4DFF), Color(0xFFB388FF)])
+              : null,
+        ),
         child: Text(
           label,
           style: TextStyle(
             color: isSelected ? Colors.white : Colors.white.withOpacity(0.66),
-            fontSize: 13,
+            fontSize: 11.5,
+            height: 1.0,
             fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-            shadows: const [
-              Shadow(
-                blurRadius: 6,
-                color: Colors.black54,
-                offset: Offset(0, 1),
-              ),
-            ],
           ),
         ),
       ),

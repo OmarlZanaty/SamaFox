@@ -2,17 +2,28 @@ import { Response } from 'express';
 import { AuthReq } from '../types';
 import { prisma } from '../lib/prisma';
 
+export const AGENCY_NOTIFICATION_TYPES = [
+  'AGENCY_COMMISSION', 'AGENCY_ASSIGNED', 'AGENCY_BRANCH_ADDED', 'AGENCY_EXIT_FEE', 'AGENCY_INVITE',
+  'AGENCY_INVITE_RESPONSE', 'AGENCY_MEMBER_LEFT', 'AGENCY_OWNERSHIP', 'AGENCY_REMOVED', 'AGENCY_TARGET_SET',
+  'AGENCY_TOPUP', 'TARGET_ADJUSTED', 'TARGET_SOLD', 'agency_charge_reward',
+];
+
 export const listNotifications = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId!;
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+    // SPEC52 #31 — ?category=agency: the room bell's list (commission,
+    // agency and target notices). Always scoped to the caller's own rows, so
+    // nobody sees another account's financial notices.
+    const where: any = { userId };
+    if (String(req.query.category ?? '') === 'agency') where.type = { in: AGENCY_NOTIFICATION_TYPES };
 
     const [total, unreadCount, notifications] = await Promise.all([
-      prisma.notification.count({ where: { userId } }),
-      prisma.notification.count({ where: { userId, isRead: false } }),
+      prisma.notification.count({ where }),
+      prisma.notification.count({ where: { ...where, isRead: false } }),
       prisma.notification.findMany({
-        where: { userId },
+        where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -54,9 +65,11 @@ export const markNotificationRead = async (req: AuthReq, res: Response) => {
 export const markAllNotificationsRead = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId!;
+    const where: any = { userId, isRead: false };
+    if (String(req.query.category ?? '') === 'agency') where.type = { in: AGENCY_NOTIFICATION_TYPES };
 
     await prisma.notification.updateMany({
-      where: { userId, isRead: false },
+      where,
       data: { isRead: true, readAt: new Date() },
     });
 

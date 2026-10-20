@@ -3,6 +3,10 @@ import 'dart:collection';
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import '../widgets/room/room_header_glass.dart';
+import '../widgets/room/room_info_sheet.dart';
+import '../widgets/room/room_left_rail.dart';
+import '../widgets/room/agency_bell.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import '../config/app_config.dart';
@@ -163,6 +167,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   // wrong before the user ever touched it.
   bool _noiseReduction = true;
   double _volumeLevel = 1.0;
+
+  /// SPEC52 #18 — local room mute (this user's ears only).
+  bool _roomMuted = false;
 
   /// Is the room currently playing music? Lives in the room music provider so
   /// it is the same answer for everybody, not a per-device flag.
@@ -1424,6 +1431,132 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// Tapping the room (its picture or its name). A room admin gets the edit
   /// dialog as before; a SUPER ADMIN gets a sheet that also offers إغلاق
   /// الغرفة, which is the "يضغط على الغرفة يظهر له إغلاق الغرفة" rule.
+  // ── SPEC52 #13: Leave / Retain ─────────────────────────────────────────
+  /// Keep the room (the existing PiP/retain handoff): audio stays, the user
+  /// stays in the room and on his mic, the screen closes.
+  void _retainRoom() {
+    if (!mounted) return;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    // Set BEFORE the pop: dispose runs synchronously from it and reads this
+    // to keep the audio alive.
+    _handedOffToPip = true;
+    ref.read(pipProvider.notifier).activate(
+          roomId: widget.roomId,
+          roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
+          roomImageUrl: state.roomImageUrl,
+        );
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _confirmExit() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF2A1655),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('ماذا تريد أن تفعل؟',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: const Text('الاحتفاظ يُبقيك في الغرفة وعلى المايك وتستمر في سماع الصوت.',
+              style: TextStyle(color: Colors.white70, fontSize: 13)),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actions: [
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () => Navigator.pop(ctx, 'leave'),
+              icon: const Icon(Icons.logout, color: Colors.white, size: 18),
+              label: const Text('مغادرة', style: TextStyle(color: Colors.white)),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7C4DFF),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () => Navigator.pop(ctx, 'keep'),
+              icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white, size: 18),
+              label: const Text('احتفاظ', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'leave') Navigator.of(context).pop(); // full leave (dispose cleans up)
+    if (choice == 'keep') _retainRoom();
+  }
+
+  // ── SPEC52 #18: local room mute ─────────────────────────────────────────
+  Future<void> _toggleRoomMute() async {
+    final next = !_roomMuted;
+    setState(() => _roomMuted = next);
+    await AudioRoute.instance.setRoomMuted(next);
+    // Remote voice only — never the microphone or toggle_mute. New speakers
+    // inherit it: the engine applies its remote volume to every track it
+    // subscribes to.
+    await VoiceEngine.instance.setRemoteVolume(next ? 0 : _volumeLevel);
+    if (_seatVideoController != null) {
+      await _seatVideoController!.setVolume(next ? 0 : _volumeLevel);
+    }
+    _showRoomSnack(next ? 'تم كتم صوت الغرفة لديك فقط' : 'تم إلغاء كتم صوت الغرفة');
+  }
+
+  // ── SPEC52 #15: room info for everyone ──────────────────────────────────
+  Future<void> _openRoomInfo() async {
+    final me = ref.read(authStateProvider).user;
+    final isSuper = me?.userIsSuperAdmin ?? false;
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final room = ref.read(roomsProvider).findById(widget.roomId);
+    final myId = me?.id;
+    final canEdit = myId != null && (myId == state.ownerId || state.adminIds.contains(myId) || isSuper);
+    final owner = room?.owner;
+    final ownerDid = owner?.publicDisplayId;
+    final used = state.seats.values.where((x) => x.userId != null).length;
+    final total = state.seatCount > 0 ? state.seatCount : state.seats.length;
+    await RoomInfoSheet.show(
+      context,
+      RoomInfoSheet(
+        imageUrl: state.roomImageUrl ?? room?.coverImageUrl,
+        name: (room?.name ?? '').trim().isNotEmpty ? room!.name.trim() : 'Room #${widget.roomId}',
+        roomIdLabel: 'ID: ${ownerDid != null && ownerDid != 0 ? ownerDid : widget.roomId}',
+        ownerName: owner?.name,
+        ownerAvatarUrl: owner?.avatarUrl,
+        ownerIdLabel: ownerDid != null && ownerDid != 0 ? 'ID: $ownerDid' : null,
+        usersCount: state.voiceUserIds.length,
+        usedSeats: used,
+        totalSeats: total,
+        onOwnerTap: owner == null
+            ? null
+            : () {
+                Navigator.pop(context);
+                showUserProfileCard(
+                  userId: owner.id,
+                  username: owner.name,
+                  level: owner.level,
+                  vipLevel: owner.vipLevel,
+                  displayId: owner.displayId,
+                  avatarUrl: owner.avatarUrl,
+                );
+              },
+        onEdit: canEdit
+            ? () {
+                Navigator.pop(context);
+                _showEditRoomDialog();
+              }
+            : null,
+        onClose: isSuper
+            ? () {
+                Navigator.pop(context);
+                _promptCloseRoom();
+              }
+            : null,
+      ),
+    );
+  }
+
   Future<void> _onRoomHeaderTap() async {
     final me = ref.read(authStateProvider).user;
     final isSuper = me?.userIsSuperAdmin ?? false;
@@ -2802,6 +2935,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     super.initState();
     AudioController.instance.initialize();
     AudioRoute.instance.register(_audioPlayer);
+    // SPEC52 #3 — automatic routing needs BLUETOOTH_CONNECT on Android 12+;
+    // asked once, never blocks the room.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(AudioRoute.instance.ensureBluetoothPermission());
+      unawaited(AudioRoute.instance.applyAutomatic());
+      _roomMuted = AudioRoute.instance.roomMuted.value;
+    });
 
     // The engine is per ROOM (the server can put one room on the SFU while
     // the rest stay on the mesh), chosen once here from the settings cache.
@@ -4241,19 +4381,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       _openVolumeDialog(this.context);
                     }),
 
-                    // A3 — the السماعة toggle. There was no control anywhere
-                    // that called setSpeakerphoneOn, which is a large part of
-                    // why the icon "غير فعاله": nothing was wired to it.
-                    roomMenuItem(
-                        AudioRoute.instance.speakerOn
-                            ? Icons.volume_up_rounded
-                            : Icons.hearing,
-                        AudioRoute.instance.speakerOn ? "السماعة الخارجية" : "سماعة الأذن",
-                        AudioRoute.instance.speakerOn ? Colors.greenAccent : Colors.white70,
-                        () async {
-                      Navigator.pop(context);
-                      await _toggleSpeaker();
-                    }),
+                    // SPEC52 #3 — no speaker toggle: audio routing is automatic.
 
                     // A11 — record the screen WITH sound. The phone's own
                     // recorder cannot capture the room, so the app does it.
@@ -4623,7 +4751,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   child: Row(
                     children: [
                       GestureDetector(
-                        onTap: _onRoomHeaderTap,
+                        onTap: _openRoomInfo,
                         child: CircleAvatar(
                         radius: 22,
                         backgroundColor: Colors.deepPurple,
@@ -4636,37 +4764,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                       ),
                       const SizedBox(width: 8),
+                      // SPEC52 #14 — name + ID on a glass plate, with the width
+                      // the speaker / keep buttons used to take.
                       Expanded(
-                        child: GestureDetector(
-                          onTap: _onRoomHeaderTap,
-                          child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // #43 — a long room name scrolls itself instead of
-                            // being cut off with an ellipsis, "لحد ما يظهر
-                            // الاسم كامل". A name that fits does not move.
-                            MarqueeText(
-                              roomName.isNotEmpty ? roomName : 'Room #${widget.roomId}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Builder(builder: (_) {
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: RoomHeaderGlass(
+                            name: roomName.isNotEmpty ? roomName : 'Room #${widget.roomId}',
+                            idLabel: () {
                               final ownerDid = room?.owner?.publicDisplayId;
-                              if (ownerDid == null || ownerDid == 0) return const SizedBox.shrink();
-                              return Text(
-                                'ID: $ownerDid',
-                                maxLines: 1,
-                                softWrap: false,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white60, fontSize: 11),
-                              );
-                            }),
-                          ],
-                        ),
+                              return (ownerDid == null || ownerDid == 0) ? null : 'ID: $ownerDid';
+                            }(),
+                            onTap: _openRoomInfo,
+                          ),
                         ),
                       ),
 
@@ -4712,27 +4822,25 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               // there was no way to see WHICH route you were on
                               // without opening the menu. Green when the loudspeaker
                               // is on, so the state reads at a glance.
+                              // SPEC52 #3 — no speaker button: routing is automatic.
+                              // SPEC52 #18 — 🔇 كتم صوت الغرفة (for me only).
                               const SizedBox(width: 6),
                               Material(
                                 color: Colors.transparent,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(20),
-                                  onTap: _toggleSpeaker,
+                                  onTap: _toggleRoomMute,
                                   child: Container(
                                     padding: const EdgeInsets.all(7),
                                     decoration: BoxDecoration(
-                                      color: AudioRoute.instance.speakerOn
-                                          ? Colors.greenAccent.withOpacity(0.22)
+                                      color: _roomMuted
+                                          ? Colors.redAccent.withOpacity(0.28)
                                           : Colors.black.withOpacity(0.5),
                                       borderRadius: BorderRadius.circular(20),
                                     ),
                                     child: Icon(
-                                      AudioRoute.instance.speakerOn
-                                          ? Icons.volume_up_rounded
-                                          : Icons.hearing,
-                                      color: AudioRoute.instance.speakerOn
-                                          ? Colors.greenAccent
-                                          : Colors.white70,
+                                      _roomMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                                      color: _roomMuted ? Colors.redAccent : Colors.white70,
                                       size: 16,
                                     ),
                                   ),
@@ -4780,82 +4888,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               ],
                               const SizedBox(width: 8),
 
-                              // ✅ ADD before the close IconButton in the header Row
-                              if (!_isMinimized)
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-                                  icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white70, size: 20),
-                                  onPressed: () {
-                                    final state = ref.read(roomControllerProvider(widget.roomId));
-                                    // Set BEFORE the pop: dispose runs synchronously
-                                    // from it and reads this to keep the audio alive.
-                                    _handedOffToPip = true;
-                                    ref.read(pipProvider.notifier).activate(
-                                      roomId: widget.roomId,
-                                      roomName: ref.read(roomsProvider).findById(widget.roomId)?.name,
-                                      roomImageUrl: state.roomImageUrl,
-                                    );
-                                    Navigator.of(context).pop(); // ✅ pop room screen, pip stays floating
-                                  },
-                                ),
-
+                              // SPEC52 #13 — one X: «مغادرة» or «احتفاظ» (the
+                              // separate keep/PiP button is gone).
                               IconButton(
                                 visualDensity: VisualDensity.compact,
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints.tightFor(width: 36, height: 36),
                                 icon: const Icon(Icons.close, color: Colors.white),
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (ctx) => AlertDialog(
-                                      backgroundColor: const Color(0xFF2A1655),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      title: const Text(
-                                        'مغادرة الغرفة',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                        textAlign: TextAlign.right,
-                                      ),
-                                      content: const Text(
-                                        'هل أنت متأكد أنك تريد مغادرة الغرفة؟',
-                                        style: TextStyle(color: Colors.white70),
-                                        textAlign: TextAlign.right,
-                                      ),
-                                      actionsAlignment: MainAxisAlignment.start,
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(ctx),
-                                          child: const Text(
-                                            'إلغاء',
-                                            style: TextStyle(color: Colors.white70),
-                                          ),
-                                        ),
-                                        ElevatedButton(
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.redAccent,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12),
-                                            ),
-                                          ),
-                                          onPressed: () {
-                                            Navigator.pop(ctx); // close dialog
-                                            Navigator.of(context).pop(); // leave room
-                                          },
-                                          child: const Text(
-                                            'مغادرة',
-                                            style: TextStyle(color: Colors.white),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
+                                onPressed: _confirmExit,
                               ),
                             ],
                           ),
@@ -4903,6 +4943,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     roomId: widget.roomId,
                     // هدايا الحظ: the app-wide winners ticker lives with the
                     // messages. Tap → the winner's card (متابعة / رسالة / مسار).
+                    tabsTrailing: const AgencyBell(),
                     header: LuckyTicker(
                       socket: _giftSocket,
                       repository: _giftRepository,
@@ -4924,6 +4965,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                 ),
               ],
+            ),
+
+            // SPEC52 #19/#28/#29 — PK › rocket › games, top-left under the header.
+            Positioned(
+              left: 8,
+              top: 64,
+              child: RoomLeftRail(
+                onGames: () => _openGamesSheet(context),
+              ),
             ),
 
             if (_showChatPanel)
@@ -5160,18 +5210,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ),
                           ),
 
-                        GestureDetector(
-                          onTap: () {
-                            _openGamesSheet(context);
-                          },
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10),
-                            child: Icon(
-                              Icons.sports_esports,
-                              color: Colors.greenAccent,
-                            ),
-                          ),
-                        ),
+                        // SPEC52 #19 — the games button moved to the top-left rail.
 
                         GestureDetector(
                           onTap: () {
@@ -5273,7 +5312,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       ),
     );
     // Font scaling and narrow screens are handled app-wide by AppScale.
-    return screen;
+    // SPEC52 #13 — the phone's Back keeps the room (retain), it never leaves.
+    // Sheets/dialogs are their own routes and close first, as usual.
+    return PopScope(
+      canPop: _isMinimized,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _retainRoom();
+      },
+      child: screen,
+    );
   }
 
 

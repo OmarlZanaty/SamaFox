@@ -511,10 +511,18 @@ class LiveKitVoiceEngine implements VoiceEngine {
     return res.isGranted;
   }
 
+  /// SPEC52 #2 — the real voice processing chain of the WebRTC audio module:
+  /// noise suppression (+ voice isolation and keyboard-noise detection where
+  /// the device supports them), echo cancellation, automatic gain control and
+  /// a high-pass filter against hum/fan rumble. The switch turns the
+  /// noise-specific parts on/off; echo cancellation and AGC always stay on.
   AudioCaptureOptions get _captureOptions => AudioCaptureOptions(
         noiseSuppression: _noiseSuppression,
         echoCancellation: true,
         autoGainControl: true,
+        highPassFilter: _noiseSuppression,
+        voiceIsolation: _noiseSuppression,
+        typingNoiseDetection: _noiseSuppression,
       );
 
   /// One goLive at a time: two overlapping calls (entering on a seat while the
@@ -661,11 +669,8 @@ class LiveKitVoiceEngine implements VoiceEngine {
   @override
   Future<void> reapplyAudioRoute() async {
     if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
-    try {
-      await Hardware.instance.setSpeakerphoneOn(AudioRoute.instance.speakerOn);
-    } catch (e) {
-      _log('route apply failed: $e');
-    }
+    // SPEC52 #3 — automatic: headset (BT/wired) when connected, else speaker.
+    await AudioRoute.instance.applyAutomatic();
   }
 
   @override
@@ -717,8 +722,21 @@ class LiveKitVoiceEngine implements VoiceEngine {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_kNoiseSuppressionKey, enabled);
     } catch (_) {}
-    // Capture-time constraint: re-publish for it to take effect.
+    // SPEC52 #2 — apply on the LIVE track: restartTrack swaps the capture on
+    // the same sender, so the seat, the publication and the mute state stay
+    // as they are (no unpublish/republish, no gap for listeners).
     if (_initialized && !_listenOnly) {
+      final track = _micPublication?.track;
+      if (track != null) {
+        try {
+          await track.restartTrack(_captureOptions);
+          if (_isMicMuted) await track.mute();
+          _log('noise processing -> $enabled (track restarted in place)');
+          return;
+        } catch (e) {
+          _log('restartTrack failed, republishing: $e');
+        }
+      }
       final muted = _isMicMuted;
       await goListenOnly();
       _listenOnly = false;

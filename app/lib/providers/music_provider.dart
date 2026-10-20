@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/music_track.dart';
+import '../services/audio_route.dart';
 import '../services/music_service.dart';
 import '../services/socket_service.dart';
 
@@ -168,6 +169,9 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
     _player.setReleaseMode(ReleaseMode.stop);
     _completeSub = _player.onPlayerComplete.listen((_) => _reportEnded());
     _attachSocket();
+    // SPEC52 #18 — the room's music follows «كتم صوت الغرفة» too.
+    AudioRoute.instance.roomMuted.addListener(_onRoomMute);
+    _onRoomMute();
     _socket.emit('music_sync', {'roomId': roomId});
   }
 
@@ -322,8 +326,13 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
   /// Re-ask the server after a reconnect or when the app comes back.
   void resync() => _socket.emit('music_sync', {'roomId': roomId});
 
+  void _onRoomMute() {
+    unawaited(_player.setVolume(AudioRoute.instance.roomMuted.value ? 0 : 1).catchError((_) {}));
+  }
+
   @override
   void dispose() {
+    AudioRoute.instance.roomMuted.removeListener(_onRoomMute);
     _socket.off('room_music_state');
     _socket.off('music_denied');
     _reconnectSub?.cancel();
