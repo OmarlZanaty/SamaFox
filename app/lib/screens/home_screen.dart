@@ -488,7 +488,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         // it threw. The real pinned room is the featured
                         // card above; every other room now goes through
                         // the grid below.
-                        // 📦 REST GRID (normal 3 columns)
+                        // 📦 REST GRID (2 columns — SPEC52 #30)
                         //
                         // 10/10: a SliverGrid, not a shrinkWrap GridView in a
                         // SliverList. The shrinkWrap grid built EVERY tile at
@@ -497,12 +497,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         // app on 4 GB phones (HONOR NLA-L31) before the home
                         // screen finished loading. Now only visible tiles exist.
                         SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 130),
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 130),
                           sliver: SliverGrid(
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              mainAxisSpacing: 6,
-                              crossAxisSpacing: 6,
+                            // SPEC52 #30 — two rooms per row (~50% width each,
+                            // equal margins), square cards; wide screens keep more.
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: w >= 900 ? 4 : (w >= 600 ? 3 : 2),
+                              mainAxisSpacing: 10,
+                              crossAxisSpacing: 10,
                               childAspectRatio: 1,
                             ),
                             delegate: SliverChildBuilderDelegate(

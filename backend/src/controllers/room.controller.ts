@@ -265,6 +265,14 @@ export async function createRoom(req: Request, res: Response) {  try {
 
     const passwordHash = password ? await bcrypt.hash(String(password), 10) : null;
 
+    // SPEC52 #30 — an animated room picture is a VIP perk set by the owner.
+    const cover = coverImage || coverImageUrl;
+    if (cover) {
+      const { animatedRoomImageDenial } = await import('../services/animatedAvatar.service');
+      const denial = await animatedRoomImageDenial(userId, String(cover));
+      if (denial) return res.status(403).json({ error: denial, code: 'ANIMATED_ROOM_IMAGE_NOT_ALLOWED' });
+    }
+
     const room = await prisma.room.create({
       data: {
         name,
@@ -338,6 +346,13 @@ export const updateRoom = async (req: Request, res: Response) => {
 
     const safeMaxSeats =
       maxSeats != null ? Math.max(2, Math.min(30, Number(maxSeats))) : undefined;
+
+    // SPEC52 #30 — same VIP gate for a NEW animated room picture.
+    if (coverImageUrl && coverImageUrl !== room.coverImageUrl) {
+      const { animatedRoomImageDenial } = await import('../services/animatedAvatar.service');
+      const denial = await animatedRoomImageDenial(userId, String(coverImageUrl));
+      if (denial) return res.status(403).json({ error: denial, code: 'ANIMATED_ROOM_IMAGE_NOT_ALLOWED' });
+    }
 
     const updatedRoom = await prisma.room.update({
       where: { id: roomIdNum },

@@ -41,7 +41,11 @@ export const uploadImage = async (req: Request, res: Response) => {
         select: { isAdmin: true },
       });
       if (!uploader?.isAdmin) {
-        const { allowed, minLevel } = await canUseAnimatedAvatar(uploaderId);
+        // SPEC52 #30 — an animated picture may also be a room picture, which
+        // has its own VIP bar; the assignment (avatar or room) re-checks it.
+        const { allowed: avatarOk, minLevel } = await canUseAnimatedAvatar(uploaderId);
+        const { canUseAnimatedRoomImage } = await import('../services/animatedAvatar.service');
+        const allowed = avatarOk || (await canUseAnimatedRoomImage(uploaderId)).allowed;
         if (!allowed) {
           try {
             await fsp.unlink(file.path);

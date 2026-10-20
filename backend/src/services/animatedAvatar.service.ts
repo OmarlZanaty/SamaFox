@@ -110,3 +110,49 @@ export async function animatedAvatarUrlDenial(userId: number, url: string): Prom
   if (allowed) return null;
   return minLevel == null ? 'الصورة المتحركة غير متاحة حالياً' : `الصورة المتحركة متاحة لأعضاء VIP ${minLevel} فما فوق`;
 }
+
+// ---------------------------------------------------------------------------
+// SPEC52 #30 — animated ROOM picture (the cover on the home grid)
+// ---------------------------------------------------------------------------
+export const ANIMATED_ROOM_IMAGE_MIN_VIP_KEY = 'animated_room_image_min_vip';
+
+/** Owner's minimum VIP for an animated room picture; unset → same as the avatar perk. */
+export async function animatedRoomImageMinVip(): Promise<number | null> {
+  try {
+    const row = await (prisma as any).appSetting.findUnique({ where: { key: ANIMATED_ROOM_IMAGE_MIN_VIP_KEY } });
+    const n = Number(row?.value);
+    if (row && Number.isFinite(n) && n >= 0) return Math.floor(n);
+  } catch {
+    /* fall through */
+  }
+  return animatedAvatarMinVipLevel();
+}
+
+export async function setAnimatedRoomImageMinVip(level: number): Promise<number> {
+  const value = String(Math.max(0, Math.floor(level)));
+  await (prisma as any).appSetting.upsert({
+    where: { key: ANIMATED_ROOM_IMAGE_MIN_VIP_KEY },
+    update: { value },
+    create: { key: ANIMATED_ROOM_IMAGE_MIN_VIP_KEY, value },
+  });
+  return Number(value);
+}
+
+export async function canUseAnimatedRoomImage(userId: number): Promise<{ allowed: boolean; minLevel: number | null }> {
+  const minLevel = await animatedRoomImageMinVip();
+  if (minLevel == null) return { allowed: false, minLevel: null };
+  if (minLevel === 0) return { allowed: true, minLevel: 0 };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, vipExpiresAt: true } });
+  const vipActive = !!user && (!user.vipExpiresAt || user.vipExpiresAt.getTime() > Date.now());
+  return { allowed: vipActive && (user?.vipLevel ?? 0) >= minLevel, minLevel };
+}
+
+/** null = allowed; otherwise the Arabic reason. Server-side check for every room-picture assignment. */
+export async function animatedRoomImageDenial(userId: number, url: string): Promise<string | null> {
+  const local = localUploadPath(url);
+  const animated = isAnimatedImage({ filename: url }) || (local ? isAnimatedFile(local) : false);
+  if (!animated) return null;
+  const { allowed, minLevel } = await canUseAnimatedRoomImage(userId);
+  if (allowed) return null;
+  return minLevel == null ? 'صورة الغرفة المتحركة غير متاحة حالياً' : `صورة الغرفة المتحركة متاحة لأعضاء VIP ${minLevel} فما فوق`;
+}

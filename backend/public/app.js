@@ -3314,6 +3314,7 @@ async function loadModeration() {
   document.getElementById("gate_image_vip").value   = gates?.data?.messageImageMinVip ?? 0;
   document.getElementById("gate_room_image_vip").value = gates?.data?.roomImageMinVip ?? 0;
   if (document.getElementById("gate_image_gift_mode")) document.getElementById("gate_image_gift_mode").value = gates?.data?.imageGiftMode ?? "lock";
+  if (document.getElementById("gate_anim_room_vip")) document.getElementById("gate_anim_room_vip").value = gates?.data?.animatedRoomImageMinVip ?? "";
 
   const rows = bans?.data ?? [];
   const body = document.querySelector("#deviceBansTable tbody");
@@ -3398,7 +3399,8 @@ async function saveGates() {
   const messageImageMinVip = Number(document.getElementById("gate_image_vip").value || 0);
   const roomImageMinVip    = Number(document.getElementById("gate_room_image_vip").value || 0);
   const imageGiftMode = document.getElementById("gate_image_gift_mode")?.value || "lock";
-  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode });
+  const animatedRoomImageMinVip = document.getElementById("gate_anim_room_vip")?.value ?? "";
+  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode, animatedRoomImageMinVip });
   showToast("✅ تم الحفظ");
 }
 

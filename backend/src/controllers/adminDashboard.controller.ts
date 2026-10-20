@@ -3062,7 +3062,9 @@ export const adminGetGates = async (_req: AdminReq, res: Response) => {
       getRoomImageMinVip(),
       getImageGiftMode(),
     ]);
-    return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode } });
+    const { animatedRoomImageMinVip } = await import('../services/animatedAvatar.service');
+    const animatedRoomImageMinVipValue = await animatedRoomImageMinVip();
+    return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode, animatedRoomImageMinVip: animatedRoomImageMinVipValue } });
   } catch (e) {
     console.error('adminGetGates error:', e);
     return fail(res, 500, 'Server error');
@@ -3083,6 +3085,13 @@ export const adminSetGates = async (req: AdminReq, res: Response) => {
     };
     if (body?.imageGiftMode != null) {
       out.imageGiftMode = await mc.setImageGiftMode(String(body.imageGiftMode));
+    }
+    if (body?.animatedRoomImageMinVip != null && body.animatedRoomImageMinVip !== '') {
+      const v = Math.floor(Number(body.animatedRoomImageMinVip));
+      if (!Number.isFinite(v) || v < 0) return fail(res, 400, 'animatedRoomImageMinVip must be >= 0');
+      const ar = await import('../services/animatedAvatar.service');
+      (before as any).animatedRoomImageMinVip = await ar.animatedRoomImageMinVip();
+      out.animatedRoomImageMinVip = await ar.setAnimatedRoomImageMinVip(v);
     }
 
     if (body?.visitorsMinLevel != null) {
