@@ -1026,6 +1026,26 @@ export function emitToUser(userId: number, event: string, payload: unknown): voi
   _io?.to(`user:${userId}`).emit(event, payload);
 }
 
+/**
+ * One emit to a room and some users (each socket receives it once even when it
+ * is in several of the targets). Used by SPEC52 events (cp_activated, …).
+ */
+export function emitToRoomAndUsers(roomId: number | null, userIds: number[], event: string, payload: unknown): void {
+  if (!_io) return;
+  const targets = new Set<string>();
+  if (roomId != null) targets.add(`room:${roomId}`);
+  for (const u of userIds) {
+    targets.add(`user:${u}`);
+    targets.add(String(u));
+  }
+  if (targets.size) _io.to([...targets]).emit(event, payload);
+}
+
+/** Everyone connected (global announcements: rocket launched, …). */
+export function emitGlobal(event: string, payload: unknown): void {
+  _io?.emit(event, payload);
+}
+
 export function invalidateAdminCacheAndRefresh(roomId: number) {
   adminCacheTTL.delete(roomId);
   if (_io) emitRoomState(_io, roomId).catch(console.error);

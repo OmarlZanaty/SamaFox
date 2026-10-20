@@ -54,6 +54,17 @@ const fail = (res: any, err: unknown) => {
 
 const requireUserId = (req: any) => Number(req.userId ?? req.authUser?.id) || 0;
 
+// SPEC52 #8 — CP Top 30 for the room strip (Top 3 + «عرض المزيد»).
+router.get('/top', async (req, res) => {
+  try {
+    const { listTopCpPairs } = await import('../services/cp.service');
+    return res.json({ success: true, data: await listTopCpPairs(Number(req.query.limit) || 30) });
+  } catch (e) {
+    console.error('[cp.top]', e);
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+});
+
 router.post('/requests', authMiddleware, idempotent('cp_request'), async (req, res) => {
   try {
     const senderId = requireUserId(req);

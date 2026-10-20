@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { requestIp } from '../services/adminAudit.service';
+import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { CpError } from '../services/cpUnlock.service';
 import {
   adminDeletePair,
@@ -215,14 +216,24 @@ adminCpRouter.get('/gifts', async (_req, res) => {
   }
 });
 
-adminCpRouter.patch('/gifts/:id', async (req, res) => {
+// SPEC52 #42 — changes a gift's price, so it needs the owner's gifts.prices.
+adminCpRouter.patch('/gifts/:id', requireOwnerPermission('gifts.prices'), async (req, res) => {
   try {
     const b = req.body ?? {};
     return res.json({
       success: true,
       data: await updateCpGift(
         String(req.params.id),
-        { coinCost: b.coinCost, cpLevelPoints: b.cpLevelPoints, isActive: b.isActive, sortOrder: b.sortOrder, nameAr: b.nameAr },
+        {
+          coinCost: b.coinCost,
+          cpLevelPoints: b.cpLevelPoints,
+          isActive: b.isActive,
+          sortOrder: b.sortOrder,
+          nameAr: b.nameAr,
+          cpRole: b.cpRole,
+          cpActivate: b.cpActivate,
+          cpLevelUp: b.cpLevelUp,
+        },
         ctxOf(req),
       ),
     });

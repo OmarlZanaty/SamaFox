@@ -7,6 +7,7 @@ import '../widgets/room/room_header_glass.dart';
 import '../widgets/room/room_info_sheet.dart';
 import '../widgets/room/room_left_rail.dart';
 import '../widgets/room/agency_bell.dart';
+import '../widgets/room/room_cp_top.dart';
 import '../services/effects_prefs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -2975,6 +2976,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       unawaited(AudioRoute.instance.applyAutomatic());
       _roomMuted = AudioRoute.instance.roomMuted.value;
       unawaited(_loadImageGiftPolicy());
+      CpActivatedPopup.wireOnce(); // SPEC52 #10
     });
 
     // The engine is per ROOM (the server can put one room on the SFU while
@@ -4958,13 +4960,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 ),
 
 
+                // SPEC52 #8 — CP Top 3 (+ «عرض المزيد» → Top 30 over the room).
+                RoomCpTopStrip(
+                  onUserTap: (id, name, avatar) => showUserProfileCard(
+                    userId: id,
+                    username: name,
+                    avatarUrl: avatar,
+                  ),
+                ),
+
                 // ✅ Seats area NOT full screen (fixed height)
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: bottomBarH + 10 + 55),
                     child: RoomSeatsChatLayout(
                       seatCount: state.seatCount,
-                      seats: ClipPath(
+                      seats: Stack(
+                        // The rail may run past a one-row seats box.
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned.fill(
+                            child: ClipPath(
                     clipper: BottomWaveClipper(depth: seatsWaveDepth), // 👈 ADD THIS
                     child: Padding(
                       // SPEC52 #19/#27 — a narrow left gutter holds the
@@ -4993,6 +5009,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                   ),
+                          ),
+                          // SPEC52 #19/#28/#29 — PK › rocket › games in the
+                          // left gutter at the top of the mics (never over one).
+                          Positioned(
+                            left: 4,
+                            top: 2,
+                            child: RoomLeftRail(
+                              onGames: () => _openGamesSheet(context),
+                            ),
+                          ),
+                        ],
+                      ),
                       chat: RoomChatPanel(
                     roomId: widget.roomId,
                     // هدايا الحظ: the app-wide winners ticker lives with the
@@ -5019,15 +5047,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                 ),
               ],
-            ),
-
-            // SPEC52 #19/#28/#29 — PK › rocket › games, top-left under the header.
-            Positioned(
-              left: 6,
-              top: 66,
-              child: RoomLeftRail(
-                onGames: () => _openGamesSheet(context),
-              ),
             ),
 
             if (_showChatPanel)

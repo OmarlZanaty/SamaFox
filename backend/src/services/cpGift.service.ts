@@ -25,13 +25,25 @@ export interface CpGiftLike {
   cpLevelPoints?: number | null;
   category?: string | null;
   isActive?: boolean;
+  /** SPEC52 #34 — may create a relationship / may raise its level. */
+  cpActivate?: boolean | null;
+  cpLevelUp?: boolean | null;
 }
+
+/** SPEC52 #34 — role of a CP-list gift, as the dashboard shows it. */
+export type CpGiftRole = 'activate' | 'level' | 'both';
+export const cpGiftRole = (g: CpGiftLike): CpGiftRole =>
+  g.cpActivate === false ? 'level' : g.cpLevelUp === false ? 'activate' : 'both';
+export const canActivateCp = (g: CpGiftLike) => g.cpActivate !== false;
+export const canLevelUpCp = (g: CpGiftLike) => g.cpLevelUp !== false;
 
 export const isCpGift = (g: CpGiftLike | null | undefined): boolean =>
   !!g && g.isActive !== false && String(g.category ?? '').toLowerCase() === CP_GIFT_CATEGORY;
 
 /** Points one send adds: the gift's configured amount (or its price) × quantity. */
 export function cpPointsFor(gift: CpGiftLike, quantity: number): number {
+  // SPEC52 #34 — an "activate only" gift creates the CP but adds no XP.
+  if (gift.cpLevelUp === false) return 0;
   const q = Math.max(1, Math.floor(Number(quantity) || 1));
   const per = gift.cpLevelPoints != null && Number.isFinite(Number(gift.cpLevelPoints))
     ? Math.max(0, Math.floor(Number(gift.cpLevelPoints)))
@@ -108,10 +120,34 @@ export async function recordCpGiftValue(
       const pair = await tx.cpPair.findUnique({ where: { id: input.pairId } });
       return { counted: false, event: already, cpValue: Number(pair?.cpValue ?? 0) };
     }
-    const pair = await tx.cpPair.update({
+    // SPEC52 #8 — the coins behind this CP gift (for the ranking tie-break).
+    const gtx = await tx.giftTransaction
+      ?.findUnique?.({ where: { id: giftTransactionId }, select: { paidCoins: true, totalCoins: true } })
+      .catch(() => null);
+    const coins = Math.max(0, Math.floor(Number(gtx?.paidCoins || gtx?.totalCoins || 0)));
+    let pair = await tx.cpPair.update({
       where: { id: input.pairId },
-      data: { cpValue: { increment: Math.max(0, Math.floor(input.points)) } },
+      data: {
+        cpValue: { increment: Math.max(0, Math.floor(input.points)) },
+        ...(coins > 0 ? { cpCoins: { increment: BigInt(coins) } } : {}),
+      },
     });
+    // When the level goes up, remember when — the earlier pair ranks higher.
+    try {
+      const { readCpSettings, computeCpLevel } = await import('./cpUnlock.service');
+      const lvl = computeCpLevel(pair, await readCpSettings(tx)).level;
+      if (lvl !== Number(pair.lastLevel ?? 0) || pair.levelReachedAt == null) {
+        pair = await tx.cpPair.update({
+          where: { id: input.pairId },
+          data: {
+            lastLevel: lvl,
+            ...(lvl > Number(pair.lastLevel ?? 0) || pair.levelReachedAt == null ? { levelReachedAt: new Date() } : {}),
+          },
+        });
+      }
+    } catch (e) {
+      console.warn('[cp] level-reached update skipped:', (e as Error).message);
+    }
     const data = {
       pairId: input.pairId,
       senderId: input.senderId,
@@ -122,6 +158,7 @@ export async function recordCpGiftValue(
       source: input.source,
       giftTransactionId,
       cpValueAfter: Number(pair.cpValue),
+      coins,
     };
     const event = input.eventId
       ? await tx.cpValueEvent.update({ where: { id: input.eventId }, data })

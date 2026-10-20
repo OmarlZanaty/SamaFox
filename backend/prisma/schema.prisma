@@ -1313,6 +1313,11 @@ model Gift {
   // "مقدار رفع مستوى CP" for a gift in the `cp` list: the CP value one unit
   // adds to the pair (2026-09-24). Null = the gift's coin price.
   cpLevelPoints    Int?
+  // SPEC52 #10/#34 — what a gift in the CP list does: create a relationship
+  // (cpActivate), raise the level of an existing one (cpLevelUp), or both.
+  // cpLevelPoints above is its CP XP value per unit.
+  cpActivate       Boolean  @default(true)
+  cpLevelUp        Boolean  @default(true)
   createdBy        Int?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -1566,6 +1571,11 @@ model CpPair {
   cpValue       Int      @default(0)
   levelOverride Int?
   updatedAt     DateTime @default(now()) @updatedAt
+  // SPEC52 #8 — ranking tie-breaks: total coins sent in CP gifts between the
+  // two, and when the pair reached its current level (earlier = higher).
+  cpCoins        BigInt    @default(0)
+  lastLevel      Int       @default(0)
+  levelReachedAt DateTime?
 
   @@unique([userAId, userBId])
   @@index([userAId])
@@ -1586,6 +1596,7 @@ model CpValueEvent {
   quantity          Int      @default(1)
   points            Int      @default(0)
   cpValueAfter      Int?
+  coins             Int      @default(0) // SPEC52 #8 — coins the sender paid for this CP gift
   source            String // accept | partner_gift
   giftTransactionId String?  @unique
   requestKey        String?

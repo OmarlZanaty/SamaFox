@@ -10,8 +10,7 @@ import {
   reassignFeaturedAfterRemoval,
   recordCpGiftValue,
   releaseCpGiftEvent,
-  reserveCpGiftEvent,
-} from './cpGift.service';
+  reserveCpGiftEvent, canActivateCp } from './cpGift.service';
 
 // CpError moved to cpUnlock.service so the unlock layer can raise the same
 // shape; re-exported so every existing import of it keeps working.
@@ -104,6 +103,12 @@ export async function createCpRequest(input: CreateCpRequestInput) {
   });
   if (already) {
     return sendCpGiftToPartner(input, already.id, gift, quantity);
+  }
+
+  // SPEC52 #34 — only a gift marked "تفعيل CP" may create a relationship.
+  // Refused before anything is reserved or charged.
+  if (!canActivateCp(gift as any)) {
+    throw new CpError('CP_LEVEL_ONLY', 'هذه الهدية ترفع مستوى CP فقط ولا تُنشئ علاقة — اختر هدية تفعيل مثل الخاتم');
   }
 
   // One live invitation per direction; re-sending just returns the open one so
@@ -390,6 +395,26 @@ export async function acceptCpRequest(requestId: number, recipientId: number) {
     recipient,
   );
 
+  // SPEC52 #10 — the minimal activation display in the room: the two
+  // pictures, a handshake and the CP level. Nothing else.
+  try {
+    const { readCpSettings, computeCpLevel } = await import('./cpUnlock.service');
+    const fresh = await prisma.cpPair.findUnique({ where: { id: pair.id } });
+    const lv = fresh ? computeCpLevel(fresh as any, await readCpSettings()) : null;
+    const { emitToRoomAndUsers } = await import('./socket.service');
+    emitToRoomAndUsers(request.roomId ?? null, [request.senderId, request.recipientId], 'cp_activated', {
+      pairId: pair.id,
+      roomId: request.roomId ?? null,
+      userA: { id: sender?.id ?? request.senderId, name: sender?.name ?? null, avatarUrl: sender?.avatarUrl ?? null },
+      userB: { id: recipient?.id ?? request.recipientId, name: recipient?.name ?? null, avatarUrl: recipient?.avatarUrl ?? null },
+      level: lv?.level ?? 1,
+      levelName: lv?.levelName ?? null,
+      ts: Date.now(),
+    });
+  } catch (e) {
+    console.warn('[cp] cp_activated emit failed:', (e as Error).message);
+  }
+
   await createNotification({
     userId: request.senderId,
     actorId: request.recipientId,
@@ -614,4 +639,58 @@ export async function listPendingCpRequests(userId: number) {
     roomId: r.roomId,
     createdAt: r.createdAt,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// SPEC52 #8 — CP Top 30 (shown at the top of every room: Top 3, expandable)
+// ---------------------------------------------------------------------------
+//
+// Order: higher CP level first; same level → more coins sent in the pair's CP
+// gifts; still tied → whoever reached that level first; then the older pair.
+// All of it comes from the server (cp_pairs.cpValue / cpCoins /
+// levelReachedAt), never from the phone.
+let cpTopCache: { at: number; limit: number; rows: unknown[] } | null = null;
+
+export async function listTopCpPairs(limit = 30) {
+  const n = Math.max(1, Math.min(30, Math.floor(limit) || 30));
+  if (cpTopCache && cpTopCache.limit >= n && Date.now() - cpTopCache.at < 30_000) {
+    return cpTopCache.rows.slice(0, n);
+  }
+  const { readCpSettings, computeCpLevel } = await import('./cpUnlock.service');
+  const { withNameStyle } = await import('./vipStyle.service');
+  const cfg = await readCpSettings();
+  const pairs = await (prisma as any).cpPair.findMany({
+    orderBy: [{ cpValue: 'desc' }, { cpCoins: 'desc' }],
+    take: 300,
+    include: {
+      userA: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, vipExpiresAt: true, gender: true } },
+      userB: { select: { id: true, name: true, avatarUrl: true, displayId: true, vipLevel: true, vipExpiresAt: true, gender: true } },
+    },
+  });
+  const ranked = pairs
+    .map((p: any) => {
+      const lv = computeCpLevel(p, cfg);
+      return {
+        pairId: p.id,
+        level: lv.level,
+        levelName: lv.levelName,
+        badgeUrl: lv.badgeUrl ?? null,
+        cpXp: Number(p.cpValue ?? 0),
+        cpCoins: Number(p.cpCoins ?? 0),
+        levelReachedAt: (p.levelReachedAt ?? p.createdAt)?.toISOString?.() ?? null,
+        createdAt: p.createdAt,
+        userA: withNameStyle({ ...p.userA, vipExpiresAt: undefined, ...(p.userA?.vipExpiresAt ? { vipExpiresAt: p.userA.vipExpiresAt } : {}) }),
+        userB: withNameStyle({ ...p.userB, vipExpiresAt: undefined, ...(p.userB?.vipExpiresAt ? { vipExpiresAt: p.userB.vipExpiresAt } : {}) }),
+      };
+    })
+    .sort((a: any, b: any) =>
+      b.level - a.level ||
+      b.cpCoins - a.cpCoins ||
+      new Date(a.levelReachedAt ?? 0).getTime() - new Date(b.levelReachedAt ?? 0).getTime() ||
+      a.pairId - b.pairId,
+    )
+    .slice(0, 30)
+    .map((r: any, i: number) => ({ rank: i + 1, ...r }));
+  cpTopCache = { at: Date.now(), limit: 30, rows: ranked };
+  return ranked.slice(0, n);
 }

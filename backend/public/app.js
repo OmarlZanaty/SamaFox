@@ -3849,13 +3849,18 @@ async function loadCpGifts() {
         <td>${escapeHtml(g.name || "")}</td>
         <td><input data-cp-gift="${k}" data-f="nameAr" class="form-input form-input--sm" style="width:140px" value="${escapeHtml(g.nameAr || "")}" /></td>
         <td><input data-cp-gift="${k}" data-f="coinCost" type="number" min="1" class="form-input form-input--sm" style="width:110px" value="${Number(g.coinCost) || 0}" /></td>
+        <td><select data-cp-gift="${k}" data-f="cpRole" class="form-select form-input--sm" style="width:150px">
+          <option value="both" ${g.cpActivate !== false && g.cpLevelUp !== false ? "selected" : ""}>تفعيل + رفع المستوى</option>
+          <option value="activate" ${g.cpActivate !== false && g.cpLevelUp === false ? "selected" : ""}>تفعيل CP فقط</option>
+          <option value="level" ${g.cpActivate === false ? "selected" : ""}>رفع المستوى فقط</option>
+        </select></td>
         <td><input data-cp-gift="${k}" data-f="cpLevelPoints" type="number" min="0" class="form-input form-input--sm" style="width:110px" placeholder="= السعر" value="${g.cpLevelPoints == null ? "" : Number(g.cpLevelPoints)}" /></td>
         <td><input data-cp-gift="${k}" data-f="sortOrder" type="number" class="form-input form-input--sm" style="width:80px" value="${Number(g.sortOrder) || 0}" /></td>
         <td><input data-cp-gift="${k}" data-f="isActive" type="checkbox" ${g.isActive ? "checked" : ""} /></td>
         <td><button class="btn btn-sm btn-primary" data-cp-gift-save="${k}">حفظ</button></td>
       </tr>`;
     }).join("")
-    : `<tr><td colspan="8" class="cell-muted">لا توجد هدايا في قائمة CP</td></tr>`;
+    : `<tr><td colspan="9" class="cell-muted">لا توجد هدايا في قائمة CP</td></tr>`;
 }
 
 // Gift ids are strings — handled by delegation rather than inlined into onclick.
@@ -3872,6 +3877,7 @@ document.getElementById("cpGiftsTable")?.addEventListener("click", async (e) => 
     await apiFetch(`/admin-dashboard/cp/gifts/${encodeURIComponent(id)}`, "PATCH", {
       coinCost,
       cpLevelPoints: pointsRaw === "" ? null : Number(pointsRaw),
+      cpRole: field("cpRole")?.value || "both",
       sortOrder: Number(field("sortOrder")?.value || 0),
       isActive: Boolean(field("isActive")?.checked),
       nameAr: field("nameAr")?.value.trim() || undefined,

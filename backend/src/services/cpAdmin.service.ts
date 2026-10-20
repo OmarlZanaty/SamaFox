@@ -422,6 +422,8 @@ export async function listCpGifts(db: any = prisma) {
       iconUrl: true,
       coinCost: true,
       cpLevelPoints: true,
+      cpActivate: true,
+      cpLevelUp: true,
       isActive: true,
       sortOrder: true,
       tier: true,
@@ -437,6 +439,10 @@ export interface CpGiftPatch {
   isActive?: boolean;
   sortOrder?: number;
   nameAr?: string;
+  /** SPEC52 #10/#34 — 'activate' | 'level' | 'both', or the two flags directly. */
+  cpRole?: 'activate' | 'level' | 'both';
+  cpActivate?: boolean;
+  cpLevelUp?: boolean;
 }
 
 export async function updateCpGift(giftId: string, patch: CpGiftPatch, ctx: AdminCtx, db: any = prisma) {
@@ -459,6 +465,17 @@ export async function updateCpGift(giftId: string, patch: CpGiftPatch, ctx: Admi
     }
   }
   if (patch.isActive !== undefined) data.isActive = Boolean(patch.isActive);
+  if (patch.cpRole !== undefined) {
+    if (!['activate', 'level', 'both'].includes(String(patch.cpRole))) throw new CpError('INVALID_VALUE', 'نوع هدية CP غير صالح');
+    data.cpActivate = patch.cpRole !== 'level';
+    data.cpLevelUp = patch.cpRole !== 'activate';
+  } else {
+    if (patch.cpActivate !== undefined) data.cpActivate = Boolean(patch.cpActivate);
+    if (patch.cpLevelUp !== undefined) data.cpLevelUp = Boolean(patch.cpLevelUp);
+  }
+  if ((data.cpActivate ?? before.cpActivate) === false && (data.cpLevelUp ?? before.cpLevelUp) === false) {
+    throw new CpError('INVALID_VALUE', 'هدية CP يجب أن تفعّل العلاقة أو ترفع المستوى (أو الاثنين)');
+  }
   if (patch.sortOrder !== undefined) {
     const o = Math.floor(Number(patch.sortOrder));
     if (Number.isFinite(o)) data.sortOrder = o;
@@ -475,6 +492,8 @@ export async function updateCpGift(giftId: string, patch: CpGiftPatch, ctx: Admi
       before: {
         coinCost: before.coinCost,
         cpLevelPoints: before.cpLevelPoints ?? null,
+        cpActivate: before.cpActivate,
+        cpLevelUp: before.cpLevelUp,
         isActive: before.isActive,
         sortOrder: before.sortOrder,
         nameAr: before.nameAr,
@@ -482,6 +501,8 @@ export async function updateCpGift(giftId: string, patch: CpGiftPatch, ctx: Admi
       after: {
         coinCost: after.coinCost,
         cpLevelPoints: after.cpLevelPoints ?? null,
+        cpActivate: after.cpActivate,
+        cpLevelUp: after.cpLevelUp,
         isActive: after.isActive,
         sortOrder: after.sortOrder,
         nameAr: after.nameAr,
