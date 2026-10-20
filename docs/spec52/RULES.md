@@ -42,3 +42,6 @@ Hard rules
     did, files changed, new/changed APIs (method + path), socket events, migration dir, new
     tables/fields, new permissions/settings keys, anything not done and why, and what needs a real
     device to verify.
+13. ENCODING (mandatory): Arabic text must be written as UTF-8. Never write files through
+    PowerShell `Set-Content`/`Out-File`/`>` redirection — use apply_patch only. Before finishing,
+    search your changes for `????` (corrupted Arabic) and fix every occurrence.
