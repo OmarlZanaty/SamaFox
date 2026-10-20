@@ -9,6 +9,7 @@ import '../widgets/room/room_left_rail.dart';
 import '../widgets/room/agency_bell.dart';
 import '../widgets/room/room_cp_top.dart';
 import '../widgets/room/room_games_host.dart';
+import '../widgets/room/room_emoji.dart';
 import '../services/effects_prefs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -4997,6 +4998,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     children: [
                       // صور في شات الروم — pick, upload, send. The server
                       // decides the VIP bar; a refusal comes back as a snack.
+                      // SPEC52 #20 — animated emoji over my mic.
+                      IconButton(
+                        icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFFFFD54F)),
+                        tooltip: 'إيموجي متحرك',
+                        onPressed: () {
+                          if (_currentSeatNumber == null) {
+                            _showRoomSnack('اصعد على المايك لإرسال الإيموجي', error: true);
+                            return;
+                          }
+                          RoomEmojiPicker.show(context, onPick: (e) {
+                            SocketService().emit('room_emoji_send', {'roomId': widget.roomId, 'emojiId': e.id});
+                          });
+                        },
+                      ),
                       // SPEC52 #17 — "إرسال صورة كهدية": shown, locked or
                       // hidden according to the owner's Image Gift min VIP.
                       if (_imageGiftAllowed || _imageGiftMode != 'hide')
@@ -5286,6 +5301,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                 ),
               ),
+
+            // ===== SPEC52 #20: animated emoji over the sender's mic =====
+            Positioned.fill(
+              child: RoomEmojiLayer(
+                roomId: widget.roomId,
+                resolveSeat: _getSeatPosition,
+              ),
+            ),
 
             // ===== Gift flight overlay (rendered LAST so it paints ABOVE seats) =====
             Positioned.fill(

@@ -35,6 +35,14 @@ interface AuthenticatedSocket extends Socket {
 }
 
 const roomSeats = new Map<number, Map<number, number>>();
+
+// SPEC52 #20 — the room emoji catalogue (must match the app's) + rate limit.
+const ROOM_EMOJI_IDS = new Set([
+  'kiss_right', 'kiss_left', 'magnifier', 'yawn_sleep', 'heartbroken', 'clap', 'cry', 'laugh',
+  'hello_sign', 'heart', 'dance', 'bride_groom', 'hug', 'couple_kiss', 'spit_right', 'spit_left',
+  'wow', 'angry', 'shock', 'fire_heart', 'lol', 'sleep', 'party', 'fire_clap', 'stars', 'crown',
+]);
+const lastRoomEmojiAt = new Map<number, number>();
 const roomMuted = new Map<number, Map<number, boolean>>();
 const roomMicQueue = new Map<number, number[]>();
 const roomAdmins = new Map<number, Set<number>>();
@@ -1442,6 +1450,37 @@ async function stepMusic(rid: number, uid: number, delta: number) {
   st.updatedAt = Date.now();
   broadcastMusic(io, rid);
 }
+
+// SPEC52 #20 — animated emoji over the sender's mic. Only an allow-listed
+// emoji id is accepted (the app ships the light animations; nothing heavy
+// travels), the seat is the server's own record of where the sender sits, and
+// one emoji per 1.5 s per user. Broadcast: {emojiId, senderId, seatId, ts}.
+socket.on('room_emoji_send', ({ roomId, emojiId }: any) => {
+  try {
+    const rid = toInt(roomId);
+    const uid = socket.userId;
+    const id = String(emojiId ?? '');
+    if (!rid || !uid || !ROOM_EMOJI_IDS.has(id)) return;
+    const now = Date.now();
+    const last = lastRoomEmojiAt.get(uid) ?? 0;
+    if (now - last < 1500) return;
+    let seatId: number | null = null;
+    for (const [sn, occ] of roomSeats.get(rid) ?? new Map<number, number>()) {
+      if (occ === uid) {
+        seatId = sn;
+        break;
+      }
+    }
+    if (seatId == null) {
+      socket.emit('room_emoji_rejected', { roomId: rid, message: 'اصعد على المايك لإرسال الإيموجي' });
+      return;
+    }
+    lastRoomEmojiAt.set(uid, now);
+    io.to(`room:${rid}`).emit('room_emoji', { roomId: rid, emojiId: id, senderId: uid, seatId, timestamp: now });
+  } catch (err) {
+    console.error('[socket.room_emoji_send] handler error:', err);
+  }
+});
 
 socket.on('music_next', async ({ roomId }: any) => {
   try {
