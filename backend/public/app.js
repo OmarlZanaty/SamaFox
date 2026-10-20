@@ -54,6 +54,7 @@ const sectionTitles = {
   moderation: "الرسائل والحظر",
   settings:  "الإعدادات",
   perms:     "الصلاحيات المالية",
+  giftlists: "قوائم الهدايا",
 };
 
 navItems.forEach(item => {

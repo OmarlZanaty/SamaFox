@@ -64,6 +64,9 @@ const Set<String> _kAlwaysShownCategories = {'cp', 'vip'};
 
 String _categoryLabel(String key) => _kCategoryLabels[key] ?? key;
 
+/// SPEC52 #38 — category keys that mean «عام» (the first tab).
+const Set<String> _kGeneralKeys = {'', 'general', 'all', 'normal', 'عام'};
+
 /// Bottom-sheet gift picker: recipient-scope selector, category tabs, gift
 /// grid, quantity dropdown and coin balance/recharge footer.
 class GiftPickerSheet extends StatefulWidget {
@@ -188,7 +191,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   Map<String, String> _serverLabels = const {};
 
   String _tabLabel(String key) =>
-      key == 'all' ? 'عادي' : (_serverLabels[key] ?? _categoryLabel(key));
+      key == 'all' ? (_serverLabels['general'] ?? 'عام') : (_serverLabels[key] ?? _categoryLabel(key));
 
   // Anchors so the popups open next to their button, not at a fixed screen spot.
   final CpRepository _cpRepository = CpRepository();
@@ -251,7 +254,13 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
 
   List<Gift> _giftsForTab(GiftCatalog catalog, String key) {
     final all = catalog.all;
-    if (key == 'all') return all;
+    // SPEC52 #38 — «عام» is a real list now: only gifts that belong to it
+    // (no list / the general list). A gift moved to another list leaves it.
+    if (key == 'all') {
+      return all
+          .where((g) => !g.isLucky && _kGeneralKeys.contains((g.category ?? '').trim().toLowerCase()))
+          .toList();
+    }
     // هدايا الحظ live in the "محظوظ" tab whatever list the dashboard filed
     // them under — the flag is what makes a gift lucky, not the category.
     if (key == _kLuckyCategoryKey) {
@@ -279,7 +288,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       ordered = <String>[
         ...configured,
         ...fromData.where((c) => !configured.contains(c)),
-      ];
+      ].where((k) => !_kGeneralKeys.contains(k.toLowerCase())).toList();
     } else {
       // Fallback for a server without gift lists — the previous behaviour,
       // unchanged.

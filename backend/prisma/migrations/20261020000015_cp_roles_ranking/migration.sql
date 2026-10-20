@@ -21,3 +21,9 @@ UPDATE "cp_pairs" p SET "levelReachedAt" = COALESCE(
     (SELECT MAX(e."createdAt") FROM "cp_value_events" e WHERE e."pairId" = p."id"), p."createdAt")
   WHERE p."levelReachedAt" IS NULL;
 CREATE INDEX IF NOT EXISTS "cp_pairs_rank_idx" ON "cp_pairs" ("cpValue" DESC, "cpCoins" DESC);
+
+-- SPEC52 #38 — gift lists get a picture; «عام» becomes a real list.
+ALTER TABLE "gift_categories" ADD COLUMN IF NOT EXISTS "imageUrl" TEXT;
+INSERT INTO "gift_categories" ("id", "key", "nameAr", "sortOrder", "isActive", "createdAt", "updatedAt")
+  SELECT 'general_list', 'general', 'عام', -100, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  WHERE NOT EXISTS (SELECT 1 FROM "gift_categories" WHERE "key" = 'general');

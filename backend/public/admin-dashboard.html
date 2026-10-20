@@ -67,6 +67,7 @@
     </a>
     <a href="#" class="nav-item" data-section="staff">👑 نظام الإدارة</a>
     <a href="#" class="nav-item" data-section="perms" data-owner-only>🔐 الصلاحيات المالية</a>
+    <a href="#" class="nav-item" data-section="giftlists">🎁 قوائم الهدايا</a>
     <a href="#" class="nav-item" data-section="rewards">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
       المكافآت
@@ -1441,6 +1442,38 @@
         </div>
         <div class="table-meta" id="tlMeta"></div>
         <p class="cell-muted" style="margin-top:8px">التبديل والشحن متسجلين من 3/10/2026. تعديلات الإدارة وبيع التارجت متسجلة من الأول.</p>
+      </div>
+    </section>
+
+    <section class="section" id="section-giftlists">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">قوائم الهدايا</h2>
+          <p class="section-sub">كل هدية في قائمة واحدة. نقل الهدية من «عام» لقائمة أخرى يخرجها من «عام». حذف القائمة لا يحذف الهدايا.</p>
+        </div>
+        <div class="section-actions"><button class="btn btn-outline" onclick="giftListsLoad()">تحديث</button></div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <input id="gl_new_name" class="form-input" placeholder="اسم القائمة الجديدة" />
+          <input id="gl_new_key" class="form-input" placeholder="مفتاح إنجليزي (اختياري)" />
+          <button class="btn btn-primary" onclick="glAdd()" data-perm="gifts.prices">+ إضافة قائمة</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px">
+          <table id="glCats"><thead><tr><th>الصورة</th><th>الاسم</th><th>المفتاح</th><th>الترتيب</th><th>مفعّلة</th><th>عدد الهدايا</th><th></th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div class="form-card-title">نقل هدايا</div>
+        <div class="form-row">
+          <select id="gl_filter" class="form-input" onchange="glRenderGifts()"></select>
+          <span id="gl_count" class="cell-muted">0 محددة</span>
+          <select id="gl_move_to" class="form-input"></select>
+          <button class="btn btn-primary" onclick="glMove()" data-perm="gifts.prices">نقل المحدد</button>
+        </div>
+        <div class="table-wrap" style="margin-top:10px;max-height:480px;overflow:auto">
+          <table id="glGifts"><thead><tr><th></th><th></th><th>الهدية</th><th>القائمة</th><th>السعر</th></tr></thead><tbody></tbody></table>
+        </div>
       </div>
     </section>
 

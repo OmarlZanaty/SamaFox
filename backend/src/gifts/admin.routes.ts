@@ -40,6 +40,8 @@ router.delete('/:id', adminRate, admin.softDelete);
 router.post('/reorder', adminRate, admin.reorder);
 // B6 — "نقل إلى قائمة" on an existing gift.
 router.post('/:id/move', adminRate, admin.moveGiftToCategory);
+// SPEC52 #38 — نقل عدة هدايا مرة واحدة.
+router.post('/bulk-move', adminRate, admin.bulkMoveGifts);
 router.post('/bulk-import', adminRate, admin.bulkImport);
 router.post('/upload-video', uploadRate, upload.single('file'), admin.uploadVideo);
 router.post('/upload-icon', uploadRate, upload.single('file'), admin.uploadIcon);

@@ -492,11 +492,13 @@ export async function createCategory(req: Request, res: Response) {
       data: {
         key,
         nameAr,
+        imageUrl: req.body?.imageUrl ? String(req.body.imageUrl).trim() : null,
         sortOrder: Number(req.body?.sortOrder) || (last?.sortOrder ?? 0) + 10,
         isActive: req.body?.isActive === undefined ? true : !!req.body.isActive,
       },
     });
     await bumpCatalogVersion();
+    await audit(req, 'GIFT_CATEGORY_CREATE', category.id, null, category);
     return res.json({ success: true, data: category });
   } catch (err) {
     console.error('[admin.gifts.createCategory]', err);
@@ -514,9 +516,11 @@ export async function updateCategory(req: Request, res: Response) {
     if (req.body?.nameAr !== undefined) data.nameAr = String(req.body.nameAr).trim();
     if (req.body?.sortOrder !== undefined) data.sortOrder = Math.floor(Number(req.body.sortOrder)) || 0;
     if (req.body?.isActive !== undefined) data.isActive = !!req.body.isActive;
+    if (req.body?.imageUrl !== undefined) data.imageUrl = req.body.imageUrl ? String(req.body.imageUrl).trim() : null;
 
     const category = await prisma.giftCategory.update({ where: { id }, data });
     await bumpCatalogVersion();
+    await audit(req, 'GIFT_CATEGORY_UPDATE', id, existing, category);
     return res.json({ success: true, data: category });
   } catch (err) {
     console.error('[admin.gifts.updateCategory]', err);
@@ -535,7 +539,19 @@ export async function deleteCategory(req: Request, res: Response) {
     const existing = await prisma.giftCategory.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ success: false, message: 'القائمة غير موجودة' });
 
-    const moveTo = req.body?.moveTo ? normalizeCategoryKey(req.body.moveTo) : null;
+    // SPEC52 #38 — the owner chooses: «نقل الهدايا إلى عام» (mode 'general',
+    // the default) or «حذف ارتباط الهدايا بالقائمة» (mode 'unlink' → no list,
+    // which the app also shows under عام). A specific `moveTo` list still works.
+    // Gifts themselves are never deleted here.
+    if (existing.key === 'general') return res.status(400).json({ success: false, message: 'لا يمكن حذف قائمة «عام»' });
+    const mode = String(req.body?.mode ?? '');
+    const moveTo = req.body?.moveTo
+      ? normalizeCategoryKey(req.body.moveTo)
+      : mode === 'unlink'
+        ? null
+        : (await prisma.giftCategory.findUnique({ where: { key: 'general' } }))
+          ? 'general'
+          : null;
     if (moveTo) {
       const target = await prisma.giftCategory.findUnique({ where: { key: moveTo } });
       if (!target) return res.status(400).json({ success: false, message: 'القائمة الهدف غير موجودة' });
@@ -546,11 +562,47 @@ export async function deleteCategory(req: Request, res: Response) {
       prisma.giftCategory.delete({ where: { id } }),
     ]);
     await bumpCatalogVersion();
+    await audit(req, 'GIFT_CATEGORY_DELETE', id, existing, { giftsMovedTo: moveTo ?? '(no list)' });
     return res.json({ success: true });
   } catch (err) {
     console.error('[admin.gifts.deleteCategory]', err);
     return res.status(500).json({ success: false, message: 'Failed to delete gift list' });
   }
+}
+
+/** SPEC52 #38 — move several gifts to one list at once (or '' = no list). */
+export async function bulkMoveGifts(req: Request, res: Response) {
+  try {
+    const ids: string[] = Array.isArray(req.body?.giftIds) ? [...new Set<string>(req.body.giftIds.map(String))] : [];
+    if (!ids.length || ids.length > 500) return res.status(400).json({ success: false, message: 'اختر هدية واحدة على الأقل (حتى 500)' });
+    const rawKey = req.body?.category;
+    const key = rawKey == null || rawKey === '' ? null : normalizeCategoryKey(rawKey);
+    if (key) {
+      const target = await prisma.giftCategory.findUnique({ where: { key } });
+      if (!target) return res.status(400).json({ success: false, message: 'القائمة غير موجودة' });
+    }
+    const before = await prisma.gift.findMany({ where: { id: { in: ids } }, select: { id: true, category: true } });
+    const r = await prisma.gift.updateMany({ where: { id: { in: ids } }, data: { category: key } });
+    await bumpCatalogVersion();
+    await audit(req, 'GIFT_MOVE', ids.join(',').slice(0, 180), before, { category: key, count: r.count });
+    return res.json({ success: true, data: { moved: r.count } });
+  } catch (err) {
+    console.error('[admin.gifts.bulkMoveGifts]', err);
+    return res.status(500).json({ success: false, message: 'Failed to move gifts' });
+  }
+}
+
+async function audit(req: Request, action: string, targetId: string, before: unknown, after: unknown) {
+  const { recordAdminAudit, auditContext } = await import('../services/adminAudit.service');
+  await recordAdminAudit({
+    adminId: Number((req as any).userId),
+    action,
+    targetType: action.startsWith('GIFT_CATEGORY') ? 'gift_category' : 'gift',
+    targetId,
+    before,
+    after,
+    ...auditContext(req),
+  });
 }
 
 /** B6 — "نقل إلى قائمة" on an existing gift. */
@@ -578,6 +630,7 @@ export async function moveGiftToCategory(req: Request, res: Response) {
       before: { category: gift.category },
       after: { category: key },
     });
+    await audit(req, 'GIFT_MOVE', id, { category: gift.category }, { category: key });
     return res.json({ success: true, data: updated });
   } catch (err) {
     console.error('[admin.gifts.moveGiftToCategory]', err);

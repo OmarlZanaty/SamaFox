@@ -1342,6 +1342,7 @@ model GiftCategory {
   id        String   @id @default(cuid())
   key       String   @unique
   nameAr    String
+  imageUrl  String? // SPEC52 #38 — the list's picture
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())

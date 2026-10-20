@@ -13,6 +13,7 @@
   const val = (id) => ($(id)?.value ?? "").trim();
   const dt = (d) => (d ? new Date(d).toLocaleString("en-GB") : "—");
   const n = (v) => Number(v || 0).toLocaleString("en-US");
+  const imgUrl = (u) => (typeof normalizeGiftImageUrl === "function" ? normalizeGiftImageUrl(u) : u);
 
   async function call(path, method, body) {
     try {
@@ -104,8 +105,130 @@
 
   Object.assign(window, { permsLoad, permsGrant, permsRevoke });
 
+  // ── SPEC52 #38: قوائم الهدايا ────────────────────────────────────────────
+  let glCats = [];
+  let glGifts = [];
+  const glSelected = new Set();
+
+  async function giftListsLoad() {
+    await loadCaps();
+    const [c, g] = await Promise.all([
+      call("/admin/gifts/categories?includeInactive=1"),
+      apiFetchAny(["/admin-dashboard/gifts", "/admin/gifts"]),
+    ]);
+    glCats = c?.data || [];
+    glGifts = g?.data || g?.gifts || [];
+    const opts = (withNone) =>
+      (withNone ? '<option value="">— بدون قائمة (تظهر في عام) —</option>' : "") +
+      glCats.map((x) => `<option value="${esc(x.key)}">${esc(x.nameAr)}</option>`).join("");
+    $("gl_move_to").innerHTML = opts(true);
+    $("glCats").querySelector("tbody").innerHTML = glCats
+      .map(
+        (x) => `<tr>
+        <td>${x.imageUrl ? `<img src="${esc(imgUrl(x.imageUrl))}" style="width:36px;height:36px;object-fit:contain;border-radius:8px">` : '<span class="cell-muted">—</span>'}
+          <input type="file" accept="image/*" style="display:none" id="gl_img_${esc(x.id)}" onchange="glUploadImage('${esc(x.id)}')">
+          <button class="btn btn-outline btn-sm" onclick="document.getElementById('gl_img_${esc(x.id)}').click()">صورة</button></td>
+        <td><input class="form-input form-input--sm" id="gl_name_${esc(x.id)}" value="${esc(x.nameAr)}" style="width:140px"></td>
+        <td class="cell-muted">${esc(x.key)}</td>
+        <td><input type="number" class="form-input form-input--sm" id="gl_order_${esc(x.id)}" value="${Number(x.sortOrder) || 0}" style="width:80px"></td>
+        <td><input type="checkbox" id="gl_active_${esc(x.id)}" ${x.isActive ? "checked" : ""}></td>
+        <td>${n(x.giftCount)}</td>
+        <td><button class="btn btn-primary btn-sm" onclick="glSave('${esc(x.id)}')">حفظ</button>
+          ${x.key === "general" ? "" : `<button class="btn btn-outline btn-sm" onclick="glDelete('${esc(x.id)}', ${Number(x.giftCount) || 0})">حذف</button>`}</td>
+      </tr>`,
+      )
+      .join("");
+    glRenderGifts();
+  }
+
+  function glRenderGifts() {
+    const filter = val("gl_filter");
+    const label = (k) => glCats.find((x) => x.key === k)?.nameAr || (k ? k : "عام");
+    const rows = glGifts.filter((g) => !filter || (filter === "__none" ? !g.category : g.category === filter));
+    $("glGifts").querySelector("tbody").innerHTML = rows
+      .map(
+        (g) => `<tr>
+        <td><input type="checkbox" ${glSelected.has(String(g.id)) ? "checked" : ""} onchange="glToggle('${esc(g.id)}', this.checked)"></td>
+        <td>${g.iconUrl ? `<img src="${esc(imgUrl(g.iconUrl))}" style="width:32px;height:32px;object-fit:contain">` : ""}</td>
+        <td>${esc(g.nameAr || g.name)}</td>
+        <td>${esc(label(g.category))}</td>
+        <td>${n(g.coinCost)}</td>
+      </tr>`,
+      )
+      .join("");
+    $("gl_count").textContent = `${glSelected.size} محددة`;
+    $("gl_filter").innerHTML =
+      '<option value="">كل الهدايا</option><option value="__none">بدون قائمة</option>' +
+      glCats.map((x) => `<option value="${esc(x.key)}" ${filter === x.key ? "selected" : ""}>${esc(x.nameAr)}</option>`).join("");
+    if (filter) $("gl_filter").value = filter;
+  }
+
+  function glToggle(id, on) {
+    if (on) glSelected.add(String(id));
+    else glSelected.delete(String(id));
+    $("gl_count").textContent = `${glSelected.size} محددة`;
+  }
+
+  async function glAdd() {
+    const nameAr = val("gl_new_name");
+    if (!nameAr) return toast("اكتب اسم القائمة");
+    await call("/admin/gifts/categories", "POST", { nameAr, key: val("gl_new_key") || undefined });
+    $("gl_new_name").value = "";
+    $("gl_new_key").value = "";
+    toast("✅ تمت إضافة القائمة");
+    giftListsLoad();
+  }
+
+  async function glSave(id) {
+    await call(`/admin/gifts/categories/${id}`, "PATCH", {
+      nameAr: val(`gl_name_${id}`),
+      sortOrder: Number(val(`gl_order_${id}`) || 0),
+      isActive: $(`gl_active_${id}`).checked,
+    });
+    toast("✅ تم الحفظ");
+    giftListsLoad();
+  }
+
+  async function glUploadImage(id) {
+    const file = $(`gl_img_${id}`)?.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("image", file);
+    const d = await apiFetch("/upload/image", { method: "POST", body: fd });
+    const url = d?.url || d?.imageUrl;
+    if (!url) return toast("لم يتم رفع الصورة");
+    await call(`/admin/gifts/categories/${id}`, "PATCH", { imageUrl: url });
+    toast("✅ تم تغيير صورة القائمة");
+    giftListsLoad();
+  }
+
+  async function glDelete(id, count) {
+    let mode = "general";
+    if (count > 0) {
+      const ans = prompt(
+        `في القائمة ${count} هدية. اكتب 1 لنقل الهدايا إلى «عام» أو 2 لحذف ارتباط الهدايا بالقائمة (الهدايا نفسها لا تُحذف):`,
+        "1",
+      );
+      if (ans == null) return;
+      mode = ans.trim() === "2" ? "unlink" : "general";
+    } else if (!confirm("حذف القائمة؟")) return;
+    await apiFetch(`/admin/gifts/categories/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
+    toast("✅ تم حذف القائمة");
+    giftListsLoad();
+  }
+
+  async function glMove() {
+    if (!glSelected.size) return toast("حدد هدايا أولاً");
+    await call("/admin/gifts/bulk-move", "POST", { giftIds: [...glSelected], category: val("gl_move_to") });
+    glSelected.clear();
+    toast("✅ تم نقل الهدايا");
+    giftListsLoad();
+  }
+
+  Object.assign(window, { giftListsLoad, glAdd, glSave, glDelete, glMove, glToggle, glUploadImage, glRenderGifts });
+
   // ── section router hook (called from app.js navigate) ───────────────────
-  const loaders = { perms: permsLoad };
+  const loaders = { perms: permsLoad, giftlists: giftListsLoad };
   window.spec52Register = (sec, fn) => {
     loaders[sec] = fn;
   };
