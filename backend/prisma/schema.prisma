@@ -913,29 +913,29 @@ model ScheduledEvent {
 // ============================================
 
 model PkBattle {
-  id         String   @id @default(cuid())
-  room1Id    Int
-  room2Id    Int
-  room1Score Int      @default(0)
-  room2Score Int      @default(0)
-  endsAt     DateTime
-  isActive   Boolean  @default(true)
-  xp         Int      @default(0)
-  level      Int      @default(1)
-  type       String   @default("GLOBAL")
-  status     String   @default("CANCELLED")
-  sideAUserId Int?
-  sideBUserId Int?
-  startedAt  DateTime?
-  durationSec Int     @default(300)
-  configSnapshot Json @default("{}")
-  winner     String?
-  createdBy  Int      @default(0)
-  createdAt  DateTime @default(now())
-  scoreReachedA DateTime?
-  scoreReachedB DateTime?
-  contributions PkContribution[]
-  roomLocks PkRoomLock[]
+  id             String           @id @default(cuid())
+  room1Id        Int
+  room2Id        Int
+  room1Score     Int              @default(0)
+  room2Score     Int              @default(0)
+  endsAt         DateTime
+  isActive       Boolean          @default(true)
+  xp             Int              @default(0)
+  level          Int              @default(1)
+  type           String           @default("GLOBAL")
+  status         String           @default("CANCELLED")
+  sideAUserId    Int?
+  sideBUserId    Int?
+  startedAt      DateTime?
+  durationSec    Int              @default(300)
+  configSnapshot Json             @default("{}")
+  winner         String?
+  createdBy      Int              @default(0)
+  createdAt      DateTime         @default(now())
+  scoreReachedA  DateTime?
+  scoreReachedB  DateTime?
+  contributions  PkContribution[]
+  roomLocks      PkRoomLock[]
 
   room1 Room @relation("PkBattleRoom1", fields: [room1Id], references: [id])
   room2 Room @relation("PkBattleRoom2", fields: [room2Id], references: [id])
@@ -944,115 +944,124 @@ model PkBattle {
 }
 
 model RocketConfig {
-  id Int @id @default(autoincrement())
-  targetCoins Int @default(1000000)
-  roomCupPercent Int @default(1000)
-  durationMinutes Int @default(30)
-  winnersCount Int @default(10)
-  maxRewardPerUserCoins Int @default(1000)
-  claimWindowSeconds Int @default(90)
-  rewards Json @default("[]")
-  isActive Boolean @default(false)
-  updatedBy Int @default(0)
-  createdAt DateTime @default(now())
+  id                    Int      @id @default(autoincrement())
+  targetCoins           Int      @default(1000000)
+  roomCupPercent        Int      @default(1000)
+  durationMinutes       Int      @default(30)
+  winnersCount          Int      @default(10)
+  maxRewardPerUserCoins Int      @default(1000)
+  claimWindowSeconds    Int      @default(90)
+  rewards               Json     @default("[]")
+  isActive              Boolean  @default(false)
+  updatedBy             Int      @default(0)
+  createdAt             DateTime @default(now())
+
   @@map("rocket_configs")
 }
 
 model RocketEvent {
-  id String @id @default(cuid())
-  roomId Int
+  id             String               @id @default(cuid())
+  roomId         Int
   configSnapshot Json
-  targetCoins Int
-  currentCoins Int @default(0)
-  status String @default("ACTIVE")
-  startedAt DateTime @default(now())
-  endsAt DateTime
-  launchedAt DateTime?
-  contributions RocketContribution[]
-  claims RocketClaim[]
+  targetCoins    Int
+  currentCoins   Int                  @default(0)
+  status         String               @default("ACTIVE")
+  startedAt      DateTime             @default(now())
+  endsAt         DateTime
+  launchedAt     DateTime?
+  contributions  RocketContribution[]
+  claims         RocketClaim[]
+
   @@index([roomId, status])
   @@map("rocket_events")
 }
 
 model RocketContribution {
-  id Int @id @default(autoincrement())
-  eventId String
-  giftTransactionId String @unique
-  userId Int
-  coins Int
-  event RocketEvent @relation(fields: [eventId], references: [id])
+  id                Int         @id @default(autoincrement())
+  eventId           String
+  giftTransactionId String      @unique
+  userId            Int
+  coins             Int
+  event             RocketEvent @relation(fields: [eventId], references: [id])
+
   @@map("rocket_contributions")
 }
 
 model RocketClaim {
-  id Int @id @default(autoincrement())
+  id            Int         @id @default(autoincrement())
   rocketEventId String
-  userId Int
-  rewardJson Json
-  claimedAt DateTime @default(now())
-  event RocketEvent @relation(fields: [rocketEventId], references: [id])
+  userId        Int
+  rewardJson    Json
+  claimedAt     DateTime    @default(now())
+  event         RocketEvent @relation(fields: [rocketEventId], references: [id])
+
   @@unique([rocketEventId, userId])
   @@map("rocket_claims")
 }
 
 model PkConfig {
-  id Int @id @default(autoincrement())
-  allowedDurations Json @default("[180,300,600]")
-  countedGiftIds Json @default("[]")
-  pointsPerCoin Int @default(1)
-  winCondition String @default("HIGHER_SCORE")
-  tieRule String @default("TIE")
-  rewards Json @default("{}")
-  enabled Boolean @default(false)
-  updatedBy Int @default(0)
-  createdAt DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  allowedDurations Json     @default("[180,300,600]")
+  countedGiftIds   Json     @default("[]")
+  pointsPerCoin    Int      @default(1)
+  winCondition     String   @default("HIGHER_SCORE")
+  tieRule          String   @default("TIE")
+  rewards          Json     @default("{}")
+  enabled          Boolean  @default(false)
+  updatedBy        Int      @default(0)
+  createdAt        DateTime @default(now())
+
   @@map("pk_configs")
 }
 
 model PkContribution {
-  id Int @id @default(autoincrement())
-  pkId String
-  giftTransactionId String @unique
-  side String
-  points Int
-  createdAt DateTime @default(now())
-  pk PkBattle @relation(fields: [pkId], references: [id])
+  id                Int      @id @default(autoincrement())
+  pkId              String
+  giftTransactionId String   @unique
+  side              String
+  points            Int
+  createdAt         DateTime @default(now())
+  pk                PkBattle @relation(fields: [pkId], references: [id])
+
   @@map("pk_contributions")
 }
 
 // A unique row per occupied room also excludes overlapping GLOBAL/ROOM invitations.
 model PkRoomLock {
-  roomId Int @id
-  pkId String
-  pk PkBattle @relation(fields: [pkId], references: [id])
+  roomId Int      @id
+  pkId   String
+  pk     PkBattle @relation(fields: [pkId], references: [id])
+
   @@map("pk_room_locks")
 }
 
 // Durable gift outbox: inserted with the gift, consumed only after it commits.
 model RoomGiftJob {
-  giftTransactionId String @id
-  createdAt DateTime @default(now())
-  processedAt DateTime?
+  giftTransactionId String    @id
+  createdAt         DateTime  @default(now())
+  processedAt       DateTime?
+
   @@index([processedAt, createdAt])
   @@map("room_gift_jobs")
 }
 
-
 model ChargingAgency {
-  id             Int                  @id @default(autoincrement())
+  id             Int                   @id @default(autoincrement())
   userId         Int
   agencyName     String
   phoneNumber    String
   agencyImageUrl String
   idFrontUrl     String
   idBackUrl      String
-  status         String               @default("pending") // pending/approved/rejected
-  type           String               @default("CHARGING")
-  nameLocked     Boolean              @default(false) // when true, owner cannot rename the agency (dashboard-controlled)
+  status         String                @default("pending") // pending/approved/rejected
+  type           String                @default("CHARGING")
+  nameLocked     Boolean               @default(false) // when true, owner cannot rename the agency (dashboard-controlled)
   contactInfo    String?
   logoUrl        String?
-  targetCoins    BigInt               @default(0)
-  earnedCoins    BigInt               @default(0)
+  targetCoins    BigInt                @default(0)
+  earnedCoins    BigInt                @default(0)
+  branches       AgencyBranch[]
+  profileChanges AgencyProfileChange[]
   topupRequests  AgencyTopupRequest[]
   members        AgencyMember[]
   invites        AgencyInvite[]
@@ -1098,12 +1107,16 @@ model ChargingAgency {
 }
 
 model AgencyTransfer {
-  id        Int      @id @default(autoincrement())
-  agencyId  Int
-  toUserId  Int
-  amount    Int
-  note      String?
-  createdAt DateTime @default(now())
+  branchId      Int?
+  actorUserId   Int?
+  transactionId Int?          @unique
+  branch        AgencyBranch? @relation(fields: [branchId], references: [id])
+  id            Int           @id @default(autoincrement())
+  agencyId      Int
+  toUserId      Int
+  amount        Int
+  note          String?
+  createdAt     DateTime      @default(now())
 
   agency ChargingAgency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
   toUser User           @relation(fields: [toUserId], references: [id], onDelete: Cascade)
@@ -1114,20 +1127,23 @@ model AgencyTransfer {
 }
 
 model AgencyTopupRequest {
-  id         Int       @id @default(autoincrement())
-  agencyId   Int
+  branchId      Int?
+  transactionId Int?          @unique
+  branch        AgencyBranch? @relation(fields: [branchId], references: [id])
+  id            Int           @id @default(autoincrement())
+  agencyId      Int
   // B5 — who asked, and therefore whose wallet the approval credits. A فرع
   // requests against the agency he belongs to but is topped up personally;
   // without this the approval always paid the OWNER. Null on legacy rows,
   // which are owner requests by construction.
-  requesterId Int?
-  amount     Int
-  receiptUrl String
-  note       String?
-  status     String    @default("pending") // pending/approved/rejected
-  reviewedBy Int?
-  reviewedAt DateTime?
-  createdAt  DateTime  @default(now())
+  requesterId   Int?
+  amount        Int
+  receiptUrl    String
+  note          String?
+  status        String        @default("pending") // pending/approved/rejected
+  reviewedBy    Int?
+  reviewedAt    DateTime?
+  createdAt     DateTime      @default(now())
 
   agency ChargingAgency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
 
@@ -1287,20 +1303,22 @@ model TargetSale {
 }
 
 model AgencyInvite {
-  id        Int            @id @default(autoincrement())
-  agencyId  Int
-  agency    ChargingAgency @relation(fields: [agencyId], references: [id])
-  inviterId Int
-  inviteeId Int
-  // pending | accepted | rejected | expired (the API also returns it upper-case
-  // as `state`). One row per (agency, invitee): a re-invite REOPENS the row.
+  id          Int            @id @default(autoincrement())
+  agencyId    Int
+  agency      ChargingAgency @relation(fields: [agencyId], references: [id])
+  inviterId   Int
+  inviteeId   Int
+  // One immutable attempt; only pending pairs are unique (SQL partial index).
+  resentAt    DateTime?
+  resendCount Int            @default(0)
   status      String         @default("pending")
   createdAt   DateTime       @default(now())
   expiresAt   DateTime?
   respondedAt DateTime?
   updatedAt   DateTime       @default(now())
 
-  @@unique([agencyId, inviteeId])
+  @@index([agencyId, inviteeId])
+  @@index([status, expiresAt])
 }
 
 model Conversation {
@@ -1309,14 +1327,14 @@ model Conversation {
   userAId Int
   userBId Int
 
-  lastMessageId Int?      @unique // ✅ ADD THIS
-  lastMessageAt DateTime?
+  lastMessageId    Int?      @unique // ✅ ADD THIS
+  lastMessageAt    DateTime?
   // قفل الرسائل الخاصة — a paid lock was bought for this thread. Who paid and
   // when, so the fee is charged once and the ledger is auditable.
   unlockedByUserId Int?
   unlockedAt       DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   userA User @relation("ConvUserA", fields: [userAId], references: [id])
   userB User @relation("ConvUserB", fields: [userBId], references: [id])
@@ -1425,8 +1443,8 @@ model Gift {
   // SPEC52 #10/#34 — what a gift in the CP list does: create a relationship
   // (cpActivate), raise the level of an existing one (cpLevelUp), or both.
   // cpLevelPoints above is its CP XP value per unit.
-  cpActivate       Boolean  @default(true)
-  cpLevelUp        Boolean  @default(true)
+  cpActivate       Boolean    @default(true)
+  cpLevelUp        Boolean    @default(true)
   createdBy        Int?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -1530,29 +1548,29 @@ model LuckyTier {
 /// Every roll, win or lose — the audit trail behind the pool balance, and what
 /// the verification endpoint recomputes.
 model LuckyRoll {
-  id             Int      @id @default(autoincrement())
-  giftTxId       String   @unique
+  id             Int       @id @default(autoincrement())
+  giftTxId       String    @unique
   senderId       Int
   recipientId    Int
   roomId         Int?
-  giftCoins      Int      // V — what the sender paid
-  hostCoins      Int      // H — the host's 10%
-  multiplier     Int      // 0 = lost
-  payoutCoins    Int      // multiplier × V (× H before 2026-10-05), after the pool cap
+  giftCoins      Int // V — what the sender paid
+  hostCoins      Int // H — the host's 10%
+  multiplier     Int // 0 = lost
+  payoutCoins    Int // multiplier × V (× H before 2026-10-05), after the pool cap
   poolBefore     BigInt
   poolAfter      BigInt
   serverSeed     String
   serverSeedHash String
-  tiersSnapshot  Json     // the draw table used, so the roll can be re-derived
+  tiersSnapshot  Json // the draw table used, so the roll can be re-derived
   // Rounds (2026-09-26): the entry joins its room's open round and is only
   // settled once the round has enough distinct players. The seed is committed
   // (hash published) at entry and the draw happens at settlement.
   roundId        Int?
-  programCoins   Int      @default(0) // program share of V, net of the host's H
-  poolCoins      Int      @default(0) // prize-pool share of V
-  status         String   @default("SETTLED") // PENDING | SETTLED | NO_COMPETITION
+  programCoins   Int       @default(0) // program share of V, net of the host's H
+  poolCoins      Int       @default(0) // prize-pool share of V
+  status         String    @default("SETTLED") // PENDING | SETTLED | NO_COMPETITION
   settledAt      DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   giftTx GiftTransaction @relation(fields: [giftTxId], references: [id], onDelete: Cascade)
 
@@ -1678,9 +1696,9 @@ model CpPair {
   // server-side with the dashboard's "قيمة رفع مستوى CP" (cp_level_step_coins);
   // while that is 0 the old days-based ladder applies, so nobody's level moved
   // on deploy. `levelOverride` pins the level from the dashboard.
-  cpValue       Int      @default(0)
-  levelOverride Int?
-  updatedAt     DateTime @default(now()) @updatedAt
+  cpValue        Int       @default(0)
+  levelOverride  Int?
+  updatedAt      DateTime  @default(now()) @updatedAt
   // SPEC52 #8 — ranking tie-breaks: total coins sent in CP gifts between the
   // two, and when the pair reached its current level (earlier = higher).
   cpCoins        BigInt    @default(0)
@@ -2121,21 +2139,21 @@ model ProfileVisit {
 // (paid from the platform's prize fund), one row each. `day` is the Cairo date
 // the daily prize budget and per-player cap are counted against.
 model GameLedger {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  game      String
-  kind      String // 'stake' | 'prize'
-  amount    Int
-  xp        Int      @default(0)
-  ref       String?
-  day       String
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  game         String
+  kind         String // 'stake' | 'prize'
+  amount       Int
+  xp           Int      @default(0)
+  ref          String?
+  day          String
   // 2026-09-26 economy: a stake row carries its split, a prize row what the
   // engine asked for before the caps and whether a cap cut it.
   programShare Int?
   poolShare    Int?
   requested    Int?
   capped       Boolean  @default(false)
-  createdAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   @@index([game, kind, createdAt])
   @@index([day, kind])
@@ -2194,7 +2212,7 @@ model RoomEntryLog {
   userId     Int
   roomId     Int
   hidden     Boolean   @default(false)
-  lockBypass String?   // OWNER | HIDDEN_MODE | ROOM_LOCK_BYPASS
+  lockBypass String? // OWNER | HIDDEN_MODE | ROOM_LOCK_BYPASS
   enteredAt  DateTime  @default(now())
   exitedAt   DateTime?
 
@@ -2216,7 +2234,7 @@ model HostTarget {
   periodStart DateTime
   periodEnd   DateTime
   status      String   @default("ACTIVE") // ACTIVE | CANCELLED
-  source      String   @default("ADMIN")  // ADMIN | AGENCY
+  source      String   @default("ADMIN") // ADMIN | AGENCY
   note        String?
   version     Int      @default(1)
   updatedBy   Int?
@@ -2245,7 +2263,7 @@ model EconomyLedger {
   account      String
   delta        BigInt
   balanceAfter BigInt
-  kind         String   // GAME_STAKE_PROGRAM | GAME_STAKE_POOL | GAME_PRIZE | LUCKY_PROGRAM | CP_BREAK_FEE | POOL_FUNDING
+  kind         String // GAME_STAKE_PROGRAM | GAME_STAKE_POOL | GAME_PRIZE | LUCKY_PROGRAM | CP_BREAK_FEE | POOL_FUNDING
   refType      String?
   refId        String?
   userId       Int?
@@ -2300,7 +2318,7 @@ model CpBreakLog {
   partnerId     Int
   programFee    BigInt
   partnerFee    BigInt
-  feeSource     String    // GLOBAL | CUSTOM | FREE
+  feeSource     String // GLOBAL | CUSTOM | FREE
   cpValue       Int       @default(0)
   pairCreatedAt DateTime?
   createdAt     DateTime  @default(now())
@@ -2470,15 +2488,14 @@ model BanRecord {
   @@map("ban_records")
 }
 
-
 model FruitWheelSharedRound {
-  id        Int             @id @default(autoincrement())
+  id        Int               @id @default(autoincrement())
   seedHash  String
   seed      String
   result    String?
-  totalBet  Int             @default(0)
-  players   Int             @default(0)
-  createdAt DateTime        @default(now())
+  totalBet  Int               @default(0)
+  players   Int               @default(0)
+  createdAt DateTime          @default(now())
   settledAt DateTime?
   stakes    FruitWheelStake[]
 
@@ -2489,15 +2506,15 @@ model FruitWheelSharedRound {
 /// One chip on the shared FRUIT WHEEL table. Written with the balance charge, so a
 /// restart can refund every chip still `open` from a round that never settled.
 model FruitWheelStake {
-  id        Int           @id @default(autoincrement())
+  id        Int                   @id @default(autoincrement())
   roundId   Int
   userId    Int
   betKey    String
-  payout    Int           @default(0)
+  payout    Int                   @default(0)
   amount    Int
   /// open → settled (round paid) | refunded (undo, clear, or a lost round)
-  status    String        @default("open")
-  createdAt DateTime      @default(now())
+  status    String                @default("open")
+  createdAt DateTime              @default(now())
   round     FruitWheelSharedRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
 
   @@index([roundId, userId])
@@ -2523,17 +2540,17 @@ model AdminPermissionGrant {
 
 // SPEC52 C4: observational telemetry, never room/seat authority.
 model RoomSession {
-  id               String   @id
+  id               String    @id
   userId           Int
   roomId           Int
-  joinedAt         DateTime @default(now())
-  lastHeartbeat    DateTime @default(now())
-  wsState          String   @default("connected")
-  voiceState       String   @default("listening")
+  joinedAt         DateTime  @default(now())
+  lastHeartbeat    DateTime  @default(now())
+  wsState          String    @default("connected")
+  voiceState       String    @default("listening")
   seatNumber       Int?
   lastApi          String?
   disconnectReason String?
-  reconnectCount   Int      @default(0)
+  reconnectCount   Int       @default(0)
   leftAt           DateTime?
   leaveReason      String?
 
@@ -2557,4 +2574,66 @@ model GameWinEvent {
 
   @@index([roomId, id])
   @@map("game_win_events")
+}
+
+model AgencyProfileChange {
+  id        Int            @id @default(autoincrement())
+  agencyId  Int
+  field     String
+  oldValue  String
+  newValue  String
+  changedBy Int
+  changedAt DateTime       @default(now())
+  agency    ChargingAgency @relation(fields: [agencyId], references: [id])
+
+  @@index([agencyId, changedAt])
+  @@map("agency_profile_changes")
+}
+
+model AgencyBranch {
+  id             Int                  @id @default(autoincrement())
+  parentAgencyId Int
+  name           String
+  ownerUserId    Int
+  status         String               @default("ACTIVE")
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  parentAgency   ChargingAgency       @relation(fields: [parentAgencyId], references: [id])
+  transfers      AgencyTransfer[]
+  topupRequests  AgencyTopupRequest[]
+
+  @@unique([parentAgencyId, ownerUserId])
+  @@map("agency_branches")
+}
+
+model UserAuthMethod {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  provider       String
+  providerUserId String?
+  phoneNumber    String?
+  verified       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@unique([provider, providerUserId])
+  @@index([userId, provider])
+  @@map("user_auth_methods")
+}
+
+model PhoneOtpChallenge {
+  id                Int       @id @default(autoincrement())
+  userId            Int
+  phoneNumber       String
+  codeHash          String
+  salt              String
+  provider          String    @default("local")
+  providerReference String?
+  expiresAt         DateTime
+  attempts          Int       @default(0)
+  consumedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([phoneNumber, createdAt])
+  @@map("phone_otp_challenges")
 }
