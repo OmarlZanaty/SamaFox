@@ -242,6 +242,10 @@ router.get("/inventory", async (req: any, res) => {
  * background did nothing and a decoration frame did not exist in the app at
  * all. The mapping is the single place that knows which columns a type owns.
  */
+/** SPEC52 #40 — the only types that are an avatar (seat/mic) frame. Profile
+ *  decoration and room artwork are separate product types and never land here. */
+export const AVATAR_FRAME_TYPES = ['FRAME', 'avatar_frame', 'PROFILE_FRAME', 'AVATAR_FRAME'];
+
 const PROFILE_ITEM_COLUMNS: Record<string, { url: string; kind: string }> = {
   PROFILE_BACKGROUND: { url: 'profileBgUrl', kind: 'profileBgType' },
   PROFILE_DECOR: { url: 'profileDecorUrl', kind: 'profileDecorType' },
@@ -330,8 +334,17 @@ router.post('/activate-frame', async (req: any, res) => {
     const { itemId } = req.body;
     if (!itemId) return res.status(400).json({ message: 'itemId required' });
 
+    // SPEC52 #40 — only an AVATAR frame may become the avatar/mic frame. A
+    // profile decoration (PROFILE_DECOR) or any other type sent here used to be
+    // copied into avatarFrameUrl and drawn around the seat. Expired rentals are
+    // not owned any more.
     const userItem = await prisma.userItem.findFirst({
-      where: { userId, itemId: String(itemId) },
+      where: {
+        userId,
+        itemId: String(itemId),
+        item: { type: { in: AVATAR_FRAME_TYPES } },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      } as any,
       include: { item: true },
     });
     if (!userItem) return res.status(404).json({ message: 'Item not in inventory' });
@@ -415,7 +428,7 @@ router.post('/deactivate-frame', async (req: any, res) => {
     // UserItem.isActive, so without this the frame kept showing as equipped
     // ("إلغاء الاستخدام not working").
     await prisma.userItem.updateMany({
-      where: { userId, item: { type: { in: ['FRAME', 'avatar_frame'] } } },
+      where: { userId, item: { type: { in: AVATAR_FRAME_TYPES } } },
       data: { isActive: false },
     });
     return res.json({ success: true });
