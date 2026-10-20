@@ -944,6 +944,8 @@ model ChargingAgency {
   logoUrl        String?
   targetCoins    BigInt               @default(0)
   earnedCoins    BigInt               @default(0)
+  branches       AgencyBranch[]
+  profileChanges AgencyProfileChange[]
   topupRequests  AgencyTopupRequest[]
   members        AgencyMember[]
   invites        AgencyInvite[]
@@ -989,6 +991,10 @@ model ChargingAgency {
 }
 
 model AgencyTransfer {
+  branchId Int?
+  actorUserId Int?
+  transactionId Int? @unique
+  branch AgencyBranch? @relation(fields: [branchId], references: [id])
   id        Int      @id @default(autoincrement())
   agencyId  Int
   toUserId  Int
@@ -1005,6 +1011,9 @@ model AgencyTransfer {
 }
 
 model AgencyTopupRequest {
+  branchId Int?
+  transactionId Int? @unique
+  branch AgencyBranch? @relation(fields: [branchId], references: [id])
   id         Int       @id @default(autoincrement())
   agencyId   Int
   // B5 — who asked, and therefore whose wallet the approval credits. A فرع
@@ -1183,15 +1192,17 @@ model AgencyInvite {
   agency    ChargingAgency @relation(fields: [agencyId], references: [id])
   inviterId Int
   inviteeId Int
-  // pending | accepted | rejected | expired (the API also returns it upper-case
-  // as `state`). One row per (agency, invitee): a re-invite REOPENS the row.
+  // One immutable attempt; only pending pairs are unique (SQL partial index).
+  resentAt DateTime?
+  resendCount Int @default(0)
   status      String         @default("pending")
   createdAt   DateTime       @default(now())
   expiresAt   DateTime?
   respondedAt DateTime?
   updatedAt   DateTime       @default(now())
 
-  @@unique([agencyId, inviteeId])
+  @@index([agencyId, inviteeId])
+  @@index([status, expiresAt])
 }
 
 model Conversation {
@@ -2409,4 +2420,63 @@ model AdminPermissionGrant {
 
   @@index([userId, revokedAt])
   @@map("admin_permission_grants")
+}
+
+
+model AgencyProfileChange {
+  id Int @id @default(autoincrement())
+  agencyId Int
+  field String
+  oldValue String
+  newValue String
+  changedBy Int
+  changedAt DateTime @default(now())
+  agency ChargingAgency @relation(fields: [agencyId], references: [id])
+  @@index([agencyId, changedAt])
+  @@map("agency_profile_changes")
+}
+
+model AgencyBranch {
+  id Int @id @default(autoincrement())
+  parentAgencyId Int
+  name String
+  ownerUserId Int
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  parentAgency ChargingAgency @relation(fields: [parentAgencyId], references: [id])
+  transfers AgencyTransfer[]
+  topupRequests AgencyTopupRequest[]
+  @@unique([parentAgencyId, ownerUserId])
+  @@map("agency_branches")
+}
+
+model UserAuthMethod {
+  id Int @id @default(autoincrement())
+  userId Int
+  provider String
+  providerUserId String?
+  phoneNumber String?
+  verified Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@unique([provider, providerUserId])
+  @@index([userId, provider])
+  @@map("user_auth_methods")
+}
+
+model PhoneOtpChallenge {
+  id Int @id @default(autoincrement())
+  userId Int
+  phoneNumber String
+  codeHash String
+  salt String
+  provider String @default("local")
+  providerReference String?
+  expiresAt DateTime
+  attempts Int @default(0)
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([phoneNumber, createdAt])
+  @@map("phone_otp_challenges")
 }
