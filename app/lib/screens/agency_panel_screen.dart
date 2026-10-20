@@ -1,3 +1,6 @@
+import '../services/dio_client.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../services/agency_service.dart';
 import '../widgets/app_network_image.dart';
@@ -109,10 +112,87 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
 
   Future<void> _invite(Map<String, dynamic> user) async {
     try {
-      await _service.inviteUser((user['id'] as num).toInt(), agencyType: _agencyType);
+      final inv = await _service.inviteUser((user['id'] as num).toInt(), agencyType: _agencyType);
+      if (inv['canResend'] == true && inv['id'] != null) {
+        // SPEC52 #35 — still pending: resend or cancel instead of an error.
+        final id = (inv['id'] as num).toInt();
+        if (!mounted) return;
+        final choice = await showDialog<String>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('الدعوة ما زالت بانتظار الرد'),
+            content: Text('دعوة ${user['name']} لم يُرد عليها بعد.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, 'cancel'), child: const Text('إلغاء الدعوة')),
+              TextButton(onPressed: () => Navigator.pop(c), child: const Text('رجوع')),
+              FilledButton(onPressed: () => Navigator.pop(c, 'resend'), child: const Text('إعادة إرسال')),
+            ],
+          ),
+        );
+        if (choice == 'resend') {
+          await _service.resendInvite(id);
+          _toast('✓ تمت إعادة إرسال الدعوة');
+        } else if (choice == 'cancel') {
+          await _service.cancelInvite(id);
+          _toast('تم إلغاء الدعوة');
+        }
+        return;
+      }
       _toast('✓ تم إرسال الدعوة إلى ${user['name']}');
     } catch (e) {
       _toast('فشل إرسال الدعوة: $e');
+    }
+  }
+
+  /// SPEC52 #35 — rename the agency / change its picture (the server keeps
+  /// old → new, who and when; a name locked by the admins cannot change).
+  Future<void> _editAgencyProfile(Map agency) async {
+    final id = (agency['id'] as num?)?.toInt() ?? (agency['agencyId'] as num?)?.toInt();
+    if (id == null) return;
+    final ctrl = TextEditingController(text: '${agency['agencyName'] ?? ''}');
+    String? imageUrl;
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, set) => AlertDialog(
+          title: const Text('بيانات الوكالة'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'اسم الوكالة')),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.image),
+              label: Text(imageUrl == null ? 'تغيير صورة الوكالة' : 'تم اختيار صورة ✓'),
+              onPressed: () async {
+                final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 1024);
+                if (picked == null) return;
+                try {
+                  final form = FormData.fromMap({'image': await MultipartFile.fromFile(picked.path)});
+                  final r = await DioClient.dio.post('/upload/image', data: form);
+                  final url = (r.data is Map ? (r.data['url'] ?? r.data['imageUrl']) : null)?.toString();
+                  if (url != null) set(() => imageUrl = url);
+                } catch (_) {
+                  _toast('تعذر رفع الصورة');
+                }
+              },
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('حفظ')),
+          ],
+        ),
+      ),
+    );
+    if (save != true) return;
+    try {
+      final newName = ctrl.text.trim();
+      await _service.updateAgencyProfile(id,
+          name: newName.isNotEmpty && newName != '${agency['agencyName'] ?? ''}' ? newName : null, imageUrl: imageUrl);
+      _toast('✓ تم تحديث بيانات الوكالة');
+      _load();
+    } catch (e) {
+      final m = (e is DioException && e.response?.data is Map) ? e.response!.data['message']?.toString() : null;
+      _toast(m ?? 'تعذر الحفظ');
     }
   }
 
@@ -494,6 +574,12 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
               ),
               // Ownership actions belong to the owner alone — a فرع manages
               // hosts but never owns or hands over the agency.
+              if (_isAgent)
+                IconButton(
+                  tooltip: 'تعديل اسم وصورة الوكالة',
+                  icon: const Icon(Icons.edit, color: Colors.white70),
+                  onPressed: () => _editAgencyProfile(agency),
+                ),
               if (_isAgent)
                 TextButton(
                   onPressed: _transferOwnership,

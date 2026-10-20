@@ -79,7 +79,9 @@ class AgencyService {
   /// [agencyType] must match the agency the panel is showing — without it the
   /// server invites into whichever agency the agent joined first, so the host
   /// silently lands in the wrong one.
-  Future<void> inviteUser(int userId, {String? agencyType}) async {
+  /// SPEC52 #35 — returns the invitation; `canResend: true` means one is
+  /// still pending (no second invitation is created — offer إعادة إرسال).
+  Future<Map<String, dynamic>> inviteUser(int userId, {String? agencyType}) async {
     final res = await DioClient.dio.post(
       '/agencies/invite/$userId',
       queryParameters: {if (agencyType != null) 'agencyType': agencyType},
@@ -88,6 +90,23 @@ class AgencyService {
     if (res.data is Map && res.data['success'] != true) {
       throw Exception(res.data['message'] ?? 'فشل إرسال الدعوة');
     }
+    final d = res.data is Map ? res.data['data'] : null;
+    return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
+  }
+
+  Future<void> resendInvite(int inviteId) async {
+    await DioClient.dio.post('/agencies/invites/$inviteId/resend', options: await _auth());
+  }
+
+  Future<void> cancelInvite(int inviteId) async {
+    await DioClient.dio.post('/agencies/invites/$inviteId/cancel', options: await _auth());
+  }
+
+  /// SPEC52 #35 — agency name / image (owner; the server records the history).
+  Future<void> updateAgencyProfile(int agencyId, {String? name, String? imageUrl}) async {
+    await DioClient.dio.patch('/agencies/$agencyId/profile',
+        data: {if (name != null) 'agencyName': name, if (imageUrl != null) 'agencyImageUrl': imageUrl},
+        options: await _auth());
   }
 
   /// Answer an agency invite. Returns normally only once the server has
