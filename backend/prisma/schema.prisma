@@ -2126,6 +2126,10 @@ model ProfileVisit {
   /// surface can be counted separately instead of silently joining this one.
   source    String   @default("home")
   createdAt DateTime @default(now())
+  /// SPEC52 #12 — one row per (viewer, profile): later visits move these
+  /// instead of adding rows.
+  lastVisitAt DateTime @default(now())
+  visitCount  Int      @default(1)
 
   profile User @relation("ProfileVisitsReceived", fields: [profileId], references: [id], onDelete: Cascade)
   viewer  User @relation("ProfileVisitsMade", fields: [viewerId], references: [id], onDelete: Cascade)
@@ -2636,4 +2640,24 @@ model PhoneOtpChallenge {
   @@index([userId, createdAt])
   @@index([phoneNumber, createdAt])
   @@map("phone_otp_challenges")
+}
+
+// SPEC52 #12 — friendship is its own relation (request → accept), separate
+// from one-way follows. One row per pair (userLowId < userHighId).
+model Friendship {
+  id          Int       @id @default(autoincrement())
+  requesterId Int
+  receiverId  Int
+  userLowId   Int
+  userHighId  Int
+  status      String    @default("pending") // pending | accepted | rejected | blocked
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  blockedAt   DateTime?
+  updatedAt   DateTime  @default(now()) @updatedAt
+
+  @@unique([userLowId, userHighId])
+  @@index([receiverId, status])
+  @@index([requesterId, status])
+  @@map("friendships")
 }

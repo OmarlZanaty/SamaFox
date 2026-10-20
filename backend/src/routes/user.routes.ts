@@ -78,6 +78,15 @@ router.get('/:userId/following', getFollowing);
 router.get('/:userId/badges', getUserBadges);
 
 // profile
+// SPEC52 #12 — real friends / followers / following / visitors counts.
+router.get('/:userId/social-counts', async (req, res) => {
+  try {
+    const { socialCounts } = await import('../follow/friends.controller');
+    return res.json({ success: true, data: await socialCounts(Number(req.params.userId)) });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: 'Failed' });
+  }
+});
 router.get('/:userId', getUserById);
 
 export default router;

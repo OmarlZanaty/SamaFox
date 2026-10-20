@@ -51,9 +51,15 @@ export const getRelations = async (req: AuthReq, res: Response) => {
     const followingIds = new Set<number>(following.map((f: any) => f.followingId));
     const followerIds = new Set<number>(followers.map((f: any) => f.followerId));
 
-    const friendIds = [...followingIds].filter((id) => followerIds.has(id));
-    const outgoingIds = [...followingIds].filter((id) => !followerIds.has(id));
-    const incomingIds = [...followerIds].filter((id) => !followingIds.has(id));
+    // SPEC52 #12 — الأصدقاء = accepted friend requests only; أتابعه = everyone
+    // I follow; يتابعني = everyone who follows me (the reverse query).
+    const fr = await db.friendship.findMany({
+      where: { status: 'accepted', OR: [{ userLowId: userId }, { userHighId: userId }] },
+      select: { userLowId: true, userHighId: true },
+    });
+    const friendIds = fr.map((r: any) => (r.userLowId === userId ? r.userHighId : r.userLowId));
+    const outgoingIds = [...followingIds];
+    const incomingIds = [...followerIds];
 
     const allIds = [...new Set([...friendIds, ...outgoingIds, ...incomingIds])];
     const users = allIds.length
@@ -126,20 +132,26 @@ export const recordProfileVisit = async (req: AuthReq, res: Response) => {
     if (!Number.isFinite(profileId) || profileId <= 0) return fail(res, 400, 'Invalid user id');
     if (profileId === viewerId) return res.json({ success: true, recorded: false });
 
-    const source = String((req.body as any)?.source ?? 'home');
-    if (source !== 'home') return res.json({ success: true, recorded: false });
-
-    const recent = await db.profileVisit.findFirst({
-      where: {
-        profileId,
-        viewerId,
-        createdAt: { gte: new Date(Date.now() - VISIT_DEDUPE_MS) },
-      },
-      select: { id: true },
+    // SPEC52 #12 — every way into a profile counts (home, room, search…),
+    // but one row per (visitor, profile): a later visit moves lastVisitAt and
+    // visitCount (at most once per dedupe window) instead of adding rows.
+    const source = String((req.body as any)?.source ?? 'home').slice(0, 20);
+    const last = await db.profileVisit.findFirst({
+      where: { profileId, viewerId },
+      orderBy: { lastVisitAt: 'desc' },
+      select: { id: true, lastVisitAt: true },
     });
-    if (recent) return res.json({ success: true, recorded: false });
-
-    await db.profileVisit.create({ data: { profileId, viewerId, source: 'home' } });
+    if (last && Date.now() - new Date(last.lastVisitAt).getTime() < VISIT_DEDUPE_MS) {
+      return res.json({ success: true, recorded: false });
+    }
+    if (last) {
+      await db.profileVisit.update({
+        where: { id: last.id },
+        data: { lastVisitAt: new Date(), visitCount: { increment: 1 }, source },
+      });
+    } else {
+      await db.profileVisit.create({ data: { profileId, viewerId, source } });
+    }
     return res.json({ success: true, recorded: true });
   } catch (e) {
     console.error('[relations.recordProfileVisit]', e);

@@ -31,7 +31,7 @@ class RelationsScreen extends StatefulWidget {
 class _RelationsScreenState extends State<RelationsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs =
-      TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
+      TabController(length: 5, vsync: this, initialIndex: widget.initialTab);
 
   late Future<_Relations> _future = _load();
   late Future<_Visitors> _visitorsFuture = _loadVisitors();
@@ -124,6 +124,7 @@ class _RelationsScreenState extends State<RelationsScreen>
               Tab(text: 'أتابعه'),
               Tab(text: 'يتابعني'),
               Tab(text: 'الزوار'),
+              Tab(text: 'طلبات الصداقة'),
             ],
           ),
         ),
@@ -133,25 +134,29 @@ class _RelationsScreenState extends State<RelationsScreen>
             _followList(
               (r) => r.friends,
               badge: 'صديق',
-              actionLabel: 'إلغاء المتابعة',
-              onAction: _unfollow,
-              empty: 'لا يوجد أصدقاء بعد — الصداقة متابعة متبادلة',
+              actionLabel: 'إلغاء الصداقة',
+              onAction: (id) async {
+                await DioClient.dio.delete('/friends/$id');
+                _reload();
+              },
+              empty: 'لا يوجد أصدقاء بعد — أرسل طلب صداقة من صفحة أي مستخدم',
             ),
             _followList(
               (r) => r.following,
               badge: 'تتابعه',
               actionLabel: 'إلغاء المتابعة',
               onAction: _unfollow,
-              empty: 'لا تتابع أحداً لم يتابعك بعد',
+              empty: 'لا تتابع أحداً بعد',
             ),
             _followList(
               (r) => r.followers,
               badge: 'يتابعك',
               actionLabel: 'رد المتابعة',
               onAction: _followBack,
-              empty: 'لا أحد يتابعك دون رد بعد',
+              empty: 'لا يتابعك أحد بعد',
             ),
             _visitorsTab(),
+            const _FriendRequestsTab(),
           ],
         ),
       ),
@@ -332,4 +337,68 @@ class _Person {
             : null,
         displayId: (j['displayId'] as num?)?.toInt(),
       );
+}
+
+
+/// SPEC52 #12 — incoming friend requests: قبول / رفض.
+class _FriendRequestsTab extends StatefulWidget {
+  const _FriendRequestsTab();
+  @override
+  State<_FriendRequestsTab> createState() => _FriendRequestsTabState();
+}
+
+class _FriendRequestsTabState extends State<_FriendRequestsTab> {
+  List<Map<String, dynamic>>? _rows;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final r = await DioClient.dio.get('/friends/requests', queryParameters: {'direction': 'in'});
+      final list = (r.data is Map ? r.data['data'] : null) as List? ?? const [];
+      if (mounted) setState(() => _rows = list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList());
+    } catch (_) {
+      if (mounted) setState(() => _rows = const []);
+    }
+  }
+
+  Future<void> _answer(int id, bool accept) async {
+    try {
+      await DioClient.dio.post('/friends/requests/$id/${accept ? 'accept' : 'reject'}');
+    } catch (_) {}
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = _rows;
+    if (rows == null) return const Center(child: CircularProgressIndicator());
+    if (rows.isEmpty) {
+      return const Center(child: Text('لا توجد طلبات صداقة', style: TextStyle(color: Colors.white54)));
+    }
+    return ListView.builder(
+      itemCount: rows.length,
+      itemBuilder: (_, i) {
+        final r = rows[i];
+        final u = (r['user'] as Map?) ?? const {};
+        final id = (r['id'] as num).toInt();
+        return ListTile(
+          leading: CircleAvatar(
+            backgroundColor: const Color(0xFF2A1655),
+            backgroundImage: (u['avatarUrl'] ?? '').toString().isEmpty ? null : appImage(u['avatarUrl'].toString(), 40),
+          ),
+          title: Text('${u['name'] ?? ''}', style: const TextStyle(color: Colors.white)),
+          subtitle: Text('ID ${u['displayId'] ?? u['id']}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            TextButton(onPressed: () => _answer(id, false), child: const Text('رفض', style: TextStyle(color: Colors.white54))),
+            FilledButton(onPressed: () => _answer(id, true), child: const Text('قبول')),
+          ]),
+        );
+      },
+    );
+  }
 }

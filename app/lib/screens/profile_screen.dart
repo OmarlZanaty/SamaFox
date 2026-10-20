@@ -470,6 +470,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           const Color(0xFFFFB74D),
           () => _toggleFollow(user.id),
         ),
+        // SPEC52 #12 — صداقة حقيقية: طلب ← قبول.
+        btn(
+          _friendState == 'friends'
+              ? Icons.people
+              : (_friendState == 'pending_out' ? Icons.hourglass_top : Icons.group_add),
+          _friendState == 'friends'
+              ? 'صديق'
+              : _friendState == 'pending_out'
+                  ? 'تم الإرسال'
+                  : _friendState == 'pending_in'
+                      ? 'قبول الصداقة'
+                      : 'إضافة صديق',
+          const Color(0xFF4DD0E1),
+          () => _friendAction(user.id),
+        ),
         btn(
           _targetBlocked ? Icons.lock_open : Icons.block,
           _targetBlocked ? 'فك الحظر' : 'حظر',
@@ -1706,7 +1721,67 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     );
   }
 
+  // ── SPEC52 #12: real social numbers + friendship ─────────────────────────
+  Map<String, int>? _social;
+  int? _socialFor;
+  String _friendState = 'none';
+  int? _friendshipId;
+
+  Future<void> _loadSocial(int uid) async {
+    _socialFor = uid;
+    try {
+      final r = await DioClient.dio.get('/users/$uid/social-counts');
+      final d = r.data is Map ? r.data['data'] : null;
+      if (d is Map && mounted) {
+        setState(() => _social = d.map((k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0)));
+      }
+      final me = ref.read(authStateProvider).user?.id;
+      if (me != null && me != uid) {
+        final s = await DioClient.dio.get('/friends/status/$uid');
+        final sd = s.data is Map ? s.data['data'] : null;
+        if (sd is Map && mounted) {
+          setState(() {
+            _friendState = sd['state']?.toString() ?? 'none';
+            _friendshipId = (sd['id'] as num?)?.toInt();
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _friendAction(int uid) async {
+    try {
+      if (_friendState == 'pending_in' && _friendshipId != null) {
+        await DioClient.dio.post('/friends/requests/$_friendshipId/accept');
+      } else if (_friendState == 'friends') {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: const Text('إلغاء الصداقة؟'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('لا')),
+              TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('نعم')),
+            ],
+          ),
+        );
+        if (ok != true) return;
+        await DioClient.dio.delete('/friends/$uid');
+      } else if (_friendState == 'none') {
+        await DioClient.dio.post('/friends/requests', data: {'userId': uid});
+      } else {
+        return;
+      }
+      await _loadSocial(uid);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر تنفيذ الطلب')));
+    }
+  }
+
   Widget _buildStatsRow(User user) {
+    if (_socialFor != user.id) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadSocial(user.id));
+    }
+    final c = _social;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
@@ -1717,22 +1792,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           // one-directional sheet, landing on the tab that was tapped.
           GestureDetector(
             onTap: () => _openRelations(1),
-            child: _buildStatItem('${user.followingCount ?? 0}', 'Following'),
+            child: _buildStatItem('${c?['following'] ?? user.followingCount ?? 0}', 'أتابعه'),
           ),
           GestureDetector(
             onTap: () => _openRelations(2),
-            child: _buildStatItem('${user.followersCount ?? 0}', 'Fans'),
+            child: _buildStatItem('${c?['followers'] ?? user.followersCount ?? 0}', 'يتابعني'),
           ),
           // C16 — "بدل ما الليفل والـVIP يتكرروا تحت". They are in the identity
           // row above now, so these two tiles become the buckets that had no
           // entry point at all: أصدقاء (tab 0) and الزوار (tab 3).
           GestureDetector(
             onTap: () => _openRelations(0),
-            child: _buildStatItem('', 'أصدقاء'),
+            child: _buildStatItem(c == null ? '' : '${c['friends']}', 'أصدقاء'),
           ),
           GestureDetector(
             onTap: () => _openRelations(3),
-            child: _buildStatItem('', 'الزوار'),
+            child: _buildStatItem(c == null ? '' : '${c['visitors']}', 'الزوار'),
           ),
         ],
       ),
@@ -1744,9 +1819,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   /// this is fire-and-forget: a failure must never affect the page opening.
   Future<void> _recordVisitIfFromHome() async {
     final id = widget.userId;
-    if (widget.source != 'home' || id == null) return;
+    // SPEC52 #12 — every entry point counts (the server de-duplicates).
+    if (id == null) return;
     try {
-      await DioClient.dio.post('/follow/visits/$id', data: const {'source': 'home'});
+      await DioClient.dio.post('/follow/visits/$id', data: {'source': widget.source ?? 'profile'});
     } catch (_) {
       // Recording a visit is never worth surfacing.
     }
