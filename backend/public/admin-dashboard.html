@@ -70,6 +70,7 @@
     <a href="#" class="nav-item" data-section="perms" data-owner-only>🔐 الصلاحيات المالية</a>
     <a href="#" class="nav-item" data-section="giftlists">🎁 قوائم الهدايا</a>
     <a href="#" class="nav-item" data-section="rocketpk">🚀 الصاروخ و PK</a>
+    <a href="#" class="nav-item" data-section="storelists">🛍️ قوائم المتجر</a>
     <a href="#" class="nav-item" data-section="rewards">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
       المكافآت
@@ -1472,6 +1473,28 @@
         <div class="table-meta" id="tlMeta"></div>
         <p class="cell-muted" style="margin-top:8px">التبديل والشحن متسجلين من 3/10/2026. تعديلات الإدارة وبيع التارجت متسجلة من الأول.</p>
       </div>
+    </section>
+
+    <section class="section" id="section-storelists">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">قوائم المتجر</h2>
+          <p class="section-sub">قوائم يُنشئها المالك (مثل «ID مميز»). شراء ID: تحقق → حجز → خصم → نقل الرقم، وأي فشل يُلغى بالكامل. يحتاج صلاحية «المنتجات» من المالك.</p>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <input id="sl_new" class="form-input" placeholder="اسم قائمة جديدة" />
+          <button class="btn btn-primary" onclick="slAddCat()" data-perm="store.products">+ قائمة</button>
+        </div>
+        <div class="form-row">
+          <select id="sl_bulk_cat" class="form-input"></select>
+          <input id="sl_bulk_ids" class="form-input" placeholder="أرقام IDs مفصولة بفاصلة" />
+          <input id="sl_bulk_price" type="number" class="form-input" placeholder="السعر لكل رقم" />
+          <button class="btn btn-outline" onclick="slBulk()" data-perm="store.products">إضافة أرقام دفعة واحدة</button>
+        </div>
+      </div>
+      <div id="slBody"></div>
     </section>
 
     <section class="section" id="section-rocketpk">

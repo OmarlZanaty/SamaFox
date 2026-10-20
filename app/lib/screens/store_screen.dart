@@ -1,3 +1,4 @@
+import 'custom_store_screen.dart';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -156,7 +157,15 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                               style: TextStyle(color: Colors.white),
                             ),
                           ),
-                          const Icon(Icons.store, color: Colors.white),
+                          // SPEC52 #41 — the owner's own lists (e.g. «ID مميز»).
+                          TextButton.icon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const CustomStoreScreen()),
+                            ),
+                            icon: const Icon(Icons.workspace_premium, color: Color(0xFFFFD54F)),
+                            label: const Text('قوائم خاصة', style: TextStyle(color: Color(0xFFFFD54F))),
+                          ),
                           const SizedBox(width: 16),
                         ],
                       ),

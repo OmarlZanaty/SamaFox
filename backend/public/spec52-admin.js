@@ -227,6 +227,82 @@
 
   Object.assign(window, { giftListsLoad, glAdd, glSave, glDelete, glMove, glToggle, glUploadImage, glRenderGifts });
 
+  // ── SPEC52 #41: قوائم المتجر و ID مميز ───────────────────────────────────
+  async function storeListsLoad() {
+    await loadCaps();
+    const r = await call("/admin-dashboard/store-lists");
+    const cats = r?.data || [];
+    $("sl_bulk_cat").innerHTML = cats.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+    $("slBody").innerHTML = cats.map((c) => `
+      <div class="form-card" style="margin-top:10px">
+        <div class="form-row">
+          <input class="form-input" id="sl_name_${c.id}" value="${esc(c.name)}" style="max-width:180px">
+          <input class="form-input" id="sl_order_${c.id}" type="number" value="${c.sortOrder}" style="max-width:80px" title="الترتيب">
+          <input class="form-input" id="sl_img_${c.id}" value="${esc(c.imageUrl || "")}" placeholder="رابط صورة القائمة" style="max-width:220px">
+          <label><input type="checkbox" id="sl_active_${c.id}" ${c.isActive ? "checked" : ""}> ظاهرة</label>
+          <button class="btn btn-primary btn-sm" onclick="slSaveCat(${c.id})" data-perm="store.products">حفظ</button>
+          <button class="btn btn-outline btn-sm" onclick="slDelCat(${c.id})" data-perm="store.products">حذف</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>المنتج</th><th>ID</th><th>السعر</th><th>المدة</th><th>المخزون</th><th>متاح</th><th></th></tr></thead><tbody>
+        ${(c.products || []).map((p) => `<tr>
+          <td><input class="form-input form-input--sm" id="sp_name_${p.id}" value="${esc(p.name)}"></td>
+          <td>${p.specialDisplayId ?? "—"}</td>
+          <td><input class="form-input form-input--sm" type="number" id="sp_price_${p.id}" value="${p.priceCoins}" style="width:110px"></td>
+          <td><input class="form-input form-input--sm" type="number" id="sp_days_${p.id}" value="${p.durationDays ?? ""}" placeholder="أبدي" style="width:80px"></td>
+          <td><input class="form-input form-input--sm" type="number" id="sp_stock_${p.id}" value="${p.stock ?? ""}" placeholder="∞" style="width:80px"></td>
+          <td><input type="checkbox" id="sp_av_${p.id}" ${p.isAvailable ? "checked" : ""}></td>
+          <td><button class="btn btn-primary btn-sm" onclick="slSaveProd(${p.id})" data-perm="store.products">حفظ</button>
+              <button class="btn btn-outline btn-sm" onclick="slDelProd(${p.id})" data-perm="store.products">حذف</button></td></tr>`).join("") || '<tr><td colspan="7" class="cell-muted">لا توجد منتجات</td></tr>'}
+        </tbody></table></div>
+        <div class="form-row">
+          <input class="form-input" id="np_name_${c.id}" placeholder="اسم منتج جديد" style="max-width:160px">
+          <input class="form-input" id="np_id_${c.id}" type="number" placeholder="ID للبيع (اختياري)" style="max-width:150px">
+          <input class="form-input" id="np_price_${c.id}" type="number" placeholder="السعر" style="max-width:110px">
+          <button class="btn btn-outline btn-sm" onclick="slAddProd(${c.id})" data-perm="store.products">+ منتج</button>
+        </div>
+      </div>`).join("") || '<p class="cell-muted">لا توجد قوائم بعد</p>';
+    loadCaps();
+  }
+  async function slAddCat() {
+    if (!val("sl_new")) return toast("اكتب اسم القائمة");
+    await call("/admin-dashboard/store-lists", "POST", { name: val("sl_new") });
+    $("sl_new").value = "";
+    storeListsLoad();
+  }
+  async function slSaveCat(id) {
+    await call(`/admin-dashboard/store-lists/${id}`, "PATCH", { name: val(`sl_name_${id}`), sortOrder: Number(val(`sl_order_${id}`) || 0), imageUrl: val(`sl_img_${id}`), isActive: $(`sl_active_${id}`).checked });
+    toast("✅ تم الحفظ");
+  }
+  async function slDelCat(id) {
+    if (!confirm("إخفاء القائمة ومنتجاتها؟ (لا يُحذف أي سجل شراء)")) return;
+    await call(`/admin-dashboard/store-lists/${id}`, "DELETE");
+    storeListsLoad();
+  }
+  async function slAddProd(cat) {
+    const body = { categoryId: cat, name: val(`np_name_${cat}`), priceCoins: Number(val(`np_price_${cat}`)) };
+    if (val(`np_id_${cat}`)) { body.specialDisplayId = Number(val(`np_id_${cat}`)); body.kind = "special_id"; body.stock = 1; if (!body.name) body.name = "ID " + body.specialDisplayId; }
+    await call("/admin-dashboard/store-lists/products", "POST", body);
+    storeListsLoad();
+  }
+  async function slSaveProd(id) {
+    await call(`/admin-dashboard/store-lists/products/${id}`, "PATCH", {
+      name: val(`sp_name_${id}`), priceCoins: Number(val(`sp_price_${id}`)), durationDays: val(`sp_days_${id}`),
+      stock: val(`sp_stock_${id}`), isAvailable: $(`sp_av_${id}`).checked,
+    });
+    toast("✅ تم حفظ المنتج");
+  }
+  async function slDelProd(id) {
+    if (!confirm("حذف المنتج؟")) return;
+    await call(`/admin-dashboard/store-lists/products/${id}`, "DELETE");
+    storeListsLoad();
+  }
+  async function slBulk() {
+    const r = await call("/admin-dashboard/store-lists/bulk-ids", "POST", { categoryId: Number(val("sl_bulk_cat")), ids: val("sl_bulk_ids"), priceCoins: Number(val("sl_bulk_price")) });
+    toast(`✅ أُضيف ${r?.data?.added ?? 0}، تُخطّي ${(r?.data?.skipped || []).length} (مستخدمة أو معروضة)`);
+    storeListsLoad();
+  }
+  Object.assign(window, { storeListsLoad, slAddCat, slSaveCat, slDelCat, slAddProd, slSaveProd, slDelProd, slBulk });
+
   // ── SPEC52 #28 / #29: الصاروخ و PK ────────────────────────────────────────
   let evProducts = [];
   let evGifts = [];
@@ -353,7 +429,7 @@
   }
   window.roomSessionsLoad = roomSessionsLoad;
   window.roomSessionsPage = delta => roomSessionsLoad(sessionsPage + delta);
-  const loaders = { perms: permsLoad, giftlists: giftListsLoad, roomSessions: roomSessionsLoad, rocketpk: rocketPkLoad };
+  const loaders = { perms: permsLoad, giftlists: giftListsLoad, roomSessions: roomSessionsLoad, rocketpk: rocketPkLoad, storelists: storeListsLoad };
   window.spec52Register = (sec, fn) => {
     loaders[sec] = fn;
   };
