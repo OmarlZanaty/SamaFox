@@ -148,6 +148,7 @@ class GreedyLayout {
   final int minBet;
   final double rtp;
   final List<int> jackpotMilestones;
+  final int bettingMs;
 
   const GreedyLayout({
     required this.symbols,
@@ -157,6 +158,7 @@ class GreedyLayout {
     required this.minBet,
     required this.rtp,
     required this.jackpotMilestones,
+    this.bettingMs = 0,
   });
 
   factory GreedyLayout.fromJson(Map<String, dynamic> json) => GreedyLayout(
@@ -171,6 +173,7 @@ class GreedyLayout {
           ),
         ),
         categorySplit: (json['categorySplit'] as num?)?.toInt() ?? 4,
+        bettingMs: ((json['phases'] as Map?)?['betting'] as num?)?.toInt() ?? 0,
         denominations: ((json['denominations'] as List?) ?? const [])
             .map((e) => (e as num).toInt())
             .toList(),

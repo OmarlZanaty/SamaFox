@@ -716,8 +716,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
     };
     // Only the timed phases get a countdown ring; a spin has nothing to wait on.
     final total =
-        state.isBetting ? 20000.0 : (state.isBonusPick ? 10000.0 : 0.0);
-    final progress = total == 0 ? 0.0 : (_msLeft / total).clamp(0.0, 1.0);
+        state.isBetting ? (_layout?.bettingMs ?? 0).toDouble() : (state.isBonusPick ? 10000.0 : 0.0);
+    final progress = total <= 0 ? 0.0 : (_msLeft / total).clamp(0.0, 1.0);
 
     if (state.isResult) return _resultHub(state);
 

@@ -92,15 +92,18 @@ class CrazyLayout {
   final Map<String, int> payouts;
   final List<String> betSpots;
   final List<int> chipTiers;
+  final int bettingMs;
 
   const CrazyLayout({
     required this.wheel,
     required this.payouts,
     required this.betSpots,
     required this.chipTiers,
+    this.bettingMs = 0,
   });
 
   factory CrazyLayout.fromJson(Map<String, dynamic> json) => CrazyLayout(
+        bettingMs: ((json['phases'] as Map?)?['betting'] as num?)?.toInt() ?? 0,
         wheel: ((json['wheel'] as List?) ?? const []).map((e) => e.toString()).toList(),
         payouts: ((json['payouts'] as Map?) ?? const {})
             .map((k, v) => MapEntry(k.toString(), (v as num).toInt())),

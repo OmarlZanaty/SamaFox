@@ -1219,7 +1219,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
     final total = state == null
         ? 1.0
         : state.isBetting
-            ? 30000.0
+            ? (_layout?.bettingMs ?? 0).toDouble()
             : state.isClosing
                 ? 5000.0
                 : 6000.0;
@@ -1232,7 +1232,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
         children: [
           SizedBox.expand(
             child: CircularProgressIndicator(
-              value: (_msLeft / total).clamp(0.0, 1.0),
+              value: total <= 0 ? 0.0 : (_msLeft / total).clamp(0.0, 1.0),
               strokeWidth: diameter * 0.09,
               backgroundColor: GreedyPalette.woodOutline.withOpacity(0.35),
               valueColor: AlwaysStoppedAnimation(

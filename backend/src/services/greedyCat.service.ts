@@ -154,7 +154,8 @@ let milestonesHit = 0;
 // ── Round state ─────────────────────────────────────────────
 type Phase = 'betting' | 'closing' | 'spinning' | 'result';
 
-const BETTING_MS = 30_000;
+// Client request 2026-10-21: «خلي الالعاب اللي بتلف كلها عداد 15 ثانيه»
+const BETTING_MS = 15_000;
 const CLOSING_MS = 5_000;
 const SPINNING_MS = 6_000;
 const RESULT_MS = 6_000;

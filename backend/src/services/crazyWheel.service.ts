@@ -300,7 +300,8 @@ type BonusResult = CoinFlipResult | CashHuntResult | PachinkoResult | CrazyTimeR
 // ── Round state ─────────────────────────────────────────────
 type Phase = 'betting' | 'spinning' | 'bonus_pick' | 'bonus_reveal' | 'result';
 
-const BETTING_MS = 20_000;
+// Client request 2026-10-21: «خلي الالعاب اللي بتلف كلها عداد 15 ثانيه»
+const BETTING_MS = 15_000;
 const SPINNING_MS = 9_000;
 const BONUS_PICK_MS = 10_000;
 const BONUS_REVEAL_MS = 8_000;
@@ -781,6 +782,7 @@ export function getWheelLayout() {
     betSpots: BET_SPOTS,
     chipTiers: CHIP_TIERS,
     maxWinMultiplier: MAX_WIN_MULTIPLIER,
+    phases: { betting: BETTING_MS },
     topSlotOdds: TOP_SLOT_TABLE.map(([multiplier, w]) => ({ multiplier, chance: w / TOP_SLOT_TOTAL })),
   };
 }
