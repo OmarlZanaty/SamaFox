@@ -14,7 +14,8 @@ export const FRUIT_WHEEL_ROOM = 'fruitwheel:main';
 // Idle rounds have no rows; distinguish a fresh process after their numbers reset.
 const TABLE_ID = crypto.randomBytes(16).toString('hex');
 type Phase = 'betting' | 'closing' | 'spinning' | 'result';
-export const PHASE_MS: Record<Phase, number> = { betting: 30_000, closing: 1_000, spinning: 6_000, result: 5_000 };
+// Client request 2026-10-21: «خلي الالعاب اللي بتلف كلها عداد 15 ثانيه».
+export const PHASE_MS: Record<Phase, number> = { betting: 15_000, closing: 1_000, spinning: 6_000, result: 5_000 };
 /** Wins of at least this × the player's stake are announced to everyone. */
 const BROADCAST_MIN_X = 10;
 

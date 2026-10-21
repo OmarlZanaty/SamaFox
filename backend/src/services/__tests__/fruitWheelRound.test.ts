@@ -285,7 +285,7 @@ test('77 pays 5.6 times from pool and history records actual payment', async () 
   assert.equal(getPublicState()!.winners[0]!.staked, 1000);
 });
 test('empty rounds still spin; number advances and history retains ten results', async () => {
-  assert.deepEqual(PHASE_MS, { betting: 30000, closing: 1000, spinning: 6000, result: 5000 });
+  assert.deepEqual(PHASE_MS, { betting: 15000, closing: 1000, spinning: 6000, result: 5000 });
   const first = getPublicState()!.round;
   for (let i = 0; i < 12; i++) {
     assert.equal(getPublicState()!.round, first + i);

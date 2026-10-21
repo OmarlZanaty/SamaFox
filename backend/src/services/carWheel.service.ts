@@ -32,7 +32,8 @@ import { CHIPS, MAX_PER_KEY, MULTIPLIERS, WHEEL_ORDER, SEGMENTS, maxPayout, pars
 export const GAME = 'carwheel';
 export const CAR_WHEEL_ROOM = 'carwheel:main';
 type Phase = 'betting' | 'closing' | 'spinning' | 'result';
-export const PHASE_MS: Record<Phase, number> = { betting: 25_000, closing: 3_000, spinning: 7_000, result: 6_000 };
+// Client request 2026-10-21: «خلي الالعاب اللي بتلف كلها عداد 15 ثانيه».
+export const PHASE_MS: Record<Phase, number> = { betting: 15_000, closing: 3_000, spinning: 7_000, result: 6_000 };
 /** Wins of at least this × the player's stake are announced to everyone. */
 const BROADCAST_MIN_X = 10;
 
