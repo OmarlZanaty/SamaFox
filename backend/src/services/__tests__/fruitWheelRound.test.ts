@@ -1,7 +1,8 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { accounts, balances, ledger, economyLedger, xpAwards, settings, fakePrisma } from './halalStubs';
-import { WHEEL_ORDER, SEGMENTS, assertBalancedTable, parseBetKey, payoutFor, maxPayout, rollFromSeed, returnOf, presentationFor, winningCards, payoutForResults } from '../fruitWheelRound.math';
+import { WHEEL_ORDER, SEGMENTS, assertBalancedTable, parseBetKey, payoutFor, maxPayout, rollFromSeed, returnOf, presentationFor, winningCards, payoutForResults, bonusPrimaryFromSeed } from '../fruitWheelRound.math';
 import { invalidateGameConfigCache, getGameSettings, setGameSettings } from '../gameConfig.service';
 import { __resetHalalForTests, freePrizePoolBalance, reservedForGame, reservePrize, releasePrize } from '../halalGames.service';
 import { startFruitWheelRoundEngine, stopFruitWheelRoundEngine, placeBet, undoBet, clearBets, repeatBets, getPublicState, refundOrphans,
@@ -61,6 +62,19 @@ beforeEach(async () => {
 afterEach(() => stopFruitWheelRoundEngine());
 
 const round = () => __test.getRound()!;
+function seedCrownRound() {
+  for (let i = 0; ; i++) {
+    const seed = `crown-round-${i}`;
+    if (rollFromSeed(seed, round().number) !== 'crown') continue;
+    round().seed = seed;
+    round().seedHash = crypto.createHash('sha256').update(seed).digest('hex');
+    return;
+  }
+}
+function bonusPrimary() {
+  const primary = rollFromSeed(round().seed, round().number);
+  return primary === 'crown' ? bonusPrimaryFromSeed(round().seed, round().number) : primary;
+}
 /** Runs betting → closing → spinning → result and waits for settlement. */
 async function playOut() {
   await __test.advance(); // closing
@@ -76,41 +90,45 @@ test('balanced table: each card returns 70%, crown cannot be staked', () => {
   assert.doesNotThrow(assertBalancedTable);
   assert.deepEqual(WHEEL_ORDER, ['watermelon', 'plum', 'watermelon', 'plum', 'sevens', 'watermelon', 'plum', 'watermelon', 'plum', 'crown']);
   assert.equal(SEGMENTS.reduce((sum, s) => sum + s.weight, 0), 10000);
-  assert.equal(SEGMENTS.find(s => s.key === 'crown')!.weight, 0);
+  assert.deepEqual(SEGMENTS, [
+    { key: 'watermelon', multiplierX10: 20, weight: 3500 },
+    { key: 'plum', multiplierX10: 20, weight: 3500 },
+    { key: 'sevens', multiplierX10: 80, weight: 875 },
+    { key: 'crown', multiplierX10: 0, weight: 2125 },
+  ]);
   for (const s of SEGMENTS) if (s.key !== 'crown') {
     assert.equal(s.multiplierX10 * s.weight, 70000);
     assert.equal(returnOf(s.key), .7);
   }
   for (const bad of ['crown', 'bonus', '777', 'constructor', '__proto__', '', null]) assert.equal(parseBetKey(bad), null);
-  assert.equal(maxPayout({ watermelon: 1000, sevens: 100 }), 1600);
-  assert.equal(payoutFor({ watermelon: 1000 }, 'watermelon'), 1600);
-  assert.equal(payoutFor({ sevens: 100 }, 'sevens'), 560);
-  assert.equal(payoutFor({ plum: 101 }, 'plum'), 161);
-  assert.equal(payoutFor({ sevens: 101 }, 'sevens'), 565);
+  assert.equal(maxPayout({ watermelon: 1000, sevens: 100 }), 2000);
+  assert.equal(payoutFor({ watermelon: 1000 }, 'watermelon'), 2000);
+  assert.equal(payoutFor({ sevens: 100 }, 'sevens'), 800);
+  assert.equal(payoutFor({ plum: 101 }, 'plum'), 202);
+  assert.equal(payoutFor({ sevens: 101 }, 'sevens'), 808);
   assert.equal(payoutFor({ watermelon: 1000, sevens: 100 }, 'crown'), 0);
 });
-test('committed seed weights never roll crown and presentation stays in slots 0–8', () => {
+test('committed seed weights include crown and presentation matches all ten slots', () => {
   const counts: Record<string, number> = Object.fromEntries(SEGMENTS.map(s => [s.key, 0]));
   for (let i = 0; i < 200000; i++) counts[rollFromSeed(`seed-${i}`, i)]!++;
-  assert.equal(counts.crown, 0);
-  assert.throws(() => presentationFor('crown'), /Invalid FRUIT WHEEL outcome/);
+  assert.ok(counts.crown! > 0);
+  assert.equal(presentationFor('crown').segment, 9);
   for (const s of SEGMENTS) {
-    if (s.weight === 0) continue;
     const expected = 200000 * s.weight / 10000;
     assert.ok(Math.abs(counts[s.key]! - expected) < 6 * Math.sqrt(expected));
     for (let i = 0; i < 100; i++) {
       const p = presentationFor(s.key);
       assert.equal(WHEEL_ORDER[p.segment], s.key);
-      assert.ok(p.segment >= 0 && p.segment <= 8);
+      assert.ok(p.segment >= 0 && p.segment <= 9);
       assert.ok(p.offset >= .15 && p.offset <= .85);
     }
   }
   assert.equal(rollFromSeed('abc', 7), rollFromSeed('abc', 7));
 });
 
-test('table config publishes decimal multipliers and compatible wheel indices', async () => {
+test('table config publishes restored multipliers and compatible wheel indices', async () => {
   const layout = await getLayout();
-  assert.deepEqual(layout.multipliers, { watermelon: 1.6, sevens: 5.6, plum: 1.6 });
+  assert.deepEqual(layout.multipliers, { watermelon: 2, sevens: 8, plum: 2 });
   assert.deepEqual(layout.wheel, WHEEL_ORDER);
 });
 
@@ -263,29 +281,36 @@ test('repeat union cannot add a third card and charges nothing on rejection', as
   assert.equal(balances.get(1), before);
   assert.equal(stakes.size, 1);
 });
-test('reserve real maximum, split 30/70 at close, defensively pay nothing for old crown', async () => {
+test('plain crown round reserves the maximum, splits 30/70 and pays nobody', async () => {
+  seedCrownRound();
   await placeBet(1, 'watermelon', 1000);
   await placeBet(1, 'sevens', 100);
-  assert.equal(round().players.get(1)!.reserved, 1600);
+  assert.equal(round().players.get(1)!.reserved, 2000);
   await __test.advance();
   assert.equal(accounts.get('PROGRAM'), 330);
   assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000770);
   await __test.advance();
-  round().result = 'crown';
+  assert.equal(round().result, 'crown');
+  assert.equal(round().segment, 9);
+  assert.equal(round().bonus, null);
   await __test.advance();
   assert.equal(getPublicState(1)!.me!.payout, 0);
   assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000770);
   assert.equal(balances.get(1), 98900);
+  assert.deepEqual(getPublicState()!.results, ['crown']);
+  assert.deepEqual(getPublicState()!.history.slice(-1), ['crown']);
+  assert.equal((await getHistory(1))[0]!.prize, 0);
+  assert.equal(reservedForGame('fruitwheel'), 0);
 });
-test('77 pays 5.6 times from pool and history records actual payment', async () => {
+test('77 pays 8 times from pool and history records actual payment', async () => {
   await placeBet(1, 'sevens', 1000);
   await __test.advance(); await __test.advance();
   round().result = 'sevens';
   await __test.advance();
-  assert.equal(getPublicState(1)!.me!.payout, 5600);
-  assert.equal(balances.get(1), 104600);
-  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000000 + 700 - 5600);
-  assert.equal((await getHistory(1))[0]!.prize, 5600);
+  assert.equal(getPublicState(1)!.me!.payout, 8000);
+  assert.equal(balances.get(1), 107000);
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000000 + 700 - 8000);
+  assert.equal((await getHistory(1))[0]!.prize, 8000);
   assert.equal(getPublicState()!.winners[0]!.staked, 1000);
 });
 test('empty rounds still spin; number advances and history retains ten results', async () => {
@@ -407,7 +432,8 @@ test('double uses the specified SHA-256 salt and never changes the primary', () 
   const crypto = require('node:crypto');
   const selections = new Set<string>();
   for (let i = 0; i < 40; i++) {
-    const primary = rollFromSeed(`bonus-${i}`, i);
+    const rolled = rollFromSeed(`bonus-${i}`, i);
+    const primary = rolled === 'crown' ? bonusPrimaryFromSeed(`bonus-${i}`, i) : rolled;
     const others = ['watermelon', 'plum', 'sevens'].filter(c => c !== primary);
     const hash = crypto.createHash('sha256').update(`bonus-${i}:${i}:bonus`).digest('hex');
     const expected = [primary, others[Number(BigInt(`0x${hash}`) % 2n)]];
@@ -436,7 +462,8 @@ for (const atThreshold of [false, true]) test(`triple threshold uses free pool i
 
 for (const kind of ['double', 'triple'] as const) test(`${kind} pays both winning cards and preserves state, event, DB and history`, async () => {
   await nextBonusRound({ tripleMinPool: kind === 'double' ? 1_000_000_000 : 0 });
-  const primary = rollFromSeed(round().seed, round().number);
+  seedCrownRound();
+  const primary = bonusPrimary();
   const cards = winningCards(round().seed, round().number, primary, kind);
   for (const card of cards.slice(0, 2)) assert.equal((await placeBet(1, card, 1000)).ok, true);
   const bets = { ...round().players.get(1)!.stakes };
@@ -445,6 +472,9 @@ for (const kind of ['double', 'triple'] as const) test(`${kind} pays both winnin
   const expected = payoutForResults(bets, cards);
   assert.equal(round().bonus, kind);
   assert.equal(round().result, primary);
+  assert.notEqual(round().result, 'crown');
+  assert.equal(WHEEL_ORDER[round().segment!], primary);
+  assert.ok(!cards.includes('crown'));
   assert.equal(balances.get(1), before + expected);
   assert.equal(getPublicState(1)!.me!.payout, expected);
   assert.equal(round().winners[0]!.payout, expected);
@@ -464,7 +494,8 @@ for (const kind of ['double', 'triple'] as const) test(`${kind} pays both winnin
 
 for (const fallback of ['double', 'plain'] as const) test(`failed extra reservations roll back every attempt before downgrade to ${fallback}`, async () => {
   await nextBonusRound({ tripleMinPool: 0 });
-  const primary = rollFromSeed(round().seed, round().number);
+  seedCrownRound();
+  const primary = bonusPrimary();
   const double = winningCards(round().seed, round().number, primary, 'double');
   const excluded = ['watermelon', 'plum', 'sevens'].find(c => !double.includes(c))!;
   // First extra succeeds, then the second fails. A double retry must start clean.
@@ -477,6 +508,9 @@ for (const fallback of ['double', 'plain'] as const) test(`failed extra reservat
   const poolBefore = accounts.get('GAME_POOL:fruitwheel')!;
   await __test.advance();
   assert.equal(round().bonus, fallback === 'double' ? 'double' : null);
+  assert.equal(round().result, primary);
+  assert.notEqual(round().result, 'crown');
+  assert.deepEqual(getPublicState()!.results, fallback === 'double' ? double : [primary]);
   assert.equal(reservedForGame('fruitwheel'), originalHeld + (fallback === 'double' ? firstExtra : 0));
   await __test.advance();
   const paid = [...round().players.values()].reduce((s, p) => s + p.payout, 0);

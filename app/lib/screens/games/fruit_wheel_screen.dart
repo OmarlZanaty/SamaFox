@@ -275,6 +275,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                 winners: next.winners,
                 staked: next.myStaked,
                 payout: next.myPayout,
+                crown: next.result == 'crown',
                 duration: next.left,
               ),
             );
@@ -962,6 +963,13 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           child: _hub(size * .27, center),
                         ),
                       ),
+                      if (state?.phase == 'result' && state?.result == 'crown')
+                        Positioned(
+                          top: size * .76,
+                          left: 8,
+                          right: 8,
+                          child: _bonusLabel(_s.text('crownRound')),
+                        ),
                       if (state?.phase == 'result' && state?.bonus != null)
                         Positioned(
                           top: size * .04,

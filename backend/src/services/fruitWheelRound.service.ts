@@ -5,7 +5,7 @@ import { getGameSettings, checkGamePlayable, fruitWheelBonusSettings } from './g
 import { grantStakeValue, payPrize, releasePrize, reservePrize, freePrizePoolBalance } from './halalGames.service';
 import { broadcastGameWin } from './gameBroadcast.service';
 import { CHIPS, MAX_PER_KEY, MULTIPLIERS, WHEEL_ORDER, SEGMENTS, maxPayout, parseBetKey, payoutFor, rollFromSeed, presentationFor } from './fruitWheelRound.math';
-import { BonusKind, winningCards, payoutForResults } from './fruitWheelRound.math';
+import { BonusKind, winningCards, payoutForResults, bonusPrimaryFromSeed } from './fruitWheelRound.math';
 
 // Shared fruit table, adapted from carWheel.service.ts. All coin charges,
 // reservations, stake grants, payouts and boot refunds follow that engine.
@@ -492,6 +492,11 @@ async function advance() {
   if (r.phase === 'closing') {
     if (timer) clearTimeout(timer);
     r.result = rollFromSeed(r.seed, r.number);
+    // A bonus round always pays: it never lands on the crown.
+    if (r.result === 'crown' && r.bonusSettings.bonusEnabled && r.roundsToBonus === 0 &&
+        [...r.players.values()].some(p => sum(p.stakes) > 0)) {
+      r.result = bonusPrimaryFromSeed(r.seed, r.number);
+    }
     await prepareBonus(r);
     Object.assign(r, presentationFor(r.result as ReturnType<typeof rollFromSeed>));
     schedule(r, 'spinning');
@@ -551,7 +556,7 @@ export async function startFruitWheelRoundEngine(server: Server) {
     throw err;
   }
   await startRound();
-  console.log('[fruitwheel] engine started — three cards, no crown, 70% return');
+  console.log('[fruitwheel] engine started — three cards and crown, 70% return');
 }
 
 export function stopFruitWheelRoundEngine() {

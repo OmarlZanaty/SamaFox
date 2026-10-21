@@ -188,7 +188,7 @@ void main() {
     expect(find.text('الجائزة: 1234'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
-  test('per-card cap and two distinct cards, 77 pays ×5.6, no crown', () {
+  test('per-card cap and two distinct cards, 77 pays ×8, crown at slot 9', () {
     final bets = FruitBets();
     expect(bets.add('watermelon', 1000, 1000), true);
     expect(bets.add('sevens', 1000, 1000), true);
@@ -196,16 +196,15 @@ void main() {
     expect(bets.add('plum', 100, 1000), false);
     expect(bets.add('watermelon', 100, 1000), false);
     expect(bets.add('crown', 100, 1000), false);
-    expect(fruitMultipliers, {'watermelon': 1.6, 'sevens': 5.6, 'plum': 1.6});
+    expect(fruitMultipliers, {'watermelon': 2, 'sevens': 8, 'plum': 2});
     expect(fruitSegments, [
       'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
-      'watermelon', 'plum', 'watermelon', 'plum',
+      'watermelon', 'plum', 'watermelon', 'plum', 'crown',
     ]);
-    expect(fruitSegments, isNot(contains('crown')));
-    expect(fruitSegments.length, 9);
+    expect(fruitSegments.length, 10);
     expect(fruitTickerLength, 10);
   });
-  test('server segment and offset land under pointer across all nine wedges',
+  test('server segment and offset land under pointer across all ten wedges',
       () {
     for (var segment = 0; segment < fruitSegments.length; segment++) {
       for (final offset in [.15, .5, .85]) {
@@ -215,7 +214,7 @@ void main() {
       }
     }
   });
-  test('shared state ignores old crown and clamps server geometry', () {
+  test('shared state keeps the crown result and clamps server geometry', () {
     final s = FruitWheelState.fromJson({
       'round': 3,
       'phase': 'result',
@@ -229,15 +228,15 @@ void main() {
         'payout': 0,
       },
     });
-    expect(s.result, isNull);
-    expect(s.segment, 8);
+    expect(s.result, 'crown');
+    expect(s.segment, 9);
     expect(s.offset, .23);
-    expect(s.history, ['watermelon']);
+    expect(s.history, ['watermelon', 'crown']);
     expect(s.myStaked, 100);
     expect(s.betting, false);
     expect(FruitWheelState.fromJson({'segment': -1}).segment, 0);
     expect(FruitWheelState.fromJson({'result': 'bonus'}).result, isNull);
-    expect(fruitPushTicker(['plum', 'crown', 'bonus'], 'crown'), ['plum']);
+    expect(FruitWheelState.fromJson({'segment': 42}).segment, 9);
   });
   test('adjacent wheel colors differ including the wraparound seam', () {
     for (var i = 0; i < fruitSegments.length; i++) {
@@ -249,7 +248,7 @@ void main() {
     expect(fruitTableMultipliers(null), fruitMultipliers);
     expect(fruitTableMultipliers({
       'watermelon': 2, 'sevens': 6.5, 'plum': 'invalid', 'crown': 10,
-    }), {'watermelon': 2.0, 'sevens': 6.5, 'plum': 1.6});
+    }), {'watermelon': 2.0, 'sevens': 6.5, 'plum': 2.0});
     expect(fruitTableMultipliers({
       'watermelon': -1, 'sevens': double.nan, 'plum': 0,
     }), fruitMultipliers);
@@ -266,8 +265,6 @@ void main() {
     expect(find.text('×6.5'), findsOneWidget);
     expect(find.text('×1.6'), findsOneWidget);
     expect(find.text('×3.0'), findsNothing);
-    expect(t.widgetList<FruitArt>(find.byType(FruitArt))
-        .where((art) => art.name == 'crown'), isEmpty);
     await t.pumpWidget(const SizedBox());
   });
   testWidgets('history keeps old crown art and uses a neutral missing result',
@@ -294,8 +291,8 @@ void main() {
     expect(find.text('30'), findsOneWidget);
     expect(find.text('دوّر'), findsNothing);
     expect(find.text('كرر'), findsNothing);
-    expect(find.text('×5.6'), findsOneWidget);
-    expect(find.text('×1.6'), findsNWidgets(2));
+    expect(find.text('×8'), findsOneWidget);
+    expect(find.text('×2'), findsNWidgets(2));
     game.placeChip('watermelon');
     await t.pumpAndSettle();
     game.placeChip('sevens');
@@ -395,20 +392,20 @@ void main() {
     expect(t.takeException(), isNull);
     await t.pumpWidget(const SizedBox());
   });
-  test('rules disclose fruit odds, multipliers, program share and every-spin card',
+  test('rules disclose fruit odds, multipliers, program share and the crown',
       () {
     for (final ar in [true, false]) {
       final s = FruitWheelStrings(ar);
-      expect(s.text('odds'), contains('43.75%'));
-      expect(s.text('odds'), contains('12.5%'));
-      expect(s.text('odds'), contains('×1.6'));
-      expect(s.text('odds'), contains('×5.6'));
+      expect(s.text('odds'), contains('35%'));
+      expect(s.text('odds'), contains('8.75%'));
+      expect(s.text('odds'), contains('21.25%'));
+      expect(s.text('odds'), contains('×2'));
+      expect(s.text('odds'), contains('×8'));
       expect(s.text('odds'), contains('70%'));
-      expect(s.text('odds'), isNot(contains('21.25%')));
-      expect(s.text('odds'), isNot(contains(ar ? 'التاج' : 'Crown')));
+      expect(s.text('odds'), contains(ar ? 'التاج' : 'Crown'));
       expect(s.text('rules'), contains(ar
-          ? 'كل لفة تقف على بطاقة فواكه'
-          : 'every spin lands on a fruit card'));
+          ? 'التاج يعني لا يوجد فائز'
+          : 'The crown means no card wins'));
       expect(s.text('poolHelp'), contains('30%'));
       expect(s.text('sevens'), '77');
     }

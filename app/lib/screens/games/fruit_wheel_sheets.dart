@@ -134,12 +134,12 @@ class FruitHistory extends StatelessWidget {
                       dimension: 40,
                       child: Icon(Icons.remove, color: fwMuted),
                     )
-                  : fruitWinningCards(r).isEmpty
+                  : fruitHistoryOutcomes(r).isEmpty
                       ? FruitArt(r['result'].toString(), size: 40)
                       : Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            for (final card in fruitWinningCards(r))
+                            for (final card in fruitHistoryOutcomes(r))
                               FruitArt(card, size: 28),
                           ],
                         ),
@@ -164,6 +164,7 @@ class FruitWinners extends StatefulWidget {
   final FruitWheelStrings strings;
   final List<Map<String, dynamic>> winners;
   final int staked, payout;
+  final bool crown;
   final Duration duration;
   const FruitWinners({
     super.key,
@@ -171,6 +172,7 @@ class FruitWinners extends StatefulWidget {
     required this.winners,
     required this.staked,
     required this.payout,
+    this.crown = false,
     required this.duration,
   });
   @override
@@ -213,14 +215,20 @@ class _FruitWinnersState extends State<FruitWinners> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                s.text('goodLuck'),
+                s.text(widget.crown ? 'crown' : 'goodLuck'),
                 style: const TextStyle(
                   color: fwGold,
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              for (final w in widget.winners.take(3))
+              if (widget.crown)
+                Text(
+                  s.text('crownRound'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: fwCream),
+                ),
+              for (final w in widget.winners.take(widget.crown ? 0 : 3))
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: fruitAvatar(

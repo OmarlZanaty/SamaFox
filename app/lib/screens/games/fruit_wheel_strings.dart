@@ -52,9 +52,11 @@ class FruitWheelStrings {
     'repeatHelp':
         'Undo and clear refund chips during betting. Repeat bets adds your previous stakes to this round; it never starts a spin.',
     'odds':
-        'Watermelon: 43.75% ×1.6. Plum: 43.75% ×1.6. 77: 12.5% ×5.6. Each card has an average return of 70% before bonus rounds; the equal wheel wedges are presentation only.',
+        'Watermelon: 35% ×2. Plum: 35% ×2. 77: 8.75% ×8. Crown: 21.25% ×0. Each card has an average return of 70% before bonus rounds; the equal wheel wedges are presentation only.',
     'rules':
-        'One shared table: 15 seconds to bet, 1 second closing, 6 seconds spinning, then 5 seconds of results. Choose a chip and tap at most two cards. The wheel spins automatically and every spin lands on a fruit card. Returns include the winning stake. Bonus rounds can award two or three winning cards, depending on available prize funds. Empty rounds do not advance the bonus countdown. Wins on your winning cards are added together, subject to the game limits.',
+        'One shared table: 15 seconds to bet, 1 second closing, 6 seconds spinning, then 5 seconds of results. Choose a chip and tap at most two cards. The wheel spins automatically. The crown means no card wins this round. Returns include the winning stake. Bonus rounds never land on the crown and can award two or three winning cards, depending on available prize funds. Empty rounds do not advance the bonus countdown. Wins on your winning cards are added together, subject to the game limits.',
+    'crown': 'Crown',
+    'crownRound': 'No winner in this round',
     'title': 'FRUIT WHEEL',
     'spinning': 'Spinning…',
     'balance': 'Balance',
@@ -137,9 +139,11 @@ class FruitWheelStrings {
     'repeatHelp':
         'التراجع والمسح يعيدان الشرائح أثناء الرهان. إعادة الرهان تضيف رهانات الجولة السابقة لهذه الجولة ولا تبدأ الدوران.',
     'odds':
-        'البطيخ: 43.75% ×1.6. البرقوق: 43.75% ×1.6. 77: ‏12.5% ×5.6. متوسط عائد كل بطاقة 70% قبل لفات المكسب الإضافي؛ القطاعات المتساوية للعرض فقط.',
+        'البطيخ: 35% ×2. البرقوق: 35% ×2. 77: ‏8.75% ×8. التاج: 21.25% ×0. متوسط عائد كل بطاقة 70% قبل لفات المكسب الإضافي؛ القطاعات المتساوية للعرض فقط.',
     'rules':
-        'طاولة واحدة للجميع: 15 ثانية للرهان، ثانية للإغلاق، 6 ثوانٍ للدوران، ثم 5 ثوانٍ للنتائج. اختر شريحة واضغط على خيارين كحد أقصى. العجلة تدور تلقائيًا وكل لفة تقف على بطاقة فواكه. العائد يشمل الرهان الفائز. لفات المكسب الإضافي قد تفوز فيها بطاقتان أو ثلاث حسب الرصيد المتاح للجوائز. اللفات الفارغة لا تقدّم عداد المكسب الإضافي. تُجمع مكاسب بطاقاتك الفائزة مع تطبيق حدود اللعبة.',
+        'طاولة واحدة للجميع: 15 ثانية للرهان، ثانية للإغلاق، 6 ثوانٍ للدوران، ثم 5 ثوانٍ للنتائج. اختر شريحة واضغط على خيارين كحد أقصى. العجلة تدور تلقائيًا. التاج يعني لا يوجد فائز في هذه الجولة. العائد يشمل الرهان الفائز. لفات المكسب الإضافي لا تقف على التاج وقد تفوز فيها بطاقتان أو ثلاث حسب الرصيد المتاح للجوائز. اللفات الفارغة لا تقدّم عداد المكسب الإضافي. تُجمع مكاسب بطاقاتك الفائزة مع تطبيق حدود اللعبة.',
+    'crown': 'التاج',
+    'crownRound': 'لا يوجد فائز في هذه الجولة',
     'title': 'عجلة الفواكه',
     'spinning': 'جاري الدوران...',
     'balance': 'الرصيد',

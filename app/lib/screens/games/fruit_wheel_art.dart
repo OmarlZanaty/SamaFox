@@ -294,9 +294,10 @@ class _CapsulePainter extends CustomPainter {
   bool shouldRepaint(_CapsulePainter old) => false;
 }
 
-/// Blues alternate around the seam; pink 77 separates the two blue runs.
+/// Pink 77 and the purple crown separate the alternating blue wedges.
 Color fruitSegmentColor(int index) => switch (fruitSegments[index]) {
       'sevens' => fwPink,
+      'crown' => fwPurple,
       _ => (index < 4 ? index : index - 1).isEven
           ? const Color(0xFF087EDB)
           : const Color(0xFF0B5FC4),

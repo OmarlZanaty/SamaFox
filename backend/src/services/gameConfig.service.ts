@@ -106,7 +106,7 @@ const NATURAL_MAX_MULTIPLIER: Record<string, number> = {
   'greedy-cat': 45,
   'neon-fortune': 1000,
   yummy: 1500,
-  fruitwheel: 5.6,
+  fruitwheel: 8,
   roulette: 26,
   carwheel: 88,
   'fruit-jackpot': 1000,
