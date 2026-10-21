@@ -26,6 +26,17 @@ Map<String, double> fruitTableMultipliers(Object? raw) => {
 String fruitMultiplierLabel(double value) =>
     '×${value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toString()}';
 
+/// Additive server outcomes, with support for installed servers' single result.
+List<String> fruitWinningCards(Map<String, dynamic> j) {
+  final cards = (j['results'] is List ? j['results'] as List : const [])
+      .whereType<String>()
+      .where(fruitCards.contains)
+      .toSet()
+      .toList();
+  if (cards.isNotEmpty) return cards;
+  return fruitCards.contains(j['result']) ? [j['result'] as String] : [];
+}
+
 // 2026-10-19: "التاج ده ملوش مكسب شيله خالص" — remove the crown.
 /// Nine equal segments, matching server indices 0–8; its unused slot 9 stays.
 const fruitSegments = [
@@ -109,6 +120,12 @@ class FruitWheelState {
   final String phase, seedHash, tableId;
   final String? seed;
   final String? result;
+  final List<String> results;
+  final String? bonus;
+  final int? roundsToBonus;
+  final int bonusEveryRounds;
+  final bool bonusEnabled;
+  final List<List<String>> historyResults;
   final Map<String, int> totals;
   final List<Map<String, dynamic>> players, winners;
   final List<String> history;
@@ -130,6 +147,24 @@ class FruitWheelState {
         seed = j['seed']?.toString(),
         result =
             fruitCards.contains(j['result']) ? j['result'] as String : null,
+        results = fruitWinningCards(j),
+        bonus = ['double', 'triple'].contains(j['bonus'])
+            ? j['bonus'] as String : null,
+        roundsToBonus = j['roundsToBonus'] is num
+            ? _int(j['roundsToBonus']).clamp(0, 1000) : null,
+        bonusEveryRounds = j['bonusEveryRounds'] is num
+            ? _int(j['bonusEveryRounds']) : 20,
+        bonusEnabled = j['bonusEnabled'] != false,
+        historyResults = j['historyRows'] is List
+            ? _maps(j['historyRows'])
+                .map(fruitWinningCards)
+                .where((cards) => cards.isNotEmpty)
+                .toList()
+            : (j['history'] is List ? j['history'] as List : const [])
+                .whereType<String>()
+                .where(fruitCards.contains)
+                .map((card) => [card])
+                .toList(),
         totals = _ints(j['totals']),
         players = _maps(j['players']),
         winners = _maps(j['winners']),

@@ -102,6 +102,13 @@ r.patch('/games-economy/:game', requireOwnerPermission('economy.settings'), asyn
     const b = req.body ?? {};
     const patch: Record<string, unknown> = {};
     if (b.enabled != null) patch.enabled = Boolean(b.enabled);
+    if (game === 'fruitwheel') {
+      for (const f of ['bonusEnabled', 'bonusEveryRounds', 'tripleMinPool'] as const) {
+        if (b[f] === undefined) continue;
+        // Preserve types and fractions: validation must reject, never coerce them.
+        patch[f] = b[f];
+      }
+    }
     for (const f of ['minBet', 'maxBet', 'maxWinPerRound', 'dailyMaxWinPerUser', 'maxPayoutRatio', 'rtpTargetBp', 'broadcastMinX'] as const) {
       if (b[f] === undefined) continue;
       const v = intOrNull(b[f]);

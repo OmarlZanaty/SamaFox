@@ -1270,6 +1270,11 @@
           <label>حصة البرنامج % <input id="econ_programShare" type="number" min="0" max="100" step="0.01" class="form-input" /></label>
           <label>إعلان الفوز من (× الرهان) <input id="econ_broadcastMinX" type="number" min="1" class="form-input" placeholder="50" /></label>
         </div>
+        <div id="econFruitBonus" class="form-grid" style="display:none">
+          <label>المكسب المزدوج في لعبة 77 <select id="econ_bonusEnabled" class="form-input"><option value="1">مفعّل</option><option value="0">متوقف</option></select></label>
+          <label>مكسب إضافي كل عدد لفات فيها لاعبون <input id="econ_bonusEveryRounds" type="number" min="2" max="1000" step="1" class="form-input" placeholder="20" /></label>
+          <label>الرصيد الحر المطلوب للمكسب الثلاثي <input id="econ_tripleMinPool" type="number" min="0" class="form-input" placeholder="15000000" /></label>
+        </div>
         <div class="cell-muted" id="econNatural"></div>
         <div class="form-row" style="margin-top:10px">
           <input id="econ_reason" class="form-input" placeholder="سبب التعديل (إجباري)" />
@@ -2297,7 +2302,7 @@
   <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
 </div>
 <script src="app.js?v=20261020"></script>
-<script src="economy-admin.js?v=20261020"></script>
+<script src="economy-admin.js?v=20261021-fruitwheel-bonus"></script>
 <script src="staff-admin.js?v=20261011"></script>
 <script src="spec52-admin.js?v=20261020"></script>
 </body>

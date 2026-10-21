@@ -1,9 +1,9 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { accounts, balances, ledger, economyLedger, xpAwards, settings, fakePrisma } from './halalStubs';
-import { WHEEL_ORDER, SEGMENTS, assertBalancedTable, parseBetKey, payoutFor, maxPayout, rollFromSeed, returnOf, presentationFor } from '../fruitWheelRound.math';
-import { invalidateGameConfigCache } from '../gameConfig.service';
-import { __resetHalalForTests } from '../halalGames.service';
+import { WHEEL_ORDER, SEGMENTS, assertBalancedTable, parseBetKey, payoutFor, maxPayout, rollFromSeed, returnOf, presentationFor, winningCards, payoutForResults } from '../fruitWheelRound.math';
+import { invalidateGameConfigCache, getGameSettings, setGameSettings } from '../gameConfig.service';
+import { __resetHalalForTests, freePrizePoolBalance, reservedForGame, reservePrize, releasePrize } from '../halalGames.service';
 import { startFruitWheelRoundEngine, stopFruitWheelRoundEngine, placeBet, undoBet, clearBets, repeatBets, getPublicState, refundOrphans,
   getHistory, getLayout, PHASE_MS, __test } from '../fruitWheelRound.service';
 
@@ -18,7 +18,11 @@ fakePrisma.fruitWheelSharedRound = {
   create: async ({ data }: any) => { const row = { id: ++ids, result: null, settledAt: null, ...data }; rounds.set(row.id, row); return row; },
   delete: async ({ where }: any) => rounds.delete(where.id),
   update: async ({ where, data }: any) => Object.assign(rounds.get(where.id), data),
-  findMany: async ({ where }: any) => [...rounds.values()].filter(r => match(r, where)),
+  findMany: async ({ where, orderBy, take }: any) => {
+    const rows = [...rounds.values()].filter(r => match(r, where));
+    if (orderBy?.id) rows.sort((a, b) => orderBy.id === 'desc' ? b.id - a.id : a.id - b.id);
+    return rows.slice(0, take ?? rows.length);
+  },
   aggregate: async () => ({ _max: { id: rounds.size ? Math.max(...rounds.keys()) : null } }),
 };
 fakePrisma.fruitWheelStake = {
@@ -344,4 +348,184 @@ test('history and winners show actual capped pool payment', async () => {
   await __test.advance();
   assert.equal(getPublicState(1)!.me!.payout, 500);
   assert.equal((await getHistory(1))[0]!.prize, 500);
+});
+
+async function configureBonus(patch: Record<string, unknown> = {}) {
+  await setGameSettings('fruitwheel', { bonusEveryRounds: 2, ...patch });
+  // Settings are snapshotted when a round starts, not changed during betting.
+  stopFruitWheelRoundEngine();
+  await startFruitWheelRoundEngine(io);
+}
+
+async function nextBonusRound(patch: Record<string, unknown> = {}) {
+  await configureBonus(patch);
+  await placeBet(1, 'plum', 100);
+  await playOut();
+  await __test.advance();
+  assert.equal(getPublicState()!.roundsToBonus, 0);
+}
+
+test('bonus settings default, clear to defaults, and reject invalid values', async () => {
+  const defaults = await getGameSettings('fruitwheel');
+  assert.equal(defaults.bonusEnabled, true);
+  assert.equal(defaults.bonusEveryRounds, 20);
+  assert.equal(defaults.tripleMinPool, 15_000_000);
+  for (const patch of [
+    { bonusEveryRounds: 1 }, { bonusEveryRounds: 1001 }, { bonusEveryRounds: 2.5 },
+    { bonusEveryRounds: '20' }, { tripleMinPool: -1 }, { tripleMinPool: Infinity },
+    { tripleMinPool: '10' }, { bonusEnabled: 'false' },
+  ]) await assert.rejects(setGameSettings('fruitwheel', patch as any));
+  await setGameSettings('fruitwheel', { bonusEnabled: false, bonusEveryRounds: 1000, tripleMinPool: 0 });
+  await setGameSettings('fruitwheel', { bonusEnabled: null, bonusEveryRounds: null, tripleMinPool: null });
+  assert.deepEqual(await getGameSettings('fruitwheel'), defaults);
+});
+
+test('Nth occupied round is bonus; empty and cleared rounds do not count; reset after bonus and boot', async () => {
+  await configureBonus({ bonusEveryRounds: 3 });
+  assert.equal(getPublicState()!.roundsToBonus, 2);
+  await placeBet(1, 'plum', 100); await clearBets(1);
+  await playOut(); await __test.advance();
+  assert.equal(getPublicState()!.roundsToBonus, 2);
+  for (let i = 0; i < 2; i++) {
+    await placeBet(1, 'plum', 100); await playOut();
+    assert.equal(round().bonus, null);
+    await __test.advance();
+  }
+  assert.equal(getPublicState()!.roundsToBonus, 0);
+  await playOut(); await __test.advance(); // empty due round doesn't consume bonus
+  assert.equal(getPublicState()!.roundsToBonus, 0);
+  await placeBet(1, 'plum', 100); await playOut();
+  assert.equal(round().bonus, 'triple');
+  await __test.advance();
+  assert.equal(getPublicState()!.roundsToBonus, 2);
+  await placeBet(1, 'plum', 100); await playOut();
+  stopFruitWheelRoundEngine(); await startFruitWheelRoundEngine(io);
+  assert.equal(getPublicState()!.roundsToBonus, 2);
+});
+
+test('double uses the specified SHA-256 salt and never changes the primary', () => {
+  const crypto = require('node:crypto');
+  const selections = new Set<string>();
+  for (let i = 0; i < 40; i++) {
+    const primary = rollFromSeed(`bonus-${i}`, i);
+    const others = ['watermelon', 'plum', 'sevens'].filter(c => c !== primary);
+    const hash = crypto.createHash('sha256').update(`bonus-${i}:${i}:bonus`).digest('hex');
+    const expected = [primary, others[Number(BigInt(`0x${hash}`) % 2n)]];
+    const cards = winningCards(`bonus-${i}`, i, primary, 'double');
+    assert.deepEqual(cards, expected);
+    selections.add(cards[1]!);
+    assert.deepEqual(new Set(winningCards(`bonus-${i}`, i, primary, 'triple')), new Set(['watermelon', 'plum', 'sevens']));
+  }
+  assert.equal(selections.size, 3);
+});
+
+for (const atThreshold of [false, true]) test(`triple threshold uses free pool including other reservations (${atThreshold})`, async () => {
+  await nextBonusRound();
+  await placeBet(1, 'plum', 1000);
+  const held = await reservePrize(2, 'fruitwheel', 10000, 10000);
+  assert.equal(held.ok, true);
+  await __test.advance(); // split stakes first
+  const free = await freePrizePoolBalance('fruitwheel');
+  assert.equal(free, accounts.get('GAME_POOL:fruitwheel')! - reservedForGame('fruitwheel'));
+  round().bonusSettings.tripleMinPool = free + (atThreshold ? 0 : 1);
+  await __test.advance();
+  assert.equal(round().bonus, atThreshold ? 'triple' : 'double');
+  if (held.ok) releasePrize(held.token);
+  await __test.advance();
+});
+
+for (const kind of ['double', 'triple'] as const) test(`${kind} pays both winning cards and preserves state, event, DB and history`, async () => {
+  await nextBonusRound({ tripleMinPool: kind === 'double' ? 1_000_000_000 : 0 });
+  const primary = rollFromSeed(round().seed, round().number);
+  const cards = winningCards(round().seed, round().number, primary, kind);
+  for (const card of cards.slice(0, 2)) assert.equal((await placeBet(1, card, 1000)).ok, true);
+  const bets = { ...round().players.get(1)!.stakes };
+  const before = balances.get(1)!;
+  await playOut();
+  const expected = payoutForResults(bets, cards);
+  assert.equal(round().bonus, kind);
+  assert.equal(round().result, primary);
+  assert.equal(balances.get(1), before + expected);
+  assert.equal(getPublicState(1)!.me!.payout, expected);
+  assert.equal(round().winners[0]!.payout, expected);
+  assert.deepEqual(getPublicState()!.results, cards);
+  assert.deepEqual(getPublicState()!.history.slice(-1), [primary]);
+  assert.deepEqual(getPublicState()!.historyRows.slice(-1)[0]!.results, cards);
+  const event = emitted.filter(e => e.event === 'fruitwheel_result').slice(-1)[0]!.payload;
+  assert.equal(event.bonus, kind); assert.deepEqual(event.results, cards);
+  const row = rounds.get(round().dbId!);
+  assert.equal(row.result, primary); assert.deepEqual(JSON.parse(row.bonus), cards);
+  const history = (await getHistory(1)).find(h => h.round === row.id)!;
+  assert.equal(history.prize, expected); assert.equal(history.bonus, kind); assert.deepEqual(history.results, cards);
+  assert.equal(reservedForGame('fruitwheel'), 0);
+  stopFruitWheelRoundEngine(); await startFruitWheelRoundEngine(io);
+  assert.deepEqual(getPublicState()!.historyRows.slice(-1)[0]!.results, cards);
+});
+
+for (const fallback of ['double', 'plain'] as const) test(`failed extra reservations roll back every attempt before downgrade to ${fallback}`, async () => {
+  await nextBonusRound({ tripleMinPool: 0 });
+  const primary = rollFromSeed(round().seed, round().number);
+  const double = winningCards(round().seed, round().number, primary, 'double');
+  const excluded = ['watermelon', 'plum', 'sevens'].find(c => !double.includes(c))!;
+  // First extra succeeds, then the second fails. A double retry must start clean.
+  await placeBet(1, double[1]!, 1000);
+  await placeBet(2, fallback === 'double' ? excluded : double[1]!, 1000);
+  await __test.advance();
+  const originalHeld = reservedForGame('fruitwheel');
+  const firstExtra = payoutFor(round().players.get(1)!.stakes, double[1]!);
+  accounts.set('GAME_POOL:fruitwheel', originalHeld + firstExtra);
+  const poolBefore = accounts.get('GAME_POOL:fruitwheel')!;
+  await __test.advance();
+  assert.equal(round().bonus, fallback === 'double' ? 'double' : null);
+  assert.equal(reservedForGame('fruitwheel'), originalHeld + (fallback === 'double' ? firstExtra : 0));
+  await __test.advance();
+  const paid = [...round().players.values()].reduce((s, p) => s + p.payout, 0);
+  assert.equal(paid, fallback === 'double' ? firstExtra : 0);
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'), poolBefore - paid);
+  assert.ok(accounts.get('GAME_POOL:fruitwheel')! >= 0);
+  assert.equal(reservedForGame('fruitwheel'), 0);
+  assert.equal(rounds.get(round().dbId!).bonus, fallback === 'double' ? JSON.stringify(double) : null);
+  await __test.advance(); assert.equal(getPublicState()!.roundsToBonus, 1);
+});
+
+test('bonus disabled never adds winners and plain history has additive defaults', async () => {
+  await configureBonus({ bonusEnabled: false });
+  for (let i = 0; i < 5; i++) {
+    await placeBet(1, 'plum', 100); await playOut();
+    assert.equal(round().bonus, null);
+    assert.deepEqual(getPublicState()!.results, [round().result]);
+    assert.equal(getPublicState()!.bonusEnabled, false);
+    await __test.advance();
+  }
+  for (const row of await getHistory(1)) {
+    assert.equal(row.bonus, null); assert.deepEqual(row.results, [row.result]);
+  }
+});
+
+test('bonus keeps round payout caps and reports the actual credited amount everywhere', async () => {
+  await nextBonusRound({ tripleMinPool: 0, maxWinPerRound: 500 });
+  await placeBet(1, 'watermelon', 1000);
+  await placeBet(1, 'plum', 1000);
+  await playOut();
+  assert.equal(round().bonus, 'triple');
+  assert.equal(getPublicState(1)!.me!.payout, 500);
+  assert.equal(round().winners[0]!.payout, 500);
+  assert.equal((await getHistory(1))[0]!.prize, 500);
+  assert.equal(daily.get('fruitwheel:1').wagered, 2100);
+  assert.equal(reservedForGame('fruitwheel'), 0);
+});
+
+test('a pool read error cannot stop the table or announce an unfunded bonus', async () => {
+  await nextBonusRound({ tripleMinPool: 0 });
+  await placeBet(1, 'plum', 1000);
+  await __test.advance();
+  const read = fakePrisma.economyAccount.findUnique;
+  fakePrisma.economyAccount.findUnique = async () => { throw new Error('pool unavailable'); };
+  try {
+    await __test.advance();
+    assert.equal(round().phase, 'spinning');
+    assert.equal(round().bonus, null);
+  } finally { fakePrisma.economyAccount.findUnique = read; }
+  await __test.advance();
+  assert.equal(reservedForGame('fruitwheel'), 0);
 });

@@ -420,6 +420,12 @@ export function reservedForGame(game: string): number {
   return reservedTotals(game, -1).pool;
 }
 
+/** Spendable pool balance after every live reservation, including other engines. */
+export async function freePrizePoolBalance(game: string): Promise<number> {
+  const balance = Number((await readBalance(prisma, gamePoolAccount(game))) ?? 0n);
+  return Math.max(0, balance - reservedForGame(game));
+}
+
 /** The player-facing summary of the rules, for rules screens. */
 export async function describeHalalTerms() {
   const s = await getHalalSettings();

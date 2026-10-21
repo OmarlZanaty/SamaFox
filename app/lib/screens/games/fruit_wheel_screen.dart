@@ -46,7 +46,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
   int? _highlight, _animatedRound, _announced;
   int _chip = fruitChips.first, _seconds = 0, _lastWarning = -1, _payout = 0;
   FruitBets bets = FruitBets();
-  List<String> _ticker = [];
+  List<List<String>> _ticker = [];
   List<Map<String, dynamic>> _leaders = [];
   int? _myRank;
   int _myWon = 0;
@@ -233,7 +233,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         bets = FruitBets(next.myStakes);
         _payout = next.myPayout;
       }
-      _ticker = next.history.reversed.take(10).toList();
+      _ticker = next.historyResults.reversed.take(10).toList();
     });
     _tickClock();
     if (next.phase == 'spinning' &&
@@ -921,6 +921,8 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                         painter: FruitWheelPainter(
                           angle: _angle,
                           highlight: _highlight,
+                          winningCards: state?.phase == 'result'
+                              ? state!.results : const [],
                           glow: _glow.value,
                           bulbPhase: state?.phase == 'spinning'
                               ? (_angle / (2 * pi)) % 1
@@ -931,8 +933,9 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                         Builder(
                           builder: (_) {
                             final a = _angle + (i + .5) * fruitSegmentAngle;
-                            final pop =
-                                i == _highlight ? 1 + .25 * _glow.value : 1.0;
+                            final pop = state?.phase == 'result' &&
+                                    state!.results.contains(fruitSegments[i])
+                                ? 1 + .25 * _glow.value : 1.0;
                             return Positioned(
                               left: size / 2 + r * sin(a) - symbol / 2,
                               top: size / 2 - r * cos(a) - symbol / 2,
@@ -959,6 +962,22 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           child: _hub(size * .27, center),
                         ),
                       ),
+                      if (state?.phase == 'result' && state?.bonus != null)
+                        Positioned(
+                          top: size * .04,
+                          left: 12,
+                          right: 12,
+                          child: _bonusLabel(_s.bonusBanner(state!.bonus!)),
+                        ),
+                      if (state?.bonusEnabled == true &&
+                          state?.roundsToBonus != null &&
+                          (state!.phase == 'betting' || state!.phase == 'closing'))
+                        Positioned(
+                          left: 8,
+                          right: 8,
+                          top: size * .76,
+                          child: _bonusLabel(_s.bonusCountdown(state!.roundsToBonus!)),
+                        ),
                       // A pill just under the hub: bare red text over the
                       // wedges was unreadable against the fruit art.
                       if (_urgent)
@@ -992,6 +1011,23 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
               ),
             );
           },
+        ),
+      );
+
+  Widget _bonusLabel(String text) => Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: fwPurpleDeep,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: fwGold, fontSize: 12, fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
       );
 
@@ -1067,8 +1103,14 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           )
                         : null,
                     child: Semantics(
-                      label: _s.text(_ticker[i]),
-                      child: FruitArt(_ticker[i], size: i == 0 ? 34 : 28),
+                      label: _ticker[i].map(_s.text).join(' + '),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final card in _ticker[i])
+                            FruitArt(card, size: i == 0 ? 34 : 28),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1100,8 +1142,9 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
 
   Widget _card(String card) {
     final mine = bets[card];
-    final winning = state?.phase == 'result' && state?.result == card;
-    final won = winning ? _payout : 0;
+    final winning = state?.phase == 'result' && state!.results.contains(card);
+    // A bonus payout is a round total; show it in the hub and winners dialog.
+    final won = winning && state?.bonus == null ? _payout : 0;
     final glow = winning ? _glow.value : 0.0;
     final bottom = won > 0 ? '+$won' : '$mine';
     return Semantics(

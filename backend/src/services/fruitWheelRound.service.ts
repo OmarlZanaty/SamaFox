@@ -1,10 +1,11 @@
 import { Server, Socket } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
-import { getGameSettings, checkGamePlayable } from './gameConfig.service';
-import { grantStakeValue, payPrize, releasePrize, reservePrize } from './halalGames.service';
+import { getGameSettings, checkGamePlayable, fruitWheelBonusSettings } from './gameConfig.service';
+import { grantStakeValue, payPrize, releasePrize, reservePrize, freePrizePoolBalance } from './halalGames.service';
 import { broadcastGameWin } from './gameBroadcast.service';
 import { CHIPS, MAX_PER_KEY, MULTIPLIERS, WHEEL_ORDER, SEGMENTS, maxPayout, parseBetKey, payoutFor, rollFromSeed, presentationFor } from './fruitWheelRound.math';
+import { BonusKind, winningCards, payoutForResults } from './fruitWheelRound.math';
 
 // Shared fruit table, adapted from carWheel.service.ts. All coin charges,
 // reservations, stake grants, payouts and boot refunds follow that engine.
@@ -44,6 +45,10 @@ interface Round {
   seed: string;
   seedHash: string;
   result: string | null;
+  results: string[];
+  bonus: BonusKind;
+  bonusSettings: ReturnType<typeof fruitWheelBonusSettings>;
+  roundsToBonus: number;
   players: Map<number, Player>;
   winners: { userId: number; name: string; avatarUrl: string | null; staked: number; payout: number }[];
 }
@@ -53,7 +58,8 @@ let round: Round | null = null;
 let timer: NodeJS.Timeout | null = null;
 /** The number the next round will get, so an idle table still shows one. */
 let nextRoundNo = 1;
-const results: { round: number; number: string; at: number }[] = [];
+let roundsSinceBonus = 0;
+const results: { round: number; number: string; results: string[]; bonus: BonusKind; at: number }[] = [];
 const lastStakes = new Map<number, Record<string, number>>();
 
 const ok = <T extends object>(body: T) => ({ ok: true as const, ...body });
@@ -101,6 +107,11 @@ export function getPublicState(userId?: number) {
     seedHash: round.seedHash,
     seed: round.phase === 'result' ? round.seed : null,
     result: preResult ? null : round.result,
+    results: preResult ? [] : round.results,
+    bonus: preResult ? null : round.bonus,
+    roundsToBonus: round.roundsToBonus,
+    bonusEveryRounds: round.bonusSettings.bonusEveryRounds,
+    bonusEnabled: round.bonusSettings.bonusEnabled,
     segment: preResult ? null : round.segment,
     offset: preResult ? null : round.offset,
     totals: byKey,
@@ -111,6 +122,7 @@ export function getPublicState(userId?: number) {
       payout: round.phase === 'result' ? me.payout : 0 } : null,
     winners: round.phase === 'result' ? round.winners : [],
     history: results.slice(-10).map(r => r.number),
+    historyRows: results.slice(-10).map(r => ({ round: r.round, result: r.number, results: r.results, bonus: r.bonus })),
   };
 }
 
@@ -332,6 +344,60 @@ export const repeatBets = (userId: number) => withLock(userId, async () => {
 });
 
 // ── Settlement ──────────────────────────────────────────────
+/** Fund the entire table before announcing a bonus. Failed attempts hold nothing. */
+async function prepareBonus(r: Round) {
+  const primary = r.result!;
+  r.results = [primary];
+  const live = [...r.players.values()].filter(p => sum(p.stakes) > 0);
+  if (!r.bonusSettings.bonusEnabled || r.roundsToBonus !== 0 || !live.length) return;
+  let kind: BonusKind;
+  try {
+    kind = await freePrizePoolBalance(GAME) >= r.bonusSettings.tripleMinPool ? 'triple' : 'double';
+  } catch (err) {
+    console.error('[fruitwheel] bonus pool read failed; using primary', err);
+    return;
+  }
+  while (kind) {
+    const cards = winningCards(r.seed, r.number, primary, kind);
+    const extras: { player: Player; token: string; cap: number }[] = [];
+    let funded = false;
+    try {
+      funded = true;
+      for (const p of live) {
+        const coveredPrimary = Math.min(p.reserved, payoutFor(p.stakes, primary));
+        const extra = payoutForResults(p.stakes, cards) - coveredPrimary;
+        if (extra <= 0) continue;
+        const held = await reservePrize(p.userId, GAME, extra, sum(p.stakes));
+        if (!held.ok) { funded = false; break; }
+        extras.push({ player: p, token: held.token, cap: held.cap });
+      }
+    } catch (err) {
+      funded = false;
+      console.error('[fruitwheel] bonus reservation failed', err);
+    }
+    if (funded) {
+      for (const e of extras) { e.player.tokens.push(e.token); e.player.reserved += e.cap; }
+      r.bonus = kind;
+      r.results = cards;
+      return;
+    }
+    for (const e of extras) releasePrize(e.token);
+    kind = kind === 'triple' ? 'double' : null;
+  }
+}
+
+/** Older rows have only the primary result. Ignore malformed bonus metadata. */
+function storedOutcome(result: string, bonus: string | null) {
+  try {
+    const cards: unknown = bonus ? JSON.parse(bonus) : null;
+    if (Array.isArray(cards) && (cards.length === 2 || cards.length === 3) &&
+        cards[0] === result && new Set(cards).size === cards.length && cards.every(c => parseBetKey(c))) {
+      return { results: cards as string[], bonus: (cards.length === 3 ? 'triple' : 'double') as BonusKind };
+    }
+  } catch { /* legacy/plain round */ }
+  return { results: [result], bonus: null as BonusKind };
+}
+
 async function recordDaily(p: Player, staked: number, payout: number) {
   const day = new Date().toISOString().slice(0, 10);
   const where = { game_day_userId: { game: GAME, day, userId: p.userId } };
@@ -345,6 +411,7 @@ async function recordDaily(p: Player, staked: number, payout: number) {
 
 async function settle(r: Round) {
   const result = r.result!;
+  if (!r.bonus) r.results = [result];
   const winners: Round['winners'] = [];
   let totalBet = 0, playerCount = 0;
   for (const p of r.players.values()) {
@@ -353,7 +420,7 @@ async function settle(r: Round) {
     totalBet += staked;
     playerCount++;
     lastStakes.set(p.userId, { ...p.stakes });
-    const prize = payoutFor(p.stakes, result);
+    const prize = payoutForResults(p.stakes, r.results);
     const tokens = p.tokens;
     p.tokens = [];
     let paid = 0;
@@ -381,12 +448,16 @@ async function settle(r: Round) {
   if (r.dbId != null) {
     await prisma.fruitWheelStake.updateMany({ where: { roundId: r.dbId, status: 'open' }, data: { status: 'settled' } });
     await prisma.fruitWheelSharedRound.update({ where: { id: r.dbId },
-      data: { result, totalBet, players: playerCount, settledAt: new Date() } });
+      data: { result, bonus: r.bonus ? JSON.stringify(r.results) : null, totalBet, players: playerCount, settledAt: new Date() } });
   }
   winners.sort((a, b) => b.payout - a.payout);
   r.winners = winners.slice(0, 3);
-  results.push({ round: roundNo(), number: result, at: Date.now() });
+  results.push({ round: r.number, number: result, results: r.results, bonus: r.bonus, at: Date.now() });
   if (results.length > 100) results.splice(0, results.length - 100);
+  if (playerCount > 0) {
+    // The Nth occupied round is due; a funding downgrade still consumes its turn.
+    roundsSinceBonus = r.bonusSettings.bonusEnabled && r.roundsToBonus === 0 ? 0 : roundsSinceBonus + 1;
+  }
 
 }
 
@@ -419,7 +490,9 @@ async function advance() {
     return;
   }
   if (r.phase === 'closing') {
+    if (timer) clearTimeout(timer);
     r.result = rollFromSeed(r.seed, r.number);
+    await prepareBonus(r);
     Object.assign(r, presentationFor(r.result as ReturnType<typeof rollFromSeed>));
     schedule(r, 'spinning');
     broadcast();
@@ -431,17 +504,19 @@ async function advance() {
     // A failed settlement is logged, never allowed to stop the table.
     await settle(r).catch(err => console.error('[fruitwheel] settle error', err));
     schedule(r, 'result');
-    io?.to(FRUIT_WHEEL_ROOM).emit('fruitwheel_result', { round: roundNo(), result: r.result, seed: r.seed, winners: r.winners });
+    io?.to(FRUIT_WHEEL_ROOM).emit('fruitwheel_result', { round: roundNo(), result: r.result, results: r.results, bonus: r.bonus, seed: r.seed, winners: r.winners });
     broadcast();
     return;
   }
-  startRound();
+  await startRound();
 }
 
-function startRound() {
+async function startRound() {
+  const bonusSettings = fruitWheelBonusSettings(await getGameSettings(GAME));
   const seed = crypto.randomBytes(16).toString('hex');
   round = { dbId: null, number: nextRoundNo++, segment: null, offset: null, phase: 'betting', endsAt: 0, seed, seedHash: crypto.createHash('sha256').update(seed).digest('hex'),
-    result: null, players: new Map(), winners: [] };
+    result: null, results: [], bonus: null, bonusSettings,
+    roundsToBonus: Math.max(0, bonusSettings.bonusEveryRounds - 1 - roundsSinceBonus), players: new Map(), winners: [] };
   schedule(round, 'betting');
   broadcast();
 }
@@ -457,8 +532,8 @@ export async function refundOrphans() {
 
 async function hydrate() {
   const last = await prisma.fruitWheelSharedRound.findMany({ where: { settledAt: { not: null } }, orderBy: { id: 'desc' }, take: 50,
-    select: { id: true, result: true, settledAt: true } });
-  for (const row of last.reverse()) results.push({ round: row.id, number: row.result!, at: row.settledAt!.getTime() });
+    select: { id: true, result: true, bonus: true, settledAt: true } });
+  for (const row of last.reverse()) results.push({ round: row.id, number: row.result!, ...storedOutcome(row.result!, row.bonus), at: row.settledAt!.getTime() });
   const top = await prisma.fruitWheelSharedRound.aggregate({ _max: { id: true } });
   nextRoundNo = (top._max.id ?? 0) + 1;
 }
@@ -475,7 +550,7 @@ export async function startFruitWheelRoundEngine(server: Server) {
     io = null;
     throw err;
   }
-  startRound();
+  await startRound();
   console.log('[fruitwheel] engine started — three cards, no crown, 70% return');
 }
 
@@ -483,7 +558,9 @@ export function stopFruitWheelRoundEngine() {
   if (timer) clearTimeout(timer);
   if (broadcastTimer) clearTimeout(broadcastTimer);
   timer = broadcastTimer = null;
+  for (const p of round?.players.values() ?? []) for (const token of p.tokens) releasePrize(token);
   round = null;
+  roundsSinceBonus = 0;
   io?.off('connection', subscribe);
   io = null;
   results.length = 0;
@@ -498,14 +575,15 @@ export async function getHistory(userId: number) {
     orderBy: { id: 'desc' }, take: 50, select: { id: true },
   });
   const chips = await prisma.fruitWheelStake.findMany({ where: { userId, status: 'settled', roundId: { in: recent.map(r => r.id) } },
-    orderBy: { id: 'desc' }, include: { round: { select: { id: true, result: true, settledAt: true } } } });
-  const byRound = new Map<number, { round: number; at: string; result: string; stakes: Record<string, number>; prize: number }>();
+    orderBy: { id: 'desc' }, include: { round: { select: { id: true, result: true, bonus: true, settledAt: true } } } });
+  const byRound = new Map<number, { round: number; at: string; result: string; results: string[]; bonus: BonusKind; stakes: Record<string, number>; prize: number }>();
   for (const c of chips) {
     if (c.round.result == null) continue;
     let row = byRound.get(c.roundId);
     if (!row) {
       if (byRound.size >= 50) continue;
-      row = { round: c.roundId, at: (c.round.settledAt ?? c.createdAt).toISOString(), result: c.round.result, stakes: {}, prize: 0 };
+      row = { round: c.roundId, at: (c.round.settledAt ?? c.createdAt).toISOString(), result: c.round.result,
+        ...storedOutcome(c.round.result, c.round.bonus), stakes: {}, prize: 0 };
       byRound.set(c.roundId, row);
     }
     row.prize += c.payout;

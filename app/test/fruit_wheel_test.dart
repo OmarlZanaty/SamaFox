@@ -120,6 +120,74 @@ Future<FruitWheelScreenState> _mount(
 }
 
 void main() {
+  test('bonus state reads all winners and falls back to legacy primary/history', () {
+    final legacy = FruitWheelState.fromJson({'result': 'plum', 'history': ['plum']});
+    expect(legacy.results, ['plum']);
+    expect(legacy.bonus, isNull);
+    expect(legacy.roundsToBonus, isNull);
+    expect(legacy.historyResults, [['plum']]);
+    final bonus = FruitWheelState.fromJson({
+      'result': 'plum', 'results': ['plum', 'sevens'], 'bonus': 'double',
+      'roundsToBonus': 0, 'bonusEveryRounds': 3,
+      'historyRows': [{'result': 'plum', 'results': ['plum', 'sevens'], 'bonus': 'double'}],
+      'me': {'payout': 1234},
+    });
+    expect(bonus.result, 'plum');
+    expect(bonus.results, ['plum', 'sevens']);
+    expect(bonus.bonus, 'double');
+    expect(bonus.roundsToBonus, 0);
+    expect(bonus.bonusEveryRounds, 3);
+    expect(bonus.myPayout, 1234);
+    expect(bonus.historyResults, [['plum', 'sevens']]);
+  });
+  for (final size in [const Size(360, 640), const Size(393, 873), const Size(412, 915)]) {
+    testWidgets('bonus countdown, banner and winners fit $size', (t) async {
+      final repo = _Repository();
+      repo.snapshot.addAll({'roundsToBonus': 2, 'bonusEveryRounds': 3});
+      final game = await _mount(t, repo, size: size);
+      expect(find.text('المكسب المزدوج بعد 2 لفة'), findsOneWidget);
+      game.applyState({...repo.snapshot, 'roundsToBonus': 0});
+      await t.pump();
+      expect(find.text('لفة المكسب المزدوج!'), findsOneWidget);
+      for (final kind in ['double', 'triple']) {
+        final cards = kind == 'double' ? ['plum', 'sevens'] : ['plum', 'sevens', 'watermelon'];
+        game.applyState(
+          {
+            ...repo.snapshot, 'phase': 'result', 'msLeft': 0,
+            'result': 'plum', 'segment': 1, 'offset': .5,
+            'results': cards, 'bonus': kind,
+            'historyRows': [{'result': 'plum', 'results': cards, 'bonus': kind}],
+            'me': {'payout': 1234, 'staked': 1000},
+          },
+          mine: true,
+        );
+        await t.pumpAndSettle();
+        expect(find.text(kind == 'double' ? '🎉 مكسب مزدوج!' : '🔥 مكسب ثلاثي!'), findsOneWidget);
+        final painter = t.widgetList<CustomPaint>(find.byType(CustomPaint))
+            .map((w) => w.painter).whereType<FruitWheelPainter>().single;
+        expect(painter.winningCards, cards);
+        expect(fruitSegmentAt(painter.angle), 1);
+        expect(game.state!.myPayout, 1234);
+        expect(t.takeException(), isNull);
+      }
+      await t.pumpWidget(const SizedBox());
+    });
+  }
+  testWidgets('history shows every winning card', (t) async {
+    await t.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: FruitHistory(
+            strings: FruitWheelStrings(true),
+            rounds: [{'round': 1, 'result': 'plum', 'results': ['plum', 'sevens', 'watermelon'], 'bet': 1000, 'prize': 1234}],
+          ),
+        ),
+      ),
+    );
+    expect(t.widgetList<FruitArt>(find.byType(FruitArt)).map((art) => art.name), ['plum', 'sevens', 'watermelon']);
+    expect(find.text('الجائزة: 1234'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
   test('per-card cap and two distinct cards, 77 pays ×5.6, no crown', () {
     final bets = FruitBets();
     expect(bets.add('watermelon', 1000, 1000), true);

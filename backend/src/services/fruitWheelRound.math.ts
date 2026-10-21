@@ -9,6 +9,20 @@ export const SEGMENTS = [
 ] as const;
 export type Outcome = typeof SEGMENTS[number]['key'];
 export type Card = Exclude<Outcome, 'crown'>;
+export type BonusKind = 'double' | 'triple' | null;
+
+/** Primary stays first, including when a triple must fall back to a double. */
+export function winningCards(seed: string, roundNumber: number, primary: string, bonus: BonusKind): string[] {
+  if (!bonus) return [primary];
+  const others = SEGMENTS.filter(s => s.key !== 'crown' && s.key !== primary).map(s => s.key);
+  if (bonus === 'triple') return [primary, ...others];
+  const digest = crypto.createHash('sha256').update(`${seed}:${roundNumber}:bonus`).digest('hex');
+  return [primary, others[Number(BigInt(`0x${digest}`) % BigInt(others.length))]!];
+}
+
+export function payoutForResults(stakes: Record<string, number>, results: readonly string[]): number {
+  return results.reduce((total, card) => total + payoutFor(stakes, card), 0);
+}
 // Installed apps use these indices; crown stays at 9 but can never be rolled.
 export const WHEEL_ORDER: Outcome[] = [
   'watermelon', 'plum', 'watermelon', 'plum', 'sevens',

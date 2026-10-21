@@ -40,6 +40,21 @@ export interface GameSettings {
   programShareBp: number;
   /** Wins of at least stake × this are announced to every player. null = 50. */
   broadcastMinX?: number | null;
+  bonusEnabled?: boolean | null;
+  bonusEveryRounds?: number | null;
+  tripleMinPool?: number | null;
+}
+
+export const FRUIT_WHEEL_BONUS_DEFAULTS = {
+  bonusEnabled: true, bonusEveryRounds: 20, tripleMinPool: 15_000_000,
+};
+
+export function fruitWheelBonusSettings(s: Partial<GameSettings>) {
+  return {
+    bonusEnabled: s.bonusEnabled ?? FRUIT_WHEEL_BONUS_DEFAULTS.bonusEnabled,
+    bonusEveryRounds: s.bonusEveryRounds ?? FRUIT_WHEEL_BONUS_DEFAULTS.bonusEveryRounds,
+    tripleMinPool: s.tripleMinPool ?? FRUIT_WHEEL_BONUS_DEFAULTS.tripleMinPool,
+  };
 }
 
 export type GameConfigMap = Record<string, GameSettings>;
@@ -112,6 +127,13 @@ export function naturalMaxMultiplier(game: string): number | null {
  * reason in Arabic for the dashboard, or null when the settings are sound.
  */
 export function validateGameSettings(game: string, s: GameSettings): string | null {
+  if (game === 'fruitwheel') {
+    if (s.bonusEnabled != null && typeof s.bonusEnabled !== 'boolean') return 'تشغيل المكسب المزدوج يجب أن يكون نعم أو لا';
+    if (s.bonusEveryRounds != null && (!Number.isInteger(s.bonusEveryRounds) || s.bonusEveryRounds < 2 || s.bonusEveryRounds > 1000)) {
+      return 'عدد لفات المكسب المزدوج يجب أن يكون عدداً صحيحاً بين 2 و1000';
+    }
+    if (s.tripleMinPool != null && (!Number.isFinite(s.tripleMinPool) || s.tripleMinPool < 0)) return 'حد صندوق المكسب الثلاثي يجب أن يكون صفر أو أكثر';
+  }
   const nonNeg = (v: number | null) => v == null || (Number.isFinite(v) && v >= 0);
   if (!nonNeg(s.minBet) || !nonNeg(s.maxBet)) return 'قيم الرهان يجب أن تكون صفر أو أكثر';
   if (s.minBet != null && s.maxBet != null && s.minBet > s.maxBet) return 'أقل رهان أكبر من أعلى رهان';
@@ -168,7 +190,8 @@ export async function getGameConfig(): Promise<GameConfigMap> {
 
 export async function getGameSettings(game: string): Promise<GameSettings> {
   const map = await getGameConfig();
-  return { ...DEFAULTS, ...(map[game] ?? {}) };
+  const settings = { ...DEFAULTS, ...(map[game] ?? {}) };
+  return game === 'fruitwheel' ? { ...settings, ...fruitWheelBonusSettings(settings) } : settings;
 }
 
 export class GameSettingsError extends Error {}
@@ -182,6 +205,7 @@ export async function setGameSettings(
   const next: GameSettings = { ...DEFAULTS, ...(map[game] ?? {}), ...patch };
   const invalid = validateGameSettings(game, next);
   if (invalid) throw new GameSettingsError(invalid);
+  if (game === 'fruitwheel') Object.assign(next, fruitWheelBonusSettings(next));
   const merged: GameConfigMap = { ...map, [game]: next };
 
   const value = JSON.stringify(merged);

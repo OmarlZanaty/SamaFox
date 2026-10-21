@@ -306,11 +306,13 @@ Color fruitSegmentColor(int index) => switch (fruitSegments[index]) {
 class FruitWheelPainter extends CustomPainter {
   final double angle;
   final int? highlight;
+  final List<String> winningCards;
   final double glow;
   final double bulbPhase;
   const FruitWheelPainter({
     required this.angle,
     this.highlight,
+    this.winningCards = const [],
     this.glow = 0,
     this.bulbPhase = 0,
   });
@@ -359,7 +361,7 @@ class FruitWheelPainter extends CustomPainter {
             stops: const [0, .6, 1],
           ).createShader(faceRect),
       );
-      if (i == highlight && glow > 0) {
+      if ((i == highlight || winningCards.contains(fruitSegments[i])) && glow > 0) {
         canvas.drawArc(
           faceRect,
           start,
@@ -456,6 +458,7 @@ class FruitWheelPainter extends CustomPainter {
   bool shouldRepaint(FruitWheelPainter old) =>
       old.angle != angle ||
       old.highlight != highlight ||
+      old.winningCards != winningCards ||
       old.glow != glow ||
       old.bulbPhase != bulbPhase;
 }

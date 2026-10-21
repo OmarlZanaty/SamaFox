@@ -2549,6 +2549,7 @@ model FruitWheelSharedRound {
   seedHash  String
   seed      String
   result    String?
+  bonus     String?
   totalBet  Int               @default(0)
   players   Int               @default(0)
   createdAt DateTime          @default(now())

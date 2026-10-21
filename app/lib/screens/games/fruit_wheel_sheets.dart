@@ -134,7 +134,15 @@ class FruitHistory extends StatelessWidget {
                       dimension: 40,
                       child: Icon(Icons.remove, color: fwMuted),
                     )
-                  : FruitArt(r['result'].toString(), size: 40),
+                  : fruitWinningCards(r).isEmpty
+                      ? FruitArt(r['result'].toString(), size: 40)
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (final card in fruitWinningCards(r))
+                              FruitArt(card, size: 28),
+                          ],
+                        ),
               title: Text(
                 strings.round((r['round'] as num?)?.toInt() ?? 0),
                 style: const TextStyle(color: fwCream),
