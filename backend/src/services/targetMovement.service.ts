@@ -12,7 +12,7 @@ import prisma from '../utils/prisma';
  * not at all. Outside one, a failed write is logged and swallowed: the action
  * itself must never fail because the log could not be written.
  */
-export type TargetMovementKind = 'admin_add' | 'admin_deduct' | 'sale_out' | 'sale_in' | 'convert' | 'charge';
+export type TargetMovementKind = 'admin_add' | 'admin_deduct' | 'sale_out' | 'sale_in' | 'convert' | 'charge' | 'charge_reversal';
 
 export interface TargetMovementInput {
   memberId: number;

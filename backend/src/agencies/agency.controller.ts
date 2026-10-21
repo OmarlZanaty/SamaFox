@@ -268,28 +268,11 @@ export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
           data: { totalSentCoins: { increment: coins } },
         });
 
-        // B6 — charging credits the seller's TARGET, at face value and with NO
-        // commission on top: "ينزله تارجيت بس من غير نسبه لانه اخد نسبته وقت
-        // الشحن". Booked on targetAdjustmentCoins, the same column بيع/تبديل
-        // move, so the dollar figure derived from it through TargetTier follows
-        // automatically. Inside the transaction — the target must not be able
-        // to move without the coins moving with it.
-        await tx.agencyMember.update({
-          where: { id: membership.id },
-          data: { targetAdjustmentCoins: { increment: BigInt(coins) } },
-        });
-        await recordTargetMovement(
-          {
-            memberId: membership.id,
-            userId: funderId,
-            agencyId: membership.agencyId,
-            kind: 'charge',
-            amountCoins: coins,
-            actorId: funderId,
-            counterpartId: targetUserId,
-          },
-          tx,
-        );
+        // 2026-10-21 — charging does NOT credit the seller's target. Client rule:
+        // "تارجيت وكيل الشحن: لما يترمي عليه كوينزات تنزل في التارجيت بقيمتها
+        // الحقيقيه فقط بدون نسبة وكيل … لو اشتري تارجيت ينزل عنده في التارجيت".
+        // Only gifts he receives and target he buys feed it. Charging used to add
+        // its face value here ("B6", misread) — phantom target; do not re-add.
 
         await tx.user.update({
           where: { id: targetUserId },

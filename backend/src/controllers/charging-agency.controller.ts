@@ -4,7 +4,6 @@ import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { MAX_COINS_BALANCE } from '../utils/coins';
 import { evaluateVip } from '../services/vip.service';
-import { recordTargetMovement } from '../services/targetMovement.service';
 
 // Helper: get authed userId
 function getUserId(req: Request): number | null {
@@ -403,36 +402,11 @@ export const agencyTransferCoins = async (req: Request, res: Response) => {
         data: { totalSentCoins: { increment: Number(BigInt(amount)) } },
       });
 
-      // B6 — "وكيل الشحن لما يشحن حد ينزله تارجيت". agency.controller's
-      // sendCoinsToUser does this; THIS endpoint charges from the same wallet
-      // and writes the same stats but never touched the target, so which of
-      // the two screens the agent used decided whether his target moved. Face
-      // value, no commission on top — he already took his cut at the sale.
-      // Booked on targetAdjustmentCoins, the column بيع/تبديل move, so the
-      // dollar figure derived through TargetTier follows on its own. Inside
-      // the transaction: the target must not move without the coins.
-      const sellerMembership = await tx.agencyMember.findFirst({
-        where: { userId: funderId, agencyId: agency.id, role: { in: ['OWNER', 'BRANCH'] } },
-        select: { id: true },
-      });
-      if (sellerMembership) {
-        await tx.agencyMember.update({
-          where: { id: sellerMembership.id },
-          data: { targetAdjustmentCoins: { increment: BigInt(amount) } },
-        });
-        await recordTargetMovement(
-          {
-            memberId: sellerMembership.id,
-            userId: funderId,
-            agencyId: agency.id,
-            kind: 'charge',
-            amountCoins: BigInt(amount),
-            actorId: funderId,
-            counterpartId: toUserId,
-          },
-          tx,
-        );
-      }
+      // 2026-10-21 — charging does NOT credit the seller's target. Client rule:
+      // "تارجيت وكيل الشحن: لما يترمي عليه كوينزات تنزل في التارجيت بقيمتها
+      // الحقيقيه فقط بدون نسبة وكيل … لو اشتري تارجيت ينزل عنده في التارجيت".
+      // Only gifts he receives and target he buys feed it. Charging used to add
+      // its face value here ("B6", misread) — phantom target; do not re-add.
 
       const updatedUserDb = await tx.user.update({
         where: { id: toUserId },

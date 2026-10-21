@@ -4167,6 +4167,7 @@ const TL_KIND_AR = {
   sale_in: "شراء تارجت",
   convert: "تبديل لكوينزات",
   charge: "شحن (تارجت الوكيل)",
+  charge_reversal: "إلغاء تارجت الشحن",
 };
 
 function tlWho(p) {
