@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../repositories/skill_wheel_repository.dart';
 import '../../services/socket_service.dart';
+import '../../l10n/tr.dart';
 
 /// عجلة المهارة — Skill Wheel.
 ///
@@ -243,7 +244,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
     final r = _round;
     if (r == null || !r.isJoining || _joinedCurrentRound) return;
     if (_balance < _entry) {
-      setState(() => _notice = 'رصيدك لا يكفي');
+      setState(() => _notice = tr('رصيدك لا يكفي', 'Insufficient balance'));
       return;
     }
     try {
@@ -254,8 +255,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
         _balance = result.balance;
         _landed = null;
         _submitted = false;
-        _notice = 'دخلت الجولة — مكافأتك المضمونة ${_fmt(result.minReward)} '
-            'وتصل إلى ${_fmt(result.maxReward)}';
+        _notice = tr('دخلت الجولة — مكافأتك المضمونة ${_fmt(result.minReward)} '
+            'وتصل إلى ${_fmt(result.maxReward)}', 'Joined the round — guaranteed reward ${_fmt(result.minReward)}, up to ${_fmt(result.maxReward)}');
       });
       _syncSpin();
       ref.read(authStateProvider.notifier).updateCoinsBalance(result.balance);
@@ -281,7 +282,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
       setState(() {
         _lastScore = result.score;
         _lastReward = result.reward;
-        _notice = 'نتيجتك ${result.score}/100 — مكافأتك ${_fmt(result.reward)}';
+        _notice = tr('نتيجتك ${result.score}/100 — مكافأتك ${_fmt(result.reward)}', 'Your score ${result.score}/100 — reward ${_fmt(result.reward)}');
       });
     } on SkillWheelException catch (e) {
       if (mounted) {
@@ -310,7 +311,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('عجلة المهارة',
+        title: Text(tr('عجلة المهارة', 'Skill Wheel'),
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -365,7 +366,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('رصيدك', style: TextStyle(color: Colors.white70)),
+          Text(tr('رصيدك', 'Your balance'), style: TextStyle(color: Colors.white70)),
           Text('🪙 ${_fmt(_balance)}',
               style: const TextStyle(
                   color: _gold, fontWeight: FontWeight.bold, fontSize: 18)),
@@ -378,21 +379,21 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
     final String title;
     final String subtitle;
     if (r == null) {
-      title = 'جارٍ الاتصال…';
+      title = tr('جارٍ الاتصال…', 'Connecting…');
       subtitle = '';
     } else if (r.isJoining) {
-      title = 'وقت الدخول';
+      title = tr('وقت الدخول', 'Entry time');
       subtitle = _joinedCurrentRound
-          ? 'أنت داخل الجولة، استعد'
-          : 'ادفع رسوم الدخول للمشاركة';
+          ? tr('أنت داخل الجولة، استعد', 'You are in the round, get ready')
+          : tr('ادفع رسوم الدخول للمشاركة', 'Pay the entry fee to join');
     } else if (r.isPlaying) {
-      title = r.missionLabel ?? 'المهمة';
+      title = r.missionLabel ?? tr('المهمة', 'Task');
       subtitle = _joinedCurrentRound
-          ? 'العجلة تدور بسرعة ثابتة — أوقفها على الرقم المطلوب'
-          : 'الجولة جارية — انتظر الجولة القادمة';
+          ? tr('العجلة تدور بسرعة ثابتة — أوقفها على الرقم المطلوب', 'The wheel spins at a fixed speed — stop it on the required number')
+          : tr('الجولة جارية — انتظر الجولة القادمة', 'Round in progress — wait for the next round');
     } else {
-      title = 'النتائج';
-      subtitle = 'الجولة القادمة تبدأ الآن';
+      title = tr('النتائج', 'Results');
+      subtitle = tr('الجولة القادمة تبدأ الآن', 'The next round starts now');
     }
 
     final seconds = (_msLeft / 1000).ceil();
@@ -480,10 +481,10 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
     final String small;
     if (_landed != null) {
       big = '$_landed';
-      small = target != null ? 'المطلوب $target' : '';
+      small = target != null ? tr('المطلوب $target', 'Required: $target') : '';
     } else if (target != null) {
       big = '$target';
-      small = 'الهدف';
+      small = tr('الهدف', 'Goal');
     } else {
       big = '★';
       small = '';
@@ -535,7 +536,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
           : r.entryTiers;
       return Column(
         children: [
-          Text('اختر رسوم الدخول',
+          Text(tr('اختر رسوم الدخول', 'Choose entry fee'),
               style: TextStyle(
                   color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
@@ -567,7 +568,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
                     borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _join,
-              child: Text('ادخل الجولة — ${_fmt(_entry)}',
+              child: Text(tr('ادخل الجولة — ${_fmt(_entry)}', 'Join round — ${_fmt(_entry)}'),
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16)),
             ),
@@ -582,8 +583,8 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
         children: [
           Text(
             stopped
-                ? 'وقفت على $_landed — سجّل نتيجتك'
-                : 'اضغط على العجلة أو على الزر لإيقافها',
+                ? tr('وقفت على $_landed — سجّل نتيجتك', 'Stopped at $_landed — submit your score')
+                : tr('اضغط على العجلة أو على الزر لإيقافها', 'Tap the wheel or button to stop it'),
             textAlign: TextAlign.center,
             style:
                 TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
@@ -600,7 +601,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
                     borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: stopped ? _submit : _stopWheel,
-              child: Text(stopped ? 'سجّل النتيجة' : 'أوقف العجلة',
+              child: Text(stopped ? tr('سجّل النتيجة', 'Submit score') : tr('أوقف العجلة', 'Stop wheel'),
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16)),
             ),
@@ -611,7 +612,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
 
     if (_submitted && _lastReward > 0) {
       return _noticeBar(
-          'نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
+          tr('نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}', 'Your score $_lastScore/100 — reward ${_fmt(_lastReward)}'));
     }
 
     return const SizedBox.shrink();
@@ -620,13 +621,13 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
   Widget _playersStrip(WheelRound? r) {
     final players = r?.players ?? const <WheelPlayer>[];
     if (players.isEmpty) {
-      return Text('لا يوجد لاعبون في هذه الجولة بعد',
+      return Text(tr('لا يوجد لاعبون في هذه الجولة بعد', 'No players in this round yet'),
           style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12));
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('اللاعبون (${players.length})',
+        Text(tr('اللاعبون (${players.length})', 'Players (${players.length})'),
             style:
                 TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
@@ -695,7 +696,7 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('أفضل أداء — جولة $_resultRoundId',
+          Text(tr('أفضل أداء — جولة $_resultRoundId', 'Best performance — round $_resultRoundId'),
               style: const TextStyle(
                   color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
@@ -731,11 +732,11 @@ class _SkillWheelScreenState extends ConsumerState<SkillWheelScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.25)),
       ),
-      child: const Text(
-        'لعبة مهارة وليست مراهنة: لا توجد رهانات ولا مضاعفات، رسوم الدخول ثابتة '
+      child: Text(
+        tr('لعبة مهارة وليست مراهنة: لا توجد رهانات ولا مضاعفات، رسوم الدخول ثابتة '
         'ومعروفة قبل الدفع، والرقم المطلوب يُعلن قبل بدء الدوران، وكل مشترك يحصل '
         'على مكافأة مضمونة تعتمد على دقة إيقافه للعجلة، ولا أحد يربح من خسارة '
-        'لاعب آخر.',
+        'لاعب آخر.', 'A skill game, not betting: there are no wagers or multipliers. Entry fees are fixed and shown before payment. The required number is announced before spinning starts, and every participant receives a guaranteed reward based on how accurately they stop the wheel. No one profits from another player losing.'),
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.6),
       ),

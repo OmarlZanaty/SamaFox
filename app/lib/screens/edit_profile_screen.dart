@@ -11,6 +11,7 @@ import '../services/dio_client.dart';
 import '../services/level_catalog_service.dart';
 import '../widgets/app_network_image.dart';
 import 'my_backgrounds_screen.dart';
+import '../l10n/tr.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -90,8 +91,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             SnackBar(
               content: Text(
                 minLevel == null
-                    ? 'الصورة المتحركة غير متاحة حالياً — سيتم استخدام صورة ثابتة'
-                    : 'الصورة المتحركة متاحة لأعضاء VIP $minLevel فما فوق — سيتم استخدام صورة ثابتة',
+                    ? tr('الصورة المتحركة غير متاحة حالياً — سيتم استخدام صورة ثابتة', 'Animated images are currently unavailable — a still image will be used')
+                    : tr('الصورة المتحركة متاحة لأعضاء VIP $minLevel فما فوق — سيتم استخدام صورة ثابتة', 'Animated images require VIP $minLevel or higher — a still image will be used'),
               ),
               duration: const Duration(seconds: 3),
             ),
@@ -110,12 +111,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           compressQuality: 90,
           uiSettings: [
             AndroidUiSettings(
-              toolbarTitle: 'تحديد الصورة',
+              toolbarTitle: tr('تحديد الصورة', 'Select image'),
               toolbarColor: const Color(0xFF1A0E3E),
               toolbarWidgetColor: Colors.white,
               lockAspectRatio: false,
             ),
-            IOSUiSettings(title: 'تحديد الصورة'),
+            IOSUiSettings(title: tr('تحديد الصورة', 'Select image')),
           ],
         );
         if (cropped == null) return; // user cancelled the crop step
@@ -226,13 +227,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       await _saveProfileBackground(url, video ? 'video' : 'image');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ تم تغيير خلفية الصفحة')),
+          SnackBar(content: Text(tr('✅ تم تغيير خلفية الصفحة', '✅ Profile background changed'))),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ تعذّر تغيير الخلفية: $e')),
+          SnackBar(content: Text(tr('❌ تعذّر تغيير الخلفية: $e', '❌ Unable to change background: $e'))),
         );
       }
     } finally {
@@ -306,12 +307,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تمت إعادة الخلفية الافتراضية')),
+          SnackBar(content: Text(tr('تمت إعادة الخلفية الافتراضية', 'Default background restored'))),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ فشل: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('❌ فشل: $e', '❌ Failed: $e'))));
       }
     } finally {
       if (mounted) setState(() => _bgBusy = false);
@@ -324,15 +325,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Align(
+        Align(
           alignment: Alignment.centerRight,
-          child: Text('خلفية الصفحة الشخصية',
+          child: Text(tr('خلفية الصفحة الشخصية', 'Profile background'),
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         const SizedBox(height: 4),
-        const Align(
+        Align(
           alignment: Alignment.centerRight,
-          child: Text('صورة ثابتة أو متحركة أو فيديو — تحل مكان الخلفية الحالية',
+          child: Text(tr('صورة ثابتة أو متحركة أو فيديو — تحل مكان الخلفية الحالية', 'Still image, animated image, or video — replaces the current background'),
               style: TextStyle(color: Colors.white54, fontSize: 12)),
         ),
         const SizedBox(height: 10),
@@ -348,7 +349,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () => _pickProfileBackground(video: false),
                   icon: const Icon(Icons.image, size: 18),
-                  label: const Text('صورة / متحركة'),
+                  label: Text(tr('صورة / متحركة', 'Image / animated image')),
                 ),
               ),
               const SizedBox(width: 8),
@@ -356,13 +357,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () => _pickProfileBackground(video: true),
                   icon: const Icon(Icons.movie, size: 18),
-                  label: const Text('فيديو'),
+                  label: Text(tr('فيديو', 'Video')),
                 ),
               ),
               if (has) ...[
                 const SizedBox(width: 8),
                 IconButton(
-                  tooltip: 'إزالة',
+                  tooltip: tr('إزالة', 'Remove'),
                   onPressed: _clearProfileBackground,
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                 ),
@@ -485,9 +486,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'تعديل الملف الشخصي',
+                        tr('تعديل الملف الشخصي', 'Edit profile'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.white,
@@ -507,8 +508,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                           color: Colors.amber,
                         ),
                       )
-                          : const Text(
-                        'حفظ',
+                          : Text(
+                        tr('حفظ', 'Save'),
                         style: TextStyle(
                           color: Colors.amber,
                           fontWeight: FontWeight.bold,
@@ -604,11 +605,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       // Name field
                       _buildTextField(
                         controller: _nameController,
-                        label: 'الاسم',
+                        label: tr('الاسم', 'Name'),
                         icon: Icons.person,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'الرجاء إدخال اسمك';
+                            return tr('الرجاء إدخال اسمك', 'Please enter your name');
                           }
                           return null;
                         },
@@ -618,7 +619,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       // Bio field
                       _buildTextField(
                         controller: _bioController,
-                        label: 'السيرة الذاتية',
+                        label: tr('السيرة الذاتية', 'Bio'),
                         icon: Icons.description,
                         maxLines: 3,
                       ),
@@ -627,7 +628,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       // Age field (#3)
                       _buildTextField(
                         controller: _ageController,
-                        label: 'العمر',
+                        label: tr('العمر', 'Age'),
                         icon: Icons.cake,
                         keyboardType: TextInputType.number,
                         maxLength: 3,
@@ -637,7 +638,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       // Phone field
                       _buildTextField(
                         controller: _phoneController,
-                        label: 'رقم الهاتف',
+                        label: tr('رقم الهاتف', 'Phone number'),
                         icon: Icons.phone,
                         keyboardType: TextInputType.phone,
                       ),
@@ -646,7 +647,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       // Country Code field (e.g., EG, US, SA)
                       _buildTextField(
                         controller: _countryCodeController,
-                        label: 'رمز الدولة (مثال: EG, US, SA)',
+                        label: tr('رمز الدولة (مثال: EG, US, SA)', 'Country code (e.g. EG, US, SA)'),
                         icon: Icons.flag,
                         maxLength: 2,
                       ),
@@ -657,7 +658,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
                       // Info text
                       Text(
-                        'ملاحظة: رمز الدولة يجب أن يكون حرفين (مثل: EG للمصر، US لأمريكا)',
+                        tr('ملاحظة: رمز الدولة يجب أن يكون حرفين (مثل: EG للمصر، US لأمريكا)', 'Note: country codes must be two letters (e.g. EG for Egypt, US for the United States)'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.6),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../repositories/aetherfall_repository.dart';
+import '../../l10n/tr.dart';
 
 const _cyan = Color(0xFF4DD8E6);
 const _bgTop = Color(0xFF0F1638);
@@ -55,12 +56,12 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
       if (!mounted) return;
       setState(() {
         _fair = updated;
-        _notice = 'تم حفظ بذرتك';
+        _notice = tr('تم حفظ بذرتك', 'Your seed was saved');
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _notice = e is AetherfallException ? e.message : 'تعذر حفظ البذرة';
+        _notice = e is AetherfallException ? e.message : tr('تعذر حفظ البذرة', 'Unable to save seed');
       });
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -96,8 +97,8 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
             const SizedBox(height: 16),
             Semantics(
               header: true,
-              child: const Text(
-                'عدالة مثبتة',
+              child: Text(
+                tr('عدالة مثبتة', 'Provably fair'),
                 style: TextStyle(
                   color: _cyan,
                   fontSize: 18,
@@ -107,20 +108,20 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'كل جولة يحسمها الخادم من ثلاث قيم: بذرة سرية عنده، وبذرة تخصّك أنت، '
+            Text(
+              tr('كل جولة يحسمها الخادم من ثلاث قيم: بذرة سرية عنده، وبذرة تخصّك أنت، '
               'ورقم جولة يزيد واحدًا في كل مرة. الخادم ينشر بصمة بذرته قبل أن تلعب، '
               'فلا يستطيع تغييرها بعد أن يرى رهانك. وتستطيع تغيير بذرتك متى شئت، '
-              'فتتغير النتائج معها.',
+              'فتتغير النتائج معها.', 'The server determines each round using three values: its secret seed, your own seed, and a round counter that increases by one each time. The server publishes its seed hash before you play, so it cannot change it after seeing your bet. You can change your seed anytime, which changes the results.'),
               style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.6),
             ),
             const SizedBox(height: 18),
-            _field('بصمة بذرة الخادم (معلنة مسبقًا)', _fair.serverSeedHash, copyable: true),
-            _field('بذرتك', _fair.clientSeed, copyable: true),
-            _field('رقم الجولة على هذا الزوج', '${_fair.nonce}'),
+            _field(tr('بصمة بذرة الخادم (معلنة مسبقًا)', 'Server seed hash (published in advance)'), _fair.serverSeedHash, copyable: true),
+            _field(tr('بذرتك', 'Your seed'), _fair.clientSeed, copyable: true),
+            _field(tr('رقم الجولة على هذا الزوج', 'Round number for this pair'), '${_fair.nonce}'),
             const SizedBox(height: 14),
-            const Text(
-              'غيّر بذرتك',
+            Text(
+              tr('غيّر بذرتك', 'Change your seed'),
               style: TextStyle(color: Colors.white54, fontSize: 10, letterSpacing: 1),
             ),
             const SizedBox(height: 6),
@@ -129,7 +130,7 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
                 Expanded(
                   child: Semantics(
                     textField: true,
-                    label: 'بذرتك',
+                    label: tr('بذرتك', 'Your seed'),
                     child: TextField(
                       controller: _seed,
                       maxLength: 64,
@@ -151,7 +152,7 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
                 const SizedBox(width: 8),
                 Semantics(
                   button: true,
-                  label: 'حفظ البذرة',
+                  label: tr('حفظ البذرة', 'Save seed'),
                   child: ElevatedButton(
                     onPressed: _busy ? null : _apply,
                     style: ElevatedButton.styleFrom(
@@ -165,7 +166,7 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('حفظ'),
+                        : Text(tr('حفظ', 'Save')),
                   ),
                 ),
               ],
@@ -212,13 +213,13 @@ class _AetherfallFairnessSheetState extends State<AetherfallFairnessSheet> {
                 if (copyable)
                   Semantics(
                     button: true,
-                    label: 'نسخ $label',
+                    label: tr('نسخ $label', 'Copy $label'),
                     child: IconButton(
                       icon: const Icon(Icons.copy_rounded, size: 16, color: Colors.white38),
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: value));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('تم النسخ'), duration: Duration(seconds: 1)),
+                          SnackBar(content: Text(tr('تم النسخ', 'Copied')), duration: Duration(seconds: 1)),
                         );
                       },
                     ),

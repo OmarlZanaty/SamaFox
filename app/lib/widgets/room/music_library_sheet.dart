@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/music_provider.dart';
+import '../../l10n/tr.dart';
 
 /// The sheet behind the "موسيقى" button in the room menu.
 ///
@@ -63,7 +64,7 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
         allowMultiple: true,
       );
     } catch (e) {
-      _snack('تعذر فتح ملفات الهاتف', error: true);
+      _snack(tr('تعذر فتح ملفات الهاتف', 'Unable to open phone files'), error: true);
       return;
     }
     // The file picker backgrounds the app; the sheet can be gone by the time it
@@ -78,11 +79,11 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
       if (path == null || path.isEmpty) {
         // Used to be skipped silently, which looked like "the picker does
         // nothing". Say why instead.
-        _snack('تعذر قراءة الملف "${file.name}" — اختره من مدير الملفات', error: true);
+        _snack(tr('تعذر قراءة الملف "${file.name}" — اختره من مدير الملفات', 'Unable to read "${file.name}" — select it from the file manager'), error: true);
         continue;
       }
       if (file.size > 25 * 1024 * 1024) {
-        _snack('الملف "${file.name}" أكبر من 25MB', error: true);
+        _snack(tr('الملف "${file.name}" أكبر من 25MB', 'File "${file.name}" exceeds 25MB'), error: true);
         continue;
       }
       final title = file.name.replaceAll(RegExp(r'\.[^.]+$'), '');
@@ -91,13 +92,13 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
       if (track != null) {
         uploaded++;
       } else {
-        _snack(ref.read(musicLibraryProvider).error ?? 'فشل رفع الأغنية', error: true);
+        _snack(ref.read(musicLibraryProvider).error ?? tr('فشل رفع الأغنية', 'Failed to upload song'), error: true);
         notifier.clearError();
         break;
       }
     }
 
-    if (uploaded > 0) _snack('تم رفع $uploaded أغنية');
+    if (uploaded > 0) _snack(tr('تم رفع $uploaded أغنية', 'Uploaded $uploaded songs'));
   }
 
   Future<void> _confirmDelete(int id, String title) async {
@@ -107,19 +108,19 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           backgroundColor: _panel,
-          title: const Text('حذف الأغنية', style: TextStyle(color: Colors.white)),
+          title: Text(tr('حذف الأغنية', 'Delete song'), style: TextStyle(color: Colors.white)),
           content: Text(
-            'هل تريد حذف "$title" من قائمتك؟',
+            tr('هل تريد حذف "$title" من قائمتك؟', 'Delete "$title" from your list?'),
             style: const TextStyle(color: Colors.white70),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('إلغاء', style: TextStyle(color: Colors.white70)),
+              child: Text(tr('إلغاء', 'Cancel'), style: TextStyle(color: Colors.white70)),
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('حذف', style: TextStyle(color: Colors.redAccent)),
+              child: Text(tr('حذف', 'Delete'), style: TextStyle(color: Colors.redAccent)),
             ),
           ],
         ),
@@ -128,22 +129,22 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
     if (ok != true) return;
 
     final done = await ref.read(musicLibraryProvider.notifier).delete(id);
-    _snack(done ? 'تم حذف الأغنية' : 'تعذر حذف الأغنية', error: !done);
+    _snack(done ? tr('تم حذف الأغنية', 'Song deleted') : tr('تعذر حذف الأغنية', 'Unable to delete song'), error: !done);
   }
 
   void _playFrom(int index) {
     if (!widget.canControl) {
-      _snack('تشغيل الموسيقى متاح لصاحب الغرفة والمشرفين فقط', error: true);
+      _snack(tr('تشغيل الموسيقى متاح لصاحب الغرفة والمشرفين فقط', 'Only the room owner and moderators can play music'), error: true);
       return;
     }
     final tracks = ref.read(musicLibraryProvider).tracks;
     if (tracks.isEmpty) {
-      _snack('ارفع أغنية أولاً', error: true);
+      _snack(tr('ارفع أغنية أولاً', 'Upload a song first'), error: true);
       return;
     }
     ref.read(roomMusicProvider(widget.roomId).notifier).play(tracks, index: index);
     Navigator.of(context).maybePop();
-    _snack('جاري تشغيل الموسيقى في الغرفة');
+    _snack(tr('جاري تشغيل الموسيقى في الغرفة', 'Playing music in the room'));
   }
 
   @override
@@ -175,11 +176,11 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
               ),
               const SizedBox(height: 16),
 
-              const Row(
+              Row(
                 children: [
                   Icon(Icons.library_music, color: Colors.amber, size: 20),
                   SizedBox(width: 8),
-                  Text('الموسيقى', style: TextStyle(color: Colors.white, fontSize: 17)),
+                  Text(tr('الموسيقى', 'Music'), style: TextStyle(color: Colors.white, fontSize: 17)),
                 ],
               ),
               const SizedBox(height: 14),
@@ -196,14 +197,14 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
 
               _actionTile(
                 icon: Icons.upload_file,
-                label: 'رفع موسيقى من الهاتف',
+                label: tr('رفع موسيقى من الهاتف', 'Upload music from phone'),
                 color: Colors.lightBlueAccent,
                 onTap: library.uploading ? null : _pickAndUpload,
               ),
               const SizedBox(height: 8),
               _actionTile(
                 icon: Icons.play_circle_fill,
-                label: music.active ? 'إعادة تشغيل القائمة' : 'تشغيل الموسيقى',
+                label: music.active ? tr('إعادة تشغيل القائمة', 'Restart playlist') : tr('تشغيل الموسيقى', 'Play music'),
                 color: Colors.greenAccent,
                 onTap: () => _playFrom(0),
               ),
@@ -214,7 +215,7 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
 
               Row(
                 children: [
-                  const Text('الأغاني عندي',
+                  Text(tr('الأغاني عندي', 'My songs'),
                       style: TextStyle(color: Colors.white70, fontSize: 13)),
                   const Spacer(),
                   if (library.tracks.isNotEmpty)
@@ -241,10 +242,10 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
     }
 
     if (library.tracks.isEmpty) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 28),
         child: Text(
-          'لا توجد أغاني بعد — ارفع أغنية من هاتفك',
+          tr('لا توجد أغاني بعد — ارفع أغنية من هاتفك', 'No songs yet — upload one from your phone'),
           style: TextStyle(color: Colors.white38, fontSize: 13),
           textAlign: TextAlign.center,
         ),
@@ -280,7 +281,7 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
           onTap: () => _playFrom(i),
           trailing: IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-            tooltip: 'حذف',
+            tooltip: tr('حذف', 'Delete'),
             onPressed: () => _confirmDelete(track.id, track.title),
           ),
         );

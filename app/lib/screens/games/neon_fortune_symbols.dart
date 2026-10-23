@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import '../../l10n/tr.dart';
 
 /// Visual identity for every نيون فورتشن symbol.
 ///
@@ -150,32 +151,32 @@ const Map<String, NeonSymbolVisual> kNeonSymbols = {
 };
 
 /// Arabic names, used by the paytable and the help sheet.
-const Map<String, String> kNeonSymbolNames = {
-  'TIGER': 'حارس النمر',
-  'PANTHER': 'الفهد البلوري',
-  'CRANE': 'كركي الحظ',
-  'KOI': 'سمكة النيون',
-  'LANTERN': 'فانوس الحظ',
-  'COIN': 'عملة النجمة',
+Map<String, String> get kNeonSymbolNames => {
+  'TIGER': tr('حارس النمر', 'Tiger guardian'),
+  'PANTHER': tr('الفهد البلوري', 'Crystal leopard'),
+  'CRANE': tr('كركي الحظ', 'Lucky crane'),
+  'KOI': tr('سمكة النيون', 'Neon fish'),
+  'LANTERN': tr('فانوس الحظ', 'Lucky lantern'),
+  'COIN': tr('عملة النجمة', 'Star coin'),
   'A': 'A',
   'K': 'K',
   'Q': 'Q',
   'J': 'J',
   'TEN': '10',
-  'WILD': 'الرمز البديل',
-  'SCATTER': 'رمز الانتشار',
-  'TOKEN': 'رمز الجائزة',
+  'WILD': tr('الرمز البديل', 'Wild symbol'),
+  'SCATTER': tr('رمز الانتشار', 'Scatter symbol'),
+  'TOKEN': tr('رمز الجائزة', 'Prize symbol'),
 };
 
 /// The four pools, in ladder order. Themed names rather than the genre's
 /// MINI/MINOR/MAJOR/GRAND ladder — design review D5.
 const List<String> kJackpotTiers = ['SPARK', 'GLOW', 'BEACON', 'CITY'];
 
-const Map<String, String> kJackpotNames = {
-  'SPARK': 'شرارة',
-  'GLOW': 'وهج',
-  'BEACON': 'منارة',
-  'CITY': 'مدينة',
+Map<String, String> get kJackpotNames => {
+  'SPARK': tr('شرارة', 'Spark'),
+  'GLOW': tr('وهج', 'Glow'),
+  'BEACON': tr('منارة', 'Beacon'),
+  'CITY': tr('مدينة', 'City'),
 };
 
 const Map<String, Color> kJackpotColors = {

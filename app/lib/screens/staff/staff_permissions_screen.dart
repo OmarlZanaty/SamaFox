@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/staff_provider.dart';
 import '../../services/staff_service.dart';
 import 'staff_widgets.dart';
+import '../../l10n/tr.dart';
 
 /// What a permission/product editor needs: the permission catalog and the
 /// products the editor may hand on. A Manager picks from the dashboard pool;
@@ -72,7 +73,7 @@ class _StaffPermissionEditorScreenState extends StaffActionState<StaffPermission
   @override
   Widget build(BuildContext context) {
     final me = ref.watch(staffMeProvider).valueOrNull;
-    return StaffScreen(title: '🔐 صلاحيات الإدارة', allowed: (a) => a.manages,
+    return StaffScreen(title: tr('🔐 صلاحيات الإدارة', '🔐 Management permissions'), allowed: (a) => a.manages,
       child: StaffLoad<(StaffFile, StaffEditorData)>(revision: revision, load: load, builder: (result) {
         final (file, data) = result;
         seed(file);
@@ -80,9 +81,9 @@ class _StaffPermissionEditorScreenState extends StaffActionState<StaffPermission
         final editable = editableDefinitions(data.catalog, me!, role);
         return [
           staffUserCard(file.user),
-          staffCard('نوع الإدارة: ${staffRoles[role] ?? role}',
-              subtitle: '${statusLabel(file.role.effectiveStatus)} — نهاية: ${dateLabel(file.role.expiresAt)}'),
-          if (!file.role.active) const Text('الإدارة غير نشطة؛ جدّدها أولاً لتعديل الصلاحيات'),
+          staffCard(tr('نوع الإدارة: ${staffRoles[role] ?? role}', 'Role type: ${staffRoles[role] ?? role}'),
+              subtitle: tr('${statusLabel(file.role.effectiveStatus)} — نهاية: ${dateLabel(file.role.expiresAt)}', '${statusLabel(file.role.effectiveStatus)} — expires: ${dateLabel(file.role.expiresAt)}')),
+          if (!file.role.active) Text(tr('الإدارة غير نشطة؛ جدّدها أولاً لتعديل الصلاحيات', 'This role is inactive; renew it before editing permissions')),
           if (file.role.active) ...[
             ...permissionChecklist(data.catalog, me, role, values!, (k, v) => setState(() => values![k] = v)),
             if (me.manager && values!['ban_users'] == true)
@@ -94,13 +95,13 @@ class _StaffPermissionEditorScreenState extends StaffActionState<StaffPermission
               };
               // A new term for نظام الحظر is a change even when the box stays ticked.
               if (values!['ban_users'] == true && banDays != originalBanDays) changed['ban_users'] = true;
-              if (changed.isEmpty) { staffSnack(context, 'لا توجد تغييرات'); return; }
+              if (changed.isEmpty) { staffSnack(context, tr('لا توجد تغييرات', 'No changes')); return; }
               final ok = await act(() async {
                 await service.setPermissions(widget.roleId, changed,
                     terms: {if (changed['ban_users'] == true) 'ban_users': banDays == 0 ? null : banDays});
-              }, message: 'تم حفظ الصلاحيات');
+              }, message: tr('تم حفظ الصلاحيات', 'Permissions saved'));
               if (ok) setState(() => values = null);
-            }, child: Text(busy ? 'جارٍ الحفظ…' : 'حفظ الصلاحيات')),
+            }, child: Text(busy ? tr('جارٍ الحفظ…', 'Saving…') : tr('حفظ الصلاحيات', 'Save permissions'))),
           ],
         ];
       }));
@@ -127,7 +128,7 @@ class _StaffItemsEditorScreenState extends StaffActionState<StaffItemsEditorScre
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.rewards ? 'مكافآت الإداري' : 'المنتجات المسموحة';
+    final title = widget.rewards ? tr('مكافآت الإداري', 'Staff rewards') : tr('المنتجات المسموحة', 'Allowed products');
     return StaffScreen(title: title, allowed: (a) => a.manages,
       child: StaffLoad<(StaffFile, StaffEditorData)>(revision: revision, load: load, builder: (result) {
         final (file, data) = result;
@@ -135,16 +136,16 @@ class _StaffItemsEditorScreenState extends StaffActionState<StaffItemsEditorScre
         return [
           staffUserCard(file.user),
           Text(widget.rewards
-              ? 'منتجات يحصل عليها الإداري نفسه طوال مدة إدارته، وتُسحب تلقائياً عند انتهائها.'
-              : 'المنتجات التي يستطيع هذا الإداري منحها للمستخدمين (٧ أيام). لا يستطيع تعديل أي منتج.'),
+              ? tr('منتجات يحصل عليها الإداري نفسه طوال مدة إدارته، وتُسحب تلقائياً عند انتهائها.', 'Products the staff member receives during their role, automatically removed when it expires.')
+              : tr('المنتجات التي يستطيع هذا الإداري منحها للمستخدمين (٧ أيام). لا يستطيع تعديل أي منتج.', 'Products this staff member can grant to users (7 days). They cannot edit any product.')),
           StaffItemPicker(items: data.items, selected: selected!, title: title,
               onChanged: (v) => setState(() => selected = v)),
           FilledButton(onPressed: busy || !file.role.active ? null : () async {
             final ok = await act(() => widget.rewards
                 ? service.setRewardItems(widget.roleId, selected!.toList())
-                : service.setAllowedItems(widget.roleId, selected!.toList()), message: 'تم الحفظ');
+                : service.setAllowedItems(widget.roleId, selected!.toList()), message: tr('تم الحفظ', 'Saved'));
             if (ok) setState(() => selected = null);
-          }, child: Text(busy ? 'جارٍ الحفظ…' : 'حفظ')),
+          }, child: Text(busy ? tr('جارٍ الحفظ…', 'Saving…') : tr('حفظ', 'Save'))),
         ];
       }));
   }
@@ -167,29 +168,29 @@ class _StaffPermissionsHubScreenState extends StaffActionState<StaffPermissionsH
     // Your own role is not editable here; the server answers 403 for it.
     final self = found != null && found.id == me?.roleId;
     final role = self ? null : found;
-    return StaffScreen(title: '🔐 صلاحيات الإدارة', allowed: (a) => a.manages,
+    return StaffScreen(title: tr('🔐 صلاحيات الإدارة', '🔐 Management permissions'), allowed: (a) => a.manages,
       child: StaffRefreshList(onRefresh: () async => ref.refresh(staffMeProvider.future), children: [
-        const Text('أدخل ID الإداري لعرض نوع إدارته وصلاحياته:'),
+        Text(tr('أدخل ID الإداري لعرض نوع إدارته وصلاحياته:', 'Enter the staff ID to view their role and permissions:')),
         StaffUserLookup(onSelected: (v) => setState(() => user = v)),
-        if (self) const Text('لا يمكنك تعديل صلاحياتك بنفسك.'),
+        if (self) Text(tr('لا يمكنك تعديل صلاحياتك بنفسك.', 'You cannot edit your own permissions.')),
         if (user != null && found == null)
-          const Text('هذا المستخدم ليس لديه إدارة نشطة.'),
+          Text(tr('هذا المستخدم ليس لديه إدارة نشطة.', 'This user has no active role.')),
         if (role != null) ...[
-          staffCard('نوع الإدارة: ${staffRoles[role.role] ?? role.role}',
-              subtitle: 'نهاية: ${dateLabel(role.expiresAt)}'),
+          staffCard(tr('نوع الإدارة: ${staffRoles[role.role] ?? role.role}', 'Role type: ${staffRoles[role.role] ?? role.role}'),
+              subtitle: tr('نهاية: ${dateLabel(role.expiresAt)}', 'Expires: ${dateLabel(role.expiresAt)}')),
           FilledButton(onPressed: () => openStaff(context, StaffPermissionEditorScreen(roleId: role.id)),
-              child: const Text('عرض وتعديل الصلاحيات')),
+              child: Text(tr('عرض وتعديل الصلاحيات', 'View and edit permissions'))),
           OutlinedButton(onPressed: () => openStaff(context, StaffItemsEditorScreen(roleId: role.id)),
-              child: const Text('المنتجات المسموحة')),
+              child: Text(tr('المنتجات المسموحة', 'Allowed products'))),
           if (me?.manager == true)
             OutlinedButton(onPressed: () => openStaff(context, StaffItemsEditorScreen(roleId: role.id, rewards: true)),
-                child: const Text('مكافآت الإداري')),
+                child: Text(tr('مكافآت الإداري', 'Staff rewards'))),
         ],
         if (me?.manager == true) ...[
           const Divider(),
-          staffCard('🚫 نظام الحظر — من يملك الصلاحية', subtitle: 'منح وسحب صلاحية الحظر ومدتها',
+          staffCard(tr('🚫 نظام الحظر — من يملك الصلاحية', '🚫 Ban system — permission holders'), subtitle: tr('منح وسحب صلاحية الحظر ومدتها', 'Grant or revoke ban permission and set its duration'),
               trailing: const Icon(Icons.chevron_left), onTap: () => openStaff(context, const StaffBanHoldersScreen())),
-          staffCard('🎁 مكافآت الإدارة', subtitle: 'إطار وشارة ومنتجات Admin / Super Admin / Manager',
+          staffCard(tr('🎁 مكافآت الإدارة', '🎁 Management rewards'), subtitle: tr('إطار وشارة ومنتجات Admin / Super Admin / Manager', 'Frames, badges, and products for Admin / Super Admin / Manager'),
               trailing: const Icon(Icons.chevron_left), onTap: () => openStaff(context, const StaffRoleRewardsScreen())),
         ],
       ]));
@@ -207,26 +208,26 @@ class _StaffBanHoldersScreenState extends StaffActionState<StaffBanHoldersScreen
   StaffUser? user;
   int days = 0;
   @override
-  Widget build(BuildContext context) => StaffScreen(title: '🚫 صلاحية نظام الحظر', allowed: (a) => a.manager,
+  Widget build(BuildContext context) => StaffScreen(title: tr('🚫 صلاحية نظام الحظر', '🚫 Ban system permission'), allowed: (a) => a.manager,
     child: StaffLoad<List<StaffPermission>>(revision: revision, load: service.banHolders, header: [
-      staffHeading('منح صلاحية الحظر'),
+      staffHeading(tr('منح صلاحية الحظر', 'Grant ban permission')),
       StaffUserLookup(onSelected: (v) => setState(() => user = v)),
       permissionDuration(days, (v) => setState(() => days = v), standalone: user?.staffRole == null),
       FilledButton(onPressed: busy || user == null ? null : () async {
         final target = user!;
-        if (!await staffConfirm(context, 'منح صلاحية الحظر', '${target.label}\nالمدة: ${days == 0 ? (target.staffRole == null ? 'أبدي' : 'حتى نهاية الإدارة') : '$days يوم'}') || !mounted) return;
-        await act(() => service.grantBanPermission(target.id, days == 0 ? null : days), message: '🚫 نظام الحظر: مفعل');
-      }, child: const Text('منح الصلاحية')),
+        if (!await staffConfirm(context, tr('منح صلاحية الحظر', 'Grant ban permission'), tr('${target.label}\nالمدة: ${days == 0 ? (target.staffRole == null ? 'أبدي' : 'حتى نهاية الإدارة') : '$days يوم'}', '${target.label}\nDuration: ${days == 0 ? (target.staffRole == null ? 'Permanent' : 'Until role expires') : '$days days'}')) || !mounted) return;
+        await act(() => service.grantBanPermission(target.id, days == 0 ? null : days), message: tr('🚫 نظام الحظر: مفعل', '🚫 Ban system: enabled'));
+      }, child: Text(tr('منح الصلاحية', 'Grant permission'))),
       const Divider(),
-      staffHeading('من يملك صلاحية الحظر'),
-      const Text('كل Manager يملكها تلقائياً.'),
+      staffHeading(tr('من يملك صلاحية الحظر', 'Ban permission holders')),
+      Text(tr('كل Manager يملكها تلقائياً.', 'Every manager has this permission automatically.')),
     ], builder: (rows) => rows.map((p) => staffCard(p.user?.label ?? 'ID ${p.userId}',
       leading: p.user == null ? null : staffAvatar(p.user!),
-      subtitle: 'نهاية الصلاحية: ${dateLabel(p.expiresAt)}',
+      subtitle: tr('نهاية الصلاحية: ${dateLabel(p.expiresAt)}', 'Permission expires: ${dateLabel(p.expiresAt)}'),
       trailing: TextButton(onPressed: busy ? null : () async {
-        if (!await staffConfirm(context, 'سحب صلاحية الحظر', p.user?.label ?? 'ID ${p.userId}') || !mounted) return;
-        await act(() => service.revokeBanPermission(p.userId), message: '🚫 نظام الحظر: مسحوب');
-      }, child: const Text('سحب')))).toList()));
+        if (!await staffConfirm(context, tr('سحب صلاحية الحظر', 'Revoke ban permission'), p.user?.label ?? 'ID ${p.userId}') || !mounted) return;
+        await act(() => service.revokeBanPermission(p.userId), message: tr('🚫 نظام الحظر: مسحوب', '🚫 Ban system: revoked'));
+      }, child: Text(tr('سحب', 'Revoke'))))).toList()));
 }
 
 /// Manager: the products every Admin / Super Admin / Manager gets with the role.
@@ -241,17 +242,17 @@ class _StaffRoleRewardsScreenState extends StaffActionState<StaffRoleRewardsScre
   Future<(Map<String, List<String>>, List<StaffItem>)> load() async =>
       (await service.roleRewards(), await service.pool(rewards: true));
   @override
-  Widget build(BuildContext context) => StaffScreen(title: '🎁 مكافآت الإدارة', allowed: (a) => a.manager,
+  Widget build(BuildContext context) => StaffScreen(title: tr('🎁 مكافآت الإدارة', '🎁 Management rewards'), allowed: (a) => a.manager,
     child: StaffLoad<(Map<String, List<String>>, List<StaffItem>)>(revision: revision, load: load, builder: (result) {
       final (config, items) = result;
       selected ??= {for (final r in staffRoles.keys) r: (config[r] ?? const []).toSet()};
       return [
-        const Text('إطار الإداري وشارته والمنتجات الإضافية — تُمنح مع الإدارة وتُسحب عند انتهائها.'),
+        Text(tr('إطار الإداري وشارته والمنتجات الإضافية — تُمنح مع الإدارة وتُسحب عند انتهائها.', 'Staff frames, badges, and extra products — granted with the role and removed when it expires.')),
         ...staffRoles.entries.map((r) => ExpansionTile(title: Text(r.value), children: [
-          StaffItemPicker(items: items, selected: selected![r.key]!, title: 'منتجات ${r.value}',
+          StaffItemPicker(items: items, selected: selected![r.key]!, title: tr('منتجات ${r.value}', '${r.value} products'),
               onChanged: (v) => setState(() => selected![r.key] = v)),
           FilledButton(onPressed: busy ? null : () => act(() => service.setRoleRewards(r.key, selected![r.key]!.toList()),
-              message: 'تم حفظ مكافآت ${r.value}'), child: const Text('حفظ')),
+              message: tr('تم حفظ مكافآت ${r.value}', 'Rewards saved for ${r.value}')), child: Text(tr('حفظ', 'Save'))),
         ])),
       ];
     }));

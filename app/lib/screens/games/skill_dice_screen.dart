@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../repositories/skill_dice_repository.dart';
 import '../../services/socket_service.dart';
+import '../../l10n/tr.dart';
 
 /// نرد المهارة — Skill Dice.
 ///
@@ -208,7 +209,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         // Spend the single re-roll on this die.
         _locked[index] = false;
         _rerollUsed = true;
-        _notice = 'استخدمت إعادة الرمي';
+        _notice = tr('استخدمت إعادة الرمي', 'Reroll used');
       }
     });
     _syncSpinTimer(); // stops once all three are locked, restarts on a re-roll
@@ -219,7 +220,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     final r = _round;
     if (r == null || !r.isJoining || _joinedCurrentRound) return;
     if (_balance < _entry) {
-      setState(() => _notice = 'رصيدك لا يكفي');
+      setState(() => _notice = tr('رصيدك لا يكفي', 'Insufficient balance'));
       return;
     }
     try {
@@ -230,8 +231,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         _balance = result.balance;
         _rerollUsed = false;
         _submitted = false;
-        _notice = 'دخلت الجولة — مكافأتك المضمونة ${_fmt(result.minReward)} '
-            'وتصل إلى ${_fmt(result.maxReward)}';
+        _notice = tr('دخلت الجولة — مكافأتك المضمونة ${_fmt(result.minReward)} '
+            'وتصل إلى ${_fmt(result.maxReward)}', 'Joined the round — guaranteed reward ${_fmt(result.minReward)}, up to ${_fmt(result.maxReward)}');
         for (var i = 0; i < 3; i++) {
           _locked[i] = false;
         }
@@ -255,7 +256,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       setState(() {
         _lastScore = result.score;
         _lastReward = result.reward;
-        _notice = 'نتيجتك ${result.score}/100 — مكافأتك ${_fmt(result.reward)}';
+        _notice = tr('نتيجتك ${result.score}/100 — مكافأتك ${_fmt(result.reward)}', 'Your score ${result.score}/100 — reward ${_fmt(result.reward)}');
       });
     } on SkillDiceException catch (e) {
       if (mounted) {
@@ -285,7 +286,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('نرد المهارة',
+        title: Text(tr('نرد المهارة', 'Skill Dice'),
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -340,7 +341,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('رصيدك', style: TextStyle(color: Colors.white70)),
+          Text(tr('رصيدك', 'Your balance'), style: TextStyle(color: Colors.white70)),
           Text('🪙 ${_fmt(_balance)}',
               style: const TextStyle(
                   color: Color(0xFFFFD54F),
@@ -355,21 +356,21 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
     final String title;
     final String subtitle;
     if (r == null) {
-      title = 'جارٍ الاتصال…';
+      title = tr('جارٍ الاتصال…', 'Connecting…');
       subtitle = '';
     } else if (r.isJoining) {
-      title = 'وقت الدخول';
+      title = tr('وقت الدخول', 'Entry time');
       subtitle = _joinedCurrentRound
-          ? 'أنت داخل الجولة، استعد'
-          : 'ادفع رسوم الدخول للمشاركة';
+          ? tr('أنت داخل الجولة، استعد', 'You are in the round, get ready')
+          : tr('ادفع رسوم الدخول للمشاركة', 'Pay the entry fee to join');
     } else if (r.isPlaying) {
-      title = r.missionLabel ?? 'المهمة';
+      title = r.missionLabel ?? tr('المهمة', 'Task');
       subtitle = _joinedCurrentRound
-          ? 'أوقف كل نردة على الرقم المناسب'
-          : 'الجولة جارية — انتظر الجولة القادمة';
+          ? tr('أوقف كل نردة على الرقم المناسب', 'Stop each die on the correct number')
+          : tr('الجولة جارية — انتظر الجولة القادمة', 'Round in progress — wait for the next round');
     } else {
-      title = 'النتائج';
-      subtitle = 'الجولة القادمة تبدأ الآن';
+      title = tr('النتائج', 'Results');
+      subtitle = tr('الجولة القادمة تبدأ الآن', 'The next round starts now');
     }
 
     final seconds = (_msLeft / 1000).ceil();
@@ -485,7 +486,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
           : r.entryTiers;
       return Column(
         children: [
-          Text('اختر رسوم الدخول',
+          Text(tr('اختر رسوم الدخول', 'Choose entry fee'),
               style: TextStyle(
                   color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
@@ -517,7 +518,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                     borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _join,
-              child: Text('ادخل الجولة — ${_fmt(_entry)}',
+              child: Text(tr('ادخل الجولة — ${_fmt(_entry)}', 'Join round — ${_fmt(_entry)}'),
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16)),
             ),
@@ -531,8 +532,8 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         children: [
           Text(
             _rerollUsed
-                ? 'اضغط على النردة لإيقافها'
-                : 'اضغط على النردة لإيقافها — واضغط على نردة متوقفة لإعادة رميها (مرة واحدة)',
+                ? tr('اضغط على النردة لإيقافها', 'Tap a die to stop it')
+                : tr('اضغط على النردة لإيقافها — واضغط على نردة متوقفة لإعادة رميها (مرة واحدة)', 'Tap a die to stop it — tap a stopped die to reroll it (once)'),
             textAlign: TextAlign.center,
             style:
                 TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
@@ -550,7 +551,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
                     borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _allLocked ? _submit : null,
-              child: const Text('سجّل النتيجة',
+              child: Text(tr('سجّل النتيجة', 'Submit score'),
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ),
           ),
@@ -560,7 +561,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
 
     if (_submitted && _lastScore > 0) {
       return _noticeBar(
-          'نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
+          tr('نتيجتك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}', 'Your score $_lastScore/100 — reward ${_fmt(_lastReward)}'));
     }
 
     return const SizedBox.shrink();
@@ -569,13 +570,13 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
   Widget _playersStrip(DiceRound? r) {
     final players = r?.players ?? const <DicePlayer>[];
     if (players.isEmpty) {
-      return Text('لا يوجد لاعبون في هذه الجولة بعد',
+      return Text(tr('لا يوجد لاعبون في هذه الجولة بعد', 'No players in this round yet'),
           style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12));
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('اللاعبون (${players.length})',
+        Text(tr('اللاعبون (${players.length})', 'Players (${players.length})'),
             style:
                 TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
@@ -644,7 +645,7 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('أفضل أداء — جولة $_resultRoundId',
+          Text(tr('أفضل أداء — جولة $_resultRoundId', 'Best performance — round $_resultRoundId'),
               style: const TextStyle(
                   color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
@@ -681,10 +682,10 @@ class _SkillDiceScreenState extends ConsumerState<SkillDiceScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.25)),
       ),
-      child: const Text(
-        'لعبة مهارة وليست مراهنة: رسوم الدخول ثابتة ومعروفة قبل الدفع، '
+      child: Text(
+        tr('لعبة مهارة وليست مراهنة: رسوم الدخول ثابتة ومعروفة قبل الدفع، '
         'وكل مشترك يحصل على مكافأة مضمونة، والمكافأة تعتمد على أدائك في المهمة '
-        'ولا أحد يربح من خسارة لاعب آخر.',
+        'ولا أحد يربح من خسارة لاعب آخر.', 'A skill game, not betting: entry fees are fixed and shown before payment. Every participant receives a guaranteed reward based on their performance, and no one profits from another player losing.'),
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.6),
       ),

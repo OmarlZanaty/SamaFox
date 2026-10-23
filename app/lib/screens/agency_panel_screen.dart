@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../services/agency_service.dart';
 import '../widgets/app_network_image.dart';
+import '../l10n/tr.dart';
 
 /// Hosting-agency panel.
 /// Agent (وكيل): search users by ID and invite them, see members with their
@@ -104,7 +105,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       final results = await _service.searchUser(q, agencyType: _agencyType);
       if (mounted) setState(() => _searchResults = results);
     } catch (e) {
-      _toast('فشل البحث: $e');
+      _toast(tr('فشل البحث: $e', 'Search failed: $e'));
     } finally {
       if (mounted) setState(() => _searching = false);
     }
@@ -120,27 +121,27 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
         final choice = await showDialog<String>(
           context: context,
           builder: (c) => AlertDialog(
-            title: const Text('الدعوة ما زالت بانتظار الرد'),
-            content: Text('دعوة ${user['name']} لم يُرد عليها بعد.'),
+            title: Text(tr('الدعوة ما زالت بانتظار الرد', 'Invitation awaiting response')),
+            content: Text(tr('دعوة ${user['name']} لم يُرد عليها بعد.', '${user['name']} has not responded to the invitation yet.')),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(c, 'cancel'), child: const Text('إلغاء الدعوة')),
-              TextButton(onPressed: () => Navigator.pop(c), child: const Text('رجوع')),
-              FilledButton(onPressed: () => Navigator.pop(c, 'resend'), child: const Text('إعادة إرسال')),
+              TextButton(onPressed: () => Navigator.pop(c, 'cancel'), child: Text(tr('إلغاء الدعوة', 'Cancel invitation'))),
+              TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('رجوع', 'Back'))),
+              FilledButton(onPressed: () => Navigator.pop(c, 'resend'), child: Text(tr('إعادة إرسال', 'Resend'))),
             ],
           ),
         );
         if (choice == 'resend') {
           await _service.resendInvite(id);
-          _toast('✓ تمت إعادة إرسال الدعوة');
+          _toast(tr('✓ تمت إعادة إرسال الدعوة', '✓ Invitation resent'));
         } else if (choice == 'cancel') {
           await _service.cancelInvite(id);
-          _toast('تم إلغاء الدعوة');
+          _toast(tr('تم إلغاء الدعوة', 'Invitation canceled'));
         }
         return;
       }
-      _toast('✓ تم إرسال الدعوة إلى ${user['name']}');
+      _toast(tr('✓ تم إرسال الدعوة إلى ${user['name']}', '✓ Invitation sent to ${user['name']}'));
     } catch (e) {
-      _toast('فشل إرسال الدعوة: $e');
+      _toast(tr('فشل إرسال الدعوة: $e', 'Failed to send invitation: $e'));
     }
   }
 
@@ -155,13 +156,13 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       context: context,
       builder: (c) => StatefulBuilder(
         builder: (c, set) => AlertDialog(
-          title: const Text('بيانات الوكالة'),
+          title: Text(tr('بيانات الوكالة', 'Agency details')),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'اسم الوكالة')),
+            TextField(controller: ctrl, decoration: InputDecoration(labelText: tr('اسم الوكالة', 'Agency name'))),
             const SizedBox(height: 10),
             OutlinedButton.icon(
               icon: const Icon(Icons.image),
-              label: Text(imageUrl == null ? 'تغيير صورة الوكالة' : 'تم اختيار صورة ✓'),
+              label: Text(imageUrl == null ? tr('تغيير صورة الوكالة', 'Change agency image') : tr('تم اختيار صورة ✓', 'Image selected ✓')),
               onPressed: () async {
                 final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 1024);
                 if (picked == null) return;
@@ -171,14 +172,14 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                   final url = (r.data is Map ? (r.data['url'] ?? r.data['imageUrl']) : null)?.toString();
                   if (url != null) set(() => imageUrl = url);
                 } catch (_) {
-                  _toast('تعذر رفع الصورة');
+                  _toast(tr('تعذر رفع الصورة', 'Unable to upload image'));
                 }
               },
             ),
           ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('حفظ')),
+            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('إلغاء', 'Cancel'))),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('حفظ', 'Save'))),
           ],
         ),
       ),
@@ -188,24 +189,24 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       final newName = ctrl.text.trim();
       await _service.updateAgencyProfile(id,
           name: newName.isNotEmpty && newName != '${agency['agencyName'] ?? ''}' ? newName : null, imageUrl: imageUrl);
-      _toast('✓ تم تحديث بيانات الوكالة');
+      _toast(tr('✓ تم تحديث بيانات الوكالة', '✓ Agency details updated'));
       _load();
     } catch (e) {
       final m = (e is DioException && e.response?.data is Map) ? e.response!.data['message']?.toString() : null;
-      _toast(m ?? 'تعذر الحفظ');
+      _toast(m ?? tr('تعذر الحفظ', 'Unable to save'));
     }
   }
 
   Future<void> _removeMember(Map<String, dynamic> member) async {
     final user = member['user'] as Map? ?? {};
-    final yes = await _confirm('إزالة مضيف', 'سيتم إخراج ${user['name']} من الوكالة. متابعة؟');
+    final yes = await _confirm(tr('إزالة مضيف', 'Remove host'), tr('سيتم إخراج ${user['name']} من الوكالة. متابعة؟', '${user['name']} will be removed from the agency. Continue?'));
     if (yes != true) return;
     try {
       await _service.removeMember((user['id'] as num).toInt(), agencyType: _agencyType);
-      _toast('✓ تمت الإزالة');
+      _toast(tr('✓ تمت الإزالة', '✓ Removed'));
       _load();
     } catch (e) {
-      _toast('فشل: $e');
+      _toast(tr('فشل: $e', 'Failed: $e'));
     }
   }
 
@@ -218,9 +219,9 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
         // one the server would have picked.
         agencyType: _agencyType,
       );
-      _toast('✓ تم حفظ إعدادات الخروج');
+      _toast(tr('✓ تم حفظ إعدادات الخروج', '✓ Exit settings saved'));
     } catch (e) {
-      _toast('فشل: $e');
+      _toast(tr('فشل: $e', 'Failed: $e'));
     }
   }
 
@@ -230,12 +231,12 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2A1A5E),
-        title: const Text('نقل ملكية الوكالة', style: TextStyle(color: Colors.white)),
+        title: Text(tr('نقل ملكية الوكالة', 'Transfer agency ownership'), style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'أدخل ID المستخدم الجديد. ستفقد صلاحيات الوكيل وتصبح مضيفاً.',
+            Text(
+              tr('أدخل ID المستخدم الجديد. ستفقد صلاحيات الوكيل وتصبح مضيفاً.', 'Enter the new user ID. You will lose agent permissions and become a host.'),
               style: TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 12),
@@ -243,13 +244,13 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
               controller: ctrl,
               keyboardType: TextInputType.number,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(hintText: 'ID المستخدم'),
+              decoration: InputDecoration(hintText: tr('ID المستخدم', 'User ID')),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('نقل')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('إلغاء', 'Cancel'))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('نقل', 'Transfer'))),
         ],
       ),
     );
@@ -259,14 +260,14 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
     try {
       final results = await _service.searchUser(q, agencyType: _agencyType);
       if (results.isEmpty) {
-        _toast('لم يتم العثور على المستخدم');
+        _toast(tr('لم يتم العثور على المستخدم', 'User not found'));
         return;
       }
       await _service.transferOwnership((results.first['id'] as num).toInt(), agencyType: _agencyType);
-      _toast('✓ تم نقل الملكية');
+      _toast(tr('✓ تم نقل الملكية', '✓ Ownership transferred'));
       _load();
     } catch (e) {
-      _toast('فشل النقل: $e');
+      _toast(tr('فشل النقل: $e', 'Transfer failed: $e'));
     }
   }
 
@@ -291,12 +292,12 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('الفروع',
+                  Text(tr('الفروع', 'Branches'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                   const SizedBox(height: 4),
-                  const Text('نفس صلاحيات إدارة المضيفين بدون امتلاك الوكالة — حتى 3 فروع',
+                  Text(tr('نفس صلاحيات إدارة المضيفين بدون امتلاك الوكالة — حتى 3 فروع', 'Same host management permissions without agency ownership — up to 3 branches'),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white54, fontSize: 12)),
                   const SizedBox(height: 14),
@@ -311,9 +312,9 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                       }
                       final branches = snap.data ?? const [];
                       if (branches.isEmpty) {
-                        return const Padding(
+                        return Padding(
                           padding: EdgeInsets.symmetric(vertical: 16),
-                          child: Text('لا يوجد فروع حالياً',
+                          child: Text(tr('لا يوجد فروع حالياً', 'No branches yet'),
                               textAlign: TextAlign.center,
                               style: TextStyle(color: Colors.white70)),
                         );
@@ -325,7 +326,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
                             leading: const CircleAvatar(child: Icon(Icons.person)),
-                            title: Text('${user['name'] ?? 'عضو'}',
+                            title: Text(tr('${user['name'] ?? 'عضو'}', '${user['name'] ?? 'Member'}'),
                                 style: const TextStyle(color: Colors.white)),
                             subtitle: Text('#${user['displayId'] ?? uid ?? ''}',
                                 style: const TextStyle(color: Colors.white54)),
@@ -337,10 +338,10 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                                       try {
                                         await _service.removeBranch(uid.toInt(),
                                             agencyType: _agencyType);
-                                        _toast('✓ تم إلغاء الفرع');
+                                        _toast(tr('✓ تم إلغاء الفرع', '✓ Branch removed'));
                                         await reload();
                                       } catch (e) {
-                                        _toast('فشل: $e');
+                                        _toast(tr('فشل: $e', 'Failed: $e'));
                                       }
                                     },
                             ),
@@ -351,7 +352,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                   ),
                   const Divider(color: Colors.white24),
                   const SizedBox(height: 6),
-                  const Text('إضافة فرع بالـ ID',
+                  Text(tr('إضافة فرع بالـ ID', 'Add branch by ID'),
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Row(
@@ -362,7 +363,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                           keyboardType: TextInputType.number,
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
-                            hintText: 'ID المستخدم',
+                            hintText: tr('ID المستخدم', 'User ID'),
                             hintStyle: const TextStyle(color: Colors.white38),
                             filled: true,
                             fillColor: Colors.black26,
@@ -385,20 +386,20 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                             final results =
                                 await _service.searchUser(q, agencyType: _agencyType);
                             if (results.isEmpty) {
-                              _toast('لم يتم العثور على المستخدم');
+                              _toast(tr('لم يتم العثور على المستخدم', 'User not found'));
                               return;
                             }
                             await _service.addBranch(
                                 (results.first['id'] as num).toInt(),
                                 agencyType: _agencyType);
                             _branchIdCtrl.clear();
-                            _toast('✓ تمت إضافة الفرع');
+                            _toast(tr('✓ تمت إضافة الفرع', '✓ Branch added'));
                             await reload();
                           } catch (e) {
-                            _toast('فشل: $e');
+                            _toast(tr('فشل: $e', 'Failed: $e'));
                           }
                         },
-                        child: const Text('إضافة', style: TextStyle(color: Colors.white)),
+                        child: Text(tr('إضافة', 'Add'), style: TextStyle(color: Colors.white)),
                       ),
                     ],
                   ),
@@ -421,16 +422,16 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
     final agencyId = (agency['id'] as num?)?.toInt();
     final name = (agency['agencyName'] ?? '').toString();
     final body = locked && price > 0
-        ? 'الخروج من وكالة $name مقفول — ستدفع $price كوينز للمغادرة. متابعة؟'
-        : 'هل تريد مغادرة وكالة $name؟';
-    final yes = await _confirm('مغادرة الوكالة', body);
+        ? tr('الخروج من وكالة $name مقفول — ستدفع $price كوينز للمغادرة. متابعة؟', 'Leaving $name agency is locked — you will pay $price coins to leave. Continue?')
+        : tr('هل تريد مغادرة وكالة $name؟', 'Leave $name agency?');
+    final yes = await _confirm(tr('مغادرة الوكالة', 'Leave agency'), body);
     if (yes != true) return;
     try {
       final paid = await _service.leaveAgency(
         agencyId: agencyId,
         agencyType: agencyId == null ? _agencyType : null,
       );
-      _toast(paid > 0 ? '✓ غادرت الوكالة بعد دفع $paid كوينز' : '✓ غادرت الوكالة');
+      _toast(paid > 0 ? tr('✓ غادرت الوكالة بعد دفع $paid كوينز', '✓ Left the agency after paying $paid coins') : tr('✓ غادرت الوكالة', '✓ Left the agency'));
       if (mounted) Navigator.pop(context);
     } catch (e) {
       _toast('$e'.replaceFirst('Exception: ', ''));
@@ -445,8 +446,8 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
         title: Text(title, style: const TextStyle(color: Colors.white)),
         content: Text(body, style: const TextStyle(color: Colors.white70)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('تأكيد')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('إلغاء', 'Cancel'))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('تأكيد', 'Confirm'))),
         ],
       ),
     );
@@ -460,7 +461,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          _isAgent ? 'لوحة الوكيل' : (_canManage ? 'لوحة الفرع' : 'وكالتي'),
+          _isAgent ? tr('لوحة الوكيل', 'Agent panel') : (_canManage ? tr('لوحة الفرع', 'Branch panel') : tr('وكالتي', 'My agency')),
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
@@ -471,8 +472,8 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _membership == null
-              ? const Center(
-                  child: Text('أنت لست عضواً في أي وكالة',
+              ? Center(
+                  child: Text(tr('أنت لست عضواً في أي وكالة', 'You are not a member of any agency'),
                       style: TextStyle(color: Colors.white70, fontSize: 16)),
                 )
               : _canManage
@@ -508,8 +509,8 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
             children: [
               const Icon(Icons.flag, color: Color(0xFFFFD700), size: 22),
               const SizedBox(width: 8),
-              const Expanded(
-                child: Text('تارجت الوكيل',
+              Expanded(
+                child: Text(tr('تارجت الوكيل', 'Agent target'),
                     style: TextStyle(
                         color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
               ),
@@ -534,12 +535,12 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
             const SizedBox(height: 8),
             Text(
               remaining > 0
-                  ? 'متبقٍ $remaining كوينز لإغلاق تارجت الوكالة'
-                  : 'اكتمل تارجت الوكالة 🎉',
+                  ? tr('متبقٍ $remaining كوينز لإغلاق تارجت الوكالة', '$remaining coins left to reach the agency target')
+                  : tr('اكتمل تارجت الوكالة 🎉', 'Agency target reached 🎉'),
               style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
           ] else
-            const Text('إجمالي إنتاج الوكالة — لم يحدد الأدمن تارجت بعد',
+            Text(tr('إجمالي إنتاج الوكالة — لم يحدد الأدمن تارجت بعد', 'Total agency earnings — the admin has not set a target yet'),
                 style: TextStyle(color: Colors.white54, fontSize: 12)),
         ],
       ),
@@ -567,7 +568,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                     Text('${agency['agencyName'] ?? ''}',
                         style: const TextStyle(
                             color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                    Text(_isAgent ? 'وكيل' : 'فرع',
+                    Text(_isAgent ? tr('وكيل', 'Agent') : tr('فرع', 'Branch'),
                         style: const TextStyle(color: Color(0xFFFFD700), fontSize: 13)),
                   ],
                 ),
@@ -576,14 +577,14 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
               // hosts but never owns or hands over the agency.
               if (_isAgent)
                 IconButton(
-                  tooltip: 'تعديل اسم وصورة الوكالة',
+                  tooltip: tr('تعديل اسم وصورة الوكالة', 'Edit agency name and image'),
                   icon: const Icon(Icons.edit, color: Colors.white70),
                   onPressed: () => _editAgencyProfile(agency),
                 ),
               if (_isAgent)
                 TextButton(
                   onPressed: _transferOwnership,
-                  child: const Text('نقل الملكية', style: TextStyle(color: Colors.orangeAccent)),
+                  child: Text(tr('نقل الملكية', 'Transfer ownership'), style: TextStyle(color: Colors.orangeAccent)),
                 ),
             ],
           ),
@@ -597,7 +598,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('دعوة مستخدم (بالـ ID)',
+              Text(tr('دعوة مستخدم (بالـ ID)', 'Invite user (by ID)'),
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
               Row(
@@ -608,7 +609,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                       style: const TextStyle(color: Colors.white),
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
-                        hintText: 'ID المستخدم أو الاسم',
+                        hintText: tr('ID المستخدم أو الاسم', 'User ID or name'),
                         hintStyle: const TextStyle(color: Colors.white38),
                         filled: true,
                         fillColor: Colors.black26,
@@ -626,7 +627,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                     child: _searching
                         ? const SizedBox(
                             width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('بحث', style: TextStyle(color: Colors.white)),
+                        : Text(tr('بحث', 'Search'), style: TextStyle(color: Colors.white)),
                   ),
                 ],
               ),
@@ -644,12 +645,12 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                     subtitle: Text('#${u['displayId'] ?? u['id']}',
                         style: const TextStyle(color: Colors.white54)),
                     trailing: u['isMember'] == true
-                        ? const Text('عضو', style: TextStyle(color: Colors.greenAccent))
+                        ? Text(tr('عضو', 'Member'), style: TextStyle(color: Colors.greenAccent))
                         : ElevatedButton(
                             onPressed: () => _invite(u),
                             style:
                                 ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4ECDC4)),
-                            child: const Text('دعوة', style: TextStyle(color: Colors.black)),
+                            child: Text(tr('دعوة', 'Invite'), style: TextStyle(color: Colors.black)),
                           ),
                   )),
             ],
@@ -662,10 +663,10 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('الفروع (حتى 3)',
+                Text(tr('الفروع (حتى 3)', 'Branches (up to 3)'),
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                const Text('نفس صلاحيات إدارة المضيفين بدون امتلاك الوكالة',
+                Text(tr('نفس صلاحيات إدارة المضيفين بدون امتلاك الوكالة', 'Same host management permissions without agency ownership'),
                     style: TextStyle(color: Colors.white54, fontSize: 12)),
                 const SizedBox(height: 10),
                 SizedBox(
@@ -674,7 +675,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                     onPressed: _manageBranches,
                     icon: const Icon(Icons.groups, color: Colors.white),
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6B4CE6)),
-                    label: const Text('إدارة الفروع', style: TextStyle(color: Colors.white)),
+                    label: Text(tr('إدارة الفروع', 'Manage branches'), style: TextStyle(color: Colors.white)),
                   ),
                 ),
               ],
@@ -687,13 +688,13 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('إعدادات خروج الأعضاء',
+              Text(tr('إعدادات خروج الأعضاء', 'Member exit settings'),
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 value: _exitLocked,
                 onChanged: (v) => setState(() => _exitLocked = v),
-                title: const Text('قفل الخروج (يدفع المضيف رسوماً للمغادرة)',
+                title: Text(tr('قفل الخروج (يدفع المضيف رسوماً للمغادرة)', 'Lock exit (hosts pay a fee to leave)'),
                     style: TextStyle(color: Colors.white70, fontSize: 14)),
                 activeColor: const Color(0xFF6B4CE6),
               ),
@@ -703,7 +704,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                   keyboardType: TextInputType.number,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    labelText: 'رسوم الخروج (كوينز)',
+                    labelText: tr('رسوم الخروج (كوينز)', 'Exit fee (coins)'),
                     labelStyle: const TextStyle(color: Colors.white54),
                     filled: true,
                     fillColor: Colors.black26,
@@ -717,7 +718,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                 child: ElevatedButton(
                   onPressed: _saveExitSettings,
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6B4CE6)),
-                  child: const Text('حفظ', style: TextStyle(color: Colors.white)),
+                  child: Text(tr('حفظ', 'Save'), style: TextStyle(color: Colors.white)),
                 ),
               ),
             ],
@@ -729,14 +730,14 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('المضيفون (${members.where((m) => m['role'] != 'OWNER').length})',
+              Text(tr('المضيفون (${members.where((m) => m['role'] != 'OWNER').length})', 'Hosts (${members.where((m) => m['role'] != 'OWNER').length})'),
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               const SizedBox(height: 6),
               if (members.where((m) => m['role'] != 'OWNER').isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 10),
                   child:
-                      Text('لا يوجد مضيفون بعد', style: TextStyle(color: Colors.white54)),
+                      Text(tr('لا يوجد مضيفون بعد', 'No hosts yet'), style: TextStyle(color: Colors.white54)),
                 ),
               ...members.where((m) => m['role'] != 'OWNER').map((m) {
                 final user = m['user'] as Map? ?? {};
@@ -754,7 +755,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                   title:
                       Text('${user['name'] ?? ''}', style: const TextStyle(color: Colors.white)),
                   subtitle: Text(
-                    '#${user['displayId'] ?? user['id']} — التارجت: $target كوينز',
+                    tr('#${user['displayId'] ?? user['id']} — التارجت: $target كوينز', '#${user['displayId'] ?? user['id']} — Target: $target coins'),
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   trailing: IconButton(
@@ -786,10 +787,10 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
               Text('${agency['agencyName'] ?? ''}',
                   style: const TextStyle(
                       color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-              const Text('مضيف', style: TextStyle(color: Color(0xFF4ECDC4))),
+              Text(tr('مضيف', 'Host'), style: TextStyle(color: Color(0xFF4ECDC4))),
               const SizedBox(height: 12),
               if (locked && price > 0)
-                Text('الخروج مقفول — رسوم المغادرة: $price كوينز',
+                Text(tr('الخروج مقفول — رسوم المغادرة: $price كوينز', 'Exit locked — leaving fee: $price coins'),
                     style: const TextStyle(color: Colors.orangeAccent, fontSize: 13)),
             ],
           ),
@@ -803,7 +804,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
               backgroundColor: Colors.redAccent,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            label: const Text('مغادرة الوكالة',
+            label: Text(tr('مغادرة الوكالة', 'Leave agency'),
                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ),

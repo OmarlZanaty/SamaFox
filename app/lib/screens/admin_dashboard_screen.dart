@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/locale_provider.dart';
 import '../services/dio_client.dart';
 import '../widgets/app_network_image.dart';
+import '../l10n/tr.dart';
 
 /// Group 12: in-app admin page — search any user by ID and ban/unban them
 /// directly, with durations tiered by the caller's role (regular admin:
@@ -60,7 +61,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             .toList();
       });
     } catch (e) {
-      _snack('فشل البحث: $e', error: true);
+      _snack(tr('فشل البحث: $e', 'Search failed: $e'), error: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -78,16 +79,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
 
   Future<void> _banUser(Map<String, dynamic> user) async {
     final durations = _isSuper
-        ? const {
-            '3d': '٣ أيام',
-            '1m': 'شهر',
-            '1y': 'سنة',
-            'permanent': 'نهائي',
+        ? {
+            '3d': tr('٣ أيام', '3 days'),
+            '1m': tr('شهر', 'Month'),
+            '1y': tr('سنة', 'Year'),
+            'permanent': tr('نهائي', 'Permanent'),
           }
-        : const {
-            '1d': 'يوم',
-            '2d': 'يومان',
-            '3d': '٣ أيام',
+        : {
+            '1d': tr('يوم', 'Day'),
+            '2d': tr('يومان', '2 days'),
+            '3d': tr('٣ أيام', '3 days'),
           };
     String duration = durations.keys.first;
     final reasonCtrl = TextEditingController();
@@ -99,7 +100,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         child: StatefulBuilder(
           builder: (ctx, setLocal) => AlertDialog(
             backgroundColor: const Color(0xFF241246),
-            title: Text('حظر ${user['name'] ?? ''}',
+            title: Text(tr('حظر ${user['name'] ?? ''}', 'Ban ${user['name'] ?? ''}'),
                 style: const TextStyle(color: Colors.white)),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -108,8 +109,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                   value: duration,
                   dropdownColor: const Color(0xFF241246),
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'المدة',
+                  decoration: InputDecoration(
+                    labelText: tr('المدة', 'Duration'),
                     labelStyle: TextStyle(color: Colors.white54),
                   ),
                   items: durations.entries
@@ -121,8 +122,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 TextField(
                   controller: reasonCtrl,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    hintText: 'السبب',
+                  decoration: InputDecoration(
+                    hintText: tr('السبب', 'Reason'),
                     hintStyle: TextStyle(color: Colors.white38),
                   ),
                 ),
@@ -131,13 +132,13 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('إلغاء',
+                child: Text(tr('إلغاء', 'Cancel'),
                     style: TextStyle(color: Colors.white54)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('حظر'),
+                child: Text(tr('حظر', 'Block')),
               ),
             ],
           ),
@@ -157,7 +158,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           'duration': duration,
         },
       );
-      _snack('✓ تم حظر ${user['name'] ?? ''}');
+      _snack(tr('✓ تم حظر ${user['name'] ?? ''}', '✓ Banned ${user['name'] ?? ''}'));
       await _search();
     } catch (e) {
       _snack(_dioMessage(e), error: true);
@@ -170,7 +171,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         '/admin/users/${user['id']}/ban',
         data: {'isBanned': false},
       );
-      _snack('✓ تم فك الحظر عن ${user['name'] ?? ''}');
+      _snack(tr('✓ تم فك الحظر عن ${user['name'] ?? ''}', '✓ Unbanned ${user['name'] ?? ''}'));
       await _search();
     } catch (e) {
       _snack(_dioMessage(e), error: true);
@@ -183,7 +184,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       final msg = err.response?.data?['message'];
       if (msg is String && msg.isNotEmpty) return msg;
     } catch (_) {}
-    return 'فشل التنفيذ: $e';
+    return tr('فشل التنفيذ: $e', 'Action failed: $e');
   }
 
   @override
@@ -225,7 +226,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                       onSubmitted: (_) => _search(),
                       style: TextStyle(color: theme.textTheme.bodyLarge?.color),
                       decoration: InputDecoration(
-                        hintText: 'ابحث بالمعرف (ID) أو الاسم',
+                        hintText: tr('ابحث بالمعرف (ID) أو الاسم', 'Search by ID or name'),
                         prefixIcon: const Icon(Icons.search),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -242,22 +243,22 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('بحث'),
+                        : Text(tr('بحث', 'Search')),
                   ),
                 ],
               ),
             ),
             if (_isSuper)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(bottom: 6),
-                child: Text('👑 سوبر أدمن — حظر حتى النهائي',
+                child: Text(tr('👑 سوبر أدمن — حظر حتى النهائي', '👑 Super admin — bans up to permanent'),
                     style: TextStyle(color: Colors.amber, fontSize: 12)),
               ),
             Expanded(
               child: _results.isEmpty
                   ? Center(
                       child: Text(
-                        'ابحث عن مستخدم بالمعرف لحظره أو فك حظره',
+                        tr('ابحث عن مستخدم بالمعرف لحظره أو فك حظره', 'Search by user ID to ban or unban'),
                         style: TextStyle(
                             color: theme.textTheme.bodyMedium?.color
                                 ?.withOpacity(0.6)),
@@ -284,15 +285,15 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                                   : const Icon(Icons.person),
                             ),
                             title: Text(
-                              '${u['name'] ?? 'مستخدم'} — #${u['displayId'] ?? u['id']}',
+                              tr('${u['name'] ?? 'مستخدم'} — #${u['displayId'] ?? u['id']}', '${u['name'] ?? 'User'} — #${u['displayId'] ?? u['id']}'),
                               style: TextStyle(
                                   color: theme.textTheme.bodyLarge?.color,
                                   fontWeight: FontWeight.bold),
                             ),
                             subtitle: Text(
                               banned
-                                  ? '🚫 محظور${u['banReason'] != null ? ' — ${u['banReason']}' : ''}'
-                                  : 'نشط',
+                                  ? tr('🚫 محظور${u['banReason'] != null ? ' — ${u['banReason']}' : ''}', '🚫 Banned${u['banReason'] != null ? ' — ${u['banReason']}' : ''}')
+                                  : tr('نشط', 'Active'),
                               style: TextStyle(
                                   color: banned
                                       ? Colors.red.shade300
@@ -301,13 +302,13 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                             trailing: banned
                                 ? OutlinedButton(
                                     onPressed: () => _unbanUser(u),
-                                    child: const Text('فك الحظر'),
+                                    child: Text(tr('فك الحظر', 'Unblock')),
                                   )
                                 : ElevatedButton(
                                     style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.red.shade700),
                                     onPressed: () => _banUser(u),
-                                    child: const Text('حظر',
+                                    child: Text(tr('حظر', 'Block'),
                                         style:
                                             TextStyle(color: Colors.white)),
                                   ),

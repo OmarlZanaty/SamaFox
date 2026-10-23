@@ -4,21 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/staff_provider.dart';
 import '../../services/staff_service.dart';
 import '../../widgets/app_network_image.dart';
+import '../../l10n/tr.dart';
 
 const staffGold = Color(0xFFFFD700);
 const staffCardColor = Color(0xFF1A0E3E);
 const staffRoles = {'MANAGER': 'Manager', 'SUPER_ADMIN': 'Super Admin', 'ADMIN': 'Admin'};
-const staffStatuses = {'': 'كل الحالات', 'ACTIVE': '🟢 نشط', 'EXPIRED': '🔴 منتهي', 'REVOKED': 'ملغى'};
-const banDurations = {'1d': 'يوم', '7d': 'أسبوع', '30d': 'شهر', '365d': 'سنة', 'permanent': 'أبدي'};
-const permissionLabels = {
-  'role_panel': 'نظام الإدارة', 'manage_admins': 'تعيين Admin',
-  'grant_vip': 'منح VIP', 'grant_level': 'منح Level', 'grant_frame': 'منح إطار',
-  'grant_entry': 'منح دخولية', 'grant_bubble': 'منح فقاعة دردشة',
-  'manage_host_agency': 'تعيين وكالة مضيفين', 'follow_agencies': 'متابعة الوكالات', 'ban_users': 'نظام الحظر',
+Map<String, String> get staffStatuses => {'': tr('كل الحالات', 'All statuses'), 'ACTIVE': tr('🟢 نشط', '🟢 Active'), 'EXPIRED': tr('🔴 منتهي', '🔴 Expired'), 'REVOKED': tr('ملغى', 'Canceled')};
+Map<String, String> get banDurations => {'1d': tr('يوم', 'Day'), '7d': tr('أسبوع', 'Week'), '30d': tr('شهر', 'Month'), '365d': tr('سنة', 'Year'), 'permanent': tr('أبدي', 'Permanent')};
+Map<String, String> get permissionLabels => {
+  'role_panel': tr('نظام الإدارة', 'Management system'), 'manage_admins': tr('تعيين Admin', 'Appoint admin'),
+  'grant_vip': tr('منح VIP', 'Grant VIP'), 'grant_level': tr('منح Level', 'Grant level'), 'grant_frame': tr('منح إطار', 'Grant frame'),
+  'grant_entry': tr('منح دخولية', 'Grant entrance'), 'grant_bubble': tr('منح فقاعة دردشة', 'Grant chat bubble'),
+  'manage_host_agency': tr('تعيين وكالة مضيفين', 'Assign hosting agency'), 'follow_agencies': tr('متابعة الوكالات', 'Follow agencies'), 'ban_users': tr('نظام الحظر', 'Ban system'),
 };
-String dateLabel(DateTime? date) => date == null ? 'بلا نهاية' :
+String dateLabel(DateTime? date) => date == null ? tr('بلا نهاية', 'No expiry') :
     '${date.toLocal().year}/${date.toLocal().month.toString().padLeft(2, '0')}/${date.toLocal().day.toString().padLeft(2, '0')} ${date.toLocal().hour.toString().padLeft(2, '0')}:${date.toLocal().minute.toString().padLeft(2, '0')}';
-String statusLabel(String status) => staffStatuses[status] ?? (status == 'LIFTED' ? 'تم رفعه' : status);
+String statusLabel(String status) => staffStatuses[status] ?? (status == 'LIFTED' ? tr('تم رفعه', 'Lifted') : status);
 void staffSnack(BuildContext context, String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text, textDirection: TextDirection.rtl)));
 Future<T?> openStaff<T>(BuildContext context, Widget screen) => Navigator.of(context).push<T>(MaterialPageRoute(builder: (_) => screen));
 
@@ -28,13 +29,13 @@ abstract class StaffActionState<T extends ConsumerStatefulWidget> extends Consum
   StaffService get service => ref.read(staffServiceProvider);
   StaffAccess? get access => ref.read(staffMeProvider).valueOrNull;
   void reload() { if (mounted) setState(() => revision++); }
-  Future<bool> act(Future<void> Function() operation, {String message = 'تم تنفيذ العملية'}) async {
+  Future<bool> act(Future<void> Function() operation, {String? message}) async {
     if (busy) return false;
     setState(() => busy = true);
     try {
       await operation();
       if (!mounted) return false;
-      staffSnack(context, message);
+      staffSnack(context, message ?? tr('تم تنفيذ العملية', 'Action completed'));
       reload();
       return true;
     } catch (e) {
@@ -67,9 +68,9 @@ class StaffScreen extends ConsumerWidget {
         final messenger = ScaffoldMessenger.of(context);
         navigator.popUntil((r) => r == route);
         navigator.pop();
-        messenger.showSnackBar(SnackBar(content: Text(title.contains('الحظر')
-            ? 'نظام الحظر: مسحوب أو انتهت الصلاحية'
-            : 'انتهى الوصول إلى هذه الشاشة أو تم سحب الصلاحية')));
+        messenger.showSnackBar(SnackBar(content: Text(title.contains(tr('الحظر', 'Ban'))
+            ? tr('نظام الحظر: مسحوب أو انتهت الصلاحية', 'Ban system: revoked or expired')
+            : tr('انتهى الوصول إلى هذه الشاشة أو تم سحب الصلاحية', 'Access to this screen has expired or permission was revoked'))));
       });
     }
     final theme = ThemeData.dark().copyWith(
@@ -80,7 +81,7 @@ class StaffScreen extends ConsumerWidget {
     return Theme(data: theme, child: Directionality(textDirection: TextDirection.rtl,
       child: Scaffold(appBar: AppBar(title: Text(title), backgroundColor: staffCardColor),
         body: state.hasError ? StaffRefreshList(onRefresh: () async { ref.invalidate(staffMeProvider); await ref.read(staffMeProvider.future); },
-          children: [Text(staffError(state.error!)), TextButton(onPressed: () => ref.invalidate(staffMeProvider), child: const Text('إعادة المحاولة'))])
+          children: [Text(staffError(state.error!)), TextButton(onPressed: () => ref.invalidate(staffMeProvider), child: Text(tr('إعادة المحاولة', 'Retry')))])
           : state.valueOrNull == null || !allowed(state.valueOrNull!)
             ? const Center(child: CircularProgressIndicator()) : child)));
   }
@@ -125,10 +126,10 @@ class _StaffLoadState<T> extends ConsumerState<StaffLoad<T>> {
     if (snapshot.connectionState != ConnectionState.done) {
       children.add(const Center(child: CircularProgressIndicator()));
     } else if (snapshot.hasError) {
-      children.addAll([Text(staffError(snapshot.error!)), TextButton(onPressed: () { setState(() => future = widget.load()); }, child: const Text('إعادة المحاولة'))]);
+      children.addAll([Text(staffError(snapshot.error!)), TextButton(onPressed: () { setState(() => future = widget.load()); }, child: Text(tr('إعادة المحاولة', 'Retry')))]);
     } else {
       final content = widget.builder(snapshot.data as T);
-      children.addAll(content.isEmpty ? [const Text('لا توجد بيانات')] : content);
+      children.addAll(content.isEmpty ? [Text(tr('لا توجد بيانات', 'No data'))] : content);
     }
     return StaffRefreshList(onRefresh: refresh, children: children);
   });
@@ -165,7 +166,7 @@ class _StaffUserLookupState extends ConsumerState<StaffUserLookup> {
   void dispose() { controller.dispose(); super.dispose(); }
   Future<void> search() async {
     final id = int.tryParse(controller.text.trim());
-    if (id == null || id < 1) { staffSnack(context, 'أدخل ID صحيحاً'); return; }
+    if (id == null || id < 1) { staffSnack(context, tr('أدخل ID صحيحاً', 'Enter a valid ID')); return; }
     final request = ++generation;
     setState(() { busy = true; user = null; });
     widget.onSelected(null);
@@ -183,7 +184,7 @@ class _StaffUserLookupState extends ConsumerState<StaffUserLookup> {
   @override
   Widget build(BuildContext context) => Column(children: [
     TextField(controller: controller, keyboardType: TextInputType.number,
-      decoration: InputDecoration(labelText: 'ID المستخدم', suffixIcon: IconButton(onPressed: busy ? null : search, icon: const Icon(Icons.search))),
+      decoration: InputDecoration(labelText: tr('ID المستخدم', 'User ID'), suffixIcon: IconButton(onPressed: busy ? null : search, icon: const Icon(Icons.search))),
       onSubmitted: (_) => search(), onChanged: (_) {
         generation++;
         setState(() { user = null; busy = false; });
@@ -197,8 +198,8 @@ class _StaffUserLookupState extends ConsumerState<StaffUserLookup> {
 Future<bool> staffConfirm(BuildContext context, String title, String body) async =>
     await showDialog<bool>(context: context, builder: (ctx) => Directionality(textDirection: TextDirection.rtl,
       child: AlertDialog(title: Text(title), content: Text(body), actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('تأكيد')),
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('إلغاء', 'Cancel'))),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('تأكيد', 'Confirm'))),
       ]))) ?? false;
 
 Future<String?> staffPrompt(BuildContext context, String title, {String initial = '', int? maxDays, String? label, bool numeric = false}) async {
@@ -207,31 +208,31 @@ Future<String?> staffPrompt(BuildContext context, String title, {String initial 
   final result = await showDialog<String>(context: context, builder: (ctx) => Directionality(textDirection: TextDirection.rtl,
     child: AlertDialog(title: Text(title), content: Form(key: key, child: TextFormField(controller: controller,
       autofocus: true, keyboardType: maxDays == null && !numeric ? TextInputType.text : TextInputType.number,
-      decoration: InputDecoration(labelText: label ?? (maxDays == null ? 'السبب' : 'عدد الأيام (1–$maxDays)')),
+      decoration: InputDecoration(labelText: label ?? (maxDays == null ? tr('السبب', 'Reason') : tr('عدد الأيام (1–$maxDays)', 'Number of days (1–$maxDays)'))),
       validator: (value) {
-        if (value == null || value.trim().isEmpty) return 'هذا الحقل مطلوب';
-        if (numeric && (int.tryParse(value.trim()) ?? 0) < 1) return 'أدخل رقماً صحيحاً';
+        if (value == null || value.trim().isEmpty) return tr('هذا الحقل مطلوب', 'This field is required');
+        if (numeric && (int.tryParse(value.trim()) ?? 0) < 1) return tr('أدخل رقماً صحيحاً', 'Enter a valid number');
         if (maxDays != null) {
           final n = int.tryParse(value);
-          if (n == null || n < 1 || n > maxDays) return 'أدخل من 1 إلى $maxDays يوم';
+          if (n == null || n < 1 || n > maxDays) return tr('أدخل من 1 إلى $maxDays يوم', 'Enter 1 to $maxDays days');
         }
         return null;
-      })), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-      FilledButton(onPressed: () { if (key.currentState!.validate()) Navigator.pop(ctx, controller.text.trim()); }, child: const Text('تأكيد'))])));
+      })), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('إلغاء', 'Cancel'))),
+      FilledButton(onPressed: () { if (key.currentState!.validate()) Navigator.pop(ctx, controller.text.trim()); }, child: Text(tr('تأكيد', 'Confirm')))])));
   // The route's exit animation may still reference its controller.
   Future<void>.delayed(const Duration(seconds: 1), controller.dispose);
   return result;
 }
 
 class StaffItemPicker extends StatelessWidget {
-  const StaffItemPicker({super.key, required this.items, required this.selected, required this.onChanged, this.title = 'المنتجات المسموحة'});
+  const StaffItemPicker({super.key, required this.items, required this.selected, required this.onChanged, this.title});
   final List<StaffItem> items;
   final Set<String> selected;
   final ValueChanged<Set<String>> onChanged;
-  final String title;
+  final String? title;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-    staffHeading(title), if (items.isEmpty && selected.isEmpty) const Text('لا توجد منتجات متاحة'),
+    staffHeading(title ?? tr('المنتجات المسموحة', 'Allowed products')), if (items.isEmpty && selected.isEmpty) Text(tr('لا توجد منتجات متاحة', 'No products available')),
     ...items.map((item) => CheckboxListTile(value: selected.contains(item.id), title: Text(item.name),
       subtitle: Text(item.id), secondary: staffThumbnail(item), onChanged: (enabled) {
         final next = {...selected};
@@ -241,9 +242,9 @@ class StaffItemPicker extends StatelessWidget {
     // Reward IDs outside the grantable pool have no metadata endpoint. Preserve
     // them and identify them honestly instead of silently dropping selections.
     ...selected.where((id) => !items.any((item) => item.id == id)).map((id) => CheckboxListTile(
-      value: true, title: Text('منتج ID $id'), onChanged: (_) => onChanged({...selected}..remove(id)))),
+      value: true, title: Text(tr('منتج ID $id', 'Product ID $id')), onChanged: (_) => onChanged({...selected}..remove(id)))),
   ]);
 }
 
 Widget permissionDuration(int days, ValueChanged<int> changed, {bool standalone = false}) => staffSelect(
-    'مدة صلاحية الحظر', '$days', {'1': 'يوم', '7': 'أسبوع', '30': 'شهر', '365': 'سنة', '0': standalone ? 'أبدي' : 'حتى نهاية الإدارة'}, (v) => changed(int.parse(v)));
+    tr('مدة صلاحية الحظر', 'Ban permission duration'), '$days', {'1': tr('يوم', 'Day'), '7': tr('أسبوع', 'Week'), '30': tr('شهر', 'Month'), '365': tr('سنة', 'Year'), '0': standalone ? tr('أبدي', 'Permanent') : tr('حتى نهاية الإدارة', 'Until role expires')}, (v) => changed(int.parse(v)));

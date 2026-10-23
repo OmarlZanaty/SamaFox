@@ -4,6 +4,7 @@ import '../../services/follow_service.dart';
 import '../../widgets/app_network_image.dart';
 import '../../widgets/user_trail.dart';
 import '../models/gift.dart';
+import '../../l10n/tr.dart';
 
 /// هدايا الحظ — the card behind a tap on the ticker.
 ///
@@ -55,14 +56,14 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
       if (_followStatus == 'none' || _followStatus == 'unknown') {
         await FollowService.sendFollowRequest(widget.event.senderId);
         if (mounted) setState(() => _followStatus = 'pending');
-        _snack('تم إرسال طلب المتابعة');
+        _snack(tr('تم إرسال طلب المتابعة', 'Follow request sent'));
       } else if (_followStatus == 'accepted' || _followStatus == 'following') {
         await FollowService.unfollow(widget.event.senderId);
         if (mounted) setState(() => _followStatus = 'none');
-        _snack('تم إلغاء المتابعة');
+        _snack(tr('تم إلغاء المتابعة', 'Unfollowed'));
       }
     } catch (_) {
-      _snack('تعذّر تنفيذ الطلب');
+      _snack(tr('تعذّر تنفيذ الطلب', 'Unable to complete request'));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -96,11 +97,11 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
     switch (_followStatus) {
       case 'accepted':
       case 'following':
-        return 'متابَع ✓';
+        return tr('متابَع ✓', 'Following ✓');
       case 'pending':
-        return 'بانتظار القبول';
+        return tr('بانتظار القبول', 'Awaiting acceptance');
       default:
-        return 'متابعة';
+        return tr('متابعة', 'Follow');
     }
   }
 
@@ -144,20 +145,20 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          e.senderName ?? 'مستخدم',
+                          e.senderName ?? tr('مستخدم', 'User'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'كسب ×${e.multiplier} — ${e.payoutCoins} كوينز'
-                          '${e.giftName != null ? ' من ${e.giftName}' : ''}',
+                          tr('كسب ×${e.multiplier} — ${e.payoutCoins} كوينز'
+                          '${e.giftName != null ? ' من ${e.giftName}' : ''}', 'Won ×${e.multiplier} — ${e.payoutCoins} coins${e.giftName != null ? ' from ${e.giftName}' : ''}'),
                           style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 13, fontWeight: FontWeight.w600),
                         ),
                         if (e.recipientName != null)
                           Text(
-                            'على ${e.recipientName}',
+                            tr('على ${e.recipientName}', 'For ${e.recipientName}'),
                             style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
                           ),
                       ],
@@ -177,13 +178,13 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
                   children: [
                     Expanded(child: _ActionBtn(icon: Icons.favorite, label: _followLabel, color: const Color(0xFF22D3EE), onTap: _busy ? null : _follow)),
                     const SizedBox(width: 10),
-                    Expanded(child: _ActionBtn(icon: Icons.chat_bubble_rounded, label: 'إرسال رسالة', color: const Color(0xFFF472B6), onTap: _message)),
+                    Expanded(child: _ActionBtn(icon: Icons.chat_bubble_rounded, label: tr('إرسال رسالة', 'Send message'), color: const Color(0xFFF472B6), onTap: _message)),
                     const SizedBox(width: 10),
-                    Expanded(child: _ActionBtn(icon: Icons.route_rounded, label: 'مسار', color: const Color(0xFF00C853), onTap: _trail)),
+                    Expanded(child: _ActionBtn(icon: Icons.route_rounded, label: tr('مسار', 'Trail'), color: const Color(0xFF00C853), onTap: _trail)),
                   ],
                 )
               else
-                Text('ده أنت 😄', style: TextStyle(color: Colors.white.withOpacity(0.7))),
+                Text(tr('ده أنت 😄', 'That is you 😄'), style: TextStyle(color: Colors.white.withOpacity(0.7))),
             ],
           ),
         ),

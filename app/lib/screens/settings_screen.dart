@@ -15,6 +15,7 @@ import 'edit_profile_screen.dart';
 import '../providers/staff_provider.dart';
 import 'staff/staff_ban_screen.dart';
 import 'staff/staff_panel_screen.dart';
+import '../l10n/tr.dart';
 
 /// What the signed-in account is actually allowed to do with التارجت, so the
 /// settings screen only offers the actions that can succeed.
@@ -101,7 +102,7 @@ class _HiddenModeSwitchState extends State<_HiddenModeSwitch> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _on = !v);
-      final msg = e is DioException ? (e.error?.toString() ?? 'تعذر الحفظ') : 'تعذر الحفظ';
+      final msg = e is DioException ? (e.error?.toString() ?? tr('تعذر الحفظ', 'Unable to save')) : tr('تعذر الحفظ', 'Unable to save');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -114,9 +115,9 @@ class _HiddenModeSwitchState extends State<_HiddenModeSwitch> {
     final isDark = theme.brightness == Brightness.dark;
     return ListTile(
       leading: Icon(Icons.visibility_off_outlined, color: isDark ? const Color(0xFFFFD700) : const Color(0xFF00A3FF)),
-      title: Text('الدخول المخفي', style: TextStyle(color: theme.textTheme.bodyLarge?.color, fontWeight: FontWeight.w500)),
+      title: Text(tr('الدخول المخفي', 'Invisible entry'), style: TextStyle(color: theme.textTheme.bodyLarge?.color, fontWeight: FontWeight.w500)),
       subtitle: Text(
-        _on ? 'ON — لا يظهر دخولك للمستخدمين' : 'OFF',
+        _on ? tr('ON — لا يظهر دخولك للمستخدمين', 'ON — your entry is hidden from other users') : tr('غير مفعل', 'OFF'),
         style: TextStyle(color: theme.textTheme.bodySmall?.color, fontSize: 12),
       ),
       trailing: Switch(
@@ -204,7 +205,7 @@ class SettingsScreen extends ConsumerWidget {
               // قفل الرسائل الخاصة — عامة / الأصدقاء فقط / بكوينز.
               _buildSettingsTile(
                 icon: Icons.lock_outline,
-                title: 'قفل الرسائل الخاصة',
+                title: tr('قفل الرسائل الخاصة', 'Lock private messages'),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -217,7 +218,7 @@ class SettingsScreen extends ConsumerWidget {
               _buildDivider(isDark),
               _buildSettingsTile(
                 icon: Icons.swap_horiz,
-                title: 'تبديل الحساب',
+                title: tr('تبديل الحساب', 'Switch account'),
                 onTap: () => _showSwitchAccountDialog(context, ref, strings, theme, isDark),
                 theme: theme,
                 isDark: isDark,
@@ -229,7 +230,7 @@ class SettingsScreen extends ConsumerWidget {
 
           // نظام الإدارة — only the systems this account actually holds.
           if (staff != null && (staff.rolePanel || staff.ban)) ...[
-            _buildSectionTitle('نظام الإدارة', theme, isDark),
+            _buildSectionTitle(tr('نظام الإدارة', 'Management system'), theme, isDark),
             const SizedBox(height: 12),
             _buildSettingsCard(
               theme: theme,
@@ -254,7 +255,7 @@ class SettingsScreen extends ConsumerWidget {
                 if (staff.ban)
                   _buildSettingsTile(
                     icon: Icons.gpp_bad_outlined,
-                    title: '🚫 نظام الحظر',
+                    title: tr('🚫 نظام الحظر', '🚫 Ban system'),
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const StaffBanScreen()),
@@ -276,7 +277,7 @@ class SettingsScreen extends ConsumerWidget {
           // left. Showing them to everyone meant most users tapped a tile that
           // could only answer 403/empty.
           if (targetActions.canSell || targetActions.canConvert) ...[
-            _buildSectionTitle('إجراءات المستهدف', theme, isDark),
+            _buildSectionTitle(tr('إجراءات المستهدف', 'Target actions'), theme, isDark),
             const SizedBox(height: 12),
             _buildSettingsCard(
               theme: theme,
@@ -291,7 +292,7 @@ class SettingsScreen extends ConsumerWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'تم إيقاف بيع واستبدال التارجيت لحسابك من قِبَل الإدارة',
+                            tr('تم إيقاف بيع واستبدال التارجيت لحسابك من قِبَل الإدارة', 'Management has disabled target sales and exchanges for your account'),
                             style: TextStyle(
                               fontSize: 12,
                               color: isDark ? Colors.orange.shade200 : Colors.orange.shade900,
@@ -304,7 +305,7 @@ class SettingsScreen extends ConsumerWidget {
                 if (targetActions.canSell)
                   _buildSettingsTile(
                     icon: Icons.sell_outlined,
-                    title: 'بيع التارجت',
+                    title: tr('بيع التارجت', 'Sell target'),
                     // Blocked accounts see the tile greyed out rather than
                     // tapping through to a 403.
                     onTap: targetActions.blocked
@@ -318,7 +319,7 @@ class SettingsScreen extends ConsumerWidget {
                 if (targetActions.canConvert)
                   _buildSettingsTile(
                     icon: Icons.currency_exchange,
-                    title: 'تبديل الكوينزات',
+                    title: tr('تبديل الكوينزات', 'Exchange coins'),
                     onTap: targetActions.blocked
                         ? null
                         : () => _showTargetConvertDialog(context, theme, isDark),
@@ -329,7 +330,7 @@ class SettingsScreen extends ConsumerWidget {
                 // وقت البث — days/hours on air, which feed the target.
                 _buildSettingsTile(
                   icon: Icons.podcasts,
-                  title: 'وقت البث',
+                  title: tr('وقت البث', 'Broadcast time'),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const BroadcastTimeScreen()),
@@ -419,7 +420,7 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 24),
 
           // SPEC52 #37 — Account: link a phone number to this account.
-          _buildSectionTitle('الحساب', theme, isDark),
+          _buildSectionTitle(tr('الحساب', 'Account'), theme, isDark),
           const SizedBox(height: 12),
           _buildSettingsCard(
             theme: theme,
@@ -427,7 +428,7 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               _buildSettingsTile(
                 icon: Icons.phone_iphone_outlined,
-                title: 'ربط رقم الهاتف',
+                title: tr('ربط رقم الهاتف', 'Link phone number'),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const LinkPhoneScreen()),
@@ -737,11 +738,11 @@ class SettingsScreen extends ConsumerWidget {
       builder: (dialogCtx) => AlertDialog(
         backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
         title: Text(
-          'تبديل الحساب',
+          tr('تبديل الحساب', 'Switch account'),
           style: TextStyle(color: theme.textTheme.bodyLarge?.color),
         ),
         content: Text(
-          'سيتم تسجيل خروجك للدخول بحساب آخر. متابعة؟',
+          tr('سيتم تسجيل خروجك للدخول بحساب آخر. متابعة؟', 'You will be logged out to sign in with another account. Continue?'),
           style: TextStyle(color: theme.textTheme.bodyMedium?.color),
         ),
         actions: [
@@ -759,7 +760,7 @@ class SettingsScreen extends ConsumerWidget {
               Navigator.pop(dialogCtx);
               _logoutToLogin(context, ref);
             },
-            child: const Text('تبديل'),
+            child: Text(tr('تبديل', 'Switch')),
           ),
         ],
       ),
@@ -782,7 +783,7 @@ class SettingsScreen extends ConsumerWidget {
           style: TextStyle(color: theme.textTheme.bodyLarge?.color),
         ),
         content: Text(
-          'سيتم حذف حسابك نهائياً ولن تتمكن من الدخول به مرة أخرى. هل أنت متأكد؟',
+          tr('سيتم حذف حسابك نهائياً ولن تتمكن من الدخول به مرة أخرى. هل أنت متأكد؟', 'Your account will be permanently deleted and you will not be able to sign in again. Are you sure?'),
           style: TextStyle(color: theme.textTheme.bodyMedium?.color),
         ),
         actions: [
@@ -804,7 +805,7 @@ class SettingsScreen extends ConsumerWidget {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('تعذّر حذف الحساب: $e')),
+                    SnackBar(content: Text(tr('تعذّر حذف الحساب: $e', 'Unable to delete account: $e'))),
                   );
                 }
               }
@@ -878,7 +879,7 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
       });
     } catch (e) {
       setState(() {
-        _error = 'تعذّر تحميل التارجت';
+        _error = tr('تعذّر تحميل التارجت', 'Unable to load target');
         _loading = false;
       });
     }
@@ -890,7 +891,7 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
     final amount = int.tryParse(_amountCtrl.text.trim());
     final convertible = (sel['convertibleCoins'] as num?)?.toInt() ?? 0;
     if (amount == null || amount <= 0 || amount > convertible) {
-      setState(() => _error = 'أدخل مبلغًا صحيحًا لا يتجاوز $convertible كوينز');
+      setState(() => _error = tr('أدخل مبلغًا صحيحًا لا يتجاوز $convertible كوينز', 'Enter a valid amount up to $convertible coins'));
       return;
     }
     setState(() {
@@ -906,15 +907,15 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم إضافة ${data['creditedCoins']} كوينز لرصيدك')),
+          SnackBar(content: Text(tr('تم إضافة ${data['creditedCoins']} كوينز لرصيدك', '${data['creditedCoins']} coins added to your balance'))),
         );
       }
     } catch (e) {
       // Show what the server actually said (e.g. the max convertible amount)
       // instead of dumping the raw exception.
       final message = e is DioException && e.response?.data is Map
-          ? (e.response!.data['message']?.toString() ?? 'فشل التبديل')
-          : 'فشل التبديل';
+          ? (e.response!.data['message']?.toString() ?? tr('فشل التبديل', 'Exchange failed'))
+          : tr('فشل التبديل', 'Exchange failed');
       setState(() {
         _submitting = false;
         _error = message;
@@ -941,12 +942,12 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
 
     return AlertDialog(
       backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
-      title: Text('تبديل الكوينزات', style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
+      title: Text(tr('تبديل الكوينزات', 'Exchange coins'), style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
       content: _loading
           ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
           : _items.isEmpty
               ? Text(
-                  'لا يوجد تارجت متاح للتبديل حاليًا',
+                  tr('لا يوجد تارجت متاح للتبديل حاليًا', 'No target balance available to exchange'),
                   style: TextStyle(color: theme.textTheme.bodyMedium?.color),
                 )
               : Column(
@@ -954,13 +955,13 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'المتاح للتبديل: $convertible كوينز (سيتحول نصفه، ${convertible ~/ 2} كحد أقصى، لرصيدك)',
+                      tr('المتاح للتبديل: $convertible كوينز (سيتحول نصفه، ${convertible ~/ 2} كحد أقصى، لرصيدك)', 'Available to exchange: $convertible coins (half, up to ${convertible ~/ 2}, will be added to your balance)'),
                       style: TextStyle(color: theme.textTheme.bodyMedium?.color, fontSize: 13),
                     ),
                     if (lockedCommission > 0) ...[
                       const SizedBox(height: 6),
                       Text(
-                        'عمولة محسوبة ومحجوزة: $lockedCommission كوينز — تُفتح عندما يكمل أصحابها التارجت المحدد',
+                        tr('عمولة محسوبة ومحجوزة: $lockedCommission كوينز — تُفتح عندما يكمل أصحابها التارجت المحدد', 'Calculated and reserved commission: $lockedCommission coins — unlocks when its owners reach their targets'),
                         style: const TextStyle(color: Color(0xFFFFB020), fontSize: 12),
                       ),
                     ],
@@ -969,8 +970,8 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
                       controller: _amountCtrl,
                       keyboardType: TextInputType.number,
                       style: TextStyle(color: theme.textTheme.bodyLarge?.color),
-                      decoration: const InputDecoration(
-                        labelText: 'المبلغ المراد تبديله',
+                      decoration: InputDecoration(
+                        labelText: tr('المبلغ المراد تبديله', 'Amount to exchange'),
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -983,14 +984,14 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('إلغاء'),
+          child: Text(tr('إلغاء', 'Cancel')),
         ),
         if (_items.isNotEmpty)
           TextButton(
             onPressed: _submitting ? null : _submit,
             child: _submitting
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('تبديل'),
+                : Text(tr('تبديل', 'Switch')),
           ),
       ],
     );
@@ -1023,11 +1024,11 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
     final toUserId = int.tryParse(_idCtrl.text.trim());
     final amount = int.tryParse(_amountCtrl.text.trim());
     if (toUserId == null || toUserId <= 0) {
-      setState(() => _error = 'أدخل معرّف (ID) صحيح');
+      setState(() => _error = tr('أدخل معرّف (ID) صحيح', 'Enter a valid ID'));
       return;
     }
     if (amount == null || amount <= 0) {
-      setState(() => _error = 'أدخل عدد كوينز صحيح');
+      setState(() => _error = tr('أدخل عدد كوينز صحيح', 'Enter a valid coin amount'));
       return;
     }
 
@@ -1035,15 +1036,15 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: widget.isDark ? const Color(0xFF1A0E3E) : Colors.white,
-        title: Text('تأكيد البيع', style: TextStyle(color: widget.theme.textTheme.bodyLarge?.color)),
+        title: Text(tr('تأكيد البيع', 'Confirm sale'), style: TextStyle(color: widget.theme.textTheme.bodyLarge?.color)),
         content: Text(
-          'سيتم نقل $amount كوينز من التارجت الخاص بك إلى المستخدم #$toUserId، '
-          'وتُخصم قيمتها بالدولار من حسابك. متابعة؟',
+          tr('سيتم نقل $amount كوينز من التارجت الخاص بك إلى المستخدم #$toUserId، '
+          'وتُخصم قيمتها بالدولار من حسابك. متابعة؟', '$amount coins will be transferred from your target to user #$toUserId, and their dollar value will be deducted from your account. Continue?'),
           style: TextStyle(color: widget.theme.textTheme.bodyMedium?.color),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('لا')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('نعم')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('لا', 'No'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('نعم', 'Yes'))),
         ],
       ),
     );
@@ -1061,19 +1062,19 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
       final data = (res.data as Map)['data'] as Map;
       if (mounted) {
         Navigator.pop(context);
-        final buyerName = (data['buyer'] as Map?)?['name']?.toString() ?? 'المستفيد';
+        final buyerName = (data['buyer'] as Map?)?['name']?.toString() ?? tr('المستفيد', 'Recipient');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'تم بيع $amount كوينز إلى $buyerName — تارجته الآن ${data['buyerTargetCoins']} كوينز',
+              tr('تم بيع $amount كوينز إلى $buyerName — تارجته الآن ${data['buyerTargetCoins']} كوينز', 'Sold $amount coins to $buyerName — their target is now ${data['buyerTargetCoins']} coins'),
             ),
           ),
         );
       }
     } catch (e) {
       final message = e is DioException
-          ? (e.response?.data is Map ? (e.response!.data['message']?.toString() ?? 'فشل البيع') : 'فشل البيع')
-          : 'فشل البيع';
+          ? (e.response?.data is Map ? (e.response!.data['message']?.toString() ?? tr('فشل البيع', 'Sale failed')) : tr('فشل البيع', 'Sale failed'))
+          : tr('فشل البيع', 'Sale failed');
       setState(() {
         _submitting = false;
         _error = message;
@@ -1088,15 +1089,15 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
 
     return AlertDialog(
       backgroundColor: isDark ? const Color(0xFF1A0E3E) : Colors.white,
-      title: Text('بيع التارجت', style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
+      title: Text(tr('بيع التارجت', 'Sell target'), style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'بيع أي مقدار من تارجتك — حتى كامله — لمستخدم آخر بإدخال معرّفه (ID). '
+            tr('بيع أي مقدار من تارجتك — حتى كامله — لمستخدم آخر بإدخال معرّفه (ID). '
             'يُخصم المبلغ وقيمته بالدولار من حسابك ويُضاف إلى تارجت المستفيد، '
-            'وترتفع قيمته بالدولار عند إكماله التارجت المحدد.',
+            'وترتفع قيمته بالدولار عند إكماله التارجت المحدد.', 'Sell any amount of your target, including the full balance, to another user by entering their ID. The amount and its dollar value are deducted from your account and added to the recipient target. Its dollar value increases when they reach the required target.'),
             style: TextStyle(color: theme.textTheme.bodyMedium?.color, fontSize: 13),
           ),
           const SizedBox(height: 12),
@@ -1104,8 +1105,8 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
             controller: _idCtrl,
             keyboardType: TextInputType.number,
             style: TextStyle(color: theme.textTheme.bodyLarge?.color),
-            decoration: const InputDecoration(
-              labelText: 'معرّف المستفيد (ID)',
+            decoration: InputDecoration(
+              labelText: tr('معرّف المستفيد (ID)', 'Recipient ID'),
               border: OutlineInputBorder(),
             ),
           ),
@@ -1114,8 +1115,8 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
             controller: _amountCtrl,
             keyboardType: TextInputType.number,
             style: TextStyle(color: theme.textTheme.bodyLarge?.color),
-            decoration: const InputDecoration(
-              labelText: 'عدد الكوينز المراد بيعها',
+            decoration: InputDecoration(
+              labelText: tr('عدد الكوينز المراد بيعها', 'Number of coins to sell'),
               border: OutlineInputBorder(),
             ),
           ),
@@ -1128,13 +1129,13 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('إلغاء'),
+          child: Text(tr('إلغاء', 'Cancel')),
         ),
         TextButton(
           onPressed: _submitting ? null : _submit,
           child: _submitting
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text('بيع'),
+              : Text(tr('بيع', 'Sell')),
         ),
       ],
     );

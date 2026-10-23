@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../repositories/crazy_wheel_repository.dart';
 import '../../services/socket_service.dart';
 import 'crazy_wheel_bonus.dart';
+import '../../l10n/tr.dart';
 
 /// عجلة الحظ — Crazy Wheel.
 ///
@@ -343,7 +344,7 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          title: const Text('عجلة الحظ',
+          title: Text(tr('عجلة الحظ', 'Lucky Wheel'),
               style:
                   TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           centerTitle: true,
@@ -515,9 +516,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             ),
             // Left window: the bet spot. Right window: the multiplier.
             _reelWindow(0.073, 0.502,
-                top == null ? '؟' : (_segmentLabels[top.spot] ?? ''),
+                top == null ? tr('؟', '?') : (_segmentLabels[top.spot] ?? ''),
                 ltr: top != null),
-            _reelWindow(0.507, 0.919, top == null ? '؟' : '×${top.multiplier}',
+            _reelWindow(0.507, 0.919, top == null ? tr('؟', '?') : '×${top.multiplier}',
                 ltr: true),
           ],
         ),
@@ -708,11 +709,11 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
   Widget _hub(CrazyState state) {
     final seconds = (_msLeft / 1000).ceil();
     final (label, accent) = switch (state.phase) {
-      'betting' => ('ضع رهانك', _gold),
-      'spinning' => ('العجلة تدور', Colors.white),
-      'bonus_pick' => ('اختر الآن', const Color(0xFF66BB6A)),
-      'bonus_reveal' => ('مكافأة', const Color(0xFF66BB6A)),
-      _ => ('النتيجة', Colors.white70),
+      'betting' => (tr('ضع رهانك', 'Place your bet'), _gold),
+      'spinning' => (tr('العجلة تدور', 'Wheel spinning'), Colors.white),
+      'bonus_pick' => (tr('اختر الآن', 'Choose now'), const Color(0xFF66BB6A)),
+      'bonus_reveal' => (tr('مكافأة', 'Bonus'), const Color(0xFF66BB6A)),
+      _ => (tr('النتيجة', 'Result'), Colors.white70),
     };
     // Only the timed phases get a countdown ring; a spin has nothing to wait on.
     final total =
@@ -870,7 +871,7 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                       ),
                     )
                   else if (played)
-                    Text('حظ أوفر',
+                    Text(tr('حظ أوفر', 'Better luck next time'),
                         style: TextStyle(
                             color: Colors.white54, fontSize: size * 0.10)),
                 ],
@@ -912,7 +913,7 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             ],
           ),
           Text(
-            stake > 0 ? 'رهانك ${_format(stake)}' : 'لم تراهن',
+            stake > 0 ? tr('رهانك ${_format(stake)}', 'Your bet ${_format(stake)}') : tr('لم تراهن', 'No bet placed'),
             style: TextStyle(
               color: stake > 0 ? _gold : Colors.white38,
               fontWeight: FontWeight.bold,
@@ -951,13 +952,13 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         Row(
           children: [
             Expanded(
-              child: _actionButton('مسح', Icons.delete_outline,
+              child: _actionButton(tr('مسح', 'Clear'), Icons.delete_outline,
                   state.isBetting && state.myBets.isNotEmpty ? _clear : null),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _actionButton(
-                  'تكرار', Icons.replay, state.isBetting ? _repeat : null),
+                  tr('تكرار', 'Repeat'), Icons.replay, state.isBetting ? _repeat : null),
             ),
           ],
         ),

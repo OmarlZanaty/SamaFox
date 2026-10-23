@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// قفل الرسائل الخاصة — who may open a DM with me.
 ///
@@ -58,13 +59,13 @@ class _DmPrivacyScreenState extends State<DmPrivacyScreen> {
         if (_privacy == 'paid') 'dmPriceCoins': _price,
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الحفظ ✅')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم الحفظ ✅', 'Saved ✅'))));
       Navigator.of(context).pop(true);
     } on DioException catch (e) {
       final msg = (e.response?.data is Map ? e.response!.data['message'] : null)?.toString();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg ?? 'تعذّر الحفظ')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg ?? tr('تعذّر الحفظ', 'Unable to save'))));
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذّر الحفظ')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذّر الحفظ', 'Unable to save'))));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -82,38 +83,38 @@ class _DmPrivacyScreenState extends State<DmPrivacyScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('قفل الرسائل الخاصة')),
+        appBar: AppBar(title: Text(tr('قفل الرسائل الخاصة', 'Lock private messages'))),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
                   Text(
-                    'مين يقدر يبعتلك رسالة خاصة؟',
+                    tr('مين يقدر يبعتلك رسالة خاصة؟', 'Who can send you private messages?'),
                     style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
                   _option(
                     value: 'public',
                     icon: Icons.public,
-                    title: 'عامة',
-                    subtitle: 'أي حد يقدر يبعتلك',
+                    title: tr('عامة', 'Public'),
+                    subtitle: tr('أي حد يقدر يبعتلك', 'Anyone can message you'),
                   ),
                   _option(
                     value: 'friends',
                     icon: Icons.people_outline,
-                    title: 'الأصدقاء فقط',
-                    subtitle: 'اللي بينك وبينهم متابعة متبادلة',
+                    title: tr('الأصدقاء فقط', 'Friends only'),
+                    subtitle: tr('اللي بينك وبينهم متابعة متبادلة', 'People you follow who also follow you'),
                   ),
                   _option(
                     value: 'paid',
                     icon: Icons.lock_outline,
-                    title: 'بكوينز',
-                    subtitle: 'غير الأصدقاء يدفعوا مرة واحدة عشان يفتحوا محادثة معاك. الكوينز بتروح للبرنامج مش ليك.',
+                    title: tr('بكوينز', 'Paid with coins'),
+                    subtitle: tr('غير الأصدقاء يدفعوا مرة واحدة عشان يفتحوا محادثة معاك. الكوينز بتروح للبرنامج مش ليك.', 'Non-friends pay once to open a conversation with you. The coins go to the app, not to you.'),
                   ),
                   if (_privacy == 'paid') ...[
                     const SizedBox(height: 16),
-                    Text('سعر فتح المحادثة', style: theme.textTheme.titleSmall),
+                    Text(tr('سعر فتح المحادثة', 'Conversation unlock price'), style: theme.textTheme.titleSmall),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -134,8 +135,8 @@ class _DmPrivacyScreenState extends State<DmPrivacyScreen> {
                     TextField(
                       controller: _customCtrl,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'أو سعر آخر (1 – 100000)',
+                      decoration: InputDecoration(
+                        labelText: tr('أو سعر آخر (1 – 100000)', 'Or another price (1 – 100000)'),
                         border: OutlineInputBorder(),
                         isDense: true,
                       ),
@@ -147,7 +148,7 @@ class _DmPrivacyScreenState extends State<DmPrivacyScreen> {
                   ],
                   const SizedBox(height: 24),
                   Text(
-                    'ملاحظة: لو الشخص رد عليك مرة، المحادثة بتفضل مفتوحة بينكم من غير قفل. الأدمن مش بيتقفل عليه.',
+                    tr('ملاحظة: لو الشخص رد عليك مرة، المحادثة بتفضل مفتوحة بينكم من غير قفل. الأدمن مش بيتقفل عليه.', 'Note: once someone replies to you, the conversation stays open. Admins are exempt from locks.'),
                     style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
                   ),
                   const SizedBox(height: 24),
@@ -155,7 +156,7 @@ class _DmPrivacyScreenState extends State<DmPrivacyScreen> {
                     onPressed: _saving ? null : _save,
                     child: _saving
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('حفظ'),
+                        : Text(tr('حفظ', 'Save')),
                   ),
                 ],
               ),
