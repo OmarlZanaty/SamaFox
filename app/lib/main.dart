@@ -34,6 +34,7 @@ import 'screens/search_screen.dart';
 import 'theme/app_theme.dart';
 import 'utils/storage_service.dart';
 import 'providers/localization_provider.dart';
+import 'providers/locale_provider.dart';
 import 'package:samafox/screens/games_hub_screen.dart';
 import 'widgets/app_scale.dart';
 import 'widgets/pip_overlay.dart';
@@ -442,7 +443,10 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    final locale = ref.watch(localizationProvider);
+    // The settings screen switches [localeProvider]; this used to watch the
+    // older localizationProvider, so the app's locale and direction never
+    // followed the switch.
+    final locale = ref.watch(localeProvider).locale;
 
     return MaterialApp(
       navigatorKey: navigatorKey,

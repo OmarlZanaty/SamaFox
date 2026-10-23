@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_strings.dart';
+import '../l10n/tr.dart';
 import '../utils/storage_service.dart';
 
 /// Locale state class
@@ -28,8 +29,9 @@ class LocaleState {
 class LocaleNotifier extends StateNotifier<LocaleState> {
   LocaleNotifier()
       : super(LocaleState(
-    locale: const Locale('en'),
-    strings: AppStringsEn(),
+    // Arabic until the saved choice loads — the app's default language.
+    locale: const Locale('ar'),
+    strings: AppStringsAr(),
   )) {
     _loadSavedLocale();
   }
@@ -47,10 +49,13 @@ class LocaleNotifier extends StateNotifier<LocaleState> {
     final locale = Locale(languageCode);
     final strings = _getStringsForLocale(languageCode);
 
+    final changed = AppLang.code != languageCode;
+    AppLang.code = languageCode;
     state = LocaleState(
       locale: locale,
       strings: strings,
     );
+    if (changed) rebuildAllWidgets();
 
     await StorageService.saveLanguage(languageCode);
   }
