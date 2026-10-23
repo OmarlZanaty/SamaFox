@@ -99,7 +99,7 @@ class _GameCard extends StatelessWidget {
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Opening ${game.name}...')),
+            SnackBar(content: Text(tr('جارٍ فتح ${game.name}...', 'Opening ${game.name}...'))),
           );
         }
       },

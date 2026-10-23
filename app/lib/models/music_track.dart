@@ -1,4 +1,5 @@
 import '../config/app_config.dart';
+import '../l10n/tr.dart';
 
 /// One song in the user's personal library ("الأغاني اللي عندي").
 ///
@@ -21,7 +22,7 @@ class MusicTrack {
   factory MusicTrack.fromJson(Map<String, dynamic> json) {
     return MusicTrack(
       id: (json['id'] as num?)?.toInt() ?? 0,
-      title: (json['title'] ?? 'أغنية').toString(),
+      title: (json['title'] ?? tr('أغنية', 'Song')).toString(),
       url: (json['url'] ?? '').toString(),
       sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
     );

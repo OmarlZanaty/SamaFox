@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/music_track.dart';
 import 'dio_client.dart';
+import '../l10n/tr.dart';
 
 /// REST side of the room music feature: the user's own library.
 /// Playback across the room is driven over the socket, not here.
@@ -46,7 +47,7 @@ class MusicService {
     if (track is Map) {
       return MusicTrack.fromJson(Map<String, dynamic>.from(track));
     }
-    throw Exception('فشل رفع الأغنية');
+    throw Exception(tr('فشل رفع الأغنية', 'Song upload failed'));
   }
 
   Future<void> deleteTrack(int id) async {

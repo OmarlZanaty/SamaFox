@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/dio_client.dart';
 import '../../services/socket_service.dart';
+import '../../l10n/tr.dart';
 
 /// SPEC52 #39 — «🎮 محمد فاز في بوابات أوليمبوس بـ 20,000 كوينز».
 ///
@@ -57,7 +58,7 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip> {
   }
 
   _Win _parse(Map d) => _Win(
-        (d['name'] ?? 'لاعب').toString(),
+        (d['name'] ?? tr('لاعب', 'Player')).toString(),
         (d['gameName'] ?? d['gameId'] ?? '').toString(),
         (d['winCoins'] as num?)?.toInt() ?? 0,
       );
@@ -132,7 +133,7 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip> {
             ]),
           ),
           child: Text(
-            '🎮 ${w.name} فاز في ${w.game} بـ ${_fmt(w.coins)} كوينز',
+            tr('🎮 ${w.name} فاز في ${w.game} بـ ${_fmt(w.coins)} كوينز', '🎮 ${w.name} won ${_fmt(w.coins)} coins in ${w.game}'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),

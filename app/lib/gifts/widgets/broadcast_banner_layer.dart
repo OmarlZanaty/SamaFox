@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/gift.dart';
 import '../services/gift_socket_service.dart';
+import '../../l10n/tr.dart';
 
 /// Cross-room broadcast banner — listens to `gift_broadcast` from
 /// the socket service and surfaces a top notification ticker.
@@ -130,8 +131,8 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
                           _plaque,
                           w,
                           h,
-                          const Text(
-                            'هدية كبيرة',
+                          Text(
+                            tr('هدية كبيرة', 'Big gift'),
                             style: TextStyle(
                               color: Color(0xFFFFE7A3),
                               fontSize: 13,
@@ -172,10 +173,10 @@ class _BroadcastBannerLayerState extends ConsumerState<BroadcastBannerLayer>
   }
 
   String _bannerText(GiftSendEvent ev) {
-    final sender = ev.sender?.name ?? 'مستخدم';
-    final recipient = ev.recipient?.name ?? 'مستخدم';
+    final sender = ev.sender?.name ?? tr('مستخدم', 'User');
+    final recipient = ev.recipient?.name ?? tr('مستخدم', 'User');
     final gift = ev.gift.nameAr ?? ev.gift.name;
     final qty = ev.quantity > 1 ? ' ×${ev.quantity}' : '';
-    return '$sender أهدى $gift$qty إلى $recipient';
+    return tr('$sender أهدى $gift$qty إلى $recipient', '$sender gifted $gift$qty to $recipient');
   }
 }

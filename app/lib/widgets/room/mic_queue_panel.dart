@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/tr.dart';
 
 class MicQueuePanel extends StatelessWidget {
   final List<int> queueUserIds;
@@ -35,8 +36,8 @@ class MicQueuePanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'طلبات فتح المابك',
+          Text(
+            tr('طلبات فتح المابك', 'Mic requests'),
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
@@ -48,7 +49,7 @@ class MicQueuePanel extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: onRequest,
                       icon: const Icon(Icons.pan_tool),
-                      label: const Text('طلب فتح المايك'),
+                      label: Text(tr('طلب فتح المايك', 'Request mic')),
                     ),
                   )
                 else
@@ -56,15 +57,15 @@ class MicQueuePanel extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: onCancel,
                       icon: const Icon(Icons.close),
-                      label: const Text('رفض'),
+                      label: Text(tr('رفض', 'Decline')),
                     ),
                   ),
               ],
             ),
           if (queueUserIds.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 8.0),
-              child: Text('لا يوجد طلب فتح المايك.',
+              child: Text(tr('لا يوجد طلب فتح المايك.', 'No mic requests.'),
                   style: TextStyle(color: Colors.white70)),
             )
           else
@@ -72,7 +73,7 @@ class MicQueuePanel extends StatelessWidget {
               return ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                title: Text('مستخدم #$uid',
+                title: Text(tr('مستخدم #$uid', 'User #$uid'),
                     style: const TextStyle(color: Colors.white)),
                 trailing: isAdmin
                     ? Row(

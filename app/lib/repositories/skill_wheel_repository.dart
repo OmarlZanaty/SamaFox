@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// Talks to the skill-wheel round endpoints (عجلة المهارة).
 ///
@@ -21,7 +22,7 @@ class SkillWheelRepository {
       if (raw is Map) return WheelRound.fromJson(Map<String, dynamic>.from(raw));
       return null;
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تحميل الجولة');
+      throw _translate(e, fallback: tr('تعذر تحميل الجولة', 'Could not load the round'));
     }
   }
 
@@ -34,7 +35,7 @@ class SkillWheelRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw SkillWheelException(body['message']?.toString() ?? 'تعذر دخول الجولة');
+        throw SkillWheelException(body['message']?.toString() ?? tr('تعذر دخول الجولة', 'Could not join the round'));
       }
       return WheelJoinResult(
         roundId: (body['roundId'] as num?)?.toInt() ?? 0,
@@ -43,7 +44,7 @@ class SkillWheelRepository {
         maxReward: (body['maxReward'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر دخول الجولة');
+      throw _translate(e, fallback: tr('تعذر دخول الجولة', 'Could not join the round'));
     }
   }
 
@@ -56,7 +57,7 @@ class SkillWheelRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw SkillWheelException(body['message']?.toString() ?? 'تعذر تسجيل النتيجة');
+        throw SkillWheelException(body['message']?.toString() ?? tr('تعذر تسجيل النتيجة', 'Could not record the result'));
       }
       return WheelSubmitResult(
         score: (body['score'] as num?)?.toInt() ?? 0,
@@ -64,7 +65,7 @@ class SkillWheelRepository {
         target: (body['target'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تسجيل النتيجة');
+      throw _translate(e, fallback: tr('تعذر تسجيل النتيجة', 'Could not record the result'));
     }
   }
 
@@ -140,7 +141,7 @@ class WheelPlayer {
 
   factory WheelPlayer.fromJson(Map<String, dynamic> json) => WheelPlayer(
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', 'Player'),
         avatarUrl: json['avatarUrl']?.toString(),
         entry: (json['entry'] as num?)?.toInt() ?? 0,
         submitted: json['submitted'] == true,
@@ -168,7 +169,7 @@ class WheelPodiumEntry {
   factory WheelPodiumEntry.fromJson(Map<String, dynamic> json) => WheelPodiumEntry(
         rank: (json['rank'] as num?)?.toInt() ?? 0,
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', 'Player'),
         avatarUrl: json['avatarUrl']?.toString(),
         score: (json['score'] as num?)?.toInt() ?? 0,
         reward: (json['reward'] as num?)?.toInt() ?? 0,

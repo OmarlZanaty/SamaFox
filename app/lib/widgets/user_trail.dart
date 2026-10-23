@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../screens/profile_screen.dart';
 import '../screens/room_screen.dart';
 import '../services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// Shared behaviour for every user picture in the app:
 ///
@@ -51,7 +52,7 @@ Future<void> followUserTrail(
 
   if (roomId == null) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('هذا المستخدم ليس في أي غرفة حالياً')),
+      SnackBar(content: Text(tr('هذا المستخدم ليس في أي غرفة حالياً', 'This user is not in any room right now'))),
     );
     return;
   }
@@ -102,7 +103,7 @@ class _UserTrailButtonState extends State<UserTrailButton> {
     // still tappable and resolves on demand.
     final live = widget.liveRoomId != null;
     return Tooltip(
-      message: 'مسار',
+      message: tr('مسار', 'Trail'),
       child: GestureDetector(
         onTap: _go,
         child: Container(

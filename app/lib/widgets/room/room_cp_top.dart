@@ -8,6 +8,7 @@ import '../../services/dio_client.dart';
 import '../../services/socket_service.dart';
 import '../app_network_image.dart';
 import '../user_name_text.dart';
+import '../../l10n/tr.dart';
 
 /// One couple in the CP ranking (server-ordered: level, then coins, then who
 /// reached the level first).
@@ -135,7 +136,7 @@ class _RoomCpTopStripState extends State<RoomCpTopStrip> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.white24),
                   ),
-                  child: Text(_portal.isShowing ? 'إخفاء' : 'عرض المزيد',
+                  child: Text(_portal.isShowing ? tr('إخفاء', 'Hide') : tr('عرض المزيد', 'Show more'),
                       style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
                 ),
               ),

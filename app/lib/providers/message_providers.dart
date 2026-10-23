@@ -8,6 +8,7 @@ import '../models/direct_message.dart';
 import '../models/incoming_message.dart';
 import '../services/socket_service.dart';
 import 'auth_provider.dart';
+import '../l10n/tr.dart';
 
 final messageRepositoryProvider = Provider<MessageRepository>((ref) {
   return MessageRepository();
@@ -392,7 +393,7 @@ class ChatController extends StateNotifier<ChatState> {
     if (cid == null) throw Exception('Conversation not ready');
 
     final imageUrl = await _repo.uploadChatImage(filePath);
-    if (imageUrl.isEmpty) throw Exception('تعذّر رفع الصورة');
+    if (imageUrl.isEmpty) throw Exception(tr('تعذّر رفع الصورة', 'Could not upload the image'));
 
     final sent = await _repo.sendMessage(
       conversationId: cid,
@@ -462,10 +463,10 @@ class ChatController extends StateNotifier<ChatState> {
     } on DioException catch (e) {
       final body = e.response?.data;
       final msg = body is Map ? body['message']?.toString() : null;
-      if (mounted) state = state.copyWith(error: msg ?? 'تعذّر فتح المحادثة');
+      if (mounted) state = state.copyWith(error: msg ?? tr('تعذّر فتح المحادثة', 'Could not open the chat'));
       return null;
     } catch (_) {
-      if (mounted) state = state.copyWith(error: 'تعذّر فتح المحادثة');
+      if (mounted) state = state.copyWith(error: tr('تعذّر فتح المحادثة', 'Could not open the chat'));
       return null;
     }
   }

@@ -35,7 +35,25 @@ const bool _rouletteEnabled =
 const bool _carWheelEnabled =
     bool.fromEnvironment('CAR_WHEEL', defaultValue: true);
 
-// i18n: compared with server data; titles are also navigation keys below.
+// i18n: titles are navigation keys below (see [_open]); shown via [_displayTitle].
+const Map<String, String> _kGameTitlesEn = {
+  'جاكبوت الفواكه': 'Fruit Jackpot',
+  'بلينكو': 'Plinko',
+  'عجلة الحظ': 'Wheel of Fortune',
+  'طيّار': 'Pilot',
+  'أثيرفول': 'Aetherfall',
+  'بوابات أوليمبوس': 'Olympus Gates',
+  'القط الجشع': 'Greedy Cat',
+  'أستيريون': 'Asterion',
+  'نيون فورتشن': 'Neon Fortune',
+  'يمي': 'Yummy',
+  'عجلة الفواكه': 'Fruit Wheel',
+  'الروليت': 'Roulette',
+  'عجلة السيارات': 'Car Wheel',
+};
+
+String _displayTitle(String key) => tr(key, _kGameTitlesEn[key] ?? key);
+
 List<_GameEntry> get _games => [
   if (_fruitJackpotEnabled)
   _GameEntry(
@@ -191,8 +209,8 @@ class GamesHubScreen extends ConsumerWidget {
       appBar: embedded ? null : AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
-          'ألعاب',
+        title: Text(
+          tr('ألعاب', 'Games'),
           style: TextStyle(
             color: Colors.white,
             fontSize: 22,
@@ -323,7 +341,7 @@ class _GameCard extends StatelessWidget {
         Center(child: Text(entry.emoji, style: const TextStyle(fontSize: 44)));
     return Semantics(
       button: true,
-      label: entry.title,
+      label: _displayTitle(entry.title),
       child: GestureDetector(
         onTap: onTap,
         child: Container(
@@ -388,7 +406,7 @@ class _GameCard extends StatelessWidget {
                   right: 6,
                   bottom: 8,
                   child: Text(
-                    entry.title,
+                    _displayTitle(entry.title),
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,

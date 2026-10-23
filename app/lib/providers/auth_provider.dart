@@ -11,6 +11,7 @@ import '../repositories/auth_repository.dart';
 import '../services/dio_client.dart';
 import '../services/socket_service.dart';
 import '../utils/storage_service.dart';
+import '../l10n/tr.dart';
 /// Auth Repository Provider
 final authRepositoryProvider = Provider((ref) => AuthRepository());
 
@@ -70,7 +71,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     // show a broken app.
     _banSub = SocketService().bannedStream.listen((data) {
       final reason = (data['reason'] ?? '').toString().trim();
-      forceLogoutBanned(reason.isEmpty ? 'تم حظر حسابك' : reason);
+      forceLogoutBanned(reason.isEmpty ? tr('تم حظر حسابك', 'Your account has been banned') : reason);
     });
 
     // Same treatment when the API (rather than the socket) reports the ban —
@@ -81,7 +82,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     // every screen keeps failing with 401s behind a "logged in" UI.
     TokenRefresher.onSessionEnded = () {
       if (!state.isAuthenticated && state.user == null) return;
-      _forceLogoutLocal(error: 'انتهت الجلسة — سجّل الدخول مرة أخرى');
+      _forceLogoutLocal(error: tr('انتهت الجلسة — سجّل الدخول مرة أخرى', 'Session expired — please sign in again'));
     };
   }
 

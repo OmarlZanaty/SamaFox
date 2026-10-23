@@ -4030,7 +4030,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (uploadedUrl == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Upload failed')),
+            SnackBar(content: Text(tr('فشل الرفع', 'Upload failed'))),
           );
         }
         return;
@@ -4074,7 +4074,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(tr('خطأ: $e', 'Error: $e'))),
         );
       }
     }
@@ -5551,7 +5551,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final auth = ref.read(authStateProvider);
     if (auth.user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login first')),
+        SnackBar(content: Text(tr('سجّل الدخول أولاً', 'Login first'))),
       );
       return;
     }
@@ -5668,7 +5668,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       Expanded(
                         child: ElevatedButton.icon(
                           icon: const Icon(Icons.send),
-                          label: const Text('Send'),
+                          label: Text(tr('إرسال', 'Send')),
                           onPressed: () async {
                             final text = ctrl.text.trim();
                             if (text.isEmpty) return;
@@ -5808,7 +5808,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (seat.userId == null && isLocked && !isAdmin) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This seat is locked 🔒')),
+        SnackBar(content: Text(tr('هذا المقعد مقفول 🔒', 'This seat is locked 🔒'))),
       );
       return;
     }
@@ -7363,7 +7363,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     if (myId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login first')),
+        SnackBar(content: Text(tr('سجّل الدخول أولاً', 'Login first'))),
       );
       return;
     }

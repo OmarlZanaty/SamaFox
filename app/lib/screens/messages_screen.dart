@@ -13,6 +13,7 @@ import '../models/conversation_item.dart';
 import 'chat_screen.dart';
 import 'profile_screen.dart';
 import '../widgets/user_trail.dart';
+import '../l10n/tr.dart';
 
 final unreadCountProvider = Provider<int>((ref) {
   final async = ref.watch(conversationsControllerProvider);
@@ -149,7 +150,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                     );
                   },
                   loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: Text('Error: $e')),
+                  error: (e, _) => Center(child: Text(tr('خطأ: $e', 'Error: $e'))),
                 ),
               ),
             ],

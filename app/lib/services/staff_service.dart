@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'dio_client.dart';
+import '../l10n/tr.dart';
 
 typedef StaffJson = Map<String, dynamic>;
 StaffJson staffJson(dynamic value) => Map<String, dynamic>.from(value as Map);
@@ -8,8 +9,8 @@ List<T> staffList<T>(dynamic value, T Function(StaffJson) parse) =>
 List<String> staffIds(dynamic value) => (value as List? ?? []).cast<String>();
 DateTime? staffDate(dynamic value) => value == null ? null : DateTime.parse(value as String);
 String staffError(Object error) => error is DioException
-    ? error.error?.toString() ?? 'تعذر الاتصال، يرجى المحاولة مجدداً'
-    : 'تعذر تنفيذ العملية، يرجى المحاولة مجدداً';
+    ? error.error?.toString() ?? tr('تعذر الاتصال، يرجى المحاولة مجدداً', 'Connection failed, please try again')
+    : tr('تعذر تنفيذ العملية، يرجى المحاولة مجدداً', 'Operation failed, please try again');
 
 class StaffUser {
   StaffUser.fromJson(StaffJson j)

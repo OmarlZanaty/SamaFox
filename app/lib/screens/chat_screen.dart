@@ -22,6 +22,7 @@ import 'package:path_provider/path_provider.dart';
 import '../widgets/app_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
+import '../l10n/tr.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final int partnerId;
@@ -201,13 +202,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('Copy'),
+                title: Text(tr('نسخ', 'Copy')),
                 onTap: () => Navigator.pop(context, 'copy'),
               ),
               if (isMe)
                 ListTile(
                   leading: const Icon(Icons.delete_outline),
-                  title: const Text('Delete'),
+                  title: Text(tr('حذف', 'Delete')),
                   onTap: () => Navigator.pop(context, 'delete'),
                 ),
               const SizedBox(height: 8),
@@ -228,7 +229,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (selected == 'copy') {
       await Clipboard.setData(ClipboardData(text: message.text));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم النسخ', 'Copied'))));
       }
     } else if (selected == 'delete') {
       await ctrl.deleteMessage(message.id);
@@ -330,7 +331,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // ✅ If partnerId missing => stop early (prevents /messages/0)
     if (partnerId <= 0) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Chat')),
+        appBar: AppBar(title: Text(tr('الدردشة', 'Chat'))),
         body: const Center(child: Text('Chat error: missing partnerId')),
       );
     }
@@ -632,8 +633,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) {
       if (!mounted) return;
       final msg = e is DioException && e.response?.data is Map
-          ? (e.response!.data['message']?.toString() ?? 'تعذّر إرسال الصورة')
-          : 'تعذّر إرسال الصورة';
+          ? (e.response!.data['message']?.toString() ?? tr('تعذّر إرسال الصورة', 'Could not send the image'))
+          : tr('تعذّر إرسال الصورة', 'Could not send the image');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       if (mounted) setState(() => _sendingImage = false);
@@ -647,11 +648,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('فتح المحادثة'),
-        content: Text('هيتخصم $price كوينز مرة واحدة عشان تفتح المحادثة مع هذا المستخدم. الكوينز بتروح للبرنامج.'),
+        title: Text(tr('فتح المحادثة', 'Unlock chat')),
+        content: Text(tr('هيتخصم $price كوينز مرة واحدة عشان تفتح المحادثة مع هذا المستخدم. الكوينز بتروح للبرنامج.', '$price coins will be deducted once to unlock the chat with this user. The coins go to the app.')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('ادفع $price 🪙')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('إلغاء', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('ادفع $price 🪙', 'Pay $price 🪙'))),
         ],
       ),
     );
@@ -660,7 +661,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!mounted) return;
     if (balance != null) {
       ref.read(authStateProvider.notifier).updateCoinsBalance(balance);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اتفتحت المحادثة ✅')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('اتفتحت المحادثة ✅', 'Chat unlocked ✅'))));
       _focus.requestFocus();
     } else {
       final err = ctrl.state.error;
@@ -700,13 +701,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('Copy'),
+                title: Text(tr('نسخ', 'Copy')),
                 onTap: () => Navigator.pop(context, 'copy'),
               ),
               if (isMe)
                 ListTile(
                   leading: const Icon(Icons.delete_outline),
-                  title: const Text('Delete'),
+                  title: Text(tr('حذف', 'Delete')),
                   onTap: () => Navigator.pop(context, 'delete'),
                 ),
               const SizedBox(height: 8),
@@ -734,7 +735,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (selected == 'copy') {
       await Clipboard.setData(ClipboardData(text: message.text));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم النسخ', 'Copied'))));
       }
     } else if (selected == 'delete') {
       // If you don’t have deleteMessage(), add it to your controller.
@@ -746,7 +747,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Delete not implemented yet')),
+              SnackBar(content: Text(tr('الحذف غير متاح حالياً', 'Delete not implemented yet'))),
             );
           }
         }
@@ -754,7 +755,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         debugPrint("[chat_screen] deleteMessage failed: $e");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to delete message')),
+            SnackBar(content: Text(tr('تعذّر حذف الرسالة', 'Failed to delete message'))),
           );
         }
       }
@@ -1234,8 +1235,8 @@ class DmGateBar extends StatelessWidget {
                 Expanded(
                   child: Text(
                     access.feeRequired
-                        ? 'هذا المستخدم قافل الرسايل — فتح المحادثة يكلف ${access.priceCoins} كوينز (مرة واحدة)'
-                        : (access.message ?? 'هذا المستخدم يستقبل الرسائل من الأصدقاء فقط'),
+                        ? tr('هذا المستخدم قافل الرسايل — فتح المحادثة يكلف ${access.priceCoins} كوينز (مرة واحدة)', 'This user has closed messages — unlocking the chat costs ${access.priceCoins} coins (one time)')
+                        : (access.message ?? tr('هذا المستخدم يستقبل الرسائل من الأصدقاء فقط', 'This user only accepts messages from friends')),
                     style: TextStyle(color: fg, fontSize: 13, height: 1.4),
                   ),
                 ),
@@ -1248,7 +1249,7 @@ class DmGateBar extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: onUnlock,
                   icon: const Icon(Icons.lock_open),
-                  label: Text('افتح المحادثة بـ ${access.priceCoins} 🪙'),
+                  label: Text(tr('افتح المحادثة بـ ${access.priceCoins} 🪙', 'Unlock chat for ${access.priceCoins} 🪙')),
                   style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFFB300), foregroundColor: Colors.black),
                 ),
               ),

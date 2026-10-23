@@ -13,6 +13,7 @@ import '../services/gift_socket_service.dart';
 import 'broadcast_banner_layer.dart';
 import 'fireworks_overlay.dart';
 import 'gift_player.dart';
+import '../../l10n/tr.dart';
 
 /// Full-screen gift animation stack. Mount above the voice room UI.
 ///
@@ -401,10 +402,16 @@ class _FullscreenVideoGift extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                '$senderName أرسل '
-                '${show.quantity > 1 ? '×${show.quantity} ' : ''}'
-                '${gift.nameAr ?? gift.name}'
-                '${recipientName.isEmpty ? '' : ' إلى $recipientName'}',
+                tr(
+                  '$senderName أرسل '
+                  '${show.quantity > 1 ? '×${show.quantity} ' : ''}'
+                  '${gift.nameAr ?? gift.name}'
+                  '${recipientName.isEmpty ? '' : ' إلى $recipientName'}',
+                  '$senderName sent '
+                  '${show.quantity > 1 ? '×${show.quantity} ' : ''}'
+                  '${gift.name}'
+                  '${recipientName.isEmpty ? '' : ' to $recipientName'}',
+                ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -697,13 +704,13 @@ class _VipBannerState extends State<_VipBanner> with SingleTickerProviderStateMi
                           ),
                           children: [
                             TextSpan(text: senderName),
-                            const TextSpan(text: ' أرسل '),
+                            TextSpan(text: tr(' أرسل ', ' sent ')),
                             if (qty > 1) TextSpan(text: '×$qty '),
                             TextSpan(
                               text: giftName,
                               style: const TextStyle(color: Color(0xFFFFEB3B)),
                             ),
-                            const TextSpan(text: ' إلى '),
+                            TextSpan(text: tr(' إلى ', ' to ')),
                             TextSpan(text: recipientName),
                           ],
                         ),

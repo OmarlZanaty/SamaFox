@@ -48,6 +48,7 @@ import 'repositories/cp_repository.dart';
 import 'widgets/cp_request_dialog.dart';
 import 'widgets/global_notification_bar.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'l10n/tr.dart';
 
 /// Per-step start-up timings, sent once the reporter is up.
 final Map<String, int> _bootMs = {};
@@ -170,7 +171,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
     _recordingSub = ScreenRecordService.instance.events.listen((state) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
-      final message = state['uri'] != null ? 'تم حفظ التسجيل في الاستوديو'
+      final message = state['uri'] != null ? tr('تم حفظ التسجيل في الاستوديو', 'Recording saved to gallery')
           : state['error']?.toString() ??
             (state['recording'] == true && state['roomAudioIncluded'] == false
               ? ScreenRecordService.fallbackHint : null);
@@ -208,9 +209,9 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
             CpRequest(
               id: requestId,
               senderId: (payload['senderId'] as num?)?.toInt() ?? 0,
-              senderName: payload['senderName']?.toString() ?? 'مستخدم',
+              senderName: payload['senderName']?.toString() ?? tr('مستخدم', 'User'),
               senderAvatarUrl: (data['actor'] as Map?)?['avatarUrl']?.toString(),
-              giftName: payload['giftName']?.toString() ?? 'هدية',
+              giftName: payload['giftName']?.toString() ?? tr('هدية', 'Gift'),
               giftIconUrl: payload['giftIconUrl']?.toString() ?? '',
               quantity: (payload['quantity'] as num?)?.toInt() ?? 1,
               totalCoins: (payload['totalCoins'] as num?)?.toInt() ?? 0,
@@ -238,7 +239,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      title.isNotEmpty ? title : 'إشعار من الإدارة',
+                      title.isNotEmpty ? title : tr('إشعار من الإدارة', 'Notice from the management'),
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -250,7 +251,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dctx).pop(),
-                  child: const Text('حسناً', style: TextStyle(color: Colors.lightBlueAccent)),
+                  child: Text(tr('حسناً', 'OK'), style: TextStyle(color: Colors.lightBlueAccent)),
                 ),
               ],
             ),
@@ -261,24 +262,24 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
 
       String localizedTitle() {
         if (title.isNotEmpty && !_looksEnglish(title)) return title;
-        if (type.contains('follow')) return 'طلب متابعة';
-        if (type.contains('relation')) return 'طلب علاقة';
-        if (type.contains('gift')) return 'هدية جديدة';
-        if (type.contains('message')) return 'رسالة جديدة';
-        return title.isNotEmpty ? title : 'إشعار جديد';
+        if (type.contains('follow')) return tr('طلب متابعة', 'Follow request');
+        if (type.contains('relation')) return tr('طلب علاقة', 'Relationship request');
+        if (type.contains('gift')) return tr('هدية جديدة', 'New gift');
+        if (type.contains('message')) return tr('رسالة جديدة', 'New message');
+        return title.isNotEmpty ? title : tr('إشعار جديد', 'New notification');
       }
 
       String localizedBody() {
         if (body.isNotEmpty && !_looksEnglish(body)) return body;
-        if (type == 'follow_request') return 'لديك طلب متابعة جديد. افتح الإشعارات للرد.';
-        if (type == 'follow_accepted') return 'تم قبول طلب المتابعة الخاص بك.';
-        if (type == 'follow_rejected') return 'تم رفض طلب المتابعة الخاص بك.';
-        if (type == 'relation_request') return 'لديك طلب علاقة جديد. افتح الإشعارات للرد.';
-        if (type == 'relation_accepted') return 'تم قبول طلب العلاقة.';
-        if (type == 'relation_ended') return 'تم إنهاء العلاقة.';
-        if (type.contains('gift')) return 'وصلتك هدية جديدة.';
-        if (type.contains('message')) return 'لديك رسالة جديدة.';
-        return body.isNotEmpty ? body : 'لديك إشعار جديد في حسابك.';
+        if (type == 'follow_request') return tr('لديك طلب متابعة جديد. افتح الإشعارات للرد.', 'You have a new follow request. Open notifications to respond.');
+        if (type == 'follow_accepted') return tr('تم قبول طلب المتابعة الخاص بك.', 'Your follow request was accepted.');
+        if (type == 'follow_rejected') return tr('تم رفض طلب المتابعة الخاص بك.', 'Your follow request was declined.');
+        if (type == 'relation_request') return tr('لديك طلب علاقة جديد. افتح الإشعارات للرد.', 'You have a new relationship request. Open notifications to respond.');
+        if (type == 'relation_accepted') return tr('تم قبول طلب العلاقة.', 'Relationship request accepted.');
+        if (type == 'relation_ended') return tr('تم إنهاء العلاقة.', 'The relationship has ended.');
+        if (type.contains('gift')) return tr('وصلتك هدية جديدة.', 'You received a new gift.');
+        if (type.contains('message')) return tr('لديك رسالة جديدة.', 'You have a new message.');
+        return body.isNotEmpty ? body : tr('لديك إشعار جديد في حسابك.', 'You have a new notification.');
       }
 
       // A21 — the two banners the client called out get a short life and, for
@@ -314,13 +315,13 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       final ctx = navigatorKey.currentContext;
       if (ctx == null) return;
       final from = (data is Map ? data['fromUser'] : null) as Map?;
-      final name = from?['name']?.toString() ?? 'مستخدم';
+      final name = from?['name']?.toString() ?? tr('مستخدم', 'User');
       ScaffoldMessenger.of(ctx).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF1A2744),
-          content: Text('👤 $name أرسل طلب متابعة'),
+          content: Text(tr('👤 $name أرسل طلب متابعة', '👤 $name sent you a follow request')),
           action: SnackBarAction(
-            label: 'الإشعارات',
+            label: tr('الإشعارات', 'Notifications'),
             textColor: Colors.lightBlueAccent,
             onPressed: () => Navigator.pushNamed(ctx, '/notifications'),
           ),
@@ -332,29 +333,29 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       final context = navigatorKey.currentContext;
       if (context == null) return;
       final byUser = (data is Map ? data['byUser'] : null) as Map?;
-      final name = byUser?['name']?.toString() ?? 'مستخدم';
+      final name = byUser?['name']?.toString() ?? tr('مستخدم', 'User');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$name قبل طلب متابعتك')),
+        SnackBar(content: Text(tr('$name قبل طلب متابعتك', '$name accepted your follow request'))),
       );
     });
     _socketService.on('follow_rejected', (_) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم رفض طلب المتابعة')),
+        SnackBar(content: Text(tr('تم رفض طلب المتابعة', 'Follow request declined'))),
       );
     });
     _socketService.on('relation_request', (data) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
       final fromUser = (data is Map ? data['fromUser'] : null) as Map?;
-      final name = fromUser?['name']?.toString() ?? 'مستخدم';
+      final name = fromUser?['name']?.toString() ?? tr('مستخدم', 'User');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF2D1B69),
-          content: Text('💍 $name يريد أن يكون في علاقة معك'),
+          content: Text(tr('💍 $name يريد أن يكون في علاقة معك', '💍 $name wants to be in a relationship with you')),
           action: SnackBarAction(
-            label: 'عرض',
+            label: tr('عرض', 'View'),
             textColor: Colors.amber,
             onPressed: () => Navigator.pushNamed(context, '/notifications'),
           ),
@@ -366,11 +367,11 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       final context = navigatorKey.currentContext;
       if (context == null) return;
       final byUser = (data is Map ? data['byUser'] : null) as Map?;
-      final name = byUser?['name']?.toString() ?? 'مستخدم';
+      final name = byUser?['name']?.toString() ?? tr('مستخدم', 'User');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF1a3a1a),
-          content: Text('💍 $name قبل طلب العلاقة!'),
+          content: Text(tr('💍 $name قبل طلب العلاقة!', '💍 $name accepted the relationship request!')),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -379,8 +380,8 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       final context = navigatorKey.currentContext;
       if (context == null) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('انتهت العلاقة'),
+        SnackBar(
+          content: Text(tr('انتهت العلاقة', 'Relationship ended')),
           duration: Duration(seconds: 3),
         ),
       );

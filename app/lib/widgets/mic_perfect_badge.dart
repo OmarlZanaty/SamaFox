@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/socket_service.dart';
+import '../l10n/tr.dart';
 
 /// Step 5: small "perfect mic" badge shown for a seated user whose microphone
 /// passed the self-test (live audio track with echo/noise/gain processing on).
@@ -35,12 +36,12 @@ class _MicPerfectBadgeState extends State<MicPerfectBadge> {
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: const Color(0xFF2ECC71)),
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.mic, size: 12, color: Color(0xFF2ECC71)),
               SizedBox(width: 4),
-              Text('مايك ممتاز',
+              Text(tr('مايك ممتاز', 'Perfect mic'),
                   style: TextStyle(
                       color: Color(0xFF2ECC71),
                       fontSize: 10,

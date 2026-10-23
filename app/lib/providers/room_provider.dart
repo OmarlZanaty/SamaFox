@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/room.dart';
 import '../repositories/room_repository.dart';
 import '../utils/logger.dart';
+import '../l10n/tr.dart';
 
 final roomRepositoryProvider = Provider((ref) => RoomRepository());
 
@@ -128,7 +129,7 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
 
     if (alreadyHasRoom) {
       state = state.copyWith(
-        error: 'لا يمكنك إنشاء أكثر من غرفة واحدة',
+        error: tr('لا يمكنك إنشاء أكثر من غرفة واحدة', 'You cannot create more than one room'),
       );
       return false;
     }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:samafox/services/socket_service.dart';
 
 import '../models/gift.dart';
+import '../../l10n/tr.dart';
 
 /// Thin wrapper around the existing SocketService that exposes
 /// strongly-typed streams for gift events.
@@ -167,9 +168,9 @@ class GiftAnnouncement {
     final gift = (json['gift'] as Map?) ?? const {};
     return GiftAnnouncement(
       senderId: (json['senderId'] as num?)?.toInt() ?? 0,
-      senderName: json['senderName']?.toString() ?? 'مستخدم',
+      senderName: json['senderName']?.toString() ?? tr('مستخدم', 'User'),
       senderAvatarUrl: json['senderAvatarUrl']?.toString(),
-      giftName: (gift['nameAr'] ?? gift['name'])?.toString() ?? 'هدية',
+      giftName: (gift['nameAr'] ?? gift['name'])?.toString() ?? tr('هدية', 'Gift'),
       giftIconUrl: gift['iconUrl']?.toString() ?? '',
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       recipientCount: (json['recipientCount'] as num?)?.toInt() ?? 1,
@@ -180,6 +181,6 @@ class GiftAnnouncement {
 
   /// The line the bar shows, already in the client's requested wording.
   String get text => recipientCount > 1
-      ? '$senderName أهدى $giftName إلى الجميع'
-      : '$senderName أهدى $giftName إلى ${recipientName ?? 'مستخدم'}';
+      ? tr('$senderName أهدى $giftName إلى الجميع', '$senderName gifted $giftName to everyone')
+      : '$senderName أهدى $giftName إلى ${recipientName ?? tr('مستخدم', 'User')}';
 }

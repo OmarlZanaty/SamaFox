@@ -4,14 +4,15 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'aetherfall_symbols.dart';
+import '../../l10n/tr.dart';
 
 /// The four original celebration tiers for أثيرفول — deliberately not named
 /// "BIG WIN" / "MEGA WIN" / etc. per the game's creative-distinction brief.
-const Map<String, String> kCelebrationLabels = {
-  'BRIGHT_HIT': 'ضربة ساطعة',
-  'SKYFIRE_SURGE': 'اندفاع سماوي',
-  'CELESTIAL_BREAK': 'انفجار كوني',
-  'AETHERFALL': 'أثيرفول',
+Map<String, String> get kCelebrationLabels => {
+  'BRIGHT_HIT': tr('ضربة ساطعة', 'Bright Hit'),
+  'SKYFIRE_SURGE': tr('اندفاع سماوي', 'Skyfire Surge'),
+  'CELESTIAL_BREAK': tr('انفجار كوني', 'Celestial Break'),
+  'AETHERFALL': tr('أثيرفول', 'Aetherfall'),
 };
 
 const Map<String, Color> kCelebrationColors = {
@@ -131,8 +132,8 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                   },
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'ربح السلسلة',
+                Text(
+                  tr('ربح السلسلة', 'Chain win'),
                   style: TextStyle(color: Colors.white70, fontSize: 12, letterSpacing: 2),
                 ),
               ],
@@ -142,7 +143,7 @@ class _CelebrationOverlayState extends State<CelebrationOverlay>
                 bottom: 40,
                 child: TextButton(
                   onPressed: widget.onDone,
-                  child: const Text('تخطّي', style: TextStyle(color: Colors.white70)),
+                  child: Text(tr('تخطّي', 'Skip'), style: TextStyle(color: Colors.white70)),
                 ),
               ),
           ],

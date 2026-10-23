@@ -3,14 +3,15 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'asterion_art.dart';
+import '../../l10n/tr.dart';
 
 /// The four original celebration tiers for أستيريون. Deliberately not "BIG WIN"
 /// / "MEGA WIN" — see ASTERION_ARTWORK_BRIEF.md for the naming rationale.
-const Map<String, String> kTierLabels = {
-  'NICE_WIN': 'ومضة',
-  'GREAT_SURGE': 'اندفاع الرعد',
-  'EPIC_STORM': 'عاصفة الآلهة',
-  'DIVINE_SURGE': 'صاعقة أستيريون',
+Map<String, String> get kTierLabels => {
+  'NICE_WIN': tr('ومضة', 'Flash'),
+  'GREAT_SURGE': tr('اندفاع الرعد', 'Thunder Surge'),
+  'EPIC_STORM': tr('عاصفة الآلهة', 'Storm of the Gods'),
+  'DIVINE_SURGE': tr('صاعقة أستيريون', 'Asterion Strike'),
 };
 
 const Map<String, Color> kTierColours = {
@@ -124,7 +125,7 @@ class _AsterionCelebrationState extends State<AsterionCelebration>
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '${ratio.toStringAsFixed(ratio >= 100 ? 0 : 1)}× الرهان',
+                    tr('${ratio.toStringAsFixed(ratio >= 100 ? 0 : 1)}× الرهان', '${ratio.toStringAsFixed(ratio >= 100 ? 0 : 1)}× bet'),
                     style: const TextStyle(color: AsterionPalette.muted, fontSize: 13),
                   ),
                   const SizedBox(height: 14),
@@ -147,7 +148,7 @@ class _AsterionCelebrationState extends State<AsterionCelebration>
                     },
                   ),
                   const SizedBox(height: 4),
-                  const Text('عملة', style: TextStyle(color: AsterionPalette.amber, fontSize: 15)),
+                  Text(tr('عملة', 'coins'), style: TextStyle(color: AsterionPalette.amber, fontSize: 15)),
                   const SizedBox(height: 22),
                   AnimatedOpacity(
                     duration: const Duration(milliseconds: 250),
@@ -162,7 +163,7 @@ class _AsterionCelebrationState extends State<AsterionCelebration>
                           borderRadius: BorderRadius.circular(20),
                         ),
                       ),
-                      child: const Text('متابعة'),
+                      child: Text(tr('متابعة', 'Continue')),
                     ),
                   ),
                 ],

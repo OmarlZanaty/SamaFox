@@ -13,6 +13,7 @@ import '../services/room_audio_keepalive.dart';
 import '../services/voice_engine.dart';
 import '../main.dart';
 import 'app_network_image.dart';
+import '../l10n/tr.dart';
 
 class PipOverlay extends ConsumerStatefulWidget {
   const PipOverlay({super.key});
@@ -134,7 +135,7 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
                             child: const Icon(Icons.logout, color: Colors.redAccent, size: 20),
                           ),
                           const SizedBox(height: 4),
-                          const Text('مغادرة', style: TextStyle(color: Colors.white70, fontSize: 10)),
+                          Text(tr('مغادرة', 'Leave'), style: TextStyle(color: Colors.white70, fontSize: 10)),
                         ],
                       ),
                     ),
@@ -156,7 +157,7 @@ class _PipOverlayState extends ConsumerState<PipOverlay> {
                             child: const Icon(Icons.close, color: Colors.white54, size: 20),
                           ),
                           const SizedBox(height: 4),
-                          const Text('إلغاء', style: TextStyle(color: Colors.white70, fontSize: 10)),
+                          Text(tr('إلغاء', 'Cancel'), style: TextStyle(color: Colors.white70, fontSize: 10)),
                         ],
                       ),
                     ),

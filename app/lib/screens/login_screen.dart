@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../l10n/tr.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -29,7 +30,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _handleEmailLogin() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى إدخال البريد الإلكتروني وكلمة المرور')),
+        SnackBar(content: Text(tr('يرجى إدخال البريد الإلكتروني وكلمة المرور', 'Please enter your email and password'))),
       );
       return;
     }
@@ -215,8 +216,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         color: Colors.white.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(22),
                       ),
-                      child: const Text(
-                        'مساعدة؟',
+                      child: Text(
+                        tr('مساعدة؟', 'Help?'),
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
@@ -260,8 +261,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     onPressed: authState.isLoading ? null : _openEmailLoginSheet,
                   ),
                   const Spacer(flex: 2),
-                  const Text(
-                    'لقد قرأت ووافقت على سياسة الخصوصية واستخدام العرف السائد',
+                  Text(
+                    tr('لقد قرأت ووافقت على سياسة الخصوصية واستخدام العرف السائد', 'I have read and agree to the privacy policy and terms of use'),
                     style: TextStyle(color: Colors.white70, fontSize: 14),
                     textAlign: TextAlign.center,
                   ),

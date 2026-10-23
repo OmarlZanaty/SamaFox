@@ -5,6 +5,7 @@ import 'chat_ui_helpers.dart';
 import 'reaction_picker.dart';
 import 'voice_message_bubble.dart';
 import 'bubble_skin.dart';
+import '../../l10n/tr.dart';
 
 class MessageBubble extends StatelessWidget {
   final DirectMessage m;
@@ -75,7 +76,7 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: align,
           children: [
             if (m.type == 'room_invite' && m.metadata != null) ...[
-              Text('${m.metadata!['inviterName'] ?? ''} يدعوك للانضمام إلى غرفة:',
+              Text(tr('${m.metadata!['inviterName'] ?? ''} يدعوك للانضمام إلى غرفة:', '${m.metadata!['inviterName'] ?? ''} invites you to join a room:'),
                   style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 13)),
               if (m.metadata!['roomImageUrl'] is String)
                 Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Image.network(
@@ -90,7 +91,7 @@ class MessageBubble extends StatelessWidget {
               TextButton.icon(onPressed: () {
                 final token = m.metadata!['token'];
                 if (token is String) RoomLinkHandler.instance.accept(token);
-              }, icon: const Icon(Icons.login), label: const Text('دخول الغرفة')),
+              }, icon: const Icon(Icons.login), label: Text(tr('دخول الغرفة', 'Enter room'))),
             ] else Text(
               m.text,
               style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),

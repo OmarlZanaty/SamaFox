@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/gamification_provider.dart';
 import '../providers/auth_provider.dart';
 import '../models/achievement.dart';
+import '../l10n/tr.dart';
 
 class AchievementsScreen extends ConsumerWidget {
   const AchievementsScreen({super.key});
@@ -17,7 +18,7 @@ class AchievementsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Achievements'),
+        title: Text(tr('الإنجازات', 'Achievements')),
         elevation: 0,
       ),
       body: achievementsAsync.when(
@@ -28,19 +29,19 @@ class AchievementsScreen extends ConsumerWidget {
             children: [
               const Icon(Icons.error_outline, size: 48, color: Colors.red),
               const SizedBox(height: 16),
-              Text('Error: $error'),
+              Text(tr('خطأ: $error', 'Error: $error')),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () => ref.refresh(achievementsProvider),
-                child: const Text('Retry'),
+                child: Text(tr('إعادة المحاولة', 'Retry')),
               ),
             ],
           ),
         ),
         data: (achievements) {
           if (achievements.isEmpty) {
-            return const Center(
-              child: Text('No achievements available'),
+            return Center(
+              child: Text(tr('لا توجد إنجازات', 'No achievements available')),
             );
           }
 

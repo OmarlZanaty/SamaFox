@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 class Product {
   final String id;
   final String name;
@@ -23,7 +24,7 @@ class Product {
   /// Ready-to-show term label, worded like the VIP sheet so the store reads
   /// the same as the rest of the app.
   String get durationLabel =>
-      durationDays == null ? 'أبدي' : '$durationDays يوم';
+      durationDays == null ? tr('أبدي', 'Permanent') : tr('$durationDays يوم', '$durationDays days');
 
   factory Product.fromJson(Map<String, dynamic> json) {
     String normalizeType(String? type) {

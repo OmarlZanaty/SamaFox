@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/product.dart';
 import 'app_network_image.dart';
+import '../l10n/tr.dart';
 
 class StoreProductTile extends StatelessWidget {
   final Product product;
@@ -64,7 +65,7 @@ class StoreProductTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Text('Buy'),
+              child: Text(tr('شراء', 'Buy')),
             ),
           ),
         ],

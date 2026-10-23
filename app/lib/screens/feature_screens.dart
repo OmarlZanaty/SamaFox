@@ -1,5 +1,6 @@
 /*
 import 'package:flutter/material.dart';
+import '../l10n/tr.dart';
 
 /// Generic Feature Screen Template
 class FeatureScreen extends StatelessWidget {
@@ -122,7 +123,7 @@ class FeatureScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(25),
                         ),
                         child: const Text(
-                          'قريباً - Coming Soon',
+                          tr('قريباً - Coming Soon', 'Coming soon'),
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,

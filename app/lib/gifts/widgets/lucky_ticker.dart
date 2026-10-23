@@ -7,6 +7,7 @@ import '../models/gift.dart';
 import '../services/gift_repository.dart';
 import '../services/gift_socket_service.dart';
 import 'lucky_winner_card.dart';
+import '../../l10n/tr.dart';
 
 /// هدايا الحظ — the app-wide ticker along the bottom of the room.
 ///
@@ -131,7 +132,7 @@ class _LuckyTickerState extends State<LuckyTicker> {
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
-                    '${e.senderName ?? 'مستخدم'} كسب ',
+                    '${e.senderName ?? tr('مستخدم', 'User')} كسب ',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),

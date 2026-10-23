@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 class InventoryItem {
   final String id;
   final String productId;
@@ -40,12 +41,12 @@ class InventoryItem {
   /// Short label for the badge on the item card: «أبدي» or «متبقي ٥ أيام».
   String get remainingLabel {
     final d = daysRemaining;
-    if (d == null) return 'أبدي';
-    if (d <= 0) return 'انتهت';
-    if (d == 1) return 'متبقي يوم';
-    if (d == 2) return 'متبقي يومان';
-    if (d <= 10) return 'متبقي $d أيام';
-    return 'متبقي $d يوم';
+    if (d == null) return tr('أبدي', 'Permanent');
+    if (d <= 0) return tr('انتهت', 'Expired');
+    if (d == 1) return tr('متبقي يوم', '1 day left');
+    if (d == 2) return tr('متبقي يومان', '2 days left');
+    if (d <= 10) return tr('متبقي $d أيام', '$d days left');
+    return tr('متبقي $d يوم', '$d days left');
   }
 
   factory InventoryItem.fromJson(Map<String, dynamic> json) {

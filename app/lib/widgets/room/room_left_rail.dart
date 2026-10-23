@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/tr.dart';
 
 /// Width the seats area leaves free on the left for the rail.
 const double kRoomRailGutter = 40;
@@ -30,7 +31,7 @@ class RoomLeftRail extends StatelessWidget {
         RoomRailButton(
           icon: Icons.sports_esports_rounded,
           color: Colors.greenAccent,
-          label: 'ألعاب',
+          label: tr('ألعاب', 'Games'),
           onTap: onGames,
         ),
       ],

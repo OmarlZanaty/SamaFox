@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'dio_client.dart';
 import '../utils/storage_service.dart';
+import '../l10n/tr.dart';
 
 /// Hosting-agency client: agent panel (invite/search/members/exit policy)
 /// and member actions (membership info, leave).
@@ -88,7 +89,7 @@ class AgencyService {
       options: await _auth(),
     );
     if (res.data is Map && res.data['success'] != true) {
-      throw Exception(res.data['message'] ?? 'فشل إرسال الدعوة');
+      throw Exception(res.data['message'] ?? tr('فشل إرسال الدعوة', 'Failed to send the invite'));
     }
     final d = res.data is Map ? res.data['data'] : null;
     return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
@@ -122,15 +123,15 @@ class AgencyService {
       );
       final body = res.data;
       if (body is! Map || body['success'] != true) {
-        throw Exception((body is Map ? body['message'] : null) ?? 'فشل الرد على الدعوة');
+        throw Exception((body is Map ? body['message'] : null) ?? tr('فشل الرد على الدعوة', 'Failed to answer the invite'));
       }
       // Older servers do not send `joined`; treat success as joined there.
       if (accept && body.containsKey('joined') && body['joined'] != true) {
-        throw Exception('لم يكتمل الانضمام — حاول مرة أخرى');
+        throw Exception(tr('لم يكتمل الانضمام — حاول مرة أخرى', 'Joining did not complete — try again'));
       }
     } on DioException catch (e) {
       final data = e.response?.data;
-      throw Exception((data is Map ? data['message'] : null) ?? e.error?.toString() ?? 'فشل الرد على الدعوة');
+      throw Exception((data is Map ? data['message'] : null) ?? e.error?.toString() ?? tr('فشل الرد على الدعوة', 'Failed to answer the invite'));
     }
   }
 
@@ -180,7 +181,7 @@ class AgencyService {
     } on DioException catch (e) {
       final msg = (e.response?.data is Map) ? e.response?.data['message'] : null;
       if (msg == 'INSUFFICIENT_COINS') {
-        throw Exception('رصيد الكوينز غير كافٍ لدفع رسوم الخروج');
+        throw Exception(tr('رصيد الكوينز غير كافٍ لدفع رسوم الخروج', 'Not enough coins to pay the exit fee'));
       }
       rethrow;
     }

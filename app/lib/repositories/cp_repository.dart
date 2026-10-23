@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 
 import '../services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// A15 / #20 / #44 — نظام الـ CP.
 ///
@@ -159,7 +160,7 @@ class CpRepository {
     final data = body ?? const <String, dynamic>{};
     if (data['success'] != true) {
       throw CpException(
-        data['message']?.toString() ?? 'تعذر إتمام العملية',
+        data['message']?.toString() ?? tr('تعذر إتمام العملية', 'Could not complete the operation'),
         code: data['code']?.toString(),
         data: data,
       );
@@ -174,15 +175,15 @@ class CpRepository {
     // The server already speaks Arabic for every CP rule, so its message is
     // preferred; the map below only covers codes raised by the gift layer that
     // acceptance runs through.
-    const fallbacks = <String, String>{
-      'INSUFFICIENT_COINS': 'رصيدك لا يكفي',
-      'ALREADY_PAIRED': 'لديكما ارتباط CP بالفعل',
-      'SELF_CP': 'لا يمكنك إرسال هدية CP لنفسك',
-      'ALREADY_RESOLVED': 'تم الرد على هذا الطلب بالفعل',
-      'CP_LOCKED': 'يجب فتح الـ CP أولاً',
+    final fallbacks = <String, String>{
+      'INSUFFICIENT_COINS': tr('رصيدك لا يكفي', 'Not enough coins'),
+      'ALREADY_PAIRED': tr('لديكما ارتباط CP بالفعل', 'You are already CP partners'),
+      'SELF_CP': tr('لا يمكنك إرسال هدية CP لنفسك', 'You cannot send a CP gift to yourself'),
+      'ALREADY_RESOLVED': tr('تم الرد على هذا الطلب بالفعل', 'This request was already answered'),
+      'CP_LOCKED': tr('يجب فتح الـ CP أولاً', 'Unlock CP first'),
     };
     return CpException(
-      serverMessage ?? fallbacks[code] ?? 'تعذر إتمام العملية',
+      serverMessage ?? fallbacks[code] ?? tr('تعذر إتمام العملية', 'Could not complete the operation'),
       code: code,
       status: e.response?.statusCode,
       // CP_LOCKED / INSUFFICIENT_COINS carry feeCoins, balance and shortfall
@@ -342,9 +343,9 @@ class CpRequest {
     return CpRequest(
       id: (json['id'] as num?)?.toInt() ?? 0,
       senderId: (sender['id'] as num?)?.toInt() ?? 0,
-      senderName: sender['name']?.toString() ?? 'مستخدم',
+      senderName: sender['name']?.toString() ?? tr('مستخدم', 'User'),
       senderAvatarUrl: sender['avatarUrl']?.toString(),
-      giftName: (gift['nameAr'] ?? gift['name'])?.toString() ?? 'هدية',
+      giftName: (gift['nameAr'] ?? gift['name'])?.toString() ?? tr('هدية', 'Gift'),
       giftIconUrl: gift['iconUrl']?.toString() ?? '',
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       totalCoins: (json['totalCoins'] as num?)?.toInt() ?? 0,
@@ -487,7 +488,7 @@ class CpPartner {
     return CpPartner(
       pairId: (json['pairId'] as num?)?.toInt() ?? 0,
       userId: (partner['id'] as num?)?.toInt() ?? 0,
-      name: partner['name']?.toString() ?? 'مستخدم',
+      name: partner['name']?.toString() ?? tr('مستخدم', 'User'),
       avatarUrl: partner['avatarUrl']?.toString(),
       displayId: (partner['displayId'] as num?)?.toInt(),
       level: (partner['level'] as num?)?.toInt() ?? 1,

@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// Talks to the بوابات أوليمبوس (Gates of Olympus) endpoints.
 ///
@@ -30,7 +31,7 @@ class OlympusRepository {
         ),
       );
     } on DioException catch (e) {
-      throw OlympusException(_message(e, 'تعذر تحميل اللعبة'));
+      throw OlympusException(_message(e, tr('تعذر تحميل اللعبة', 'Could not load the game')));
     }
   }
 
@@ -42,7 +43,7 @@ class OlympusRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw OlympusException(body['message']?.toString() ?? 'تعذر تنفيذ الجولة');
+        throw OlympusException(body['message']?.toString() ?? tr('تعذر تنفيذ الجولة', 'Could not play the round'));
       }
       return OlympusSpinResponse(
         spin: OlympusSpin.fromJson(Map<String, dynamic>.from(body['spin'] as Map)),
@@ -57,7 +58,7 @@ class OlympusRepository {
         ),
       );
     } on DioException catch (e) {
-      throw OlympusException(_message(e, 'تعذر تنفيذ الجولة'));
+      throw OlympusException(_message(e, tr('تعذر تنفيذ الجولة', 'Could not play the round')));
     }
   }
 
@@ -69,11 +70,11 @@ class OlympusRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw OlympusException(body['message']?.toString() ?? 'تعذر تغيير البذرة');
+        throw OlympusException(body['message']?.toString() ?? tr('تعذر تغيير البذرة', 'Could not change the seed'));
       }
       return OlympusFairness.fromJson(Map<String, dynamic>.from(body['fairness'] as Map));
     } on DioException catch (e) {
-      throw OlympusException(_message(e, 'تعذر تغيير البذرة'));
+      throw OlympusException(_message(e, tr('تعذر تغيير البذرة', 'Could not change the seed')));
     }
   }
 
@@ -90,7 +91,7 @@ class OlympusRepository {
       final res = await _dio.post<Map<String, dynamic>>('games/olympus/seed/rotate');
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw OlympusException(body['message']?.toString() ?? 'تعذر تدوير البذرة');
+        throw OlympusException(body['message']?.toString() ?? tr('تعذر تدوير البذرة', 'Could not rotate the seed'));
       }
       final revealed = Map<String, dynamic>.from(body['revealed'] as Map? ?? const {});
       return OlympusSeedReveal(
@@ -103,7 +104,7 @@ class OlympusRepository {
         ),
       );
     } on DioException catch (e) {
-      throw OlympusException(_message(e, 'تعذر تدوير البذرة'));
+      throw OlympusException(_message(e, tr('تعذر تدوير البذرة', 'Could not rotate the seed')));
     }
   }
 
@@ -131,11 +132,11 @@ class OlympusRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw OlympusException(body['message']?.toString() ?? 'تعذر التحقق');
+        throw OlympusException(body['message']?.toString() ?? tr('تعذر التحقق', 'Could not verify'));
       }
       return OlympusSpin.fromJson(Map<String, dynamic>.from(body['spin'] as Map));
     } on DioException catch (e) {
-      throw OlympusException(_message(e, 'تعذر التحقق'));
+      throw OlympusException(_message(e, tr('تعذر التحقق', 'Could not verify')));
     }
   }
 

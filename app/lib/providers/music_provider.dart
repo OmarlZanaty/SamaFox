@@ -9,6 +9,7 @@ import '../models/music_track.dart';
 import '../services/audio_route.dart';
 import '../services/music_service.dart';
 import '../services/socket_service.dart';
+import '../l10n/tr.dart';
 
 // =====================================================================
 // LIBRARY — "الأغاني اللي عندي"
@@ -64,7 +65,7 @@ class MusicLibraryNotifier extends StateNotifier<MusicLibraryState> {
       state = state.copyWith(tracks: tracks, loading: false);
     } catch (e) {
       debugPrint('🎵 load library failed: $e');
-      state = state.copyWith(loading: false, error: 'تعذر تحميل الأغاني');
+      state = state.copyWith(loading: false, error: tr('تعذر تحميل الأغاني', 'Could not load songs'));
     }
   }
 
@@ -91,7 +92,7 @@ class MusicLibraryNotifier extends StateNotifier<MusicLibraryState> {
       state = state.copyWith(
         uploading: false,
         uploadProgress: 0,
-        error: _readableError(e, fallback: 'فشل رفع الأغنية'),
+        error: _readableError(e, fallback: tr('فشل رفع الأغنية', 'Song upload failed')),
       );
       return null;
     }
@@ -107,7 +108,7 @@ class MusicLibraryNotifier extends StateNotifier<MusicLibraryState> {
       return true;
     } catch (e) {
       debugPrint('🎵 delete failed: $e');
-      state = state.copyWith(tracks: before, error: 'تعذر حذف الأغنية');
+      state = state.copyWith(tracks: before, error: tr('تعذر حذف الأغنية', 'Could not delete the song'));
       return false;
     }
   }
@@ -207,7 +208,7 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
   void _onDenied(dynamic data) {
     if (data is! Map) return;
     if (_notMyRoom(data)) return;
-    final msg = (data['message'] ?? 'غير مسموح').toString();
+    final msg = (data['message'] ?? tr('غير مسموح', 'Not allowed')).toString();
     if (!_deniedController.isClosed) _deniedController.add(msg);
   }
 

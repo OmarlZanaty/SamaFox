@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../providers/room_controller_provider.dart';
 import '../providers/room_live_provider.dart';
+import '../l10n/tr.dart';
 
 class RoomChatPanel extends ConsumerStatefulWidget {
   final int roomId;
@@ -94,13 +95,13 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
           child: Column(
             children: [
               // header
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(10, 10, 10, 6),
                 child: Row(
                   children: [
                     Icon(Icons.chat_bubble_outline, color: Colors.white70, size: 18),
                     SizedBox(width: 6),
-                    Text('Chat', style: TextStyle(color: Colors.white70)),
+                    Text(tr('الدردشة', 'Chat'), style: TextStyle(color: Colors.white70)),
                   ],
                 ),
               ),

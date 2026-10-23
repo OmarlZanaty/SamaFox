@@ -378,7 +378,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             MaterialPageRoute(builder: (_) => const MyBackgroundsScreen()),
           ),
           icon: const Icon(Icons.wallpaper, size: 18),
-          label: const Text('خلفيات خاصتي'),
+          label: Text(tr('خلفيات خاصتي', 'My backgrounds')),
         ),
       ],
     );

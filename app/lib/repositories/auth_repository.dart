@@ -18,6 +18,7 @@ import '../utils/storage_service.dart';
 import '../utils/result.dart';
 import '../services/socket_service.dart';
 import '../config/app_config.dart';
+import '../l10n/tr.dart';
 
 class AuthRepository {
   late final ApiService _apiService;
@@ -282,7 +283,7 @@ class AuthRepository {
       );
 
       if (result.status != LoginStatus.success || result.accessToken == null) {
-        return Result.error(result.message ?? 'فشل تسجيل الدخول عبر فيسبوك');
+        return Result.error(result.message ?? tr('فشل تسجيل الدخول عبر فيسبوك', 'Facebook sign-in failed'));
       }
 
       final String accessToken = result.accessToken!.token;
@@ -312,7 +313,7 @@ class AuthRepository {
   Future<Result<AuthResponse>> signInWithSnapchat() async {
     try {
       // 🔴 TODO: Implement Snapchat OAuth flow
-      return Result.error('يرجى ربط الخادم (Backend) بتسجيل الدخول عبر سناب شات');
+      return Result.error(tr('يرجى ربط الخادم (Backend) بتسجيل الدخول عبر سناب شات', 'Snapchat sign-in is not connected on the server yet'));
     } catch (e) {
       return Result.error(e.toString());
     }

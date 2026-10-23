@@ -9,6 +9,7 @@ import '../services/dio_client.dart';
 import 'auth_provider.dart';
 import '../models/room_event.dart';
 import '../models/product_layout.dart';
+import '../l10n/tr.dart';
 enum MyMicStatus { none, requested, approved, onMic }
 
 final roomControllerProvider =
@@ -619,10 +620,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final rid = _safeInt(data['roomId']);
       if (rid != null && rid != roomId) return;
 
-      final username = (data['username'] ?? 'مستخدم').toString();
+      final username = (data['username'] ?? tr('مستخدم', 'User')).toString();
 
       addActivity(
-        'دخل الغرفة',
+        tr('دخل الغرفة', 'joined the room'),
         RoomEventType.join,
         username: username,
         countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
@@ -683,7 +684,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         if (e is! Map) continue;
         final uid = _safeInt(e['userId']);
         if (uid == null) continue;
-        updated[uid] = User(id: uid, name: (e['username'] ?? 'مستخدم').toString());
+        updated[uid] = User(id: uid, name: (e['username'] ?? tr('مستخدم', 'User')).toString());
       }
       // The snapshot is authoritative, but never let a malformed/empty payload
       // wipe a list we already built from live events.
@@ -697,10 +698,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _onRaw('user_left', (data) {
       if (data is! Map) return;
 
-      final username = data['username'] ?? 'مستخدم';
+      final username = data['username'] ?? tr('مستخدم', 'User');
 
       addActivity(
-        'غادر الغرفة',
+        tr('غادر الغرفة', 'left the room'),
         RoomEventType.leave,
         username: username?.toString(),
         countryCode: data['countryCode']?.toString() ?? data['country']?.toString(),
@@ -717,14 +718,14 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       if (rid != null && rid != roomId) return;
       String pick(dynamic m, String k) =>
           (m is Map && m[k] != null) ? m[k].toString() : '';
-      final senderName = pick(map['sender'], 'name').isNotEmpty ? pick(map['sender'], 'name') : 'مستخدم';
-      final recipientName = pick(map['recipient'], 'name').isNotEmpty ? pick(map['recipient'], 'name') : 'مستخدم';
+      final senderName = pick(map['sender'], 'name').isNotEmpty ? pick(map['sender'], 'name') : tr('مستخدم', 'User');
+      final recipientName = pick(map['recipient'], 'name').isNotEmpty ? pick(map['recipient'], 'name') : tr('مستخدم', 'User');
       final giftName = pick(map['gift'], 'nameAr').isNotEmpty
           ? pick(map['gift'], 'nameAr')
-          : (pick(map['gift'], 'name').isNotEmpty ? pick(map['gift'], 'name') : 'هدية');
+          : (pick(map['gift'], 'name').isNotEmpty ? pick(map['gift'], 'name') : tr('هدية', 'Gift'));
       final qty = _safeInt(map['quantity']) ?? 1;
       addActivity(
-        'أرسل $giftName${qty > 1 ? ' ×$qty' : ''} إلى $recipientName',
+        tr('أرسل $giftName${qty > 1 ? ' ×$qty' : ''} إلى $recipientName', 'sent $giftName${qty > 1 ? ' ×$qty' : ''} to $recipientName'),
         RoomEventType.gift,
         username: senderName,
         coins: _safeInt(map['totalCoins']),
@@ -946,7 +947,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         _applySeatOccupiedFromRaw(map);
         final username = map['username'] ?? map['name'] ?? 'Someone';
         addActivity(
-          "$username أخد مقعد 🎤",
+          tr("$username أخد مقعد 🎤", "$username took a seat 🎤"),
           RoomEventType.seat,
           username: username,
           badge: map['badge']?.toString(),
@@ -964,7 +965,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         _applySeatReleasedFromRaw(map);
 
         addActivity(
-          "اصبح المقعد متاح الأن",
+          tr("اصبح المقعد متاح الأن", "The seat is free now"),
           RoomEventType.seat,
           username: map['username']?.toString() ?? map['name']?.toString(),
           countryCode: map['countryCode']?.toString() ?? map['country']?.toString(),
@@ -1434,7 +1435,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     }
 
     addActivity(
-      "لقد تركت مقعدك",
+      tr("لقد تركت مقعدك", "You left your seat"),
       RoomEventType.seat,
       username: ref.read(authStateProvider).user?.name,
       countryCode: ref.read(authStateProvider).user?.countryCode,
@@ -1517,7 +1518,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     state = state.copyWith(seats: current, myMicStatus: MyMicStatus.requested);
 
     addActivity(
-      "${me.name} أخد مقعد",
+      tr("${me.name} أخد مقعد", "${me.name} took a seat"),
       RoomEventType.seat,
       username: me.name,   // ✅ ADD
       countryCode: me.countryCode,

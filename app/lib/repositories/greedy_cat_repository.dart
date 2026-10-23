@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// Talks to the القط الجشع (Greedy Cat) endpoints.
 ///
@@ -28,26 +29,26 @@ class GreedyCatRepository {
             : null,
       );
     } on DioException catch (e) {
-      throw _translate(e, 'تعذر تحميل الجولة');
+      throw _translate(e, tr('تعذر تحميل الجولة', 'Could not load the round'));
     }
   }
 
   /// [target] is a symbol key, or `salad` / `pizza` for the category shortcut.
   Future<GreedyBetResult> placeBet({required String target, required int amount}) =>
       _betCall('games/greedy/bet', {'target': target, 'amount': amount},
-          'تعذر وضع الرهان');
+          tr('تعذر وضع الرهان', 'Could not place the bet'));
 
   /// Takes one unit back off a single food card. Symbols only — a category
   /// badge stops being meaningful once one of its four members changes.
   Future<GreedyBetResult> reduceBet({required String target, required int amount}) =>
       _betCall('games/greedy/reduce', {'target': target, 'amount': amount},
-          'تعذر تقليل الرهان');
+          tr('تعذر تقليل الرهان', 'Could not reduce the bet'));
 
   Future<GreedyBetResult> clearBets() =>
-      _betCall('games/greedy/clear', const {}, 'تعذر مسح الرهانات');
+      _betCall('games/greedy/clear', const {}, tr('تعذر مسح الرهانات', 'Could not clear the bets'));
 
   Future<GreedyBetResult> repeatBets() =>
-      _betCall('games/greedy/repeat', const {}, 'تعذر تكرار الرهان');
+      _betCall('games/greedy/repeat', const {}, tr('تعذر تكرار الرهان', 'Could not repeat the bet'));
 
   /// [scope] is `region` or `global`.
   Future<List<GreedyRankRow>> fetchRanking(String scope) async {
@@ -62,7 +63,7 @@ class GreedyCatRepository {
           .map((e) => GreedyRankRow.fromJson(Map<String, dynamic>.from(e)))
           .toList();
     } on DioException catch (e) {
-      throw _translate(e, 'تعذر تحميل الترتيب');
+      throw _translate(e, tr('تعذر تحميل الترتيب', 'Could not load the ranking'));
     }
   }
 
@@ -268,7 +269,7 @@ class GreedyRankRow {
   factory GreedyRankRow.fromJson(Map<String, dynamic> json) => GreedyRankRow(
         rank: (json['rank'] as num?)?.toInt() ?? 0,
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', 'Player'),
         avatarUrl: json['avatarUrl']?.toString(),
         score: (json['score'] as num?)?.toInt() ?? 0,
       );
@@ -437,7 +438,7 @@ class GreedyWinner {
 
   factory GreedyWinner.fromJson(Map<String, dynamic> json) => GreedyWinner(
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', 'Player'),
         avatarUrl: json['avatarUrl']?.toString(),
         payout: (json['payout'] as num?)?.toInt() ?? 0,
         profit: (json['profit'] as num?)?.toInt() ?? 0,

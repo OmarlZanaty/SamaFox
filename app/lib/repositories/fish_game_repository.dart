@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// Talks to the real-coin fish-shooter endpoints. Cost per shot and reward
 /// per fish are fixed and server-owned (no randomness in the payout amount,
@@ -17,11 +18,11 @@ class FishGameRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw FishGameException(body['message']?.toString() ?? 'فشل إطلاق الطلقة');
+        throw FishGameException(body['message']?.toString() ?? tr('فشل إطلاق الطلقة', 'Shot failed'));
       }
       return (body['balance'] as num?)?.toInt() ?? 0;
     } on DioException catch (e) {
-      throw _translateDioError(e, fallback: 'فشل إطلاق الطلقة');
+      throw _translateDioError(e, fallback: tr('فشل إطلاق الطلقة', 'Shot failed'));
     }
   }
 
@@ -33,14 +34,14 @@ class FishGameRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw FishGameException(body['message']?.toString() ?? 'فشل تحصيل الجائزة');
+        throw FishGameException(body['message']?.toString() ?? tr('فشل تحصيل الجائزة', 'Could not collect the prize'));
       }
       return FishCaptureResult(
         balance: (body['balance'] as num?)?.toInt() ?? 0,
         reward: (body['reward'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translateDioError(e, fallback: 'فشل تحصيل الجائزة');
+      throw _translateDioError(e, fallback: tr('فشل تحصيل الجائزة', 'Could not collect the prize'));
     }
   }
 
@@ -59,7 +60,7 @@ class FishGameRepository {
   String? _arabicMessageFor(String? code) {
     switch (code) {
       case 'INSUFFICIENT_COINS':
-        return 'رصيدك لا يكفي';
+        return tr('رصيدك لا يكفي', 'Not enough coins');
       default:
         return null;
     }

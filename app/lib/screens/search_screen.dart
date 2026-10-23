@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/dio_client.dart';
 import 'profile_screen.dart';
 import '../widgets/user_trail.dart';
+import '../l10n/tr.dart';
 
 /// Search Screen - Search users and rooms by name or ID
 class SearchScreen extends ConsumerStatefulWidget {
@@ -67,7 +68,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       if (!mounted) return;
       setState(() {
         _isSearching = false;
-        _errorMessage = 'حدث خطأ أثناء البحث';
+        _errorMessage = tr('حدث خطأ أثناء البحث', 'Search failed');
       });
     }
   }
@@ -275,7 +276,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     controller: _controller,
                     style: const TextStyle(color: Colors.white, fontSize: 18),
                     decoration: InputDecoration(
-                      hintText: 'ابحث بالاسم أو الرقم...',
+                      hintText: tr('ابحث بالاسم أو الرقم...', 'Search by name or ID...'),
                       hintStyle: TextStyle(
                         color: Colors.white.withOpacity(0.5),
                       ),
@@ -324,10 +325,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     final type = (result['type'] ?? '').toString();
                     final isRoom = type == 'room';
                     final title =
-                        (result['name'] ?? result['username'] ?? 'بدون اسم').toString();
+                        (result['name'] ?? result['username'] ?? tr('بدون اسم', 'No name')).toString();
                     final subtitle = isRoom
-                        ? 'غرفة • #${result['id'] ?? ''}'
-                        : 'مستخدم • #${result['id'] ?? ''}';
+                        ? tr('غرفة • #${result['id'] ?? ''}', 'Room • #${result['id'] ?? ''}')
+                        : tr('مستخدم • #${result['id'] ?? ''}', 'User • #${result['id'] ?? ''}');
 
                     return Material(
                       color: const Color(0xFF2A1A5E).withOpacity(0.8),
@@ -385,9 +386,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             icon: const Icon(Icons.arrow_back, color: Colors.white),
             onPressed: () => Navigator.pop(context),
           ),
-          const Expanded(
+          Expanded(
             child: Text(
-              'بحث',
+              tr('بحث', 'Search'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white,

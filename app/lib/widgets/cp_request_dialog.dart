@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../repositories/cp_repository.dart';
 import '../widgets/app_network_image.dart';
+import '../l10n/tr.dart';
 
 /// A15 / #44 — the accept/reject prompt for an incoming CP gift.
 ///
@@ -65,7 +66,7 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
       Navigator.of(context).pop(accept);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(accept ? 'تم قبول الـ CP 💞' : 'تم رفض هدية الـ CP'),
+          content: Text(accept ? tr('تم قبول الـ CP 💞', 'CP accepted 💞') : tr('تم رفض هدية الـ CP', 'CP gift declined')),
         ),
       );
     } on CpException catch (e) {
@@ -91,11 +92,11 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(color: _kPink.withOpacity(0.5)),
         ),
-        title: const Row(
+        title: Row(
           children: [
             Text('💞', style: TextStyle(fontSize: 22)),
             SizedBox(width: 8),
-            Text('هدية CP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Text(tr('هدية CP', 'CP gift'), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Column(
@@ -119,7 +120,7 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '${r.senderName} أرسل لك هدية CP',
+                    tr('${r.senderName} أرسل لك هدية CP', '${r.senderName} sent you a CP gift'),
                     style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
                   ),
                 ),
@@ -147,12 +148,12 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
               ),
               child: Column(
                 children: [
-                  _line('الهدية', '${r.giftName}${r.quantity > 1 ? ' ×${r.quantity}' : ''}'),
+                  _line(tr('الهدية', 'Gift'), '${r.giftName}${r.quantity > 1 ? ' ×${r.quantity}' : ''}'),
                   const SizedBox(height: 6),
-                  _line('القيمة', '${r.totalCoins} كوينز'),
+                  _line(tr('القيمة', 'Value'), tr('${r.totalCoins} كوينز', '${r.totalCoins} coins')),
                   if (r.rejectFeeCoins > 0) ...[
                     const SizedBox(height: 6),
-                    _line('عند الرفض يُخصم من المُرسل', '${r.rejectFeeCoins} كوينز'),
+                    _line(tr('عند الرفض يُخصم من المُرسل', 'Charged to the sender if declined'), tr('${r.rejectFeeCoins} كوينز', '${r.rejectFeeCoins} coins')),
                   ],
                 ],
               ),
@@ -162,7 +163,7 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
         actions: [
           TextButton(
             onPressed: _busy ? null : () => _respond(accept: false),
-            child: const Text('رفض', style: TextStyle(color: Colors.white54)),
+            child: Text(tr('رفض', 'Decline'), style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: _kPink),
@@ -173,7 +174,7 @@ class _CpRequestDialogState extends State<CpRequestDialog> {
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
-                : const Text('قبول', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                : Text(tr('قبول', 'Accept'), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

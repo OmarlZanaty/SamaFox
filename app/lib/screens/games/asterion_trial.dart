@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'asterion_art.dart';
+import '../../l10n/tr.dart';
 
 /// The entry into تجارب السماء (Skyfall Trials): the crest opens into a portal,
 /// Asterion raises the staff, and the free-spin count is stated plainly before
@@ -75,8 +76,8 @@ class _TrialTransitionState extends State<TrialTransition>
                         child: SymbolIcon('CREST', size: 88 + 18 * t),
                       ),
                       const SizedBox(height: 18),
-                      const Text(
-                        'تجارب السماء',
+                      Text(
+                        tr('تجارب السماء', 'Sky Trials'),
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 30,
@@ -87,7 +88,7 @@ class _TrialTransitionState extends State<TrialTransition>
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '${widget.crests} شعارات فتحت البوابة',
+                        tr('${widget.crests} شعارات فتحت البوابة', '${widget.crests} crests opened the gate'),
                         style: const TextStyle(color: AsterionPalette.muted, fontSize: 14),
                       ),
                       const SizedBox(height: 16),
@@ -99,7 +100,7 @@ class _TrialTransitionState extends State<TrialTransition>
                           color: AsterionPalette.cyan.withValues(alpha: 0.14),
                         ),
                         child: Text(
-                          '${widget.spins} لفة مجانية',
+                          tr('${widget.spins} لفة مجانية', '${widget.spins} free spins'),
                           style: const TextStyle(
                             color: AsterionPalette.cyanPale,
                             fontSize: 20,
@@ -108,8 +109,8 @@ class _TrialTransitionState extends State<TrialTransition>
                         ),
                       ),
                       const SizedBox(height: 14),
-                      const Text(
-                        'مضاعف التجارب لا يُصفّر حتى تنتهي اللفّات',
+                      Text(
+                        tr('مضاعف التجارب لا يُصفّر حتى تنتهي اللفّات', 'The trial multiplier never resets until the spins end'),
                         style: TextStyle(color: AsterionPalette.amber, fontSize: 13),
                       ),
                     ],
@@ -203,8 +204,8 @@ class TrialSummarySheet extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'انتهت تجارب السماء',
+            Text(
+              tr('انتهت تجارب السماء', 'Sky Trials complete'),
               style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
@@ -218,14 +219,14 @@ class TrialSummarySheet extends StatelessWidget {
                 fontWeight: FontWeight.w900,
               ),
             ),
-            const Text('عملة', style: TextStyle(color: AsterionPalette.muted, fontSize: 13)),
+            Text(tr('عملة', 'coins'), style: TextStyle(color: AsterionPalette.muted, fontSize: 13)),
             const SizedBox(height: 18),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _stat('اللفّات', '$spins'),
-                _stat('لفّات إضافية', '${retriggers * 5}'),
-                _stat('المضاعف النهائي', '${finalMultiplier}x'),
+                _stat(tr('اللفّات', 'Spins'), '$spins'),
+                _stat(tr('لفّات إضافية', 'Extra spins'), '${retriggers * 5}'),
+                _stat(tr('المضاعف النهائي', 'Final multiplier'), '${finalMultiplier}x'),
               ],
             ),
             const SizedBox(height: 18),
@@ -237,7 +238,7 @@ class TrialSummarySheet extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: () => Navigator.of(context).maybePop(),
-                child: const Text('تحصيل'),
+                child: Text(tr('تحصيل', 'Collect')),
               ),
             ),
           ],

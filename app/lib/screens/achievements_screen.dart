@@ -4,6 +4,7 @@ import '../providers/locale_provider.dart';
 import '../providers/gamification_provider.dart';
 import '../providers/auth_provider.dart';
 import '../models/achievement.dart';
+import '../l10n/tr.dart';
 
 class AchievementsScreen extends ConsumerWidget {
   const AchievementsScreen({super.key});
@@ -18,20 +19,20 @@ class AchievementsScreen extends ConsumerWidget {
     final userId = authState.user?.id;
 
     if (userId == null) {
-      return const Center(child: Text('Please log in to view achievements.'));
+      return Center(child: Text(tr('سجّل الدخول لعرض الإنجازات.', 'Please log in to view achievements.')));
     }
 
     final userAchievementsAsync = ref.watch(userAchievementsProvider(userId));
 
     return userAchievementsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (err, stack) => Center(child: Text('Error: $err')),
+      error: (err, stack) => Center(child: Text(tr('خطأ: $err', 'Error: $err'))),
       data: (userAchievements) {
         final allAchievementsAsync = ref.watch(achievementsProvider);
 
         return allAchievementsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, stack) => Center(child: Text('Error: $err')),
+          error: (err, stack) => Center(child: Text(tr('خطأ: $err', 'Error: $err'))),
           data: (allAchievements) {
             final achievementsMap = {for (var a in allAchievements) a.id: a};
             final unlockedAchievements = userAchievements.map((ua) {

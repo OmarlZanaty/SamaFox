@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../screens/games_hub_screen.dart';
+import '../../l10n/tr.dart';
 
 /// SPEC52 #11 — games inside the room.
 ///
@@ -72,17 +73,17 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
               child: Row(
                 children: [
                   IconButton(
-                    tooltip: 'رجوع',
+                    tooltip: tr('رجوع', 'Back'),
                     icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
                     onPressed: _back,
                   ),
-                  const Expanded(
-                    child: Text('الألعاب',
+                  Expanded(
+                    child: Text(tr('الألعاب', 'Games'),
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
                   ),
                   IconButton(
-                    tooltip: 'إغلاق والرجوع للغرفة',
+                    tooltip: tr('إغلاق والرجوع للغرفة', 'Close and return to the room'),
                     icon: const Icon(Icons.close_rounded, color: Colors.white),
                     onPressed: () => Navigator.of(context).pop(),
                   ),

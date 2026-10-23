@@ -44,7 +44,7 @@ class _StaffGrantScreenState extends StaffActionState<StaffGrantScreen> {
       };
     }, message: tr('تم المنح لمدة ٧ أيام', 'Granted for 7 days'));
     // The server says when the user already owns the product permanently.
-    if (ok && mounted && grant?.message != null && grant!.message != tr('تم منح المنتج', 'Product granted')) staffSnack(context, grant!.message!);
+    if (ok && mounted && grant?.message != null && grant!.message != 'تم منح المنتج' /* i18n: compared with server data */) staffSnack(context, grant!.message!);
   }
 
   @override

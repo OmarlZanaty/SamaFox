@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// Talks to the lion & tiger arena round endpoints (حلبة الأسد والنمر).
 ///
@@ -21,7 +22,7 @@ class BoxingRepository {
       if (raw is Map) return BoxingRound.fromJson(Map<String, dynamic>.from(raw));
       return null;
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تحميل الجولة');
+      throw _translate(e, fallback: tr('تعذر تحميل الجولة', 'Could not load the round'));
     }
   }
 
@@ -34,7 +35,7 @@ class BoxingRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw BoxingException(body['message']?.toString() ?? 'تعذر دخول الجولة');
+        throw BoxingException(body['message']?.toString() ?? tr('تعذر دخول الجولة', 'Could not join the round'));
       }
       return BoxingJoinResult(
         roundId: (body['roundId'] as num?)?.toInt() ?? 0,
@@ -43,7 +44,7 @@ class BoxingRepository {
         maxReward: (body['maxReward'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر دخول الجولة');
+      throw _translate(e, fallback: tr('تعذر دخول الجولة', 'Could not join the round'));
     }
   }
 
@@ -56,14 +57,14 @@ class BoxingRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw BoxingException(body['message']?.toString() ?? 'تعذر تسجيل النتيجة');
+        throw BoxingException(body['message']?.toString() ?? tr('تعذر تسجيل النتيجة', 'Could not record the result'));
       }
       return BoxingSubmitResult(
         score: (body['score'] as num?)?.toInt() ?? 0,
         reward: (body['reward'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تسجيل النتيجة');
+      throw _translate(e, fallback: tr('تعذر تسجيل النتيجة', 'Could not record the result'));
     }
   }
 
@@ -141,7 +142,7 @@ class BoxingPlayer {
 
   factory BoxingPlayer.fromJson(Map<String, dynamic> json) => BoxingPlayer(
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', 'Player'),
         avatarUrl: json['avatarUrl']?.toString(),
         entry: (json['entry'] as num?)?.toInt() ?? 0,
         corner: json['corner']?.toString() ?? 'lion',
@@ -172,7 +173,7 @@ class BoxingPodiumEntry {
   factory BoxingPodiumEntry.fromJson(Map<String, dynamic> json) => BoxingPodiumEntry(
         rank: (json['rank'] as num?)?.toInt() ?? 0,
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', 'Player'),
         avatarUrl: json['avatarUrl']?.toString(),
         corner: json['corner']?.toString() ?? 'lion',
         score: (json['score'] as num?)?.toInt() ?? 0,

@@ -10,6 +10,7 @@ import '../utils/storage_service.dart';
 import 'device_identity.dart';
 import 'token_refresher.dart';
 import 'idempotency_interceptor.dart';
+import '../l10n/tr.dart';
 
 class DioClient {
   static Dio? _dio;
@@ -185,7 +186,7 @@ class ErrorInterceptor extends Interceptor {
       final data = err.response?.data;
       if (data is Map && (data['code'] ?? '').toString() == 'BANNED') {
         final msg = (data['message'] ?? '').toString().trim();
-        onBanned?.call(msg.isEmpty ? 'تم حظر حسابك' : msg);
+        onBanned?.call(msg.isEmpty ? tr('تم حظر حسابك', 'Your account has been banned') : msg);
       }
     }
 

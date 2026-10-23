@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// Talks to the أثيرفول (Aetherfall: Vaults of the Skyfire) endpoints.
 ///
@@ -31,7 +32,7 @@ class AetherfallRepository {
         ),
       );
     } on DioException catch (e) {
-      throw AetherfallException(_message(e, 'تعذر تحميل اللعبة'));
+      throw AetherfallException(_message(e, tr('تعذر تحميل اللعبة', 'Could not load the game')));
     }
   }
 
@@ -43,7 +44,7 @@ class AetherfallRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw AetherfallException(body['message']?.toString() ?? 'تعذر تنفيذ الجولة');
+        throw AetherfallException(body['message']?.toString() ?? tr('تعذر تنفيذ الجولة', 'Could not play the round'));
       }
       return AetherfallSpinResponse(
         spin: AetherfallSpin.fromJson(
@@ -57,7 +58,7 @@ class AetherfallRepository {
         ),
       );
     } on DioException catch (e) {
-      throw AetherfallException(_message(e, 'تعذر تنفيذ الجولة'));
+      throw AetherfallException(_message(e, tr('تعذر تنفيذ الجولة', 'Could not play the round')));
     }
   }
 
@@ -69,13 +70,13 @@ class AetherfallRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw AetherfallException(body['message']?.toString() ?? 'تعذر تغيير البذرة');
+        throw AetherfallException(body['message']?.toString() ?? tr('تعذر تغيير البذرة', 'Could not change the seed'));
       }
       return AetherfallFairness.fromJson(
         Map<String, dynamic>.from(body['fairness'] as Map),
       );
     } on DioException catch (e) {
-      throw AetherfallException(_message(e, 'تعذر تغيير البذرة'));
+      throw AetherfallException(_message(e, tr('تعذر تغيير البذرة', 'Could not change the seed')));
     }
   }
 

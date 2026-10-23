@@ -11,7 +11,7 @@ import '../../services/dio_client.dart';
 /// says it is closed or gone. One helper so every banner behaves the same.
 Future<void> confirmAndJumpToRoom(
   int roomId, {
-  String question = 'هل تريد الانتقال إلى هذه الغرفة؟',
+  String? question,
   String? roomName,
 }) async {
   final ctx = navigatorKey.currentContext;
@@ -27,7 +27,7 @@ Future<void> confirmAndJumpToRoom(
       child: AlertDialog(
         backgroundColor: const Color(0xFF2A1655),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(question, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        title: Text(question ?? tr('هل تريد الانتقال إلى هذه الغرفة؟', 'Go to this room?'), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         content: roomName == null
             ? null
             : Text(roomName, style: const TextStyle(color: Colors.white70)),

@@ -5,6 +5,7 @@ import '../../providers/room_controller_provider.dart';
 import '../../services/effects_prefs.dart';
 import '../../utils/image_intrinsic_size.dart';
 import '../product_video_layer.dart';
+import '../../l10n/tr.dart';
 
 /// Group 12: animated user-entrance banner.
 ///
@@ -285,7 +286,7 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
                           ],
                           Flexible(
                             child: Text(
-                              '${e.username} دخل الغرفة',
+                              tr('${e.username} دخل الغرفة', '${e.username} joined the room'),
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Colors.white,

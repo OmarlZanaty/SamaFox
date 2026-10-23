@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/tr.dart';
 
 /// The locked-room PIN prompt (enter / set a 5-digit code).
 ///
@@ -35,7 +36,7 @@ class PinDialogState extends State<PinDialog> {
   void _submit() {
     final v = _ctrl.text.trim();
     if (!RegExp(r'^\d{5}$').hasMatch(v)) {
-      setState(() => _error = 'يجب أن يكون 5 أرقام');
+      setState(() => _error = tr('يجب أن يكون 5 أرقام', 'Must be 5 digits'));
       return;
     }
     Navigator.pop(context, v);
@@ -78,7 +79,7 @@ class PinDialogState extends State<PinDialog> {
           TextButton(
             onPressed: () => Navigator.pop(context, null),
             child:
-                const Text('إلغاء', style: TextStyle(color: Colors.white54)),
+                Text(tr('إلغاء', 'Cancel'), style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
             onPressed: _submit,

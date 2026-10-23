@@ -665,7 +665,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                     color: Colors.redAccent,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text('New', style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+                  child: Text(tr('جديد', 'New'), style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
                 ),
               ),
           ],

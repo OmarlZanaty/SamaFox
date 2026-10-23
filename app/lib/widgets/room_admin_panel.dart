@@ -5,6 +5,7 @@ import '../models/user.dart';
 import '../theme/app_theme.dart';
 import '../repositories/room_repository.dart';
 import 'app_network_image.dart';
+import '../l10n/tr.dart';
 
 /// Room Admin Panel Widget
 /// Provides comprehensive administrative controls for room owners and admins
@@ -214,7 +215,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.backgroundDarkPurple,
-        title: const Text('Room Admins',
+        title: Text(tr('مشرفو الغرفة', 'Room Admins'),
             style: TextStyle(color: Colors.white)),
         content: SizedBox(
           width: double.maxFinite,
@@ -253,7 +254,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(tr('إغلاق', 'Close')),
           ),
         ],
       ),
@@ -268,7 +269,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.backgroundDarkPurple,
-        title: const Text('Change Mic Count',
+        title: Text(tr('تغيير عدد المايكات', 'Change Mic Count'),
             style: TextStyle(color: Colors.white)),
         content: TextField(
           controller: controller,
@@ -285,7 +286,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(tr('إلغاء', 'Cancel')),
           ),
           TextButton(
             onPressed: () {
@@ -297,7 +298,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
                 _showSnackBar('Please enter a valid number between 1 and 20');
               }
             },
-            child: const Text('Save'),
+            child: Text(tr('حفظ', 'Save')),
           ),
         ],
       ),
@@ -329,7 +330,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.backgroundDarkPurple,
         title:
-        const Text('Ban List', style: TextStyle(color: Colors.white)),
+        Text(tr('قائمة الحظر', 'Ban List'), style: TextStyle(color: Colors.white)),
         content: const Text(
           'Ban list management coming soon',
           style: TextStyle(color: Colors.white70),
@@ -337,7 +338,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(tr('إغلاق', 'Close')),
           ),
         ],
       ),
@@ -381,7 +382,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(tr('إغلاق', 'Close')),
           ),
         ],
       ),
@@ -401,20 +402,20 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.backgroundDarkPurple,
-        title: const Text('Sound Settings',
+        title: Text(tr('إعدادات الصوت', 'Sound Settings'),
             style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SwitchListTile(
-              title: const Text('Mute Gift Sounds',
+              title: Text(tr('كتم أصوات الهدايا', 'Mute Gift Sounds'),
                   style: TextStyle(color: Colors.white)),
               value: widget.room.giftSoundsMuted,
               onChanged: (value) => _toggleGiftSounds(value),
               activeColor: AppTheme.primaryPurple,
             ),
             SwitchListTile(
-              title: const Text('Mute Entrance Sounds',
+              title: Text(tr('كتم أصوات الدخول', 'Mute Entrance Sounds'),
                   style: TextStyle(color: Colors.white)),
               value: widget.room.entranceSoundsMuted,
               onChanged: (value) => _toggleEntranceSounds(value),
@@ -425,7 +426,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(tr('إغلاق', 'Close')),
           ),
         ],
       ),
@@ -438,7 +439,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
       builder: (context) => AlertDialog(
         backgroundColor: AppTheme.backgroundDarkPurple,
         title:
-        const Text('Clear Chat', style: TextStyle(color: Colors.white)),
+        Text(tr('مسح الدردشة', 'Clear Chat'), style: TextStyle(color: Colors.white)),
         content: const Text(
           'Are you sure you want to clear all chat messages? This action cannot be undone.',
           style: TextStyle(color: Colors.white70),
@@ -446,7 +447,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(tr('إلغاء', 'Cancel')),
           ),
           TextButton(
             onPressed: () {
@@ -454,7 +455,7 @@ class _RoomAdminPanelState extends ConsumerState<RoomAdminPanel> {
               Navigator.pop(context);
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Clear'),
+            child: Text(tr('مسح', 'Clear')),
           ),
         ],
       ),

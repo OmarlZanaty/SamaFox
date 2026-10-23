@@ -6,6 +6,7 @@ import '../config/app_config.dart';
 import '../utils/logger.dart';
 import '../utils/storage_service.dart';
 import 'dio_client.dart' show ErrorInterceptor;
+import '../l10n/tr.dart';
 
 /// Outcome of one attempt to exchange the refresh token for a fresh access
 /// token. `sessionEnded` separates "the exchange itself failed" (the server
@@ -85,7 +86,7 @@ class TokenRefresher {
         final data = e.response?.data;
         if (data is Map && (data['code'] ?? '').toString() == 'BANNED') {
           final msg = (data['message'] ?? '').toString().trim();
-          ErrorInterceptor.onBanned?.call(msg.isEmpty ? 'تم حظر حسابك' : msg);
+          ErrorInterceptor.onBanned?.call(msg.isEmpty ? tr('تم حظر حسابك', 'Your account has been banned') : msg);
         }
       }
       AppLogger.error('Token refresh failed: $e');

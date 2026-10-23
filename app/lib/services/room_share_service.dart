@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 import 'dio_client.dart';
+import '../l10n/tr.dart';
 
 class RoomShareService {
   static final Map<int, String> joinTokens = {};
@@ -25,9 +26,9 @@ class RoomShareService {
 
   static String errorMessage(Object error) {
     if (error is DioException && error.response?.data is Map) {
-      return (error.response!.data as Map)['message']?.toString() ?? 'تعذر فتح الغرفة';
+      return (error.response!.data as Map)['message']?.toString() ?? tr('تعذر فتح الغرفة', 'Could not open the room');
     }
-    return 'تعذر الاتصال، حاول مرة أخرى';
+    return tr('تعذر الاتصال، حاول مرة أخرى', 'Connection failed, try again');
   }
 
   static String? tokenFromUri(Uri uri) {

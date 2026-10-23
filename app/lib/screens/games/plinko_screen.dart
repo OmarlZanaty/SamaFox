@@ -9,6 +9,7 @@ import 'plinko_board.dart';
 import 'plinko_physics.dart';
 import 'plinko_sfx.dart';
 import 'plinko_sim.dart';
+import '../../l10n/tr.dart';
 
 /// Artwork for the board. Every field is nullable and the painter falls back to
 /// drawn shapes for anything missing, so a dropped asset degrades one sprite
@@ -343,7 +344,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
     if (_layout == null) return;
 
     if (_bet > _balance) {
-      _toast('رصيدك لا يكفي');
+      _toast(tr('رصيدك لا يكفي', 'Not enough coins'));
       _stopAuto();
       return;
     }
@@ -412,7 +413,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
           backgroundColor: Colors.transparent,
           elevation: 0,
           centerTitle: true,
-          title: const Text('بلينكو',
+          title: Text(tr('بلينكو', 'Plinko'),
               style:
                   TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           actions: [
@@ -452,7 +453,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text(_error!, style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 12),
-          ElevatedButton(onPressed: _load, child: const Text('إعادة المحاولة')),
+          ElevatedButton(onPressed: _load, child: Text(tr('إعادة المحاولة', 'Retry'))),
         ]),
       );
 
@@ -629,7 +630,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
             flex: 3,
             child: _artButton(
               asset: 'assets/images/plinko/btn_drop.png',
-              label: 'أسقط الكرة',
+              label: tr('أسقط الكرة', 'Drop ball'),
               fallback: const Color(0xFF00E676),
               enabled: !_autoBetting,
               onTap: _drop,
@@ -640,7 +641,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
             flex: 2,
             child: _artButton(
               asset: 'assets/images/plinko/btn_auto.png',
-              label: _autoBetting ? 'إيقاف ($_autoRemaining)' : 'تلقائي',
+              label: _autoBetting ? tr('إيقاف ($_autoRemaining)', 'Stop ($_autoRemaining)') : tr('تلقائي', 'Auto'),
               fallback: const Color(0xFF6B21A8),
               enabled: true,
               onTap: () {
@@ -785,7 +786,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
           border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
         ),
         child: Row(children: [
-          Text('$_rows صف',
+          Text(tr('$_rows صف', '$_rows rows'),
               style: const TextStyle(color: Colors.white70, fontSize: 12)),
           Expanded(
             child: SliderTheme(
@@ -822,7 +823,7 @@ class _PlinkoScreenState extends State<PlinkoScreen>
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('عدد الكرات',
+            Text(tr('عدد الكرات', 'Balls'),
                 style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,

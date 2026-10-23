@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'asterion_art.dart';
+import '../../l10n/tr.dart';
 
 /// The 6×5 pay-anywhere board, framed by the citadel's stone and storm-metal.
 ///
@@ -183,7 +184,7 @@ class _OrbCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-        label: 'كرة عاصفة، $value ضعف',
+        label: tr('كرة عاصفة، $value ضعف', 'Storm orb, ${value}x'),
         child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(9),

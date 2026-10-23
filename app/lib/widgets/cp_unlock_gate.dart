@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../repositories/cp_repository.dart';
+import '../l10n/tr.dart';
 
 /// صلاحيات فتح CP (2026-09-22) — the step before a CP invitation goes out.
 ///
@@ -42,7 +43,7 @@ class CpUnlockGate {
       final result = await repo.confirmUnlock();
       return CpGateResult.proceed(
         balance: result.balance,
-        message: result.paidCoins > 0 ? 'تم فتح الـ CP — تم خصم ${result.paidCoins} كوينز' : null,
+        message: result.paidCoins > 0 ? tr('تم فتح الـ CP — تم خصم ${result.paidCoins} كوينز', 'CP unlocked — ${result.paidCoins} coins deducted') : null,
       );
     } on CpException catch (e) {
       if (e.code == 'INSUFFICIENT_COINS') {
@@ -54,8 +55,8 @@ class CpUnlockGate {
 
   /// "رصيدك لا يكفي" with the missing amount when the server sent it.
   static String insufficientMessage(int? shortfall) => shortfall != null && shortfall > 0
-      ? 'رصيدك لا يكفي لفتح الـ CP — ينقصك $shortfall كوينز'
-      : 'رصيدك لا يكفي لفتح الـ CP';
+      ? tr('رصيدك لا يكفي لفتح الـ CP — ينقصك $shortfall كوينز', 'Not enough coins to unlock CP — you need $shortfall more')
+      : tr('رصيدك لا يكفي لفتح الـ CP', 'Not enough coins to unlock CP');
 
   static Future<bool?> _showQuote(BuildContext context, CpUnlockStatus s) {
     final short = s.shortfall > 0;
@@ -69,25 +70,25 @@ class CpUnlockGate {
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(color: _kPink.withOpacity(0.5)),
           ),
-          title: const Row(
+          title: Row(
             children: [
               Text('💞', style: TextStyle(fontSize: 22)),
               SizedBox(width: 8),
-              Text('فتح الـ CP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Text(tr('فتح الـ CP', 'Unlock CP'), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ],
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'لازم تفتح الـ CP قبل ما تبعت أول دعوة. الرسوم بتتدفع مرة واحدة بس.',
+              Text(
+                tr('لازم تفتح الـ CP قبل ما تبعت أول دعوة. الرسوم بتتدفع مرة واحدة بس.', 'You need to unlock CP before sending your first invite. The fee is paid only once.'),
                 style: TextStyle(color: Colors.white70, height: 1.5),
               ),
               const SizedBox(height: 14),
-              _line('الرسوم', '${s.feeCoins} كوينز', color: _kGold),
+              _line(tr('الرسوم', 'Fee'), tr('${s.feeCoins} كوينز', '${s.feeCoins} coins'), color: _kGold),
               const SizedBox(height: 6),
-              _line('رصيدك', '${s.balance} كوينز'),
+              _line(tr('رصيدك', 'Your balance'), tr('${s.balance} كوينز', '${s.balance} coins')),
               if (short) ...[
                 const SizedBox(height: 12),
                 Text(
@@ -101,18 +102,18 @@ class CpUnlockGate {
               ? [
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('حسناً', style: TextStyle(color: Colors.white70)),
+                    child: Text(tr('حسناً', 'OK'), style: TextStyle(color: Colors.white70)),
                   ),
                 ]
               : [
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('إلغاء', style: TextStyle(color: Colors.white54)),
+                    child: Text(tr('إلغاء', 'Cancel'), style: TextStyle(color: Colors.white54)),
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, true),
                     child: Text(
-                      'موافق — ادفع ${s.feeCoins}',
+                      tr('موافق — ادفع ${s.feeCoins}', 'OK — pay ${s.feeCoins}'),
                       style: const TextStyle(color: _kPink, fontWeight: FontWeight.bold),
                     ),
                   ),

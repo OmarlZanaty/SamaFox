@@ -9,6 +9,7 @@ import 'room_share_service.dart';
 import 'active_room.dart';
 import 'package:dio/dio.dart';
 import '../widgets/room/room_jump.dart';
+import '../l10n/tr.dart';
 
 /// One pending invitation survives authentication and process restarts. Home
 /// signals readiness after its route replaces login/splash, avoiding a race in
@@ -72,7 +73,7 @@ class RoomLinkHandler {
       if (ActiveRoom.instance.roomId != null) {
         // Already in a room: the shared «الانتقال إلى هذه الغرفة؟» flow leaves
         // the current room properly instead of stacking a second one.
-        await confirmAndJumpToRoom(roomId, question: 'لديك دعوة إلى غرفة — هل تريد الانتقال إليها؟');
+        await confirmAndJumpToRoom(roomId, question: tr('لديك دعوة إلى غرفة — هل تريد الانتقال إليها؟', 'You have a room invite — go there now?'));
         if (_active == token) _active = null;
       } else {
         unawaited(_navigator!.currentState!.pushNamed('/room', arguments: roomId).whenComplete(() {
@@ -92,7 +93,7 @@ class RoomLinkHandler {
         // scaffold at this context during a route transition.
         await showDialog<void>(context: context, builder: (ctx) => AlertDialog(
           content: Text(RoomShareService.errorMessage(error)),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('حسناً'))],
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('حسناً', 'OK')))],
         ));
       }
       // Keep the token for a network failure/relaunch. A later link replaces it.
