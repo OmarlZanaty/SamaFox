@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'aetherfall_symbols.dart';
+import '../../l10n/tr.dart';
 
 const _midnight = Color(0xFF0B1030);
 const _ember = Color(0xFFFF8A3D);
@@ -104,8 +105,8 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'خزنة السماء',
+                        Text(
+                          tr('خزنة السماء', 'Sky vault'),
                           style: TextStyle(
                             color: _ember,
                             fontSize: 34,
@@ -115,7 +116,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '${widget.tumbles} تساقطات مجانية',
+                          tr('${widget.tumbles} تساقطات مجانية', '${widget.tumbles} free tumbles'),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -131,7 +132,7 @@ class _SkyfireVaultTransitionState extends State<SkyfireVaultTransition>
                     bottom: 40,
                     child: TextButton(
                       onPressed: widget.onDone,
-                      child: const Text('تخطّي', style: TextStyle(color: Colors.white54)),
+                      child: Text(tr('تخطّي', 'Skip'), style: TextStyle(color: Colors.white54)),
                     ),
                   ),
               ],
@@ -252,9 +253,9 @@ class BonusHud extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _stat('التساقطات المتبقية', '$tumblesLeft', _cyan),
+            _stat(tr('التساقطات المتبقية', 'Tumbles left'), '$tumblesLeft', _cyan),
             _divider(),
-            _stat('بنك الشحن', '+$chargeBank%', _ember),
+            _stat(tr('بنك الشحن', 'Charge bank'), '+$chargeBank%', _ember),
             _divider(),
             _locks(),
           ],
@@ -269,7 +270,7 @@ class BonusHud extends StatelessWidget {
     final thread = art?.forFx('fx_constellation_thread');
     final earned = locks.clamp(0, lockTarget);
     if (thread == null) {
-      return _stat('الأقفال', '$earned/$lockTarget', _mint);
+      return _stat(tr('الأقفال', 'Locks'), '$earned/$lockTarget', _mint);
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -288,7 +289,7 @@ class BonusHud extends StatelessWidget {
           ),
         ),
         Text(
-          'الأقفال $earned/$lockTarget',
+          tr('الأقفال $earned/$lockTarget', 'Locks $earned/$lockTarget'),
           style: const TextStyle(color: Colors.white54, fontSize: 9, letterSpacing: 1),
         ),
       ],
@@ -333,8 +334,8 @@ class StarburstBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [BoxShadow(color: _mint.withValues(alpha: 0.6), blurRadius: 18)],
       ),
-      child: const Text(
-        'تساقط نجمي',
+      child: Text(
+        tr('تساقط نجمي', 'Star tumble'),
         style: TextStyle(
           color: _midnight,
           fontWeight: FontWeight.w900,
@@ -374,8 +375,8 @@ class BonusSummarySheet extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'خزنة السماء — الحصيلة',
+          Text(
+            tr('خزنة السماء — الحصيلة', 'Sky vault — results'),
             style: TextStyle(color: _ember, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5),
           ),
           const SizedBox(height: 18),
@@ -383,16 +384,16 @@ class BonusSummarySheet extends StatelessWidget {
             '$totalCoins',
             style: const TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold),
           ),
-          const Text(
-            'إجمالي العملات',
+          Text(
+            tr('إجمالي العملات', 'Total coins'),
             style: TextStyle(color: Colors.white54, fontSize: 11, letterSpacing: 1),
           ),
           const SizedBox(height: 18),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _metric('أعلى شحنة', '+$highestCharge%'),
-              _metric('التتابعات', '$cascadeCount'),
+              _metric(tr('أعلى شحنة', 'Highest charge'), '+$highestCharge%'),
+              _metric(tr('التتابعات', 'Cascades'), '$cascadeCount'),
             ],
           ),
           const SizedBox(height: 22),
@@ -406,7 +407,7 @@ class BonusSummarySheet extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
-              child: const Text('متابعة', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: Text(tr('متابعة', 'Follow'), style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ],

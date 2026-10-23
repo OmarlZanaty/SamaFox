@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../l10n/tr.dart';
 
 /// Host Screen - المضيف
 class HostScreen extends ConsumerWidget {
@@ -12,8 +13,8 @@ class HostScreen extends ConsumerWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
-          'المضيف',
+        title: Text(
+          tr('المضيف', 'Host'),
           style: TextStyle(
             color: Colors.white,
             fontSize: 24,
@@ -60,8 +61,8 @@ class HostScreen extends ConsumerWidget {
                     size: 64,
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'كن مضيفًا',
+                  Text(
+                    tr('كن مضيفًا', 'Become a host'),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 24,
@@ -70,7 +71,7 @@ class HostScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'ابدأ بإنشاء غرفتك الخاصة واستضف أصدقائك',
+                    tr('ابدأ بإنشاء غرفتك الخاصة واستضف أصدقائك', 'Create your own room and host your friends'),
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.9),
                       fontSize: 14,
@@ -82,8 +83,8 @@ class HostScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 30),
             // Host benefits
-            const Text(
-              'مميزات المضيف',
+            Text(
+              tr('مميزات المضيف', 'Host benefits'),
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 20,
@@ -102,7 +103,7 @@ class HostScreen extends ConsumerWidget {
             ElevatedButton(
               onPressed: () {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('إنشاء غرفة جديدة...')),
+                  SnackBar(content: Text(tr('إنشاء غرفة جديدة...', 'Creating a new room...'))),
                 );
               },
               style: ElevatedButton.styleFrom(
@@ -112,8 +113,8 @@ class HostScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Text(
-                'إنشاء غرفة جديدة',
+              child: Text(
+                tr('إنشاء غرفة جديدة', 'Create new room'),
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -197,25 +198,25 @@ class _BenefitCard extends StatelessWidget {
   }
 }
 
-final List<Map<String, dynamic>> _hostBenefits = [
+List<Map<String, dynamic>> get _hostBenefits => [
   {
     'icon': Icons.people,
-    'title': 'استضافة الأصدقاء',
-    'description': 'قم بدعوة أصدقائك وإنشاء مجتمعك الخاص',
+    'title': tr('استضافة الأصدقاء', 'Host friends'),
+    'description': tr('قم بدعوة أصدقائك وإنشاء مجتمعك الخاص', 'Invite friends and build your own community'),
   },
   {
     'icon': Icons.diamond,
-    'title': 'اكسب الماس',
-    'description': 'احصل على مكافآت من الهدايا والتفاعلات',
+    'title': tr('اكسب الماس', 'Earn diamonds'),
+    'description': tr('احصل على مكافآت من الهدايا والتفاعلات', 'Get rewards from gifts and interactions'),
   },
   {
     'icon': Icons.star,
-    'title': 'كن مشهورًا',
-    'description': 'زد من شهرتك وعدد متابعينك',
+    'title': tr('كن مشهورًا', 'Become popular'),
+    'description': tr('زد من شهرتك وعدد متابعينك', 'Grow your popularity and followers'),
   },
   {
     'icon': Icons.settings,
-    'title': 'تحكم كامل',
-    'description': 'أدر غرفتك بالطريقة التي تريدها',
+    'title': tr('تحكم كامل', 'Full control'),
+    'description': tr('أدر غرفتك بالطريقة التي تريدها', 'Manage your room your way'),
   },
 ];

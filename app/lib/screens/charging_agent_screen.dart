@@ -15,6 +15,7 @@ import '../utils/result.dart';
 import 'package:dio/dio.dart';
 import '../widgets/app_network_image.dart';
 import 'agency_branches_screen.dart';
+import '../l10n/tr.dart';
 
 /// Charging Agent Screen - وكيل الشحن
 class ChargingAgentScreen extends ConsumerStatefulWidget {
@@ -72,8 +73,8 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
-          'وكيل الشحن',
+        title: Text(
+          tr('وكيل الشحن', 'Recharge agent'),
           style: TextStyle(
             color: Colors.white,
             fontSize: 24,
@@ -118,7 +119,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                           onPressed: () => setState(() => _activeInterface = null),
                           icon: const Icon(Icons.swap_horiz, color: Colors.white70, size: 18),
                           label: Text(
-                            'تبديل الواجهة (حالياً: ${_activeInterface == 'CHARGING' ? 'الشحن' : 'الاستضافة'})',
+                            tr('تبديل الواجهة (حالياً: ${_activeInterface == 'CHARGING' ? 'الشحن' : 'الاستضافة'})', 'Switch interface (current: ${_activeInterface == 'CHARGING' ? 'Recharge' : 'Hosting'})'),
                             style: const TextStyle(color: Colors.white70),
                           ),
                         ),
@@ -127,14 +128,14 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                       children: [
                         Expanded(
                           child: _CreateAgencyButton(
-                            label: ' وكالة شحن',
+                            label: tr(' وكالة شحن', ' Recharge agency'),
                             onTap: () => _handleCreateAgencyRequest(context, ref, type: 'CHARGING'),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _CreateAgencyButton(
-                            label: 'وكالة استضافة',
+                            label: tr('وكالة استضافة', 'Hosting agency'),
                             onTap: () => _handleCreateAgencyRequest(context, ref, type: 'HOSTING'),
                           ),
                         ),
@@ -143,13 +144,13 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                     const SizedBox(height: 16),
                     if (showCharging) ...[
                       _AgencySidePanel(
-                        title: 'وكالات الشحن',
+                        title: tr('وكالات الشحن', 'Recharge agencies'),
                         children: [
                           chargingAsync.when(
                             data: (all) {
                               final items = scope(all);
                               return items.isEmpty
-                                  ? _emptyText('لا توجد وكالات شحن معتمدة حالياً')
+                                  ? _emptyText(tr('لا توجد وكالات شحن معتمدة حالياً', 'No approved recharge agencies yet'))
                                   : _buildAgencyGrid(
                                       items,
                                       onTap: (agency) => _onAgencyTap(
@@ -171,7 +172,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                               padding: EdgeInsets.symmetric(vertical: 12),
                               child: Center(child: CircularProgressIndicator()),
                             ),
-                            error: (_, __) => _emptyText('تعذر تحميل وكالات الشحن حالياً'),
+                            error: (_, __) => _emptyText(tr('تعذر تحميل وكالات الشحن حالياً', 'Unable to load recharge agencies')),
                           ),
                         ],
                       ),
@@ -179,13 +180,13 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                     ],
                     if (showHosting)
                       _AgencySidePanel(
-                        title: 'وكالات الاستضافة',
+                        title: tr('وكالات الاستضافة', 'Hosting agencies'),
                         children: [
                           hostingAsync.when(
                             data: (all) {
                               final items = scope(all);
                               return items.isEmpty
-                                  ? _emptyText('لا توجد وكالات استضافة معتمدة حالياً')
+                                  ? _emptyText(tr('لا توجد وكالات استضافة معتمدة حالياً', 'No approved hosting agencies yet'))
                                   : _buildAgencyGrid(
                                       items,
                                       onTap: (agency) => _onAgencyTap(
@@ -201,7 +202,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                               padding: EdgeInsets.symmetric(vertical: 12),
                               child: Center(child: CircularProgressIndicator()),
                             ),
-                            error: (_, __) => _emptyText('تعذر تحميل وكالات الاستضافة حالياً'),
+                            error: (_, __) => _emptyText(tr('تعذر تحميل وكالات الاستضافة حالياً', 'Unable to load hosting agencies')),
                           ),
                         ],
                       ),
@@ -219,8 +220,8 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'تعمل كوكيل شحن ووكيل استضافة معاً — اختر الواجهة التي تريد العمل عليها الآن',
+            Text(
+              tr('تعمل كوكيل شحن ووكيل استضافة معاً — اختر الواجهة التي تريد العمل عليها الآن', 'You are both a recharge agent and a hosting agent — choose an interface to use now'),
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white70, fontSize: 15),
             ),
@@ -230,7 +231,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
               child: ElevatedButton.icon(
                 onPressed: () => setState(() => _activeInterface = 'CHARGING'),
                 icon: const Icon(Icons.attach_money),
-                label: const Text('العمل كوكيل شحن'),
+                label: Text(tr('العمل كوكيل شحن', 'Work as a recharge agent')),
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               ),
             ),
@@ -240,7 +241,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
               child: ElevatedButton.icon(
                 onPressed: () => setState(() => _activeInterface = 'HOSTING'),
                 icon: const Icon(Icons.mic),
-                label: const Text('العمل كوكيل استضافة'),
+                label: Text(tr('العمل كوكيل استضافة', 'Work as a hosting agent')),
                 style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
               ),
             ),
@@ -289,7 +290,7 @@ Future<void> _handleCreateAgencyRequest(
 
   if (ok) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('✅ تم إرسال طلب إنشاء الوكالة (Pending)')),
+      SnackBar(content: Text(tr('✅ تم إرسال طلب إنشاء الوكالة (Pending)', '✅ Agency request submitted (Pending)'))),
     );
     ref.invalidate(myAgenciesProvider);
     ref.invalidate(myMembershipsProvider);
@@ -298,7 +299,7 @@ Future<void> _handleCreateAgencyRequest(
     ref.invalidate(agencyBalanceProvider);
   } else {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت')),
+      SnackBar(content: Text(tr('❌ فشل إرسال الطلب، راجع السيرفر/الإنترنت', '❌ Request failed. Check your connection or try again'))),
     );
   }
 }
@@ -336,7 +337,7 @@ Future<void> _showChargingActions(
                 textColor: Colors.white,
                 iconColor: Colors.white,
                 leading: const Icon(Icons.request_page),
-                title: const Text('طلب كوينز من الأدمن'),
+                title: Text(tr('طلب كوينز من الأدمن', 'Request coins from admin')),
                 onTap: () async {
                   Navigator.pop(context);
                   await _requestCoinsFromAdmin(context);
@@ -346,11 +347,11 @@ Future<void> _showChargingActions(
                 textColor: Colors.white,
                 iconColor: Colors.white,
                 leading: const Icon(Icons.send),
-                title: const Text('إضافة كوينز لمستخدم'),
+                title: Text(tr('إضافة كوينز لمستخدم', 'Add coins to a user')),
                 // Owner and فرع each sell from their own wallet — quote it via
                 // agencyBalanceProvider, which a branch could not read before.
                 subtitle: Text(
-                  'يُخصم من رصيد محفظتك: $agencyBalance كوينز',
+                  tr('يُخصم من رصيد محفظتك: $agencyBalance كوينز', 'Deducted from your wallet balance: $agencyBalance coins'),
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
                 onTap: () async {
@@ -366,7 +367,7 @@ Future<void> _showChargingActions(
                   textColor: Colors.white,
                   iconColor: Colors.white,
                   leading: const Icon(Icons.groups),
-                  title: Text(role == 'OWNER' ? 'الفروع (حتى 3)' : 'فرعي وعمليات الشحن'),
+                  title: Text(role == 'OWNER' ? tr('الفروع (حتى 3)', 'Branches (up to 3)') : tr('فرعي وعمليات الشحن', 'My branch and recharges')),
                   onTap: () async {
                     Navigator.pop(context);
                     await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -386,7 +387,7 @@ Future<void> _showChargingActions(
                   textColor: Colors.white,
                   iconColor: Colors.white,
                   leading: const Icon(Icons.swap_horiz),
-                  title: const Text('نقل ملكية الوكالة'),
+                  title: Text(tr('نقل ملكية الوكالة', 'Transfer agency ownership')),
                   onTap: () async {
                     Navigator.pop(context);
                     await _transferAgencyOwnership(context, agencyType: 'CHARGING');
@@ -398,8 +399,8 @@ Future<void> _showChargingActions(
                 textColor: Colors.white,
                 iconColor: Colors.white70,
                 leading: const Icon(Icons.phone),
-                title: Text(agency.contactInfo.isEmpty ? 'لا يوجد رقم تواصل' : agency.contactInfo),
-                subtitle: const Text('تواصل مع أدمن الوكالة للشحن', style: TextStyle(color: Colors.white70)),
+                title: Text(agency.contactInfo.isEmpty ? tr('لا يوجد رقم تواصل', 'No contact number') : agency.contactInfo),
+                subtitle: Text(tr('تواصل مع أدمن الوكالة للشحن', 'Contact the agency admin to recharge'), style: TextStyle(color: Colors.white70)),
               ),
             ],
           ],
@@ -428,7 +429,7 @@ Future<void> _showHostingActions(
             Text(agency.agencyName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             if (isAgencyAdmin) ...[
-              Text('المستهدف: ${agency.targetCoins} | المحقق: ${agency.earnedCoins}',
+              Text(tr('المستهدف: ${agency.targetCoins} | المحقق: ${agency.earnedCoins}', 'Target: ${agency.targetCoins} | Earned: ${agency.earnedCoins}'),
                   style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 8),
               ...agency.members.map(
@@ -436,8 +437,8 @@ Future<void> _showHostingActions(
                   dense: true,
                   textColor: Colors.white,
                   leading: const Icon(Icons.person, color: Colors.white70),
-                  title: Text((m['name'] ?? 'عضو').toString()),
-                  subtitle: const Text('كوينز الغرف: -- | التارجت: --', style: TextStyle(color: Colors.white70)),
+                  title: Text((m['name'] ?? tr('عضو', 'Member')).toString()),
+                  subtitle: Text(tr('كوينز الغرف: -- | التارجت: --', 'Room coins: -- | Target: --'), style: TextStyle(color: Colors.white70)),
                 ),
               ),
               const SizedBox(height: 8),
@@ -446,7 +447,7 @@ Future<void> _showHostingActions(
                   Navigator.pop(context);
                   await _openJoinRequestsManager(context);
                 },
-                child: const Text('طلبات الانضمام المعلقة'),
+                child: Text(tr('طلبات الانضمام المعلقة', 'Pending join requests')),
               ),
               // Branches (فرع) — same hosting-management access, no ownership.
               // Only the owner manages who the branches are (#2-4).
@@ -458,7 +459,7 @@ Future<void> _showHostingActions(
                     await _manageBranches(context, agency, agencyType: 'HOSTING');
                   },
                   icon: const Icon(Icons.groups),
-                  label: const Text('الفروع (حتى 3)'),
+                  label: Text(tr('الفروع (حتى 3)', 'Branches (up to 3)')),
                 ),
               ],
             ] else ...[
@@ -468,7 +469,7 @@ Future<void> _showHostingActions(
                   await _requestJoinHostingAgency(context, agency.id);
                 },
                 icon: const Icon(Icons.group_add),
-                label: const Text('طلب انضمام للوكالة'),
+                label: Text(tr('طلب انضمام للوكالة', 'Request to join agency')),
               ),
             ],
           ],
@@ -486,20 +487,20 @@ Future<void> _requestCoinsFromAdmin(BuildContext context) async {
     context: context,
     builder: (_) => AlertDialog(
       backgroundColor: const Color(0xFF1F1247),
-      title: const Text('طلب كوينز', style: TextStyle(color: Colors.white)),
+      title: Text(tr('طلب كوينز', 'Request coins'), style: TextStyle(color: Colors.white)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _MiniField(controller: amountCtrl, label: 'الكمية'),
+          _MiniField(controller: amountCtrl, label: tr('الكمية', 'Amount')),
           const SizedBox(height: 8),
-          _MiniField(controller: receiptCtrl, label: 'رابط الإيصال'),
+          _MiniField(controller: receiptCtrl, label: tr('رابط الإيصال', 'Receipt link')),
           const SizedBox(height: 8),
-          _MiniField(controller: noteCtrl, label: 'ملاحظة'),
+          _MiniField(controller: noteCtrl, label: tr('ملاحظة', 'Note')),
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
-        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('إرسال')),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('إلغاء', 'Cancel'))),
+        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: Text(tr('إرسال', 'Send'))),
       ],
     ),
   );
@@ -510,9 +511,9 @@ Future<void> _requestCoinsFromAdmin(BuildContext context) async {
       'receiptUrl': receiptCtrl.text.trim(),
       'note': noteCtrl.text.trim(),
     });
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال الطلب')));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم إرسال الطلب', 'Request sent'))));
   } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل إرسال الطلب')));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('فشل إرسال الطلب', 'Failed to send request'))));
   }
 }
 
@@ -549,30 +550,30 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
             if (list.isNotEmpty) {
               setState(() { foundUser = Map<String, dynamic>.from(list.first as Map); searching = false; });
             } else {
-              setState(() { error = 'لم يتم العثور على مستخدم بهذا الرقم'; searching = false; });
+              setState(() { error = tr('لم يتم العثور على مستخدم بهذا الرقم', 'No user found with this ID'); searching = false; });
             }
           } catch (_) {
-            setState(() { error = 'فشل البحث'; searching = false; });
+            setState(() { error = tr('فشل البحث', 'Search failed'); searching = false; });
           }
         }
 
         return AlertDialog(
           backgroundColor: const Color(0xFF1F1247),
-          title: const Text('إضافة كوينز', style: TextStyle(color: Colors.white)),
+          title: Text(tr('إضافة كوينز', 'Add coins'), style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  'رصيد محفظتك: $agencyBalance كوينز',
+                  tr('رصيد محفظتك: $agencyBalance كوينز', 'Your wallet balance: $agencyBalance coins'),
                   style: const TextStyle(color: Color(0xFFFFD700), fontSize: 13),
                 ),
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _MiniField(controller: idCtrl, label: 'رقم المستخدم (ID)')),
+                  Expanded(child: _MiniField(controller: idCtrl, label: tr('رقم المستخدم (ID)', 'User ID'))),
                   const SizedBox(width: 8),
                   IconButton(
                     onPressed: searching ? null : doSearch,
@@ -603,15 +604,15 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
                   subtitle: Text('#${foundUser!['displayId'] ?? foundUser!['id']}', style: const TextStyle(color: Colors.white70)),
                 ),
                 const SizedBox(height: 8),
-                _MiniField(controller: amountCtrl, label: 'عدد الكوينز'),
+                _MiniField(controller: amountCtrl, label: tr('عدد الكوينز', 'Number of coins')),
               ],
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(tr('إلغاء', 'Cancel'))),
             ElevatedButton(
               onPressed: foundUser == null ? null : () => Navigator.pop(dialogContext, true),
-              child: const Text('إرسال'),
+              child: Text(tr('إرسال', 'Send')),
             ),
           ],
         );
@@ -628,13 +629,13 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
     // (and the profile) don't show the pre-charge number.
     try { await ref.read(authStateProvider.notifier).refreshMe(); } catch (_) {}
     ref.invalidate(agencyBalanceProvider);
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الشحن بنجاح')));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم الشحن بنجاح', 'Recharged successfully'))));
   } catch (e) {
     // A blind 'فشل الشحن' made a 403 (wrong/unapproved agency) and an empty
     // agency wallet look identical — show what the server actually said.
     final message = e is DioException && e.response?.data is Map
-        ? (e.response!.data['message']?.toString() ?? 'فشل الشحن')
-        : 'فشل الشحن';
+        ? (e.response!.data['message']?.toString() ?? tr('فشل الشحن', 'Recharge failed'))
+        : tr('فشل الشحن', 'Recharge failed');
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
@@ -665,27 +666,27 @@ Future<void> _transferAgencyOwnership(BuildContext context, {required String age
             if (list.isNotEmpty) {
               setState(() { foundUser = Map<String, dynamic>.from(list.first as Map); searching = false; });
             } else {
-              setState(() { error = 'لم يتم العثور على مستخدم بهذا الرقم'; searching = false; });
+              setState(() { error = tr('لم يتم العثور على مستخدم بهذا الرقم', 'No user found with this ID'); searching = false; });
             }
           } catch (_) {
-            setState(() { error = 'فشل البحث'; searching = false; });
+            setState(() { error = tr('فشل البحث', 'Search failed'); searching = false; });
           }
         }
 
         return AlertDialog(
           backgroundColor: const Color(0xFF1F1247),
-          title: const Text('نقل ملكية الوكالة', style: TextStyle(color: Colors.white)),
+          title: Text(tr('نقل ملكية الوكالة', 'Transfer agency ownership'), style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'ستفقد صلاحيات الوكيل وتصبح مضيفاً في هذه الوكالة.',
+              Text(
+                tr('ستفقد صلاحيات الوكيل وتصبح مضيفاً في هذه الوكالة.', 'You will lose agent permissions and become a host in this agency.'),
                 style: TextStyle(color: Colors.white70),
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _MiniField(controller: idCtrl, label: 'رقم المستخدم الجديد (ID)')),
+                  Expanded(child: _MiniField(controller: idCtrl, label: tr('رقم المستخدم الجديد (ID)', 'New user ID'))),
                   const SizedBox(width: 8),
                   IconButton(
                     onPressed: searching ? null : doSearch,
@@ -719,10 +720,10 @@ Future<void> _transferAgencyOwnership(BuildContext context, {required String age
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(tr('إلغاء', 'Cancel'))),
             ElevatedButton(
               onPressed: foundUser == null ? null : () => Navigator.pop(dialogContext, true),
-              child: const Text('نقل'),
+              child: Text(tr('نقل', 'Transfer')),
             ),
           ],
         );
@@ -735,9 +736,9 @@ Future<void> _transferAgencyOwnership(BuildContext context, {required String age
       'toUserId': foundUser!['id'],
       'agencyType': agencyType,
     });
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نقل الملكية بنجاح')));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم نقل الملكية بنجاح', 'Ownership transferred successfully'))));
   } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل نقل الملكية')));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('فشل نقل الملكية', 'Failed to transfer ownership'))));
   }
 }
 
@@ -767,13 +768,13 @@ Future<void> _manageBranches(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('فروع ${agency.agencyName}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text(tr('فروع ${agency.agencyName}', '${agency.agencyName} branches'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                const Text('نفس النظام بدون امتلاك الوكالة — حتى 3 فروع', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                Text(tr('نفس النظام بدون امتلاك الوكالة — حتى 3 فروع', 'Same system without agency ownership — up to 3 branches'), style: TextStyle(color: Colors.white70, fontSize: 12)),
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _MiniField(controller: idCtrl, label: 'رقم المستخدم (ID)')),
+                    Expanded(child: _MiniField(controller: idCtrl, label: tr('رقم المستخدم (ID)', 'User ID'))),
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: () async {
@@ -794,7 +795,7 @@ Future<void> _manageBranches(
                           if (found.isEmpty) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('لم يتم العثور على مستخدم بهذا الرقم')),
+                                SnackBar(content: Text(tr('لم يتم العثور على مستخدم بهذا الرقم', 'No user found with this ID'))),
                               );
                             }
                             return;
@@ -804,16 +805,16 @@ Future<void> _manageBranches(
                           idCtrl.clear();
                           setState(() {});
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت الإضافة كفرع')));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تمت الإضافة كفرع', 'Added as a branch'))));
                           }
                         } catch (e) {
-                          final msg = e is DioException ? (e.response?.data?['message'] ?? 'فشل الإضافة') : 'فشل الإضافة';
+                          final msg = e is DioException ? (e.response?.data?['message'] ?? tr('فشل الإضافة', 'Failed to add')) : tr('فشل الإضافة', 'Failed to add');
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg.toString())));
                           }
                         }
                       },
-                      child: const Text('+ فرع'),
+                      child: Text(tr('+ فرع', '+ Branch')),
                     ),
                   ],
                 ),
@@ -829,7 +830,7 @@ Future<void> _manageBranches(
                     }
                     final branches = snap.data!;
                     if (branches.isEmpty) {
-                      return const Text('لا يوجد فروع حالياً', style: TextStyle(color: Colors.white70));
+                      return Text(tr('لا يوجد فروع حالياً', 'No branches yet'), style: TextStyle(color: Colors.white70));
                     }
                     return Column(
                       children: branches.map((b) {
@@ -837,7 +838,7 @@ Future<void> _manageBranches(
                         return ListTile(
                           textColor: Colors.white,
                           leading: const Icon(Icons.person, color: Colors.white70),
-                          title: Text((u['name'] ?? 'مستخدم').toString()),
+                          title: Text((u['name'] ?? tr('مستخدم', 'User')).toString()),
                           subtitle: Text('#${u['displayId'] ?? b['userId']}', style: const TextStyle(color: Colors.white70)),
                           trailing: IconButton(
                             icon: const Icon(Icons.remove_circle, color: Colors.redAccent),
@@ -850,7 +851,7 @@ Future<void> _manageBranches(
                                 setState(() {});
                               } catch (_) {
                                 if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل الإزالة')));
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('فشل الإزالة', 'Failed to remove'))));
                                 }
                               }
                             },
@@ -872,10 +873,10 @@ Future<void> _manageBranches(
 Future<void> _requestJoinHostingAgency(BuildContext context, int agencyId) async {
   try {
     await DioClient.dio.post('/agencies/$agencyId/join-request');
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال طلب الانضمام')));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم إرسال طلب الانضمام', 'Join request sent'))));
   } catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('لا يمكن إرسال الطلب حالياً')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('لا يمكن إرسال الطلب حالياً', 'Unable to send request right now'))));
     }
   }
 }
@@ -894,7 +895,7 @@ Future<void> _openJoinRequestsManager(BuildContext context) async {
           final requester = ((r['requester'] as Map?) ?? const {}).cast<String, dynamic>();
           return ListTile(
             textColor: Colors.white,
-            title: Text((requester['name'] ?? 'مستخدم').toString()),
+            title: Text((requester['name'] ?? tr('مستخدم', 'User')).toString()),
             subtitle: Text('ID: ${requester['displayId'] ?? requester['id'] ?? '-'}'),
             trailing: Wrap(
               spacing: 4,
@@ -904,14 +905,14 @@ Future<void> _openJoinRequestsManager(BuildContext context) async {
                     await DioClient.dio.patch('/agencies/join-requests/${r['id']}/review', data: {'action': 'accept'});
                     if (context.mounted) Navigator.pop(context);
                   },
-                  child: const Text('قبول'),
+                  child: Text(tr('قبول', 'Accept')),
                 ),
                 TextButton(
                   onPressed: () async {
                     await DioClient.dio.patch('/agencies/join-requests/${r['id']}/review', data: {'action': 'reject'});
                     if (context.mounted) Navigator.pop(context);
                   },
-                  child: const Text('رفض'),
+                  child: Text(tr('رفض', 'Reject')),
                 ),
               ],
             ),
@@ -920,7 +921,7 @@ Future<void> _openJoinRequestsManager(BuildContext context) async {
       ),
     );
   } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر تحميل الطلبات')));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذر تحميل الطلبات', 'Unable to load requests'))));
   }
 }
 
@@ -1105,7 +1106,7 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
 
     if (_agencyImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('من فضلك ارفع صورة الوكالة.')),
+        SnackBar(content: Text(tr('من فضلك ارفع صورة الوكالة.', 'Please upload an agency image.'))),
       );
       return;
     }
@@ -1152,7 +1153,7 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          widget.type == 'HOSTING' ? 'إنشاء وكالة استضافة' : 'إنشاء وكالة شحن',
+                          widget.type == 'HOSTING' ? tr('إنشاء وكالة استضافة', 'Create hosting agency') : tr('إنشاء وكالة شحن', 'Create recharge agency'),
                           textAlign: TextAlign.right,
                           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                         ),
@@ -1160,11 +1161,11 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
 
                         _Field(
                           controller: _agencyName,
-                          label: 'اسم الوكالة',
+                          label: tr('اسم الوكالة', 'Agency name'),
                           icon: Icons.storefront,
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return 'اكتب اسم الوكالة';
-                            if (v.trim().length < 3) return 'اسم الوكالة قصير جدًا';
+                            if (v == null || v.trim().isEmpty) return tr('اكتب اسم الوكالة', 'Enter agency name');
+                            if (v.trim().length < 3) return tr('اسم الوكالة قصير جدًا', 'Agency name is too short');
                             return null;
                           },
                         ),
@@ -1172,12 +1173,12 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
 
                         _Field(
                           controller: _phone,
-                          label: 'رقم الهاتف',
+                          label: tr('رقم الهاتف', 'Phone number'),
                           icon: Icons.phone,
                           keyboardType: TextInputType.phone,
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return 'اكتب رقم الهاتف';
-                            if (v.trim().length < 8) return 'رقم الهاتف غير صحيح';
+                            if (v == null || v.trim().isEmpty) return tr('اكتب رقم الهاتف', 'Enter phone number');
+                            if (v.trim().length < 8) return tr('رقم الهاتف غير صحيح', 'Invalid phone number');
                             return null;
                           },
                         ),
@@ -1185,7 +1186,7 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
                         const SizedBox(height: 14),
 
                         _ImagePickTile(
-                          title: 'صورة الوكالة / اللوجو',
+                          title: tr('صورة الوكالة / اللوجو', 'Agency image / logo'),
                           file: _agencyImage,
                           onPick: _chooseAgencyImage,
                         ),
@@ -1195,7 +1196,7 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
                           children: [
                             Expanded(
                               child: _ImagePickTile(
-                                title: 'البطاقة (الأمام)',
+                                title: tr('البطاقة (الأمام)', 'ID card (front)'),
                                 file: _idFront,
                                 onPick: _chooseFront,
                                 compact: true,
@@ -1204,7 +1205,7 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
                             const SizedBox(width: 10),
                             Expanded(
                               child: _ImagePickTile(
-                                title: 'البطاقة (الخلف)',
+                                title: tr('البطاقة (الخلف)', 'ID card (back)'),
                                 file: _idBack,
                                 onPick: _chooseBack,
                                 compact: true,
@@ -1233,7 +1234,7 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
                             side: BorderSide(color: Colors.white.withOpacity(0.25)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
-                          child: const Text('إلغاء'),
+                          child: Text(tr('إلغاء', 'Cancel')),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1251,7 +1252,7 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
                             width: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                              : const Text('إرسال الطلب'),
+                              : Text(tr('إرسال الطلب', 'Send request')),
                         ),
                       ),
                     ],
@@ -1351,7 +1352,7 @@ class _ImagePickTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    file == null ? 'اضغط للرفع' : 'تم الرفع ✅',
+                    file == null ? tr('اضغط للرفع', 'Tap to upload') : tr('تم الرفع ✅', 'Uploaded ✅'),
                     textAlign: TextAlign.right,
                     style: TextStyle(color: Colors.white.withOpacity(0.7)),
                   ),
@@ -1563,7 +1564,7 @@ class _AgencyGridCard extends StatelessWidget {
             if (a.type == 'HOSTING') ...[
               const SizedBox(height: 6),
               Text(
-                'الأعضاء: ${a.memberCount}',
+                tr('الأعضاء: ${a.memberCount}', 'Members: ${a.memberCount}'),
                 textAlign: TextAlign.right,
                 style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 12),
               ),

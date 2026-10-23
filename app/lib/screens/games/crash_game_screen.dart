@@ -12,6 +12,7 @@ import '../../providers/auth_provider.dart';
 import '../../repositories/crash_repository.dart';
 import '../../services/socket_service.dart';
 import '../../services/audio_route.dart';
+import '../../l10n/tr.dart';
 
 /// طيّار — the Aviator-style crash game.
 ///
@@ -352,7 +353,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       panel.settledPayout = payout;
       panel.settledMultiplier = m;
       _balance += payout;
-      _notice = 'سحبت عند ${m.toStringAsFixed(2)}x — ربحت $payout';
+      _notice = tr('سحبت عند ${m.toStringAsFixed(2)}x — ربحت $payout', 'Cashed out at ${m.toStringAsFixed(2)}x — won $payout');
     });
     ref.read(authStateProvider.notifier).updateCoinsBalance(_balance);
     _play('sounds/crash_cashout.wav');
@@ -495,11 +496,11 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
 
     final amount = panel.amount;
     if (amount < s.minBet || amount > s.maxBet) {
-      setState(() => _notice = 'الرهان بين ${s.minBet} و ${s.maxBet}');
+      setState(() => _notice = tr('الرهان بين ${s.minBet} و ${s.maxBet}', 'Bet between ${s.minBet} and ${s.maxBet}'));
       return;
     }
     if (_balance < amount) {
-      setState(() => _notice = 'رصيدك لا يكفي');
+      setState(() => _notice = tr('رصيدك لا يكفي', 'Insufficient balance'));
       return;
     }
 
@@ -558,7 +559,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         panel.settledMultiplier = result.multiplier;
         _balance = result.balance;
         _notice =
-            'سحبت عند ${result.multiplier.toStringAsFixed(2)}x — ربحت ${result.payout}';
+            tr('سحبت عند ${result.multiplier.toStringAsFixed(2)}x — ربحت ${result.payout}', 'Cashed out at ${result.multiplier.toStringAsFixed(2)}x — won ${result.payout}');
       });
       ref.read(authStateProvider.notifier).updateCoinsBalance(_balance);
       _play('sounds/crash_cashout.wav');
@@ -588,7 +589,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       setState(() {
         _rainClaimed = true;
         _balance = claim.balance;
-        _notice = 'استلمت ${claim.amount} من المطر 🌧️';
+        _notice = tr('استلمت ${claim.amount} من المطر 🌧️', 'Received ${claim.amount} from the rain 🌧️');
       });
       ref.read(authStateProvider.notifier).updateCoinsBalance(_balance);
     } on CrashException catch (e) {
@@ -627,7 +628,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           backgroundColor: _bg,
           elevation: 0,
           title: Row(children: [
-            const Text('طيّار',
+            Text(tr('طيّار', 'Aviator'),
                 style: TextStyle(
                     color: Colors.white, fontWeight: FontWeight.bold)),
             const Spacer(),
@@ -712,13 +713,13 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
             Expanded(
               child: Text(
                 _rainClaimed
-                    ? 'استلمت نصيبك من المطر'
-                    : 'مطر! ${_rain!.amount} عملة — باقي ${_rain!.claimsLeft}',
+                    ? tr('استلمت نصيبك من المطر', 'You claimed your share of the rain')
+                    : tr('مطر! ${_rain!.amount} عملة — باقي ${_rain!.claimsLeft}', 'Rain! ${_rain!.amount} coins — ${_rain!.claimsLeft} claims left'),
                 style: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ),
             if (!_rainClaimed)
-              const Text('اضغط للاستلام',
+              Text(tr('اضغط للاستلام', 'Tap to claim'),
                   style:
                       TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
           ]),
@@ -772,7 +773,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           Center(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               if (betting) ...[
-                const Text('في انتظار الجولة القادمة',
+                Text(tr('في انتظار الجولة القادمة', 'Waiting for the next round'),
                     style: TextStyle(color: _textDim, fontSize: 14)),
                 const SizedBox(height: 8),
                 Text('${(_msLeft / 1000).ceil()}',
@@ -793,9 +794,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                 // Latin text inside an RTL subtree: without forcing LTR the
                 // trailing "!" is reordered to the front ("!FLEW AWAY").
                 if (crashed)
-                  const Directionality(
+                  Directionality(
                     textDirection: TextDirection.rtl,
-                    child: Text('طار بعيدًا!',
+                    child: Text(tr('طار بعيدًا!', 'Flew away!'),
                         style: TextStyle(
                             color: _flewAway,
                             fontSize: 30,
@@ -890,7 +891,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white10),
         ),
-        child: const Text('لا رهانات بعد',
+        child: Text(tr('لا رهانات بعد', 'No bets yet'),
             style: TextStyle(color: _textDim, fontSize: 10)),
       );
     }
@@ -908,7 +909,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('الرهانات المباشرة (${bets.length})',
+          Text(tr('الرهانات المباشرة (${bets.length})', 'Live bets (${bets.length})'),
               style: const TextStyle(color: _textDim, fontSize: 11)),
           const Divider(color: Colors.white12, height: 10),
           Flexible(
@@ -1029,7 +1030,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         color: Colors.black.withOpacity(0.55),
         padding: const EdgeInsets.all(8),
         child: Column(children: [
-          const Text('الدردشة',
+          Text(tr('الدردشة', 'Chat'),
               style: TextStyle(color: _textDim, fontSize: 12)),
           const Divider(color: Colors.white12, height: 10),
           Expanded(
@@ -1065,9 +1066,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                 controller: _chatInput,
                 style: const TextStyle(color: Colors.white, fontSize: 12),
                 onSubmitted: (_) => _sendChat(),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   isDense: true,
-                  hintText: 'اكتب رسالة…',
+                  hintText: tr('اكتب رسالة…', 'Write a message…'),
                   hintStyle: TextStyle(color: Colors.white30, fontSize: 11),
                   border: OutlineInputBorder(),
                 ),
@@ -1152,7 +1153,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                     ? () => setState(() =>
                         panel.setAmount(_balance ~/ 2, s!.minBet, s.maxBet))
                     : null),
-            _chip('الكل',
+            _chip(tr('الكل', 'All'),
                 onTap: betting
                     ? () => setState(
                         () => panel.setAmount(_balance, s!.minBet, s.maxBet))
@@ -1163,13 +1164,13 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         // Auto bet / auto cash out
         Row(children: [
           Expanded(
-            child: _toggleRow('تلقائي', panel.autoBetOn,
+            child: _toggleRow(tr('تلقائي', 'Auto'), panel.autoBetOn,
                 (v) => setState(() => panel.autoBetOn = v)),
           ),
         ]),
         Row(children: [
           Expanded(
-            child: _toggleRow('سحب عند', panel.autoCashOutOn,
+            child: _toggleRow(tr('سحب عند', 'Cash out at'), panel.autoCashOutOn,
                 (v) => setState(() => panel.autoCashOutOn = v)),
           ),
           // Numbers stay LTR and the box is wide enough for "2.00x" — at 56px
@@ -1221,7 +1222,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                       onPressed: betting ? () => _cancelBet(panel) : null,
                       style:
                           ElevatedButton.styleFrom(backgroundColor: _cancelRed),
-                      child: const Text('إلغاء',
+                      child: Text(tr('إلغاء', 'Cancel'),
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold)),
@@ -1232,7 +1233,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
                         backgroundColor: _betGreen,
                         disabledBackgroundColor: Colors.white12,
                       ),
-                      child: const Text('راهن',
+                      child: Text(tr('راهن', 'Bet'),
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold)),
@@ -1243,8 +1244,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               panel.settled == 'win'
-                  ? 'ربحت ${panel.settledPayout} عند ${panel.settledMultiplier?.toStringAsFixed(2)}x'
-                  : 'خسرت ${panel.betAmount}',
+                  ? tr('ربحت ${panel.settledPayout} عند ${panel.settledMultiplier?.toStringAsFixed(2)}x', 'Won ${panel.settledPayout} at ${panel.settledMultiplier?.toStringAsFixed(2)}x')
+                  : tr('خسرت ${panel.betAmount}', 'Lost ${panel.betAmount}'),
               style: TextStyle(
                 color: panel.settled == 'win' ? _win : Colors.white38,
                 fontSize: 11,
@@ -1318,7 +1319,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
             leading: const Icon(Icons.rule, color: Colors.white70),
-            title: const Text('القواعد', style: TextStyle(color: Colors.white)),
+            title: Text(tr('القواعد', 'Rules'), style: TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.pop(context);
               _openRules();
@@ -1326,9 +1327,9 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           ),
           ListTile(
             leading: const Icon(Icons.verified_user, color: Colors.white70),
-            title: const Text('إثبات العدالة',
+            title: Text(tr('إثبات العدالة', 'Fairness verification'),
                 style: TextStyle(color: Colors.white)),
-            subtitle: Text('بذرتك: ${_clientSeed ?? '—'}',
+            subtitle: Text(tr('بذرتك: ${_clientSeed ?? '—'}', 'Your seed: ${_clientSeed ?? '—'}'),
                 style: const TextStyle(color: Colors.white38, fontSize: 11)),
             onTap: () {
               Navigator.pop(context);
@@ -1338,7 +1339,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
           ListTile(
             leading: const Icon(Icons.bar_chart, color: Colors.white70),
             title:
-                const Text('إحصائياتي', style: TextStyle(color: Colors.white)),
+                Text(tr('إحصائياتي', 'My stats'), style: TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.pop(context);
               _openStats();
@@ -1354,22 +1355,22 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: _bgGlow,
-        title: const Text('القواعد', style: TextStyle(color: Colors.white)),
-        content: const Text(
-          'ضع رهانك قبل الإقلاع على لوحة واحدة أو اثنتين. بعد الإقلاع يبدأ المضاعف من '
+        title: Text(tr('القواعد', 'Rules'), style: TextStyle(color: Colors.white)),
+        content: Text(
+          tr('ضع رهانك قبل الإقلاع على لوحة واحدة أو اثنتين. بعد الإقلاع يبدأ المضاعف من '
           '1.00x ويزداد. اضغط CASH OUT قبل أن تطير الطائرة لتقبض رهانك مضروبًا في '
           'المضاعف الحالي. إذا طارت قبل أن تسحب، تخسر رهانك.\n\n'
           'كل جولة مستقلة، ونقطة التحطم محسوبة من بذرة خادم يُنشر تجزئتها قبل الجولة '
           'وتُكشف بعدها، فيمكنك التحقق منها بنفسك.\n\n'
           'المبلغ اللي بتدفعه بيشتري XP لمستواك لحظة الإقلاع، بنفس سعر الهدايا — ده مقابل كامل '
           'لفلوسك مهما حصل. والسحب جائزة من صندوق جوائز المنصة، مش من فلوس لاعبين تانيين. '
-          'جولة من كل 5 تقريبًا بتطير عند 1.00x، وأقصى مضاعف 100x.',
+          'جولة من كل 5 تقريبًا بتطير عند 1.00x، وأقصى مضاعف 100x.', 'Place your bet before takeoff on one or two panels. After takeoff, the multiplier starts at 1.00x and increases. Tap CASH OUT before the plane flies away to receive your bet multiplied by the current multiplier. If it flies away before you cash out, you lose your bet.\n\nEach round is independent. The crash point is calculated from a server seed whose hash is published before the round and revealed afterward, so you can verify it yourself.\n\nYour payment buys level XP at takeoff at the same rate as gifts — you receive that value regardless of the outcome. Cash-out prizes come from the platform prize pool, not other players. About one in five rounds ends at 1.00x, and the maximum multiplier is 100x.'),
           style: TextStyle(color: Colors.white70, fontSize: 13),
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('تمام')),
+              child: Text(tr('تمام', 'OK'))),
         ],
       ),
     );
@@ -1381,11 +1382,11 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: _bgGlow,
-        title: const Text('بذرة العميل', style: TextStyle(color: Colors.white)),
+        title: Text(tr('بذرة العميل', 'Client seed'), style: TextStyle(color: Colors.white)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text(
-            'بذرتك تدخل في حساب نقطة التحطم مع بذرة الخادم والعداد. غيّرها متى شئت — '
-            'تُستخدم من الجولة التالية.',
+          Text(
+            tr('بذرتك تدخل في حساب نقطة التحطم مع بذرة الخادم والعداد. غيّرها متى شئت — '
+            'تُستخدم من الجولة التالية.', 'Your seed is used with the server seed and nonce to calculate the crash point. Change it anytime — it takes effect next round.'),
             style: TextStyle(color: Colors.white54, fontSize: 12),
           ),
           const SizedBox(height: 12),
@@ -1398,7 +1399,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء')),
+              child: Text(tr('إلغاء', 'Cancel'))),
           TextButton(
             onPressed: () async {
               final navigator = Navigator.of(context);
@@ -1410,7 +1411,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
               }
               navigator.pop();
             },
-            child: const Text('حفظ'),
+            child: Text(tr('حفظ', 'Save')),
           ),
         ],
       ),
@@ -1436,21 +1437,21 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Text('إحصائياتي',
+                Text(tr('إحصائياتي', 'My stats'),
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                _statRow('جولات', '${st.rounds}'),
-                _statRow('رهنت', '${st.wagered}'),
-                _statRow('ربحت', '${st.won}'),
-                _statRow('الصافي', '${st.net}'),
-                _statRow('فوز / خسارة', '${st.wins} / ${st.losses}'),
+                _statRow(tr('جولات', 'Rounds'), '${st.rounds}'),
+                _statRow(tr('رهنت', 'Wagered'), '${st.wagered}'),
+                _statRow(tr('ربحت', 'Won'), '${st.won}'),
+                _statRow(tr('الصافي', 'Net'), '${st.net}'),
+                _statRow(tr('فوز / خسارة', 'Wins / losses'), '${st.wins} / ${st.losses}'),
                 _statRow(
-                    'أعلى مضاعف', '${st.bestMultiplier.toStringAsFixed(2)}x'),
-                _statRow('أعلى ربح', '${st.bestPayout}'),
-                _statRow('متوسط مضاعف الجولات',
+                    tr('أعلى مضاعف', 'Highest multiplier'), '${st.bestMultiplier.toStringAsFixed(2)}x'),
+                _statRow(tr('أعلى ربح', 'Biggest win'), '${st.bestPayout}'),
+                _statRow(tr('متوسط مضاعف الجولات', 'Average round multiplier'),
                     '${st.averageRoundMultiplier.toStringAsFixed(2)}x'),
                 const Divider(color: Colors.white12),
                 SizedBox(
@@ -1505,12 +1506,12 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
       builder: (_) => AlertDialog(
         backgroundColor: _bgGlow,
         title:
-            const Text('إثبات العدالة', style: TextStyle(color: Colors.white)),
+            Text(tr('إثبات العدالة', 'Fairness verification'), style: TextStyle(color: Colors.white)),
         content: FutureBuilder<CrashFairness>(
           future: _repo.fetchFairness(roundId),
           builder: (context, snap) {
             if (snap.hasError) {
-              return const Text('تعذر تحميل تفاصيل الجولة',
+              return Text(tr('تعذر تحميل تفاصيل الجولة', 'Unable to load round details'),
                   style: TextStyle(color: Colors.white54, fontSize: 12));
             }
             if (!snap.hasData) {
@@ -1523,20 +1524,20 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _fairRow('الجولة', '#${f.roundId}'),
-                    _fairRow('العداد (nonce)', '${f.nonce}'),
+                    _fairRow(tr('الجولة', 'Round'), '#${f.roundId}'),
+                    _fairRow(tr('العداد (nonce)', 'Nonce'), '${f.nonce}'),
                     _fairRow(
-                        'نقطة التحطم', '${f.crashPoint.toStringAsFixed(2)}x'),
+                        tr('نقطة التحطم', 'Crash point'), '${f.crashPoint.toStringAsFixed(2)}x'),
                     _fairRow(
-                        'تجزئة البذرة (منشورة قبل الجولة)', f.serverSeedHash),
-                    _fairRow('بذرة الخادم (مكشوفة)', f.serverSeed),
-                    _fairRow('بذور اللاعبين', f.clientSeeds.join(', ')),
-                    _fairRow('التجزئة النهائية', f.hash),
+                        tr('تجزئة البذرة (منشورة قبل الجولة)', 'Seed hash (published before the round)'), f.serverSeedHash),
+                    _fairRow(tr('بذرة الخادم (مكشوفة)', 'Server seed (revealed)'), f.serverSeed),
+                    _fairRow(tr('بذور اللاعبين', 'Player seeds'), f.clientSeeds.join(', ')),
+                    _fairRow(tr('التجزئة النهائية', 'Final hash'), f.hash),
                     const SizedBox(height: 8),
                     Text(
                       f.verified
-                          ? '✅ أعاد الخادم الحساب من البذور فطابقت النتيجة'
-                          : '⚠️ لم تتطابق النتيجة',
+                          ? tr('✅ أعاد الخادم الحساب من البذور فطابقت النتيجة', '✅ Server recalculation from the seeds matches the result')
+                          : tr('⚠️ لم تتطابق النتيجة', '⚠️ Result does not match'),
                       style: TextStyle(
                           color: f.verified ? _win : Colors.orangeAccent,
                           fontSize: 12),
@@ -1548,7 +1549,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('إغلاق')),
+              child: Text(tr('إغلاق', 'Close'))),
         ],
       ),
     );

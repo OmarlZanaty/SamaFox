@@ -8,6 +8,7 @@ import '../services/follow_service.dart';
 import '../services/notification_service.dart';
 import '../services/relation_service.dart';
 import '../services/socket_service.dart';
+import '../l10n/tr.dart';
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
@@ -67,7 +68,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       await FollowService.respondToFollow(followId, action);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(action == 'accept' ? 'تم قبول الطلب' : 'تم رفض الطلب')),
+          SnackBar(content: Text(action == 'accept' ? tr('تم قبول الطلب', 'Request accepted') : tr('تم رفض الطلب', 'Request rejected'))),
         );
       }
     } catch (e) {
@@ -87,7 +88,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       await RelationService.respondToRelation(relationId, action);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(action == 'accept' ? 'تم قبول الطلب' : 'تم رفض الطلب')),
+          SnackBar(content: Text(action == 'accept' ? tr('تم قبول الطلب', 'Request accepted') : tr('تم رفض الطلب', 'Request rejected'))),
         );
       }
     } catch (e) {
@@ -120,7 +121,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       if (inviteId == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تعذر تحديد الدعوة')),
+            SnackBar(content: Text(tr('تعذر تحديد الدعوة', 'Unable to identify invitation'))),
           );
         }
         return;
@@ -130,7 +131,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       if (id != 0) await NotificationService.markRead(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(accept ? '✓ انضممت إلى الوكالة' : 'تم رفض الدعوة')),
+          SnackBar(content: Text(accept ? tr('✓ انضممت إلى الوكالة', '✓ Joined the agency') : tr('تم رفض الدعوة', 'Invitation rejected'))),
         );
       }
       await _load();
@@ -138,7 +139,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       if (mounted) {
         final msg = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg.isEmpty ? 'فشل الرد على الدعوة' : msg)),
+          SnackBar(content: Text(msg.isEmpty ? tr('فشل الرد على الدعوة', 'Failed to respond to invitation') : msg)),
         );
       }
       await _load();
@@ -158,11 +159,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
     final title = (item['title'] as String? ?? '').trim();
     if (title.isNotEmpty && !_looksEnglish(title)) return title;
 
-    if (type.contains('follow')) return 'طلب متابعة';
-    if (type.contains('relation')) return 'طلب علاقة';
-    if (type.contains('gift')) return 'هدية';
-    if (type.contains('message')) return 'رسالة جديدة';
-    return title.isNotEmpty ? title : 'إشعار';
+    if (type.contains('follow')) return tr('طلب متابعة', 'Follow request');
+    if (type.contains('relation')) return tr('طلب علاقة', 'Relationship request');
+    if (type.contains('gift')) return tr('هدية', 'Gift');
+    if (type.contains('message')) return tr('رسالة جديدة', 'New message');
+    return title.isNotEmpty ? title : tr('إشعار', 'Notification');
   }
 
   String _bodyForNotification(Map<String, dynamic> item) {
@@ -170,11 +171,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
     final body = (item['body'] as String? ?? '').trim();
     if (body.isNotEmpty && !_looksEnglish(body)) return body;
 
-    if (type.contains('follow')) return 'لديك طلب متابعة جديد.';
-    if (type.contains('relation')) return 'لديك طلب علاقة جديد.';
-    if (type.contains('gift')) return 'تم استلام إشعار هدية جديد.';
-    if (type.contains('message')) return 'لديك رسالة جديدة.';
-    return body.isNotEmpty ? body : 'لا توجد تفاصيل إضافية.';
+    if (type.contains('follow')) return tr('لديك طلب متابعة جديد.', 'You have a new follow request.');
+    if (type.contains('relation')) return tr('لديك طلب علاقة جديد.', 'You have a new relationship request.');
+    if (type.contains('gift')) return tr('تم استلام إشعار هدية جديد.', 'A new gift notification was received.');
+    if (type.contains('message')) return tr('لديك رسالة جديدة.', 'You have a new message.');
+    return body.isNotEmpty ? body : tr('لا توجد تفاصيل إضافية.', 'No additional details.');
   }
 
   bool _looksEnglish(String value) {
@@ -189,9 +190,9 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       if (data is Map && data['message'] is String) {
         return data['message'] as String;
       }
-      return error.message ?? 'حدث خطأ أثناء تنفيذ الطلب';
+      return error.message ?? tr('حدث خطأ أثناء تنفيذ الطلب', 'An error occurred while processing the request');
     }
-    return 'حدث خطأ أثناء تنفيذ الطلب';
+    return tr('حدث خطأ أثناء تنفيذ الطلب', 'An error occurred while processing the request');
   }
 
   Future<void> _openNotification(Map<String, dynamic> item) async {
@@ -229,19 +230,19 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
   Widget build(BuildContext context) {
     return Scaffold(
         appBar: AppBar(
-          title: Text('الإشعارات ${_unreadCount > 0 ? "($_unreadCount)" : ""}'),
+          title: Text(tr('الإشعارات ${_unreadCount > 0 ? "($_unreadCount)" : ""}', 'Notifications ${_unreadCount > 0 ? "($_unreadCount)" : ""}')),
           actions: [
             TextButton(
               onPressed: _loading || _unreadCount == 0 ? null : _markAllRead,
-              child: const Text('تحديد الكل كمقروء'),
+              child: Text(tr('تحديد الكل كمقروء', 'Mark all as read')),
             ),
           ],
           bottom: TabBar(
             controller: _tabController,
-            tabs: const [
-              Tab(text: 'الإشعارات'),
-              Tab(text: 'طلبات المتابعة'),
-              Tab(text: 'طلبات العلاقة'),
+            tabs: [
+              Tab(text: tr('الإشعارات', 'Notifications')),
+              Tab(text: tr('طلبات المتابعة', 'Follow requests')),
+              Tab(text: tr('طلبات العلاقة', 'Relationship requests')),
             ],
           ),
         ),
@@ -251,7 +252,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                 controller: _tabController,
                 children: [
                   _notifications.isEmpty
-                      ? const Center(child: Text('لا توجد إشعارات حالياً'))
+                      ? Center(child: Text(tr('لا توجد إشعارات حالياً', 'No notifications yet')))
                       : ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: _notifications.length,
@@ -277,11 +278,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                                             children: [
                                               TextButton(
                                                 onPressed: () => _respondAgencyInvite(item, true),
-                                                child: const Text('قبول'),
+                                                child: Text(tr('قبول', 'Accept')),
                                               ),
                                               TextButton(
                                                 onPressed: () => _respondAgencyInvite(item, false),
-                                                child: const Text('رفض'),
+                                                child: Text(tr('رفض', 'Reject')),
                                               ),
                                             ],
                                           ),
@@ -292,14 +293,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                                     ? null
                                     : TextButton(
                                         onPressed: id == 0 ? null : () => _markRead(id),
-                                        child: const Text('مقروء'),
+                                        child: Text(tr('مقروء', 'Read')),
                                       )),
                               ),
                             );
                           },
                         ),
                   _requests.isEmpty
-                      ? const Center(child: Text('لا توجد طلبات متابعة حالياً'))
+                      ? Center(child: Text(tr('لا توجد طلبات متابعة حالياً', 'No follow requests yet')))
                       : ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: _requests.length,
@@ -310,16 +311,16 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                             final followId = (req['id'] as num?)?.toInt() ?? 0;
                             return Card(
                               child: ListTile(
-                                title: Text('${follower['name'] ?? 'مستخدم'} (@${follower['displayId'] ?? '-'}) يريد متابعتك'),
+                                title: Text(tr('${follower['name'] ?? 'مستخدم'} (@${follower['displayId'] ?? '-'}) يريد متابعتك', '${follower['name'] ?? 'User'} (@${follower['displayId'] ?? '-'}) wants to follow you')),
                                 subtitle: Row(
                                   children: [
                                     TextButton(
                                       onPressed: () => _respond(followId, 'accept'),
-                                      child: const Text('قبول'),
+                                      child: Text(tr('قبول', 'Accept')),
                                     ),
                                     TextButton(
                                       onPressed: () => _respond(followId, 'reject'),
-                                      child: const Text('رفض'),
+                                      child: Text(tr('رفض', 'Reject')),
                                     ),
                                   ],
                                 ),
@@ -328,7 +329,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                           },
                         ),
                   _relationRequests.isEmpty
-                      ? const Center(child: Text('لا توجد طلبات علاقة حالياً'))
+                      ? Center(child: Text(tr('لا توجد طلبات علاقة حالياً', 'No relationship requests yet')))
                       : ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: _relationRequests.length,
@@ -339,16 +340,16 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                             final relationId = (req['id'] as num?)?.toInt() ?? 0;
                             return Card(
                               child: ListTile(
-                                title: Text('${from['name'] ?? 'مستخدم'} (@${from['displayId'] ?? '-'}) يريد علاقة معك'),
+                                title: Text(tr('${from['name'] ?? 'مستخدم'} (@${from['displayId'] ?? '-'}) يريد علاقة معك', '${from['name'] ?? 'User'} (@${from['displayId'] ?? '-'}) wants a relationship with you')),
                                 subtitle: Row(
                                   children: [
                                     TextButton(
                                       onPressed: () => _handleRelationResponse(relationId, 'accept'),
-                                      child: const Text('قبول'),
+                                      child: Text(tr('قبول', 'Accept')),
                                     ),
                                     TextButton(
                                       onPressed: () => _handleRelationResponse(relationId, 'reject'),
-                                      child: const Text('رفض'),
+                                      child: Text(tr('رفض', 'Reject')),
                                     ),
                                   ],
                                 ),

@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../services/dio_client.dart';
 import '../widgets/app_network_image.dart';
+import '../l10n/tr.dart';
 
 /// SPEC52 #41 — the owner's own store lists (e.g. «ID مميز»), one tab each.
 /// The purchase is decided entirely on the server (lock → checks → debit →
@@ -31,7 +32,7 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
       final list = (r.data is Map ? r.data['data'] : null) as List? ?? const [];
       if (mounted) setState(() => _cats = list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList());
     } catch (_) {
-      if (mounted) setState(() => _error = 'تعذر تحميل المتجر');
+      if (mounted) setState(() => _error = tr('تعذر تحميل المتجر', 'Unable to load store'));
     }
   }
 
@@ -40,7 +41,7 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
       final d = (e as dynamic).response?.data;
       if (d is Map && d['message'] != null) return d['message'].toString();
     } catch (_) {}
-    return 'تعذر إتمام الشراء';
+    return tr('تعذر إتمام الشراء', 'Unable to complete purchase');
   }
 
   Future<void> _buy(Map p) async {
@@ -48,11 +49,11 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text(isId ? 'شراء الرقم المميز ${p['specialDisplayId']}' : 'شراء ${p['name']}'),
-        content: Text('السعر: ${p['priceCoins']} كوينز${isId ? '\nسيصبح هذا رقم حسابك الظاهر (ID) ويُحرَّر رقمك الحالي.' : ''}'),
+        title: Text(isId ? tr('شراء الرقم المميز ${p['specialDisplayId']}', 'Buy special ID ${p['specialDisplayId']}') : tr('شراء ${p['name']}', 'Buy ${p['name']}')),
+        content: Text(tr('السعر: ${p['priceCoins']} كوينز${isId ? '\nسيصبح هذا رقم حسابك الظاهر (ID) ويُحرَّر رقمك الحالي.' : ''}', 'Price: ${p['priceCoins']} coins${isId ? '\nThis will become your display ID and your current ID will be released.' : ''}')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('شراء')),
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('إلغاء', 'Cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('شراء', 'Buy'))),
         ],
       ),
     );
@@ -64,7 +65,7 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
       final d = r.data['data'] as Map;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(d['newDisplayId'] != null ? '🎉 رقمك الجديد ${d['newDisplayId']}' : '✅ تم الشراء'),
+        content: Text(d['newDisplayId'] != null ? tr('🎉 رقمك الجديد ${d['newDisplayId']}', '🎉 Your new ID ${d['newDisplayId']}') : tr('✅ تم الشراء', '✅ Purchased')),
       ));
       _load();
     } catch (e) {
@@ -80,20 +81,20 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
       textDirection: TextDirection.rtl,
       child: cats == null || cats.isEmpty
           ? Scaffold(
-              appBar: AppBar(title: const Text('قوائم خاصة')),
+              appBar: AppBar(title: Text(tr('قوائم خاصة', 'Special lists'))),
               body: Center(
                 child: _error != null
                     ? Text(_error!)
                     : cats == null
                         ? const CircularProgressIndicator()
-                        : const Text('لا توجد قوائم حالياً'),
+                        : Text(tr('لا توجد قوائم حالياً', 'No lists yet')),
               ),
             )
           : DefaultTabController(
               length: cats.length,
               child: Scaffold(
                 appBar: AppBar(
-                  title: const Text('قوائم خاصة'),
+                  title: Text(tr('قوائم خاصة', 'Special lists')),
                   bottom: TabBar(isScrollable: true, tabs: [
                     for (final c in cats)
                       Tab(
@@ -115,7 +116,7 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
 
   Widget _grid(Map c) {
     final products = (c['products'] as List? ?? const []).whereType<Map>().toList();
-    if (products.isEmpty) return const Center(child: Text('لا توجد منتجات متاحة'));
+    if (products.isEmpty) return Center(child: Text(tr('لا توجد منتجات متاحة', 'No products available')));
     return LayoutBuilder(
       builder: (_, box) => GridView.builder(
         padding: const EdgeInsets.all(12),
@@ -156,7 +157,7 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
                   const SizedBox(height: 4),
                   Text('🪙 ${p['priceCoins']}', style: const TextStyle(color: Color(0xFFFFE082), fontWeight: FontWeight.w700)),
                   if (p['durationDays'] != null)
-                    Text('${p['durationDays']} يوم', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                    Text(tr('${p['durationDays']} يوم', '${p['durationDays']} days'), style: const TextStyle(color: Colors.white54, fontSize: 11)),
                 ],
               ),
             ),

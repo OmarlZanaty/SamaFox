@@ -40,6 +40,7 @@ import 'home_screen.dart';
 import '../widgets/app_network_image.dart';
 import '../widgets/cp_box.dart';
 import 'relations_screen.dart';
+import '../l10n/tr.dart';
 
 /// Model for Received Gift
 class ReceivedGift {
@@ -243,19 +244,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           textDirection: TextDirection.rtl,
           child: AlertDialog(
             backgroundColor: const Color(0xFF1A0E3E),
-            title: const Text('حظر المستخدم', style: TextStyle(color: Colors.white)),
+            title: Text(tr('حظر المستخدم', 'Block user'), style: TextStyle(color: Colors.white)),
             content: Text(
-              'لن يتمكن $name من مراسلتك، ولن تتمكن من مراسلته. يمكنك فك الحظر في أي وقت.',
+              tr('لن يتمكن $name من مراسلتك، ولن تتمكن من مراسلته. يمكنك فك الحظر في أي وقت.', 'You and $name will not be able to message each other. You can unblock them at any time.'),
               style: const TextStyle(color: Colors.white70),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dctx, false),
-                child: const Text('إلغاء', style: TextStyle(color: Colors.white70)),
+                child: Text(tr('إلغاء', 'Cancel'), style: TextStyle(color: Colors.white70)),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(dctx, true),
-                child: const Text('حظر', style: TextStyle(color: Colors.redAccent)),
+                child: Text(tr('حظر', 'Block'), style: TextStyle(color: Colors.redAccent)),
               ),
             ],
           ),
@@ -274,12 +275,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       if (!mounted) return;
       setState(() => _targetBlocked = !_targetBlocked);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_targetBlocked ? 'تم حظر المستخدم' : 'تم إلغاء الحظر')),
+        SnackBar(content: Text(_targetBlocked ? tr('تم حظر المستخدم', 'User blocked') : tr('تم إلغاء الحظر', 'User unblocked'))),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تعذّر تنفيذ العملية: $e')),
+          SnackBar(content: Text(tr('تعذّر تنفيذ العملية: $e', 'Unable to complete action: $e'))),
         );
       }
     } finally {
@@ -301,7 +302,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تعذّر تنفيذ المتابعة: $e')),
+          SnackBar(content: Text(tr('تعذّر تنفيذ المتابعة: $e', 'Unable to follow: $e'))),
         );
       }
     } finally {
@@ -336,7 +337,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(okText)));
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشلت العملية: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('فشلت العملية: $e', 'Action failed: $e'))));
       }
     }
 
@@ -369,20 +370,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('إدارة الغرفة',
+          Text(tr('إدارة الغرفة', 'Room management'),
               textAlign: TextAlign.right,
               style: TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           Row(
             children: [
-              btn(Icons.mic_off, 'منع المايك', const Color(0xFFFFA726),
-                  () => act('room-admin/seat-block', 'تم منع ${user.name} من صعود المايك',
+              btn(Icons.mic_off, tr('منع المايك', 'Block mic access'), const Color(0xFFFFA726),
+                  () => act('room-admin/seat-block', tr('تم منع ${user.name} من صعود المايك', '${user.name} was blocked from the mic'),
                       extra: {'blocked': true})),
-              btn(Icons.logout, 'طرد', const Color(0xFFFF7043),
-                  () => act('room-admin/kick', 'تم طرد ${user.name} من الغرفة',
+              btn(Icons.logout, tr('طرد', 'Kick'), const Color(0xFFFF7043),
+                  () => act('room-admin/kick', tr('تم طرد ${user.name} من الغرفة', '${user.name} was kicked from the room'),
                       extra: {'minutes': 0})),
-              btn(Icons.block, 'حظر', const Color(0xFFEF5350),
-                  () => act('room-admin/ban', 'تم حظر ${user.name} من الغرفة')),
+              btn(Icons.block, tr('حظر', 'Block'), const Color(0xFFEF5350),
+                  () => act('room-admin/ban', tr('تم حظر ${user.name} من الغرفة', '${user.name} was banned from the room'))),
             ],
           ),
         ],
@@ -421,7 +422,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
 
     return Row(
       children: [
-        btn(Icons.meeting_room, 'غرفة', const Color(0xFF9C6BFF), () {
+        btn(Icons.meeting_room, tr('غرفة', 'Room'), const Color(0xFF9C6BFF), () {
           // Own room first: this button means "their room", so it must not drop
           // us into whatever room they happen to be visiting as a guest, and it
           // must still work while they're offline. liveRoomId is only a fallback
@@ -434,7 +435,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('لا توجد غرفة لهذا المستخدم')),
+              SnackBar(content: Text(tr('لا توجد غرفة لهذا المستخدم', 'This user has no room'))),
             );
           }
         }),
@@ -447,10 +448,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   ? Icons.people_outline
                   : Icons.chat_bubble,
           user.dmPrivacy == 'paid'
-              ? 'رسالة ${user.dmPriceCoins ?? 0}🪙'
+              ? tr('رسالة ${user.dmPriceCoins ?? 0}🪙', 'Message ${user.dmPriceCoins ?? 0}🪙')
               : user.dmPrivacy == 'friends'
-                  ? 'رسالة (أصدقاء)'
-                  : 'رسالة',
+                  ? tr('رسالة (أصدقاء)', 'Message (friends)')
+                  : tr('رسالة', 'Message'),
           const Color(0xFF4F9BFF),
           () {
           Navigator.push(
@@ -466,7 +467,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         }),
         btn(
           following ? Icons.check_circle : Icons.person_add,
-          following ? 'متابَع' : 'متابعة',
+          following ? tr('متابَع', 'Following') : tr('متابعة', 'Follow'),
           const Color(0xFFFFB74D),
           () => _toggleFollow(user.id),
         ),
@@ -476,18 +477,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               ? Icons.people
               : (_friendState == 'pending_out' ? Icons.hourglass_top : Icons.group_add),
           _friendState == 'friends'
-              ? 'صديق'
+              ? tr('صديق', 'Friend')
               : _friendState == 'pending_out'
-                  ? 'تم الإرسال'
+                  ? tr('تم الإرسال', 'Sent')
                   : _friendState == 'pending_in'
-                      ? 'قبول الصداقة'
-                      : 'إضافة صديق',
+                      ? tr('قبول الصداقة', 'Accept friend request')
+                      : tr('إضافة صديق', 'Add friend'),
           const Color(0xFF4DD0E1),
           () => _friendAction(user.id),
         ),
         btn(
           _targetBlocked ? Icons.lock_open : Icons.block,
-          _targetBlocked ? 'فك الحظر' : 'حظر',
+          _targetBlocked ? tr('فك الحظر', 'Unblock') : tr('حظر', 'Block'),
           const Color(0xFFFF6B6B),
           () => _toggleBlock(user.id, user.name),
         ),
@@ -577,25 +578,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: const Color(0xFF2A1A5E),
-          title: const Text(
-            'تسجل الخروج',
+          title: Text(
+            tr('تسجل الخروج', 'Log out'),
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           content: Text(
-            'هل متاكد انك تريد تسجيل الخروج ؟',
+            tr('هل متاكد انك تريد تسجيل الخروج ؟', 'Are you sure you want to log out?'),
             style: TextStyle(color: Colors.white.withOpacity(0.85)),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('إلغاء'),
+              child: Text(tr('إلغاء', 'Cancel')),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent,
               ),
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('تسجيل الخروج'),
+              child: Text(tr('تسجيل الخروج', 'Log out')),
             ),
           ],
         );
@@ -867,7 +868,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     backgroundColor: Colors.redAccent,
                   ),
                   onPressed: activating ? null : () => deactivateItem(item),
-                  child: const Text("إلغاء الاستخدام", style: TextStyle(fontSize: 12, color: Colors.white)),
+                  child: Text(tr("إلغاء الاستخدام", 'Unequip'), style: TextStyle(fontSize: 12, color: Colors.white)),
                 ),
               )
             else
@@ -881,7 +882,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   onPressed: activating
                       ? null
                       : () => activateItem(item.id),
-                  child: const Text("استخدام", style: TextStyle(fontSize: 12)),
+                  child: Text(tr("استخدام", 'Use'), style: TextStyle(fontSize: 12)),
                 ),
               ),
             const SizedBox(height: 8),
@@ -915,17 +916,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildTab("مركبة", "seat_effect"),
-                _buildTab("مداخل", "entrance"),
-                _buildTab("فقاعات", "chat_bubble"),
-                _buildTab("إطارات", "avatar_frame"),
-                _buildTab("شارات", "badge"),
+                _buildTab(tr("مركبة", 'Vehicle'), "seat_effect"),
+                _buildTab(tr("مداخل", 'Entrances'), "entrance"),
+                _buildTab(tr("فقاعات", 'Bubbles'), "chat_bubble"),
+                _buildTab(tr("إطارات", 'Frames'), "avatar_frame"),
+                _buildTab(tr("شارات", 'Badges'), "badge"),
                 // B2/B3 — without these two the user could buy a profile
                 // background or a page-decoration frame and never equip it.
                 // «خلفيات خاصتي»: only what this user owns (bought or granted),
                 // read from the server — never the store's catalogue.
-                _buildTab("خلفيات خاصتي", "profile_background"),
-                _buildTab("تزيين الصفحة", "profile_decor"),
+                _buildTab(tr("خلفيات خاصتي", 'My backgrounds'), "profile_background"),
+                _buildTab(tr("تزيين الصفحة", 'Profile decoration'), "profile_decor"),
               ],
             ),
           ),
@@ -938,8 +939,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 padding: const EdgeInsets.all(20),
                 child: Text(
                   selectedType == "profile_background"
-                      ? "لا تملك خلفيات بعد — الخلفيات اللي تشتريها أو تتمنح لك هتظهر هنا"
-                      : "لا توجد عناصر",
+                      ? tr("لا تملك خلفيات بعد — الخلفيات اللي تشتريها أو تتمنح لك هتظهر هنا", 'No backgrounds yet — backgrounds you buy or receive will appear here')
+                      : tr("لا توجد عناصر", 'No items'),
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white),
                 ),
@@ -981,12 +982,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
               SizedBox(width: 8),
               Text(
-                'الهدايا',
+                tr('الهدايا', 'Gifts'),
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -1008,7 +1009,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Text(
-                  'No gifts received yet',
+                  tr('لم تتلق هدايا بعد', 'No gifts received yet'),
                   style: TextStyle(color: Colors.white.withOpacity(0.5)),
                 ),
               ),
@@ -1188,12 +1189,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                               BoxShadow(color: const Color(0xFFFF4081).withOpacity(0.5), blurRadius: 10),
                             ],
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.sensors, color: Colors.white, size: 15),
                               SizedBox(width: 5),
-                              Text('مسار • LIVE',
+                              Text(tr('مسار • LIVE', 'Trail • LIVE'),
                                   style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
                             ],
                           ),
@@ -1209,7 +1210,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                         children: [
                           if (user.age != null)
                             Text(
-                              '${user.age} سنة',
+                              tr('${user.age} سنة', '${user.age} years'),
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.75),
                                 fontSize: 14,
@@ -1286,7 +1287,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                             ),
                           ),
                           child: Text(
-                            user.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                            user.agencyRole == 'agent' ? tr('وكيل', 'Agent') : tr('مضيف', 'Host'),
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -1371,10 +1372,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   right: 14,
                   bottom: 14,
                   child: GlassBottomBar(
-                    homeLabel: "الرئيسية",
-                    searchLabel: "الرسائل",
-                    gamesLabel: "الألعاب",
-                    profileLabel: "حسابي",
+                    homeLabel: tr("الرئيسية", 'Home'),
+                    searchLabel: tr("الرسائل", 'Messages'),
+                    gamesLabel: tr("الألعاب", 'Games'),
+                    profileLabel: tr("حسابي", 'Profile'),
                     hasRoom: false,
                     roomImageUrl: null,
                     onHome: () {
@@ -1467,7 +1468,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     const Icon(Icons.error_outline, color: Colors.white54, size: 48),
                     const SizedBox(height: 16),
                     Text(
-                      'User not found',
+                      tr('لم يتم العثور على المستخدم', 'User not found'),
                       style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 18),
                     ),
                   ],
@@ -1595,10 +1596,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     }
     if (!mounted) return;
     final p = _progress ?? {};
-    final title = vip ? 'تقدّم VIP' : 'تقدّم المستوى';
+    final title = vip ? tr('تقدّم VIP', 'VIP progress') : tr('تقدّم المستوى', 'Level progress');
     final body = vip
-        ? 'أنت الآن VIP ${p['vipLevel'] ?? 0}.\nتحتاج ${p['coinsRemainingForNextVip'] ?? '-'} كوينز شحن للوصول إلى VIP ${p['nextVip'] ?? '-'}.'
-        : 'أنت الآن المستوى ${p['level'] ?? 1}.\nتحتاج ${p['xpRemaining'] ?? '-'} نقطة للوصول إلى المستوى ${p['nextLevel'] ?? '-'}.';
+        ? tr('أنت الآن VIP ${p['vipLevel'] ?? 0}.\nتحتاج ${p['coinsRemainingForNextVip'] ?? '-'} كوينز شحن للوصول إلى VIP ${p['nextVip'] ?? '-'}.', 'You are VIP ${p['vipLevel'] ?? 0}.\nRecharge ${p['coinsRemainingForNextVip'] ?? '-'} more coins to reach VIP ${p['nextVip'] ?? '-'}.')
+        : tr('أنت الآن المستوى ${p['level'] ?? 1}.\nتحتاج ${p['xpRemaining'] ?? '-'} نقطة للوصول إلى المستوى ${p['nextLevel'] ?? '-'}.', 'You are level ${p['level'] ?? 1}.\nYou need ${p['xpRemaining'] ?? '-'} points to reach level ${p['nextLevel'] ?? '-'}.');
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -1623,11 +1624,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   if (mounted) setState(() {});
                 }
               },
-              child: const Text('شراء VIP', style: TextStyle(color: Color(0xFF4ECDC4))),
+              child: Text(tr('شراء VIP', 'Buy VIP'), style: TextStyle(color: Color(0xFF4ECDC4))),
             ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('حسناً', style: TextStyle(color: Color(0xFFFFD700))),
+            child: Text(tr('حسناً', 'OK'), style: TextStyle(color: Color(0xFFFFD700))),
           ),
         ],
       ),
@@ -1660,8 +1661,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           onTap: () {
             Clipboard.setData(ClipboardData(text: userId.toString()));
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('ID copied'),
+              SnackBar(
+                content: Text(tr('تم نسخ ID', 'ID copied')),
                 duration: Duration(seconds: 2),
               ),
             );
@@ -1708,13 +1709,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          tile(Icons.workspaces, 'وكالتي', const Color(0xFFFFD700),
+          tile(Icons.workspaces, tr('وكالتي', 'My agency'), const Color(0xFFFFD700),
               () => Navigator.pushNamed(context, '/my-agencies')),
-          tile(Icons.storefront, 'متجر', const Color(0xFF4ECDC4),
+          tile(Icons.storefront, tr('متجر', 'Store'), const Color(0xFF4ECDC4),
               () => Navigator.pushNamed(context, '/store')),
-          tile(Icons.local_shipping, 'شحن', const Color(0xFFFF8A3D),
+          tile(Icons.local_shipping, tr('شحن', 'Recharge'), const Color(0xFFFF8A3D),
               () => Navigator.pushNamed(context, '/charging-agent').then((_) => _refreshCoins()),),
-          tile(Icons.settings, 'إعدادات', const Color(0xFF9C6BFF),
+          tile(Icons.settings, tr('إعدادات', 'Settings'), const Color(0xFF9C6BFF),
               () => Navigator.pushNamed(context, '/settings')),
         ],
       ),
@@ -1757,10 +1758,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
         final ok = await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
-            title: const Text('إلغاء الصداقة؟'),
+            title: Text(tr('إلغاء الصداقة؟', 'Remove friend?')),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('لا')),
-              TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('نعم')),
+              TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('لا', 'No'))),
+              TextButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('نعم', 'Yes'))),
             ],
           ),
         );
@@ -1773,7 +1774,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       }
       await _loadSocial(uid);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر تنفيذ الطلب')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذر تنفيذ الطلب', 'Unable to complete request'))));
     }
   }
 
@@ -1792,22 +1793,22 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           // one-directional sheet, landing on the tab that was tapped.
           GestureDetector(
             onTap: () => _openRelations(1),
-            child: _buildStatItem('${c?['following'] ?? user.followingCount ?? 0}', 'أتابعه'),
+            child: _buildStatItem('${c?['following'] ?? user.followingCount ?? 0}', tr('أتابعه', 'Following')),
           ),
           GestureDetector(
             onTap: () => _openRelations(2),
-            child: _buildStatItem('${c?['followers'] ?? user.followersCount ?? 0}', 'يتابعني'),
+            child: _buildStatItem('${c?['followers'] ?? user.followersCount ?? 0}', tr('يتابعني', 'Followers')),
           ),
           // C16 — "بدل ما الليفل والـVIP يتكرروا تحت". They are in the identity
           // row above now, so these two tiles become the buckets that had no
           // entry point at all: أصدقاء (tab 0) and الزوار (tab 3).
           GestureDetector(
             onTap: () => _openRelations(0),
-            child: _buildStatItem(c == null ? '' : '${c['friends']}', 'أصدقاء'),
+            child: _buildStatItem(c == null ? '' : '${c['friends']}', tr('أصدقاء', 'Friends')),
           ),
           GestureDetector(
             onTap: () => _openRelations(3),
-            child: _buildStatItem(c == null ? '' : '${c['visitors']}', 'الزوار'),
+            child: _buildStatItem(c == null ? '' : '${c['visitors']}', tr('الزوار', 'Visitors')),
           ),
         ],
       ),
@@ -1925,8 +1926,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Target',
+                  Text(
+                    tr('التارجت', 'Target'),
                     style: TextStyle(
                       color: Color(0xFFFFB74D),
                       fontSize: 13,
@@ -2041,8 +2042,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             children: [
               const Icon(Icons.flag, color: Color(0xFF4ECDC4), size: 26),
               const SizedBox(width: 10),
-              const Text(
-                'التارجت',
+              Text(
+                tr('التارجت', 'Target'),
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 16,
@@ -2087,7 +2088,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
           ),
           const SizedBox(height: 6),
           Text(
-            'رصيد التارجت — المتاح للتبديل والبيع',
+            tr('رصيد التارجت — المتاح للتبديل والبيع', 'Target balance — available to exchange and sell'),
             textAlign: TextAlign.right,
             style: TextStyle(
               color: Colors.white.withOpacity(0.6),
@@ -2098,8 +2099,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             const SizedBox(height: 14),
             Row(
               children: [
-                const Text(
-                  'هدف الفترة',
+                Text(
+                  tr('هدف الفترة', 'Period target'),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -2119,7 +2120,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             ),
             const SizedBox(height: 4),
             Text(
-              'من ${day(periodStart)} إلى ${day(periodEnd)} — هدايا الفترة لا تقل عند التبديل أو البيع',
+              tr('من ${day(periodStart)} إلى ${day(periodEnd)} — هدايا الفترة لا تقل عند التبديل أو البيع', 'From ${day(periodStart)} to ${day(periodEnd)} — period gifts do not decrease when exchanging or selling'),
               textAlign: TextAlign.right,
               style: TextStyle(
                 color: Colors.white.withOpacity(0.6),
@@ -2142,8 +2143,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             const SizedBox(height: 8),
             Text(
               remaining > 0
-                  ? 'متبقٍ $remaining كوينز لإغلاق التارجت'
-                  : 'اكتمل التارجت 🎉',
+                  ? tr('متبقٍ $remaining كوينز لإغلاق التارجت', '$remaining coins left to reach the target')
+                  : tr('اكتمل التارجت 🎉', 'Target reached 🎉'),
               textAlign: TextAlign.right,
               style: TextStyle(
                 color: Colors.white.withOpacity(0.75),
@@ -2157,7 +2158,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               const Icon(Icons.card_giftcard, color: Color(0xFFFFD700), size: 16),
               const SizedBox(width: 6),
               Text(
-                'عدد الهدايا: $totalGifts',
+                tr('عدد الهدايا: $totalGifts', 'Gift count: $totalGifts'),
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.85),
                   fontSize: 13,
@@ -2261,7 +2262,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                           ),
                         ),
                         Text(
-                          'Coins',
+                          tr('عملات', 'Coins'),
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.75),
                             fontSize: 17,
@@ -2360,7 +2361,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'XP Progress',
+                      tr('تقدّم نقاط الخبرة', 'XP Progress'),
                       style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 12),
                     ),
                     Text(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/dio_client.dart';
+import '../l10n/tr.dart';
 
 /// SPEC52 #37 — Settings → الحساب → ربط رقم الهاتف.
 /// Number → OTP → verify → linked to THIS account (never a new account).
@@ -50,13 +51,13 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
       final d = (e as dynamic).response?.data;
       if (d is Map && d['message'] != null) return d['message'].toString();
     } catch (_) {}
-    return 'تعذر إتمام العملية';
+    return tr('تعذر إتمام العملية', 'Unable to complete action');
   }
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   Future<void> _send() async {
-    if (_phone.text.trim().isEmpty) return _snack('أدخل رقم الهاتف');
+    if (_phone.text.trim().isEmpty) return _snack(tr('أدخل رقم الهاتف', 'Enter phone number'));
     setState(() => _busy = true);
     try {
       final r = await DioClient.dio.post('/auth/phone/send-otp', data: {'phone': _phone.text.trim()});
@@ -73,7 +74,7 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
       });
       // Local/test servers return the code (no SMS provider); production never does.
       if (d['devCode'] != null) _code.text = d['devCode'].toString();
-      _snack('تم إرسال رمز التحقق إلى $_sentTo');
+      _snack(tr('تم إرسال رمز التحقق إلى $_sentTo', 'Verification code sent to $_sentTo'));
     } catch (e) {
       _snack(_err(e));
     } finally {
@@ -82,7 +83,7 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
   }
 
   Future<void> _verify() async {
-    if (_code.text.trim().length < 4) return _snack('أدخل الرمز');
+    if (_code.text.trim().length < 4) return _snack(tr('أدخل الرمز', 'Enter code'));
     setState(() => _busy = true);
     try {
       final r = await DioClient.dio.post('/auth/phone/verify', data: {'phone': _sentTo ?? _phone.text.trim(), 'code': _code.text.trim()});
@@ -90,7 +91,7 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
         _linked = (r.data['data'] as Map)['phone']?.toString();
         _sentTo = null;
       });
-      _snack('تم ربط رقم الهاتف بحسابك ✅');
+      _snack(tr('تم ربط رقم الهاتف بحسابك ✅', 'Phone number linked to your account ✅'));
     } catch (e) {
       _snack(_err(e));
     } finally {
@@ -103,7 +104,7 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('ربط رقم الهاتف')),
+        appBar: AppBar(title: Text(tr('ربط رقم الهاتف', 'Link phone number'))),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -111,7 +112,7 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.verified, color: Colors.green),
-                  title: const Text('الرقم المرتبط بحسابك'),
+                  title: Text(tr('الرقم المرتبط بحسابك', 'Number linked to your account')),
                   subtitle: Text(_linked!, textDirection: TextDirection.ltr),
                 ),
               ),
@@ -120,12 +121,12 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
               controller: _phone,
               keyboardType: TextInputType.phone,
               textDirection: TextDirection.ltr,
-              decoration: const InputDecoration(labelText: 'رقم الهاتف', hintText: '01xxxxxxxxx أو +20…', border: OutlineInputBorder()),
+              decoration: InputDecoration(labelText: tr('رقم الهاتف', 'Phone number'), hintText: tr('01xxxxxxxxx أو +20…', '01xxxxxxxxx or +20…'), border: OutlineInputBorder()),
             ),
             const SizedBox(height: 10),
             FilledButton(
               onPressed: _busy || _resendIn > 0 ? null : _send,
-              child: Text(_resendIn > 0 ? 'إعادة الإرسال بعد $_resendIn ث' : (_sentTo == null ? 'إرسال رمز التحقق' : 'إعادة إرسال الرمز')),
+              child: Text(_resendIn > 0 ? tr('إعادة الإرسال بعد $_resendIn ث', 'Resend in $_resendIn s') : (_sentTo == null ? tr('إرسال رمز التحقق', 'Send verification code') : tr('إعادة إرسال الرمز', 'Resend code'))),
             ),
             if (_sentTo != null) ...[
               const SizedBox(height: 20),
@@ -135,9 +136,9 @@ class _LinkPhoneScreenState extends State<LinkPhoneScreen> {
                 maxLength: 6,
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 22, letterSpacing: 8),
-                decoration: const InputDecoration(labelText: 'رمز التحقق', border: OutlineInputBorder()),
+                decoration: InputDecoration(labelText: tr('رمز التحقق', 'Verification code'), border: OutlineInputBorder()),
               ),
-              FilledButton(onPressed: _busy ? null : _verify, child: const Text('تأكيد وربط الرقم')),
+              FilledButton(onPressed: _busy ? null : _verify, child: Text(tr('تأكيد وربط الرقم', 'Confirm and link number'))),
             ],
           ],
         ),
