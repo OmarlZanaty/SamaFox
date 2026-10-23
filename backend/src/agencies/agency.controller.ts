@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
+import { markInviteNotificationsRead } from '../services/agencyInvites.service';
 import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
 import { getHostTargetView, setHostTarget } from '../services/hostTarget.service';
@@ -534,6 +535,7 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
       { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
     );
     // 7. Committed — only now is "تم الانضمام" true.
+    await markInviteNotificationsRead(result.invite.inviteeId, inviteId);
 
     if (!result.alreadyDone) {
       try {
@@ -690,6 +692,7 @@ export const reviewJoinRequest = async (req: AuthReq, res: Response) => {
       { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
     );
 
+    await markInviteNotificationsRead(invite.inviteeId, inviteId);
     return res.json({ success: true, state: action === 'accept' ? 'ACCEPTED' : 'REJECTED' });
   } catch (e: any) {
     if (e instanceof InviteError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });

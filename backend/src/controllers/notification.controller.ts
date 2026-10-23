@@ -8,6 +8,18 @@ export const AGENCY_NOTIFICATION_TYPES = [
   'AGENCY_TOPUP', 'TARGET_ADJUSTED', 'TARGET_SOLD', 'agency_charge_reward',
 ];
 
+const pendingInviteIds = async (userId: number, now: Date) => new Set(
+  (await prisma.agencyInvite.findMany({
+    where: { inviteeId: userId, status: 'pending', OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+    select: { id: true },
+  })).map(invite => invite.id),
+);
+
+const notificationInviteId = (data: unknown): number | undefined => {
+  if (!data || typeof data !== 'object' || !('inviteId' in data)) return undefined;
+  return typeof data.inviteId === 'number' ? data.inviteId : undefined;
+};
+
 export const listNotifications = async (req: AuthReq, res: Response) => {
   try {
     const userId = req.userId!;
@@ -50,9 +62,21 @@ export const markNotificationRead = async (req: AuthReq, res: Response) => {
     const userId = req.userId!;
     const id = Number(req.params.id);
 
+    // 2026-10-23 — unread keeps the invite's accept/reject buttons available.
+    const now = new Date();
+    const pendingIds = await pendingInviteIds(userId, now);
+    if (pendingIds.size) {
+      const notification = await prisma.notification.findFirst({
+        where: { id, userId, isRead: false, type: 'AGENCY_INVITE' },
+        select: { data: true },
+      });
+      const inviteId = notificationInviteId(notification?.data);
+      if (inviteId !== undefined && pendingIds.has(inviteId)) return res.json({ success: true });
+    }
+
     await prisma.notification.updateMany({
       where: { id, userId, isRead: false },
-      data: { isRead: true, readAt: new Date() },
+      data: { isRead: true, readAt: now },
     });
 
     return res.json({ success: true });
@@ -68,9 +92,23 @@ export const markAllNotificationsRead = async (req: AuthReq, res: Response) => {
     const where: any = { userId, isRead: false };
     if (String(req.query.category ?? '') === 'agency') where.type = { in: AGENCY_NOTIFICATION_TYPES };
 
+    // 2026-10-23 — read-all must also preserve actionable invite buttons.
+    const now = new Date();
+    const pendingIds = await pendingInviteIds(userId, now);
+    if (pendingIds.size) {
+      const notifications = await prisma.notification.findMany({
+        where: { userId, isRead: false, type: 'AGENCY_INVITE' },
+        select: { id: true, data: true },
+      });
+      where.id = { notIn: notifications.filter(notification => {
+        const inviteId = notificationInviteId(notification.data);
+        return inviteId !== undefined && pendingIds.has(inviteId);
+      }).map(notification => notification.id) };
+    }
+
     await prisma.notification.updateMany({
       where,
-      data: { isRead: true, readAt: new Date() },
+      data: { isRead: true, readAt: now },
     });
 
     return res.json({ success: true });

@@ -3,6 +3,19 @@ import { AgencyAccessError } from './agencyIdentity.service';
 import { createNotification } from './notification.service';
 
 export const INVITE_TTL = 7 * 86_400_000;
+
+export async function markInviteNotificationsRead(inviteeId: number, inviteId: number) {
+  // 2026-10-23 — completed/replaced invites must no longer show action buttons.
+  try {
+    await prisma.notification.updateMany({
+      where: { userId: inviteeId, type: 'AGENCY_INVITE', isRead: false, data: { path: ['inviteId'], equals: inviteId } },
+      data: { isRead: true, readAt: new Date() },
+    });
+  } catch (e) {
+    console.warn('[invite notifications read]', e);
+  }
+}
+
 export async function expireAgencyInvites(where: { agencyId?: number; inviteeId?: number } = {}, now = new Date()) {
   return prisma.agencyInvite.updateMany({
     where: { ...where, status: 'pending', expiresAt: { lte: now } },
@@ -59,6 +72,7 @@ export async function changePendingInvite(userId: number, inviteId: number, rese
     if (!changed.count) throw new AgencyAccessError(409, 'الدعوة لم تعد معلقة');
     return tx.agencyInvite.findUniqueOrThrow({ where: { id: inviteId } });
   }, { isolationLevel: 'Serializable' });
+  await markInviteNotificationsRead(invite.inviteeId, invite.id);
   if (resend) await notifyAgencyInvite(invite).catch(e => console.warn('[invite notification]', e));
   return invite;
 }
