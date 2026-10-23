@@ -10,9 +10,9 @@ import { GoogleAuth } from 'google-auth-library';
 //
 // The one live adapter is Firebase App Distribution, and it is NOT a second way
 // onto the Play list — it is a separate channel that emails an install link.
-// It exists solely as the outage fallback for when the daemon is down (see
-// betaWatchdog.service). It does not count toward Play's 12-tester gate, which
-// is why it is never the primary path.
+// It does not count toward Play's 12-tester gate, which is why it is never
+// the primary path. (The beta-sync watchdog that used it as an outage fallback
+// and alerted every admin was removed on 2026-10-23.)
 
 export interface EnrollResult {
   /** true if the address is now on the adapter's tester channel. */
