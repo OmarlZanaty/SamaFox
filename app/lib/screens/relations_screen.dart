@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
@@ -92,17 +93,17 @@ class _RelationsScreenState extends State<RelationsScreen>
     } catch (e) {
       if (!mounted) return;
       final msg = e is DioException && e.response?.data is Map
-          ? (e.response!.data['message']?.toString() ?? 'تعذّر تنفيذ العملية')
-          : 'تعذّر تنفيذ العملية';
+          ? (e.response!.data['message']?.toString() ?? tr('تعذّر تنفيذ العملية', "Could not complete action"))
+          : tr('تعذّر تنفيذ العملية', "Could not complete action");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
   Future<void> _unfollow(int id) =>
-      _act(() => DioClient.dio.delete('/follow/$id').then((_) {}), 'تم إلغاء المتابعة');
+      _act(() => DioClient.dio.delete('/follow/$id').then((_) {}), tr('تم إلغاء المتابعة', "Unfollowed"));
 
   Future<void> _followBack(int id) =>
-      _act(() => DioClient.dio.post('/follow/$id').then((_) {}), 'تمت المتابعة');
+      _act(() => DioClient.dio.post('/follow/$id').then((_) {}), tr('تمت المتابعة', "Following"));
 
   @override
   Widget build(BuildContext context) {
@@ -112,19 +113,19 @@ class _RelationsScreenState extends State<RelationsScreen>
         backgroundColor: const Color(0xFF0D0620),
         appBar: AppBar(
           backgroundColor: const Color(0xFF1A0E3E),
-          title: const Text('المتابعة والزوار'),
+          title: Text(tr('المتابعة والزوار', "Following and visitors")),
           bottom: TabBar(
             controller: _tabs,
             isScrollable: true,
             indicatorColor: const Color(0xFF4ECDC4),
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white54,
-            tabs: const [
-              Tab(text: 'أصدقاء'),
-              Tab(text: 'أتابعه'),
-              Tab(text: 'يتابعني'),
-              Tab(text: 'الزوار'),
-              Tab(text: 'طلبات الصداقة'),
+            tabs: [
+              Tab(text: tr('أصدقاء', "Friends")),
+              Tab(text: tr('أتابعه', "Following")),
+              Tab(text: tr('يتابعني', "Followers")),
+              Tab(text: tr('الزوار', "Visitors")),
+              Tab(text: tr('طلبات الصداقة', "Friend requests")),
             ],
           ),
         ),
@@ -133,27 +134,27 @@ class _RelationsScreenState extends State<RelationsScreen>
           children: [
             _followList(
               (r) => r.friends,
-              badge: 'صديق',
-              actionLabel: 'إلغاء الصداقة',
+              badge: tr('صديق', "Friend"),
+              actionLabel: tr('إلغاء الصداقة', "Unfriend"),
               onAction: (id) async {
                 await DioClient.dio.delete('/friends/$id');
                 _reload();
               },
-              empty: 'لا يوجد أصدقاء بعد — أرسل طلب صداقة من صفحة أي مستخدم',
+              empty: tr('لا يوجد أصدقاء بعد — أرسل طلب صداقة من صفحة أي مستخدم', "No friends yet — send a friend request from a user's profile"),
             ),
             _followList(
               (r) => r.following,
-              badge: 'تتابعه',
-              actionLabel: 'إلغاء المتابعة',
+              badge: tr('تتابعه', "Following"),
+              actionLabel: tr('إلغاء المتابعة', "Unfollow"),
               onAction: _unfollow,
-              empty: 'لا تتابع أحداً بعد',
+              empty: tr('لا تتابع أحداً بعد', "You are not following anyone yet"),
             ),
             _followList(
               (r) => r.followers,
-              badge: 'يتابعك',
-              actionLabel: 'رد المتابعة',
+              badge: tr('يتابعك', "Follows you"),
+              actionLabel: tr('رد المتابعة', "Follow back"),
               onAction: _followBack,
-              empty: 'لا يتابعك أحد بعد',
+              empty: tr('لا يتابعك أحد بعد', "No followers yet"),
             ),
             _visitorsTab(),
             const _FriendRequestsTab(),
@@ -176,7 +177,7 @@ class _RelationsScreenState extends State<RelationsScreen>
         if (snap.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snap.hasError) return _message('تعذّر تحميل القائمة');
+        if (snap.hasError) return _message(tr('تعذّر تحميل القائمة', "Could not load list"));
         final people = select(snap.data!);
         if (people.isEmpty) return _message(empty);
 
@@ -224,12 +225,12 @@ class _RelationsScreenState extends State<RelationsScreen>
         if (snap.connectionState != ConnectionState.done) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snap.hasError) return _message('تعذّر تحميل الزوار');
+        if (snap.hasError) return _message(tr('تعذّر تحميل الزوار', "Could not load visitors"));
         final v = snap.data!;
         if (v.locked) {
-          return _message(v.message ?? 'قائمة الزوار تظهر عند الوصول إلى المستوى ${v.minLevel}');
+          return _message(v.message ?? tr('قائمة الزوار تظهر عند الوصول إلى المستوى ${v.minLevel}', "The visitors list unlocks at level ${v.minLevel}"));
         }
-        if (v.visits.isEmpty) return _message('لا يوجد زوار بعد');
+        if (v.visits.isEmpty) return _message(tr('لا يوجد زوار بعد', "No visitors yet"));
 
         return RefreshIndicator(
           onRefresh: () async => _reload(),
@@ -271,7 +272,7 @@ class _RelationsScreenState extends State<RelationsScreen>
     if (at == null) return '';
     final d = at.toLocal();
     final hour12 = d.hour % 12 == 0 ? 12 : d.hour % 12;
-    final marker = d.hour < 12 ? 'ص' : 'م';
+    final marker = d.hour < 12 ? tr('ص', "AM") : tr('م', "PM");
     final mm = d.minute.toString().padLeft(2, '0');
     return '${d.year}/${d.month}/${d.day} — $hour12:$mm $marker';
   }
@@ -331,7 +332,7 @@ class _Person {
 
   factory _Person.fromJson(Map<String, dynamic> j) => _Person(
         id: (j['id'] as num?)?.toInt() ?? 0,
-        name: j['name']?.toString() ?? 'مستخدم',
+        name: j['name']?.toString() ?? tr('مستخدم', "User"),
         avatarUrl: (j['avatarUrl']?.toString().isNotEmpty ?? false)
             ? j['avatarUrl'].toString()
             : null,
@@ -378,7 +379,7 @@ class _FriendRequestsTabState extends State<_FriendRequestsTab> {
     final rows = _rows;
     if (rows == null) return const Center(child: CircularProgressIndicator());
     if (rows.isEmpty) {
-      return const Center(child: Text('لا توجد طلبات صداقة', style: TextStyle(color: Colors.white54)));
+      return Center(child: Text(tr('لا توجد طلبات صداقة', "No friend requests"), style: TextStyle(color: Colors.white54)));
     }
     return ListView.builder(
       itemCount: rows.length,
@@ -394,8 +395,8 @@ class _FriendRequestsTabState extends State<_FriendRequestsTab> {
           title: Text('${u['name'] ?? ''}', style: const TextStyle(color: Colors.white)),
           subtitle: Text('ID ${u['displayId'] ?? u['id']}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            TextButton(onPressed: () => _answer(id, false), child: const Text('رفض', style: TextStyle(color: Colors.white54))),
-            FilledButton(onPressed: () => _answer(id, true), child: const Text('قبول')),
+            TextButton(onPressed: () => _answer(id, false), child: Text(tr('رفض', "Decline"), style: TextStyle(color: Colors.white54))),
+            FilledButton(onPressed: () => _answer(id, true), child: Text(tr('قبول', "Accept"))),
           ]),
         );
       },

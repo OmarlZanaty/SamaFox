@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 
@@ -33,19 +34,19 @@ enum _RecipientScope { allRoom, micOnly }
 /// for a server that predates gift lists, and for a gift whose category was
 /// deleted; without it such a gift would sit under a tab labelled with its raw
 /// key.
-const Map<String, String> _kCategoryLabels = {
-  'all': 'عادي',
-  'love': 'العلاقة',
-  'luxury': 'خاص',
-  'lucky': 'محظوظ',
-  'magic': 'ماجيك',
-  'flag': 'علم',
-  'bag': 'كيس',
-  'fun': 'مرح',
-  'festive': 'مناسبات',
+Map<String, String> get _kCategoryLabels => {
+  'all': tr('عادي', "Regular"),
+  'love': tr('العلاقة', "Relationship"),
+  'luxury': tr('خاص', "Special"),
+  'lucky': tr('محظوظ', "Lucky"),
+  'magic': tr('ماجيك', "Magic"),
+  'flag': tr('علم', "Flag"),
+  'bag': tr('كيس', "Bag"),
+  'fun': tr('مرح', "Fun"),
+  'festive': tr('مناسبات', "Occasions"),
   'cp': 'CP',
   'vip': 'VIP',
-  'RELATION_RING': 'خاتم العلاقة',
+  'RELATION_RING': tr('خاتم العلاقة', "Relationship ring"),
 };
 
 /// The gift list that carries CP gifts. Matches the `cp` key seeded into
@@ -65,6 +66,7 @@ const Set<String> _kAlwaysShownCategories = {'cp', 'vip'};
 String _categoryLabel(String key) => _kCategoryLabels[key] ?? key;
 
 /// SPEC52 #38 — category keys that mean «عام» (the first tab).
+// i18n: compared with server data
 const Set<String> _kGeneralKeys = {'', 'general', 'all', 'normal', 'عام'};
 
 /// Bottom-sheet gift picker: recipient-scope selector, category tabs, gift
@@ -170,7 +172,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     final cost = _selectedGiftCost * _quantity * _selectedRecipientIds.length;
     if (cost > _balance) {
       _stopRepeatWindow();
-      _toast('الرصيد غير كافٍ', error: true);
+      _toast(tr('الرصيد غير كافٍ', "Insufficient balance"), error: true);
       return;
     }
     await _send();
@@ -191,7 +193,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   Map<String, String> _serverLabels = const {};
 
   String _tabLabel(String key) =>
-      key == 'all' ? (_serverLabels['general'] ?? 'عام') : (_serverLabels[key] ?? _categoryLabel(key));
+      key == 'all' ? (_serverLabels['general'] ?? tr('عام', "General")) : (_serverLabels[key] ?? _categoryLabel(key));
 
   // Anchors so the popups open next to their button, not at a fixed screen spot.
   final CpRepository _cpRepository = CpRepository();
@@ -343,7 +345,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 }
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text('فشل تحميل الهدايا: ${snapshot.error}',
+                    child: Text(tr('فشل تحميل الهدايا: ${snapshot.error}', "Could not load gifts: ${snapshot.error}"),
                         style: const TextStyle(color: Colors.white70)),
                   );
                 }
@@ -354,8 +356,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                   children: _tabKeys.map((key) {
                     final gifts = _giftsForTab(catalog, key);
                     if (gifts.isEmpty) {
-                      return const Center(
-                          child: Text('لا توجد هدايا بعد', style: TextStyle(color: Colors.white60)));
+                      return Center(
+                          child: Text(tr('لا توجد هدايا بعد', "No gifts yet"), style: TextStyle(color: Colors.white60)));
                     }
                     final grid = GridView.builder(
                       padding: const EdgeInsets.all(12),
@@ -380,8 +382,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(color: const Color(0xFFFFB300).withOpacity(0.5)),
                           ),
-                          child: const Text(
-                            '🎲 هدية الحظ: 10% للمضيف، وإنت بترمي على مضاعف من ×5 لحد ×500 — المكسب يرجع لرصيدك فوراً',
+                          child: Text(
+                            tr('🎲 هدية الحظ: 10% للمضيف، وإنت بترمي على مضاعف من ×5 لحد ×500 — المكسب يرجع لرصيدك فوراً', "🎲 Lucky gift: 10% goes to the host. Roll for a multiplier from ×5 to ×500 — winnings go straight to your balance"),
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.white, fontSize: 11, height: 1.4),
                           ),
@@ -437,9 +439,9 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       context: context,
       position: _menuPositionFor(_scopeKey),
       color: _kCardColor,
-      items: const [
-        PopupMenuItem(value: _RecipientScope.allRoom, child: Text('جميع الغرفة', style: TextStyle(color: Colors.white))),
-        PopupMenuItem(value: _RecipientScope.micOnly, child: Text('الميك الكامل', style: TextStyle(color: Colors.white))),
+      items: [
+        PopupMenuItem(value: _RecipientScope.allRoom, child: Text(tr('جميع الغرفة', "Whole room"), style: TextStyle(color: Colors.white))),
+        PopupMenuItem(value: _RecipientScope.micOnly, child: Text(tr('الميك الكامل', "All mics"), style: TextStyle(color: Colors.white))),
       ],
     );
     if (selected != null) {
@@ -480,7 +482,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    _scope == _RecipientScope.allRoom ? 'جميع الغرفة' : 'الميك الكامل',
+                    _scope == _RecipientScope.allRoom ? tr('جميع الغرفة', "Whole room") : tr('الميك الكامل', "All mics"),
                     style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(width: 2),
@@ -491,9 +493,9 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
             const SizedBox(width: 10),
             Expanded(
               child: recipients.isEmpty
-                  ? const Align(
+                  ? Align(
                       alignment: AlignmentDirectional.centerStart,
-                      child: Text('لا يوجد مستلمون',
+                      child: Text(tr('لا يوجد مستلمون', "No recipients"),
                           style: TextStyle(color: Colors.white60, fontSize: 12)),
                     )
                   : ListView.separated(
@@ -555,7 +557,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
             ),
             const SizedBox(height: 2),
             Text(
-              r.seatNumber == 0 ? 'المالك' : (r.seatNumber != null ? '${r.seatNumber}' : r.name),
+              r.seatNumber == 0 ? tr('المالك', "Owner") : (r.seatNumber != null ? '${r.seatNumber}' : r.name),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
@@ -760,8 +762,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                                 : Text(
                                     _selectedRecipientIds.length > 1
-                                        ? 'إرسال (${_selectedRecipientIds.length})'
-                                        : 'إرسال',
+                                        ? tr('إرسال (${_selectedRecipientIds.length})', "Send (${_selectedRecipientIds.length})")
+                                        : tr('إرسال', "Send"),
                                     style: const TextStyle(
                                         color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
                           ),
@@ -834,7 +836,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 children: [
                   Text('$_repeatLeft',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, height: 1)),
-                  const Text('إرسال مرة أخرى',
+                  Text(tr('إرسال مرة أخرى', "Send again"),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w700, height: 1.1)),
                 ],
@@ -923,15 +925,15 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
           }
           _toast(
             result.leveledUp && result.level != null
-                ? '💞 ارتفع مستوى الـ CP إلى LV.${result.level}${(result.levelName ?? '').isNotEmpty ? ' — ${result.levelName}' : ''}'
-                : '💞 تم إرسال هدية الـ CP — +${result.pointsAdded} CP',
+                ? tr('💞 ارتفع مستوى الـ CP إلى LV.${result.level}${(result.levelName ?? '').isNotEmpty ? ' — ${result.levelName}' : ''}', "💞 CP level increased to LV.${result.level}${(result.levelName ?? '').isNotEmpty ? ' — ${result.levelName}' : ''}")
+                : tr('💞 تم إرسال هدية الـ CP — +${result.pointsAdded} CP', "💞 CP gift sent — +${result.pointsAdded} CP"),
           );
           return;
         }
         _toast(
           recipients.length > 1
-              ? 'تم إرسال طلب الـ CP لأول شخص محدد — في انتظار الرد'
-              : 'تم إرسال هدية الـ CP — في انتظار الرد',
+              ? tr('تم إرسال طلب الـ CP لأول شخص محدد — في انتظار الرد', "CP request sent to the first selected person — awaiting a reply")
+              : tr('تم إرسال هدية الـ CP — في انتظار الرد', "CP gift sent — awaiting a reply"),
         );
         return;
       } on CpException catch (e) {
@@ -972,13 +974,13 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       if (_selectedGiftIsLucky) _startRepeatWindow();
       final lucky = result.lucky;
       if (lucky == null) {
-        _toast('تم إرسال الهدية!');
+        _toast(tr('تم إرسال الهدية!', "Gift sent!"));
       } else if (lucky.pending) {
-        _toast('🎲 هديتك دخلت الجولة — بانتظار لاعب آخر لتبدأ المنافسة');
+        _toast(tr('🎲 هديتك دخلت الجولة — بانتظار لاعب آخر لتبدأ المنافسة', "🎲 Your gift entered the round — waiting for another player to start"));
       } else if (lucky.won) {
-        _toast('🎉 كسبت ×${lucky.multiplier} على $sentCost كوينز — ${lucky.payoutCoins} كوينز رجعت لرصيدك');
+        _toast(tr('🎉 كسبت ×${lucky.multiplier} على $sentCost كوينز — ${lucky.payoutCoins} كوينز رجعت لرصيدك', "🎉 You won ×${lucky.multiplier} on $sentCost coins — ${lucky.payoutCoins} coins added to your balance"));
       } else {
-        _toast('🎲 حظ أوفر المرة الجاية — ${lucky.hostCoins} كوينز راحت للمضيف', warning: true);
+        _toast(tr('🎲 حظ أوفر المرة الجاية — ${lucky.hostCoins} كوينز راحت للمضيف', "🎲 Better luck next time — ${lucky.hostCoins} coins went to the host"), warning: true);
       }
     } on GiftRepositoryException catch (e) {
       if (!mounted) return;
@@ -1010,11 +1012,11 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       if (_selectedGiftIsLucky && result.sent > 0) _startRepeatWindow();
 
       if (result.sent == result.requested) {
-        _toast('تم إرسال الهدية إلى ${result.sent} مستلمين');
+        _toast(tr('تم إرسال الهدية إلى ${result.sent} مستلمين', "Gift sent to ${result.sent} recipients"));
       } else {
         _toast(
-          'تم إرسال ${result.sent} من ${result.requested}'
-          '${result.failureMessages.isNotEmpty ? ': ${result.failureMessages.first}' : ''}',
+          tr('تم إرسال ${result.sent} من ${result.requested}'
+          '${result.failureMessages.isNotEmpty ? ': ${result.failureMessages.first}' : ''}', "Sent ${result.sent} of ${result.requested}${result.failureMessages.isNotEmpty ? ': ${result.failureMessages.first}' : ''}"),
           warning: true,
         );
       }

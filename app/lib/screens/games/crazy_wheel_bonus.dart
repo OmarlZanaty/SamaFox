@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -5,15 +6,15 @@ import 'package:flutter/material.dart';
 /// Arabic names for every wheel spot, shared by the wheel and the bonus
 /// overlays so the two can never drift apart. The keys are the server's
 /// segment ids and must stay as they are.
-const Map<String, String> kCrazySpotNames = {
+Map<String, String> get kCrazySpotNames => {
   '1': '١',
   '2': '٢',
   '5': '٥',
   '10': '١٠',
-  'coinflip': 'قلب العملة',
-  'cashhunt': 'صيد النقود',
-  'pachinko': 'باتشينكو',
-  'crazytime': 'الوقت المجنون',
+  'coinflip': tr('قلب العملة', "Coin flip"),
+  'cashhunt': tr('صيد النقود', "Cash hunt"),
+  'pachinko': tr('باتشينكو', "Pachinko"),
+  'crazytime': tr('الوقت المجنون', "Crazy time"),
 };
 
 /// The four bonus rounds of عجلة الحظ.
@@ -164,7 +165,7 @@ class CashHuntBonus extends StatelessWidget {
       title: kCrazySpotNames['cashhunt']!,
       iconPath: 'assets/images/crazy/icon_cashhunt.png',
       accent: const Color(0xFF2E7D32),
-      subtitle: picking ? 'اختر رمزًا واحدًا' : 'كُشف عن المضاعفات',
+      subtitle: picking ? tr('اختر رمزًا واحدًا', "Choose one symbol") : tr('كُشف عن المضاعفات', "Multipliers revealed"),
       child: LayoutBuilder(
         builder: (context, constraints) {
           const columns = 12;
@@ -273,7 +274,7 @@ class _PachinkoBonusState extends State<PachinkoBonus>
       title: kCrazySpotNames['pachinko']!,
       iconPath: 'assets/images/crazy/icon_pachinko.png',
       accent: const Color(0xFFD81B60),
-      subtitle: _dropIndex > 0 ? 'مضاعفة! كل المضاعفات تضاعفت' : null,
+      subtitle: _dropIndex > 0 ? tr('مضاعفة! كل المضاعفات تضاعفت', "Double! All multipliers doubled") : null,
       child: AspectRatio(
         aspectRatio: 0.9,
         child: AnimatedBuilder(
@@ -410,7 +411,7 @@ class CrazyTimeBonus extends StatelessWidget {
       title: kCrazySpotNames['crazytime']!,
       iconPath: 'assets/images/crazy/icon_crazytime.png',
       accent: const Color(0xFFC62828),
-      subtitle: picking ? 'اختر القلاب الخاص بك' : null,
+      subtitle: picking ? tr('اختر القلاب الخاص بك', "Choose your flapper") : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -439,7 +440,7 @@ class CrazyTimeBonus extends StatelessWidget {
                       Text(
                         !picking && value != null
                             ? 'x$value'
-                            : (mine ? 'اخترته' : '؟'),
+                            : (mine ? tr('اخترته', "Selected") : tr('؟', "?")),
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -453,8 +454,8 @@ class CrazyTimeBonus extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           if (!picking)
-            const Text(
-              'العجلة الضخمة توقفت — تُطبَّق المضاعفات الآن',
+            Text(
+              tr('العجلة الضخمة توقفت — تُطبَّق المضاعفات الآن', "The big wheel stopped — applying multipliers"),
               style: TextStyle(color: Colors.white70, fontSize: 13),
             ),
         ],

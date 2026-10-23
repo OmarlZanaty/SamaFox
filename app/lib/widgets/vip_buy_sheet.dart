@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
@@ -79,20 +80,20 @@ class _VipBuySheetState extends State<VipBuySheet> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF1E1347),
-        title: const Text('تأكيد الشراء', style: TextStyle(color: Colors.white)),
+        title: Text(tr('تأكيد الشراء', "Confirm purchase"), style: TextStyle(color: Colors.white)),
         content: Text(
-          'شراء VIP $level مقابل ${_fmt(price)} كوينز'
-          '${days != null ? '\nالمدة: $days يوم' : '\nبدون مدة (أبدي)'}',
+          tr('شراء VIP $level مقابل ${_fmt(price)} كوينز'
+          '${days != null ? '\nالمدة: $days يوم' : '\nبدون مدة (أبدي)'}', "Buy VIP $level for ${_fmt(price)} coins${days != null ? '\nDuration: $days days' : '\nNo expiry (permanent)'}"),
           style: const TextStyle(color: Colors.white70, height: 1.6),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء', style: TextStyle(color: Colors.white54)),
+            child: Text(tr('إلغاء', "Cancel"), style: TextStyle(color: Colors.white54)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('شراء', style: TextStyle(color: Color(0xFFFFD700))),
+            child: Text(tr('شراء', "Buy"), style: TextStyle(color: Color(0xFFFFD700))),
           ),
         ],
       ),
@@ -115,7 +116,7 @@ class _VipBuySheetState extends State<VipBuySheet> {
         LevelCatalogService.invalidate();
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تهانينا! أصبحت VIP $level')),
+          SnackBar(content: Text(tr('تهانينا! أصبحت VIP $level', "Congratulations! You are now VIP $level"))),
         );
       } else {
         setState(() => _buyingLevel = null);
@@ -135,7 +136,7 @@ class _VipBuySheetState extends State<VipBuySheet> {
 
   void _error(String? msg) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg ?? 'تعذّر إتمام الشراء')),
+      SnackBar(content: Text(msg ?? tr('تعذّر إتمام الشراء', "Could not complete purchase"))),
     );
   }
 
@@ -161,16 +162,16 @@ class _VipBuySheetState extends State<VipBuySheet> {
               ),
             ),
             const SizedBox(height: 14),
-            const Text(
-              'شراء VIP',
+            Text(
+              tr('شراء VIP', "Buy VIP"),
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
             Text(
               widget.coinsBalance != null
-                  ? 'رصيدك: ${_fmt(widget.coinsBalance!)} كوينز'
-                  : 'اختر المستوى الذي تريده',
+                  ? tr('رصيدك: ${_fmt(widget.coinsBalance!)} كوينز', "Your balance: ${_fmt(widget.coinsBalance!)} coins")
+                  : tr('اختر المستوى الذي تريده', "Choose your level"),
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
@@ -181,10 +182,10 @@ class _VipBuySheetState extends State<VipBuySheet> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_tiers.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(vertical: 28),
                 child: Text(
-                  'لا توجد مستويات معروضة للبيع حالياً',
+                  tr('لا توجد مستويات معروضة للبيع حالياً', "No levels for sale right now"),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white54),
                 ),
@@ -243,7 +244,7 @@ class _VipBuySheetState extends State<VipBuySheet> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${_fmt(price)} كوينز • ${days != null ? '$days يوم' : 'أبدي'}',
+                  tr('${_fmt(price)} كوينز • ${days != null ? '$days يوم' : 'أبدي'}', "${_fmt(price)} coins • ${days != null ? '$days days' : 'Permanent'}"),
                   style: const TextStyle(color: Colors.white60, fontSize: 12),
                 ),
               ],
@@ -263,7 +264,7 @@ class _VipBuySheetState extends State<VipBuySheet> {
                       width: 15, height: 15,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54))
                   : Text(
-                      affordable ? 'شراء' : 'رصيد غير كافٍ',
+                      affordable ? tr('شراء', "Buy") : tr('رصيد غير كافٍ', "Insufficient balance"),
                       style: const TextStyle(
                           color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold),
                     ),

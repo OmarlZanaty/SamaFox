@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 
 import 'dio_client.dart';
@@ -18,7 +19,7 @@ class AgencyBranchService {
       }
     }
     if (error is AgencyBranchException) return error.message;
-    return 'تعذر إتمام العملية، يرجى المحاولة مجدداً';
+    return tr('تعذر إتمام العملية، يرجى المحاولة مجدداً', "Could not complete action. Please try again");
   }
 
   dynamic _data(Response<dynamic> response) {
@@ -27,7 +28,7 @@ class AgencyBranchService {
       throw AgencyBranchException(
         body is Map && body['message'] is String
             ? body['message'] as String
-            : 'تعذر تحميل البيانات',
+            : tr('تعذر تحميل البيانات', "Could not load data"),
       );
     }
     return body['data'];
@@ -36,7 +37,7 @@ class AgencyBranchService {
   List<Map<String, dynamic>> _rows(Response<dynamic> response) {
     final data = _data(response);
     if (data is! List) {
-      throw const AgencyBranchException('تعذر تحميل البيانات');
+      throw AgencyBranchException(tr('تعذر تحميل البيانات', "Could not load data"));
     }
     return data.map((row) => Map<String, dynamic>.from(row as Map)).toList();
   }
@@ -53,7 +54,7 @@ class AgencyBranchService {
   }) async {
     final id = int.tryParse(value.trim());
     if (id == null || id <= 0) {
-      throw const AgencyBranchException('أدخل رقم مستخدم صالحاً');
+      throw AgencyBranchException(tr('أدخل رقم مستخدم صالحاً', "Enter a valid user ID"));
     }
     if (internalId) return userById(id);
     final rows = _rows(
@@ -66,7 +67,7 @@ class AgencyBranchService {
     // display ID is safe; never silently assign the first search result.
     final exact = rows.where((user) => '${user['displayId']}' == '$id');
     if (exact.length != 1) {
-      throw const AgencyBranchException('لم يتم العثور على مستخدم بهذا الرقم');
+      throw AgencyBranchException(tr('لم يتم العثور على مستخدم بهذا الرقم', "No user found with this ID"));
     }
     return exact.single;
   }

@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
@@ -336,7 +337,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         child: TextField(
                           controller: _controller,
                           decoration: InputDecoration(
-                            hintText: 'ابحث بالاسم أو الرقم...',
+                            hintText: tr('ابحث بالاسم أو الرقم...', "Search by name or ID..."),
                             prefixIcon: const Icon(Icons.search),
                             suffixIcon: _isSearching
                                 ? const Padding(
@@ -382,12 +383,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                   childCount: _results.length,
                                 ),
                               )
-                            : const SliverToBoxAdapter(
+                            : SliverToBoxAdapter(
                                 child: Padding(
                                   padding: EdgeInsets.only(top: 24),
                                   child: Center(
                                     child: Text(
-                                      'لا توجد نتائج',
+                                      tr('لا توجد نتائج', "No results"),
                                       style: TextStyle(color: Colors.white70),
                                     ),
                                   ),
@@ -537,7 +538,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 child: _GlassBottomBar(
                   homeLabel: strings.home,
                   searchLabel: strings.messages, // ✅ label becomes Messages (or put "الرسائل")
-                  gamesLabel: "الألعاب",
+                  gamesLabel: tr("الألعاب", "Games"),
                   profileLabel: strings.profile,
 
                   hasRoom: userRoom != null, // ✅ NEW
@@ -1170,8 +1171,8 @@ class _WelcomePanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          const Text(
-            "👋 مرحباً بك",
+          Text(
+            tr("👋 مرحباً بك", "👋 Welcome"),
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w800,
@@ -1191,8 +1192,8 @@ class _WelcomePanel extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          const Text(
-            "يمكنك الانضمام إلى غرفة سما فوكس الرسمية أو استكشاف الغرف الأخرى.",
+          Text(
+            tr("يمكنك الانضمام إلى غرفة سما فوكس الرسمية أو استكشاف الغرف الأخرى.", "Join the official SamaFox room or explore other rooms."),
             style: TextStyle(
               color: Colors.white60,
               fontSize: 12,
@@ -1201,12 +1202,12 @@ class _WelcomePanel extends StatelessWidget {
 
           const Spacer(),
 
-          const Row(
+          Row(
             children: [
               Icon(Icons.star, color: Colors.amber, size: 16),
               SizedBox(width: 6),
               Text(
-                "غرفة مميزة",
+                tr("غرفة مميزة", "Featured room"),
                 style: TextStyle(color: Colors.white70, fontSize: 12),
               )
             ],
@@ -1283,9 +1284,9 @@ class _GlassBottomBar extends StatelessWidget {
 
   void _showTestMessage(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          "عفوا هذه النسخة مخصصة لأختبار الغرف فقط",
+          tr("عفوا هذه النسخة مخصصة لأختبار الغرف فقط", "Sorry, this version is for testing rooms only"),
           textAlign: TextAlign.center,
         ),
         behavior: SnackBarBehavior.floating,

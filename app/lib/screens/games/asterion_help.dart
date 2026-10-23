@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 
 import '../../repositories/asterion_repository.dart';
@@ -46,9 +47,9 @@ class AsterionHelpSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              const Center(
+              Center(
                 child: Text(
-                  'أستيريون — كيف تُلعب',
+                  tr('أستيريون — كيف تُلعب', "Asterion — how to play"),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 21,
@@ -58,45 +59,45 @@ class AsterionHelpSheet extends StatelessWidget {
               ),
               const SizedBox(height: 18),
 
-              _section('اللوحة', [
-                'لوحة من ${layout.cols} أعمدة × ${layout.rows} صفوف، أي ${layout.cols * layout.rows} خانة.',
-                'لا توجد خطوط دفع: يكفي أن يظهر ${layout.minMatch} رموز متطابقة أو أكثر في أي مكان على اللوحة.',
-                'كل الرموز المتطابقة تُحتسب مرة واحدة، ويمكن أن يفوز أكثر من رمز في نفس اللقطة.',
+              _section(tr('اللوحة', "Board"), [
+                tr('لوحة من ${layout.cols} أعمدة × ${layout.rows} صفوف، أي ${layout.cols * layout.rows} خانة.', "A board of ${layout.cols} columns × ${layout.rows} rows, with ${layout.cols * layout.rows} cells."),
+                tr('لا توجد خطوط دفع: يكفي أن يظهر ${layout.minMatch} رموز متطابقة أو أكثر في أي مكان على اللوحة.', "No paylines: ${layout.minMatch} or more matching symbols anywhere on the board are enough to win."),
+                tr('كل الرموز المتطابقة تُحتسب مرة واحدة، ويمكن أن يفوز أكثر من رمز في نفس اللقطة.', "All matching symbols count once, and more than one symbol type can win in the same frame."),
               ]),
 
-              _section('التساقط', [
-                'الرموز الفائزة تتلاشى، وما فوقها يسقط مكانها، وتنزل رموز جديدة من الأعلى.',
-                'يتكرر ذلك ما دام هناك فوز جديد. مجموع اللقطات كلها هو ربح الجولة قبل المضاعف.',
+              _section(tr('التساقط', "Tumble"), [
+                tr('الرموز الفائزة تتلاشى، وما فوقها يسقط مكانها، وتنزل رموز جديدة من الأعلى.', "Winning symbols disappear, those above fall into place, and new symbols drop from the top."),
+                tr('يتكرر ذلك ما دام هناك فوز جديد. مجموع اللقطات كلها هو ربح الجولة قبل المضاعف.', "This repeats while new wins occur. All frames together form the round win before the multiplier."),
               ]),
 
-              _section('كرات العاصفة', [
-                'كرة العاصفة تحمل قيمة ظاهرة من ${layout.orbValues.first}x إلى ${layout.orbValues.last}x.',
-                'الكرة لا تدفع وحدها ولا تُحتسب ضمن التطابق، ولا تسقط: تثبت في مكانها حتى تنتهي الجولة.',
-                'عند توقّف التساقط تُجمع قيم كل الكرات الظاهرة **بالجمع** — 4x + 6x + 25x = 35x وليس 600x — ويُضرب بها ربح الجولة كاملًا.',
-                'إذا لم تربح الجولة شيئًا فالكرات تختفي دون أثر.',
+              _section(tr('كرات العاصفة', "Storm orbs"), [
+                tr('كرة العاصفة تحمل قيمة ظاهرة من ${layout.orbValues.first}x إلى ${layout.orbValues.last}x.', "A storm orb carries a visible value from ${layout.orbValues.first}x to ${layout.orbValues.last}x."),
+                tr('الكرة لا تدفع وحدها ولا تُحتسب ضمن التطابق، ولا تسقط: تثبت في مكانها حتى تنتهي الجولة.', "Orbs do not pay on their own or count as matches. They do not fall: they stay in place until the round ends."),
+                tr('عند توقّف التساقط تُجمع قيم كل الكرات الظاهرة **بالجمع** — 4x + 6x + 25x = 35x وليس 600x — ويُضرب بها ربح الجولة كاملًا.', "When tumbling stops, all visible orb values are **added** — 4x + 6x + 25x = 35x, not 600x — and multiply the entire round win."),
+                tr('إذا لم تربح الجولة شيئًا فالكرات تختفي دون أثر.', "If the round wins nothing, the orbs disappear without effect."),
               ]),
 
-              _section('تجارب السماء', [
-                '${layout.crestTrigger} شعارات أو أكثر في التوزيع الأول تمنحك ${layout.trialSpins} لفة مجانية.',
-                '${layout.crestRetrigger} شعارات أثناء التجارب تضيف ${layout.retriggerSpins} لفّات.',
-                'داخل التجارب يوجد عدّاد "مضاعف التجارب": كل كرة تُجمع في لفة رابحة تُضاف إليه، ولا يُصفَّر حتى تنتهي التجارب.',
-                'كل ربح داخل التجارب يُضرب بالعدّاد كاملًا، لا بكرات تلك اللفة وحدها.',
+              _section(tr('تجارب السماء', "Sky Trials"), [
+                tr('${layout.crestTrigger} شعارات أو أكثر في التوزيع الأول تمنحك ${layout.trialSpins} لفة مجانية.', "${layout.crestTrigger} or more crests on the first board grant ${layout.trialSpins} free spins."),
+                tr('${layout.crestRetrigger} شعارات أثناء التجارب تضيف ${layout.retriggerSpins} لفّات.', "${layout.crestRetrigger} crests during the trials add ${layout.retriggerSpins} spins."),
+                tr('داخل التجارب يوجد عدّاد "مضاعف التجارب": كل كرة تُجمع في لفة رابحة تُضاف إليه، ولا يُصفَّر حتى تنتهي التجارب.', "During trials, every orb collected on a winning spin adds to the “Trial multiplier” counter, which only resets when the trials end."),
+                tr('كل ربح داخل التجارب يُضرب بالعدّاد كاملًا، لا بكرات تلك اللفة وحدها.', "Every win during trials is multiplied by the full counter, not just the orbs from that spin."),
               ]),
 
-              _section('حدود', [
-                'الرهان من ${layout.minBet} إلى ${layout.maxBet} عملة.',
-                'أقصى ربح لجولة واحدة ${layout.maxWinMultiple}x من الرهان.',
-                'الجولة كاملة — التوزيع والتساقط والكرات والتجارب — تُحسم على الخادم قبل أن تتحرك أي صورة على شاشتك. الشاشة تعرض نتيجة مُقرَّرة، ولا تستطيع تغييرها.',
+              _section(tr('حدود', "Limits"), [
+                tr('الرهان من ${layout.minBet} إلى ${layout.maxBet} عملة.', "Bet from ${layout.minBet} to ${layout.maxBet} coins."),
+                tr('أقصى ربح لجولة واحدة ${layout.maxWinMultiple}x من الرهان.', "The maximum win per round is ${layout.maxWinMultiple}x the bet."),
+                tr('الجولة كاملة — التوزيع والتساقط والكرات والتجارب — تُحسم على الخادم قبل أن تتحرك أي صورة على شاشتك. الشاشة تعرض نتيجة مُقرَّرة، ولا تستطيع تغييرها.', "The entire round — deal, tumbles, orbs and trials — is decided on the server before anything moves on your screen. The screen displays a predetermined result and cannot change it."),
               ]),
 
               const SizedBox(height: 8),
-              const Text(
-                'جدول الدفع',
+              Text(
+                tr('جدول الدفع', "Paytable"),
                 style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'القيم مضاعفات من إجمالي الرهان، حسب عدد الرموز الظاهرة.',
+              Text(
+                tr('القيم مضاعفات من إجمالي الرهان، حسب عدد الرموز الظاهرة.', "Values are multiples of the total bet, based on the number of symbols shown."),
                 style: TextStyle(color: AsterionPalette.muted, fontSize: 12),
               ),
               const SizedBox(height: 10),
@@ -106,10 +107,10 @@ class AsterionHelpSheet extends StatelessWidget {
               const SizedBox(height: 14),
               _specialRow(
                 'CREST',
-                'الشعار',
-                '${layout.crestTrigger}+ في التوزيع الأول = ${layout.trialSpins} لفة مجانية',
+                tr('الشعار', "Crest"),
+                tr('${layout.crestTrigger}+ في التوزيع الأول = ${layout.trialSpins} لفة مجانية', "${layout.crestTrigger}+ on the first board = ${layout.trialSpins} free spins"),
               ),
-              _specialRow('ORB', 'كرة العاصفة', 'تُجمع قيمها وتضرب ربح الجولة'),
+              _specialRow('ORB', tr('كرة العاصفة', "Storm orb"), tr('تُجمع قيمها وتضرب ربح الجولة', "Values are added and multiply the round win")),
               const SizedBox(height: 20),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -118,9 +119,9 @@ class AsterionHelpSheet extends StatelessWidget {
                   color: AsterionPalette.amber.withValues(alpha: 0.10),
                   border: Border.all(color: AsterionPalette.amber.withValues(alpha: 0.45)),
                 ),
-                child: const Text(
-                  'العب للتسلية. الرصيد عملات داخل التطبيق، والنتائج عشوائية بالكامل — لا توجد طريقة '
-                  'تزيد فرصك، ولا يمكن استرجاع رهان بعد تنفيذه.',
+                child: Text(
+                  tr('العب للتسلية. الرصيد عملات داخل التطبيق، والنتائج عشوائية بالكامل — لا توجد طريقة '
+                  'تزيد فرصك، ولا يمكن استرجاع رهان بعد تنفيذه.', "Play for fun. The balance is in-app coins, and results are entirely random. No method improves your chances, and bets cannot be refunded once placed."),
                   style: TextStyle(color: AsterionPalette.amberPale, fontSize: 12.5, height: 1.5),
                 ),
               ),

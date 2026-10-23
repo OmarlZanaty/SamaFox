@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 
 import '../services/agency_service.dart';
@@ -82,11 +83,11 @@ class _MyAgenciesScreenState extends State<MyAgenciesScreen> {
   String _roleLabel(Map<String, dynamic> m) {
     switch ((m['role'] ?? '').toString()) {
       case 'OWNER':
-        return 'وكيل';
+        return tr('وكيل', "Agent");
       case 'BRANCH':
-        return 'فرع';
+        return tr('فرع', "Branch");
       default:
-        return 'عضو';
+        return tr('عضو', "Member");
     }
   }
 
@@ -99,18 +100,18 @@ class _MyAgenciesScreenState extends State<MyAgenciesScreen> {
         appBar: AppBar(
           backgroundColor: const Color(0xFF1A0E3E),
           elevation: 0,
-          title: const Text('وكالتي',
+          title: Text(tr('وكالتي', "My agency"),
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           iconTheme: const IconThemeData(color: Colors.white),
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator(color: Color(0xFF4ECDC4)))
             : _agencies.isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
                       padding: EdgeInsets.all(24),
                       child: Text(
-                        'لست عضواً في أي وكالة',
+                        tr('لست عضواً في أي وكالة', "You are not a member of any agency"),
                         style: TextStyle(color: Colors.white54, fontSize: 15),
                       ),
                     ),
@@ -158,7 +159,7 @@ class _MyAgenciesScreenState extends State<MyAgenciesScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        isCharging ? 'وكالة شحن' : 'وكالة مضيفين',
+                                        isCharging ? tr('وكالة شحن', "Recharge agency") : tr('وكالة مضيفين', "Hosting agency"),
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 16,

@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -266,17 +267,17 @@ class SymbolInfo {
   final Color glow;
 }
 
-const Map<String, SymbolInfo> kAsterionSymbols = {
-  'L1': SymbolInfo('L1', 'شظية المنشور', AsterionPalette.prism, AsterionPalette.cyanPale),
-  'L2': SymbolInfo('L2', 'قرص الشمس', AsterionPalette.sun, AsterionPalette.amberPale),
-  'L3': SymbolInfo('L3', 'ختم المذنّب', AsterionPalette.comet, Color(0xFFE0C8FF)),
-  'L4': SymbolInfo('L4', 'حجر المدّ', AsterionPalette.tide, Color(0xFFB9FFE4)),
-  'H1': SymbolInfo('H1', 'تاج الهلال', AsterionPalette.silver, AsterionPalette.white),
-  'H2': SymbolInfo('H2', 'جرّة النجوم', Color(0xFF6E8FE8), Color(0xFFBFD4FF)),
-  'H3': SymbolInfo('H3', 'قيثارة العاصفة', Color(0xFF54C8E0), AsterionPalette.cyanPale),
-  'H4': SymbolInfo('H4', 'بوصلة الشمس', AsterionPalette.amber, AsterionPalette.amberPale),
-  'CREST': SymbolInfo('CREST', 'شعار أستيريون', AsterionPalette.cyan, AsterionPalette.white),
-  'ORB': SymbolInfo('ORB', 'كرة العاصفة', AsterionPalette.magenta, AsterionPalette.cyanPale),
+Map<String, SymbolInfo> get kAsterionSymbols => {
+  'L1': SymbolInfo('L1', tr('شظية المنشور', "Prism shard"), AsterionPalette.prism, AsterionPalette.cyanPale),
+  'L2': SymbolInfo('L2', tr('قرص الشمس', "Sun disc"), AsterionPalette.sun, AsterionPalette.amberPale),
+  'L3': SymbolInfo('L3', tr('ختم المذنّب', "Comet seal"), AsterionPalette.comet, Color(0xFFE0C8FF)),
+  'L4': SymbolInfo('L4', tr('حجر المدّ', "Tide stone"), AsterionPalette.tide, Color(0xFFB9FFE4)),
+  'H1': SymbolInfo('H1', tr('تاج الهلال', "Crescent crown"), AsterionPalette.silver, AsterionPalette.white),
+  'H2': SymbolInfo('H2', tr('جرّة النجوم', "Star urn"), Color(0xFF6E8FE8), Color(0xFFBFD4FF)),
+  'H3': SymbolInfo('H3', tr('قيثارة العاصفة', "Storm lyre"), Color(0xFF54C8E0), AsterionPalette.cyanPale),
+  'H4': SymbolInfo('H4', tr('بوصلة الشمس', "Sun compass"), AsterionPalette.amber, AsterionPalette.amberPale),
+  'CREST': SymbolInfo('CREST', tr('شعار أستيريون', "Asterion crest"), AsterionPalette.cyan, AsterionPalette.white),
+  'ORB': SymbolInfo('ORB', tr('كرة العاصفة', "Storm orb"), AsterionPalette.magenta, AsterionPalette.cyanPale),
 };
 
 /// Which symbols pay, richest first. Kept next to the metadata so a caller

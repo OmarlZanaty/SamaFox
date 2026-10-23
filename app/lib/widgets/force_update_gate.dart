@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -42,9 +43,9 @@ class ForceUpdateGate {
       if (min <= 0 || mine >= min) return null;
 
       return UpdateVerdict(
-        title: data['updateTitle']?.toString() ?? 'تحديث جديد متاح',
+        title: data['updateTitle']?.toString() ?? tr('تحديث جديد متاح', "Update available"),
         message: data['updateMessage']?.toString() ??
-            'نزّل آخر إصدار عشان تكمل استخدام التطبيق.',
+            tr('نزّل آخر إصدار عشان تكمل استخدام التطبيق.', "Download the latest version to keep using the app."),
         storeUrl: data['updateStoreUrl']?.toString() ??
             'https://play.google.com/store/apps/details?id=com.almobarmg.samafox',
         mine: mine,
@@ -105,7 +106,7 @@ class UpdateRequiredScreen extends StatelessWidget {
     }
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('افتح Google Play وابحث عن سما فوكس')),
+      SnackBar(content: Text(tr('افتح Google Play وابحث عن سما فوكس', "Open Google Play and search for SamaFox"))),
     );
   }
 
@@ -183,8 +184,8 @@ class UpdateRequiredScreen extends StatelessWidget {
                           ),
                           onPressed: () => _openStore(context),
                           icon: const Icon(Icons.system_update_alt_rounded),
-                          label: const Text(
-                            'تحديث الآن',
+                          label: Text(
+                            tr('تحديث الآن', "Update now"),
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -197,7 +198,7 @@ class UpdateRequiredScreen extends StatelessWidget {
                       // in" can read these two numbers out and the answer is
                       // immediate.
                       Text(
-                        'الإصدار الحالي ${verdict.mine} • المطلوب ${verdict.required}',
+                        tr('الإصدار الحالي ${verdict.mine} • المطلوب ${verdict.required}', "Current version ${verdict.mine} • Required ${verdict.required}"),
                         style: const TextStyle(
                           color: Colors.white30,
                           fontSize: 11,

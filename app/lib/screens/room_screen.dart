@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'dart:async';
 import 'dart:collection';
 import 'dart:typed_data';
@@ -539,15 +540,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                   const SizedBox(height: 20),
 
-                  const Text(
-                    "تحويل نمط مقعد الميكروفون",
+                  Text(
+                    tr("تحويل نمط مقعد الميكروفون", "Change mic seat layout"),
                     style: TextStyle(color: Colors.white, fontSize: 18),
                   ),
 
                   const SizedBox(height: 6),
 
-                  const Text(
-                    "وضع الغرفة الصوتية",
+                  Text(
+                    tr("وضع الغرفة الصوتية", "Voice room mode"),
                     style: TextStyle(color: Colors.white54, fontSize: 13),
                   ),
 
@@ -625,7 +626,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 left: 0,
                                 right: 0,
                                 child: Text(
-                                  "مايك $value",
+                                  tr("مايك $value", "Mic $value"),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     color: Colors.white70,
@@ -657,8 +658,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         Navigator.pop(context);
                         _updateSeatCount(selected);
                       },
-                      child: const Text(
-                        "تأكيد",
+                      child: Text(
+                        tr("تأكيد", "Confirm"),
                         style: TextStyle(color: Colors.white),
                       ),
                     ),
@@ -694,37 +695,37 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Future<void> _handleFollowFromRoom(int targetUserId) async {
     final myUserId = ref.read(authStateProvider).user?.id;
     if (myUserId == null) {
-      _showRoomSnack('يجب تسجيل الدخول أولاً', error: true);
+      _showRoomSnack(tr('يجب تسجيل الدخول أولاً', "Please log in first"), error: true);
       return;
     }
     if (targetUserId == myUserId) {
-      _showRoomSnack('لا يمكنك متابعة نفسك', error: true);
+      _showRoomSnack(tr('لا يمكنك متابعة نفسك', "You cannot follow yourself"), error: true);
       return;
     }
 
     try {
       final status = await FollowService.getFollowStatus(targetUserId);
       if (status == 'following' || status == 'mutual') {
-        _showRoomSnack('أنت تتابع هذا المستخدم بالفعل');
+        _showRoomSnack(tr('أنت تتابع هذا المستخدم بالفعل', "You already follow this user"));
         return;
       }
       if (status == 'pending_sent') {
-        _showRoomSnack('تم إرسال طلب المتابعة مسبقاً');
+        _showRoomSnack(tr('تم إرسال طلب المتابعة مسبقاً', "Follow request already sent"));
         return;
       }
       if (status == 'blocked') {
-        _showRoomSnack('لا يمكن إرسال طلب متابعة لهذا المستخدم', error: true);
+        _showRoomSnack(tr('لا يمكن إرسال طلب متابعة لهذا المستخدم', "Cannot send a follow request to this user"), error: true);
         return;
       }
 
       await FollowService.sendFollowRequest(targetUserId);
-      _showRoomSnack('تم إرسال طلب المتابعة');
+      _showRoomSnack(tr('تم إرسال طلب المتابعة', "Follow request sent"));
     } on DioException catch (e) {
       final data = e.response?.data;
-      final msg = data is Map ? (data['message']?.toString() ?? 'تعذر إرسال طلب المتابعة') : 'تعذر إرسال طلب المتابعة';
+      final msg = data is Map ? (data['message']?.toString() ?? tr('تعذر إرسال طلب المتابعة', "Could not send follow request")) : tr('تعذر إرسال طلب المتابعة', "Could not send follow request");
       _showRoomSnack(msg, error: true);
     } catch (_) {
-      _showRoomSnack('تعذر إرسال طلب المتابعة', error: true);
+      _showRoomSnack(tr('تعذر إرسال طلب المتابعة', "Could not send follow request"), error: true);
     }
   }
 
@@ -762,9 +763,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
 
       await _refreshRoomData();
-      _showRoomSnack('تم تحديث عدد الميكروفونات إلى $safe');
+      _showRoomSnack(tr('تم تحديث عدد الميكروفونات إلى $safe', "Mic count updated to $safe"));
     } catch (e) {
-      _showRoomSnack('تعذر تحديث عدد الميكروفونات: $e', error: true);
+      _showRoomSnack(tr('تعذر تحديث عدد الميكروفونات: $e', "Could not update mic count: $e"), error: true);
     }
   }
 
@@ -783,9 +784,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           'isPublic': true,
         });
         await _refreshRoomData();
-        _showRoomSnack('تم فتح الغرفة للجميع');
+        _showRoomSnack(tr('تم فتح الغرفة للجميع', "Room opened to everyone"));
       } catch (e) {
-        _showRoomSnack('تعذر فتح الغرفة: $e', error: true);
+        _showRoomSnack(tr('تعذر فتح الغرفة: $e', "Could not open room: $e"), error: true);
       }
       return;
     }
@@ -794,9 +795,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final suggested =
         (10000 + (DateTime.now().microsecondsSinceEpoch % 90000)).toString();
     final code = await _askFiveDigitCode(
-      title: 'قفل الغرفة برمز سري',
-      hint: 'لن يدخل أحد الغرفة إلا بهذا الرقم المكوّن من 5 أرقام',
-      confirmLabel: 'قفل الغرفة',
+      title: tr('قفل الغرفة برمز سري', "Lock room with a PIN"),
+      hint: tr('لن يدخل أحد الغرفة إلا بهذا الرقم المكوّن من 5 أرقام', "Only people with this 5-digit code can enter"),
+      confirmLabel: tr('قفل الغرفة', "Lock room"),
       initial: suggested,
     );
     if (code == null) return; // cancelled
@@ -812,9 +813,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'code': code,
       });
       await _refreshRoomData();
-      _showRoomSnack('تم قفل الغرفة 🔒 الرمز السري: $code');
+      _showRoomSnack(tr('تم قفل الغرفة 🔒 الرمز السري: $code', "Room locked 🔒 PIN: $code"));
     } catch (e) {
-      _showRoomSnack('تعذر قفل الغرفة: $e', error: true);
+      _showRoomSnack(tr('تعذر قفل الغرفة: $e', "Could not lock room: $e"), error: true);
     }
   }
 
@@ -834,11 +835,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           builder: (ctx) => Directionality(
             textDirection: TextDirection.rtl,
             child: AlertDialog(
-              title: const Text('غرفة مقفلة 🔒'),
-              content: const Text('الغرفة مغلقة، هل تريد الدخول بدون كلمة مرور؟'),
+              title: Text(tr('غرفة مقفلة 🔒', "Locked room 🔒")),
+              content: Text(tr('الغرفة مغلقة، هل تريد الدخول بدون كلمة مرور؟', "The room is locked. Enter without a password?")),
               actions: [
-                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('لا')),
-                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('نعم')),
+                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: Text(tr('لا', "No"))),
+                FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: Text(tr('نعم', "Yes"))),
               ],
             ),
           ),
@@ -852,9 +853,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         return;
       }
       final code = await _askFiveDigitCode(
-        title: 'غرفة مقفلة 🔒',
-        hint: wrongCode ? 'الرمز غير صحيح — أدخل الرمز المكوّن من 5 أرقام' : 'أدخل الرمز السري المكوّن من 5 أرقام للدخول',
-        confirmLabel: 'دخول',
+        title: tr('غرفة مقفلة 🔒', "Locked room 🔒"),
+        hint: wrongCode ? tr('الرمز غير صحيح — أدخل الرمز المكوّن من 5 أرقام', "Incorrect code — enter the 5-digit code") : tr('أدخل الرمز السري المكوّن من 5 أرقام للدخول', "Enter the 5-digit PIN to join"),
+        confirmLabel: tr('دخول', "Enter"),
       );
       if (!mounted) return;
       if (code == null) {
@@ -902,9 +903,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'user_id': userId,
         'role': 'supervisor',
       });
-      _showRoomSnack('تم تعيين المستخدم مشرفًا للغرفة');
+      _showRoomSnack(tr('تم تعيين المستخدم مشرفًا للغرفة', "User appointed as room moderator"));
     } catch (e) {
-      _showRoomSnack('تعذر التعيين: $e', error: true);
+      _showRoomSnack(tr('تعذر التعيين: $e', "Could not appoint moderator: $e"), error: true);
     }
   }
 
@@ -933,31 +934,31 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Container(width: 40, height: 4,
                     decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
                   const SizedBox(height: 8),
-                  Text('المقعد رقم $seatNumber',
+                  Text(tr('المقعد رقم $seatNumber', "Seat $seatNumber"),
                     style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   _adminSeatOption(
-                    label: isMuted ? 'فك كتم المقعد' : 'كتم المقعد',
+                    label: isMuted ? tr('فك كتم المقعد', "Unmute seat") : tr('كتم المقعد', "Mute seat"),
                     icon: isMuted ? Icons.mic : Icons.mic_off,
                     color: Colors.orangeAccent,
                     onTap: () {
                       Navigator.pop(context);
                       notifier.toggleSeatMute(seatNumber: seatNumber, muted: !isMuted);
-                      _showRoomSnack(isMuted ? 'تم فك كتم المقعد $seatNumber' : 'تم كتم المقعد $seatNumber');
+                      _showRoomSnack(isMuted ? tr('تم فك كتم المقعد $seatNumber', "Seat $seatNumber unmuted") : tr('تم كتم المقعد $seatNumber', "Seat $seatNumber muted"));
                     },
                   ),
                   _adminSeatOption(
-                    label: isLocked ? 'فك قفل المقعد' : 'قفل المقعد',
+                    label: isLocked ? tr('فك قفل المقعد', "Unlock seat") : tr('قفل المقعد', "Lock seat"),
                     icon: isLocked ? Icons.lock_open : Icons.lock,
                     color: Colors.lightBlueAccent,
                     onTap: () {
                       Navigator.pop(context);
                       notifier.toggleSeatLock(seatNumber: seatNumber, locked: !isLocked);
-                      _showRoomSnack(isLocked ? 'تم فك قفل المقعد $seatNumber' : 'تم قفل المقعد $seatNumber');
+                      _showRoomSnack(isLocked ? tr('تم فك قفل المقعد $seatNumber', "Seat $seatNumber unlocked") : tr('تم قفل المقعد $seatNumber', "Seat $seatNumber locked"));
                     },
                   ),
                   _adminSeatOption(
-                    label: 'الجلوس على هذا المقعد',
+                    label: tr('الجلوس على هذا المقعد', "Take this seat"),
                     icon: Icons.event_seat,
                     color: Colors.greenAccent,
                     onTap: () {
@@ -969,7 +970,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   // If the admin is already seated, let them MOVE to this seat.
                   if (myCurrentSeat != null && myCurrentSeat != seatNumber)
                     _adminSeatOption(
-                      label: 'الانتقال إلى هذا المقعد',
+                      label: tr('الانتقال إلى هذا المقعد', "Move to this seat"),
                       icon: Icons.swap_horiz,
                       color: Colors.tealAccent,
                       onTap: () {
@@ -980,7 +981,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     ),
                   // #12: invite an audience member onto this seat.
                   _adminSeatOption(
-                    label: 'دعوة إلى المقعد',
+                    label: tr('دعوة إلى المقعد', "Invite to seat"),
                     icon: Icons.person_add_alt_1,
                     color: Colors.pinkAccent,
                     onTap: () {
@@ -1009,7 +1010,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     final seatNumber = data['seatNumber'];
     if (inviteId == null || seatNumber == null) return;
 
-    final fromUsername = (data['fromUsername'] ?? 'مشرف').toString();
+    final fromUsername = (data['fromUsername'] ?? tr('مشرف', "Moderator")).toString();
 
     _seatInviteDialogOpen = true;
     final accepted = await showDialog<bool>(
@@ -1020,21 +1021,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         child: AlertDialog(
           backgroundColor: const Color(0xFF1A0E3E),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('دعوة إلى المايك',
+          title: Text(tr('دعوة إلى المايك', "Mic invitation"),
               style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
           content: Text(
-            '$fromUsername دعاك إلى مايك (رقم $seatNumber)',
+            tr('$fromUsername دعاك إلى مايك (رقم $seatNumber)', "$fromUsername invited you to mic $seatNumber"),
             style: const TextStyle(color: Colors.white70, fontSize: 15),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dctx, false),
-              child: const Text('رفض', style: TextStyle(color: Colors.white54)),
+              child: Text(tr('رفض', "Decline"), style: TextStyle(color: Colors.white54)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent),
               onPressed: () => Navigator.pop(dctx, true),
-              child: const Text('قبول', style: TextStyle(color: Colors.white)),
+              child: Text(tr('قبول', "Accept"), style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -1044,7 +1045,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     SocketService().respondToSeatInvite(inviteId: inviteId, accept: accepted == true);
     if (mounted && accepted == true) {
-      _showRoomSnack('تم صعودك إلى المايك $seatNumber');
+      _showRoomSnack(tr('تم صعودك إلى المايك $seatNumber', "You joined mic $seatNumber"));
     }
   }
 
@@ -1072,14 +1073,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(14),
-                    child: Text('دعوة إلى المقعد $seatNumber',
+                    child: Text(tr('دعوة إلى المقعد $seatNumber', "Invite to seat $seatNumber"),
                         style: const TextStyle(
                             color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                   if (audience.isEmpty)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.all(20),
-                      child: Text('لا يوجد أشخاص في الغرفة لدعوتهم',
+                      child: Text(tr('لا يوجد أشخاص في الغرفة لدعوتهم', "No one in the room to invite"),
                           style: TextStyle(color: Colors.white54)),
                     )
                   else
@@ -1100,7 +1101,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ref.read(roomControllerProvider(widget.roomId).notifier)
                                 .inviteToSeat(seatNumber: seatNumber, targetUserId: u.id);
                             _showRoomSnack(
-                                'تم إرسال دعوة المايك إلى ${u.name} — في انتظار الرد');
+                                tr('تم إرسال دعوة المايك إلى ${u.name} — في انتظار الرد', "Mic invitation sent to ${u.name} — awaiting a reply"));
                           },
                         )).toList(),
                       ),
@@ -1147,7 +1148,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       Container(width: 40, height: 4, alignment: Alignment.center,
                         decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
                       const SizedBox(height: 12),
-                      const Text('قائمة الإجراءات (كتم / منع مقعد / طرد)',
+                      Text(tr('قائمة الإجراءات (كتم / منع مقعد / طرد)', "Actions (mute / seat ban / kick)"),
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
@@ -1160,8 +1161,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             }
                             final rows = snap.data ?? const [];
                             if (rows.isEmpty) {
-                              return const Padding(padding: EdgeInsets.all(24),
-                                child: Text('لا يوجد مستخدمون عليهم إجراءات حالياً',
+                              return Padding(padding: EdgeInsets.all(24),
+                                child: Text(tr('لا يوجد مستخدمون عليهم إجراءات حالياً', "No users with active restrictions"),
                                   textAlign: TextAlign.center, style: TextStyle(color: Colors.white54)));
                             }
                             return ListView(
@@ -1192,12 +1193,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         border: Border.all(color: color)),
       child: Text(label, style: TextStyle(color: color, fontSize: 11)),
     );
-    if (u['forceMuted'] == true) chips.add(chip('مكتوم', Colors.orangeAccent));
-    if (u['seatBlocked'] == true) chips.add(chip('ممنوع من المقعد', Colors.deepOrangeAccent));
-    if (u['banned'] == true) chips.add(chip('مطرود', Colors.redAccent));
+    if (u['forceMuted'] == true) chips.add(chip(tr('مكتوم', "Muted"), Colors.orangeAccent));
+    if (u['seatBlocked'] == true) chips.add(chip(tr('ممنوع من المقعد', "Banned from seats"), Colors.deepOrangeAccent));
+    if (u['banned'] == true) chips.add(chip(tr('مطرود', "Kicked"), Colors.redAccent));
 
     Future<void> lift(Future<void> Function() action) async {
-      try { await action(); setSheet(() {}); } catch (e) { _showRoomSnack('تعذر: $e', error: true); }
+      try { await action(); setSheet(() {}); } catch (e) { _showRoomSnack(tr('تعذر: $e', "Failed: $e"), error: true); }
     }
 
     return Container(
@@ -1221,11 +1222,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           const SizedBox(height: 8),
           Row(children: [
             if (u['forceMuted'] == true)
-              _liftBtn('فك الكتم', () => lift(() => _forceMute(userId, false))),
+              _liftBtn(tr('فك الكتم', "Unmute"), () => lift(() => _forceMute(userId, false))),
             if (u['seatBlocked'] == true)
-              _liftBtn('فك منع المقعد', () => lift(() => _setSeatBlock(userId, false))),
+              _liftBtn(tr('فك منع المقعد', "Lift seat ban"), () => lift(() => _setSeatBlock(userId, false))),
             if (u['banned'] == true)
-              _liftBtn('فك الطرد', () => lift(() => DioClient.dio.post('/room-admin/unban',
+              _liftBtn(tr('فك الطرد', "Lift room ban"), () => lift(() => DioClient.dio.post('/room-admin/unban',
                 data: {'roomId': widget.roomId, 'userId': userId}))),
           ]),
         ],
@@ -1256,9 +1257,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'userId': userId,
         'isMuted': muted,
       });
-      _showRoomSnack(muted ? 'تم كتم المستخدم (لا يمكنه فتح المايك)' : 'تم رفع الكتم عن المستخدم');
+      _showRoomSnack(muted ? tr('تم كتم المستخدم (لا يمكنه فتح المايك)', "User muted (cannot turn on mic)") : tr('تم رفع الكتم عن المستخدم', "User unmuted"));
     } catch (e) {
-      _showRoomSnack('تعذر تنفيذ الإجراء: $e', error: true);
+      _showRoomSnack(tr('تعذر تنفيذ الإجراء: $e', "Could not complete action: $e"), error: true);
     }
   }
 
@@ -1271,10 +1272,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'blocked': blocked,
       });
       _showRoomSnack(blocked
-          ? 'تم منع المستخدم من الجلوس على المايك'
-          : 'تم رفع المنع عن المستخدم');
+          ? tr('تم منع المستخدم من الجلوس على المايك', "User banned from mic seats")
+          : tr('تم رفع المنع عن المستخدم', "User ban lifted"));
     } catch (e) {
-      _showRoomSnack('تعذر تنفيذ الإجراء: $e', error: true);
+      _showRoomSnack(tr('تعذر تنفيذ الإجراء: $e', "Could not complete action: $e"), error: true);
     }
   }
 
@@ -1298,18 +1299,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(14),
-                child: Text('مدة الطرد من الغرفة',
+                child: Text(tr('مدة الطرد من الغرفة', "Room ban duration"),
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.bold)),
               ),
-              _kickDurationTile(ctx, '5 دقائق', 5),
-              _kickDurationTile(ctx, 'ساعة', 60),
-              _kickDurationTile(ctx, 'يوم كامل', 1440),
-              _kickDurationTile(ctx, 'طرد دائم', 0),
+              _kickDurationTile(ctx, tr('5 دقائق', "5 minutes"), 5),
+              _kickDurationTile(ctx, tr('ساعة', "One hour"), 60),
+              _kickDurationTile(ctx, tr('يوم كامل', "One day"), 1440),
+              _kickDurationTile(ctx, tr('طرد دائم', "Permanent ban"), 0),
             ],
           ),
         ),
@@ -1325,10 +1326,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'minutes': minutes,
       });
       _showRoomSnack(minutes == 0
-          ? 'تم طرد المستخدم نهائيًا'
-          : 'تم طرد المستخدم لمدة محددة');
+          ? tr('تم طرد المستخدم نهائيًا', "User permanently banned")
+          : tr('تم طرد المستخدم لمدة محددة', "User temporarily banned"));
     } catch (e) {
-      _showRoomSnack('تعذر الطرد: $e', error: true);
+      _showRoomSnack(tr('تعذر الطرد: $e', "Could not ban user: $e"), error: true);
     }
   }
 
@@ -1366,8 +1367,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     if (!(me?.userIsAdmin ?? false)) return;
 
     final options = isSuper
-        ? const [('يوم', '1d'), ('شهر', '1m'), ('حظر أبدي', 'permanent')]
-        : const [('يوم', '1d'), ('يومان', '2d'), ('3 أيام', '3d')];
+        ? [(tr('يوم', "Day"), '1d'), (tr('شهر', "Month"), '1m'), (tr('حظر أبدي', "Permanent ban"), 'permanent')]
+        : [(tr('يوم', "Day"), '1d'), (tr('يومان', "Two days"), '2d'), (tr('3 أيام', "3 days"), '3d')];
 
     final choice = await showModalBottomSheet<String>(
       context: context,
@@ -1380,7 +1381,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             children: [
               Padding(
                 padding: const EdgeInsets.all(14),
-                child: Text('حظر $name من التطبيق',
+                child: Text(tr('حظر $name من التطبيق', "Ban $name from the app"),
                     style: const TextStyle(
                         color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               ),
@@ -1405,21 +1406,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           backgroundColor: const Color(0xFF1F1247),
-          title: const Text('سبب الحظر', style: TextStyle(color: Colors.white)),
+          title: Text(tr('سبب الحظر', "Ban reason"), style: TextStyle(color: Colors.white)),
           content: TextField(
             controller: reasonCtrl,
             style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              hintText: 'مثال: إساءة في الغرفة',
+            decoration: InputDecoration(
+              hintText: tr('مثال: إساءة في الغرفة', "Example: abuse in the room"),
               hintStyle: TextStyle(color: Colors.white38),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('إلغاء')),
+            TextButton(onPressed: () => Navigator.pop(dctx, false), child: Text(tr('إلغاء', "Cancel"))),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
               onPressed: () => Navigator.pop(dctx, true),
-              child: const Text('حظر'),
+              child: Text(tr('حظر', "Ban")),
             ),
           ],
         ),
@@ -1433,11 +1434,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'duration': choice,
         'reason': reasonCtrl.text.trim().isEmpty ? 'مخالفة' : reasonCtrl.text.trim(),
       });
-      _showRoomSnack('تم حظر $name');
+      _showRoomSnack(tr('تم حظر $name', "$name banned"));
     } catch (e) {
       final msg = e is DioException && e.response?.data is Map
-          ? (e.response!.data['message']?.toString() ?? 'تعذر الحظر')
-          : 'تعذر الحظر';
+          ? (e.response!.data['message']?.toString() ?? tr('تعذر الحظر', "Could not ban user"))
+          : tr('تعذر الحظر', "Could not ban user");
       _showRoomSnack(msg, error: true);
     }
   }
@@ -1470,9 +1471,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         child: AlertDialog(
           backgroundColor: const Color(0xFF2A1655),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('ماذا تريد أن تفعل؟',
+          title: Text(tr('ماذا تريد أن تفعل؟', "What would you like to do?"),
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: const Text('الاحتفاظ يُبقيك في الغرفة وعلى المايك وتستمر في سماع الصوت.',
+          content: Text(tr('الاحتفاظ يُبقيك في الغرفة وعلى المايك وتستمر في سماع الصوت.', "Staying keeps you in the room and on the mic, with audio playing."),
               style: TextStyle(color: Colors.white70, fontSize: 13)),
           actionsAlignment: MainAxisAlignment.spaceBetween,
           actions: [
@@ -1483,7 +1484,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
               onPressed: () => Navigator.pop(ctx, 'leave'),
               icon: const Icon(Icons.logout, color: Colors.white, size: 18),
-              label: const Text('مغادرة', style: TextStyle(color: Colors.white)),
+              label: Text(tr('مغادرة', "Leave"), style: TextStyle(color: Colors.white)),
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
@@ -1492,7 +1493,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
               onPressed: () => Navigator.pop(ctx, 'keep'),
               icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white, size: 18),
-              label: const Text('احتفاظ', style: TextStyle(color: Colors.white)),
+              label: Text(tr('احتفاظ', "Stay"), style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -1515,7 +1516,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     if (_seatVideoController != null) {
       await _seatVideoController!.setVolume(next ? 0 : _volumeLevel);
     }
-    _showRoomSnack(next ? 'تم كتم صوت الغرفة لديك فقط' : 'تم إلغاء كتم صوت الغرفة');
+    _showRoomSnack(next ? tr('تم كتم صوت الغرفة لديك فقط', "Room muted for you only") : tr('تم إلغاء كتم صوت الغرفة', "Room unmuted"));
   }
 
   // ── SPEC52 #15: room info for everyone ──────────────────────────────────
@@ -1595,7 +1596,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               if (canEdit)
                 ListTile(
                   leading: const Icon(Icons.edit, color: Colors.white),
-                  title: const Text('تعديل الغرفة', style: TextStyle(color: Colors.white)),
+                  title: Text(tr('تعديل الغرفة', "Edit room"), style: TextStyle(color: Colors.white)),
                   onTap: () {
                     Navigator.pop(sctx);
                     _showEditRoomDialog();
@@ -1603,8 +1604,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 ),
               ListTile(
                 leading: const Icon(Icons.lock, color: Colors.redAccent),
-                title: const Text('إغلاق الغرفة', style: TextStyle(color: Colors.redAccent)),
-                subtitle: const Text('يخرج الجميع ولا تُفتح إلا من لوحة التحكم',
+                title: Text(tr('إغلاق الغرفة', "Close room"), style: TextStyle(color: Colors.redAccent)),
+                subtitle: Text(tr('يخرج الجميع ولا تُفتح إلا من لوحة التحكم', "Everyone leaves; only management can reopen it"),
                     style: TextStyle(color: Colors.white54, fontSize: 12)),
                 onTap: () {
                   Navigator.pop(sctx);
@@ -1630,17 +1631,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           backgroundColor: const Color(0xFF1F1247),
-          title: const Text('إغلاق الغرفة', style: TextStyle(color: Colors.white)),
-          content: const Text(
-            'سيخرج جميع الموجودين فوراً ولن تُفتح الغرفة إلا من لوحة التحكم. متابعة؟',
+          title: Text(tr('إغلاق الغرفة', "Close room"), style: TextStyle(color: Colors.white)),
+          content: Text(
+            tr('سيخرج جميع الموجودين فوراً ولن تُفتح الغرفة إلا من لوحة التحكم. متابعة؟', "Everyone will leave immediately. The room can only be reopened from the dashboard. Continue?"),
             style: TextStyle(color: Colors.white70),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('إلغاء')),
+            TextButton(onPressed: () => Navigator.pop(dctx, false), child: Text(tr('إلغاء', "Cancel"))),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
               onPressed: () => Navigator.pop(dctx, true),
-              child: const Text('إغلاق'),
+              child: Text(tr('إغلاق', "Close")),
             ),
           ],
         ),
@@ -1650,11 +1651,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     try {
       await DioClient.dio.post('/room-admin/close-room', data: {'roomId': widget.roomId});
-      _showRoomSnack('تم إغلاق الغرفة');
+      _showRoomSnack(tr('تم إغلاق الغرفة', "Room closed"));
     } catch (e) {
       final msg = e is DioException && e.response?.data is Map
-          ? (e.response!.data['error']?.toString() ?? 'تعذر إغلاق الغرفة')
-          : 'تعذر إغلاق الغرفة';
+          ? (e.response!.data['error']?.toString() ?? tr('تعذر إغلاق الغرفة', "Could not close room"))
+          : tr('تعذر إغلاق الغرفة', "Could not close room");
       _showRoomSnack(msg, error: true);
     }
   }
@@ -1667,9 +1668,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       });
 
       ref.read(roomControllerProvider(widget.roomId).notifier).clearMessages();
-      _showRoomSnack('تم حذف دردشة الغرفة');
+      _showRoomSnack(tr('تم حذف دردشة الغرفة', "Room chat deleted"));
     } catch (e) {
-      _showRoomSnack('تعذر حذف دردشة الغرفة: $e', error: true);
+      _showRoomSnack(tr('تعذر حذف دردشة الغرفة: $e', "Could not delete room chat: $e"), error: true);
     }
   }
 
@@ -1707,9 +1708,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       }
 
       await _refreshRoomData();
-      _showRoomSnack(makeAdmin ? 'تمت إضافة مسؤول جديد' : 'تمت إزالة المسؤول');
+      _showRoomSnack(makeAdmin ? tr('تمت إضافة مسؤول جديد', "New admin added") : tr('تمت إزالة المسؤول', "Admin removed"));
     } catch (e) {
-      _showRoomSnack('تعذر تحديث المسؤولين: $e', error: true);
+      _showRoomSnack(tr('تعذر تحديث المسؤولين: $e', "Could not update admins: $e"), error: true);
     }
   }
 
@@ -1738,10 +1739,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                 final members = snapshot.data ?? const <RoomMember>[];
                 if (members.isEmpty) {
-                  return const Padding(
+                  return Padding(
                     padding: EdgeInsets.all(30),
                     child: Text(
-                      'لا يوجد أعضاء متاحون حالياً',
+                      tr('لا يوجد أعضاء متاحون حالياً', "No members available right now"),
                       style: TextStyle(color: Colors.white70),
                     ),
                   );
@@ -1759,10 +1760,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Align(
+                    Align(
                       alignment: Alignment.centerRight,
                       child: Text(
-                        'مسؤولو الغرفة',
+                        tr('مسؤولو الغرفة', "Room admins"),
                         style: TextStyle(color: Colors.white, fontSize: 18),
                       ),
                     ),
@@ -1811,7 +1812,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        isOwnerRole ? 'مالك الغرفة' : (isAdminRole ? 'مسؤول' : 'عضو'),
+                                        isOwnerRole ? tr('مالك الغرفة', "Room owner") : (isAdminRole ? tr('مسؤول', "Admin") : tr('عضو', "Member")),
                                         style: TextStyle(
                                           color: isOwnerRole
                                               ? Colors.amber
@@ -1873,10 +1874,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'userId': targetId,
         'user_id': targetId,
       });
-      _showRoomSnack('تم إلغاء حظر المستخدم');
+      _showRoomSnack(tr('تم إلغاء حظر المستخدم', "User unbanned"));
       await _refreshRoomData();
     } catch (e) {
-      _showRoomSnack('تعذر إلغاء الحظر: $e', error: true);
+      _showRoomSnack(tr('تعذر إلغاء الحظر: $e', "Could not unban user: $e"), error: true);
     }
   }
 
@@ -1917,13 +1918,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ),
                       ),
                       const SizedBox(height: 18),
-                      const Text(
-                        'قائمة الحظر',
+                      Text(
+                        tr('قائمة الحظر', "Ban list"),
                         style: TextStyle(color: Colors.white, fontSize: 18),
                       ),
                       const SizedBox(height: 20),
-                      const Text(
-                        'لا يوجد مستخدمون محظورون حالياً',
+                      Text(
+                        tr('لا يوجد مستخدمون محظورون حالياً', "No banned users right now"),
                         style: TextStyle(color: Colors.white70),
                       ),
                     ],
@@ -1942,10 +1943,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Align(
+                    Align(
                       alignment: Alignment.centerRight,
                       child: Text(
-                        'قائمة الحظر',
+                        tr('قائمة الحظر', "Ban list"),
                         style: TextStyle(color: Colors.white, fontSize: 18),
                       ),
                     ),
@@ -2003,7 +2004,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     Navigator.pop(context);
                                     await _unbanUser(entry);
                                   },
-                                  child: const Text('إلغاء الحظر'),
+                                  child: Text(tr('إلغاء الحظر', "Unban")),
                                 ),
                               ],
                             ),
@@ -2030,16 +2031,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Future<void> _activateInventoryItem(InventoryItem item) async {
     final token = await StorageService.getAccessToken();
     if (token == null || token.isEmpty) {
-      _showRoomSnack('يجب تسجيل الدخول أولاً', error: true);
+      _showRoomSnack(tr('يجب تسجيل الدخول أولاً', "Please log in first"), error: true);
       return;
     }
 
     try {
       await StoreService().activateItem(token, item.id);
       await _loadActiveItems();
-      _showRoomSnack('تم تفعيل ${item.name}');
+      _showRoomSnack(tr('تم تفعيل ${item.name}', "${item.name} activated"));
     } catch (e) {
-      _showRoomSnack('تعذر تفعيل ${item.name}: $e', error: true);
+      _showRoomSnack(tr('تعذر تفعيل ${item.name}: $e', "Could not activate ${item.name}: $e"), error: true);
     }
   }
 
@@ -2085,12 +2086,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        typeFilter == null ? 'حقيبة الظهر' : 'غلاف الميكروفون',
+                        typeFilter == null ? tr('حقيبة الظهر', "Bag") : tr('غلاف الميكروفون', "Mic cover"),
                         style: const TextStyle(color: Colors.white, fontSize: 18),
                       ),
                       const SizedBox(height: 20),
-                      const Text(
-                        'لا توجد عناصر متاحة',
+                      Text(
+                        tr('لا توجد عناصر متاحة', "No items available"),
                         style: TextStyle(color: Colors.white70),
                       ),
                     ],
@@ -2112,7 +2113,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     Align(
                       alignment: Alignment.centerRight,
                       child: Text(
-                        typeFilter == null ? 'حقيبة الظهر' : 'غلاف الميكروفون',
+                        typeFilter == null ? tr('حقيبة الظهر', "Bag") : tr('غلاف الميكروفون', "Mic cover"),
                         style: const TextStyle(color: Colors.white, fontSize: 18),
                       ),
                     ),
@@ -2201,7 +2202,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                           Navigator.pop(context);
                                           await _activateInventoryItem(item);
                                         },
-                                  child: Text(item.isActive ? 'مفعّل' : 'تفعيل'),
+                                  child: Text(item.isActive ? tr('مفعّل', "Active") : tr('تفعيل', "Activate")),
                                 ),
                               ],
                             ),
@@ -2243,10 +2244,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                 ),
                 const SizedBox(height: 18),
-                const Align(
+                Align(
                   alignment: Alignment.centerRight,
                   child: Text(
-                    'مركز الفعاليات',
+                    tr('مركز الفعاليات', "Events"),
                     style: TextStyle(color: Colors.white, fontSize: 18),
                   ),
                 ),
@@ -2255,14 +2256,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    roomMenuItem(Icons.emoji_events, 'التحديات', Colors.amber, () {
+                    roomMenuItem(Icons.emoji_events, tr('التحديات', "Challenges"), Colors.amber, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
                         MaterialPageRoute(builder: (_) => const ChallengesScreen()),
                       );
                     }),
-                    roomMenuItem(Icons.sports_esports, 'الألعاب', Colors.greenAccent, () {
+                    roomMenuItem(Icons.sports_esports, tr('الألعاب', "Games"), Colors.greenAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
@@ -2271,7 +2272,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     }),
                     // Room cup: the top 20 supporters OF THIS ROOM — not the
                     // app-wide board, and not the old placeholder list.
-                    roomMenuItem(Icons.emoji_events, 'كأس الغرفة', Colors.lightBlueAccent, () {
+                    roomMenuItem(Icons.emoji_events, tr('كأس الغرفة', "Room cup"), Colors.lightBlueAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
@@ -2280,7 +2281,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ),
                       );
                     }),
-                    roomMenuItem(Icons.account_balance_wallet, 'المحفظة', Colors.orangeAccent, () {
+                    roomMenuItem(Icons.account_balance_wallet, tr('المحفظة', "Wallet"), Colors.orangeAccent, () {
                       Navigator.pop(context);
                       Navigator.push(
                         this.context,
@@ -2340,12 +2341,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (!mounted) return;
       // Put the switch back rather than leave it lying about the audio.
       setState(() => _noiseReduction = !next);
-      _showRoomSnack('تعذّر تغيير تقليل الضوضاء');
+      _showRoomSnack(tr('تعذّر تغيير تقليل الضوضاء', "Could not change noise reduction"));
       return;
     }
     if (!mounted) return;
     _showRoomSnack(
-      next ? 'تم تفعيل تقليل الضوضاء' : 'تم إيقاف تقليل الضوضاء',
+      next ? tr('تم تفعيل تقليل الضوضاء', "Noise reduction enabled") : tr('تم إيقاف تقليل الضوضاء', "Noise reduction disabled"),
     );
   }
 
@@ -2357,7 +2358,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       builder: (_) {
         return AlertDialog(
           backgroundColor: const Color(0xFF2A1655),
-          title: const Text('مستوى الصوت', style: TextStyle(color: Colors.white)),
+          title: Text(tr('مستوى الصوت', "Volume"), style: TextStyle(color: Colors.white)),
           content: StatefulBuilder(
             builder: (context, setModalState) {
               return Column(
@@ -2384,7 +2385,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء'),
+              child: Text(tr('إلغاء', "Cancel")),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -2407,10 +2408,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 await VoiceEngine.instance.setRemoteVolume(tempVolume);
                 if (mounted) Navigator.pop(context);
                 _showRoomSnack(
-                  tempVolume == 0 ? 'تم كتم صوت الغرفة' : 'تم تحديث مستوى الصوت',
+                  tempVolume == 0 ? tr('تم كتم صوت الغرفة', "Room muted") : tr('تم تحديث مستوى الصوت', "Volume updated"),
                 );
               },
-              child: const Text('حفظ'),
+              child: Text(tr('حفظ', "Save")),
             ),
           ],
         );
@@ -2446,10 +2447,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   // =======================
                   // 🛠 ADMIN
                   // =======================
-                  const Align(
+                  Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      "إدارة الغرفة",
+                      tr("إدارة الغرفة", "Room management"),
                       style: TextStyle(color: Colors.white, fontSize: 16),
                     ),
                   ),
@@ -2468,7 +2469,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             false;
                         return roomMenuItem(
                           locked ? Icons.lock_open : Icons.lock,
-                          locked ? "فتح الغرفة" : "قفل الغرفة",
+                          locked ? tr("فتح الغرفة", "Open room") : tr("قفل الغرفة", "Lock room"),
                           Colors.white70,
                           () {
                             Navigator.pop(context);
@@ -2476,7 +2477,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           },
                         );
                       }),
-                      roomMenuItem(Icons.admin_panel_settings, "مسؤول الغرفة", Colors.white70, () {
+                      roomMenuItem(Icons.admin_panel_settings, tr("مسؤول الغرفة", "Room admin"), Colors.white70, () {
                         Navigator.pop(context);
                         _openManageAdminsDialog(this.context);
                       }),
@@ -2489,11 +2490,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      roomMenuItem(Icons.bar_chart, "نمط الميكروفون", Colors.white70, () {
+                      roomMenuItem(Icons.bar_chart, tr("نمط الميكروفون", "Mic layout"), Colors.white70, () {
                         Navigator.pop(context);
                         _openSeatCountDialog(this.context);
                       }),
-                      roomMenuItem(Icons.image, "خلفية الغرفة", Colors.white70, () {
+                      roomMenuItem(Icons.image, tr("خلفية الغرفة", "Room background"), Colors.white70, () {
                         Navigator.pop(context);
                         _openBackgroundChooser();
                       }),
@@ -2506,11 +2507,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      roomMenuItem(Icons.block, "قائمة الحظر", Colors.white70, () {
+                      roomMenuItem(Icons.block, tr("قائمة الحظر", "Ban list"), Colors.white70, () {
                         Navigator.pop(context);
                         _openBanListDialog(this.context);
                       }),
-                      roomMenuItem(Icons.delete_outline, "حذف الدردشة", Colors.redAccent, () {
+                      roomMenuItem(Icons.delete_outline, tr("حذف الدردشة", "Delete chat"), Colors.redAccent, () {
                         Navigator.pop(context);
                         _clearRoomChat();
                       }),
@@ -2551,7 +2552,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (!mounted) { if (started) await svc.stop(); return; }
       if (started) {
         setState(() => _isScreenRecording = true);
-        _showRoomSnack('بدأ تسجيل الشاشة');
+        _showRoomSnack(tr('بدأ تسجيل الشاشة', "Screen recording started"));
       }
     } finally { _screenRecordBusy = false; }
   }
@@ -2570,7 +2571,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     await AudioRoute.instance.setSpeaker(next);
     if (!mounted) return;
     setState(() {});
-    _showRoomSnack(next ? 'تم التحويل إلى السماعة الخارجية' : 'تم التحويل إلى سماعة الأذن');
+    _showRoomSnack(next ? tr('تم التحويل إلى السماعة الخارجية', "Switched to speaker") : tr('تم التحويل إلى سماعة الأذن', "Switched to earpiece"));
   }
 
   void _openSoundEffectsDialog(BuildContext context) {
@@ -2583,7 +2584,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       builder: (_) {
         return AlertDialog(
           backgroundColor: const Color(0xFF2A1655),
-          title: const Text('المؤثرات الصوتية', style: TextStyle(color: Colors.white)),
+          title: Text(tr('المؤثرات الصوتية', "Sound effects"), style: TextStyle(color: Colors.white)),
           content: StatefulBuilder(
             builder: (context, setModalState) {
               return Column(
@@ -2591,16 +2592,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 children: [
                   // SPEC52 #23 — personal display switches (this phone only),
                   // applied immediately.
-                  const Align(
+                  Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: Text('لي فقط', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    child: Text(tr('لي فقط', "Only me"), style: TextStyle(color: Colors.white54, fontSize: 12)),
                   ),
                   ValueListenableBuilder<bool>(
                     valueListenable: EffectsPrefs.instance.giftEffects,
                     builder: (_, on, __) => SwitchListTile.adaptive(
                       value: on,
                       onChanged: (v) => EffectsPrefs.instance.setGiftEffects(v),
-                      title: const Text('تأثيرات الهدايا', style: TextStyle(color: Colors.white)),
+                      title: Text(tr('تأثيرات الهدايا', "Gift effects"), style: TextStyle(color: Colors.white)),
                     ),
                   ),
                   ValueListenableBuilder<bool>(
@@ -2608,23 +2609,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     builder: (_, on, __) => SwitchListTile.adaptive(
                       value: on,
                       onChanged: (v) => EffectsPrefs.instance.setEntryEffects(v),
-                      title: const Text('تأثيرات الدخول', style: TextStyle(color: Colors.white)),
+                      title: Text(tr('تأثيرات الدخول', "Entrance effects"), style: TextStyle(color: Colors.white)),
                     ),
                   ),
                   const Divider(color: Colors.white24),
-                  const Align(
+                  Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: Text('أصوات الغرفة (للجميع)', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    child: Text(tr('أصوات الغرفة (للجميع)', "Room sounds (everyone)"), style: TextStyle(color: Colors.white54, fontSize: 12)),
                   ),
                   SwitchListTile.adaptive(
                     value: !muteGifts,
                     onChanged: (value) => setModalState(() => muteGifts = !value),
-                    title: const Text('أصوات الهدايا', style: TextStyle(color: Colors.white)),
+                    title: Text(tr('أصوات الهدايا', "Gift sounds"), style: TextStyle(color: Colors.white)),
                   ),
                   SwitchListTile.adaptive(
                     value: !muteEntrance,
                     onChanged: (value) => setModalState(() => muteEntrance = !value),
-                    title: const Text('أصوات الدخول', style: TextStyle(color: Colors.white)),
+                    title: Text(tr('أصوات الدخول', "Entrance sounds"), style: TextStyle(color: Colors.white)),
                   ),
                   // #17-18: the coin-counter reset moved to its own item in the
                   // main room menu (next to "حذف الدردشة") — it doesn't belong
@@ -2636,7 +2637,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء'),
+              child: Text(tr('إلغاء', "Cancel")),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -2651,13 +2652,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   });
                   await _refreshRoomData();
                   if (mounted) Navigator.pop(context);
-                  _showRoomSnack('تم حفظ إعدادات المؤثرات الصوتية');
+                  _showRoomSnack(tr('تم حفظ إعدادات المؤثرات الصوتية', "Sound effect settings saved"));
                 } catch (e) {
                   if (mounted) Navigator.pop(context);
-                  _showRoomSnack('تعذر حفظ الإعدادات: $e', error: true);
+                  _showRoomSnack(tr('تعذر حفظ الإعدادات: $e', "Could not save settings: $e"), error: true);
                 }
               },
-              child: const Text('حفظ'),
+              child: Text(tr('حفظ', "Save")),
             ),
           ],
         );
@@ -2672,9 +2673,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         final enableMic = _audioService.isMicMuted;
         await AudioController.instance.setMicEnabled(enableMic);
         await _audioService.toggleMute();
-        _showRoomSnack(_audioService.isMicMuted ? 'تم كتم الميكروفون' : 'تم فتح الميكروفون');
+        _showRoomSnack(_audioService.isMicMuted ? tr('تم كتم الميكروفون', "Mic muted") : tr('تم فتح الميكروفون', "Mic unmuted"));
       } else {
-        _showRoomSnack('يجب الصعود إلى مقعد أولاً', error: true);
+        _showRoomSnack(tr('يجب الصعود إلى مقعد أولاً', "Take a seat first"), error: true);
       }
       return;
     }
@@ -2688,7 +2689,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     if (seat.forceMuted || seatMuted) {
       await AudioController.instance.setMicEnabled(false);
       if (_audioReady) await _audioService.muteAudio();
-      _showRoomSnack('هذا المقعد مكتوم من المشرف، لا يمكنك فتح المايك', error: true);
+      _showRoomSnack(tr('هذا المقعد مكتوم من المشرف، لا يمكنك فتح المايك', "This seat was muted by a moderator. You cannot turn on the mic"), error: true);
       return;
     }
 
@@ -2703,11 +2704,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     if (seat.isMuted) {
       await AudioController.instance.setMicEnabled(true);
       await _audioService.unmuteAudio();
-      _showRoomSnack('تم فتح الميكروفون');
+      _showRoomSnack(tr('تم فتح الميكروفون', "Mic unmuted"));
     } else {
       await AudioController.instance.setMicEnabled(false);
       await _audioService.muteAudio();
-      _showRoomSnack('تم كتم الميكروفون');
+      _showRoomSnack(tr('تم كتم الميكروفون', "Mic muted"));
     }
   }
 
@@ -2717,7 +2718,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       builder: (_) {
         return AlertDialog(
           backgroundColor: const Color(0xFF2A1655),
-          title: const Text('إعدادات الصوت', style: TextStyle(color: Colors.white)),
+          title: Text(tr('إعدادات الصوت', "Audio settings"), style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2726,7 +2727,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   _musicOn ? Icons.music_note : Icons.music_off,
                   color: Colors.white70,
                 ),
-                title: const Text('موسيقى الغرفة', style: TextStyle(color: Colors.white)),
+                title: Text(tr('موسيقى الغرفة', "Room music"), style: TextStyle(color: Colors.white)),
                 trailing: const Icon(Icons.chevron_left, color: Colors.white38),
                 onTap: () {
                   Navigator.pop(context);
@@ -2738,7 +2739,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   _noiseReduction ? Icons.hearing : Icons.hearing_disabled,
                   color: Colors.white70,
                 ),
-                title: const Text('تقليل الضوضاء', style: TextStyle(color: Colors.white)),
+                title: Text(tr('تقليل الضوضاء', "Noise reduction"), style: TextStyle(color: Colors.white)),
                 trailing: Switch.adaptive(
                   value: _noiseReduction,
                   onChanged: (_) {
@@ -2749,7 +2750,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
               ListTile(
                 leading: const Icon(Icons.volume_up, color: Colors.white70),
-                title: const Text('مستوى الصوت', style: TextStyle(color: Colors.white)),
+                title: Text(tr('مستوى الصوت', "Volume"), style: TextStyle(color: Colors.white)),
                 subtitle: Text(
                   '${(_volumeLevel * 100).round()}%',
                   style: const TextStyle(color: Colors.white60),
@@ -2764,7 +2765,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   _audioService.isMicMuted ? Icons.mic_off : Icons.mic,
                   color: Colors.white70,
                 ),
-                title: const Text('الميكروفون', style: TextStyle(color: Colors.white)),
+                title: Text(tr('الميكروفون', "Microphone"), style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.pop(context);
                   await _toggleMicFromMenu();
@@ -2775,7 +2776,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('إغلاق'),
+              child: Text(tr('إغلاق', "Close")),
             ),
           ],
         );
@@ -2795,14 +2796,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       builder: (_) {
         return AlertDialog(
           backgroundColor: const Color(0xFF2A1655),
-          title: const Text('إبلاغ', style: TextStyle(color: Colors.white)),
+          title: Text(tr('إبلاغ', "Report"), style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Align(
+              Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  'صف المشكلة أو البلاغ وسيتم تجهيز نص جاهز للمشاركة مع فريق الدعم.',
+                  tr('صف المشكلة أو البلاغ وسيتم تجهيز نص جاهز للمشاركة مع فريق الدعم.', "Describe the issue to prepare a report you can share with support."),
                   style: TextStyle(color: Colors.white70),
                 ),
               ),
@@ -2813,7 +2814,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 maxLines: 5,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: 'اكتب سبب البلاغ...',
+                  hintText: tr('اكتب سبب البلاغ...', "Enter the reason for your report..."),
                   hintStyle: const TextStyle(color: Colors.white54),
                   filled: true,
                   fillColor: Colors.white10,
@@ -2828,7 +2829,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء'),
+              child: Text(tr('إلغاء', "Cancel")),
             ),
             TextButton(
               onPressed: () async {
@@ -2836,9 +2837,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     'SamaFox room report\nRoom ID: ${widget.roomId}\nIssue: ${controller.text.trim()}';
                 await Clipboard.setData(ClipboardData(text: reportText));
                 if (mounted) Navigator.pop(context);
-                _showRoomSnack('تم نسخ نص البلاغ');
+                _showRoomSnack(tr('تم نسخ نص البلاغ', "Report copied"));
               },
-              child: const Text('نسخ'),
+              child: Text(tr('نسخ', "Copy")),
             ),
             ElevatedButton(
               onPressed: () {
@@ -2847,7 +2848,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 Navigator.pop(context);
                 Share.share(reportText);
               },
-              child: const Text('مشاركة'),
+              child: Text(tr('مشاركة', "Share")),
             ),
           ],
         );
@@ -2870,7 +2871,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (!mounted || _unreachableWarned) return;
       _unreachableWarned = true;
       _showRoomSnack(
-        'تعذّر الاتصال الصوتي مع بعض الموجودين — شبكتك تمنع الاتصال المباشر',
+        tr('تعذّر الاتصال الصوتي مع بعض الموجودين — شبكتك تمنع الاتصال المباشر', "Could not connect audio with some users — your network blocks direct connections"),
         error: true,
       );
     };
@@ -3105,14 +3106,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         CrashReporter.event('room', 'join denied: $reason', level: 'warn');
         if (reason == 'banned') {
           _showRoomSnack(
-            (data['message'] ?? 'تم طردك من هذه الغرفة').toString(),
+            (data['message'] ?? tr('تم طردك من هذه الغرفة', "You were kicked from this room")).toString(),
             error: true,
           );
           Navigator.of(context).maybePop();
           return;
         }
         if (reason == 'closed') {
-          _showRoomSnack('الغرفة مغلقة', error: true);
+          _showRoomSnack(tr('الغرفة مغلقة', "Room closed"), error: true);
           Navigator.of(context).maybePop();
           return;
         }
@@ -3139,7 +3140,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         final rid = (data is Map) ? data['roomId'] : null;
         if (rid != null && rid != widget.roomId) return;
         final msg = (data is Map ? data['message'] : null)?.toString() ??
-            'تم طردك من الغرفة';
+            tr('تم طردك من الغرفة', "You were kicked from the room");
         CrashReporter.event('room', 'kicked: $msg', level: 'warn');
         _showRoomSnack(msg, error: true);
         Navigator.of(context).maybePop();
@@ -3150,7 +3151,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         final rid = (data is Map) ? data['roomId'] : null;
         if (rid != null && rid != widget.roomId) return;
         CrashReporter.event('room', 'room closed by owner', level: 'warn');
-        _showRoomSnack('تم إغلاق الغرفة من قِبَل المالك', error: true);
+        _showRoomSnack(tr('تم إغلاق الغرفة من قِبَل المالك', "Room closed by its owner"), error: true);
         Navigator.of(context).maybePop();
       });
 
@@ -3160,7 +3161,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         final rid = (data is Map) ? data['roomId'] : null;
         if (rid != null && rid != widget.roomId) return;
         final msg = (data is Map ? data['reason'] : null)?.toString() ??
-            'تم إغلاق الغرفة من الإدارة';
+            tr('تم إغلاق الغرفة من الإدارة', "Room closed by management");
         _showRoomSnack(msg, error: true);
         Navigator.of(context).maybePop();
       });
@@ -3196,8 +3197,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         final seat = data['seatNumber'];
         final name = (data['username'] ?? '').toString();
         _showRoomSnack(accepted
-            ? '${name.isEmpty ? 'المستخدم' : name} قبل الصعود إلى المايك $seat'
-            : '${name.isEmpty ? 'المستخدم' : name} رفض دعوة المايك $seat');
+            ? tr('${name.isEmpty ? 'المستخدم' : name} قبل الصعود إلى المايك $seat', "${name.isEmpty ? 'User' : name} accepted the invitation to mic $seat")
+            : tr('${name.isEmpty ? 'المستخدم' : name} رفض دعوة المايك $seat', "${name.isEmpty ? 'User' : name} declined the invitation to mic $seat"));
       });
 
       // Short of memory: entrance clips still waiting are skipped (10/10).
@@ -3292,7 +3293,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _roomMsgRejectedSub?.cancel();
     _roomMsgRejectedSub = SocketService().roomMessageRejectedStream.listen((r) {
       if (!mounted) return;
-      final msg = r['message']?.toString() ?? 'تعذّر إرسال الرسالة';
+      final msg = r['message']?.toString() ?? tr('تعذّر إرسال الرسالة', "Could not send message");
       _showRoomSnack(msg, error: true);
     });
 
@@ -3311,7 +3312,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           ),
         );
         notifier.addActivity(
-          'انضم إلى الغرفة',
+          tr('انضم إلى الغرفة', "Joined the room"),
           RoomEventType.join,
           username: event.username,
         );
@@ -3390,22 +3391,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       final open = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('الصوت اتقطع وانت برّه التطبيق'),
-          content: const Text(
-            'الموبايل بيوقف النت عن التطبيق لما تخرج منه، علشان يوفّر البطارية.\n\n'
+          title: Text(tr('الصوت اتقطع وانت برّه التطبيق', "Audio stopped while the app was in the background")),
+          content: Text(
+            tr('الموبايل بيوقف النت عن التطبيق لما تخرج منه، علشان يوفّر البطارية.\n\n'
             'علشان الصوت يفضل شغال:\n'
             'افتح الإعدادات ← البطارية ← واختار «السماح بالنشاط في الخلفية» '
-            'أو «بدون قيود».',
+            'أو «بدون قيود».', "Your phone stops the app from using the internet in the background to save battery.\n\nTo keep audio playing:\nOpen Settings ← Battery ← and choose “Allow background activity” or “Unrestricted”."),
             textDirection: TextDirection.rtl,
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('لاحقاً'),
+              child: Text(tr('لاحقاً', "Later")),
             ),
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('فتح الإعدادات'),
+              child: Text(tr('فتح الإعدادات', "Open settings")),
             ),
           ],
         ),
@@ -3595,8 +3596,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     } catch (e) {
       if (!mounted) return;
       final msg = e is DioException && e.response?.data is Map
-          ? (e.response!.data['message']?.toString() ?? 'تعذّر إرسال الصورة')
-          : 'تعذّر إرسال الصورة';
+          ? (e.response!.data['message']?.toString() ?? tr('تعذّر إرسال الصورة', "Could not send image"))
+          : tr('تعذّر إرسال الصورة', "Could not send image");
       _showRoomSnack(msg, error: true);
     } finally {
       if (mounted) setState(() => _sendingRoomImage = false);
@@ -3703,15 +3704,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           backgroundColor: const Color(0xFF1E1347),
-          title: const Text('تعديل الغرفة', style: TextStyle(color: Colors.white)),
+          title: Text(tr('تعديل الغرفة', "Edit room"), style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: ctrl,
                 style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'اسم الغرفة',
+                decoration: InputDecoration(
+                  labelText: tr('اسم الغرفة', "Room name"),
                   labelStyle: TextStyle(color: Colors.white70),
                   enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
                 ),
@@ -3723,12 +3724,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   await _pickAndUploadRoomCover();
                 },
                 icon: const Icon(Icons.photo_camera, color: Color(0xFF4ECDC4)),
-                label: const Text('تغيير صورة الغرفة', style: TextStyle(color: Color(0xFF4ECDC4))),
+                label: Text(tr('تغيير صورة الغرفة', "Change room image"), style: TextStyle(color: Color(0xFF4ECDC4))),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('إلغاء', style: TextStyle(color: Colors.white54))),
+            TextButton(onPressed: () => Navigator.pop(dctx), child: Text(tr('إلغاء', "Cancel"), style: TextStyle(color: Colors.white54))),
             TextButton(
               onPressed: () async {
                 final newName = ctrl.text.trim();
@@ -3740,12 +3741,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     if (mounted) setState(() {});
                   } catch (e) {
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر حفظ الاسم: $e')));
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذّر حفظ الاسم: $e', "Could not save name: $e"))));
                     }
                   }
                 }
               },
-              child: const Text('حفظ', style: TextStyle(color: Color(0xFFFFD700))),
+              child: Text(tr('حفظ', "Save"), style: TextStyle(color: Color(0xFFFFD700))),
             ),
           ],
         ),
@@ -3766,7 +3767,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر رفع الصورة: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذّر رفع الصورة: $e', "Could not upload image: $e"))));
       }
     }
   }
@@ -3785,9 +3786,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(14),
-                child: Text('تغيير خلفية الغرفة',
+                child: Text(tr('تغيير خلفية الغرفة', "Change room background"),
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -3795,7 +3796,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
               ListTile(
                 leading: const Icon(Icons.storefront, color: Colors.amberAccent),
-                title: const Text('خلفياتي والمتجر',
+                title: Text(tr('خلفياتي والمتجر', "My backgrounds and store"),
                     style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -3805,7 +3806,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ListTile(
                 leading:
                     const Icon(Icons.upload_file, color: Colors.lightBlueAccent),
-                title: const Text('رفع من الجهاز',
+                title: Text(tr('رفع من الجهاز', "Upload from device"),
                     style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -3840,12 +3841,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         ];
       }
     } catch (e) {
-      _showRoomSnack('تعذر تحميل الخلفيات: $e', error: true);
+      _showRoomSnack(tr('تعذر تحميل الخلفيات: $e', "Could not load backgrounds: $e"), error: true);
       return;
     }
     if (!mounted) return;
     if (backgrounds.isEmpty && storeOnly.isEmpty) {
-      _showRoomSnack('لا توجد خلفيات بعد', error: true);
+      _showRoomSnack(tr('لا توجد خلفيات بعد', "No backgrounds yet"), error: true);
       return;
     }
     if (storeOnly.isNotEmpty) {
@@ -3858,13 +3859,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               ListTile(
                 leading: const Icon(Icons.collections, color: Colors.amberAccent),
-                title: Text('خلفياتي (${backgrounds.length})', style: const TextStyle(color: Colors.white)),
+                title: Text(tr('خلفياتي (${backgrounds.length})', "My backgrounds (${backgrounds.length})"), style: const TextStyle(color: Colors.white)),
                 onTap: () => Navigator.pop(c, 'mine'),
               ),
               ListTile(
                 leading: const Icon(Icons.storefront, color: Colors.lightBlueAccent),
-                title: Text('المتجر (${storeOnly.length})', style: const TextStyle(color: Colors.white)),
-                subtitle: const Text('اشترِ الخلفية من المتجر لتظهر في خلفياتي', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                title: Text(tr('المتجر (${storeOnly.length})', "Store (${storeOnly.length})"), style: const TextStyle(color: Colors.white)),
+                subtitle: Text(tr('اشترِ الخلفية من المتجر لتظهر في خلفياتي', "Buy a background from the store to add it to My backgrounds"), style: TextStyle(color: Colors.white54, fontSize: 11)),
                 onTap: () => Navigator.pop(c, 'store'),
               ),
             ]),
@@ -3878,7 +3879,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       }
     }
     if (backgrounds.isEmpty) {
-      _showRoomSnack('لا توجد خلفيات في «خلفياتي» بعد', error: true);
+      _showRoomSnack(tr('لا توجد خلفيات في «خلفياتي» بعد', "No backgrounds in My backgrounds yet"), error: true);
       return;
     }
     showModalBottomSheet(
@@ -3893,9 +3894,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           height: MediaQuery.of(ctx).size.height * 0.6,
           child: Column(
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(14),
-                child: Text('خلفياتي',
+                child: Text(tr('خلفياتي', "My backgrounds"),
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -3971,9 +3972,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       ref
           .read(roomControllerProvider(widget.roomId).notifier)
           .setRoomBackgroundUrlLocal(url);
-      _showRoomSnack('تم تعيين خلفية الغرفة');
+      _showRoomSnack(tr('تم تعيين خلفية الغرفة', "Room background set"));
     } catch (e) {
-      _showRoomSnack('تعذر تعيين الخلفية: $e', error: true);
+      _showRoomSnack(tr('تعذر تعيين الخلفية: $e', "Could not set background: $e"), error: true);
     }
   }
 
@@ -4004,13 +4005,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: const Color(0xFF2A1A5E),
-            title: const Text('خلفية مخصصة', style: TextStyle(color: Colors.white)),
+            title: Text(tr('خلفية مخصصة', "Custom background"), style: TextStyle(color: Colors.white)),
             content: Text(
-                'سيتم خصم $priceText كوينز لرفع خلفية من جهازك، وتستمر $days يوماً. متابعة؟',
+                tr('سيتم خصم $priceText كوينز لرفع خلفية من جهازك، وتستمر $days يوماً. متابعة؟', "Uploading a background from your device costs $priceText coins and lasts $days days. Continue?"),
                 style: const TextStyle(color: Colors.white70)),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('متابعة')),
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('إلغاء', "Cancel"))),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('متابعة', "Continue"))),
             ],
           ),
         );
@@ -4116,14 +4117,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   const SizedBox(height: 10),
 
                   // ===== Header =====
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
                       children: [
                         Icon(Icons.message, color: Colors.white),
                         SizedBox(width: 8),
                         Text(
-                          "الرسائل",
+                          tr("الرسائل", "Messages"),
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -4323,10 +4324,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // =======================
                 // ⭐ POPULAR
                 // =======================
-                const Align(
+                Align(
                   alignment: Alignment.centerRight,
                   child: Text(
-                    "الوظائف شائعة الاستخدام",
+                    tr("الوظائف شائعة الاستخدام", "Frequently used features"),
                     style: TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ),
@@ -4336,11 +4337,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    roomMenuItem(Icons.flag, "مركز الفعاليات", Colors.amber, () {
+                    roomMenuItem(Icons.flag, tr("مركز الفعاليات", "Events"), Colors.amber, () {
                       Navigator.pop(context);
                       _openEventsCenter(this.context);
                     }),
-                    roomMenuItem(Icons.backpack, "حقيبة الظهر", Colors.lightBlueAccent, () {
+                    roomMenuItem(Icons.backpack, tr("حقيبة الظهر", "Bag"), Colors.lightBlueAccent, () {
                       Navigator.pop(context);
                       _openBackpackSheet(this.context);
                     }),
@@ -4356,7 +4357,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // the room cup now occupies in the header. One entry here,
                 // the controls themselves one level down.
                 if (isAdmin) ...[
-                  roomMenuItem(Icons.tune, "إعدادات الغرفة", Colors.white70, () {
+                  roomMenuItem(Icons.tune, tr("إعدادات الغرفة", "Room settings"), Colors.white70, () {
                     Navigator.pop(context);
                     _openRoomSettingsSheet(this.context);
                   }),
@@ -4368,10 +4369,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // =======================
                 // ⚙️ MAIN GRID (LIKE IMAGE)
                 // =======================
-                const Align(
+                Align(
                   alignment: Alignment.centerRight,
                   child: Text(
-                    "الوظائف الأساسية",
+                    tr("الوظائف الأساسية", "Basic features"),
                     style: TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ),
@@ -4390,19 +4391,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   physics: const NeverScrollableScrollPhysics(),
                   children: [
 
-                    roomMenuItem(Icons.music_note, "موسيقى",
+                    roomMenuItem(Icons.music_note, tr("موسيقى", "Music"),
                         _musicOn ? Colors.greenAccent : Colors.white70, () {
                           Navigator.pop(context);
                           _openMusicSheet();
                         }),
 
-                    roomMenuItem(Icons.hearing, "تقليل الضوضاء",
+                    roomMenuItem(Icons.hearing, tr("تقليل الضوضاء", "Noise reduction"),
                         _noiseReduction ? Colors.greenAccent : Colors.white70, () {
                           Navigator.pop(context);
                           _toggleNoiseReduction();
                         }),
 
-                    roomMenuItem(Icons.volume_up, "مستوى الصوت", Colors.white70, () {
+                    roomMenuItem(Icons.volume_up, tr("مستوى الصوت", "Volume"), Colors.white70, () {
                       Navigator.pop(context);
                       _openVolumeDialog(this.context);
                     }),
@@ -4416,39 +4417,39 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           _isScreenRecording
                               ? Icons.stop_circle
                               : Icons.fiber_manual_record,
-                          _isScreenRecording ? "إيقاف التسجيل" : "تسجيل الشاشة",
+                          _isScreenRecording ? tr("إيقاف التسجيل", "Stop recording") : tr("تسجيل الشاشة", "Screen recording"),
                           _isScreenRecording ? Colors.redAccent : Colors.white70,
                           () async {
                         Navigator.pop(context);
                         await _toggleScreenRecording();
                       }),
 
-                    roomMenuItem(Icons.multitrack_audio, "مؤثرات صوتية", Colors.white70, () {
+                    roomMenuItem(Icons.multitrack_audio, tr("مؤثرات صوتية", "Sound effects"), Colors.white70, () {
                       Navigator.pop(context);
                       _openSoundEffectsDialog(this.context);
                     }),
 
-                    roomMenuItem(Icons.mic, "ميكروفون", Colors.white70, () async {
+                    roomMenuItem(Icons.mic, tr("ميكروفون", "Microphone"), Colors.white70, () async {
                       Navigator.pop(context);
                       await _toggleMicFromMenu();
                     }),
 
-                    roomMenuItem(Icons.share, "مشاركة الغرفة", Colors.white70, () {
+                    roomMenuItem(Icons.share, tr("مشاركة الغرفة", "Share room"), Colors.white70, () {
                       Navigator.pop(context);
                       _shareRoom();
                     }),
 
-                    roomMenuItem(Icons.report, "إبلاغ", Colors.white70, () {
+                    roomMenuItem(Icons.report, tr("إبلاغ", "Report"), Colors.white70, () {
                       Navigator.pop(context);
                       _openReportDialog(this.context);
                     }),
 
-                    roomMenuItem(Icons.delete, "حذف الدردشة", Colors.white70, () {
+                    roomMenuItem(Icons.delete, tr("حذف الدردشة", "Delete chat"), Colors.white70, () {
                       Navigator.pop(context);
                       if (isAdmin) {
                         _clearRoomChat();
                       } else {
-                        _showRoomSnack('مسح الدردشة متاح للمسؤولين فقط', error: true);
+                        _showRoomSnack(tr('مسح الدردشة متاح للمسؤولين فقط', "Only admins can clear chat"), error: true);
                       }
                     }),
 
@@ -4457,10 +4458,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     // Effects" dialog, which is why the owner couldn't find it
                     // ("موضوع التصفير مش لاقيه") — it now lives as its own item
                     // here, next to the other admin actions.
-                    roomMenuItem(Icons.restart_alt, "تصفير عدّاد الكوينزات", Colors.orangeAccent, () async {
+                    roomMenuItem(Icons.restart_alt, tr("تصفير عدّاد الكوينزات", "Reset coin counters"), Colors.orangeAccent, () async {
                       Navigator.pop(context);
                       if (!isAdmin) {
-                        _showRoomSnack('التصفير متاح لصاحب الغرفة أو المشرفين فقط', error: true);
+                        _showRoomSnack(tr('التصفير متاح لصاحب الغرفة أو المشرفين فقط', "Only the room owner or moderators can reset counters"), error: true);
                         return;
                       }
                       try {
@@ -4469,13 +4470,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           'room_id': widget.roomId,
                         });
                         await ref.read(roomControllerProvider(widget.roomId).notifier).refreshSeatEarnings();
-                        _showRoomSnack('تم تصفير العدّادات');
+                        _showRoomSnack(tr('تم تصفير العدّادات', "Counters reset"));
                       } catch (e) {
-                        _showRoomSnack('تعذر التصفير: $e', error: true);
+                        _showRoomSnack(tr('تعذر التصفير: $e', "Could not reset counters: $e"), error: true);
                       }
                     }),
 
-                    roomMenuItem(Icons.settings, "إعدادات الصوت", Colors.white70, () {
+                    roomMenuItem(Icons.settings, tr("إعدادات الصوت", "Audio settings"), Colors.white70, () {
                       Navigator.pop(context);
                       _openAudioSettingsDialog(this.context);
                     }),
@@ -4527,7 +4528,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (isForced && !wasForced) {
         AudioController.instance.setMicEnabled(false);
         if (_audioReady) _audioService.muteAudio();
-        _showRoomSnack('تم كتمك من قبل المشرف');
+        _showRoomSnack(tr('تم كتمك من قبل المشرف', "You were muted by a moderator"));
       }
     });
 
@@ -5056,10 +5057,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       // SPEC52 #20 — animated emoji over my mic.
                       IconButton(
                         icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFFFFD54F)),
-                        tooltip: 'إيموجي متحرك',
+                        tooltip: tr('إيموجي متحرك', "Animated emoji"),
                         onPressed: () {
                           if (_currentSeatNumber == null) {
-                            _showRoomSnack('اصعد على المايك لإرسال الإيموجي', error: true);
+                            _showRoomSnack(tr('اصعد على المايك لإرسال الإيموجي', "Join a mic to send emoji"), error: true);
                             return;
                           }
                           RoomEmojiPicker.show(context, onPick: (e) {
@@ -5086,12 +5087,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                       ),
                                   ],
                                 ),
-                          tooltip: 'صورة',
+                          tooltip: tr('صورة', "Image"),
                           onPressed: _sendingRoomImage
                               ? null
                               : (_imageGiftAllowed
                                   ? _pickAndSendRoomImage
-                                  : () => _showRoomSnack('إرسال الصور متاح لـ VIP $_imageGiftMinVip فأعلى', error: true)),
+                                  : () => _showRoomSnack(tr('إرسال الصور متاح لـ VIP $_imageGiftMinVip فأعلى', "Sending images requires VIP $_imageGiftMinVip or higher"), error: true)),
                         ),
                       Expanded(
                         child: TextField(
@@ -5104,8 +5105,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             _closeChat();
                           },
                           style: const TextStyle(color: Colors.white),
-                          decoration: const InputDecoration(
-                            hintText: 'اكتب رسالتك...',
+                          decoration: InputDecoration(
+                            hintText: tr('اكتب رسالتك...', "Type your message..."),
                             hintStyle: TextStyle(color: Colors.white54),
                             border: InputBorder.none,
                           ),
@@ -5179,14 +5180,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   ),
                                 ),
                                 alignment: Alignment.centerLeft,
-                                child: const Row(
+                                child: Row(
                                   children: [
                                     Icon(Icons.chat_bubble_outline,
                                         color: Colors.white54, size: 18),
                                     SizedBox(width: 6),
                                     Flexible(
                                       child: Text(
-                                        "تكلم  ...",
+                                        tr("تكلم  ...", "Speak..."),
                                         maxLines: 1,
                                         softWrap: false,
                                         overflow: TextOverflow.ellipsis,
@@ -5357,13 +5358,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             children: [
                               const Icon(Icons.wifi_off_rounded, color: Colors.white, size: 18),
                               const SizedBox(width: 8),
-                              const Expanded(
-                                child: Text('انقطع الاتصال — مايكك محفوظ لمدة 5 دقائق',
+                              Expanded(
+                                child: Text(tr('انقطع الاتصال — مايكك محفوظ لمدة 5 دقائق', "Disconnected — your mic is reserved for 5 minutes"),
                                     style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
                               ),
                               TextButton(
                                 onPressed: () => SocketService().retryNow(),
-                                child: const Text('إعادة المحاولة', style: TextStyle(color: Colors.white)),
+                                child: Text(tr('إعادة المحاولة', "Retry"), style: TextStyle(color: Colors.white)),
                               ),
                             ],
                           ),
@@ -5733,7 +5734,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     int? displayId,
   }) {
     if (userId <= 0) {
-      _showRoomSnack('تعذّر فتح ملف هذا المستخدم');
+      _showRoomSnack(tr('تعذّر فتح ملف هذا المستخدم', "Could not open this user's profile"));
       return;
     }
     final state = ref.read(roomControllerProvider(widget.roomId));
@@ -5860,8 +5861,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   mainAxisSize: MainAxisSize.min,
                   children: [
 
-                    const Text(
-                      "تبديل مقعد الميكروفون",
+                    Text(
+                      tr("تبديل مقعد الميكروفون", "Switch mic seat"),
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -5886,8 +5887,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           toSeat: seatNumber,
                         );
                       },
-                      child: const Text(
-                        "تأكيد",
+                      child: Text(
+                        tr("تأكيد", "Confirm"),
                         style: TextStyle(color: Colors.greenAccent),
                       ),
                     ),
@@ -5895,8 +5896,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     // ❌ CANCEL (no movement)
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text(
-                        "إلغاء",
+                      child: Text(
+                        tr("إلغاء", "Cancel"),
                         style: TextStyle(
                           color: Colors.white70,
                           fontSize: 15,
@@ -6098,7 +6099,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             _badgePill(
-                                              profile!.agencyRole == 'agent' ? 'وكيل' : 'مضيف',
+                                              profile!.agencyRole == 'agent' ? tr('وكيل', "Agent") : tr('مضيف', "Host"),
                                               profile.agencyRole == 'agent'
                                                   ? const Color(0xFFF59E0B)
                                                   : const Color(0xFF14B8A6),
@@ -6350,7 +6351,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               ),
                             ),
                             const SizedBox(width: 8),
-                            const Text('الميداليات',
+                            Text(tr('الميداليات', "Medals"),
                                 style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 13,
@@ -6415,7 +6416,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
                         icon: const Icon(Icons.logout, color: Colors.white),
-                        label: const Text('مغادرة المقعد', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                        label: Text(tr('مغادرة المقعد', "Leave seat"), style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
                         onPressed: () {
                           Navigator.pop(context);
                           _emitLeaveSeat(seatNumber);
@@ -6429,20 +6430,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     // matching the reference.
                     Row(children: [
                       Expanded(
-                        child: _circleActionBtn(Icons.card_giftcard, 'إرسال هدية', const Color(0xFFDB2777), () {
+                        child: _circleActionBtn(Icons.card_giftcard, tr('إرسال هدية', "Send gift"), const Color(0xFFDB2777), () {
                           Navigator.pop(context);
                           _openGiftSheetToUser(context, _Recipient(
                               id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
                         }),
                       ),
                       Expanded(
-                        child: _circleActionBtn(Icons.chat_bubble_rounded, 'الدردشة', const Color(0xFFF472B6), () {
+                        child: _circleActionBtn(Icons.chat_bubble_rounded, tr('الدردشة', "Chat"), const Color(0xFFF472B6), () {
                           Navigator.pop(context);
                           _openDirectChat(_Recipient(id: seat.userId!, name: seat.username ?? '', avatarUrl: seat.avatarUrl));
                         }),
                       ),
                       Expanded(
-                        child: _circleActionBtn(Icons.favorite, 'متابعة', const Color(0xFF22D3EE), () {
+                        child: _circleActionBtn(Icons.favorite, tr('متابعة', "Continue"), const Color(0xFF22D3EE), () {
                           Navigator.pop(context);
                           unawaited(_handleFollowFromRoom(seat.userId!));
                         }),
@@ -6486,7 +6487,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           // the four mic controls, nothing more.
                           if (isAdmin || _iAmPlatformAdmin)
                             _adminChipBtn(seat.forceMuted ? Icons.mic : Icons.mic_off,
-                                seat.forceMuted ? 'فك كتم المايك' : 'منع من المايك',
+                                seat.forceMuted ? tr('فك كتم المايك', "Unmute mic") : tr('منع من المايك', "Ban from mic"),
                                 Colors.orange, () async {
                               Navigator.pop(context);
                               await _forceMute(seat.userId, !seat.forceMuted);
@@ -6498,7 +6499,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           // one (seatNumber -1), where these would act on a
                           // seat that doesn't exist.
                           if (seatNumber > 0)
-                            _adminChipBtn(Icons.remove_circle_outline, 'إزالة من المايك', Colors.red, () {
+                            _adminChipBtn(Icons.remove_circle_outline, tr('إزالة من المايك', "Remove from mic"), Colors.red, () {
                               Navigator.pop(context);
                               ref.read(roomControllerProvider(widget.roomId).notifier)
                                   .removeSeat(seatNumber: seatNumber, targetUserId: seat.userId!);
@@ -6507,17 +6508,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 'seatNumber': seatNumber,
                                 'targetUserId': seat.userId,
                               });
-                              _showRoomSnack('تم إزالة المستخدم من الميكروفون');
+                              _showRoomSnack(tr('تم إزالة المستخدم من الميكروفون', "User removed from mic"));
                             }),
-                          _adminChipBtn(Icons.block, 'منع من المقعد', Colors.deepOrange, () async {
+                          _adminChipBtn(Icons.block, tr('منع من المقعد', "Ban from seat"), Colors.deepOrange, () async {
                             Navigator.pop(context);
                             await _setSeatBlock(seat.userId, true);
                           }),
-                          _adminChipBtn(Icons.exit_to_app, 'طرد من الغرفة', Colors.redAccent, () async {
+                          _adminChipBtn(Icons.exit_to_app, tr('طرد من الغرفة', "Kick from room"), Colors.redAccent, () async {
                             Navigator.pop(context);
                             await _promptKickUser(seat.userId);
                           }),
-                          _adminChipBtn(Icons.shield_moon_outlined, 'تعيين مشرف', Colors.cyan, () async {
+                          _adminChipBtn(Icons.shield_moon_outlined, tr('تعيين مشرف', "Appoint moderator"), Colors.cyan, () async {
                             Navigator.pop(context);
                             await _appointSupervisor(seat.userId);
                           }),
@@ -6530,14 +6531,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   .lockedSeats.contains(seatNumber);
                               return _adminChipBtn(
                                 isSeatLocked ? Icons.lock_open : Icons.lock_outline,
-                                isSeatLocked ? 'فك قفل المقعد' : 'قفل المقعد',
+                                isSeatLocked ? tr('فك قفل المقعد', "Unlock seat") : tr('قفل المقعد', "Lock seat"),
                                 isSeatLocked ? Colors.lightGreen : Colors.amber,
                                 () {
                                   Navigator.pop(context);
                                   final newLocked = !isSeatLocked;
                                   ref.read(roomControllerProvider(widget.roomId).notifier)
                                       .toggleSeatLock(seatNumber: seatNumber, locked: newLocked);
-                                  _showRoomSnack(newLocked ? 'تم قفل المقعد $seatNumber' : 'تم فك قفل المقعد $seatNumber');
+                                  _showRoomSnack(newLocked ? tr('تم قفل المقعد $seatNumber', "Seat $seatNumber locked") : tr('تم فك قفل المقعد $seatNumber', "Seat $seatNumber unlocked"));
                                 },
                               );
                             }),
@@ -6545,9 +6546,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           // any room role. A room owner moderates HIS room; a
                           // platform admin bans from the app.
                           if (_iAmPlatformAdmin)
-                            _adminChipBtn(Icons.gavel, 'حظر من التطبيق', Colors.red.shade700, () async {
+                            _adminChipBtn(Icons.gavel, tr('حظر من التطبيق', "Ban from app"), Colors.red.shade700, () async {
                               Navigator.pop(context);
-                              await _promptBanUser(seat.userId, seat.username ?? 'المستخدم');
+                              await _promptBanUser(seat.userId, seat.username ?? tr('المستخدم', "User"));
                             }),
                         ],
                       ),
@@ -6643,11 +6644,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ),
                       ),
                       // title text
-                      const Positioned(
+                      Positioned(
                         top: 40,
                         left: 0, right: 0,
                         child: Text(
-                          'إرتباط',
+                          tr('إرتباط', "Relationship"),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 30,
@@ -6671,7 +6672,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: Colors.white30),
                           ),
-                          child: const Text('قواعد', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                          child: Text(tr('قواعد', "Rules"), style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
@@ -6766,9 +6767,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           padding: const EdgeInsets.symmetric(horizontal: 20),
                           child: Row(
                             children: [
-                              Expanded(child: _cpSkillCard('تصنيف نقاط المهارة', '0', const Color(0xFFFF69B4))),
+                              Expanded(child: _cpSkillCard(tr('تصنيف نقاط المهارة', "Skill point ranking"), '0', const Color(0xFFFF69B4))),
                               const SizedBox(width: 12),
-                              Expanded(child: _cpSkillCard('مكافأة نقاط المهارة', '0', const Color(0xFFBA55D3))),
+                              Expanded(child: _cpSkillCard(tr('مكافأة نقاط المهارة', "Skill point reward"), '0', const Color(0xFFBA55D3))),
                             ],
                           ),
                         ),
@@ -6801,8 +6802,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     ),
                                     borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                                   ),
-                                  child: const Text(
-                                    'ترتيب هذا الأسبوع',
+                                  child: Text(
+                                    tr('ترتيب هذا الأسبوع', "This week's ranking"),
                                     textAlign: TextAlign.center,
                                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                                   ),
@@ -6929,8 +6930,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 borderRadius: BorderRadius.circular(30),
                                 boxShadow: [BoxShadow(color: Colors.pinkAccent.withOpacity(0.4), blurRadius: 12)],
                               ),
-                              child: const Center(
-                                child: Text('مغادرة المقعد', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                              child: Center(
+                                child: Text(tr('مغادرة المقعد', "Leave seat"), style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                               ),
                             ),
                           ),
@@ -7172,7 +7173,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           'backgroundImageUrl': url,
         });
       } catch (e) {
-        _showRoomSnack('تعذر حفظ الخلفية: $e', error: true);
+        _showRoomSnack(tr('تعذر حفظ الخلفية: $e', "Could not save background: $e"), error: true);
       }
     }
 
@@ -7219,8 +7220,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'إدارة الغرفة',
+                  Text(
+                    tr('إدارة الغرفة', "Room management"),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -7232,8 +7233,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     children: [
                       Expanded(
                         child: AdminActionCard(
-                          title: 'صورة الغرفة',
-                          subtitle: 'رفع صورة من الهاتف',
+                          title: tr('صورة الغرفة', "Room image"),
+                          subtitle: tr('رفع صورة من الهاتف', "Upload an image from your phone"),
                           icon: Icons.image,
                           onTap: () => _pickUploadAndSaveRoomImage(isBackground: false),
                         ),
@@ -7241,8 +7242,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       const SizedBox(width: 12),
                       Expanded(
                         child: AdminActionCard(
-                          title: 'خلفية الغرفة',
-                          subtitle: 'رفع خلفية من الهاتف',
+                          title: tr('خلفية الغرفة', "Room background"),
+                          subtitle: tr('رفع خلفية من الهاتف', "Upload a background from your phone"),
                           icon: Icons.wallpaper,
                           onTap: () => _pickUploadAndSaveRoomImage(isBackground: true),
                         ),
@@ -7346,9 +7347,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
     final ownerId = state.ownerId != 0 ? state.ownerId : (room?.ownerId ?? room?.owner?.id ?? 0);
     if (ownerId > 0 && !seatOf.containsKey(ownerId)) {
-      add(ownerId, room?.owner?.name ?? 'صاحب الغرفة', room?.owner?.avatarUrl, seatNumber: 0);
+      add(ownerId, room?.owner?.name ?? tr('صاحب الغرفة', "Room owner"), room?.owner?.avatarUrl, seatNumber: 0);
     }
-    if (me != null) add(me.id, me.name ?? 'أنا', me.avatarUrl);
+    if (me != null) add(me.id, me.name ?? tr('أنا', "Me"), me.avatarUrl);
     for (final u in state.onlineUsers.values) {
       add(u.id, u.name ?? 'User #${u.id}', u.avatarUrl);
     }

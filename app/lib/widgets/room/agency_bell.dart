@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -135,7 +136,7 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'تعذر تحميل الإشعارات';
+        _error = tr('تعذر تحميل الإشعارات', "Could not load notifications");
       });
     }
   }
@@ -155,12 +156,12 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
         children: [
           const SizedBox(height: 10),
           Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
-          const Padding(
+          Padding(
             padding: EdgeInsets.all(12),
             child: Row(children: [
               Icon(Icons.notifications_rounded, color: Color(0xFFFFD54F)),
               SizedBox(width: 8),
-              Text('إشعارات الوكالة', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+              Text(tr('إشعارات الوكالة', "Agency notifications"), style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
             ]),
           ),
           Expanded(
@@ -169,7 +170,7 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
                 : _error != null
                     ? Center(child: Text(_error!, style: const TextStyle(color: Colors.white54)))
                     : _items.isEmpty
-                        ? const Center(child: Text('لا توجد إشعارات', style: TextStyle(color: Colors.white54)))
+                        ? Center(child: Text(tr('لا توجد إشعارات', "No notifications"), style: TextStyle(color: Colors.white54)))
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                             itemCount: _items.length,
@@ -190,11 +191,11 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
     final unread = n['isRead'] != true;
     String? fmt(dynamic v) => v == null ? null : '$v';
     final rows = <(String, String?)>[
-      ('الوكالة', fmt(data['agencyName'])),
-      ('النسبة', data['ratePercent'] == null ? null : '${data['ratePercent']}%'),
-      ('الفترة', fmt(data['period'])),
-      ('الإنتاج المرتبط', data['productionCoins'] == null ? null : '${data['productionCoins']} كوينز'),
-      ('قيمة العمولة', data['commissionCoins'] == null ? null : '${data['commissionCoins']} كوينز'),
+      (tr('الوكالة', "Agency"), fmt(data['agencyName'])),
+      (tr('النسبة', "Rate"), data['ratePercent'] == null ? null : '${data['ratePercent']}%'),
+      (tr('الفترة', "Period"), fmt(data['period'])),
+      (tr('الإنتاج المرتبط', "Related production"), data['productionCoins'] == null ? null : tr('${data['productionCoins']} كوينز', "${data['productionCoins']} coins")),
+      (tr('قيمة العمولة', "Commission amount"), data['commissionCoins'] == null ? null : tr('${data['commissionCoins']} كوينز', "${data['commissionCoins']} coins")),
     ].where((r) => r.$2 != null && r.$2!.isNotEmpty && r.$2 != 'null').toList();
     return Container(
       padding: const EdgeInsets.all(12),

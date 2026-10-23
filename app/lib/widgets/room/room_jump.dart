@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 
 import '../../main.dart' show navigatorKey;
@@ -16,7 +17,7 @@ Future<void> confirmAndJumpToRoom(
   final ctx = navigatorKey.currentContext;
   if (ctx == null) return;
   if (ActiveRoom.instance.roomId == roomId) {
-    _snack('أنت موجود في هذه الغرفة بالفعل');
+    _snack(tr('أنت موجود في هذه الغرفة بالفعل', "You are already in this room"));
     return;
   }
   final yes = await showDialog<bool>(
@@ -33,12 +34,12 @@ Future<void> confirmAndJumpToRoom(
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dctx, false),
-            child: const Text('لا', style: TextStyle(color: Colors.white70)),
+            child: Text(tr('لا', "No"), style: TextStyle(color: Colors.white70)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7C4DFF)),
             onPressed: () => Navigator.pop(dctx, true),
-            child: const Text('نعم', style: TextStyle(color: Colors.white)),
+            child: Text(tr('نعم', "Yes"), style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -58,7 +59,7 @@ Future<void> confirmAndJumpToRoom(
     available = false;
   }
   if (!available) {
-    _snack('الغرفة غير متاحة حاليًا.');
+    _snack(tr('الغرفة غير متاحة حاليًا.', "Room currently unavailable."));
     return;
   }
   final nav = navigatorKey.currentState;

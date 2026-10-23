@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -270,7 +271,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشلت العملية: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('فشلت العملية: $e', "Action failed: $e"))));
       }
     }
   }
@@ -294,7 +295,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   void _openProfile(int userId, String username, {SocketMessage? from}) {
     if (userId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر فتح الملف الشخصي لهذا المستخدم')),
+        SnackBar(content: Text(tr('تعذّر فتح الملف الشخصي لهذا المستخدم', "Could not open this user's profile"))),
       );
       return;
     }
@@ -326,7 +327,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     final isAdmin = myId != null && (myId == st.ownerId || st.adminIds.contains(myId));
     if (userId <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر فتح الملف الشخصي لهذا المستخدم')),
+        SnackBar(content: Text(tr('تعذّر فتح الملف الشخصي لهذا المستخدم', "Could not open this user's profile"))),
       );
       return;
     }
@@ -347,7 +348,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
               ),
               ListTile(
                 leading: const Icon(Icons.person, color: Colors.white),
-                title: const Text('الملف الشخصي', style: TextStyle(color: Colors.white)),
+                title: Text(tr('الملف الشخصي', "Profile"), style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(sctx);
                   _openProfile(userId, username);
@@ -356,29 +357,29 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
               if (isAdmin && !isSelf) ...[
                 ListTile(
                   leading: const Icon(Icons.mic_off, color: Colors.orangeAccent),
-                  title: const Text('منع من صعود المايك', style: TextStyle(color: Colors.orangeAccent)),
+                  title: Text(tr('منع من صعود المايك', "Ban from mic"), style: TextStyle(color: Colors.orangeAccent)),
                   onTap: () {
                     Navigator.pop(sctx);
                     _roomAdminAction('room-admin/seat-block', userId,
-                        'تم منع $username من صعود المايك',
+                        tr('تم منع $username من صعود المايك', "$username banned from mic"),
                         extra: {'blocked': true});
                   },
                 ),
                 ListTile(
                   leading: const Icon(Icons.logout, color: Colors.redAccent),
-                  title: const Text('طرد من الغرفة', style: TextStyle(color: Colors.redAccent)),
+                  title: Text(tr('طرد من الغرفة', "Kick from room"), style: TextStyle(color: Colors.redAccent)),
                   onTap: () {
                     Navigator.pop(sctx);
-                    _roomAdminAction('room-admin/kick', userId, 'تم طرد $username من الغرفة',
+                    _roomAdminAction('room-admin/kick', userId, tr('تم طرد $username من الغرفة', "$username kicked from room"),
                         extra: {'minutes': 0});
                   },
                 ),
                 ListTile(
                   leading: const Icon(Icons.block, color: Colors.redAccent),
-                  title: const Text('حظر من الغرفة', style: TextStyle(color: Colors.redAccent)),
+                  title: Text(tr('حظر من الغرفة', "Ban from room"), style: TextStyle(color: Colors.redAccent)),
                   onTap: () {
                     Navigator.pop(sctx);
-                    _roomAdminAction('room-admin/ban', userId, 'تم حظر $username من الغرفة');
+                    _roomAdminAction('room-admin/ban', userId, tr('تم حظر $username من الغرفة', "$username banned from room"));
                   },
                 ),
               ],
@@ -663,7 +664,7 @@ _bubbleSkin(m,                                     Container(
                       // ===== ACTIVITY ITEM =====
                       final e = item.event!;
                       final username = (e.username == null || e.username!.trim().isEmpty)
-                          ? 'مستخدم'
+                          ? tr('مستخدم', "User")
                           : e.username!.trim();
                       final icon = e.type == RoomEventType.join
                           ? Icons.login_rounded
@@ -750,9 +751,9 @@ _bubbleSkin(m,                                     Container(
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _tabItem(0, "الكل"),
-                _tabItem(1, "هدية"),
-                _tabItem(2, "دردشة"),
+                _tabItem(0, tr("الكل", "All")),
+                _tabItem(1, tr("هدية", "Gift")),
+                _tabItem(2, tr("دردشة", "Chat")),
               ],
             ),
           ),

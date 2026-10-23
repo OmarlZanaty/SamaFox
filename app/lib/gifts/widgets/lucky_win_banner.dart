@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 import 'dart:collection';
 
@@ -68,8 +69,8 @@ class _LuckyWinBannerState extends State<LuckyWinBanner>
     if (rid != null && rid != widget.roomId) return;
     setState(() {
       _entryNotice = e['state'] == 'PENDING'
-          ? 'هديتك في الجولة — بانتظار لاعب آخر لتبدأ المنافسة'
-          : 'انتهت الجولة بدون لاعب آخر — لا توجد منافسة هذه المرة';
+          ? tr('هديتك في الجولة — بانتظار لاعب آخر لتبدأ المنافسة', "Your gift entered the round — waiting for another player to start")
+          : tr('انتهت الجولة بدون لاعب آخر — لا توجد منافسة هذه المرة', "Round ended without another player — no competition this time");
     });
     _noticeTimer?.cancel();
     _noticeTimer = Timer(const Duration(seconds: 3), () {
@@ -165,7 +166,7 @@ class _WinCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = isMe ? 'أنت' : (event.senderName ?? 'مستخدم');
+    final name = isMe ? tr('أنت', "You") : (event.senderName ?? tr('مستخدم', "User"));
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Container(
@@ -205,7 +206,7 @@ class _WinCard extends StatelessWidget {
                       style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 10.5),
                     ),
                   Text(
-                    'ربح ${event.payoutCoins} كوين 🎉',
+                    tr('ربح ${event.payoutCoins} كوين 🎉', "Won ${event.payoutCoins} coins 🎉"),
                     style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 11.5, fontWeight: FontWeight.w600),
                   ),
                   if ((event.roomName ?? '').isNotEmpty)
@@ -271,8 +272,8 @@ class _LoseChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white24),
       ),
-      child: const Text(
-        'حظ أوفر المرة الجاية 🎲',
+      child: Text(
+        tr('حظ أوفر المرة الجاية 🎲', "Better luck next time 🎲"),
         style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
       ),
     );

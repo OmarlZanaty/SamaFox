@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,7 +50,7 @@ class _Supporter {
     return _Supporter(
       rank: (j['rank'] as num?)?.toInt() ?? fallbackRank,
       userId: id,
-      name: (u['name'] ?? 'مستخدم').toString(),
+      name: (u['name'] ?? tr('مستخدم', "User")).toString(),
       avatarUrl: (u['avatarUrl'] as String?)?.trim().isEmpty ?? true
           ? null
           : (u['avatarUrl'] as String),
@@ -146,14 +147,14 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
       final coins = (res.data is Map) ? (res.data['coins'] as num?)?.toInt() ?? 0 : 0;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم إضافة $coins كوينز إلى محفظتك')),
+        SnackBar(content: Text(tr('تم إضافة $coins كوينز إلى محفظتك', "$coins coins added to your wallet"))),
       );
       setState(() => _future = _load());
     } catch (e) {
       if (!mounted) return;
       final msg = e is DioException && e.response?.data is Map
-          ? (e.response!.data['message']?.toString() ?? 'تعذّر استلام المكافأة')
-          : 'تعذّر استلام المكافأة';
+          ? (e.response!.data['message']?.toString() ?? tr('تعذّر استلام المكافأة', "Could not claim reward"))
+          : tr('تعذّر استلام المكافأة', "Could not claim reward");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
@@ -172,7 +173,7 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
       userId != 0 && userId == _myUserId ? _myRewards : const [];
 
   Widget _claimButton(Map<String, dynamic> r, {bool compact = true}) {
-    final label = 'مكافأة لك — ${r['rewardCoins'] ?? ''} كوينز';
+    final label = tr('مكافأة لك — ${r['rewardCoins'] ?? ''} كوينز', "Your reward — ${r['rewardCoins'] ?? ''} coins");
     if (!compact) {
       return ElevatedButton.icon(
         style: ElevatedButton.styleFrom(
@@ -198,7 +199,7 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
       ),
       onPressed: () => _claimReward(r),
       icon: const Icon(Icons.card_giftcard, size: 14),
-      label: Text('مكافأة لك · ${r['rewardCoins'] ?? ''}'),
+      label: Text(tr('مكافأة لك · ${r['rewardCoins'] ?? ''}', "Your reward · ${r['rewardCoins'] ?? ''}")),
     );
   }
 
@@ -227,7 +228,7 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
             // #28/#45 - the client asked twice for this label to read
             // "أعلى المستويات" instead of "أكبر الداعمين في البرنامج".
             // The board itself is unchanged - it is still ranked by support.
-            _isRoom ? 'أعلى المستويات في الغرفة' : 'أعلى المستويات',
+            _isRoom ? tr('أعلى المستويات في الغرفة', "Top levels in the room") : tr('أعلى المستويات', "Top levels"),
             style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           ),
           actions: [
@@ -245,16 +246,16 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
             }
             if (snap.hasError) {
               final msg = snap.error is DioException
-                  ? 'تعذّر تحميل الكأس — تحقق من الاتصال'
-                  : 'تعذّر تحميل الكأس';
+                  ? tr('تعذّر تحميل الكأس — تحقق من الاتصال', "Could not load the cup — check your connection")
+                  : tr('تعذّر تحميل الكأس', "Could not load the cup");
               return _message(msg, retry: true);
             }
             final board = snap.data ?? const <_Supporter>[];
             if (board.isEmpty) {
               return _message(
                 _isRoom
-                    ? 'لا يوجد داعمون في هذه الغرفة بعد'
-                    : 'لا يوجد داعمون بعد — أول هدية تضع صاحبها على الكأس',
+                    ? tr('لا يوجد داعمون في هذه الغرفة بعد', "No supporters in this room yet")
+                    : tr('لا يوجد داعمون بعد — أول هدية تضع صاحبها على الكأس', "No supporters yet — the first gift puts its sender on the cup"),
               );
             }
 
@@ -288,7 +289,7 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
                             const Icon(Icons.monetization_on, color: _gold, size: 18),
                             const SizedBox(width: 6),
                             Text(
-                              'إجمالي دعم الغرفة: ${_short(_supportTotal!)}',
+                              tr('إجمالي دعم الغرفة: ${_short(_supportTotal!)}', "Total room support: ${_short(_supportTotal!)}"),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 13,
@@ -348,7 +349,7 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
                   const SizedBox(height: 14),
                   Center(
                     child: Text(
-                      'أعلى $_limit داعم${_isRoom ? ' في الغرفة' : ''} حسب إجمالي الهدايا',
+                      tr('أعلى $_limit داعم${_isRoom ? ' في الغرفة' : ''} حسب إجمالي الهدايا', "Top $_limit supporters${_isRoom ? ' in the room' : ''} by total gifts"),
                       style: const TextStyle(color: Colors.white38, fontSize: 12),
                     ),
                   ),
@@ -379,7 +380,7 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
               const SizedBox(height: 14),
               TextButton(
                 onPressed: () => setState(() => _future = _load()),
-                child: const Text('إعادة المحاولة', style: TextStyle(color: _gold)),
+                child: Text(tr('إعادة المحاولة', "Retry"), style: TextStyle(color: _gold)),
               ),
             ],
           ],

@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
 
@@ -28,7 +29,7 @@ class PlinkoRepository {
         ),
       );
     } on DioException catch (e) {
-      throw _translate(e, 'تعذر تحميل اللعبة');
+      throw _translate(e, tr('تعذر تحميل اللعبة', "Could not load game"));
     }
   }
 
@@ -45,7 +46,7 @@ class PlinkoRepository {
       final body = res.data ?? const {};
       if (body['success'] != true) {
         throw PlinkoException(
-            body['message']?.toString() ?? 'تعذر إسقاط الكرة');
+            body['message']?.toString() ?? tr('تعذر إسقاط الكرة', "Could not drop ball"));
       }
       return PlinkoDropResult(
         drop:
@@ -53,7 +54,7 @@ class PlinkoRepository {
         balance: (body['balance'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translate(e, 'تعذر إسقاط الكرة');
+      throw _translate(e, tr('تعذر إسقاط الكرة', "Could not drop ball"));
     }
   }
 
@@ -66,12 +67,12 @@ class PlinkoRepository {
       final body = res.data ?? const {};
       if (body['success'] != true) {
         throw PlinkoException(
-            body['message']?.toString() ?? 'تعذر تغيير البذرة');
+            body['message']?.toString() ?? tr('تعذر تغيير البذرة', "Could not change seed"));
       }
       return PlinkoFairness.fromJson(
           Map<String, dynamic>.from(body['fairness'] as Map));
     } on DioException catch (e) {
-      throw _translate(e, 'تعذر تغيير البذرة');
+      throw _translate(e, tr('تعذر تغيير البذرة', "Could not change seed"));
     }
   }
 

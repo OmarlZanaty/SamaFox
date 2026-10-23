@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -58,13 +59,13 @@ class _MyBackgroundsScreenState extends ConsumerState<MyBackgroundsScreen> {
       await ref.read(authStateProvider.notifier).refreshMe();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(item.isActive ? 'تم إلغاء استخدام الخلفية' : 'تم تركيب الخلفية على صفحتك'),
+        content: Text(item.isActive ? tr('تم إلغاء استخدام الخلفية', "Background removed") : tr('تم تركيب الخلفية على صفحتك', "Background applied to your profile")),
       ));
       _reload();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذّر تنفيذ العملية'), backgroundColor: Colors.red[700]),
+        SnackBar(content: Text(tr('تعذّر تنفيذ العملية', "Could not complete action")), backgroundColor: Colors.red[700]),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -81,7 +82,7 @@ class _MyBackgroundsScreenState extends ConsumerState<MyBackgroundsScreen> {
           backgroundColor: _kCard,
           elevation: 0,
           centerTitle: true,
-          title: const Text('خلفيات خاصتي', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          title: Text(tr('خلفيات خاصتي', "My backgrounds"), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         body: FutureBuilder<List<InventoryItem>>(
           future: _future,
@@ -90,11 +91,11 @@ class _MyBackgroundsScreenState extends ConsumerState<MyBackgroundsScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             if (snap.hasError) {
-              return _message('تعذّر تحميل خلفياتك', retry: true);
+              return _message(tr('تعذّر تحميل خلفياتك', "Could not load your backgrounds"), retry: true);
             }
             final items = snap.data ?? const <InventoryItem>[];
             if (items.isEmpty) {
-              return _message('لا تملك خلفيات بعد.\nالخلفيات اللي تشتريها من المتجر أو تتمنح لك هتظهر هنا.');
+              return _message(tr('لا تملك خلفيات بعد.\nالخلفيات اللي تشتريها من المتجر أو تتمنح لك هتظهر هنا.', "You have no backgrounds yet.\nBackgrounds you buy or receive will appear here."));
             }
             return RefreshIndicator(
               onRefresh: () async {
@@ -153,7 +154,7 @@ class _MyBackgroundsScreenState extends ConsumerState<MyBackgroundsScreen> {
                     child: _chip(item.remainingLabel, urgent: !item.isPermanent && (item.daysRemaining ?? 0) <= 3),
                   ),
                   if (item.isActive)
-                    Positioned(top: 6, left: 6, child: _chip('مستخدمة', color: Colors.green[700]!)),
+                    Positioned(top: 6, left: 6, child: _chip(tr('مستخدمة', "In use"), color: Colors.green[700]!)),
                 ],
               ),
             ),
@@ -179,7 +180,7 @@ class _MyBackgroundsScreenState extends ConsumerState<MyBackgroundsScreen> {
                 ),
                 onPressed: _busy ? null : () => _toggle(item),
                 child: Text(
-                  item.isActive ? 'إلغاء الاستخدام' : 'استخدام',
+                  item.isActive ? tr('إلغاء الاستخدام', "Remove") : tr('استخدام', "Use"),
                   style: const TextStyle(fontSize: 12, color: Colors.white),
                 ),
               ),
@@ -210,7 +211,7 @@ class _MyBackgroundsScreenState extends ConsumerState<MyBackgroundsScreen> {
               Text(text, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, height: 1.6)),
               if (retry) ...[
                 const SizedBox(height: 14),
-                TextButton(onPressed: _reload, child: const Text('إعادة المحاولة')),
+                TextButton(onPressed: _reload, child: Text(tr('إعادة المحاولة', "Retry"))),
               ],
             ],
           ),

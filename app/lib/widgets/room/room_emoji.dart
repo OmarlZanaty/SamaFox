@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -22,33 +23,33 @@ class RoomEmojiDef {
   String get asset => 'assets/images/emoji/$id.webp';
 }
 
-const List<RoomEmojiDef> kRoomEmojis = [
-  RoomEmojiDef('kiss_right', 'قبلة يمين', '😘', drift: 1),
-  RoomEmojiDef('kiss_left', 'قبلة شمال', '😘', drift: -1),
-  RoomEmojiDef('magnifier', 'نظارة مكبرة', '🧐'),
-  RoomEmojiDef('yawn_sleep', 'تثاؤب ونوم', '🥱'),
-  RoomEmojiDef('heartbroken', 'قلب مكسور', '💔'),
-  RoomEmojiDef('clap', 'تصفيق', '👏'),
-  RoomEmojiDef('cry', 'بكاء', '😭'),
-  RoomEmojiDef('laugh', 'ضحك', '😂'),
-  RoomEmojiDef('hello_sign', 'لافتة مرحبا', '👋'),
-  RoomEmojiDef('heart', 'قلب', '❤️'),
-  RoomEmojiDef('dance', 'رقص', '💃'),
-  RoomEmojiDef('bride_groom', 'عروس وعريس', '👰'),
-  RoomEmojiDef('hug', 'حضن', '🤗'),
-  RoomEmojiDef('couple_kiss', 'قبلة', '💏'),
-  RoomEmojiDef('spit_right', 'بصق يمين', '💦', drift: 1),
-  RoomEmojiDef('spit_left', 'بصق شمال', '💦', drift: -1),
+List<RoomEmojiDef> get kRoomEmojis => [
+  RoomEmojiDef('kiss_right', tr('قبلة يمين', "Kiss right"), '😘', drift: 1),
+  RoomEmojiDef('kiss_left', tr('قبلة شمال', "Kiss left"), '😘', drift: -1),
+  RoomEmojiDef('magnifier', tr('نظارة مكبرة', "Magnifying glasses"), '🧐'),
+  RoomEmojiDef('yawn_sleep', tr('تثاؤب ونوم', "Yawn and sleep"), '🥱'),
+  RoomEmojiDef('heartbroken', tr('قلب مكسور', "Broken heart"), '💔'),
+  RoomEmojiDef('clap', tr('تصفيق', "Clap"), '👏'),
+  RoomEmojiDef('cry', tr('بكاء', "Cry"), '😭'),
+  RoomEmojiDef('laugh', tr('ضحك', "Laugh"), '😂'),
+  RoomEmojiDef('hello_sign', tr('لافتة مرحبا', "Hello sign"), '👋'),
+  RoomEmojiDef('heart', tr('قلب', "Heart"), '❤️'),
+  RoomEmojiDef('dance', tr('رقص', "Dance"), '💃'),
+  RoomEmojiDef('bride_groom', tr('عروس وعريس', "Bride and groom"), '👰'),
+  RoomEmojiDef('hug', tr('حضن', "Hug"), '🤗'),
+  RoomEmojiDef('couple_kiss', tr('قبلة', "Kiss"), '💏'),
+  RoomEmojiDef('spit_right', tr('بصق يمين', "Spit right"), '💦', drift: 1),
+  RoomEmojiDef('spit_left', tr('بصق شمال', "Spit left"), '💦', drift: -1),
   RoomEmojiDef('wow', 'Wow', '😮'),
-  RoomEmojiDef('angry', 'غضب', '😡'),
-  RoomEmojiDef('shock', 'صدمة', '😱'),
-  RoomEmojiDef('fire_heart', 'قلب مشتعل', '❤️‍🔥'),
-  RoomEmojiDef('lol', 'ضحك قوي', '🤣'),
-  RoomEmojiDef('sleep', 'نوم', '😴'),
-  RoomEmojiDef('party', 'احتفال', '🥳'),
-  RoomEmojiDef('fire_clap', 'تصفيق ناري', '🔥'),
-  RoomEmojiDef('stars', 'نجوم', '🤩'),
-  RoomEmojiDef('crown', 'تاج', '👑'),
+  RoomEmojiDef('angry', tr('غضب', "Angry"), '😡'),
+  RoomEmojiDef('shock', tr('صدمة', "Shocked"), '😱'),
+  RoomEmojiDef('fire_heart', tr('قلب مشتعل', "Heart on fire"), '❤️‍🔥'),
+  RoomEmojiDef('lol', tr('ضحك قوي', "Big laugh"), '🤣'),
+  RoomEmojiDef('sleep', tr('نوم', "Sleep"), '😴'),
+  RoomEmojiDef('party', tr('احتفال', "Party"), '🥳'),
+  RoomEmojiDef('fire_clap', tr('تصفيق ناري', "Fiery clap"), '🔥'),
+  RoomEmojiDef('stars', tr('نجوم', "Stars"), '🤩'),
+  RoomEmojiDef('crown', tr('تاج', "Crown"), '👑'),
 ];
 
 RoomEmojiDef? roomEmojiById(String id) {
@@ -84,7 +85,7 @@ class RoomEmojiPicker {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('إيموجي متحرك', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+              Text(tr('إيموجي متحرك', "Animated emoji"), style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
               ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.45),

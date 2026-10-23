@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -243,7 +244,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
     final r = _round;
     if (r == null || !r.isJoining || _joinedCurrentRound) return;
     if (_balance < _entry) {
-      setState(() => _notice = 'رصيدك لا يكفي');
+      setState(() => _notice = tr('رصيدك لا يكفي', "Insufficient balance"));
       return;
     }
     try {
@@ -254,8 +255,8 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
         _balance = result.balance;
         _punches.clear();
         _submitted = false;
-        _notice = 'دخلت الحلبة — مكافأتك المضمونة ${_fmt(result.minReward)} '
-            'وتصل إلى ${_fmt(result.maxReward)}';
+        _notice = tr('دخلت الحلبة — مكافأتك المضمونة ${_fmt(result.minReward)} '
+            'وتصل إلى ${_fmt(result.maxReward)}', "You entered the arena — your guaranteed reward is ${_fmt(result.minReward)}, up to ${_fmt(result.maxReward)}");
       });
       ref.read(authStateProvider.notifier).updateCoinsBalance(result.balance);
     } on BoxingException catch (e) {
@@ -280,7 +281,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       setState(() {
         _lastScore = result.score;
         _lastReward = result.reward;
-        _notice = 'أداؤك ${result.score}/100 — مكافأتك ${_fmt(result.reward)}';
+        _notice = tr('أداؤك ${result.score}/100 — مكافأتك ${_fmt(result.reward)}', "Your score ${result.score}/100 — your reward ${_fmt(result.reward)}");
       });
     } on BoxingException catch (e) {
       if (mounted) {
@@ -310,7 +311,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('حلبة الأسد والنمر',
+        title: Text(tr('حلبة الأسد والنمر', "Lion and Tiger Arena"),
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -369,7 +370,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('رصيدك', style: TextStyle(color: Colors.white70)),
+          Text(tr('رصيدك', "Your balance"), style: TextStyle(color: Colors.white70)),
           Text('🪙 ${_fmt(_balance)}',
               style: const TextStyle(
                   color: _gold, fontWeight: FontWeight.bold, fontSize: 18)),
@@ -382,21 +383,21 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
     final String title;
     final String subtitle;
     if (r == null) {
-      title = 'جارٍ الاتصال…';
+      title = tr('جارٍ الاتصال…', "Connecting…");
       subtitle = '';
     } else if (r.isJoining) {
-      title = 'وقت الدخول';
+      title = tr('وقت الدخول', "Entry time");
       subtitle = _joinedCurrentRound
-          ? 'أنت في الحلبة، استعد'
-          : 'ادفع رسوم الدخول واختر شخصيتك';
+          ? tr('أنت في الحلبة، استعد', "You are in the arena. Get ready")
+          : tr('ادفع رسوم الدخول واختر شخصيتك', "Pay the entry fee and choose your character");
     } else if (r.isPlaying) {
-      title = r.missionLabel ?? 'تعليمات المدرب';
+      title = r.missionLabel ?? tr('تعليمات المدرب', "Coach instructions");
       subtitle = _joinedCurrentRound
-          ? 'سدّد لكماتك عندما يصل المؤشر للمنطقة الذهبية'
-          : 'الجولة جارية — انتظر الجولة القادمة';
+          ? tr('سدّد لكماتك عندما يصل المؤشر للمنطقة الذهبية', "Throw punches when the marker reaches the gold zone")
+          : tr('الجولة جارية — انتظر الجولة القادمة', "Round in progress — wait for the next round");
     } else {
-      title = 'النتائج';
-      subtitle = 'الجولة القادمة تبدأ الآن';
+      title = tr('النتائج', "Results");
+      subtitle = tr('الجولة القادمة تبدأ الآن', "The next round starts now");
     }
 
     final seconds = (_msLeft / 1000).ceil();
@@ -455,9 +456,9 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _fighterFace('lion', '🦁', 'الأسد'),
+              _fighterFace('lion', '🦁', tr('الأسد', "Lion")),
               _hitFlash(),
-              _fighterFace('tiger', '🐯', 'النمر'),
+              _fighterFace('tiger', '🐯', tr('النمر', "Tiger")),
             ],
           ),
           const SizedBox(height: 18),
@@ -513,16 +514,16 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       text = '🥊';
       color = Colors.white24;
     } else if (acc >= 88) {
-      text = 'قاضية!';
+      text = tr('قاضية!', "Knockout!");
       color = _gold;
     } else if (acc >= 70) {
-      text = 'لكمة قوية';
+      text = tr('لكمة قوية', "Strong punch");
       color = const Color(0xFF4CAF50);
     } else if (acc >= 40) {
-      text = 'لمسة';
+      text = tr('لمسة', "Tap");
       color = Colors.white70;
     } else {
-      text = 'أخطأت';
+      text = tr('أخطأت', "Miss");
       color = Colors.white38;
     }
     return SizedBox(
@@ -670,23 +671,23 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           : r.entryTiers;
       return Column(
         children: [
-          Text('اختر شخصيتك',
+          Text(tr('اختر شخصيتك', "Choose your character"),
               style: TextStyle(
                   color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
           Row(
             children: [
-              _cornerButton('lion', '🦁 الأسد', _lionColor),
+              _cornerButton('lion', tr('🦁 الأسد', "🦁 Lion"), _lionColor),
               const SizedBox(width: 10),
-              _cornerButton('tiger', '🐯 النمر', _tigerColor),
+              _cornerButton('tiger', tr('🐯 النمر', "🐯 Tiger"), _tigerColor),
             ],
           ),
           const SizedBox(height: 6),
-          Text('الاختيار للمظهر فقط ولا يغيّر مكافأتك',
+          Text(tr('الاختيار للمظهر فقط ولا يغيّر مكافأتك', "Your choice changes appearance only, not your reward"),
               style: TextStyle(
                   color: Colors.white.withOpacity(0.4), fontSize: 11)),
           const SizedBox(height: 14),
-          Text('اختر رسوم الدخول',
+          Text(tr('اختر رسوم الدخول', "Choose entry fee"),
               style: TextStyle(
                   color: Colors.white.withOpacity(0.7), fontSize: 13)),
           const SizedBox(height: 8),
@@ -718,7 +719,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                     borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _join,
-              child: Text('ادخل الحلبة — ${_fmt(_entry)}',
+              child: Text(tr('ادخل الحلبة — ${_fmt(_entry)}', "Enter the arena — ${_fmt(_entry)}"),
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16)),
             ),
@@ -731,7 +732,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       return Column(
         children: [
           Text(
-              'باقي ${_punchCount - _punches.length} لكمات — كل لكمة تضيّق المنطقة الذهبية',
+              tr('باقي ${_punchCount - _punches.length} لكمات — كل لكمة تضيّق المنطقة الذهبية', "${_punchCount - _punches.length} punches left — each punch narrows the gold zone"),
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: Colors.white.withOpacity(0.6), fontSize: 12)),
@@ -747,7 +748,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                     borderRadius: BorderRadius.circular(14)),
               ),
               onPressed: _throwPunch,
-              child: const Text('🥊 لكمة',
+              child: Text(tr('🥊 لكمة', "🥊 Punch"),
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
             ),
           ),
@@ -756,7 +757,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
     }
 
     if (_submitted && _lastScore > 0) {
-      return _noticeBar('أداؤك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}');
+      return _noticeBar(tr('أداؤك $_lastScore/100 — مكافأتك ${_fmt(_lastReward)}', "Your score $_lastScore/100 — your reward ${_fmt(_lastReward)}"));
     }
 
     return const SizedBox.shrink();
@@ -793,7 +794,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('آخر نتائجك',
+        Text(tr('آخر نتائجك', "Your recent results"),
             style:
                 TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
@@ -822,13 +823,13 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
   Widget _playersStrip(BoxingRound? r) {
     final players = r?.players ?? const <BoxingPlayer>[];
     if (players.isEmpty) {
-      return Text('لا يوجد لاعبون في هذه الجولة بعد',
+      return Text(tr('لا يوجد لاعبون في هذه الجولة بعد', "No players in this round yet"),
           style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12));
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('في الحلبة (${players.length})',
+        Text(tr('في الحلبة (${players.length})', "In the arena (${players.length})"),
             style:
                 TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
         const SizedBox(height: 8),
@@ -897,7 +898,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('أفضل أداء — جولة $_resultRoundId',
+          Text(tr('أفضل أداء — جولة $_resultRoundId', "Best performance — round $_resultRoundId"),
               style: const TextStyle(
                   color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
@@ -935,11 +936,11 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.25)),
       ),
-      child: const Text(
-        'لعبة مهارة وليست مراهنة: رسوم الدخول ثابتة ومعروفة قبل الدفع، '
+      child: Text(
+        tr('لعبة مهارة وليست مراهنة: رسوم الدخول ثابتة ومعروفة قبل الدفع، '
         'ولا توجد مضاعفات ولا رهان على فائز، وكل مشترك يحصل على مكافأة مضمونة. '
         'اختيار الأسد أو النمر للمظهر فقط، والمكافأة تعتمد على دقة لكماتك '
-        'ولا أحد يربح من خسارة لاعب آخر.',
+        'ولا أحد يربح من خسارة لاعب آخر.', "A skill game, not betting: the entry fee is fixed and known before payment. There are no multipliers or bets on a winner, and every participant gets a guaranteed reward. Choosing the lion or tiger changes appearance only. Rewards depend on punch accuracy, and no one profits from another player's loss."),
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.6),
       ),

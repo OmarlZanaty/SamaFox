@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 
 import '../config/app_config.dart';
@@ -34,12 +35,12 @@ class CpTier {
   /// are derived from how long the pair has lasted, which is the only thing
   /// that actually grows over time. If the client later wants these named per
   /// pair, it becomes two columns and this table turns into a fallback.
-  static const List<CpTier> all = [
-    CpTier(1, 'بداية حب', 0, Color(0xFF7B1FA2), Color(0xFF4A148C)),
-    CpTier(2, 'حب حلو', 7, Color(0xFFD81B60), Color(0xFF880E4F)),
-    CpTier(3, 'حب كبير', 30, Color(0xFFE53935), Color(0xFF8E0000)),
-    CpTier(4, 'حب خالد', 90, Color(0xFFFF6F00), Color(0xFFBF360C)),
-    CpTier(5, 'روح واحدة', 365, Color(0xFFFFC107), Color(0xFFB8860B)),
+  static List<CpTier> get all => [
+    CpTier(1, tr('بداية حب', "Love begins"), 0, Color(0xFF7B1FA2), Color(0xFF4A148C)),
+    CpTier(2, tr('حب حلو', "Sweet love"), 7, Color(0xFFD81B60), Color(0xFF880E4F)),
+    CpTier(3, tr('حب كبير', "Great love"), 30, Color(0xFFE53935), Color(0xFF8E0000)),
+    CpTier(4, tr('حب خالد', "Eternal love"), 90, Color(0xFFFF6F00), Color(0xFFBF360C)),
+    CpTier(5, tr('روح واحدة', "One soul"), 365, Color(0xFFFFC107), Color(0xFFB8860B)),
   ];
 
   static CpTier forDays(int days) {
@@ -662,7 +663,7 @@ class _TierPill extends StatelessWidget {
             ),
             SizedBox(width: height * 0.5),
             Text(
-              '•  $days ${days == 1 ? 'يوم' : 'أيام'}',
+              tr('•  $days ${days == 1 ? 'يوم' : 'أيام'}', "•  $days ${days == 1 ? 'day' : 'days'}"),
               style: TextStyle(
                 color: Colors.white70,
                 fontSize: height * 0.42,
@@ -762,10 +763,10 @@ class CpRelationshipCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (showTitle)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: Text(
-                'العلاقة',
+                tr('العلاقة', "Relationship"),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white70,
@@ -850,7 +851,7 @@ class CpRelationshipCard extends StatelessWidget {
                             // ── Ribbon: علاقة الارتباط ──
                             Transform.translate(
                               offset: Offset(0, -emblemH * 0.10),
-                              child: _Ribbon(width: w * 0.40, label: 'علاقة الارتباط'),
+                              child: _Ribbon(width: w * 0.40, label: tr('علاقة الارتباط', "Relationship")),
                             ),
                             SizedBox(height: w * 0.01),
                             // ── The pair, joined by the heart ──
@@ -875,7 +876,7 @@ class CpRelationshipCard extends StatelessWidget {
                                   children: [
                                     _PartnerColumn(
                                       avatarUrl: myAvatarUrl,
-                                      name: myName.isEmpty ? 'أنا' : myName,
+                                      name: myName.isEmpty ? tr('أنا', "Me") : myName,
                                       displayId: myDisplayId?.toString() ?? '—',
                                       side: mySide,
                                       ringSize: ring,

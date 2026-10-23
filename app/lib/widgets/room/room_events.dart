@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -55,9 +56,9 @@ class RoomEventsBus {
       ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
         backgroundColor: const Color(0xFF4A148C),
         duration: const Duration(seconds: 6),
-        content: Text('🚀 انطلق صاروخ في غرفة ${d['roomName'] ?? rid}', textDirection: TextDirection.rtl),
+        content: Text(tr('🚀 انطلق صاروخ في غرفة ${d['roomName'] ?? rid}', "🚀 A rocket launched in room ${d['roomName'] ?? rid}"), textDirection: TextDirection.rtl),
         action: SnackBarAction(
-          label: 'انتقال',
+          label: tr('انتقال', "Go"),
           textColor: const Color(0xFFFFD54F),
           onPressed: () => confirmAndJumpToRoom(rid, roomName: d['roomName']?.toString()),
         ),
@@ -73,11 +74,11 @@ class RoomEventsBus {
       context: ctx,
       builder: (dctx) => AlertDialog(
         backgroundColor: const Color(0xFF2A1655),
-        title: const Text('دعوة PK', style: TextStyle(color: Colors.white)),
-        content: Text('غرفة #${d['roomId']} تتحداك في PK لمدة ${((d['durationSec'] as num?)?.toInt() ?? 300) ~/ 60} دقائق',
+        title: Text(tr('دعوة PK', "PK invitation"), style: TextStyle(color: Colors.white)),
+        content: Text(tr('غرفة #${d['roomId']} تتحداك في PK لمدة ${((d['durationSec'] as num?)?.toInt() ?? 300) ~/ 60} دقائق', "Room #${d['roomId']} challenges you to PK for ${((d['durationSec'] as num?)?.toInt() ?? 300) ~/ 60} minutes"),
             style: const TextStyle(color: Colors.white70)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('رفض')),
+          TextButton(onPressed: () => Navigator.pop(dctx), child: Text(tr('رفض', "Decline"))),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(dctx);
@@ -87,7 +88,7 @@ class RoomEventsBus {
                 _toast(_err(e));
               }
             },
-            child: const Text('قبول'),
+            child: Text(tr('قبول', "Accept")),
           ),
         ],
       ),
@@ -100,7 +101,7 @@ String _err(Object e) {
     final d = (e as dynamic).response?.data;
     if (d is Map && d['message'] != null) return d['message'].toString();
   } catch (_) {}
-  return 'تعذر تنفيذ العملية';
+  return tr('تعذر تنفيذ العملية', "Could not complete action");
 }
 
 void _toast(String m) {
@@ -194,7 +195,7 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
               ],
             ),
           ),
-          Text(target > 0 ? '${_compact(cur)}/${_compact(target)}' : 'صاروخ',
+          Text(target > 0 ? '${_compact(cur)}/${_compact(target)}' : tr('صاروخ', "Rocket"),
               style: const TextStyle(
                   color: Colors.white, fontSize: 8, fontWeight: FontWeight.w800, shadows: [Shadow(blurRadius: 3)])),
         ],
@@ -216,7 +217,7 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('🚀 صاروخ الهدايا', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
+              Text(tr('🚀 صاروخ الهدايا', "🚀 Gift rocket"), style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
               const SizedBox(height: 10),
               LinearProgressIndicator(
                 value: target > 0 ? (cur / target).clamp(0.0, 1.0) : 0,
@@ -226,9 +227,9 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
                 backgroundColor: Colors.white12,
               ),
               const SizedBox(height: 6),
-              Text('$cur / $target كوينز', textDirection: TextDirection.ltr, style: const TextStyle(color: Colors.white70)),
+              Text(tr('$cur / $target كوينز', "$cur / $target coins"), textDirection: TextDirection.ltr, style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 10),
-              const Text('كل هدية في الغرفة تملأ الصاروخ. عند اكتماله ينطلق ويستلم المتواجدون جوائز من الصندوق.',
+              Text(tr('كل هدية في الغرفة تملأ الصاروخ. عند اكتماله ينطلق ويستلم المتواجدون جوائز من الصندوق.', "Every gift in the room fills the rocket. When full, it launches and everyone present can claim a prize from the chest."),
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 12)),
               if (rewards.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -239,7 +240,7 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
                     for (final rw in rewards.whereType<Map>())
                       Chip(
                         backgroundColor: Colors.white10,
-                        label: Text(rw['type'] == 'coins' ? '${rw['coins']} كوينز' : (rw['name'] ?? 'منتج').toString(),
+                        label: Text(rw['type'] == 'coins' ? tr('${rw['coins']} كوينز', "${rw['coins']} coins") : (rw['name'] ?? tr('منتج', "Item")).toString(),
                             style: const TextStyle(color: Colors.white, fontSize: 11)),
                       ),
                   ],
@@ -252,7 +253,7 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
                     Navigator.pop(context);
                     RocketLaunchOverlay.claim(r!);
                   },
-                  child: const Text('استلم الجائزة'),
+                  child: Text(tr('استلم الجائزة', "Claim prize")),
                 ),
               ],
             ],
@@ -285,16 +286,16 @@ class RocketLaunchOverlay {
       context: ctx,
       builder: (dctx) => AlertDialog(
         backgroundColor: const Color(0xFF2A1655),
-        title: const Text('🚀 انطلق الصاروخ!', style: TextStyle(color: Colors.white)),
-        content: const Text('استلم جائزتك قبل انتهاء الوقت', style: TextStyle(color: Colors.white70)),
+        title: Text(tr('🚀 انطلق الصاروخ!', "🚀 Rocket launched!"), style: TextStyle(color: Colors.white)),
+        content: Text(tr('استلم جائزتك قبل انتهاء الوقت', "Claim your prize before time runs out"), style: TextStyle(color: Colors.white70)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('لاحقاً')),
+          TextButton(onPressed: () => Navigator.pop(dctx), child: Text(tr('لاحقاً', "Later"))),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(dctx);
               claim(event);
             },
-            child: const Text('استلم الجائزة'),
+            child: Text(tr('استلم الجائزة', "Claim prize")),
           ),
         ],
       ),
@@ -309,8 +310,8 @@ class RocketLaunchOverlay {
       final r = (res.data is Map ? res.data['data'] : null) as Map?;
       if (r == null) return;
       _toast(r['type'] == 'coins'
-          ? '🎉 ربحت ${r['coins']} كوينز من الصاروخ'
-          : '🎉 ربحت ${r['name'] ?? 'منتج'} من الصاروخ');
+          ? tr('🎉 ربحت ${r['coins']} كوينز من الصاروخ', "🎉 You won ${r['coins']} coins from the rocket")
+          : tr('🎉 ربحت ${r['name'] ?? 'منتج'} من الصاروخ', "🎉 You won ${r['name'] ?? 'an item'} from the rocket"));
     } catch (e) {
       _toast(_err(e));
     }
@@ -412,7 +413,7 @@ class RoomPkButton extends StatelessWidget {
       label: 'PK',
       onTap: () {
         if (!canStart) {
-          _toast('بدء PK لصاحب الغرفة والمشرفين');
+          _toast(tr('بدء PK لصاحب الغرفة والمشرفين', "Only room owners and moderators can start PK"));
           return;
         }
         _openStart(context);
@@ -439,32 +440,32 @@ class RoomPkButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('بدء PK', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
+                Text(tr('بدء PK', "Start PK"), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 10),
                 SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'ROOM', label: Text('داخل الغرفة')),
-                    ButtonSegment(value: 'GLOBAL', label: Text('غرفة ضد غرفة')),
+                  segments: [
+                    ButtonSegment(value: 'ROOM', label: Text(tr('داخل الغرفة', "Within room"))),
+                    ButtonSegment(value: 'GLOBAL', label: Text(tr('غرفة ضد غرفة', "Room vs room"))),
                   ],
                   selected: {type},
                   onSelectionChanged: (v) => set(() => type = v.first),
                 ),
                 const SizedBox(height: 10),
                 if (type == 'ROOM') ...[
-                  _pick('اللاعب A', a, (v) => set(() => a = v)),
-                  _pick('اللاعب B', b, (v) => set(() => b = v)),
+                  _pick(tr('اللاعب A', "Player A"), a, (v) => set(() => a = v)),
+                  _pick(tr('اللاعب B', "Player B"), b, (v) => set(() => b = v)),
                 ] else
                   TextField(
                     controller: opp,
                     keyboardType: TextInputType.number,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(labelText: 'رقم الغرفة المنافسة', labelStyle: TextStyle(color: Colors.white54)),
+                    decoration: InputDecoration(labelText: tr('رقم الغرفة المنافسة', "Opponent room ID"), labelStyle: TextStyle(color: Colors.white54)),
                   ),
                 const SizedBox(height: 10),
                 Wrap(spacing: 6, children: [
                   for (final d in const [180, 300, 600])
                     ChoiceChip(
-                      label: Text('${d ~/ 60} دقائق'),
+                      label: Text(tr('${d ~/ 60} دقائق', "${d ~/ 60} minutes")),
                       selected: duration == d,
                       onSelected: (_) => set(() => duration = d),
                     ),
@@ -486,7 +487,7 @@ class RoomPkButton extends StatelessWidget {
                       _toast(_err(e));
                     }
                   },
-                  child: const Text('ابدأ'),
+                  child: Text(tr('ابدأ', "Start")),
                 ),
               ],
             ),
@@ -583,7 +584,7 @@ class _RoomPkBarState extends State<RoomPkBar> {
     final w = d['winner']?.toString();
     final a = (d['scoreA'] as num?)?.toInt() ?? 0;
     final b = (d['scoreB'] as num?)?.toInt() ?? 0;
-    _toast(w == 'TIE' ? '🤝 تعادل في PK ($a : $b)' : '🏆 انتهى PK — الفائز ${w == 'A' ? 'A' : 'B'} ($a : $b)');
+    _toast(w == 'TIE' ? tr('🤝 تعادل في PK ($a : $b)', "🤝 PK draw ($a : $b)") : tr('🏆 انتهى PK — الفائز ${w == 'A' ? 'A' : 'B'} ($a : $b)', "🏆 PK ended — winner ${w == 'A' ? 'A' : 'B'} ($a : $b)"));
   }
 
   @override
@@ -637,7 +638,7 @@ class _RoomPkBarState extends State<RoomPkBar> {
         Row(children: [
           _side((pk['sideAUserId'] as num?)?.toInt(), 'A', const Color(0xFFFF4081)),
           const Spacer(),
-          Text(pending ? 'بانتظار القبول' : 'VS  ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}',
+          Text(pending ? tr('بانتظار القبول', "Awaiting acceptance") : 'VS  ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}',
               textDirection: TextDirection.ltr,
               style: const TextStyle(color: Color(0xFFFFD54F), fontWeight: FontWeight.w900, fontSize: 11)),
           const Spacer(),

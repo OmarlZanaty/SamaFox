@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -322,9 +323,9 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
     final w = _size.width;
     final h = _size.height;
     final fromLeft = _rng.nextBool();
-    const boss = _Species(
+    final boss = _Species(
       shape: _FishShape.dragon,
-      name: 'التنين',
+      name: tr('التنين', "Dragon"),
       key: 'dragon',
       value: 1000000,
       minBet: 5000,
@@ -404,7 +405,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         duration: const Duration(milliseconds: 1500),
         backgroundColor: const Color(0xFF0D47A1),
         content: Text(
-          'ارفع الرهان إلى ${_fmt(f.spec.minBet)} لاستهداف ${f.spec.name}',
+          tr('ارفع الرهان إلى ${_fmt(f.spec.minBet)} لاستهداف ${f.spec.name}', "Raise your bet to ${_fmt(f.spec.minBet)} to target ${f.spec.name}"),
           textAlign: TextAlign.center,
           style:
               const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
@@ -1030,14 +1031,14 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _circleButton(
-                    label: 'تلقائي',
+                    label: tr('تلقائي', "Auto"),
                     emoji: '🎯',
                     active: _auto,
                     onTap: _toggleAuto,
                   ),
                   const SizedBox(height: 10),
                   _circleButton(
-                    label: 'تجميد',
+                    label: tr('تجميد', "Freeze"),
                     emoji: '❄️',
                     active: _frozenTimer > 0,
                     disabled: _frozenCooldown > 0,
@@ -1098,7 +1099,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Column(
               children: [
-                const Text('الرهان',
+                Text(tr('الرهان', "Bet"),
                     style: TextStyle(color: Colors.white54, fontSize: 8)),
                 Text(
                   _fmt(_bet),
@@ -1203,10 +1204,10 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                       color: Colors.orange.withOpacity(0.7), blurRadius: 24)
                 ],
               ),
-              child: const Column(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('⚠️ هجوم الزعيم ⚠️',
+                  Text(tr('⚠️ هجوم الزعيم ⚠️', "⚠️ Boss attack ⚠️"),
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
@@ -1227,10 +1228,10 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
   // ---------------------------------------------------------------------------
   // Species table (ascending value; sidebar shows it reversed).
   // ---------------------------------------------------------------------------
-  static const List<_Species> _species = [
+  static List<_Species> get _species => [
     _Species(
         shape: _FishShape.fish,
-        name: 'سمكة استوائية',
+        name: tr('سمكة استوائية', "Tropical fish"),
         key: 'tropical',
         value: 2000,
         minBet: 1000,
@@ -1241,7 +1242,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFFFF7043)),
     _Species(
         shape: _FishShape.puffer,
-        name: 'سمكة منتفخة',
+        name: tr('سمكة منتفخة', "Pufferfish"),
         key: 'puffer',
         value: 3000,
         minBet: 1000,
@@ -1252,7 +1253,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFFF06292)),
     _Species(
         shape: _FishShape.squid,
-        name: 'حبار',
+        name: tr('حبار', "Squid"),
         key: 'squid',
         value: 4000,
         minBet: 1000,
@@ -1263,7 +1264,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFF9575CD)),
     _Species(
         shape: _FishShape.octopus,
-        name: 'أخطبوط',
+        name: tr('أخطبوط', "Octopus"),
         key: 'octopus',
         value: 6000,
         minBet: 1000,
@@ -1274,7 +1275,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFFE53935)),
     _Species(
         shape: _FishShape.turtle,
-        name: 'سلحفاة',
+        name: tr('سلحفاة', "Turtle"),
         key: 'turtle',
         value: 12000,
         minBet: 1000,
@@ -1285,7 +1286,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFF43A047)),
     _Species(
         shape: _FishShape.dolphin,
-        name: 'دلفين',
+        name: tr('دلفين', "Dolphin"),
         key: 'dolphin',
         value: 30000,
         minBet: 5000,
@@ -1296,7 +1297,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFF29B6F6)),
     _Species(
         shape: _FishShape.shark,
-        name: 'قرش',
+        name: tr('قرش', "Shark"),
         key: 'shark',
         value: 50000,
         minBet: 5000,
@@ -1307,7 +1308,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFF78909C)),
     _Species(
         shape: _FishShape.lobster,
-        name: 'كركند',
+        name: tr('كركند', "Lobster"),
         key: 'lobster',
         value: 100000,
         minBet: 5000,
@@ -1318,7 +1319,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFFE64A19)),
     _Species(
         shape: _FishShape.fish,
-        name: 'السمكة الذهبية',
+        name: tr('السمكة الذهبية', "Goldfish"),
         key: 'golden',
         value: 500000,
         minBet: 10000,
@@ -1330,7 +1331,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         golden: true),
     _Species(
         shape: _FishShape.whale,
-        name: 'الحوت النادر',
+        name: tr('الحوت النادر', "Rare whale"),
         key: 'whale',
         value: 5000000,
         minBet: 10000,
@@ -1341,7 +1342,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
         body: Color(0xFF0097A7)),
     _Species(
         shape: _FishShape.shark,
-        name: 'القرش الأسطوري',
+        name: tr('القرش الأسطوري', "Legendary shark"),
         key: 'megashark',
         value: 10000000,
         minBet: 50000,
@@ -2119,8 +2120,8 @@ class _RechargeDialog extends StatelessWidget {
             children: [
               const Text('💎', style: TextStyle(fontSize: 40)),
               const SizedBox(height: 8),
-              const Text(
-                'شحن الرصيد',
+              Text(
+                tr('شحن الرصيد', "Recharge balance"),
                 style: TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -2128,7 +2129,7 @@ class _RechargeDialog extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'رصيدك غير كافٍ لهذا الرهان (${_FishShooterScreenState._fmt(bet)}).\nقم بشحن رصيدك للاستمرار في الصيد.',
+                tr('رصيدك غير كافٍ لهذا الرهان (${_FishShooterScreenState._fmt(bet)}).\nقم بشحن رصيدك للاستمرار في الصيد.', "Your balance cannot cover this bet (${_FishShooterScreenState._fmt(bet)}).\nRecharge to keep fishing."),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                     color: Colors.white70, fontSize: 13, height: 1.5),
@@ -2139,7 +2140,7 @@ class _RechargeDialog extends StatelessWidget {
                   Expanded(
                     child: TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('لاحقاً',
+                      child: Text(tr('لاحقاً', "Later"),
                           style: TextStyle(color: Colors.white70)),
                     ),
                   ),
@@ -2152,7 +2153,7 @@ class _RechargeDialog extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () => Navigator.pop(context, 'recharge'),
-                      child: const Text('شحن الآن',
+                      child: Text(tr('شحن الآن', "Recharge now"),
                           style: TextStyle(fontWeight: FontWeight.w900)),
                     ),
                   ),

@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import '../widgets/room/room_games_host.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,11 +35,12 @@ const bool _rouletteEnabled =
 const bool _carWheelEnabled =
     bool.fromEnvironment('CAR_WHEEL', defaultValue: true);
 
-const List<_GameEntry> _games = [
+// i18n: compared with server data; titles are also navigation keys below.
+List<_GameEntry> get _games => [
   if (_fruitJackpotEnabled)
   _GameEntry(
     title: 'جاكبوت الفواكه',
-    tagline: 'اختر رهانك وأدر الفواكه',
+    tagline: tr('اختر رهانك وأدر الفواكه', "Choose your bet and spin the fruit"),
     emoji: '🍒',
     accent: Color(0xFFFFD52B),
     gradient: [Color(0xFF3B176B), Color(0xFF190D35)],
@@ -46,7 +48,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'بلينكو',
-    tagline: 'أسقط الكرة',
+    tagline: tr('أسقط الكرة', "Drop the ball"),
     emoji: '🎱',
     accent: Color(0xFF9C6BFF),
     gradient: [Color(0xFF1B0B3A), Color(0xFF4A148C)],
@@ -55,7 +57,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'عجلة الحظ',
-    tagline: 'أدر واربح',
+    tagline: tr('أدر واربح', "Spin and win"),
     emoji: '🎡',
     accent: Color(0xFFFFC107),
     gradient: [Color(0xFF6A0F0F), Color(0xFFC62828)],
@@ -64,7 +66,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'طيّار',
-    tagline: 'اسحب قبل الانفجار',
+    tagline: tr('اسحب قبل الانفجار', "Cash out before the crash"),
     emoji: '✈️',
     accent: Color(0xFFFF9800),
     gradient: [Color(0xFF0D1B3E), Color(0xFF1A3A6B)],
@@ -73,7 +75,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'أثيرفول',
-    tagline: 'افتح خزائن السماء',
+    tagline: tr('افتح خزائن السماء', "Open the Sky Vaults"),
     emoji: '⚡',
     accent: Color(0xFF4DD8E6),
     gradient: [Color(0xFF0F1638), Color(0xFF07030F)],
@@ -81,7 +83,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'بوابات أوليمبوس',
-    tagline: 'اجمع صواعق زيوس',
+    tagline: tr('اجمع صواعق زيوس', "Collect Zeus's lightning bolts"),
     emoji: '⚡',
     accent: Color(0xFFE3B84A),
     gradient: [Color(0xFF3A1A72), Color(0xFF12052B)],
@@ -90,7 +92,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'القط الجشع',
-    tagline: 'اختر طعامك واربح',
+    tagline: tr('اختر طعامك واربح', "Choose your food and win"),
     emoji: '🐱',
     accent: Color(0xFFFFD83D),
     gradient: [Color(0xFF1599D0), Color(0xFF20BCEB)],
@@ -99,7 +101,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'أستيريون',
-    tagline: 'اجمع كرات العاصفة',
+    tagline: tr('اجمع كرات العاصفة', "Collect storm orbs"),
     emoji: '⛈️',
     accent: Color(0xFF5EE0F5),
     gradient: [Color(0xFF141A47), Color(0xFF06071A)],
@@ -108,7 +110,7 @@ const List<_GameEntry> _games = [
   ),
   _GameEntry(
     title: 'نيون فورتشن',
-    tagline: 'أدر واجمع الجاكبوت',
+    tagline: tr('أدر واجمع الجاكبوت', "Spin and collect the jackpot"),
     emoji: '🐯',
     accent: Color(0xFFEA35D7),
     gradient: [Color(0xFF250A46), Color(0xFF17062E)],
@@ -118,7 +120,7 @@ const List<_GameEntry> _games = [
   if (_yummyEnabled)
   _GameEntry(
     title: 'يمي',
-    tagline: 'اجمع الفواكه واربح العملات',
+    tagline: tr('اجمع الفواكه واربح العملات', "Collect fruit and win coins"),
     emoji: '🍓',
     accent: Color(0xFFFFD529),
     gradient: [Color(0xFF08B9F2), Color(0xFF0753BD)],
@@ -127,7 +129,7 @@ const List<_GameEntry> _games = [
   if (_fruitWheelEnabled)
   _GameEntry(
     title: 'عجلة الفواكه',
-    tagline: 'بطيخ ×2 · 777 ×3 · برقوق ×2',
+    tagline: tr('بطيخ ×2 · 777 ×3 · برقوق ×2', "Watermelon ×2 · 777 ×3 · Plum ×2"),
     emoji: '🍉',
     accent: Color(0xFFFFD332),
     gradient: [Color(0xFF16072E), Color(0xFF5724A0)],
@@ -136,7 +138,7 @@ const List<_GameEntry> _games = [
   if (_rouletteEnabled)
   _GameEntry(
     title: 'الروليت',
-    tagline: 'طاولة واحدة للجميع — راهن قبل انتهاء الوقت',
+    tagline: tr('طاولة واحدة للجميع — راهن قبل انتهاء الوقت', "One table for everyone — bet before time runs out"),
     emoji: '🎡',
     accent: Color(0xFFF5BD45),
     gradient: [Color(0xFF111634), Color(0xFF260C4C)],
@@ -146,7 +148,7 @@ const List<_GameEntry> _games = [
   if (_carWheelEnabled)
   _GameEntry(
     title: 'عجلة السيارات',
-    tagline: 'طاولة واحدة للجميع — راهن قبل انتهاء الوقت',
+    tagline: tr('طاولة واحدة للجميع — راهن قبل انتهاء الوقت', "One table for everyone — bet before time runs out"),
     emoji: '🎡',
     accent: Color(0xFFF5BD45),
     gradient: [Color(0xFF361265), Color(0xFFA7133B)],

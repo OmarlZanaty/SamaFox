@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 // Developer preview harness for the أستيريون artwork.
 //
 // Not part of the shipped app — a separate entrypoint used to eyeball the
@@ -171,8 +172,8 @@ class _AsterionPreviewState extends State<AsterionPreview> with SingleTickerProv
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'رموز أستيريون',
+            Text(
+              tr('رموز أستيريون', "Asterion symbols"),
               style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -198,8 +199,8 @@ class _AsterionPreviewState extends State<AsterionPreview> with SingleTickerProv
                       children: [
                         StormOrb(value: v, size: 62),
                         const SizedBox(height: 4),
-                        const Text(
-                          'كرة العاصفة',
+                        Text(
+                          tr('كرة العاصفة', "Storm orb"),
                           style: TextStyle(color: Colors.white70, fontSize: 11),
                         ),
                       ],
@@ -225,15 +226,15 @@ class _Meters extends StatelessWidget {
   const _Meters();
 
   @override
-  Widget build(BuildContext context) => const Column(
+  Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _Stat('ربح الجولة', '1,420', AsterionPalette.cyanPale),
+          _Stat(tr('ربح الجولة', "Round win"), '1,420', AsterionPalette.cyanPale),
           SizedBox(height: 6),
-          _Stat('المضاعف', '35x', AsterionPalette.magenta),
+          _Stat(tr('المضاعف', "Multiplier"), '35x', AsterionPalette.magenta),
           SizedBox(height: 6),
-          _Stat('التساقطات', '3', AsterionPalette.muted),
+          _Stat(tr('التساقطات', "Tumbles"), '3', AsterionPalette.muted),
         ],
       );
 }
@@ -326,7 +327,7 @@ class _FakeControls extends StatelessWidget {
                 color: Colors.black.withValues(alpha: 0.45),
                 border: Border.all(color: AsterionPalette.silverDeep),
               ),
-              child: const Text('الرهان 100', style: TextStyle(color: Colors.white)),
+              child: Text(tr('الرهان 100', "Bet 100"), style: TextStyle(color: Colors.white)),
             ),
             const Spacer(),
             Container(
@@ -338,9 +339,9 @@ class _FakeControls extends StatelessWidget {
                   colors: [AsterionPalette.cyan, AsterionPalette.cyanDeep],
                 ),
               ),
-              child: const Center(
+              child: Center(
                 child: Text(
-                  'ابدأ',
+                  tr('ابدأ', "Start"),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 17,

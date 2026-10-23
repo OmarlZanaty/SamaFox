@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 
 import '../config/app_config.dart';
@@ -59,7 +60,7 @@ class _CpListScreenState extends State<CpListScreen> {
       await _repo.setFeatured(p.userId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${p.name} يظهر الآن في صفحتك')),
+        SnackBar(content: Text(tr('${p.name} يظهر الآن في صفحتك', "${p.name} now appears on your profile"))),
       );
     } on CpException catch (e) {
       if (!mounted) return;
@@ -101,28 +102,28 @@ class _CpListScreenState extends State<CpListScreen> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           backgroundColor: _kCard,
-          title: const Text('إلغاء الـ CP', style: TextStyle(color: Colors.white)),
+          title: Text(tr('إلغاء الـ CP', "End CP"), style: TextStyle(color: Colors.white)),
           content: Text(
             fee <= 0
-                ? 'إلغاء CP مع ${partner.name}؟'
+                ? tr('إلغاء CP مع ${partner.name}؟', "End CP with ${partner.name}?")
                 : [
-                    'إلغاء CP مع ${partner.name}؟',
+                    tr('إلغاء CP مع ${partner.name}؟', "End CP with ${partner.name}?"),
                     '',
-                    'رسوم فك الارتباط: $fee كوينز',
-                    '(${quote!.programFee} للبرنامج + ${quote.partnerFee} لـ ${partner.name})',
-                    'رصيدك: ${quote.balance}',
-                    if (short > 0) ...['', 'رصيدك لا يكفي — ينقصك $short كوينز'],
+                    tr('رسوم فك الارتباط: $fee كوينز', "Separation fee: $fee coins"),
+                    tr('(${quote!.programFee} للبرنامج + ${quote.partnerFee} لـ ${partner.name})', "(${quote!.programFee} for the platform + ${quote.partnerFee} for ${partner.name})"),
+                    tr('رصيدك: ${quote.balance}', "Your balance: ${quote.balance}"),
+                    if (short > 0) ...['', tr('رصيدك لا يكفي — ينقصك $short كوينز', "Insufficient balance — you need $short more coins")],
                   ].join('\n'),
             style: const TextStyle(color: Colors.white70, height: 1.5),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('لا', style: TextStyle(color: Colors.white54)),
+              child: Text(tr('لا', "No"), style: TextStyle(color: Colors.white54)),
             ),
             TextButton(
               onPressed: short > 0 ? null : () => Navigator.pop(ctx, true),
-              child: Text(fee > 0 ? 'نعم — ادفع $fee' : 'نعم',
+              child: Text(fee > 0 ? tr('نعم — ادفع $fee', "Yes — pay $fee") : tr('نعم', "Yes"),
                   style: TextStyle(color: short > 0 ? Colors.white24 : _kPink, fontWeight: FontWeight.bold)),
             ),
           ],
@@ -135,7 +136,7 @@ class _CpListScreenState extends State<CpListScreen> {
       await _repo.removePartner(partner.userId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم إلغاء الـ CP مع ${partner.name}')),
+        SnackBar(content: Text(tr('تم إلغاء الـ CP مع ${partner.name}', "CP with ${partner.name} ended"))),
       );
       _reload();
     } on CpException catch (e) {
@@ -157,7 +158,7 @@ class _CpListScreenState extends State<CpListScreen> {
           elevation: 0,
           centerTitle: true,
           title: Text(
-            widget.title ?? 'الـ CP',
+            widget.title ?? tr('الـ CP', "CP"),
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
         ),
@@ -168,14 +169,14 @@ class _CpListScreenState extends State<CpListScreen> {
               return const Center(child: CircularProgressIndicator(color: _kPink));
             }
             if (snap.hasError) {
-              return _message('تعذّر تحميل قائمة الـ CP', retry: true);
+              return _message(tr('تعذّر تحميل قائمة الـ CP', "Could not load CP list"), retry: true);
             }
             final partners = snap.data ?? const <CpPartner>[];
             if (partners.isEmpty) {
               return _message(
                 _isMine
-                    ? 'لا يوجد لديك CP بعد — أرسل هدية CP لشخص وانتظر قبوله'
-                    : 'لا يوجد CP',
+                    ? tr('لا يوجد لديك CP بعد — أرسل هدية CP لشخص وانتظر قبوله', "No CP yet — send someone a CP gift and wait for acceptance")
+                    : tr('لا يوجد CP', "No CP"),
               );
             }
             return RefreshIndicator(
@@ -286,12 +287,12 @@ class _CpListScreenState extends State<CpListScreen> {
                           ? const Color(0xFFFFD54F)
                           : Colors.white38,
                     ),
-                    tooltip: 'إظهاره في صفحتي',
+                    tooltip: tr('إظهاره في صفحتي', "Show on my profile"),
                     onPressed: () => _setFeatured(p),
                   ),
                   IconButton(
                     icon: const Icon(Icons.heart_broken, color: Colors.white38),
-                    tooltip: 'إلغاء الـ CP',
+                    tooltip: tr('إلغاء الـ CP', "End CP"),
                     onPressed: () => _confirmCancel(p),
                   ),
                 ],
@@ -317,7 +318,7 @@ class _CpListScreenState extends State<CpListScreen> {
             ),
             if (retry) ...[
               const SizedBox(height: 14),
-              TextButton(onPressed: _reload, child: const Text('إعادة المحاولة')),
+              TextButton(onPressed: _reload, child: Text(tr('إعادة المحاولة', "Retry"))),
             ],
           ],
         ),

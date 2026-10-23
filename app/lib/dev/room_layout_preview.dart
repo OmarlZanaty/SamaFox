@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -47,12 +48,12 @@ class _PreviewRoom extends StateNotifier<RoomControllerState>
                 messageId: i,
                 roomId: 1,
                 userId: 100 + i,
-                username: 'مستخدم ${i + 1}',
+                username: tr('مستخدم ${i + 1}', "User ${i + 1}"),
                 message: [
-                  'مرحبا بالجميع',
-                  'السلام عليكم',
-                  'نورتوا الروم',
-                  'الصوت واضح؟',
+                  tr('مرحبا بالجميع', "Hello everyone"),
+                  tr('السلام عليكم', "Peace be upon you"),
+                  tr('نورتوا الروم', "Welcome to the room"),
+                  tr('الصوت واضح؟', "Is the audio clear?"),
                 ][i % 4],
                 timestamp: DateTime.now().millisecondsSinceEpoch - i * 1000,
               ),
@@ -91,7 +92,7 @@ class _PreviewRoomScreen extends StatelessWidget {
                     height: 72,
                     alignment: Alignment.center,
                     color: Colors.black26,
-                    child: Text('روم تجريبي — $seatCount مايك',
+                    child: Text(tr('روم تجريبي — $seatCount مايك', "Test room — $seatCount mics"),
                         style: const TextStyle(color: Colors.white)),
                   ),
                   Expanded(
@@ -115,7 +116,7 @@ class _PreviewRoomScreen extends StatelessWidget {
                                   i: SeatData(
                                     seatNumber: i,
                                     userId: i == 8 ? 500 : null,
-                                    username: i == 8 ? 'علوش' : null,
+                                    username: i == 8 ? tr('علوش', "Alloush") : null,
                                     avatarUrl: null,
                                     level: 1,
                                     isMuted: false,
@@ -144,7 +145,7 @@ class _PreviewRoomScreen extends StatelessWidget {
                               color: Colors.black38,
                               borderRadius: BorderRadius.circular(15),
                             ),
-                            child: const Text('🎲 البطل كسب ×50  750000',
+                            child: Text(tr('🎲 البطل كسب ×50  750000', "🎲 The champion won ×50  750000"),
                                 style: TextStyle(
                                     color: Colors.amber, fontSize: 12)),
                           ),

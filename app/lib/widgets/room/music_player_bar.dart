@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -139,7 +140,7 @@ class _MusicPlayerBarState extends ConsumerState<MusicPlayerBar> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        music.currentTitle.isEmpty ? 'موسيقى الغرفة' : music.currentTitle,
+                        music.currentTitle.isEmpty ? tr('موسيقى الغرفة', "Room music") : music.currentTitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textDirection: TextDirection.rtl,
@@ -160,22 +161,22 @@ class _MusicPlayerBarState extends ConsumerState<MusicPlayerBar> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _ctrl(Icons.volume_up_rounded, 'مستوى الصوت', () => _openVolume(notifier)),
-                    _ctrl(Icons.fast_rewind, 'السابق', notifier.previous),
+                    _ctrl(Icons.volume_up_rounded, tr('مستوى الصوت', "Volume"), () => _openVolume(notifier)),
+                    _ctrl(Icons.fast_rewind, tr('السابق', "Previous"), notifier.previous),
                     _ctrl(
                       Icons.play_arrow,
-                      'تشغيل',
+                      tr('تشغيل', "Play"),
                       notifier.resume,
                       dim: music.isPlaying,
                     ),
                     _ctrl(
                       Icons.pause,
-                      'إيقاف مؤقت',
+                      tr('إيقاف مؤقت', "Pause"),
                       notifier.pause,
                       dim: !music.isPlaying,
                     ),
-                    _ctrl(Icons.fast_forward, 'التالي', notifier.next),
-                    _ctrl(Icons.close, 'إنهاء', notifier.stop, color: Colors.redAccent),
+                    _ctrl(Icons.fast_forward, tr('التالي', "Next"), notifier.next),
+                    _ctrl(Icons.close, tr('إنهاء', "End"), notifier.stop, color: Colors.redAccent),
                   ],
                 ),
               ],
@@ -192,7 +193,7 @@ class _MusicPlayerBarState extends ConsumerState<MusicPlayerBar> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2A1655),
-        title: const Text('صوت الموسيقى', style: TextStyle(color: Colors.white, fontSize: 15)),
+        title: Text(tr('صوت الموسيقى', "Music volume"), style: TextStyle(color: Colors.white, fontSize: 15)),
         content: StatefulBuilder(
           builder: (ctx, set) => Slider(
             value: v,

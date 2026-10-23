@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
@@ -55,13 +56,13 @@ class _BroadcastTimeScreenState extends State<BroadcastTimeScreen> {
       if (!mounted) return;
       setState(() {
         _error = e.response?.data is Map
-            ? e.response?.data['message']?.toString() ?? 'تعذّر تحميل وقت البث'
-            : 'تعذّر تحميل وقت البث';
+            ? e.response?.data['message']?.toString() ?? tr('تعذّر تحميل وقت البث', "Could not load broadcast time")
+            : tr('تعذّر تحميل وقت البث', "Could not load broadcast time");
         _loading = false;
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() { _error = 'تعذّر تحميل وقت البث'; _loading = false; });
+      setState(() { _error = tr('تعذّر تحميل وقت البث', "Could not load broadcast time"); _loading = false; });
     }
   }
 
@@ -70,9 +71,9 @@ class _BroadcastTimeScreenState extends State<BroadcastTimeScreen> {
     final totalMinutes = (hours * 60).round();
     final h = totalMinutes ~/ 60;
     final m = totalMinutes % 60;
-    if (h == 0) return '$m د';
-    if (m == 0) return '$h س';
-    return '$h س $m د';
+    if (h == 0) return tr('$m د', "$m min");
+    if (m == 0) return tr('$h س', "$h hr");
+    return tr('$h س $m د', "$h hr $m min");
   }
 
   @override
@@ -81,7 +82,7 @@ class _BroadcastTimeScreenState extends State<BroadcastTimeScreen> {
       backgroundColor: const Color(0xFF150B33),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A0E3E),
-        title: Text(widget.title ?? 'وقت البث',
+        title: Text(widget.title ?? tr('وقت البث', "Broadcast time"),
             style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
@@ -117,7 +118,7 @@ class _BroadcastTimeScreenState extends State<BroadcastTimeScreen> {
                         ),
                         child: Column(
                           children: [
-                            const Text('إجمالي وقت البث',
+                            Text(tr('إجمالي وقت البث', "Total broadcast time"),
                                 style: TextStyle(color: Colors.white70, fontSize: 12)),
                             const SizedBox(height: 4),
                             Text(
@@ -128,23 +129,23 @@ class _BroadcastTimeScreenState extends State<BroadcastTimeScreen> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            Text('${_days.length} يوم بث',
+                            Text(tr('${_days.length} يوم بث', "${_days.length} broadcast days"),
                                 style: const TextStyle(color: Colors.white54, fontSize: 11)),
                           ],
                         ),
                       ),
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.symmetric(horizontal: 22, vertical: 6),
                         child: Row(
                           children: [
                             Expanded(
-                              child: Text('اليوم',
+                              child: Text(tr('اليوم', "Today"),
                                   style: TextStyle(
                                       color: Colors.white54,
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold)),
                             ),
-                            Text('الساعات',
+                            Text(tr('الساعات', "Hours"),
                                 style: TextStyle(
                                     color: Colors.white54,
                                     fontSize: 12,
@@ -156,10 +157,10 @@ class _BroadcastTimeScreenState extends State<BroadcastTimeScreen> {
                         child: _days.isEmpty
                             ? ListView(
                                 // Keeps pull-to-refresh working when empty.
-                                children: const [
+                                children: [
                                   SizedBox(height: 60),
                                   Center(
-                                    child: Text('لا يوجد وقت بث مسجَّل بعد',
+                                    child: Text(tr('لا يوجد وقت بث مسجَّل بعد', "No broadcast time recorded yet"),
                                         style: TextStyle(color: Colors.white38)),
                                   ),
                                 ],

@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
 
@@ -23,7 +24,7 @@ class CrashRepository {
         maxBet: (body['maxBet'] as num?)?.toInt() ?? 500000,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تحميل الجولة');
+      throw _translate(e, fallback: tr('تعذر تحميل الجولة', "Could not load round"));
     }
   }
 
@@ -42,7 +43,7 @@ class CrashRepository {
       });
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw CrashException(body['message']?.toString() ?? 'تعذر وضع الرهان');
+        throw CrashException(body['message']?.toString() ?? tr('تعذر وضع الرهان', "Could not place bet"));
       }
       return CrashBetResult(
         roundId: (body['roundId'] as num?)?.toInt() ?? 0,
@@ -51,7 +52,7 @@ class CrashRepository {
         clientSeed: body['clientSeed']?.toString() ?? '',
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر وضع الرهان');
+      throw _translate(e, fallback: tr('تعذر وضع الرهان', "Could not place bet"));
     }
   }
 
@@ -64,11 +65,11 @@ class CrashRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw CrashException(body['message']?.toString() ?? 'تعذر إلغاء الرهان');
+        throw CrashException(body['message']?.toString() ?? tr('تعذر إلغاء الرهان', "Could not cancel bet"));
       }
       return (body['balance'] as num?)?.toInt() ?? 0;
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر إلغاء الرهان');
+      throw _translate(e, fallback: tr('تعذر إلغاء الرهان', "Could not cancel bet"));
     }
   }
 
@@ -82,7 +83,7 @@ class CrashRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw CrashException(body['message']?.toString() ?? 'تعذر السحب');
+        throw CrashException(body['message']?.toString() ?? tr('تعذر السحب', "Could not cash out"));
       }
       return CrashCashOutResult(
         multiplier: (body['multiplier'] as num?)?.toDouble() ?? 1.0,
@@ -90,7 +91,7 @@ class CrashRepository {
         balance: (body['balance'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر السحب');
+      throw _translate(e, fallback: tr('تعذر السحب', "Could not cash out"));
     }
   }
 
@@ -103,7 +104,7 @@ class CrashRepository {
           .map((e) => CrashHistoryEntry.fromJson(Map<String, dynamic>.from(e)))
           .toList();
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تحميل السجل');
+      throw _translate(e, fallback: tr('تعذر تحميل السجل', "Could not load history"));
     }
   }
 
@@ -113,7 +114,7 @@ class CrashRepository {
       final res = await _dio.get<Map<String, dynamic>>('games/crash/fair/$roundId');
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw CrashException(body['message']?.toString() ?? 'تعذر تحميل تفاصيل العدالة');
+        throw CrashException(body['message']?.toString() ?? tr('تعذر تحميل تفاصيل العدالة', "Could not load fairness details"));
       }
       final round = Map<String, dynamic>.from(body['round'] as Map);
       final recomputed = Map<String, dynamic>.from(body['recomputed'] as Map);
@@ -129,7 +130,7 @@ class CrashRepository {
         verified: body['verified'] == true,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تحميل تفاصيل العدالة');
+      throw _translate(e, fallback: tr('تعذر تحميل تفاصيل العدالة', "Could not load fairness details"));
     }
   }
 
@@ -141,11 +142,11 @@ class CrashRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw CrashException(body['message']?.toString() ?? 'تعذر تغيير البذرة');
+        throw CrashException(body['message']?.toString() ?? tr('تعذر تغيير البذرة', "Could not change seed"));
       }
       return body['clientSeed']?.toString() ?? seed;
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تغيير البذرة');
+      throw _translate(e, fallback: tr('تعذر تغيير البذرة', "Could not change seed"));
     }
   }
 
@@ -171,7 +172,7 @@ class CrashRepository {
             .toList(),
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر تحميل الإحصائيات');
+      throw _translate(e, fallback: tr('تعذر تحميل الإحصائيات', "Could not load stats"));
     }
   }
 
@@ -182,10 +183,10 @@ class CrashRepository {
         data: {'text': text},
       );
       if ((res.data ?? const {})['success'] != true) {
-        throw CrashException('تعذر إرسال الرسالة');
+        throw CrashException(tr('تعذر إرسال الرسالة', "Could not send message"));
       }
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر إرسال الرسالة');
+      throw _translate(e, fallback: tr('تعذر إرسال الرسالة', "Could not send message"));
     }
   }
 
@@ -194,14 +195,14 @@ class CrashRepository {
       final res = await _dio.post<Map<String, dynamic>>('games/crash/rain/claim');
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw CrashException(body['message']?.toString() ?? 'تعذر استلام المطر');
+        throw CrashException(body['message']?.toString() ?? tr('تعذر استلام المطر', "Could not claim rain"));
       }
       return CrashRainClaim(
         amount: (body['amount'] as num?)?.toInt() ?? 0,
         balance: (body['balance'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
-      throw _translate(e, fallback: 'تعذر استلام المطر');
+      throw _translate(e, fallback: tr('تعذر استلام المطر', "Could not claim rain"));
     }
   }
 
@@ -332,7 +333,7 @@ class CrashBet {
   factory CrashBet.fromJson(Map<String, dynamic> json) => CrashBet(
         betId: json['betId']?.toString() ?? '',
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', "Player"),
         avatarUrl: json['avatarUrl']?.toString(),
         slot: (json['slot'] as num?)?.toInt() ?? 0,
         amount: (json['amount'] as num?)?.toInt() ?? 0,
@@ -436,7 +437,7 @@ class CrashChatMessage {
   factory CrashChatMessage.fromJson(Map<String, dynamic> json) => CrashChatMessage(
         id: json['id']?.toString() ?? '',
         userId: (json['userId'] as num?)?.toInt() ?? 0,
-        name: json['name']?.toString() ?? 'لاعب',
+        name: json['name']?.toString() ?? tr('لاعب', "Player"),
         avatarUrl: json['avatarUrl']?.toString(),
         text: json['text']?.toString() ?? '',
         at: (json['at'] as num?)?.toInt() ?? 0,

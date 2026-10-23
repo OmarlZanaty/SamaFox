@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
 
@@ -34,7 +35,7 @@ class NeonFortuneRepository {
         ),
       );
     } on DioException catch (e) {
-      throw NeonFortuneException(_message(e, 'تعذر تحميل اللعبة'));
+      throw NeonFortuneException(_message(e, tr('تعذر تحميل اللعبة', "Could not load game")));
     }
   }
 
@@ -46,7 +47,7 @@ class NeonFortuneRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw NeonFortuneException(body['message']?.toString() ?? 'تعذر تنفيذ الجولة');
+        throw NeonFortuneException(body['message']?.toString() ?? tr('تعذر تنفيذ الجولة', "Could not play round"));
       }
       return NeonSpinResponse(
         spin: NeonSpin.fromJson(Map<String, dynamic>.from(body['spin'] as Map)),
@@ -54,7 +55,7 @@ class NeonFortuneRepository {
         jackpots: _jackpots(body['jackpots']),
       );
     } on DioException catch (e) {
-      throw NeonFortuneException(_message(e, 'تعذر تنفيذ الجولة'));
+      throw NeonFortuneException(_message(e, tr('تعذر تنفيذ الجولة', "Could not play round")));
     }
   }
 
@@ -71,7 +72,7 @@ class NeonFortuneRepository {
             .toList(),
       );
     } on DioException catch (e) {
-      throw NeonFortuneException(_message(e, 'تعذر تحديث الجوائز'));
+      throw NeonFortuneException(_message(e, tr('تعذر تحديث الجوائز', "Could not update prizes")));
     }
   }
 
@@ -81,7 +82,7 @@ class NeonFortuneRepository {
       final body = res.data ?? const {};
       return NeonLuckyDrop.fromJson(Map<String, dynamic>.from(body['lucky'] as Map? ?? const {}));
     } on DioException catch (e) {
-      throw NeonFortuneException(_message(e, 'تعذر قراءة الصندوق'));
+      throw NeonFortuneException(_message(e, tr('تعذر قراءة الصندوق', "Could not load chest")));
     }
   }
 
@@ -92,7 +93,7 @@ class NeonFortuneRepository {
       final res = await _dio.post<Map<String, dynamic>>('games/neon/lucky/claim');
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw NeonFortuneException(body['message']?.toString() ?? 'تعذر فتح الصندوق');
+        throw NeonFortuneException(body['message']?.toString() ?? tr('تعذر فتح الصندوق', "Could not open chest"));
       }
       return NeonLuckyClaim(
         reward: (body['reward'] as num?)?.toInt() ?? 0,
@@ -100,7 +101,7 @@ class NeonFortuneRepository {
         lucky: NeonLuckyDrop.fromJson(Map<String, dynamic>.from(body['lucky'] as Map? ?? const {})),
       );
     } on DioException catch (e) {
-      throw NeonFortuneException(_message(e, 'تعذر فتح الصندوق'));
+      throw NeonFortuneException(_message(e, tr('تعذر فتح الصندوق', "Could not open chest")));
     }
   }
 
@@ -112,11 +113,11 @@ class NeonFortuneRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw NeonFortuneException(body['message']?.toString() ?? 'تعذر تغيير البذرة');
+        throw NeonFortuneException(body['message']?.toString() ?? tr('تعذر تغيير البذرة', "Could not change seed"));
       }
       return NeonFairness.fromJson(Map<String, dynamic>.from(body['fairness'] as Map));
     } on DioException catch (e) {
-      throw NeonFortuneException(_message(e, 'تعذر تغيير البذرة'));
+      throw NeonFortuneException(_message(e, tr('تعذر تغيير البذرة', "Could not change seed")));
     }
   }
 
@@ -454,7 +455,7 @@ class NeonFeedEntry {
   final int at;
 
   static NeonFeedEntry fromJson(Map<String, dynamic> j) => NeonFeedEntry(
-        name: j['name']?.toString() ?? 'لاعب',
+        name: j['name']?.toString() ?? tr('لاعب', "Player"),
         amount: (j['amount'] as num?)?.toInt() ?? 0,
         tier: j['tier']?.toString(),
         jackpot: j['jackpot']?.toString(),

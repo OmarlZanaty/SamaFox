@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 // Developer preview harness for the أثيرفول artwork.
 //
 // Not part of the shipped app — a separate entrypoint used to eyeball the
@@ -133,7 +134,7 @@ class _PreviewState extends State<AetherfallPreview> {
                         children: [
                           _chargeMeter(48),
                           const Spacer(),
-                          _stat('ربح\nالسلسلة', '4820', _cyan),
+                          _stat(tr('ربح\nالسلسلة', "Sequence\nwin"), '4820', _cyan),
                         ],
                       ),
                       const SizedBox(height: 10),
@@ -183,8 +184,8 @@ class _PreviewState extends State<AetherfallPreview> {
 
   Widget _topBar() => Row(
         children: [
-          const Text(
-            'أثيرفول',
+          Text(
+            tr('أثيرفول', "Aetherfall"),
             style: TextStyle(
               color: Colors.white,
               fontSize: 20,
@@ -227,8 +228,8 @@ class _PreviewState extends State<AetherfallPreview> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'شحنة\nالسماء',
+            Text(
+              tr('شحنة\nالسماء', "Sky\ncharge"),
               style: TextStyle(color: Colors.white38, fontSize: 9, letterSpacing: 1, height: 1.2),
             ),
             const SizedBox(height: 3),
@@ -307,9 +308,9 @@ class _PreviewState extends State<AetherfallPreview> {
 
   Widget _controls() => Row(
         children: [
-          Expanded(child: _skinned('btn_ignite', 'اشعل', 52, _bgBottom)),
+          Expanded(child: _skinned('btn_ignite', tr('اشعل', "Ignite"), 52, _bgBottom)),
           const SizedBox(width: 10),
-          SizedBox(width: 130, child: _skinned('btn_auto', 'تلقائي', 52, Colors.white)),
+          SizedBox(width: 130, child: _skinned('btn_auto', tr('تلقائي', "Auto"), 52, Colors.white)),
         ],
       );
 
@@ -340,23 +341,23 @@ class _PreviewState extends State<AetherfallPreview> {
         children: [
           OutlinedButton(
             onPressed: () => setState(() => _bonus = !_bonus),
-            child: Text(_bonus ? 'اللعب العادي' : 'الخزنة'),
+            child: Text(_bonus ? tr('اللعب العادي', "Regular play") : tr('الخزنة', "Vault")),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _celebrate = true),
-            child: const Text('احتفال'),
+            child: Text(tr('احتفال', "Party")),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _transition = true),
-            child: const Text('دخول الخزنة'),
+            child: Text(tr('دخول الخزنة', "Enter vault")),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _highContrast = !_highContrast),
-            child: Text(_highContrast ? 'تباين عالٍ' : 'تباين عادي'),
+            child: Text(_highContrast ? tr('تباين عالٍ', "High contrast") : tr('تباين عادي', "Normal contrast")),
           ),
           OutlinedButton(
             onPressed: () => setState(() => _shapeCoded = !_shapeCoded),
-            child: Text(_shapeCoded ? 'العلامات: تعمل' : 'العلامات: مغلقة'),
+            child: Text(_shapeCoded ? tr('العلامات: تعمل', "Labels: on") : tr('العلامات: مغلقة', "Labels: off")),
           ),
         ],
       );

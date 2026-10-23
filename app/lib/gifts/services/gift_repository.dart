@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -77,11 +78,11 @@ class GiftRepository {
       final res = await _dio.get<Map<String, dynamic>>('gifts');
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw GiftRepositoryException(body['message']?.toString() ?? 'فشل تحميل الهدايا');
+        throw GiftRepositoryException(body['message']?.toString() ?? tr('فشل تحميل الهدايا', "Could not load gifts"));
       }
       return GiftCatalog.fromJson(body);
     } on DioException catch (e) {
-      throw _translateDioError(e, fallback: 'فشل تحميل الهدايا');
+      throw _translateDioError(e, fallback: tr('فشل تحميل الهدايا', "Could not load gifts"));
     }
   }
 
@@ -106,7 +107,7 @@ class GiftRepository {
       final body = res.data ?? const {};
       if (body['success'] != true) {
         throw GiftRepositoryException(
-          body['message']?.toString() ?? 'فشل إرسال الهدية',
+          body['message']?.toString() ?? tr('فشل إرسال الهدية', "Could not send gift"),
           code: body['code']?.toString(),
         );
       }
@@ -119,7 +120,7 @@ class GiftRepository {
         lucky: LuckyOutcome.fromJson(body['luckyEntry'] ?? body['lucky']),
       );
     } on DioException catch (e) {
-      throw _translateDioError(e, fallback: 'فشل إرسال الهدية');
+      throw _translateDioError(e, fallback: tr('فشل إرسال الهدية', "Could not send gift"));
     }
   }
 
@@ -168,7 +169,7 @@ class GiftRepository {
       final body = res.data ?? const {};
       if (body['success'] != true) {
         throw GiftRepositoryException(
-          body['message']?.toString() ?? 'فشل إرسال الهدية',
+          body['message']?.toString() ?? tr('فشل إرسال الهدية', "Could not send gift"),
           code: body['code']?.toString(),
         );
       }
@@ -185,7 +186,7 @@ class GiftRepository {
         failureMessages: failures,
       );
     } on DioException catch (e) {
-      throw _translateDioError(e, fallback: 'فشل إرسال الهدية');
+      throw _translateDioError(e, fallback: tr('فشل إرسال الهدية', "Could not send gift"));
     }
   }
 
@@ -206,22 +207,22 @@ class GiftRepository {
   String? _arabicMessageFor(String? code) {
     switch (code) {
       case 'SELF_GIFT':
-        return 'لا يمكنك إرسال هدية إلى نفسك';
+        return tr('لا يمكنك إرسال هدية إلى نفسك', "You cannot send a gift to yourself");
       case 'INSUFFICIENT_COINS':
       case 'INSUFFICIENT_BALANCE':
-        return 'رصيدك لا يكفي';
+        return tr('رصيدك لا يكفي', "Insufficient balance");
       case 'RATE_LIMIT':
       case 'RATE_LIMITED':
-        return 'حاول لاحقاً';
+        return tr('حاول لاحقاً', "Try again later");
       case 'RECIPIENT_NOT_FOUND':
-        return 'لم يتم العثور على المستلم';
+        return tr('لم يتم العثور على المستلم', "Recipient not found");
       case 'GIFT_NOT_FOUND':
       case 'INVALID_GIFT':
-        return 'الهدية غير متوفرة';
+        return tr('الهدية غير متوفرة', "Gift unavailable");
       case 'INVALID_QUANTITY':
-        return 'العدد غير صالح';
+        return tr('العدد غير صالح', "Invalid quantity");
       case 'UNAUTHORIZED':
-        return 'الجلسة منتهية، سجل الدخول مرة أخرى';
+        return tr('الجلسة منتهية، سجل الدخول مرة أخرى', "Session expired. Please log in again");
       default:
         return null;
     }

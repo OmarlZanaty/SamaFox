@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -136,7 +137,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _notice = e is AsterionException ? e.message : 'تعذر تحميل اللعبة';
+        _notice = e is AsterionException ? e.message : tr('تعذر تحميل اللعبة', "Could not load game");
       });
     }
   }
@@ -195,7 +196,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
     if (_bet > _balance) {
       _sfx.error();
       setState(() {
-        _notice = 'رصيدك لا يكفي';
+        _notice = tr('رصيدك لا يكفي', "Insufficient balance");
         _auto = false;
       });
       return;
@@ -227,7 +228,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
         _busy = false;
         _auto = false;
         _mood = GuardianMood.calm;
-        _notice = e is AsterionException ? e.message : 'تعذر تنفيذ الجولة';
+        _notice = e is AsterionException ? e.message : tr('تعذر تنفيذ الجولة', "Could not play round");
       });
       return;
     }
@@ -259,14 +260,14 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
 
     if (_spinsThisSession - _lastReminderAt >= _reminderEvery) {
       _lastReminderAt = _spinsThisSession;
-      setState(() => _notice = 'لعبت $_spinsThisSession جولة في هذه الجلسة');
+      setState(() => _notice = tr('لعبت $_spinsThisSession جولة في هذه الجلسة', "You have played $_spinsThisSession rounds this session"));
     }
 
     if (_auto && !_stopRequested && mounted) {
       if (_bet > _balance) {
         setState(() {
           _auto = false;
-          _notice = 'تم إيقاف اللعب التلقائي — الرصيد غير كافٍ';
+          _notice = tr('تم إيقاف اللعب التلقائي — الرصيد غير كافٍ', "Autoplay stopped — insufficient balance");
         });
         return;
       }
@@ -325,7 +326,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
         step = 0;
         if ((frame.retriggerAdded ?? 0) > 0) {
           _sfx.crest();
-          await _flashBanner('+${frame.retriggerAdded} لفّات');
+          await _flashBanner(tr('+${frame.retriggerAdded} لفّات', "+${frame.retriggerAdded} spins"));
         }
       }
 
@@ -426,7 +427,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
     }
 
     if (spin.capped) {
-      await _flashBanner('بلغت الجولة سقف ${_layout?.maxWinMultiple ?? 5000}x');
+      await _flashBanner(tr('بلغت الجولة سقف ${_layout?.maxWinMultiple ?? 5000}x', "Round reached the ${_layout?.maxWinMultiple ?? 5000}x cap"));
     }
 
     if (spin.tier != null) {
@@ -546,8 +547,8 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'الإعدادات',
+                Text(
+                  tr('الإعدادات', "Settings"),
                   style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
@@ -570,7 +571,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
                     ),
                   ],
                 ),
-                _toggle('كتم الصوت', 'يوقف كل المؤثرات فورًا', _muted, (v) {
+                _toggle(tr('كتم الصوت', "Mute"), tr('يوقف كل المؤثرات فورًا', "Stops all effects immediately"), _muted, (v) {
                   setSheet(() => _muted = v);
                   setState(() {
                     _muted = v;
@@ -578,12 +579,12 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
                   });
                   _persist(_prefsMuted, v);
                 }),
-                _toggle('حركة أقل', 'يقصّر الأنيميشن ويوقف الجسيمات', _reducedMotion, (v) {
+                _toggle(tr('حركة أقل', "Reduced motion"), tr('يقصّر الأنيميشن ويوقف الجسيمات', "Shortens animations and disables particles"), _reducedMotion, (v) {
                   setSheet(() => _reducedMotion = v);
                   setState(() => _reducedMotion = v);
                   _persist(_prefsMotion, v);
                 }),
-                _toggle('تباين عالٍ', 'خلفية أغمق وحدود أوضح للرموز', _highContrast, (v) {
+                _toggle(tr('تباين عالٍ', "High contrast"), tr('خلفية أغمق وحدود أوضح للرموز', "Darker background and clearer symbol outlines"), _highContrast, (v) {
                   setSheet(() => _highContrast = v);
                   setState(() => _highContrast = v);
                   _persist(_prefsContrast, v);
@@ -592,9 +593,9 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.verified_rounded, color: AsterionPalette.cyan),
-                  title: const Text('العدالة المُثبتة', style: TextStyle(color: Colors.white)),
-                  subtitle: const Text(
-                    'تحقق من بذور الجولات',
+                  title: Text(tr('العدالة المُثبتة', "Provably fair"), style: TextStyle(color: Colors.white)),
+                  subtitle: Text(
+                    tr('تحقق من بذور الجولات', "Verify round seeds"),
                     style: TextStyle(color: AsterionPalette.muted, fontSize: 12),
                   ),
                   onTap: () {
@@ -688,8 +689,8 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
               icon: const Icon(Icons.arrow_forward_rounded, color: Colors.white70),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
-            const Text(
-              'أستيريون',
+            Text(
+              tr('أستيريون', "Asterion"),
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 19,
@@ -843,20 +844,20 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _stat(
-            'ربح الجولة',
+            tr('ربح الجولة', "Round win"),
             _sequenceWin > 0 ? '${_sequenceWin.round()}' : (_lastPaid > 0 ? '$_lastPaid' : '—'),
             AsterionPalette.cyanPale,
           ),
           const SizedBox(height: 6),
           _stat(
-            _inTrial ? 'مضاعف التجارب' : 'المضاعف',
+            _inTrial ? tr('مضاعف التجارب', "Trial multiplier") : tr('المضاعف', "Multiplier"),
             _inTrial
                 ? '${_trialMeter}x'
                 : (_sequenceMultiplier > 0 ? '${_sequenceMultiplier}x' : '—'),
             AsterionPalette.magenta,
           ),
           const SizedBox(height: 6),
-          _stat('التساقطات', '$_tumbles', AsterionPalette.muted),
+          _stat(tr('التساقطات', "Tumbles"), '$_tumbles', AsterionPalette.muted),
         ],
       );
 
@@ -891,8 +892,8 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'تجارب السماء',
+            Text(
+              tr('تجارب السماء', "Sky Trials"),
               style: TextStyle(
                 color: AsterionPalette.cyanPale,
                 fontSize: 12,
@@ -900,7 +901,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
               ),
             ),
             Text(
-              'لفة $_trialSpinNumber · باقٍ $_trialSpinsLeft',
+              tr('لفة $_trialSpinNumber · باقٍ $_trialSpinsLeft', "Spin $_trialSpinNumber · $_trialSpinsLeft left"),
               style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
             Text(
@@ -987,7 +988,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
           _betControl(canPlay),
           const Spacer(),
           _pill(
-            'تسريع',
+            tr('تسريع', "Turbo"),
             _turbo,
             canPlay || _busy
                 ? () {
@@ -999,7 +1000,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
           ),
           const SizedBox(width: 6),
           _pill(
-            'تلقائي',
+            tr('تلقائي', "Auto"),
             _auto,
             () {
               if (_auto) {
@@ -1040,7 +1041,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('الرهان', style: TextStyle(color: Colors.white38, fontSize: 9)),
+                Text(tr('الرهان', "Bet"), style: TextStyle(color: Colors.white38, fontSize: 9)),
                 Text(
                   '$_bet',
                   textDirection: TextDirection.ltr,
@@ -1089,7 +1090,7 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
 
   Widget _spinButton(bool enabled) => Semantics(
         button: true,
-        label: enabled ? 'ابدأ الجولة' : 'الجولة قيد التنفيذ',
+        label: enabled ? tr('ابدأ الجولة', "Start a round") : tr('الجولة قيد التنفيذ', "Round in progress"),
         child: GestureDetector(
           onTap: enabled ? _spin : null,
           child: AnimatedContainer(
@@ -1122,8 +1123,8 @@ class _AsterionScreenState extends State<AsterionScreen> with TickerProviderStat
                       height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
                     )
-                  : const Text(
-                      'ابدأ',
+                  : Text(
+                      tr('ابدأ', "Start"),
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 17,

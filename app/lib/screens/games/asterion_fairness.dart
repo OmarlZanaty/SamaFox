@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -47,11 +48,11 @@ class _AsterionFairnessSheetState extends State<AsterionFairnessSheet> {
       if (!mounted) return;
       setState(() {
         _fair = updated;
-        _notice = 'تم حفظ بذرتك';
+        _notice = tr('تم حفظ بذرتك', "Your seed was saved");
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _notice = e is AsterionException ? e.message : 'تعذر حفظ البذرة');
+      setState(() => _notice = e is AsterionException ? e.message : tr('تعذر حفظ البذرة', "Could not save seed"));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -80,29 +81,29 @@ class _AsterionFairnessSheetState extends State<AsterionFairnessSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Center(
+            Center(
               child: Text(
-                'العدالة المُثبتة',
+                tr('العدالة المُثبتة', "Provably fair"),
                 style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'كل جولة تُحسب من بذرة الخادم (المنشور تجزئتها مسبقًا) وبذرتك ورقم الجولة. '
-              'غيّر بذرتك متى شئت — النتائج بعدها تعتمد عليها.',
+            Text(
+              tr('كل جولة تُحسب من بذرة الخادم (المنشور تجزئتها مسبقًا) وبذرتك ورقم الجولة. '
+              'غيّر بذرتك متى شئت — النتائج بعدها تعتمد عليها.', "Each round is calculated from the server seed (whose hash is published in advance), your seed and the round number. Change your seed at any time — future results will use it."),
               style: TextStyle(color: AsterionPalette.muted, fontSize: 12.5, height: 1.5),
             ),
             const SizedBox(height: 16),
-            _field('تجزئة بذرة الخادم', _fair.serverSeedHash, copyable: true),
-            _field('بذرتك الحالية', _fair.clientSeed, copyable: true),
-            _field('رقم الجولة التالية', '${_fair.nonce}'),
+            _field(tr('تجزئة بذرة الخادم', "Server seed hash"), _fair.serverSeedHash, copyable: true),
+            _field(tr('بذرتك الحالية', "Your current seed"), _fair.clientSeed, copyable: true),
+            _field(tr('رقم الجولة التالية', "Next round number"), '${_fair.nonce}'),
             const SizedBox(height: 10),
             TextField(
               controller: _seed,
               textDirection: TextDirection.ltr,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                labelText: 'بذرة جديدة',
+                labelText: tr('بذرة جديدة', "New seed"),
                 labelStyle: const TextStyle(color: AsterionPalette.muted),
                 filled: true,
                 fillColor: Colors.white.withValues(alpha: 0.06),
@@ -121,7 +122,7 @@ class _AsterionFairnessSheetState extends State<AsterionFairnessSheet> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: _busy ? null : _apply,
-                child: Text(_busy ? '…' : 'حفظ البذرة'),
+                child: Text(_busy ? '…' : tr('حفظ البذرة', "Save seed")),
               ),
             ),
             if (_notice != null) ...[
@@ -161,7 +162,7 @@ class _AsterionFairnessSheetState extends State<AsterionFairnessSheet> {
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: value));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('تم النسخ'), duration: Duration(seconds: 1)),
+                        SnackBar(content: Text(tr('تم النسخ', "Copied")), duration: Duration(seconds: 1)),
                       );
                     },
                   ),

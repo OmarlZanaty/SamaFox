@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
 
@@ -29,7 +30,7 @@ class AsterionRepository {
         ),
       );
     } on DioException catch (e) {
-      throw AsterionException(_message(e, 'تعذر تحميل اللعبة'));
+      throw AsterionException(_message(e, tr('تعذر تحميل اللعبة', "Could not load game")));
     }
   }
 
@@ -41,7 +42,7 @@ class AsterionRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw AsterionException(body['message']?.toString() ?? 'تعذر تنفيذ الجولة');
+        throw AsterionException(body['message']?.toString() ?? tr('تعذر تنفيذ الجولة', "Could not play round"));
       }
       return AsterionSpinResponse(
         spin: AsterionSpin.fromJson(Map<String, dynamic>.from(body['spin'] as Map)),
@@ -53,7 +54,7 @@ class AsterionRepository {
         ),
       );
     } on DioException catch (e) {
-      throw AsterionException(_message(e, 'تعذر تنفيذ الجولة'));
+      throw AsterionException(_message(e, tr('تعذر تنفيذ الجولة', "Could not play round")));
     }
   }
 
@@ -65,11 +66,11 @@ class AsterionRepository {
       );
       final body = res.data ?? const {};
       if (body['success'] != true) {
-        throw AsterionException(body['message']?.toString() ?? 'تعذر تغيير البذرة');
+        throw AsterionException(body['message']?.toString() ?? tr('تعذر تغيير البذرة', "Could not change seed"));
       }
       return AsterionFairness.fromJson(Map<String, dynamic>.from(body['fairness'] as Map));
     } on DioException catch (e) {
-      throw AsterionException(_message(e, 'تعذر تغيير البذرة'));
+      throw AsterionException(_message(e, tr('تعذر تغيير البذرة', "Could not change seed")));
     }
   }
 

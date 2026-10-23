@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'custom_store_screen.dart';
 import 'dart:ui';
 
@@ -122,8 +123,8 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
 
                     const SizedBox(height: 20),
 
-                    const Text(
-                      "المتجر",
+                    Text(
+                      tr("المتجر", "Store"),
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -151,9 +152,9 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                           const SizedBox(width: 16),
                           Image.asset("assets/images/logo.png", height: 50),
                           const SizedBox(width: 16),
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              "أهلا بك فى متجر سما فوكس",
+                              tr("أهلا بك فى متجر سما فوكس", "Welcome to the SamaFox store"),
                               style: TextStyle(color: Colors.white),
                             ),
                           ),
@@ -164,7 +165,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                               MaterialPageRoute(builder: (_) => const CustomStoreScreen()),
                             ),
                             icon: const Icon(Icons.workspace_premium, color: Color(0xFFFFD54F)),
-                            label: const Text('قوائم خاصة', style: TextStyle(color: Color(0xFFFFD54F))),
+                            label: Text(tr('قوائم خاصة', "Special lists"), style: TextStyle(color: Color(0xFFFFD54F))),
                           ),
                           const SizedBox(width: 16),
                         ],
@@ -179,24 +180,24 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Row(
                         children: [
-                          _buildTab("مركبة", "seat_effect"),
+                          _buildTab(tr("مركبة", "Vehicle"), "seat_effect"),
                           const SizedBox(width: 10),
-                          _buildTab("مداخل", "entrance"),
+                          _buildTab(tr("مداخل", "Entrances"), "entrance"),
                           const SizedBox(width: 10),
-                          _buildTab("فقاعات", "chat_bubble"),
+                          _buildTab(tr("فقاعات", "Bubbles"), "chat_bubble"),
                           const SizedBox(width: 10),
-                          _buildTab("إطارات", "avatar_frame"),
+                          _buildTab(tr("إطارات", "Frames"), "avatar_frame"),
                           const SizedBox(width: 10),
-                          _buildTab("شارات", "badge"),
+                          _buildTab(tr("شارات", "Badges"), "badge"),
                           const SizedBox(width: 10),
-                          _buildTab("خلفيات", "background"),
+                          _buildTab(tr("خلفيات", "Backgrounds"), "background"),
                           const SizedBox(width: 10),
                           // B2/B3 — لوحة التحكم could create both of these but
                           // the store had no tab for either, so they were
                           // invisible and unbuyable.
-                          _buildTab("خلفية الصفحة", "profile_background"),
+                          _buildTab(tr("خلفية الصفحة", "Profile background"), "profile_background"),
                           const SizedBox(width: 10),
-                          _buildTab("تزيين الصفحة", "profile_decor"),
+                          _buildTab(tr("تزيين الصفحة", "Profile decor"), "profile_decor"),
                         ],
                       ),
                     ),
@@ -211,10 +212,10 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                         child: filtered.isEmpty
                                 ? ListView(
                                     physics: const AlwaysScrollableScrollPhysics(),
-                                    children: const [
+                                    children: [
                                       SizedBox(height: 160),
                                       Center(
-                                        child: Text('لا توجد منتجات بعد',
+                                        child: Text(tr('لا توجد منتجات بعد', "No products yet"),
                                             style: TextStyle(color: Colors.white54)),
                                       ),
                                     ],
@@ -247,10 +248,10 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                   right: 14,
                   bottom: 14,
                   child: GlassBottomBar(
-                    homeLabel: "الرئيسية",
-                    searchLabel: "الرسائل",
-                    gamesLabel: "الألعاب",
-                    profileLabel: "حسابي",
+                    homeLabel: tr("الرئيسية", "Home"),
+                    searchLabel: tr("الرسائل", "Messages"),
+                    gamesLabel: tr("الألعاب", "Games"),
+                    profileLabel: tr("حسابي", "Profile"),
                     hasRoom: false,
                     roomImageUrl: null,
                     onHome: () {
@@ -441,7 +442,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                     ),
                   ),
                   child: Text(
-                    isBubble ? 'رسالة تجريبية' : 'اسمك دخل الغرفة',
+                    isBubble ? tr('رسالة تجريبية', "Sample message") : tr('اسمك دخل الغرفة', "Your name entered the room"),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 14,
@@ -522,29 +523,29 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           backgroundColor: const Color(0xFF241246),
-          title: const Text('إرسال المنتج', style: TextStyle(color: Colors.white)),
+          title: Text(tr('إرسال المنتج', "Send product"), style: TextStyle(color: Colors.white)),
           content: TextField(
             controller: ctrl,
             autofocus: true,
             keyboardType: TextInputType.number,
             style: const TextStyle(color: Colors.white, fontSize: 20, letterSpacing: 4),
             textAlign: TextAlign.center,
-            decoration: const InputDecoration(
-              hintText: 'رقم المستلم (6 أرقام)',
+            decoration: InputDecoration(
+              hintText: tr('رقم المستلم (6 أرقام)', "Recipient ID (6 digits)"),
               hintStyle: TextStyle(color: Colors.white38),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء', style: TextStyle(color: Colors.white54)),
+              child: Text(tr('إلغاء', "Cancel"), style: TextStyle(color: Colors.white54)),
             ),
             ElevatedButton(
               onPressed: () {
                 final v = int.tryParse(ctrl.text.trim());
                 Navigator.pop(ctx, v);
               },
-              child: const Text('إرسال'),
+              child: Text(tr('إرسال', "Send")),
             ),
           ],
         ),
@@ -559,7 +560,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
       await StoreService().sendProduct(token ?? '', productId, displayId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال المنتج بنجاح')),
+        SnackBar(content: Text(tr('تم إرسال المنتج بنجاح', "Product sent successfully"))),
       );
       await ref.read(authStateProvider.notifier).refreshUser();
     } catch (e) {
@@ -688,22 +689,22 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                     textDirection: TextDirection.rtl,
                     child: AlertDialog(
                       backgroundColor: const Color(0xFF1A0E3E),
-                      title: const Text('تأكيد الشراء',
+                      title: Text(tr('تأكيد الشراء', "Confirm purchase"),
                           style: TextStyle(color: Colors.white, fontSize: 16)),
                       content: Text(
-                        '${product.name}\n'
+                        tr('${product.name}\n'
                         'السعر: ${product.priceCoins} كوينز\n'
-                        'المدة: ${product.durationLabel}',
+                        'المدة: ${product.durationLabel}', "${product.name}\nPrice: ${product.priceCoins} coins\nDuration: ${product.durationLabel}"),
                         style: const TextStyle(color: Colors.white70, height: 1.6),
                       ),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(dctx, false),
-                          child: const Text('إلغاء'),
+                          child: Text(tr('إلغاء', "Cancel")),
                         ),
                         TextButton(
                           onPressed: () => Navigator.pop(dctx, true),
-                          child: const Text('شراء'),
+                          child: Text(tr('شراء', "Buy")),
                         ),
                       ],
                     ),
@@ -756,7 +757,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                   color: Colors.white,
                 ),
               )
-                  : Text(isOwned ? "Owned" : "شراء"),
+                  : Text(isOwned ? "Owned" : tr("شراء", "Buy")),
             ),
           ),
           // Step 8: send this product to another user as a gift.
@@ -775,7 +776,7 @@ class _StoreProductTileState extends ConsumerState<StoreProductTile> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              label: const Text("إرسال"),
+              label: Text(tr("إرسال", "Send")),
             ),
           ),
 

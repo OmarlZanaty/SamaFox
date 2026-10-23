@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 import 'package:samafox/services/dio_client.dart';
 
@@ -24,28 +25,28 @@ class CrazyWheelRepository {
             : null,
       );
     } on DioException catch (e) {
-      throw _translate(e, 'تعذر تحميل الجولة');
+      throw _translate(e, tr('تعذر تحميل الجولة', "Could not load round"));
     }
   }
 
   Future<CrazyBetResult> placeBet({required String segment, required int amount}) =>
-      _betCall('games/crazy/bet', {'segment': segment, 'amount': amount}, 'تعذر وضع الرهان');
+      _betCall('games/crazy/bet', {'segment': segment, 'amount': amount}, tr('تعذر وضع الرهان', "Could not place bet"));
 
   Future<CrazyBetResult> clearBets() =>
-      _betCall('games/crazy/clear', const {}, 'تعذر مسح الرهانات');
+      _betCall('games/crazy/clear', const {}, tr('تعذر مسح الرهانات', "Could not clear bets"));
 
   Future<CrazyBetResult> repeatBets() =>
-      _betCall('games/crazy/repeat', const {}, 'تعذر تكرار الرهان');
+      _betCall('games/crazy/repeat', const {}, tr('تعذر تكرار الرهان', "Could not repeat bet"));
 
   /// Cash Hunt tile index (int) or Crazy Time flapper colour (String).
   Future<void> submitPick(Object pick) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>('games/crazy/pick', data: {'pick': pick});
       if (res.data?['success'] != true) {
-        throw CrazyWheelException(res.data?['message']?.toString() ?? 'تعذر تسجيل الاختيار');
+        throw CrazyWheelException(res.data?['message']?.toString() ?? tr('تعذر تسجيل الاختيار', "Could not submit choice"));
       }
     } on DioException catch (e) {
-      throw _translate(e, 'تعذر تسجيل الاختيار');
+      throw _translate(e, tr('تعذر تسجيل الاختيار', "Could not submit choice"));
     }
   }
 

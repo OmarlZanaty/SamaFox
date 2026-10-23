@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/locale_provider.dart';
@@ -51,12 +52,12 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
       if (!mounted) return;
       setState(() => _blocks.removeWhere((b) => (b['user'] as Map?)?['id'] == userId));
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إلغاء الحظر')),
+        SnackBar(content: Text(tr('تم إلغاء الحظر', "Unbanned"))),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تعذّر إلغاء الحظر: $e')),
+          SnackBar(content: Text(tr('تعذّر إلغاء الحظر: $e', "Could not unban user: $e"))),
         );
       }
     }
@@ -107,17 +108,17 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('تعذّر التحميل',
+                      Text(tr('تعذّر التحميل', "Could not load"),
                           style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
                       const SizedBox(height: 8),
-                      TextButton(onPressed: _load, child: const Text('إعادة المحاولة')),
+                      TextButton(onPressed: _load, child: Text(tr('إعادة المحاولة', "Retry"))),
                     ],
                   ),
                 )
               : _blocks.isEmpty
                   ? Center(
                       child: Text(
-                        'لا يوجد مستخدمون محظورون',
+                        tr('لا يوجد مستخدمون محظورون', "No banned users"),
                         style: TextStyle(
                           color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
                         ),
@@ -139,7 +140,7 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
                             child: ListTile(
                               leading: _avatar(user['avatarUrl'] as String?, isDark),
                               title: Text(
-                                (user['name'] as String?) ?? 'مستخدم',
+                                (user['name'] as String?) ?? tr('مستخدم', "User"),
                                 style: TextStyle(
                                   color: theme.textTheme.bodyLarge?.color,
                                   fontWeight: FontWeight.w600,
@@ -156,7 +157,7 @@ class _BlockedUsersScreenState extends ConsumerState<BlockedUsersScreen> {
                                 onPressed:
                                     userId == null ? null : () => _unblock(userId),
                                 child: Text(
-                                  'إلغاء الحظر',
+                                  tr('إلغاء الحظر', "Unban"),
                                   style: TextStyle(
                                     color: isDark
                                         ? const Color(0xFFFFD700)

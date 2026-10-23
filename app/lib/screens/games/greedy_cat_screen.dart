@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -433,7 +434,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
   }
 
   void _rejectForBalance([String? message]) {
-    setState(() => _notice = message ?? 'رصيدك لا يكفي');
+    setState(() => _notice = message ?? tr('رصيدك لا يكفي', "Insufficient balance"));
     _shake.forward(from: 0);
   }
 
@@ -579,10 +580,10 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
 
   String get _phaseLabel {
     final state = _state;
-    if (state == null) return 'جارٍ التحميل';
-    if (state.isBetting) return 'وقت الاختيار';
-    if (state.isClosing) return 'النتيجة قادمة';
-    return 'وقت العرض';
+    if (state == null) return tr('جارٍ التحميل', "Loading");
+    if (state.isBetting) return tr('وقت الاختيار', "Time to choose");
+    if (state.isClosing) return tr('النتيجة قادمة', "Result coming");
+    return tr('وقت العرض', "Show time");
   }
 
   // ── Build ─────────────────────────────────────────────────
@@ -777,7 +778,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                     border: Border.all(color: GreedyPalette.woodOutline, width: 1.6),
                   ),
                   child: Text(
-                    'الجولة الحالية ${state?.roundId ?? '—'}',
+                    tr('الجولة الحالية ${state?.roundId ?? '—'}', "Current round ${state?.roundId ?? '—'}"),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -825,10 +826,10 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
             borderRadius: BorderRadius.circular(19),
             border: Border.all(color: GreedyPalette.woodOutline, width: 2),
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('القواعد',
+              Text(tr('القواعد', "Rules"),
                   style: TextStyle(
                     color: GreedyPalette.darkText,
                     fontSize: 14,
@@ -868,9 +869,9 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                 crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const FittedBox(
+                  FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text('نشاط الطاولة',
+                    child: Text(tr('نشاط الطاولة', "Table activity"),
                         maxLines: 1,
                         style: TextStyle(
                           fontSize: 9.5,
@@ -1050,8 +1051,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
     return Semantics(
       button: true,
       enabled: enabled,
-      label: '${symbol.nameAr}، مضاعفة ${symbol.multiplier}'
-          '${mine > 0 ? '، رهانك ${_fmt(mine)}، اضغط مطولاً للتقليل' : ''}',
+      label: tr('${symbol.nameAr}، مضاعفة ${symbol.multiplier}'
+          '${mine > 0 ? '، رهانك ${_fmt(mine)}، اضغط مطولاً للتقليل' : ''}', "${symbol.nameAr}, multiplier ${symbol.multiplier}${mine > 0 ? ', your bet ${_fmt(mine)}, long press to reduce' : ''}"),
       child: GestureDetector(
         onTap: enabled ? () => _bet(symbol.key) : null,
         onLongPress: enabled && mine > 0 ? () => _reduce(symbol.key) : null,
@@ -1108,7 +1109,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                       ),
                       child: FittedBox(
                         child: Text(
-                          'مضاعفة ${symbol.multiplier}',
+                          tr('مضاعفة ${symbol.multiplier}', "Multiplier ${symbol.multiplier}"),
                           style: TextStyle(
                             fontSize: size * 0.115,
                             fontWeight: FontWeight.w900,
@@ -1150,7 +1151,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                 Icon(Icons.local_fire_department_rounded,
                     size: size * 0.13, color: GreedyPalette.gold),
                 Text(
-                  'ساخن',
+                  tr('ساخن', "Hot"),
                   style: TextStyle(
                     fontSize: size * 0.105,
                     fontWeight: FontWeight.w900,
@@ -1177,7 +1178,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
             border: Border.all(color: GreedyPalette.woodOutline, width: 1.6),
           ),
           child: Text(
-            'أنت ${_compact(amount)}',
+            tr('أنت ${_compact(amount)}', "You ${_compact(amount)}"),
             style: TextStyle(
               fontSize: size * 0.11,
               fontWeight: FontWeight.w900,
@@ -1310,7 +1311,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
         Expanded(
           child: _categoryButton(
             'pizza',
-            'بيتزا',
+            tr('بيتزا', "Pizza"),
             const [Color(0xFFFF8A3D), Color(0xFFE04B2A)],
             state?.myCategories['pizza'] ?? 0,
             enabled,
@@ -1320,7 +1321,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
         Expanded(
           child: _categoryButton(
             'salad',
-            'سلطة',
+            tr('سلطة', "Salad"),
             const [Color(0xFF7BD46A), Color(0xFF2E9BE0)],
             state?.myCategories['salad'] ?? 0,
             enabled,
@@ -1341,7 +1342,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
     return Semantics(
       button: true,
       enabled: enabled,
-      label: '$label، يوزّع الرهان على أربعة أطباق',
+      label: tr('$label، يوزّع الرهان على أربعة أطباق', "$label, splits the bet across four dishes"),
       child: GestureDetector(
         onTap: enabled ? () => _bet(key) : null,
         child: Opacity(
@@ -1399,7 +1400,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                       ),
                       if (mine > 0)
                         Text(
-                          'أنت ${_compact(mine)}',
+                          tr('أنت ${_compact(mine)}', "You ${_compact(mine)}"),
                           style: const TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w800,
@@ -1432,8 +1433,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
       ),
       child: Column(
         children: [
-          const Text(
-            'اختر الرهان < اختر الطعام',
+          Text(
+            tr('اختر الرهان < اختر الطعام', "Choose bet < Choose food"),
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w900,
@@ -1455,9 +1456,9 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _smallButton('مسح', Icons.delete_sweep_rounded, _clear, enabled)),
+              Expanded(child: _smallButton(tr('مسح', "Clear"), Icons.delete_sweep_rounded, _clear, enabled)),
               const SizedBox(width: 8),
-              Expanded(child: _smallButton('تكرار', Icons.replay_rounded, _repeat, enabled)),
+              Expanded(child: _smallButton(tr('تكرار', "Repeat"), Icons.replay_rounded, _repeat, enabled)),
             ],
           ),
         ],
@@ -1470,7 +1471,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
     return Semantics(
       button: true,
       selected: selected,
-      label: 'رهان ${_fmt(value)}',
+      label: tr('رهان ${_fmt(value)}', "Bet ${_fmt(value)}"),
       child: GestureDetector(
         onTap: () => _selectDenomination(value),
         child: AnimatedScale(
@@ -1562,14 +1563,14 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
     final shake = sin(_shake.value * pi * 6) * (1 - _shake.value) * 7;
     return Row(
       children: [
-        Expanded(child: _statPill('أرباح اليوم', state?.todayNet ?? 0, signed: true)),
+        Expanded(child: _statPill(tr('أرباح اليوم', "Today's winnings"), state?.todayNet ?? 0, signed: true)),
         const SizedBox(width: 7),
-        Expanded(child: _statPill('سجلي', state?.todayBest ?? 0)),
+        Expanded(child: _statPill(tr('سجلي', "My history"), state?.todayBest ?? 0)),
         const SizedBox(width: 7),
         Expanded(
           child: Transform.translate(
             offset: Offset(shake, 0),
-            child: _statPill('رصيدي', _balance),
+            child: _statPill(tr('رصيدي', "My balance"), _balance),
           ),
         ),
       ],
@@ -1645,9 +1646,9 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
         children: [
           Row(
             children: [
-              const Flexible(
+              Flexible(
                 child: Text(
-                  'نشاط الطاولة',
+                  tr('نشاط الطاولة', "Table activity"),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1663,8 +1664,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
               Expanded(
                 child: Text(
                   jackpot.nextMilestone == null
-                      ? 'اكتملت كل المراحل'
-                      : 'التالي ${_compact(jackpot.nextMilestone!)}',
+                      ? tr('اكتملت كل المراحل', "All milestones completed")
+                      : tr('التالي ${_compact(jackpot.nextMilestone!)}', "Next ${_compact(jackpot.nextMilestone!)}"),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.end,
@@ -1747,8 +1748,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
       ),
       child: Row(
         children: [
-          const Text(
-            'النتائج:',
+          Text(
+            tr('النتائج:', "Results:"),
             style: TextStyle(
               fontSize: 13.5,
               fontWeight: FontWeight.w900,
@@ -1760,10 +1761,10 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
             child: SizedBox(
               height: 44,
               child: history.isEmpty
-                  ? const Align(
+                  ? Align(
                       alignment: Alignment.centerRight,
                       child: Text(
-                        'لا توجد نتائج بعد',
+                        tr('لا توجد نتائج بعد', "No results yet"),
                         style: TextStyle(
                             fontSize: 12, color: Colors.white70),
                       ),
@@ -1783,7 +1784,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
 
   Widget _resultToken(GreedyHistoryEntry entry, bool newest) {
     return Semantics(
-      label: 'جولة ${entry.roundId}، مضاعفة ${entry.multiplier}',
+      label: tr('جولة ${entry.roundId}، مضاعفة ${entry.multiplier}', "Round ${entry.roundId}, multiplier ${entry.multiplier}"),
       child: SizedBox(
         width: 42,
         child: Stack(
@@ -1814,8 +1815,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(color: GreedyPalette.woodOutline, width: 1),
                   ),
-                  child: const Text(
-                    'جديد',
+                  child: Text(
+                    tr('جديد', "New"),
                     style: TextStyle(
                       fontSize: 7.5,
                       fontWeight: FontWeight.w900,
@@ -1845,8 +1846,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
         children: [
           Row(
             children: [
-              const Text(
-                'ترتيب اليوم',
+              Text(
+                tr('ترتيب اليوم', "Today's ranking"),
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w900,
@@ -1860,9 +1861,9 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                 color: Colors.white38,
               ),
               if (top == null)
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'لم يفز أحد بعد اليوم',
+                    tr('لم يفز أحد بعد اليوم', "No winners yet today"),
                     style: TextStyle(fontSize: 12.5, color: Colors.white70),
                   ),
                 )
@@ -1900,10 +1901,10 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
           const SizedBox(height: 10),
           Row(
             children: [
-              Expanded(child: _rankTab('ترتيب الإقليم', 'region', GreedyPalette.cream)),
+              Expanded(child: _rankTab(tr('ترتيب الإقليم', "Regional ranking"), 'region', GreedyPalette.cream)),
               const SizedBox(width: 9),
               Expanded(
-                  child: _rankTab('الترتيب العالمي', 'global', const Color(0xFFA8F0D0))),
+                  child: _rankTab(tr('الترتيب العالمي', "Global ranking"), 'global', const Color(0xFFA8F0D0))),
             ],
           ),
         ],
@@ -1950,7 +1951,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
       );
 
   Widget _avatar(String? url, String name, double size) {
-    final initial = name.trim().isEmpty ? '؟' : name.trim().characters.first;
+    final initial = name.trim().isEmpty ? tr('؟', "?") : name.trim().characters.first;
     return Container(
       width: size,
       height: size,
@@ -2119,7 +2120,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'الجولة ${state.roundId}',
+                      tr('الجولة ${state.roundId}', "Round ${state.roundId}"),
                       style: const TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
@@ -2140,7 +2141,7 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '${symbol?.nameAr ?? ''} — مضاعفة ${symbol?.multiplier ?? 0}',
+                      tr('${symbol?.nameAr ?? ''} — مضاعفة ${symbol?.multiplier ?? 0}', "${symbol?.nameAr ?? ''} — multiplier ${symbol?.multiplier ?? 0}"),
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
@@ -2149,8 +2150,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                     ),
                     const SizedBox(height: 12),
                     if (!played)
-                      const Text(
-                        'لم تشارك في هذه الجولة',
+                      Text(
+                        tr('لم تشارك في هذه الجولة', "You did not join this round"),
                         style: TextStyle(
                           fontSize: 14.5,
                           fontWeight: FontWeight.w700,
@@ -2158,12 +2159,12 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                         ),
                       )
                     else ...[
-                      _resultLine('رهانك في هذه الجولة', state.myStaked, null),
-                      _resultLine('فوز هذه الجولة', state.myPayout,
+                      _resultLine(tr('رهانك في هذه الجولة', "Your bet this round"), state.myStaked, null),
+                      _resultLine(tr('فوز هذه الجولة', "This round's winnings"), state.myPayout,
                           won ? const Color(0xFF1B8A54) : GreedyPalette.mutedText),
                       const Divider(color: GreedyPalette.warmPale, height: 16),
                       _resultLine(
-                        'الصافي',
+                        tr('الصافي', "Net"),
                         state.myNet,
                         state.myNet >= 0
                             ? const Color(0xFF1B8A54)
@@ -2173,8 +2174,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                     ],
                     if (!played) ...[
                       const SizedBox(height: 4),
-                      const Text(
-                        'الجولة القادمة على وشك أن تبدأ',
+                      Text(
+                        tr('الجولة القادمة على وشك أن تبدأ', "The next round is about to start"),
                         style: TextStyle(
                           fontSize: 12,
                           color: GreedyPalette.mutedText,
@@ -2199,9 +2200,9 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                           border: Border.all(
                               color: GreedyPalette.woodOutline, width: 2),
                         ),
-                        child: const Center(
+                        child: Center(
                           child: Text(
-                            'متابعة',
+                            tr('متابعة', "Continue"),
                             style: TextStyle(
                               fontSize: 15.5,
                               fontWeight: FontWeight.w900,
@@ -2262,8 +2263,8 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'أكبر الفائزين',
+            Text(
+              tr('أكبر الفائزين', "Top winners"),
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.w900,

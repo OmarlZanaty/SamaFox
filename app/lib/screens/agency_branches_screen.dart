@@ -1,20 +1,21 @@
+import '../l10n/tr.dart';
 import 'package:flutter/material.dart';
 
 import '../services/agency_branch_service.dart';
 
 String _date(dynamic value) {
   final date = DateTime.tryParse('$value')?.toLocal();
-  if (date == null) return 'غير مسجل';
+  if (date == null) return tr('غير مسجل', "Not recorded");
   String two(int value) => value.toString().padLeft(2, '0');
   return '${date.year}/${two(date.month)}/${two(date.day)} '
       '${two(date.hour)}:${two(date.minute)}';
 }
 
 String _status(dynamic value) => switch (value) {
-      'ACTIVE' => 'نشط',
-      'SUSPENDED' => 'موقوف',
-      'CLOSED' => 'مغلق',
-      _ => 'غير معروف',
+      'ACTIVE' => tr('نشط', "Active"),
+      'SUSPENDED' => tr('موقوف', "Suspended"),
+      'CLOSED' => tr('مغلق', "Closed"),
+      _ => tr('غير معروف', "Unknown"),
     };
 
 void _error(BuildContext context, Object error) {
@@ -93,17 +94,17 @@ class _AgencyBranchesScreenState extends State<AgencyBranchesScreen> {
       builder: (context) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: Text(activating ? 'تفعيل الفرع' : 'إيقاف الفرع'),
-          content: Text('${branch['name']}\n'
-              '${activating ? 'السماح للفرع بالشحن مجدداً؟' : 'إيقاف الشحن من هذا الفرع؟'}'),
+          title: Text(activating ? tr('تفعيل الفرع', "Activate branch") : tr('إيقاف الفرع', "Suspend branch")),
+          content: Text(tr('${branch['name']}\n'
+              '${activating ? 'السماح للفرع بالشحن مجدداً؟' : 'إيقاف الشحن من هذا الفرع؟'}', "${branch['name']}\n${activating ? 'Allow this branch to recharge again?' : 'Stop recharges from this branch?'}")),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
+              child: Text(tr('إلغاء', "Cancel")),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('تأكيد'),
+              child: Text(tr('تأكيد', "Confirm")),
             ),
           ],
         ),
@@ -144,7 +145,7 @@ class _AgencyBranchesScreenState extends State<AgencyBranchesScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: Text(widget.isOwner ? 'الفروع' : 'فرعي')),
+        appBar: AppBar(title: Text(widget.isOwner ? tr('الفروع', "Branches") : tr('فرعي', "My branch"))),
         body: SafeArea(
           child: RefreshIndicator(
             onRefresh: _loading || _changing ? () async {} : _load,
@@ -153,7 +154,7 @@ class _AgencyBranchesScreenState extends State<AgencyBranchesScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 Text(
-                  'الوكالة الأم: ${widget.agencyName} (#${widget.agencyId})',
+                  tr('الوكالة الأم: ${widget.agencyName} (#${widget.agencyId})', "Parent agency: ${widget.agencyName} (#${widget.agencyId})"),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 if (widget.isOwner)
@@ -165,14 +166,14 @@ class _AgencyBranchesScreenState extends State<AgencyBranchesScreen> {
                             ? null
                             : () => _edit(),
                         icon: const Icon(Icons.add),
-                        label: const Text('إنشاء فرع'),
+                        label: Text(tr('إنشاء فرع', "Create branch")),
                       ),
                       TextButton.icon(
                         onPressed: _loading || _failure != null
                             ? null
                             : () => _transfers(),
                         icon: const Icon(Icons.receipt_long),
-                        label: const Text('كل عمليات الشحن'),
+                        label: Text(tr('كل عمليات الشحن', "All recharges")),
                       ),
                     ],
                   ),
@@ -181,10 +182,10 @@ class _AgencyBranchesScreenState extends State<AgencyBranchesScreen> {
                 if (_failure != null)
                   _Retry(message: _failure!, onRetry: _load)
                 else if (!_loading && _branches.isEmpty)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.all(24),
                     child: Text(
-                      'لا توجد فروع حالياً',
+                      tr('لا توجد فروع حالياً', "No branches yet"),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -209,30 +210,30 @@ class _AgencyBranchesScreenState extends State<AgencyBranchesScreen> {
               '${branch['name']}',
               style: Theme.of(context).textTheme.titleMedium,
             ),
-            Text('رقم الفرع: ${branch['id']}'),
-            Text('المالك: ${owner['name'] ?? 'غير متاح'}'),
+            Text(tr('رقم الفرع: ${branch['id']}', "Branch ID: ${branch['id']}")),
+            Text(tr('المالك: ${owner['name'] ?? 'غير متاح'}', "Owner: ${owner['name'] ?? 'Unavailable'}")),
             Text(
-              'رقم المستخدم: ${owner['displayId'] ?? owner['id'] ?? branch['ownerUserId']}',
+              tr('رقم المستخدم: ${owner['displayId'] ?? owner['id'] ?? branch['ownerUserId']}', "User ID: ${owner['displayId'] ?? owner['id'] ?? branch['ownerUserId']}"),
             ),
-            Text('الحالة: ${_status(branch['status'])}'),
-            Text('تاريخ الإنشاء: ${_date(branch['createdAt'])}'),
+            Text(tr('الحالة: ${_status(branch['status'])}', "Status: ${_status(branch['status'])}")),
+            Text(tr('تاريخ الإنشاء: ${_date(branch['createdAt'])}', "Created: ${_date(branch['createdAt'])}")),
             Wrap(
               spacing: 8,
               children: [
                 TextButton.icon(
                   onPressed: _changing ? null : () => _transfers(branch),
                   icon: const Icon(Icons.receipt_long),
-                  label: const Text('عمليات الشحن'),
+                  label: Text(tr('عمليات الشحن', "Recharges")),
                 ),
                 if (widget.isOwner) ...[
                   TextButton(
                     onPressed: _changing ? null : () => _edit(branch),
-                    child: const Text('تغيير الاسم'),
+                    child: Text(tr('تغيير الاسم', "Rename")),
                   ),
                   TextButton(
                     onPressed: _changing ? null : () => _toggle(branch),
                     child:
-                        Text(branch['status'] == 'ACTIVE' ? 'إيقاف' : 'تفعيل'),
+                        Text(branch['status'] == 'ACTIVE' ? tr('إيقاف', "Stop") : tr('تفعيل', "Activate")),
                   ),
                 ],
               ],
@@ -336,7 +337,7 @@ class _BranchEditorState extends State<_BranchEditor> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           scrollable: true,
-          title: Text(widget.branch == null ? 'إنشاء فرع' : 'تغيير اسم الفرع'),
+          title: Text(widget.branch == null ? tr('إنشاء فرع', "Create branch") : tr('تغيير اسم الفرع', "Rename branch")),
           content: Form(
             key: _form,
             child: Column(
@@ -347,9 +348,9 @@ class _BranchEditorState extends State<_BranchEditor> {
                   controller: _name,
                   enabled: !_busy,
                   maxLength: 120,
-                  decoration: const InputDecoration(labelText: 'اسم الفرع'),
+                  decoration: InputDecoration(labelText: tr('اسم الفرع', "Branch name")),
                   validator: (value) => value == null || value.trim().isEmpty
-                      ? 'أدخل اسم الفرع'
+                      ? tr('أدخل اسم الفرع', "Enter branch name")
                       : null,
                 ),
                 if (widget.branch == null) ...[
@@ -357,15 +358,15 @@ class _BranchEditorState extends State<_BranchEditor> {
                     initialValue: _internalId,
                     isExpanded: true,
                     decoration:
-                        const InputDecoration(labelText: 'نوع رقم المالك'),
-                    items: const [
+                        InputDecoration(labelText: tr('نوع رقم المالك', "Owner ID type")),
+                    items: [
                       DropdownMenuItem(
                         value: false,
-                        child: Text('رقم الملف الشخصي'),
+                        child: Text(tr('رقم الملف الشخصي', "Profile ID")),
                       ),
                       DropdownMenuItem(
                         value: true,
-                        child: Text('المعرف الداخلي (ID)'),
+                        child: Text(tr('المعرف الداخلي (ID)', "Internal ID")),
                       ),
                     ],
                     onChanged: _busy
@@ -380,17 +381,17 @@ class _BranchEditorState extends State<_BranchEditor> {
                     enabled: !_busy,
                     keyboardType: TextInputType.number,
                     decoration:
-                        const InputDecoration(labelText: 'رقم مالك الفرع'),
+                        InputDecoration(labelText: tr('رقم مالك الفرع', "Branch owner ID")),
                     onChanged: (_) => setState(() => _owner = null),
                   ),
                   TextButton.icon(
                     onPressed: _busy ? null : _lookup,
                     icon: const Icon(Icons.search),
-                    label: const Text('تحقق من المستخدم'),
+                    label: Text(tr('تحقق من المستخدم', "Verify user")),
                   ),
                   if (_owner != null)
-                    Text('مالك الفرع: ${_owner!['name']}\n'
-                        'رقم المستخدم: ${_owner!['displayId'] ?? _owner!['id']}'),
+                    Text(tr('مالك الفرع: ${_owner!['name']}\n'
+                        'رقم المستخدم: ${_owner!['displayId'] ?? _owner!['id']}', "Branch owner: ${_owner!['name']}\nUser ID: ${_owner!['displayId'] ?? _owner!['id']}")),
                 ],
                 if (_busy) const LinearProgressIndicator(),
                 if (_failure != null)
@@ -406,13 +407,13 @@ class _BranchEditorState extends State<_BranchEditor> {
           actions: [
             TextButton(
               onPressed: _busy ? null : () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
+              child: Text(tr('إلغاء', "Cancel")),
             ),
             FilledButton(
               onPressed: _busy || (widget.branch == null && _owner == null)
                   ? null
                   : _save,
-              child: const Text('حفظ'),
+              child: Text(tr('حفظ', "Save")),
             ),
           ],
         ),
@@ -501,7 +502,7 @@ class _AgencyBranchTransfersScreenState
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: Text(widget.branchName ?? 'كل عمليات الشحن')),
+        appBar: AppBar(title: Text(widget.branchName ?? tr('كل عمليات الشحن', "All recharges"))),
         body: SafeArea(
           child: RefreshIndicator(
             onRefresh: _load,
@@ -521,16 +522,16 @@ class _AgencyBranchTransfersScreenState
                   return _Retry(message: _failure!, onRetry: _load);
                 }
                 if (_rows.isEmpty) {
-                  return const Padding(
+                  return Padding(
                     padding: EdgeInsets.all(24),
                     child:
-                        Text('لا توجد عمليات شحن', textAlign: TextAlign.center),
+                        Text(tr('لا توجد عمليات شحن', "No recharges"), textAlign: TextAlign.center),
                   );
                 }
                 return _hasMore
                     ? TextButton(
                         onPressed: () => _load(more: true),
-                        child: const Text('تحميل المزيد'),
+                        child: Text(tr('تحميل المزيد', "Load more")),
                       )
                     : const SizedBox.shrink();
               },
@@ -546,27 +547,27 @@ class _AgencyBranchTransfersScreenState
     final user = row['toUser'] as Map? ?? const {};
     final branchId = row['branchId'];
     final branchLabel = branchId != null
-        ? '${branch?['name'] ?? widget.branchName ?? 'فرع'} (#$branchId)'
+        ? tr('${branch?['name'] ?? widget.branchName ?? 'فرع'} (#$branchId)', "${branch?['name'] ?? widget.branchName ?? 'Branch'} (#$branchId)")
         : row['actorUserId'] == null
-            ? 'غير منسوب (سجل قديم)'
-            : 'الوكالة الرئيسية';
+            ? tr('غير منسوب (سجل قديم)', "Unassigned (old record)")
+            : tr('الوكالة الرئيسية', "Main agency");
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('الوكالة الأم: ${widget.agencyName} '
-                '(#${row['parentAgencyId'] ?? row['agencyId']})'),
-            Text('الفرع: $branchLabel'),
-            Text('المستخدم: ${user['name'] ?? 'غير متاح'} '
-                '(#${user['displayId'] ?? user['id'] ?? row['toUserId']})'),
+            Text(tr('الوكالة الأم: ${widget.agencyName} '
+                '(#${row['parentAgencyId'] ?? row['agencyId']})', "Parent agency: ${widget.agencyName} (#${row['parentAgencyId'] ?? row['agencyId']})")),
+            Text(tr('الفرع: $branchLabel', "Branch: $branchLabel")),
+            Text(tr('المستخدم: ${user['name'] ?? 'غير متاح'} '
+                '(#${user['displayId'] ?? user['id'] ?? row['toUserId']})', "User: ${user['name'] ?? 'Unavailable'} (#${user['displayId'] ?? user['id'] ?? row['toUserId']})")),
             // This API stores amount in coins, not fiat. Do not invent a rate.
-            Text('المبلغ: ${row['amount']} كوينز'),
-            Text('الكوينز: ${row['coins'] ?? row['amount']}'),
-            Text('الوقت: ${_date(row['createdAt'])}'),
-            Text('رقم المعاملة: ${row['transactionId'] ?? 'غير مسجل'}'),
-            Text('رقم سجل الشحن: ${row['id']}'),
+            Text(tr('المبلغ: ${row['amount']} كوينز', "Amount: ${row['amount']} coins")),
+            Text(tr('الكوينز: ${row['coins'] ?? row['amount']}', "Coins: ${row['coins'] ?? row['amount']}")),
+            Text(tr('الوقت: ${_date(row['createdAt'])}', "Time: ${_date(row['createdAt'])}")),
+            Text(tr('رقم المعاملة: ${row['transactionId'] ?? 'غير مسجل'}', "Transaction ID: ${row['transactionId'] ?? 'Not recorded'}")),
+            Text(tr('رقم سجل الشحن: ${row['id']}', "Recharge record ID: ${row['id']}")),
           ],
         ),
       ),
@@ -586,7 +587,7 @@ class _Retry extends StatelessWidget {
       child: Column(
         children: [
           Text(message, textAlign: TextAlign.center),
-          TextButton(onPressed: onRetry, child: const Text('إعادة المحاولة')),
+          TextButton(onPressed: onRetry, child: Text(tr('إعادة المحاولة', "Retry"))),
         ],
       ),
     );

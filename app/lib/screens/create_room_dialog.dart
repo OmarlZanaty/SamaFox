@@ -1,3 +1,4 @@
+import '../l10n/tr.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -83,7 +84,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('فشل رفع الصورة: $e'),
+                  content: Text(tr('فشل رفع الصورة: $e', "Could not upload image: $e")),
                   backgroundColor: Colors.orange,
                 ),
               );
@@ -151,7 +152,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('فشل إنشاء الغرفة: $e'),
+            content: Text(tr('فشل إنشاء الغرفة: $e', "Could not create room: $e")),
             backgroundColor: Colors.red,
           ),
         );
@@ -207,14 +208,14 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
                     // Room Name
                     _buildTextField(
                       controller: _nameController,
-                      label: 'اسم الغرفة',
+                      label: tr('اسم الغرفة', "Room name"),
                       icon: Icons.meeting_room,
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
-                          return 'الرجاء إدخال اسم الغرفة';
+                          return tr('الرجاء إدخال اسم الغرفة', "Please enter a room name");
                         }
                         if (value.trim().length < 3) {
-                          return 'اسم الغرفة يجب أن يكون 3 أحرف على الأقل';
+                          return tr('اسم الغرفة يجب أن يكون 3 أحرف على الأقل', "Room name must be at least 3 characters");
                         }
                         return null;
                       },
@@ -224,7 +225,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
                     // Room Number
                     _buildTextField(
                       controller: _numberController,
-                      label: 'رقم الغرفة (اختياري)',
+                      label: tr('رقم الغرفة (اختياري)', "Room ID (optional)"),
                       icon: Icons.numbers,
                       keyboardType: TextInputType.number,
                     ),
@@ -233,7 +234,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
                     // Description
                     _buildTextField(
                       controller: _descriptionController,
-                      label: 'وصف الغرفة (اختياري)',
+                      label: tr('وصف الغرفة (اختياري)', "Room description (optional)"),
                       icon: Icons.description,
                       maxLines: 3,
                     ),
@@ -284,9 +285,9 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
           const SizedBox(width: 12),
 
           // Title
-          const Expanded(
+          Expanded(
             child: Text(
-              'إنشاء غرفة جديدة',
+              tr('إنشاء غرفة جديدة', "Create a new room"),
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 22,
@@ -373,8 +374,8 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'اضغط لإضافة صورة الغرفة',
+            Text(
+              tr('اضغط لإضافة صورة الغرفة', "Tap to add a room image"),
               style: TextStyle(
                 color: Colors.white70,
                 fontSize: 14,
@@ -443,7 +444,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
           children: [
             Icon(
               Icons.mic,
@@ -452,7 +453,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
             ),
             SizedBox(width: 8),
             Text(
-              'عدد المايكات',
+              tr('عدد المايكات', "Number of mics"),
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 16,
@@ -557,13 +558,13 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
             valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
           ),
         )
-            : const Row(
+            : Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.add_circle, size: 24),
             SizedBox(width: 12),
             Text(
-              'إنشاء الغرفة',
+              tr('إنشاء الغرفة', "Create room"),
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,

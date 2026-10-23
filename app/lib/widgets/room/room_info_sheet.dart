@@ -1,3 +1,4 @@
+import '../../l10n/tr.dart';
 import 'package:flutter/material.dart';
 
 import '../app_network_image.dart';
@@ -95,9 +96,9 @@ class RoomInfoSheet extends StatelessWidget {
             const SizedBox(height: 14),
             Row(
               children: [
-                Expanded(child: _stat(Icons.people_alt_rounded, '$usersCount', 'المتواجدون')),
+                Expanded(child: _stat(Icons.people_alt_rounded, '$usersCount', tr('المتواجدون', "People present"))),
                 const SizedBox(width: 10),
-                Expanded(child: _stat(Icons.mic_rounded, '$usedSeats / $totalSeats', 'المايكات المستخدمة')),
+                Expanded(child: _stat(Icons.mic_rounded, '$usedSeats / $totalSeats', tr('المايكات المستخدمة', "Mics in use"))),
               ],
             ),
             const SizedBox(height: 12),
@@ -123,7 +124,7 @@ class RoomInfoSheet extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('صاحب الغرفة', style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          Text(tr('صاحب الغرفة', "Room owner"), style: TextStyle(color: Colors.white54, fontSize: 11)),
                           Text(ownerName ?? '—',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -147,7 +148,7 @@ class RoomInfoSheet extends StatelessWidget {
                       child: OutlinedButton.icon(
                         onPressed: onEdit,
                         icon: const Icon(Icons.edit, size: 18),
-                        label: const Text('تعديل الغرفة'),
+                        label: Text(tr('تعديل الغرفة', "Edit room")),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: const BorderSide(color: Colors.white24),
@@ -161,7 +162,7 @@ class RoomInfoSheet extends StatelessWidget {
                       child: OutlinedButton.icon(
                         onPressed: onClose,
                         icon: const Icon(Icons.lock, size: 18),
-                        label: const Text('إغلاق الغرفة'),
+                        label: Text(tr('إغلاق الغرفة', "Close room")),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.redAccent,
                           side: const BorderSide(color: Colors.redAccent),
