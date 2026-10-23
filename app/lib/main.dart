@@ -39,6 +39,7 @@ import 'widgets/app_scale.dart';
 import 'widgets/pip_overlay.dart';
 import 'services/socket_service.dart';
 import 'services/device_tier.dart';
+import 'services/gpu_cache.dart';
 import 'services/memory_guard.dart';
 import 'utils/app_route_observer.dart';
 import 'services/global_notification_service.dart';
@@ -83,6 +84,7 @@ void main() async {
   await _bootStep('deviceTier', DeviceTier.init, const Duration(seconds: 3));
   PaintingBinding.instance.imageCache.maximumSizeBytes =
       (DeviceTier.ultraLite ? 16 : DeviceTier.lite ? 32 : 60) << 20;
+  unawaited(GpuCache.apply());
 
   // Before anything else can fail. The app shipped with NO error handler of any
   // kind, which is why "التطبيق يقفل بعد دقيقة" could only ever be guessed at:

@@ -39,23 +39,34 @@ class UserNameText extends StatelessWidget {
   /// The style with the VIP colour applied (for places that build their own Text/RichText).
   static TextStyle styleFor(TextStyle? base, String? nameColor) {
     final c = parse(nameColor);
-    return c == null ? (base ?? const TextStyle()) : (base ?? const TextStyle()).copyWith(color: c);
+    return c == null
+        ? (base ?? const TextStyle())
+        : (base ?? const TextStyle()).copyWith(color: c);
   }
 
   @override
   Widget build(BuildContext context) {
-    final colors = (nameGradient ?? const <String>[]).map(parse).whereType<Color>().toList();
+    final colors = (nameGradient ?? const <String>[])
+        .map(parse)
+        .whereType<Color>()
+        .toList();
     if (colors.length >= 2) {
-      return ShaderMask(
-        blendMode: BlendMode.srcIn,
-        shaderCallback: (r) => LinearGradient(colors: colors).createShader(r),
-        child: Text(
-          name,
-          maxLines: maxLines,
-          overflow: overflow,
-          textAlign: textAlign,
-          style: (style ?? const TextStyle()).copyWith(color: Colors.white),
-        ),
+      final base = style ?? const TextStyle();
+      final painter = TextPainter(
+        text: TextSpan(text: name, style: DefaultTextStyle.of(context).style.merge(base)),
+        maxLines: maxLines,
+        textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout();
+      final shader = LinearGradient(colors: colors)
+          .createShader(Offset.zero & painter.size);
+      painter.dispose();
+      return Text(
+        name,
+        maxLines: maxLines,
+        overflow: overflow,
+        textAlign: textAlign,
+        style: base.copyWith(foreground: Paint()..shader = shader),
       );
     }
     return Text(

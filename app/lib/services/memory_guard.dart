@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 
 import 'crash_reporter.dart';
+import 'gpu_cache.dart';
 
 /// Lets go of what can be let go of when the phone runs short of memory.
 ///
@@ -33,6 +35,7 @@ class MemoryGuard {
       final cache = PaintingBinding.instance.imageCache;
       final freedMb = cache.currentSizeBytes >> 20;
       cache.clear();
+      unawaited(GpuCache.purge());
       CrashReporter.breadcrumb(
         'mem pressure ${a['reason']} avail=${a['availMb']}MB '
         'rss=${a['rssMb']}MB${a['pssMb'] == null ? '' : ' pss=${a['pssMb']}MB'} '
