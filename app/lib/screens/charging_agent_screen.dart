@@ -119,7 +119,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                           onPressed: () => setState(() => _activeInterface = null),
                           icon: const Icon(Icons.swap_horiz, color: Colors.white70, size: 18),
                           label: Text(
-                            tr('تبديل الواجهة (حالياً: ${_activeInterface == 'CHARGING' ? 'الشحن' : 'الاستضافة'})', 'Switch interface (current: ${_activeInterface == 'CHARGING' — 'Recharge' : 'Hosting'})'),
+                            tr('تبديل الواجهة (حالياً: ${_activeInterface == 'CHARGING' ? 'الشحن' : 'الاستضافة'})', 'Switch interface (current: ${_activeInterface == 'CHARGING' ? 'Recharge' : 'Hosting'})'),
                             style: const TextStyle(color: Colors.white70),
                           ),
                         ),
