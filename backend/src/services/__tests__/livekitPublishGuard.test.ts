@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TrackType } from 'livekit-server-sdk';
 import { createPublishGuard, type LiveKitRoomApi } from '../livekitPublishGuard';
+import { LeasedSeats, seatHolders } from '../seatLease';
 
 type P = { identity: string; canPublish?: boolean; audio?: boolean };
 
@@ -57,6 +58,34 @@ test('a seated user who lost canPublish gets it back', async () => {
   const { api, updates } = fakeApi({ 'room-7': [{ identity: '5', canPublish: false }] });
   await guardFor(api, { 7: [5] }).sync(7);
   assert.deepEqual(updates, [{ room: 'room-7', identity: '5', canPublish: true }]);
+});
+
+test('held seat holders keep their voice and regain lost publish permission', async () => {
+  const { api, updates } = fakeApi({
+    'room-7': [
+      { identity: '5', canPublish: true, audio: true },
+      { identity: '6', canPublish: false },
+    ],
+  });
+  const seats = new LeasedSeats(() => 'session-1');
+  seats.set(1, 5).set(2, 6);
+  seats.hold(5);
+  seats.hold(6);
+  const guard = createPublishGuard({
+    api,
+    seatedUserIds: () => seatHolders(seats),
+    isLiveKitRoom: () => true,
+    log: () => {},
+  });
+  await guard.sync(7);
+  assert.deepEqual(updates, [{ room: 'room-7', identity: '6', canPublish: true }]);
+  updates.length = 0;
+  seats.leases.get(1)!.leaseExpiresAt = 0;
+  await guard.sync(7);
+  assert.deepEqual(updates, []);
+  seats.delete(1);
+  await guard.sync(7);
+  assert.deepEqual(updates, [{ room: 'room-7', identity: '5', canPublish: false }]);
 });
 
 test('listeners and mesh rooms are left alone', async () => {

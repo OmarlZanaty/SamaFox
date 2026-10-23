@@ -1,4 +1,4 @@
-import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS } from './seatLease';
+import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS, seatHolders } from './seatLease';
 import { sessionFor, joinRoomSession, sessionHeartbeat, sessionDisconnected, sessionSeat, endRoomSession, reconcileRoomSessions, LeaveReason } from './roomSession.service';
 import { nameColorSync } from './vipStyle.service';
 import { Server, Socket } from 'socket.io';
@@ -374,8 +374,7 @@ function voiceRelayTarget(from: number | undefined, to: any, roomId: any): strin
 }
 
 export function mayPublish(uid: number, rid: number): boolean {
-  return userCurrentRoom.get(uid) === rid && [...getSeats(rid).leases.values()]
-    .some(l => l.userId === uid && l.status === 'occupied' && l.leaseExpiresAt > Date.now());
+  return userCurrentRoom.get(uid) === rid && seatHolders(getSeats(rid)).has(uid);
 }
 
 export async function mayListen(uid: number, rid: number): Promise<boolean> {
@@ -701,7 +700,7 @@ await Promise.all(
       status: occupant ? getSeats(rid).leases.get(seatNumber)?.status ?? 'occupied' : null,
       leaseExpiresAt: occupant ? getSeats(rid).leases.get(seatNumber)?.leaseExpiresAt ?? null : null,
       sessionId: occupant ? getSeats(rid).leases.get(seatNumber)?.sessionId ?? null : null,
-      isMuted: occupant ? (getSeats(rid).leases.get(seatNumber)?.status === 'held' || (mutedMap.get(occupant) ?? true)) : true,
+      isMuted: occupant ? (mutedMap.get(occupant) ?? true) : true,
       isLocked: locked.has(seatNumber),
     };
   });
@@ -781,7 +780,8 @@ function isLiveKitRoom(rid: number): boolean {
 /** Only seat holders may publish on the SFU (see livekitPublishGuard). */
 const publishGuard = createPublishGuard({
   api: liveKitRoomApiFromEnv(),
-  seatedUserIds: (rid) => new Set([...getSeats(rid).leases.values()].filter(l => l.status === 'occupied' && l.leaseExpiresAt > Date.now()).map(l => l.userId)),
+  // A held seat keeps its voice (owner rule since 2026-10-04: a dropped connection never costs the mic).
+  seatedUserIds: (rid) => seatHolders(getSeats(rid)),
   isLiveKitRoom,
 });
 const PUBLISH_SWEEP_MS = 5_000;

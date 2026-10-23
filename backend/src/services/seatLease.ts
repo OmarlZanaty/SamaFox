@@ -1,4 +1,6 @@
-export const SEAT_LEASE_MS = 300_000;
+const configuredLeaseMs = Number(process.env.ROOM_SEAT_LEASE_MS);
+export const SEAT_LEASE_MS = Number.isFinite(configuredLeaseMs) && configuredLeaseMs > 0
+  ? configuredLeaseMs : 12 * 60 * 60 * 1000;
 export const SEAT_STALE_MS = 45_000;
 export interface SeatLease {
   userId: number;
@@ -53,4 +55,8 @@ export class LeasedSeats extends Map<number, number> {
     lease.leaseExpiresAt = lease.lastHeartbeat + SEAT_LEASE_MS;
     return true;
   }
+}
+
+export function seatHolders(seats: LeasedSeats): Set<number> {
+  return new Set(seats.values());
 }
