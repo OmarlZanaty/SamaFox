@@ -1,3 +1,4 @@
+import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/oneAgencyRule';
 import { Prisma, StaffRole, TemporaryEntitlement } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { recordAdminAudit, AdminAuditInput } from '../services/adminAudit.service';
@@ -13,7 +14,7 @@ import * as rules from './staffRules';
 type Db = Prisma.TransactionClient;
 type Body = Record<string, any>;
 export class StaffError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public code?: string) { super(message); }
 }
 function fail(status: number, message: string): never { throw new StaffError(status, message); }
 const denied = (): never => fail(403, 'ليس لديك الصلاحية المطلوبة');
@@ -666,6 +667,9 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
     checkTarget(c, owner);
     if (typeof body.agencyName !== 'string' || !body.agencyName.trim() || body.agencyName.length > 200) fail(400, 'اسم الوكالة مطلوب');
     if (await c.db.chargingAgency.findFirst({ where: { userId: owner.id, type: 'HOSTING', status: { not: 'rejected' } }, select: { id: true } })) fail(409, 'المستخدم لديه وكالة مضيفين بالفعل');
+    if (await findBlockingMembership(c.db, owner.id, -1, 'OWNER')) {
+      throw new StaffError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+    }
     const agency = await c.db.chargingAgency.create({ data: { userId: owner.id, agencyName: body.agencyName.trim(),
       phoneNumber: '-', agencyImageUrl: '', idFrontUrl: '', idBackUrl: '', type: 'HOSTING', status: 'approved', assignedByAdminId: null },
       select: { id: true, userId: true, agencyName: true, type: true, status: true, createdAt: true } });

@@ -1,3 +1,5 @@
+import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/oneAgencyRule';
+import { AgencyAccessError } from '../services/agencyIdentity.service';
 import { recordAdminAuditStrict } from '../services/adminAudit.service';
 import { Request, Response } from 'express';
 
@@ -1255,6 +1257,12 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
       // owner ended up with no الفروع button, `GET/POST /agencies/branches`
       // answering 403 and even شحن مستخدم refused — "فروع وكالة الشحن توقفت".
       if (status === 'approved') {
+        const existingMember = await tx.agencyMember.findUnique({
+          where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
+        });
+        if (!existingMember && await findBlockingMembership(tx, agency.userId, agency.id, 'OWNER')) {
+          throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+        }
         await tx.agencyMember.upsert({
           where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
           update: { role: 'OWNER' },
@@ -1264,7 +1272,8 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
       return agency;
     });
     return ok(res, { data: serialize(updated) });
-  } catch {
+  } catch (e) {
+    if (e instanceof AgencyAccessError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
     return fail(res, 500, 'Server error');
   }
 };
@@ -1322,6 +1331,9 @@ export const adminReviewAgencyRequest = async (req: AdminReq, res: Response) => 
           },
         });
 
+        if (await findBlockingMembership(tx, request.userId, agency.id, 'OWNER')) {
+          throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+        }
         await tx.agencyMember.create({
           data: { agencyId: agency.id, userId: request.userId, role: 'OWNER' },
         });
@@ -1334,7 +1346,8 @@ export const adminReviewAgencyRequest = async (req: AdminReq, res: Response) => 
 
     if (!result.ok) return fail(res, result.status, result.message);
     return ok(res, { data: result.data });
-  } catch {
+  } catch (e) {
+    if (e instanceof AgencyAccessError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
     return fail(res, 500, 'Server error');
   }
 };
@@ -1380,6 +1393,9 @@ export const adminAssignAgency = async (req: AdminReq, res: Response) => {
           assignedByAdminId: req.userId,
         },
       });
+      if (await findBlockingMembership(tx, user.id, agency.id, 'OWNER')) {
+        throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+      }
       await tx.agencyMember.create({
         data: { agencyId: agency.id, userId: user.id, role: 'OWNER' },
       });
@@ -1401,6 +1417,7 @@ export const adminAssignAgency = async (req: AdminReq, res: Response) => {
 
     return ok(res, { data: serialize(result) });
   } catch (e) {
+    if (e instanceof AgencyAccessError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
     console.error('adminAssignAgency error:', e);
     return fail(res, 500, 'Server error');
   }

@@ -1,3 +1,4 @@
+import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from './oneAgencyRule';
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
@@ -15,8 +16,8 @@ const db = prisma as any;
 
 type AuthReq = Request & { userId?: number };
 
-const fail = (res: Response, status: number, message: string) =>
-  res.status(status).json({ success: false, message });
+const fail = (res: Response, status: number, message: string, code?: string) =>
+  res.status(status).json({ success: false, message, ...(code ? { code } : {}) });
 
 const serializeBigInt = <T>(value: T): T => {
   if (typeof value === 'bigint') return value.toString() as unknown as T;
@@ -373,13 +374,6 @@ class InviteError extends Error {
   }
 }
 
-/** The approved HOSTING agency a user already belongs to, other than `exceptAgencyId`. */
-const otherHostingMembership = async (tx: any, userId: number, exceptAgencyId: number) =>
-  tx.agencyMember.findFirst({
-    where: { userId, agencyId: { not: exceptAgencyId }, agency: { type: 'HOSTING', status: 'approved' } },
-    include: { agency: { select: { id: true, agencyName: true } } },
-  });
-
 // POST /agencies/invite/:userId
 export const inviteMember = async (req: AuthReq, res: Response) => {
   try {
@@ -405,9 +399,8 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
     const alreadyMember = await db.agencyMember.findFirst({ where: { agencyId: m.agencyId, userId: inviteeId } });
     if (alreadyMember) return fail(res, 400, 'المستخدم عضو في وكالتك بالفعل');
 
-    if (m.agency?.type === 'HOSTING') {
-      const other = await otherHostingMembership(db, inviteeId, m.agencyId);
-      if (other) return fail(res, 409, `المستخدم مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId})`);
+    if (await findBlockingMembership(db, inviteeId, m.agencyId, 'MEMBER')) {
+      return fail(res, 409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
     }
 
     // SPEC52 #35 — every invitation is its own row (pending → accepted /
@@ -444,6 +437,7 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
 
     return res.status(201).json({ success: true, data: { ...invite, state: inviteState(invite) } });
   } catch (e) {
+    if (e instanceof InviteError) return fail(res, e.status, e.message, e.code);
     // Was a blind `catch {}` that hid the real cause behind a generic 500 —
     // that opacity was #35 "invite shows an error with no detail". Log it.
     console.error('[agency.inviteMember] failed:', e);
@@ -509,12 +503,8 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
         // The agency must still be operating.
         if (invite.agency?.status !== 'approved') throw new InviteError(409, 'AGENCY_INACTIVE', 'الوكالة غير مفعلة حالياً');
 
-        // 3. One hosting agency at a time.
-        if (invite.agency?.type === 'HOSTING') {
-          const other = await otherHostingMembership(tx, userId, invite.agencyId);
-          if (other) {
-            throw new InviteError(409, 'ALREADY_IN_AGENCY', `أنت مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId}) — غادرها أولاً`);
-          }
+        if (await findBlockingMembership(tx, userId, invite.agencyId, 'MEMBER')) {
+          throw new InviteError(409, 'ALREADY_IN_AGENCY', ALREADY_IN_AGENCY_MESSAGE);
         }
 
         // 6 first, conditionally: whoever flips pending→accepted owns the join.
@@ -589,8 +579,8 @@ export const requestJoinHostingAgency = async (req: AuthReq, res: Response) => {
 
     const alreadyMember = await db.agencyMember.findFirst({ where: { agencyId, userId } });
     if (alreadyMember) return fail(res, 400, 'Already a member');
-    const other = await otherHostingMembership(db, userId, agencyId);
-    if (other) return fail(res, 409, `أنت مرتبط بوكالة أخرى (${other.agency?.agencyName ?? other.agencyId}) — غادرها أولاً`);
+    const other = await findBlockingMembership(db, userId, agencyId, 'MEMBER');
+    if (other) return fail(res, 409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
 
     // SPEC52 #35 — a new row per attempt; a pending one is not duplicated.
     const { newAgencyInvite } = await import('../services/agencyInvites.service');
@@ -673,8 +663,8 @@ export const reviewJoinRequest = async (req: AuthReq, res: Response) => {
     await db.$transaction(
       async (tx: any) => {
         if (action === 'accept') {
-          const other = await otherHostingMembership(tx, invite.inviteeId, invite.agencyId);
-          if (other) throw new InviteError(409, 'ALREADY_IN_AGENCY', 'المستخدم مرتبط بوكالة أخرى');
+          const other = await findBlockingMembership(tx, invite.inviteeId, invite.agencyId, 'MEMBER');
+          if (other) throw new InviteError(409, 'ALREADY_IN_AGENCY', ALREADY_IN_AGENCY_MESSAGE);
         }
         const flipped = await tx.agencyInvite.updateMany({
           where: { id: inviteId, status: 'pending' },
@@ -1218,6 +1208,12 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
     if (!target) return fail(res, 404, 'User not found');
 
     await db.$transaction(async (tx: any) => {
+      if (await findBlockingMembership(tx, ownerId, m.agencyId, 'MEMBER')) {
+        throw new InviteError(409, 'ALREADY_IN_AGENCY', ALREADY_IN_AGENCY_MESSAGE);
+      }
+      if (await findBlockingMembership(tx, toUserId, m.agencyId, 'OWNER')) {
+        throw new InviteError(409, 'ALREADY_IN_AGENCY', ALREADY_IN_AGENCY_MESSAGE);
+      }
       await tx.chargingAgency.update({ where: { id: m.agencyId }, data: { userId: toUserId } });
       // Old owner steps down to MEMBER. Their joinedAt is RESET to now: a
       // member's target is "gifts received since joinedAt", so keeping the
@@ -1269,6 +1265,7 @@ export const transferOwnership = async (req: AuthReq, res: Response) => {
 
     return res.json({ success: true });
   } catch (err) {
+    if (err instanceof InviteError) return fail(res, err.status, err.message, err.code);
     console.error('[transferOwnership]', err);
     return fail(res, 500, 'Server error');
   }
@@ -1369,6 +1366,9 @@ export const addBranch = async (req: AuthReq, res: Response) => {
     const existing = await db.agencyMember.findFirst({
       where: { agencyId: owner.agencyId, userId: targetId },
     });
+    if (await findBlockingMembership(db, targetId, owner.agencyId, 'BRANCH')) {
+      return fail(res, 409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+    }
     if (existing?.role === 'BRANCH') return fail(res, 400, 'Already a branch');
 
     if (!existing) {
@@ -1404,6 +1404,7 @@ export const addBranch = async (req: AuthReq, res: Response) => {
 
     return res.json({ success: true });
   } catch (e) {
+    if (e instanceof InviteError) return fail(res, e.status, e.message, e.code);
     console.error('[agency.addBranch] failed:', e);
     return fail(res, 500, 'Server error');
   }

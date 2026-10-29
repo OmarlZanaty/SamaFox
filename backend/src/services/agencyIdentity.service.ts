@@ -1,9 +1,10 @@
+import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/oneAgencyRule';
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { auditContext, recordAdminAuditStrict } from './adminAudit.service';
 
 export class AgencyAccessError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public code?: string) { super(message); }
 }
 
 // Rechecked inside financial transactions, so revocation cannot race a charge.
@@ -92,6 +93,9 @@ export async function createChargingBranch(req: any, agencyId: number, ownerUser
     if (await tx.agencyMember.count({ where: { agencyId, role: 'BRANCH' } }) >= 3) {
       throw new AgencyAccessError(400, 'الحد الأقصى ثلاثة فروع');
     }
+    if (await findBlockingMembership(tx, ownerUserId, agencyId, 'BRANCH')) {
+      throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+    }
     const after = await tx.agencyBranch.upsert({
       where: { parentAgencyId_ownerUserId: { parentAgencyId: agencyId, ownerUserId } },
       create: { parentAgencyId: agencyId, ownerUserId, name: branchName },
@@ -130,6 +134,9 @@ export async function updateChargingBranch(req: any, agencyId: number, branchId:
       if (await tx.agencyMember.count({ where: { agencyId, role: 'BRANCH' } }) >= 3) {
         throw new AgencyAccessError(400, 'الحد الأقصى ثلاثة فروع');
       }
+    }
+    if (data.status && data.status !== 'CLOSED' && await findBlockingMembership(tx, before.ownerUserId, agencyId, 'BRANCH')) {
+      throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
     }
     const after = await tx.agencyBranch.update({ where: { id: branchId }, data });
     if (data.status) {

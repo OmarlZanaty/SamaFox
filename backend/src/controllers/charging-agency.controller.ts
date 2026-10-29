@@ -1,3 +1,5 @@
+import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/oneAgencyRule';
+import { AgencyAccessError } from '../services/agencyIdentity.service';
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
@@ -801,6 +803,12 @@ export const updateChargingAgencyStatus = async (req: Request, res: Response) =>
       // the agent locked out of his own agency, so create it here too — the
       // dashboard's own approve path does the same.
       if (status === 'approved') {
+        const existingMember = await tx.agencyMember.findUnique({
+          where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
+        });
+        if (!existingMember && await findBlockingMembership(tx, agency.userId, agency.id, 'OWNER')) {
+          throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+        }
         await tx.agencyMember.upsert({
           where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
           update: { role: 'OWNER' },
@@ -812,6 +820,7 @@ export const updateChargingAgencyStatus = async (req: Request, res: Response) =>
 
     return res.json(updated);
   } catch (e) {
+    if (e instanceof AgencyAccessError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
     console.error('updateChargingAgencyStatus error:', e);
     return res.status(500).json({ message: 'Server error' });
   }
