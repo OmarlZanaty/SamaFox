@@ -40,7 +40,6 @@ The app lives on `feat/i18n-2026-10-23` (main checkout) — separate task.
 ## Tasks
 - [x] A backend wallet + freeze + withdraw + admin endpoints + tests (883cb2c)
 - [x] B backend branch invites (accept/reject) + 4c automatic routing (WIP commit)
-- [ ] FAILING: backend/src/agencies/__tests__/branchConsent.test.ts(46,70) TS2345 `Row | undefined` in the upsert fake
-      → whole file fails to compile (452/453 pass). Minimal typed fix only. Codex limit until 23:57 2026-10-29.
+- [x] branchConsent test type fix (465/465 pass)
 - [ ] C admin-dashboard.html: wallet column, top-up into agency wallet, freeze one / freeze all
 - [ ] D app (feat/i18n branch): show both balances, withdraw button, branch-charge wallet choice, branch invite accept/reject, show server error messages

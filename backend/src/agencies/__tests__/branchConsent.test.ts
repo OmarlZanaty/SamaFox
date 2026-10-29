@@ -43,7 +43,7 @@ function model(rows: () => Row[]) {
     upsert: async ({ where, create, update }: Row) => {
       let row = rows().find(r => matches(r, where));
       if (row) Object.assign(row, update);
-      else { row = { id: rows().length + 1, ...create }; rows().push(row); }
+      else { row = { id: rows().length + 1, ...create } as Row; rows().push(row); }
       return row;
     },
   };
