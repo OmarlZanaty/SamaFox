@@ -1180,7 +1180,8 @@ export const leaveAgency = async (req: AuthReq, res: Response) => {
         agencyType: m.agency.type,
       },
     });
-  } catch {
+  } catch (e) {
+    console.error('[agency.leaveAgency] failed:', e);
     return fail(res, 500, 'Server error');
   }
 };

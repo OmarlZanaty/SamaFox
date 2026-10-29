@@ -5,25 +5,36 @@ import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../oneAgencyR
 type Role = 'OWNER' | 'BRANCH' | 'MEMBER';
 type Seat = {
   id: number; agencyId: number; userId: number; role: Role;
-  agency: { id: number; agencyName: string; type: 'HOSTING' | 'CHARGING' };
+  agency: { id: number; agencyName: string; type: 'HOSTING' | 'CHARGING'; status: 'approved' | 'rejected' | 'pending' };
 };
-const seat = (role: Role, type: 'HOSTING' | 'CHARGING', agencyId = 1): Seat => ({
+const seat = (role: Role, type: 'HOSTING' | 'CHARGING', agencyId = 1, status: Seat['agency']['status'] = 'approved'): Seat => ({
   id: 100, agencyId, userId: 10, role,
-  agency: { id: agencyId, agencyName: 'Agency', type },
+  agency: { id: agencyId, agencyName: 'Agency', type, status },
 });
 const fakeTx = (members: Seat[]) => ({
   agencyMember: {
     findFirst: async ({ where, include }: any) => {
-      // No type/status filter: every other agency's seat must count.
-      assert.deepEqual(Object.keys(where).sort(), ['agencyId', 'role', 'userId']);
+      // Only seats in approved agencies count, regardless of agency type.
+      assert.deepEqual(Object.keys(where).sort(), ['agency', 'agencyId', 'role', 'userId']);
+      assert.deepEqual(where.agency, { status: 'approved' });
       assert.deepEqual(include, { agency: { select: { id: true, agencyName: true, type: true } } });
       return members.find(m => m.userId === where.userId &&
-        m.agencyId !== where.agencyId.not && where.role.in.includes(m.role)) ?? null;
+        m.agencyId !== where.agencyId.not && m.agency.status === where.agency.status &&
+        where.role.in.includes(m.role)) ?? null;
     },
   },
 });
 
 for (const type of ['HOSTING', 'CHARGING'] as const) {
+  for (const status of ['rejected', 'pending'] as const) {
+    for (const existingRole of ['MEMBER', 'BRANCH', 'OWNER'] as const) {
+      for (const newRole of ['MEMBER', 'BRANCH', 'OWNER'] as const) {
+        test(`${type} ${status} ${existingRole} elsewhere allows ${newRole}`, async () => {
+          assert.equal(await findBlockingMembership(fakeTx([seat(existingRole, type, 1, status)]), 10, 2, newRole), null);
+        });
+      }
+    }
+  }
   for (const existingRole of ['MEMBER', 'BRANCH', 'OWNER'] as const) {
     for (const newRole of ['MEMBER', 'BRANCH'] as const) {
       test(`${type} ${existingRole} elsewhere blocks ${newRole}`, async () => {
