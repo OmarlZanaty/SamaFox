@@ -427,6 +427,19 @@
         </div>
       </div>
 
+      <div class="form-card" style="margin-bottom:16px">
+        <div class="form-card-title" id="chargingFreezeTitle">تجميد رصيد وكالات الشحن كلها</div>
+        <div class="form-row" style="align-items:center">
+          <label class="settings-hint" style="display:flex;align-items:center;gap:10px">
+            <input id="chargingFreezeSwitch" type="checkbox" role="switch" aria-labelledby="chargingFreezeTitle" aria-describedby="chargingFreezeHint" disabled onchange="setChargingWalletsFrozen(this.checked)" />
+            تفعيل التجميد
+          </label>
+          <span id="chargingFreezeStatus" class="badge badge-pending" aria-live="polite">جاري التحميل…</span>
+          <button id="chargingFreezeRefresh" class="btn btn-outline" onclick="loadChargingWalletFreeze()">تحديث</button>
+        </div>
+        <p id="chargingFreezeHint" class="settings-hint">يمنع البيع والشحن والتحويل للمحفظة الشخصية من كل وكالات الشحن. شحن الإدارة لرصيد الوكالة يظل يعمل.</p>
+      </div>
+
       <!-- Direct assign: admin enters a user ID and makes them owner of a new agency, no request/approval needed (#21) -->
       <div class="form-card" style="margin-bottom:16px">
         <div class="form-card-title">تعيين وكالة مباشرة (بدون طلب)</div>
@@ -486,6 +499,7 @@
               <th>النوع</th>
               <th>الهاتف</th>
               <th>الحالة</th>
+              <th>رصيد الوكالة</th>
               <th>شحنت لنفسها</th>
               <th>التارجيت</th>
               <th>الصور</th>
@@ -2305,5 +2319,177 @@
 <script src="economy-admin.js?v=20261021-fruitwheel-bonus"></script>
 <script src="staff-admin.js?v=20261011"></script>
 <script src="spec52-admin.js?v=20261020"></script>
+<script>
+// Page-local agency wallet UI; reuse app.js authentication, requests and toasts.
+(() => {
+  const formatCoins = value => BigInt(value ?? 0).toLocaleString('en-US');
+  let globallyFrozen = false;
+  let freezeBusy = false;
+  let agencyLoadVersion = 0;
+  const freezeSwitch = document.getElementById('chargingFreezeSwitch');
+  const freezeStatus = document.getElementById('chargingFreezeStatus');
+  const freezeRefresh = document.getElementById('chargingFreezeRefresh');
+
+  function renderFreeze() {
+    freezeSwitch.checked = globallyFrozen;
+    freezeStatus.textContent = globallyFrozen ? 'مجمّدة' : 'غير مجمّدة';
+    freezeStatus.className = globallyFrozen ? 'badge badge-rejected' : 'badge badge-approved';
+  }
+
+  window.loadChargingWalletFreeze = async function () {
+    if (freezeBusy) return;
+    freezeBusy = true;
+    freezeSwitch.disabled = freezeRefresh.disabled = true;
+    try {
+      const result = await apiFetch('/settings');
+      globallyFrozen = String(result.data?.charging_wallets_frozen ?? 'false') === 'true';
+      renderFreeze();
+      freezeSwitch.disabled = false;
+    } catch (e) {
+      freezeStatus.textContent = 'تعذر التحميل';
+      freezeStatus.className = 'badge badge-pending';
+      showToast('❌ ' + e.message);
+    } finally {
+      freezeBusy = false;
+      freezeRefresh.disabled = false;
+    }
+  };
+
+  window.setChargingWalletsFrozen = async function (frozen) {
+    if (freezeBusy) return;
+    if (!confirm(frozen ? 'تجميد رصيد وكالات الشحن كلها؟' : 'فك تجميد رصيد وكالات الشحن كلها؟')) {
+      renderFreeze();
+      return;
+    }
+    freezeBusy = true;
+    freezeSwitch.disabled = freezeRefresh.disabled = true;
+    try {
+      const result = await apiFetch('/admin-dashboard/charging-agencies/freeze', 'PUT', { frozen });
+      globallyFrozen = result.data.frozen;
+      showToast(globallyFrozen ? '✓ تم تجميد رصيد وكالات الشحن كلها' : '✓ تم فك التجميد العام');
+    } catch (e) {
+      showToast('❌ ' + e.message);
+    } finally {
+      renderFreeze();
+      freezeBusy = false;
+      freezeSwitch.disabled = freezeRefresh.disabled = false;
+    }
+  };
+
+  window.topupAgencyBalance = async function (id, name, current) {
+    const input = prompt(`شحن رصيد الوكالة: ${name}\nرصيد الوكالة الحالي: ${formatCoins(current)} كوينز\n\nأدخل المبلغ المراد إضافته:`, '');
+    if (input === null) return;
+    const amount = Number(input.trim());
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2147483647) {
+      return showToast('❗ أدخل عدداً صحيحاً من 1 إلى 2,147,483,647');
+    }
+    if (!confirm(`شحن رصيد الوكالة ${name} بمبلغ ${formatCoins(amount)} كوينز؟`)) return;
+    try {
+      const result = await apiFetch(`/admin-dashboard/agencies/${id}/topup`, 'PATCH', { amount });
+      showToast(`✓ تم شحن رصيد الوكالة — الرصيد الجديد: ${formatCoins(result.data.agencyWalletCoins)} كوينز`);
+      await loadAgencies();
+    } catch (e) {
+      showToast('❌ ' + e.message);
+    }
+  };
+
+  // Replace the legacy renderer here because this task is confined to this HTML file.
+  window.loadAgencies = async function () {
+    const version = ++agencyLoadVersion;
+    void loadChargingWalletFreeze();
+    try { await loadAgencyRequests(); } catch (e) { showToast('❌ ' + e.message); }
+    try { await loadAgencyChargeRewards(); } catch (e) { showToast('❌ ' + e.message); }
+    const params = new URLSearchParams();
+    const status = document.getElementById('agencyStatus').value;
+    const type = document.getElementById('agencyType').value;
+    const search = document.getElementById('agencySearch').value.trim();
+    if (status) params.set('status', status);
+    if (type) params.set('type', type);
+    if (search) params.set('search', search);
+    const path = document.getElementById('assignedByMeFilter').checked
+      ? '/admin-dashboard/agencies/assigned-by-me'
+      : '/admin-dashboard/charging-agencies?' + params.toString();
+    const result = await apiFetch(path);
+    if (version !== agencyLoadVersion) return;
+    const tbody = document.querySelector('#agenciesTable tbody');
+    tbody.replaceChildren();
+    for (const a of result.data || []) {
+      const charging = a.type === 'CHARGING';
+      const tr = document.createElement('tr');
+      const cell = (text, className) => {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (className) td.className = className;
+        tr.appendChild(td);
+        return td;
+      };
+      cell(a.id, 'cell-id');
+      cell(`${a.user?.name || '—'} #${a.user?.displayId ?? a.userId ?? ''}`);
+      cell(`${a.agencyName || ''}${a.nameLocked ? ' 📌' : ''}`);
+      cell(charging ? 'شحن' : 'استضافة');
+      cell(a.phoneNumber || '—');
+      cell('').innerHTML = statusBadge(a.status ?? 'pending');
+      const walletCell = cell(charging ? formatCoins(a.agencyWalletCoins) : '—');
+      if (charging && a.walletFrozen) {
+        const chip = document.createElement('span');
+        chip.className = 'badge badge-rejected';
+        chip.textContent = 'مجمّدة';
+        walletCell.append(' ', chip);
+      }
+      cell(charging ? `${formatCoins(a.selfChargeCount)} مرة — ${formatCoins(a.selfChargeCoins)} كوينز` : '—');
+      cell(charging ? `${formatCoins(a.chargingTargetCoins)} من ${formatCoins(a.chargingTargetGoal)}` : '—');
+      const images = cell('');
+      for (const [url, label] of [[a.agencyImageUrl, 'الوكالة'], [a.idFrontUrl, 'أمام'], [a.idBackUrl, 'خلف']]) {
+        if (!url) continue;
+        const link = document.createElement('a');
+        link.href = url;
+        link.textContent = label;
+        link.className = 'td-link';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        images.append(link, ' ');
+      }
+      if (!images.childNodes.length) images.textContent = '—';
+      cell(fmtDate(a.createdAt), 'cell-muted');
+      const actions = document.createElement('div');
+      actions.className = 'td-actions';
+      cell('').appendChild(actions);
+      function button(label, className, action) {
+        const btn = document.createElement('button');
+        btn.className = className;
+        btn.textContent = label;
+        btn.onclick = async () => {
+          btn.disabled = true;
+          try { await action(); } catch (e) { showToast('❌ ' + e.message); }
+          finally { btn.disabled = false; }
+        };
+        actions.appendChild(btn);
+      }
+      button('قبول', 'btn-ok', () => setAgencyStatus(a.id, 'approved'));
+      button('رفض', 'btn-bad', () => setAgencyStatus(a.id, 'rejected'));
+      button('مراجعة', 'btn-ghost-sm', () => setAgencyStatus(a.id, 'pending'));
+      button('تعديل', 'btn btn-outline', () => openEditAgencyModal(a.id, a.agencyName || '', !!a.nameLocked));
+      button('الأعضاء', 'btn btn-outline', () => showAgencyMembers(a.id, a.agencyName || ''));
+      button('التارجت', 'btn btn-outline', () => setAgencyTarget(a.id, a.agencyName || '', Number(a.targetCoins ?? 0)));
+      if (charging) {
+        button('الشحنات', 'btn btn-outline', () => showAgencyCharges(a.id, a.agencyName || ''));
+        button('شحن رصيد الوكالة', 'btn btn-primary', () => topupAgencyBalance(a.id, a.agencyName || '', a.agencyWalletCoins));
+        button(a.walletFrozen ? 'فك التجميد' : 'تجميد الرصيد', a.walletFrozen ? 'btn btn-outline' : 'btn btn-bad', async () => {
+          const frozen = !a.walletFrozen;
+          if (!confirm(`${frozen ? 'تجميد الرصيد' : 'فك التجميد'} للوكالة ${a.agencyName || a.id}؟`)) return;
+          await apiFetch(`/admin-dashboard/charging-agencies/${a.id}/freeze`, 'PATCH', { frozen });
+          showToast(frozen ? '✓ تم تجميد رصيد الوكالة' : '✓ تم فك تجميد رصيد الوكالة');
+          await loadAgencies();
+        });
+      }
+      tbody.appendChild(tr);
+    }
+  };
+  document.querySelector('[data-section="agencies"]')?.addEventListener('click', () => {
+    loadAgencies().catch(e => showToast('❌ ' + e.message));
+  });
+  void loadChargingWalletFreeze();
+})();
+</script>
 </body>
 </html>
