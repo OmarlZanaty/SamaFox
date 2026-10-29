@@ -2,6 +2,7 @@ import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import {
+  chargingRecipient,
   listChargingAgencies,
   myChargingAgencies,
   createChargingAgency,
@@ -24,6 +25,7 @@ const router = Router();
 router.get('/', listChargingAgencies);
 
 // Agent (auth)
+router.get('/recipient/:userId', authMiddleware, chargingRecipient);
 router.get('/me', authMiddleware, myChargingAgencies);
 router.post('/', authMiddleware, createChargingAgency);
 

@@ -39,14 +39,24 @@ async function findChargingAgencyForAgent(userId: number) {
   return seat ? { id: seat.agencyId, funderId: userId } : null;
 }
 
+export const chargingRecipient = async (req: Request, res: Response) => {
+  if (!req.userId) return res.status(401).json({ message: 'Unauthorized' });
+  const userId = Number(req.params.userId);
+  if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ message: 'Invalid userId' });
+  try {
+    return res.json({ isChargingAgent: !!(await findChargingAgencyForAgent(userId)) });
+  } catch {
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // Shared by both sale endpoints and withdrawal. All balances and ledger rows
 // change in the same transaction. Personal credits are capped atomically too.
 export async function moveAgencyWallet(userId: number, toUserId: number, amount: number,
-  wallet: string = 'personal', agencyId?: number, withdraw = false, note?: string) {
+  _wallet: unknown = undefined, agencyId?: number, withdraw = false, note?: string) {
   if (!Number.isSafeInteger(amount) || amount <= 0 || amount > MAX_COINS_BALANCE ||
       !Number.isSafeInteger(toUserId) || toUserId <= 0 ||
-      (agencyId !== undefined && (!Number.isSafeInteger(agencyId) || agencyId <= 0)) ||
-      !['personal', 'agency'].includes(wallet)) throw new AgencyWalletError(400, 'Invalid amount/userId/agencyId/wallet');
+      (agencyId !== undefined && (!Number.isSafeInteger(agencyId) || agencyId <= 0))) throw new AgencyWalletError(400, 'Invalid amount/userId/agencyId');
   if (!withdraw && userId === toUserId) throw new AgencyWalletError(400, 'Cannot charge yourself');
   return prisma.$transaction(async tx => {
     const seat = await tx.agencyMember.findFirst({
@@ -55,10 +65,12 @@ export async function moveAgencyWallet(userId: number, toUserId: number, amount:
     });
     if (!seat) throw new AgencyWalletError(403, 'لست وكيل أو فرع في وكالة شحن معتمدة');
     if (await chargingWalletFrozen(tx, seat.agencyId)) throw new AgencyWalletError(403, 'رصيد الوكالة مجمّد من الإدارة');
-    const branchSeat = wallet === 'agency' && !withdraw ? await tx.agencyMember.findFirst({
-      where: { agencyId: seat.agencyId, userId: toUserId, role: 'BRANCH' },
+    // Keep the legacy wallet argument for callers, but route sales by recipient eligibility only.
+    const recipientSeat = !withdraw ? await tx.agencyMember.findFirst({
+      where: { userId: toUserId, role: { in: ['OWNER', 'BRANCH'] }, agency: { type: 'CHARGING', status: 'approved' } },
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }, { id: 'asc' }],
     }) : null;
-    if (wallet === 'agency' && !branchSeat) throw new AgencyWalletError(400, 'Recipient must be a branch of your agency');
+    const wallet = recipientSeat ? 'agency' : 'personal';
     const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { coinsBalance: true } });
     if (!recipient) throw new AgencyWalletError(404, 'Receiver user not found');
     const debit = await tx.agencyMember.updateMany({
@@ -70,8 +82,8 @@ export async function moveAgencyWallet(userId: number, toUserId: number, amount:
       throw new AgencyWalletError(409, `رصيد الوكالة غير كافٍ — المتاح ${current.agencyWalletCoins} كوينز`);
     }
     let recipientAgencyWallet: string | undefined;
-    if (branchSeat) {
-      const credited = await tx.agencyMember.update({ where: { id: branchSeat.id }, data: { agencyWalletCoins: { increment: BigInt(amount) } } });
+    if (recipientSeat) {
+      const credited = await tx.agencyMember.update({ where: { id: recipientSeat.id }, data: { agencyWalletCoins: { increment: BigInt(amount) } } });
       recipientAgencyWallet = String(credited.agencyWalletCoins);
     } else {
       const credit = await tx.user.updateMany({
@@ -83,7 +95,7 @@ export async function moveAgencyWallet(userId: number, toUserId: number, amount:
     if (!withdraw) await tx.chargingAgency.update({ where: { id: seat.agencyId }, data: { totalSentCoins: { increment: amount } } });
     const transaction = await tx.transaction.create({ data: {
       userId: toUserId, senderId: userId, agencyId: seat.agencyId, amountCoins: amount,
-      type: withdraw ? 'AGENCY_WALLET_WITHDRAW' : branchSeat ? 'AGENCY_WALLET_TRANSFER' : 'AGENCY_TOPUP', status: 'completed',
+      type: withdraw ? 'AGENCY_WALLET_WITHDRAW' : recipientSeat ? 'AGENCY_WALLET_TRANSFER' : 'AGENCY_TOPUP', status: 'completed',
     } });
     const branch = await tx.agencyBranch.findUnique({ where: { parentAgencyId_ownerUserId: { parentAgencyId: seat.agencyId, ownerUserId: userId } } });
     const transfer = await tx.agencyTransfer.create({ data: {

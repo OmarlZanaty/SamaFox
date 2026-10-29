@@ -13,6 +13,8 @@ The app lives on `feat/i18n-2026-10-23` (main checkout) — separate task.
 4b. (22:40 update) The choice applies to ANY recipient who is a charging agent (OWNER or BRANCH seat of an approved
    CHARGING agency), not only own branches: «شحن وكالة شحن» → their agency wallet, «شحن حساب شخصي» → personal.
    Recipient not a charging agent → personal only (no choice shown; server ignores wallet:'agency').
+4c. (22:48 FINAL, client: «الاسهل معاك اعمله») NO choice in the app: a charge to a charging agent goes AUTOMATICALLY
+   to his agency wallet; he moves it to personal himself (withdraw). Anyone else → personal wallet. Server ignores `wallet`.
 5. Adding a branch (HOSTING and CHARGING) needs the user's قبول/رفض — no branch without consent.
 
 ## Owner decisions (2026-10-29)
@@ -36,7 +38,9 @@ The app lives on `feat/i18n-2026-10-23` (main checkout) — separate task.
   (prod applies by hand — no data rewrites, defaults only).
 
 ## Tasks
-- [ ] A backend wallet + freeze + withdraw + owner→branch choice + admin endpoints + tests
-- [ ] B backend branch invites (accept/reject) + tests
+- [x] A backend wallet + freeze + withdraw + admin endpoints + tests (883cb2c)
+- [x] B backend branch invites (accept/reject) + 4c automatic routing (WIP commit)
+- [ ] FAILING: backend/src/agencies/__tests__/branchConsent.test.ts(46,70) TS2345 `Row | undefined` in the upsert fake
+      → whole file fails to compile (452/453 pass). Minimal typed fix only. Codex limit until 23:57 2026-10-29.
 - [ ] C admin-dashboard.html: wallet column, top-up into agency wallet, freeze one / freeze all
 - [ ] D app (feat/i18n branch): show both balances, withdraw button, branch-charge wallet choice, branch invite accept/reject, show server error messages

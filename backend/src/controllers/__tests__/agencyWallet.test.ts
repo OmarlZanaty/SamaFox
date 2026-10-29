@@ -14,7 +14,7 @@ let failLedger = false;
 
 function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, value]) => {
-    const actual = key === 'agency' ? agency : row[key];
+    const actual = key === 'agency' ? (row.agency ?? agency) : row[key];
     if (value !== null && typeof value === 'object') {
       if ('gte' in value) return actual >= value.gte;
       if ('lte' in value) return actual <= value.lte;
@@ -36,8 +36,15 @@ function change(row: Row, data: Row) {
 
 function model(rows: () => Row[]) {
   return {
-    findFirst: async ({ where }: Row) => {
-      const row = rows().find(r => matches(r, where));
+    findFirst: async ({ where, orderBy = [] }: Row) => {
+      const row = rows().filter(r => matches(r, where)).sort((a, b) => {
+        for (const order of orderBy) {
+          const [key, direction] = Object.entries(order)[0]!;
+          if (a[key] < b[key]) return direction === 'asc' ? -1 : 1;
+          if (a[key] > b[key]) return direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      })[0];
       return row ? { ...row, agency } : null;
     },
     findUnique: async ({ where }: Row) => rows().find(r => matches(r, where)) ?? null,
@@ -102,7 +109,7 @@ stub('services/notification.service', { createNotification: async () => {} });
 stub('services/broadcast.service', {});
 stub('services/hostTarget.service', {});
 stub('services/targetMovement.service', {});
-const { agencyTransferCoins, withdrawAgencyWallet, myAgencyBalance, adjustOwnerAgencyWallet }: typeof import('../charging-agency.controller') = require('../charging-agency.controller');
+const { chargingRecipient, agencyTransferCoins, withdrawAgencyWallet, myAgencyBalance, adjustOwnerAgencyWallet }: typeof import('../charging-agency.controller') = require('../charging-agency.controller');
 const { sendCoinsToUser }: typeof import('../../agencies/agency.controller') = require('../../agencies/agency.controller');
 
 beforeEach(() => {
@@ -119,11 +126,11 @@ beforeEach(() => {
   failLedger = false;
 });
 
-async function call(handler: (req: any, res: any) => Promise<any>, body: Row, userId = 10) {
+async function call(handler: (req: any, res: any) => Promise<any>, body: Row, userId = 10, params: Row = {}) {
   let status = 200;
   let response: any;
   const res = { status(code: number) { status = code; return res; }, json(data: any) { response = data; return res; } };
-  await handler({ userId, body, params: {}, query: {} }, res);
+  await handler({ userId, body, params, query: {} }, res);
   return { status, body: response };
 }
 
@@ -131,6 +138,7 @@ for (const handler of [agencyTransferCoins, sendCoinsToUser]) {
   test(`${handler.name}: sale spends only the seller's agency wallet`, async () => {
     const result = await call(handler, { userId: 30, toUserId: 30, amount: 25 });
     assert.equal(result.status, 200);
+    assert.equal(result.body.wallet ?? result.body.data?.wallet, 'personal');
     assert.equal(seats[0]!.agencyWalletCoins, 75n);
     assert.equal(users[0]!.coinsBalance, 500);
     assert.equal(users[2]!.coinsBalance, 525);
@@ -169,8 +177,10 @@ for (const handler of [agencyTransferCoins, sendCoinsToUser]) {
     });
   }
 
-  test(`${handler.name}: branch agency credit skips personal wallet and VIP`, async () => {
-    assert.equal((await call(handler, { userId: 20, toUserId: 20, amount: 25, wallet: 'agency' })).status, 200);
+  test(`${handler.name}: branch credit automatically uses agency wallet and skips VIP`, async () => {
+    const result = await call(handler, { userId: 20, toUserId: 20, amount: 25 });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.wallet ?? result.body.data?.wallet, 'agency');
     assert.deepEqual(seats.map(r => r.agencyWalletCoins), [75n, 65n]);
     assert.deepEqual(users.map(r => r.coinsBalance), [500, 500, 500]);
     assert.deepEqual(users.map(r => r.totalRecharge), [0, 0, 0]);
@@ -178,21 +188,59 @@ for (const handler of [agencyTransferCoins, sendCoinsToUser]) {
     assert.equal(transactions[0]!.type, 'AGENCY_WALLET_TRANSFER');
   });
 
-  test(`${handler.name}: rejects agency credit to a non-branch`, async () => {
-    assert.equal((await call(handler, { userId: 30, toUserId: 30, amount: 25, wallet: 'agency' })).status, 400);
-    assert.equal(seats[0]!.agencyWalletCoins, 100n);
+  test(`${handler.name}: non-agent agency request falls back to personal`, async () => {
+    const result = await call(handler, { userId: 30, toUserId: 30, amount: 25, wallet: 'agency' });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.wallet ?? result.body.data?.wallet, 'personal');
+    assert.equal(users[2]!.coinsBalance, 525);
+    assert.equal(users[2]!.totalRecharge, 25);
+    assert.equal(seats[0]!.agencyWalletCoins, 75n);
+    assert.deepEqual(vipCalls, [30]);
   });
 
-  test(`${handler.name}: explicit personal branch credit preserves recharge behavior`, async () => {
-    assert.equal((await call(handler, { userId: 20, toUserId: 20, amount: 25, wallet: 'personal' })).status, 200);
-    assert.equal(seats[1]!.agencyWalletCoins, 40n);
-    assert.equal(users[1]!.coinsBalance, 525);
-    assert.equal(users[1]!.totalRecharge, 25);
-  });
+  for (const role of ['OWNER', 'BRANCH']) {
+    test(`${handler.name}: credits another agency's ${role} wallet`, async () => {
+      seats.push({ id: 3, agencyId: 8, userId: 30, role, agencyWalletCoins: 0n,
+        agency: { id: 8, type: 'CHARGING', status: 'approved' } });
+      const result = await call(handler, { userId: 30, toUserId: 30, amount: 25, wallet: 'personal' });
+      assert.equal(result.status, 200);
+      assert.equal(result.body.wallet ?? result.body.data?.wallet, 'agency');
+      assert.equal(seats[2]!.agencyWalletCoins, 25n);
+      assert.equal(users[2]!.coinsBalance, 500);
+      assert.equal(users[2]!.totalRecharge, 0);
+      assert.deepEqual(vipCalls, []);
+    });
+  }
+
+
+  for (const wallet of ['personal', 'agency', 'invalid', null, 42, { destination: 'personal' }]) {
+    test(`${handler.name}: ignores wallet ${JSON.stringify(wallet)} for charging agents`, async () => {
+      const result = await call(handler, { userId: 20, toUserId: 20, amount: 25, wallet });
+      assert.equal(result.status, 200);
+      assert.equal(result.body.wallet ?? result.body.data?.wallet, 'agency');
+      assert.deepEqual(seats.map(r => r.agencyWalletCoins), [75n, 65n]);
+      assert.equal(users[1]!.coinsBalance, 500);
+      assert.equal(users[1]!.totalRecharge, 0);
+      assert.deepEqual(vipCalls, []);
+      assert.equal(transactions[0]!.type, 'AGENCY_WALLET_TRANSFER');
+      assert.equal(transfers[0]!.note.startsWith('agency:'), true);
+    });
+
+    test(`${handler.name}: ignores wallet ${JSON.stringify(wallet)} for non-agents`, async () => {
+      const result = await call(handler, { userId: 30, toUserId: 30, amount: 25, wallet });
+      assert.equal(result.status, 200);
+      assert.equal(result.body.wallet ?? result.body.data?.wallet, 'personal');
+      assert.equal(seats[0]!.agencyWalletCoins, 75n);
+      assert.equal(users[2]!.coinsBalance, 525);
+      assert.equal(users[2]!.totalRecharge, 25);
+      assert.deepEqual(vipCalls, [30]);
+      assert.equal(transactions[0]!.type, 'AGENCY_TOPUP');
+    });
+  }
 }
 
 test('withdraw moves the caller seat wallet to personal without recharge/VIP', async () => {
-  const result = await call(withdrawAgencyWallet, { amount: 25, agencyId: 7 }, 20);
+  const result = await call(withdrawAgencyWallet, { amount: 25, agencyId: 7, wallet: 'agency' }, 20);
   assert.equal(result.status, 200);
   assert.equal(result.body.agencyWalletCoins, '15');
   assert.equal(result.body.personalCoins, '525');
@@ -260,4 +308,30 @@ test('admin topup credits the owner seat even when frozen', async () => {
   assert.equal(users[0]!.coinsBalance, 500);
   assert.equal(users[0]!.totalRecharge, 0);
   assert.equal(transactions[0]!.type, 'AGENCY_WALLET_ADJUST');
+});
+
+test('recipient eligibility filters role, agency type and approval', async () => {
+  for (const [role, type, status, expected] of [
+    ['OWNER', 'CHARGING', 'approved', true], ['BRANCH', 'CHARGING', 'approved', true],
+    ['MEMBER', 'CHARGING', 'approved', false], ['OWNER', 'HOSTING', 'approved', false],
+    ['OWNER', 'CHARGING', 'pending', false], ['OWNER', 'CHARGING', 'rejected', false],
+  ] as const) {
+    seats[1] = { id: 2, agencyId: 8, userId: 20, role, agencyWalletCoins: 0n, agency: { type, status } };
+    assert.deepEqual((await call(chargingRecipient, {}, 10, { userId: 20 })).body, { isChargingAgent: expected });
+    const result = await call(agencyTransferCoins, { toUserId: 20, amount: 1, wallet: 'personal' });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.wallet, expected ? 'agency' : 'personal');
+  }
+  assert.equal((await call(chargingRecipient, {}, 10, { userId: 'bad' })).status, 400);
+  assert.deepEqual((await call(chargingRecipient, {}, 10, { userId: 999 })).body, { isChargingAgent: false });
+});
+
+test('recipient selection prefers OWNER then oldest seat', async () => {
+  for (const [id, role, joinedAt] of [[3, 'BRANCH', 1], [4, 'OWNER', 3], [5, 'OWNER', 2]] as const) {
+    seats.push({ id, agencyId: id + 10, userId: 30, role, joinedAt, agencyWalletCoins: 0n,
+      agency: { type: 'CHARGING', status: 'approved' } });
+  }
+  const result = await call(agencyTransferCoins, { toUserId: 30, amount: 25, wallet: 'personal' });
+  assert.equal(result.body.wallet, 'agency');
+  assert.deepEqual(seats.slice(2).map(r => r.agencyWalletCoins), [0n, 0n, 25n]);
 });

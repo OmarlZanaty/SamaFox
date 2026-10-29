@@ -38,7 +38,7 @@ export const branches = (admin = false) => async (req: Request, res: Response) =
 };
 export const createBranch = async (req: Request, res: Response) => {
   try {
-    return res.status(201).json({ success: true, data: await createChargingBranch(req, Number(req.params.id), Number(req.body.ownerUserId), req.body.name) });
+    return res.status(201).json({ success: true, message: 'تم إرسال طلب الفرع — بانتظار موافقته', data: await createChargingBranch(req, Number(req.params.id), Number(req.body.ownerUserId), req.body.name) });
   } catch (e) { return agencyError(res, e); }
 };
 export const patchBranch = (admin = false) => async (req: Request, res: Response) => {

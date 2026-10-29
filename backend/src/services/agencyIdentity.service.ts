@@ -75,42 +75,12 @@ export async function updateAgencyProfile(req: any, admin = false) {
   }, { isolationLevel: 'Serializable' });
 }
 
-export async function createChargingBranch(req: any, agencyId: number, ownerUserId: number, name?: string) {
-  return prisma.$transaction(async tx => {
-    const scope = await chargingScope(tx, agencyId, req.userId);
-    if (!scope.isOwner) throw new AgencyAccessError(403, 'مالك الوكالة فقط');
-    if (!Number.isSafeInteger(ownerUserId) || ownerUserId <= 0 || ownerUserId === req.userId) {
-      throw new AgencyAccessError(400, 'مالك الفرع غير صالح');
-    }
-    const user = await tx.user.findUnique({ where: { id: ownerUserId }, select: { name: true } });
-    if (!user) throw new AgencyAccessError(404, 'المستخدم غير موجود');
-    const branchName = name === undefined ? user.name : String(name).trim();
-    if (!branchName || branchName.length > 120) throw new AgencyAccessError(400, 'اسم الفرع غير صالح');
-    const existing = await tx.agencyBranch.findUnique({
-      where: { parentAgencyId_ownerUserId: { parentAgencyId: agencyId, ownerUserId } },
-    });
-    if (existing && existing.status !== 'CLOSED') throw new AgencyAccessError(409, 'الفرع موجود بالفعل');
-    if (await tx.agencyMember.count({ where: { agencyId, role: 'BRANCH' } }) >= 3) {
-      throw new AgencyAccessError(400, 'الحد الأقصى ثلاثة فروع');
-    }
-    if (await findBlockingMembership(tx, ownerUserId, agencyId, 'BRANCH')) {
-      throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
-    }
-    const after = await tx.agencyBranch.upsert({
-      where: { parentAgencyId_ownerUserId: { parentAgencyId: agencyId, ownerUserId } },
-      create: { parentAgencyId: agencyId, ownerUserId, name: branchName },
-      update: { name: branchName, status: 'ACTIVE' },
-    });
-    await tx.agencyMember.upsert({
-      where: { agencyId_userId: { agencyId, userId: ownerUserId } },
-      create: { agencyId, userId: ownerUserId, role: 'BRANCH' }, update: { role: 'BRANCH' },
-    });
-    await recordAdminAuditStrict(tx, {
-      adminId: req.userId, action: 'AGENCY_BRANCH_CREATE', targetType: 'agency_branch', targetId: after.id,
-      before: existing, after, ...auditContext(req),
-    });
-    return after;
-  }, { isolationLevel: 'Serializable' });
+export async function createChargingBranch(req: any, agencyId: number, ownerUserId: number, _name?: string) {
+  // The branch is named after the invitee on acceptance; it can be renamed afterwards.
+  const agency = await prisma.chargingAgency.findUnique({ where: { id: agencyId } });
+  if (agency?.type !== 'CHARGING') throw new AgencyAccessError(403, 'وكالة الشحن غير متاحة');
+  const { requestBranchInvite } = await import('./agencyInvites.service');
+  return requestBranchInvite(agencyId, req.userId, ownerUserId);
 }
 
 export async function updateChargingBranch(req: any, agencyId: number, branchId: number, admin = false) {
@@ -130,9 +100,12 @@ export async function updateChargingBranch(req: any, agencyId: number, branchId:
       data.status = req.body.status;
     }
     if (!Object.keys(data).length) throw new AgencyAccessError(400, 'لا توجد تغييرات');
-    if (before.status === 'CLOSED' && data.status && data.status !== 'CLOSED') {
-      if (await tx.agencyMember.count({ where: { agencyId, role: 'BRANCH' } }) >= 3) {
-        throw new AgencyAccessError(400, 'الحد الأقصى ثلاثة فروع');
+    if (data.status && data.status !== 'CLOSED') {
+      const seat = await tx.agencyMember.findUnique({
+        where: { agencyId_userId: { agencyId, userId: before.ownerUserId } },
+      });
+      if (before.status === 'CLOSED' || seat?.role !== 'BRANCH') {
+        throw new AgencyAccessError(409, 'أرسل طلب فرع جديد وانتظر موافقة المستخدم لإعادة فتح الفرع');
       }
     }
     if (data.status && data.status !== 'CLOSED' && await findBlockingMembership(tx, before.ownerUserId, agencyId, 'BRANCH')) {

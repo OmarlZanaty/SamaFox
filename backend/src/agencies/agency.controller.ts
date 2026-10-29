@@ -5,7 +5,8 @@ import { prisma } from '../lib/prisma';
 import { moveAgencyWallet, AgencyWalletError } from '../controllers/charging-agency.controller';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
-import { markInviteNotificationsRead } from '../services/agencyInvites.service';
+import { AgencyAccessError } from '../services/agencyIdentity.service';
+import { requestBranchInvite, MAX_BRANCHES, markInviteNotificationsRead } from '../services/agencyInvites.service';
 import { isTargetSellBlocked, checkTargetSellLock } from '../utils/targetLock';
 import { getDailyBroadcast } from '../services/broadcast.service';
 import { getHostTargetView, setHostTarget } from '../services/hostTarget.service';
@@ -298,7 +299,7 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
         type: 'AGENCY_INVITE',
         title: 'دعوة للانضمام إلى وكالة',
         body: `تمت دعوتك للانضمام إلى وكالة ${invite.agency?.agencyName ?? ''}`,
-        data: { inviteId: invite.id, agencyId: m.agencyId },
+        data: { inviteId: invite.id, agencyId: m.agencyId, role: invite.role ?? 'MEMBER' },
       });
     } catch (e) {
       console.warn('agency invite notification failed:', e);
@@ -340,7 +341,7 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
         // 1. The invite exists and is this user's.
         const invite = await tx.agencyInvite.findUnique({
           where: { id: inviteId },
-          include: { agency: { select: { id: true, agencyName: true, type: true, status: true } } },
+          include: { agency: { select: { id: true, userId: true, agencyName: true, type: true, status: true } } },
         });
         if (!invite || invite.inviteeId !== userId) throw new InviteError(403, 'NOT_YOURS', 'Not your invite');
 
@@ -348,7 +349,7 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
         if (state === 'ACCEPTED') {
           // Accepting twice is not an error — as long as the membership is there.
           const member = await tx.agencyMember.findFirst({ where: { agencyId: invite.agencyId, userId } });
-          if (action === 'accept' && member) return { invite, member, alreadyDone: true };
+          if (action === 'accept' && member && (invite.role !== 'BRANCH' || member.role === 'BRANCH')) return { invite, member, alreadyDone: true };
           throw new InviteError(400, 'ALREADY_PROCESSED', 'Already processed');
         }
         // 2. Not expired.
@@ -372,8 +373,22 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
         // The agency must still be operating.
         if (invite.agency?.status !== 'approved') throw new InviteError(409, 'AGENCY_INACTIVE', 'الوكالة غير مفعلة حالياً');
 
-        if (await findBlockingMembership(tx, userId, invite.agencyId, 'MEMBER')) {
+        const role = invite.role === 'BRANCH' ? 'BRANCH' : 'MEMBER';
+        if (await findBlockingMembership(tx, userId, invite.agencyId, role)) {
           throw new InviteError(409, 'ALREADY_IN_AGENCY', ALREADY_IN_AGENCY_MESSAGE);
+        }
+
+        if (role === 'BRANCH') {
+          const seat = await tx.agencyMember.findUnique({ where: { agencyId_userId: { agencyId: invite.agencyId, userId } } });
+          if (seat?.role === 'OWNER') throw new InviteError(409, 'ALREADY_OWNER', 'المستخدم مالك بالفعل');
+          const branches = await tx.agencyMember.count({ where: { agencyId: invite.agencyId, role: 'BRANCH' } });
+          const pending = await tx.agencyInvite.count({ where: {
+            agencyId: invite.agencyId, role: 'BRANCH', status: 'pending', id: { not: inviteId },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          } });
+          if (branches + pending + (seat?.role === 'BRANCH' ? 0 : 1) > MAX_BRANCHES) {
+            throw new InviteError(400, 'MAX_BRANCHES', 'الحد الأقصى ثلاثة فروع بما فيها الطلبات المعلقة');
+          }
         }
 
         // 6 first, conditionally: whoever flips pending→accepted owns the join.
@@ -386,9 +401,17 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
         // 4–5. The membership — the host's agency link.
         const member = await tx.agencyMember.upsert({
           where: { agencyId_userId: { agencyId: invite.agencyId, userId } },
-          update: {},
-          create: { agencyId: invite.agencyId, userId, role: 'MEMBER' },
+          update: role === 'BRANCH' ? { role } : {},
+          create: { agencyId: invite.agencyId, userId, role },
         });
+        if (role === 'BRANCH' && invite.agency.type === 'CHARGING') {
+          const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } });
+          await tx.agencyBranch.upsert({
+            where: { parentAgencyId_ownerUserId: { parentAgencyId: invite.agencyId, ownerUserId: userId } },
+            create: { parentAgencyId: invite.agencyId, ownerUserId: userId, name: user.name },
+            update: { status: 'ACTIVE' },
+          });
+        }
         return { invite, member, alreadyDone: false };
       },
       { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 },
@@ -396,15 +419,31 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
     // 7. Committed — only now is "تم الانضمام" true.
     await markInviteNotificationsRead(result.invite.inviteeId, inviteId);
 
+    if (!result.alreadyDone && action === 'accept' && result.invite.role === 'BRANCH') {
+      const isHosting = result.invite.agency.type === 'HOSTING';
+      for (const recipientId of new Set<number>([userId, result.invite.agency.userId])) {
+        await createNotification({
+          userId: recipientId, actorId: userId, type: 'AGENCY_BRANCH_ADDED',
+          title: recipientId !== userId ? 'تم قبول طلب الفرع' : isHosting ? 'أصبحت فرعاً في وكالة المضيفين' : 'أصبحت فرعاً في وكالة الشحن',
+          body: recipientId !== userId
+            ? `قبل المستخدم طلب الفرع في وكالة ${result.invite.agency.agencyName} (${isHosting ? 'مضيفين' : 'شحن'})`
+            : isHosting
+              ? `تمت إضافتك كفرع في وكالة ${result.invite.agency.agencyName} — يمكنك الآن إدارة المضيفين`
+              : `تمت إضافتك كفرع في وكالة ${result.invite.agency.agencyName} — يمكنك الآن البيع والشحن`,
+          data: { agencyId: result.invite.agencyId, inviteId, role: 'BRANCH' },
+        }).catch(e => console.warn('branch add notification failed:', e));
+      }
+    }
+
     if (!result.alreadyDone) {
       try {
         await createNotification({
           userId: result.invite.inviterId,
           actorId: userId,
           type: 'AGENCY_INVITE_RESPONSE',
-          title: action === 'accept' ? 'انضمام مضيف جديد' : 'تم رفض الدعوة',
+          title: action === 'accept' ? (result.invite.role === 'BRANCH' ? 'انضمام فرع جديد' : 'انضمام مضيف جديد') : 'تم رفض الدعوة',
           body: action === 'accept' ? 'قبل المستخدم دعوة الانضمام إلى وكالتك' : 'رفض المستخدم دعوة الانضمام إلى وكالتك',
-          data: { inviteId, agencyId: result.invite.agencyId },
+          data: { inviteId, agencyId: result.invite.agencyId, role: result.invite.role ?? 'MEMBER' },
         });
       } catch (e) {
         console.warn('agency invite response notification failed:', e);
@@ -415,6 +454,7 @@ export const respondInvite = async (req: AuthReq, res: Response) => {
       success: true,
       state: action === 'accept' ? 'ACCEPTED' : 'REJECTED',
       joined: action === 'accept',
+      role: result.invite.role ?? 'MEMBER',
       agency: action === 'accept' ? { id: result.invite.agencyId, name: result.invite.agency?.agencyName ?? null } : null,
       membershipId: result.member?.id ?? null,
     });
@@ -575,7 +615,7 @@ export const getMyInvites = async (req: AuthReq, res: Response) => {
       include: { agency: { select: { id: true, agencyName: true, logoUrl: true, type: true } } },
     });
 
-    return res.json({ success: true, data: invites });
+    return res.json({ success: true, data: invites.map((invite: any) => ({ ...invite, role: invite.role ?? 'MEMBER' })) });
   } catch {
     return fail(res, 500, 'Server error');
   }
@@ -1171,11 +1211,9 @@ export const getAgencyRole = async (
 // partner the SAME day-to-day system access — for a charging agency: sell/
 // send coins from the agency balance; for a hosting agency: invite/remove
 // hosts and view their targets — WITHOUT transferring ownership. Reuses
-// AgencyMember with role 'BRANCH'. Owner can add/remove any time, and up to
+// AgencyMember with role 'BRANCH'. Owners invite branches and can remove them, with up to
 // MAX_BRANCHES at once (#2-4: "عايز اتنين أو تلاتة أديهم فروع").
 // ============================================================
-
-const MAX_BRANCHES = 3;
 
 // Body/query may specify which of the owner's agencies (HOSTING or CHARGING)
 // to act on, since an owner can own both (#8). Defaults to CHARGING for
@@ -1230,51 +1268,11 @@ export const addBranch = async (req: AuthReq, res: Response) => {
     if (!targetId) return fail(res, 400, 'userId required');
     if (targetId === ownerId) return fail(res, 400, 'Owner cannot be their own branch');
 
-    const target = await db.user.findUnique({ where: { id: targetId }, select: { id: true, name: true } });
-    if (!target) return fail(res, 404, 'User not found');
-
-    const existing = await db.agencyMember.findFirst({
-      where: { agencyId: owner.agencyId, userId: targetId },
-    });
-    if (await findBlockingMembership(db, targetId, owner.agencyId, 'BRANCH')) {
-      return fail(res, 409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
-    }
-    if (existing?.role === 'BRANCH') return fail(res, 400, 'Already a branch');
-
-    if (!existing) {
-      // Cap enforced only when creating a NEW branch slot (#2-4: 2-3 branches).
-      const branchCount = await db.agencyMember.count({
-        where: { agencyId: owner.agencyId, role: 'BRANCH' },
-      });
-      if (branchCount >= MAX_BRANCHES) {
-        return fail(res, 400, `Maximum ${MAX_BRANCHES} branches reached`);
-      }
-      await db.agencyMember.create({
-        data: { agencyId: owner.agencyId, userId: targetId, role: 'BRANCH' },
-      });
-    } else {
-      await db.agencyMember.update({ where: { id: existing.id }, data: { role: 'BRANCH' } });
-    }
-
-    const isHosting = agencyType === 'HOSTING';
-    try {
-      await createNotification({
-        userId: targetId,
-        actorId: ownerId,
-        type: 'AGENCY_BRANCH_ADDED',
-        title: isHosting ? 'أصبحت فرعاً في وكالة المضيفين' : 'أصبحت فرعاً في وكالة الشحن',
-        body: isHosting
-          ? `تمت إضافتك كفرع في وكالة ${owner.agency.agencyName} — يمكنك الآن إدارة المضيفين`
-          : `تمت إضافتك كفرع في وكالة ${owner.agency.agencyName} — يمكنك الآن البيع والشحن`,
-        data: { agencyId: owner.agencyId },
-      });
-    } catch (e) {
-      console.warn('branch add notification failed:', e);
-    }
-
-    return res.json({ success: true });
-  } catch (e) {
-    if (e instanceof InviteError) return fail(res, e.status, e.message, e.code);
+    const data = await requestBranchInvite(owner.agencyId, ownerId, targetId);
+    return res.status(201).json({ success: true, data, message: 'تم إرسال طلب الفرع — بانتظار موافقته' });
+  } catch (e: any) {
+    if (e instanceof AgencyAccessError) return fail(res, e.status, e.message, e.code);
+    if (['P2034', 'P2002'].includes(e?.code)) return fail(res, 409, 'حاول مرة أخرى');
     console.error('[agency.addBranch] failed:', e);
     return fail(res, 500, 'Server error');
   }
