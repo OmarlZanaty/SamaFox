@@ -2,7 +2,7 @@ import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from './oneAgencyRu
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
+import { moveAgencyWallet, AgencyWalletError } from '../controllers/charging-agency.controller';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { markInviteNotificationsRead } from '../services/agencyInvites.service';
@@ -192,155 +192,24 @@ export const getMyAgency = async (req: AuthReq, res: Response) => {
 // POST /agencies/send-coins
 export const sendCoinsToUser = async (req: AuthReq, res: Response) => {
   try {
-    const senderId = req.userId;
-    if (!senderId) return fail(res, 401, 'Unauthorized');
-
-    const { userId, amount } = req.body as { userId?: number | string; amount?: number | string };
-    const targetUserId = Number(userId);
-    const coins = Number(amount);
-
-    if (!targetUserId || !Number.isFinite(coins) || coins <= 0) {
-      return fail(res, 400, 'userId and positive amount required');
-    }
-
-    // Owners AND branches (فرع) may sell/send coins from the agency balance.
-    //
-    // The CHARGING + approved filter belongs in the query, not in a check after
-    // it: an untyped findFirst returns whichever membership comes first, so an
-    // agent who also owns a HOSTING agency got that one back and every charge
-    // died on 'Only charging agencies can send coins'. Owner rows are preferred
-    // over branch rows, and rejected/pending agencies never qualify.
-    await backfillOwnerMemberships(senderId);
-    const membership = await db.agencyMember.findFirst({
-      where: {
-        userId: senderId,
-        role: { in: ['OWNER', 'BRANCH'] },
-        agency: { type: 'CHARGING', status: 'approved' },
-      },
-      include: { agency: true },
-      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
-    });
-
-    if (!membership) return fail(res, 403, 'لست وكيل أو فرع في وكالة شحن معتمدة');
-
-    // WHOSE coins fund the charge: ALWAYS the seller's own wallet, owner and
-    // فرع alike (client rule — "يشحن من كوينزاته الخاصه وليس من كوينزات وكيل
-    // الشحن"). A branch is topped up like any agent and sells what he holds;
-    // the owner's wallet is never touched by a branch's sale.
-    const funderId = senderId;
-
-    if (targetUserId === senderId) return fail(res, 400, 'لا يمكنك شحن نفسك');
-
-    const target = await db.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
-    if (!target) return fail(res, 404, 'المستخدم غير موجود');
-
-    try {
-      await db.$transaction(async (tx: any) => {
-        // The charge comes out of the SELLER'S OWN WALLET (`funderId` — the
-        // owner, or the فرع himself). The agency used to hold its own
-        // separate coin pot (chargingAgency.balanceCoins) that only an admin
-        // could fill, so every send failed on an empty agency wallet —
-        // "تم الشحن لكنه غير فعال". The agency wallet is no longer a funding
-        // source; totalSentCoins is kept purely as a stat.
-        //
-        // updateMany with a `gte` guard does the check and the debit in one
-        // statement, so two concurrent charges can't both pass a read-then-write
-        // check and push the agent negative.
-        //
-        // A sale, not a spend: the platform-wide coin freeze does not stop it;
-        // an agent frozen by id is still stopped (coinFreeze.ts). Awaited
-        // inside the callback — a Prisma query runs where it is awaited.
-        const debited = await runWithCoinFreezeBypass('global', async () =>
-          await tx.user.updateMany({
-            where: { id: funderId, coinsBalance: { gte: coins } },
-            data: { coinsBalance: { decrement: coins } },
-          }),
-        );
-        if (debited.count === 0) {
-          // Carry the balance so the caller can be told how short they are.
-          const wallet = await tx.user.findUnique({
-            where: { id: funderId },
-            select: { coinsBalance: true },
-          });
-          throw new Error(`INSUFFICIENT_WALLET_BALANCE:${wallet?.coinsBalance ?? 0}`);
-        }
-
-        await tx.chargingAgency.update({
-          where: { id: membership.agencyId },
-          data: { totalSentCoins: { increment: coins } },
-        });
-
-        // 2026-10-21 — charging does NOT credit the seller's target. Client rule:
-        // "تارجيت وكيل الشحن: لما يترمي عليه كوينزات تنزل في التارجيت بقيمتها
-        // الحقيقيه فقط بدون نسبة وكيل … لو اشتري تارجيت ينزل عنده في التارجيت".
-        // Only gifts he receives and target he buys feed it. Charging used to add
-        // its face value here ("B6", misread) — phantom target; do not re-add.
-
-        await tx.user.update({
-          where: { id: targetUserId },
-          data: { coinsBalance: { increment: coins }, totalRecharge: { increment: coins } },
-        });
-
-        const txRow = await tx.transaction.create({
-          data: {
-            userId: targetUserId,
-            type: 'AGENCY_TOPUP',
-            amountCoins: coins,
-            // NOTE: Transaction has no `description` column — passing it threw a
-            // PrismaClientValidationError that made every send-coins fail (#6).
-            status: 'completed',
-            // Group 7: attribute the charge so the dashboard can answer
-            // "who charged this user" during complaint investigations.
-            agencyId: membership.agencyId,
-            senderId,
-          },
-        });
-
-        // SPEC52 #36 — one transfer row per charge: parent agency, branch (if
-        // a branch charged), actor, user, amount/coins, time, transaction id.
-        const branch = await (tx as any).agencyBranch
-          ?.findUnique?.({ where: { parentAgencyId_ownerUserId: { parentAgencyId: membership.agencyId, ownerUserId: funderId } } })
-          .catch(() => null);
-        await (tx as any).agencyTransfer.create({
-          data: {
-            agencyId: membership.agencyId,
-            toUserId: targetUserId,
-            amount: Number(coins),
-            note: 'send-coins',
-            actorUserId: funderId,
-            branchId: membership.role === 'BRANCH' && branch ? branch.id : null,
-            transactionId: (txRow as any).id,
-          },
-        });
-      });
-
-      // Top-up counts toward VIP — re-evaluate after the transfer commits.
+    if (!req.userId) return fail(res, 401, 'Unauthorized');
+    await backfillOwnerMemberships(req.userId);
+    const targetUserId = Number(req.body?.userId);
+    const amount = Number(req.body?.amount);
+    const result = await moveAgencyWallet(req.userId, targetUserId, amount, req.body?.wallet ?? 'personal',
+      req.body?.agencyId === undefined ? undefined : Number(req.body.agencyId), false, 'send-coins');
+    if (result.wallet === 'personal') {
       try { await evaluateVip(targetUserId); } catch (e) { console.warn('evaluateVip failed:', e); }
-
-      // #6: tell the recipient who charged them and how much.
-      try {
-        const sender = await db.user.findUnique({ where: { id: senderId }, select: { name: true } });
-        await createNotification({
-          userId: targetUserId,
-          actorId: senderId,
-          type: 'AGENCY_TOPUP',
-          title: 'تم شحن رصيدك 🪙',
-          body: `قام ${sender?.name ?? 'وكيل الشحن'} بشحن ${coins} كوينز لك`,
-          data: { amount: coins, senderId },
-        });
-      } catch (e) {
-        console.warn('agency topup notification failed:', e);
-      }
-    } catch (e: any) {
-      if (String(e?.message ?? '').startsWith('INSUFFICIENT_WALLET_BALANCE')) {
-        const balance = String(e.message).split(':')[1] ?? '0';
-        return fail(res, 400, `رصيد محفظتك غير كافٍ — المتاح ${balance} كوينز`);
-      }
-      throw e;
     }
-
-    return res.json({ success: true, message: 'Coins sent successfully' });
+    try {
+      const sender = await db.user.findUnique({ where: { id: req.userId }, select: { name: true } });
+      await createNotification({ userId: targetUserId, actorId: req.userId, type: 'AGENCY_TOPUP',
+        title: 'تم شحن رصيدك 🪙', body: `قام ${sender?.name ?? 'وكيل الشحن'} بشحن ${amount} كوينز لك`,
+        data: { amount, senderId: req.userId, wallet: result.wallet } });
+    } catch (e) { console.warn('agency topup notification failed:', e); }
+    return res.json({ success: true, message: 'Coins sent successfully', data: result });
   } catch (e) {
+    if (e instanceof AgencyWalletError) return fail(res, e.status, e.message);
     console.error('[agency.sendCoinsToUser] failed:', e);
     return fail(res, 500, 'Server error');
   }

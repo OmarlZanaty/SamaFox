@@ -1,3 +1,4 @@
+import { idempotent } from '../middlewares/idempotency.middleware';
 import express from 'express';
 import prisma from '../utils/prisma';
 import { authenticate } from '../middlewares/auth.middleware';
@@ -42,6 +43,8 @@ import {
   adminAssignAgency,
   adminListAssignedAgencies,
   adminTopupAgency,
+  adminFreezeAgencyWallet,
+  adminFreezeAllAgencyWallets,
   adminListAgencyChargeRewards,
   adminSaveAgencyChargeReward,
   adminDeleteAgencyChargeReward,
@@ -301,7 +304,9 @@ router.get('/agency-requests', adminListAgencyRequests);
 router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
 router.post('/agencies/assign', adminAssignAgency);
 router.get('/agencies/assigned-by-me', adminListAssignedAgencies);
-router.patch('/agencies/:id/topup', requireOwnerPermission('finance.charging_agency'), adminTopupAgency);
+router.patch('/agencies/:id/topup', requireOwnerPermission('finance.charging_agency'), idempotent('admin_agency_topup'), adminTopupAgency);
+router.patch('/charging-agencies/:id/freeze', requireOwnerPermission('finance.charging_agency'), adminFreezeAgencyWallet);
+router.put('/charging-agencies/freeze', requireOwnerPermission('finance.charging_agency'), adminFreezeAllAgencyWallets);
 // B11 — automatic charge rewards ladder
 router.get('/agency-charge-rewards', adminListAgencyChargeRewards);
 router.post('/agency-charge-rewards', requireOwnerPermission('finance.charging_agency'), adminSaveAgencyChargeReward);

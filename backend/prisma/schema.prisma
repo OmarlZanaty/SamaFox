@@ -1051,6 +1051,7 @@ model RoomGiftJob {
 }
 
 model ChargingAgency {
+  walletFrozen Boolean @default(false)
   id             Int                   @id @default(autoincrement())
   userId         Int
   agencyName     String
@@ -1238,6 +1239,7 @@ model TargetMovement {
 }
 
 model AgencyMember {
+  agencyWalletCoins BigInt @default(0)
   id       Int            @id @default(autoincrement())
   agencyId Int
   agency   ChargingAgency @relation(fields: [agencyId], references: [id])
@@ -1308,6 +1310,7 @@ model TargetSale {
 }
 
 model AgencyInvite {
+  role String @default("MEMBER")
   id          Int            @id @default(autoincrement())
   agencyId    Int
   agency      ChargingAgency @relation(fields: [agencyId], references: [id])

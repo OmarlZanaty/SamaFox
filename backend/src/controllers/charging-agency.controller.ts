@@ -2,7 +2,6 @@ import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/o
 import { AgencyAccessError } from '../services/agencyIdentity.service';
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import { runWithCoinFreezeBypass } from '../utils/coinFreeze';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { MAX_COINS_BALANCE } from '../utils/coins';
 import { evaluateVip } from '../services/vip.service';
@@ -18,36 +17,103 @@ const AGENCY_STATUS = {
   REJECTED: 'rejected',
 } as const;
 
-/**
- * The approved CHARGING agency this user may act for — as its OWNER **or** as a
- * فرع (BRANCH). These endpoints used to match on `ChargingAgency.userId`, i.e.
- * the owner only, so a branch got "You are not an approved agency" on every
- * charge and an empty transfer history. Branches have the same day-to-day
- * selling rights as the owner (see agency.controller.ts sendCoinsToUser).
- */
+export const CHARGING_WALLETS_FROZEN_KEY = 'charging_wallets_frozen';
+export class AgencyWalletError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+export async function chargingWalletFrozen(tx: any, agencyId?: number): Promise<boolean> {
+  // Read within the money transaction, without a process cache, so an admin
+  // change is visible on the next request on every server instance.
+  const setting = await tx.appSetting.findUnique({ where: { key: CHARGING_WALLETS_FROZEN_KEY } });
+  const global = ['1', 'true', 'yes', 'on', 'frozen'].includes(String(setting?.value ?? '').trim().toLowerCase());
+  const agency = agencyId ? await tx.chargingAgency.findUnique({ where: { id: agencyId } }) : null;
+  return global || !!agency?.walletFrozen;
+}
+
 async function findChargingAgencyForAgent(userId: number) {
-  const membership = await prisma.agencyMember.findFirst({
-    where: {
-      userId,
-      role: { in: ['OWNER', 'BRANCH'] },
-      agency: { status: AGENCY_STATUS.APPROVED, type: 'CHARGING' },
-    },
-    select: { agencyId: true, role: true },
-    // Owner rows before branch rows, so acting for your OWN agency wins.
+  const seat = await prisma.agencyMember.findFirst({
+    where: { userId, role: { in: ['OWNER', 'BRANCH'] }, agency: { type: 'CHARGING', status: 'approved' } },
     orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
   });
+  return seat ? { id: seat.agencyId, funderId: userId } : null;
+}
 
-  // `funderId` is always the caller: owner and فرع each sell from their OWN
-  // wallet (client rule — a branch is topped up personally and spends what he
-  // holds; the owner's wallet is never debited by a branch's sale).
-  if (membership) return { id: membership.agencyId, funderId: userId };
-
-  // Fallback for an agency approved before the OWNER membership row existed.
-  const owned = await prisma.chargingAgency.findFirst({
-    where: { userId, status: AGENCY_STATUS.APPROVED, type: 'CHARGING' },
-    select: { id: true },
+// Shared by both sale endpoints and withdrawal. All balances and ledger rows
+// change in the same transaction. Personal credits are capped atomically too.
+export async function moveAgencyWallet(userId: number, toUserId: number, amount: number,
+  wallet: string = 'personal', agencyId?: number, withdraw = false, note?: string) {
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > MAX_COINS_BALANCE ||
+      !Number.isSafeInteger(toUserId) || toUserId <= 0 ||
+      (agencyId !== undefined && (!Number.isSafeInteger(agencyId) || agencyId <= 0)) ||
+      !['personal', 'agency'].includes(wallet)) throw new AgencyWalletError(400, 'Invalid amount/userId/agencyId/wallet');
+  if (!withdraw && userId === toUserId) throw new AgencyWalletError(400, 'Cannot charge yourself');
+  return prisma.$transaction(async tx => {
+    const seat = await tx.agencyMember.findFirst({
+      where: { userId, ...(agencyId !== undefined ? { agencyId } : {}), role: { in: ['OWNER', 'BRANCH'] }, agency: { type: 'CHARGING', status: 'approved' } },
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
+    });
+    if (!seat) throw new AgencyWalletError(403, 'لست وكيل أو فرع في وكالة شحن معتمدة');
+    if (await chargingWalletFrozen(tx, seat.agencyId)) throw new AgencyWalletError(403, 'رصيد الوكالة مجمّد من الإدارة');
+    const branchSeat = wallet === 'agency' && !withdraw ? await tx.agencyMember.findFirst({
+      where: { agencyId: seat.agencyId, userId: toUserId, role: 'BRANCH' },
+    }) : null;
+    if (wallet === 'agency' && !branchSeat) throw new AgencyWalletError(400, 'Recipient must be a branch of your agency');
+    const recipient = await tx.user.findUnique({ where: { id: toUserId }, select: { coinsBalance: true } });
+    if (!recipient) throw new AgencyWalletError(404, 'Receiver user not found');
+    const debit = await tx.agencyMember.updateMany({
+      where: { id: seat.id, agencyWalletCoins: { gte: BigInt(amount) } },
+      data: { agencyWalletCoins: { decrement: BigInt(amount) } },
+    });
+    if (!debit.count) {
+      const current = await tx.agencyMember.findUniqueOrThrow({ where: { id: seat.id } });
+      throw new AgencyWalletError(409, `رصيد الوكالة غير كافٍ — المتاح ${current.agencyWalletCoins} كوينز`);
+    }
+    let recipientAgencyWallet: string | undefined;
+    if (branchSeat) {
+      const credited = await tx.agencyMember.update({ where: { id: branchSeat.id }, data: { agencyWalletCoins: { increment: BigInt(amount) } } });
+      recipientAgencyWallet = String(credited.agencyWalletCoins);
+    } else {
+      const credit = await tx.user.updateMany({
+        where: { id: toUserId, coinsBalance: { lte: MAX_COINS_BALANCE - amount } },
+        data: { coinsBalance: { increment: amount }, ...(!withdraw ? { totalRecharge: { increment: amount } } : {}) },
+      });
+      if (!credit.count) throw new AgencyWalletError(400, `Max coins limit is ${MAX_COINS_BALANCE}`);
+    }
+    if (!withdraw) await tx.chargingAgency.update({ where: { id: seat.agencyId }, data: { totalSentCoins: { increment: amount } } });
+    const transaction = await tx.transaction.create({ data: {
+      userId: toUserId, senderId: userId, agencyId: seat.agencyId, amountCoins: amount,
+      type: withdraw ? 'AGENCY_WALLET_WITHDRAW' : branchSeat ? 'AGENCY_WALLET_TRANSFER' : 'AGENCY_TOPUP', status: 'completed',
+    } });
+    const branch = await tx.agencyBranch.findUnique({ where: { parentAgencyId_ownerUserId: { parentAgencyId: seat.agencyId, ownerUserId: userId } } });
+    const transfer = await tx.agencyTransfer.create({ data: {
+      agencyId: seat.agencyId, toUserId, amount, actorUserId: userId,
+      branchId: seat.role === 'BRANCH' ? branch?.id : null, transactionId: transaction.id,
+      note: `${withdraw ? 'withdraw' : wallet}: ${note ?? ''}`,
+    } });
+    const sender = await tx.agencyMember.findUniqueOrThrow({ where: { id: seat.id } });
+    const personal = await tx.user.findUniqueOrThrow({ where: { id: toUserId }, select: { coinsBalance: true } });
+    return { agencyWalletCoins: String(sender.agencyWalletCoins), userBalance: String(personal.coinsBalance), recipientAgencyWalletCoins: recipientAgencyWallet, transferId: transfer.id, wallet };
   });
-  return owned ? { id: owned.id, funderId: userId } : null;
+}
+
+export async function adjustOwnerAgencyWallet(tx: any, agencyId: number, delta: number, adminId: number, note?: string) {
+  if (!Number.isSafeInteger(delta) || delta === 0 || Math.abs(delta) > MAX_COINS_BALANCE) throw new AgencyWalletError(400, 'Invalid amount');
+  const agency = await tx.chargingAgency.findUnique({ where: { id: agencyId } });
+  if (!agency || agency.type !== 'CHARGING') throw new AgencyWalletError(404, 'Charging agency not found');
+  const owner = await tx.agencyMember.findFirst({ where: { agencyId, role: 'OWNER' } }) ??
+    await tx.agencyMember.upsert({ where: { agencyId_userId: { agencyId, userId: agency.userId } },
+      create: { agencyId, userId: agency.userId, role: 'OWNER' }, update: { role: 'OWNER' } });
+  const changed = await tx.agencyMember.updateMany({
+    where: { id: owner.id, ...(delta < 0 ? { agencyWalletCoins: { gte: BigInt(-delta) } } : {}) },
+    data: { agencyWalletCoins: { increment: BigInt(delta) } },
+  });
+  if (!changed.count) throw new AgencyWalletError(409, 'Balance cannot go negative');
+  await tx.transaction.create({ data: { userId: owner.userId, senderId: adminId, agencyId, type: 'AGENCY_WALLET_ADJUST', amountCoins: delta, status: 'completed' } });
+  const updated = await tx.agencyMember.findUniqueOrThrow({ where: { id: owner.id } });
+  await tx.adminAuditLog.create({ data: { adminId, action: 'agency_wallet_adjust', targetType: 'agency', targetId: String(agencyId), reason: note,
+    before: { agencyWalletCoins: String(BigInt(updated.agencyWalletCoins) - BigInt(delta)) }, after: { agencyWalletCoins: String(updated.agencyWalletCoins), delta } } });
+  return { id: agencyId, balanceCoins: String(updated.agencyWalletCoins), agencyWalletCoins: String(updated.agencyWalletCoins), walletFrozen: agency.walletFrozen, status: agency.status };
 }
 
 // Helper: admin check
@@ -223,52 +289,24 @@ export const createChargingAgency = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * GET /api/v1/charging-agencies/my/balance
- * The coins the caller can charge with. There is no separate agency pot (client
- * rule 2026-08) — everyone sells from his OWN wallet, owner and فرع alike, so
- * this is simply the caller's balance.
- */
-export const myAgencyBalance = async (req: any, res: Response) => {
-  const userId = req.userId;
-  if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-
-  const funder = await findChargingAgencyForAgent(userId);
-  const walletOwnerId = funder?.funderId ?? userId;
-
-  const me = await prisma.user.findUnique({
-    where: { id: walletOwnerId },
-    select: { coinsBalance: true },
-  });
-  const balanceCoins = String(me?.coinsBalance ?? 0);
-
-  // Scoped to type:'CHARGING' — a user who also owns a HOSTING agency must
-  // not have that one picked up here (dual-owner bug, see agency.controller.ts).
-  // A فرع owns no agency row, so fall back to the agency he is a branch of;
-  // otherwise he was told status:'none' while he could charge perfectly well.
-  const agency =
-    (await prisma.chargingAgency.findFirst({
-      where: { userId, type: 'CHARGING' }, // ✅ remove approved filter
-      select: { id: true, agencyName: true, status: true },
-      orderBy: { createdAt: 'desc' },
-    })) ??
-    (
-      await prisma.agencyMember.findFirst({
-        where: {
-          userId,
-          role: 'BRANCH',
-          agency: { status: AGENCY_STATUS.APPROVED, type: 'CHARGING' },
-        },
-        select: { agency: { select: { id: true, agencyName: true, status: true } } },
-        orderBy: { joinedAt: 'asc' },
-      })
-    )?.agency;
-
-  if (!agency) return res.json({ balanceCoins, status: 'none' });
-
-  return res.json({ ...agency, balanceCoins });
+export const myAgencyBalance = async (req: Request, res: Response) => {
+  try {
+    if (!req.userId) return res.status(401).json({ message: 'Unauthorized' });
+    const seat = await prisma.agencyMember.findFirst({ where: { userId: req.userId, role: { in: ['OWNER', 'BRANCH'] }, agency: { type: 'CHARGING' } }, include: { agency: true }, orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }] });
+    const personal = await prisma.user.findUnique({ where: { id: req.userId }, select: { coinsBalance: true } });
+    const agency = seat?.agency ?? await prisma.chargingAgency.findFirst({ where: { userId: req.userId, type: 'CHARGING' }, orderBy: { createdAt: 'desc' } });
+    const agencyWalletCoins = String(seat?.agencyWalletCoins ?? 0);
+    return res.json({ id: agency?.id, agencyName: agency?.agencyName, status: agency?.status ?? 'none', balanceCoins: agencyWalletCoins, agencyWalletCoins, personalCoins: String(personal?.coinsBalance ?? 0), frozen: await chargingWalletFrozen(prisma, agency?.id) });
+  } catch { return res.status(500).json({ message: 'Server error' }); }
 };
 
+export const withdrawAgencyWallet = async (req: Request, res: Response) => {
+  try {
+    if (!req.userId) return res.status(401).json({ message: 'Unauthorized' });
+    const result = await moveAgencyWallet(req.userId, req.userId, Number(req.body?.amount), 'personal', req.body?.agencyId === undefined ? undefined : Number(req.body.agencyId), true);
+    return res.json({ message: 'Withdrawal successful', agencyWalletCoins: result.agencyWalletCoins, personalCoins: result.userBalance, transferId: result.transferId });
+  } catch (e) { return res.status(e instanceof AgencyWalletError ? e.status : 500).json({ message: e instanceof AgencyWalletError ? e.message : 'Server error' }); }
+};
 
 /**
  * GET /api/v1/charging-agencies/my/transfers
@@ -314,163 +352,13 @@ export const myAgencyTransfers = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * POST /api/v1/charging-agencies/transfer
- * Body: { toUserId:number, amount:number, note?:string }
- * ✅ Atomic: decrement the AGENT'S OWN wallet, increment user.coinsBalance,
- * create AgencyTransfer. The agency no longer holds a separate coin pot — see
- * agency.controller.ts sendCoinsToUser for the same change on the app's path.
- */
 export const agencyTransferCoins = async (req: Request, res: Response) => {
-  const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-
-  const toUserId = Number((req.body as any)?.toUserId);
-  const amount = Number((req.body as any)?.amount);
-  const amountBig = BigInt(amount || 0);
-  const note = (req.body as any)?.note ? String((req.body as any).note) : null;
-
-  if (!toUserId || !amount || amountBig <= BigInt(0)) {
-    return res.status(400).json({ message: 'Invalid toUserId/amount' });
-  }
-
-  const agency = await findChargingAgencyForAgent(userId);
-
-  if (!agency) return res.status(403).json({ message: 'لست وكيل أو فرع في وكالة شحن معتمدة' });
-
-  const receiver = await prisma.user.findUnique({
-    where: { id: toUserId },
-    select: { id: true },
-  });
-
-  if (!receiver) return res.status(404).json({ message: 'Receiver user not found' });
-
-  if (toUserId === userId) return res.status(400).json({ message: 'Cannot charge yourself' });
-  // Whose wallet pays: the seller's own, فرع included.
-  const funderId = agency.funderId;
-
   try {
-    type TransferTxResult =
-      | { ok: false; reason: 'insufficient_balance'; available: bigint }
-      | {
-          ok: true;
-          senderBalance: bigint;
-          updatedUser: { id: number; coinsBalance: bigint };
-          transfer: { id: number };
-        };
-
-    const result: TransferTxResult = await prisma.$transaction(async (tx) => {
-      const receiverNow = await tx.user.findUnique({
-        where: { id: toUserId },
-        select: { coinsBalance: true },
-      });
-      if (!receiverNow) throw new Error('receiver_missing');
-      if (BigInt(receiverNow.coinsBalance) + BigInt(amount) > BigInt(MAX_COINS_BALANCE)) {
-        throw new Error('coins_overflow');
-      }
-
-      // Debit the agent's wallet. The `gte` guard makes the check and the
-      // debit one statement so concurrent charges can't drive it negative.
-      //
-      // A sale, not a spend: the platform-wide coin freeze does not stop it;
-      // an agent frozen by id is still stopped (coinFreeze.ts). Awaited INSIDE
-      // the callback — a Prisma query is lazy and runs where it is awaited.
-      const debited = await runWithCoinFreezeBypass('global', async () =>
-        await tx.user.updateMany({
-          where: { id: funderId, coinsBalance: { gte: Number(BigInt(amount)) } },
-          data: { coinsBalance: { decrement: Number(BigInt(amount)) } },
-        }),
-      );
-      if (debited.count === 0) {
-        const wallet = await tx.user.findUnique({
-          where: { id: funderId },
-          select: { coinsBalance: true },
-        });
-        return {
-          ok: false as const,
-          reason: 'insufficient_balance' as const,
-          available: BigInt(wallet?.coinsBalance ?? 0),
-        };
-      }
-
-      const senderNow = await tx.user.findUnique({
-        where: { id: funderId },
-        select: { coinsBalance: true },
-      });
-
-      // Kept as a lifetime stat only — it is no longer a funding source.
-      await tx.chargingAgency.update({
-        where: { id: agency.id },
-        data: { totalSentCoins: { increment: Number(BigInt(amount)) } },
-      });
-
-      // 2026-10-21 — charging does NOT credit the seller's target. Client rule:
-      // "تارجيت وكيل الشحن: لما يترمي عليه كوينزات تنزل في التارجيت بقيمتها
-      // الحقيقيه فقط بدون نسبة وكيل … لو اشتري تارجيت ينزل عنده في التارجيت".
-      // Only gifts he receives and target he buys feed it. Charging used to add
-      // its face value here ("B6", misread) — phantom target; do not re-add.
-
-      const updatedUserDb = await tx.user.update({
-        where: { id: toUserId },
-        data: {
-          coinsBalance: { increment: Number(BigInt(amount)) },
-          totalRecharge: { increment: Number(BigInt(amount)) },
-        },
-        select: { id: true, coinsBalance: true },
-      });
-
-      const updatedUser = { id: updatedUserDb.id, coinsBalance: BigInt(updatedUserDb.coinsBalance) };
-
-      // SPEC52 #36 — who charged (owner or which branch), from the funder's own
-      // membership, never from the request.
-      const branch = await (tx as any).agencyBranch
-        ?.findUnique?.({ where: { parentAgencyId_ownerUserId: { parentAgencyId: agency.id, ownerUserId: funderId } } })
-        .catch(() => null);
-      const transfer = await tx.agencyTransfer.create({
-        data: {
-          agencyId: agency.id,
-          toUserId,
-          amount: Number(BigInt(amount)),
-          note,
-          actorUserId: funderId,
-          branchId: branch ? branch.id : null,
-        } as any,
-        select: { id: true },
-      });
-
-      return {
-        ok: true as const,
-        senderBalance: BigInt(senderNow?.coinsBalance ?? 0),
-        updatedUser,
-        transfer,
-      };
-    });
-
-    if (result.ok === false) {
-      return res.status(409).json({
-        message: `رصيد محفظتك غير كافٍ — المتاح ${result.available.toString()} كوينز`,
-      });
-    }
-
-    // Top-up counts toward VIP — re-evaluate after the transfer commits.
-    try { await evaluateVip(toUserId); } catch (e) { console.warn('evaluateVip failed:', e); }
-
-    return res.json({
-      message: 'Transfer successful',
-      // `agencyBalance` is kept in the response shape for old clients, but it
-      // now reports the agent's wallet — the only balance a charge touches.
-      agencyBalance: result.senderBalance.toString(),
-      senderBalance: result.senderBalance.toString(),
-      userBalance: result.updatedUser.coinsBalance.toString(),
-      transferId: result.transfer.id,
-    });
-  } catch (e) {
-    if ((e as Error)?.message === 'coins_overflow') {
-      return res.status(400).json({ message: `Max coins limit is ${MAX_COINS_BALANCE}` });
-    }
-    console.error('agencyTransferCoins error:', e);
-    return res.status(500).json({ message: 'Server error' });
-  }
+    if (!req.userId) return res.status(401).json({ message: 'Unauthorized' });
+    const result = await moveAgencyWallet(req.userId, Number(req.body?.toUserId), Number(req.body?.amount), req.body?.wallet ?? 'personal', req.body?.agencyId === undefined ? undefined : Number(req.body.agencyId), false, req.body?.note);
+    if (result.wallet === 'personal') { try { await evaluateVip(Number(req.body.toUserId)); } catch (e) { console.warn('evaluateVip failed:', e); } }
+    return res.json({ message: 'Transfer successful', ...result, agencyBalance: result.agencyWalletCoins, senderBalance: result.agencyWalletCoins });
+  } catch (e) { return res.status(e instanceof AgencyWalletError ? e.status : 500).json({ message: e instanceof AgencyWalletError ? e.message : 'Server error' }); }
 };
 
 /**
@@ -484,27 +372,20 @@ export const createTopupRequest = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     const amount = Number((req.body as any)?.amount);
-  const amountBig = BigInt(amount || 0);
     const receiptUrl = (req.body as any)?.receiptUrl ? String((req.body as any).receiptUrl) : null;
     const note = (req.body as any)?.note ? String((req.body as any).note) : null;
 
-    if (!amount || amount <= 0 || !receiptUrl) {
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > MAX_COINS_BALANCE || !receiptUrl) {
       return res.status(400).json({ message: 'Invalid amount/receiptUrl' });
     }
 
-    // B5 — this matched on ChargingAgency.userId, i.e. the OWNER only, so a
-    // فرع asking to be topped up got a flat 403: he could sell from his wallet
-    // but had no way to refill it, and the owner had to be topped up and then
-    // hand-charge him. The shared resolver already knows both roles.
+    // Requests retain the requester for audit; approval funds the OWNER seat.
     const agency = await findChargingAgencyForAgent(userId);
     if (!agency) return res.status(403).json({ message: 'Not approved agency' });
 
     const reqRow = await prisma.agencyTopupRequest.create({
       data: {
         agencyId: agency.id,
-        // Whose wallet the approval credits. For the owner this is himself, so
-        // the behaviour is unchanged; for a فرع it is the difference between
-        // his coins and his owner's.
         requesterId: userId,
         amount,
         receiptUrl,
@@ -574,12 +455,12 @@ export const adminListTopups = async (req: Request, res: Response) => {
         reviewedAt: true,
         createdAt: true,
         agency: {
-          select: { id: true, agencyName: true, phoneNumber: true, userId: true, balanceCoins: true },
+          select: { id: true, agencyName: true, phoneNumber: true, userId: true, balanceCoins: true, walletFrozen: true, members: { where: { role: 'OWNER' }, select: { agencyWalletCoins: true }, take: 1 } },
         },
       },
     });
 
-    return res.json(items.map((item: any) => ({ ...item, amount: item.amount?.toString?.() ?? item.amount, agency: item.agency ? { ...item.agency, balanceCoins: item.agency.balanceCoins?.toString?.() ?? item.agency.balanceCoins } : null })));
+    return res.json(items.map((item: any) => ({ ...item, amount: item.amount?.toString?.() ?? item.amount, agency: item.agency ? { ...item.agency, balanceCoins: String(item.agency.members[0]?.agencyWalletCoins ?? 0), agencyWalletCoins: String(item.agency.members[0]?.agencyWalletCoins ?? 0), members: undefined } : null })));
   } catch (e) {
     console.error('adminListTopups error:', e);
     return res.status(500).json({ message: 'Server error' });
@@ -610,42 +491,19 @@ export const reviewTopupRequest = async (req: Request, res: Response) => {
     // must never be able to roll back an approved top-up.
     let chargedAgencyId = 0;
     let chargedAmount = 0;
-    let creditedUserId = 0;
 
     const result = await prisma.$transaction(async (tx) => {
       const request = await tx.agencyTopupRequest.findUnique({ where: { id: requestId } });
-      if (!request) throw new Error('not_found');
+      if (!request) throw new AgencyWalletError(404, 'Topup request not found');
 
       if (request.status !== 'pending') {
         return { ok: false as const, reason: 'already_processed' as const };
       }
 
+      const claimed = await tx.agencyTopupRequest.updateMany({ where: { id: requestId, status: 'pending' }, data: { status, reviewedBy: adminId, reviewedAt: new Date() } });
+      if (!claimed.count) return { ok: false as const, reason: 'already_processed' as const };
       if (status === 'approved') {
-        // Charges are paid out of the agent's own wallet now, so an approved
-        // top-up has to land THERE. Crediting the agency pot left the agent
-        // with an approved request and still no coins to charge anyone with.
-        //
-        // B5 — and it has to land in the wallet of whoever ASKED. A فرع's
-        // request used to pay the owner, which is the same coins-in-the-wrong-
-        // wallet bug one level down. Legacy rows carry no requesterId and were
-        // necessarily filed by the owner.
-        const agency = await tx.chargingAgency.findUniqueOrThrow({
-          where: { id: request.agencyId },
-          select: { userId: true },
-        });
-        const payeeId = (request as any).requesterId ?? agency.userId;
-
-        await tx.user.update({
-          where: { id: payeeId },
-          data: {
-            coinsBalance: { increment: request.amount },
-            // E2 — a genuine wallet top-up has to move totalRecharge too, or
-            // VIP silently stops advancing for anyone who is funded this way.
-            // adminTopupAgency already does both; this path did not.
-            totalRecharge: { increment: request.amount },
-          },
-        });
-        creditedUserId = payeeId;
+        await adjustOwnerAgencyWallet(tx, request.agencyId, request.amount, adminId, `Topup request ${requestId}`);
         chargedAgencyId = request.agencyId;
         chargedAmount = request.amount;
       }
@@ -668,18 +526,9 @@ export const reviewTopupRequest = async (req: Request, res: Response) => {
 
     // Counts as a self-charge (B10) and pays any reward rung crossed (B11).
     if (chargedAgencyId) await recordAgencySelfCharge(chargedAgencyId, chargedAmount);
-    // Outside the transaction: re-evaluating VIP touches many rows and must
-    // never be able to roll an approved top-up back.
-    if (creditedUserId) {
-      try {
-        await evaluateVip(creditedUserId);
-      } catch (e) {
-        console.warn('[reviewTopupRequest] evaluateVip failed:', e);
-      }
-    }
-
     return res.json({ message: 'Topup reviewed', request: result.updated });
   } catch (e) {
+    if (e instanceof AgencyWalletError) return res.status(e.status).json({ message: e.message });
     console.error('reviewTopupRequest error:', e);
     return res.status(500).json({ message: 'Server error' });
   }
@@ -699,76 +548,17 @@ export const adminAdjustAgencyBalance = async (req: Request, res: Response) => {
 
     const agencyId = Number(req.params.id);
     const delta = Number((req.body as any)?.delta);
-    const deltaBig = BigInt(Math.trunc(delta || 0));
-
-    if (!agencyId || !Number.isFinite(delta) || deltaBig === BigInt(0)) {
+    if (!Number.isSafeInteger(agencyId) || agencyId <= 0 || !Number.isSafeInteger(delta) || delta === 0 || Math.abs(delta) > MAX_COINS_BALANCE) {
       return res.status(400).json({ message: 'Invalid agencyId/delta' });
     }
-
-    // B4 — "كوينزات وكيل الشحن منفصله عن كوينزات المحفظه". Charging comes out
-    // of the agent's OWN wallet now, and adminTopupAgency was moved there, but
-    // THIS second admin route was left writing ChargingAgency.balanceCoins: a
-    // pot nothing spends from. An admin who used it credited a number that
-    // showed on the dashboard while the agent still had no coins to charge
-    // with — the exact complaint, reported again because one of the two
-    // buttons was never migrated. Same destination as adminTopupAgency now.
-    const deltaNum = Number(deltaBig);
-    const result = await prisma.$transaction(async (tx) => {
-      const agency = await tx.chargingAgency.findUnique({
-        where: { id: agencyId },
-        select: { userId: true, status: true },
-      });
-      if (!agency) throw new Error('agency_not_found');
-
-      if (deltaNum < 0) {
-        // Guard and debit in one statement so a concurrent charge cannot drive
-        // the wallet negative between the two.
-        const debited = await tx.user.updateMany({
-          where: { id: agency.userId, coinsBalance: { gte: -deltaNum } },
-          data: { coinsBalance: { decrement: -deltaNum } },
-        });
-        if (debited.count === 0) return { ok: false as const };
-      } else {
-        await tx.user.update({
-          where: { id: agency.userId },
-          data: {
-            coinsBalance: { increment: deltaNum },
-            // E2 — a real wallet credit has to move totalRecharge too.
-            totalRecharge: { increment: deltaNum },
-          },
-        });
-        await tx.chargingAgency.update({
-          where: { id: agencyId },
-          // Lifetime "how much was he given" stat only; not a spendable pot.
-          data: { totalTopupCoins: { increment: deltaNum } },
-        });
-      }
-
-      const wallet = await tx.user.findUniqueOrThrow({
-        where: { id: agency.userId },
-        select: { coinsBalance: true },
-      });
-      return {
-        ok: true as const,
-        ownerId: agency.userId,
-        updated: { id: agencyId, balanceCoins: wallet.coinsBalance, status: agency.status },
-      };
+    const agency = await prisma.$transaction(async tx => {
+      const updated = await adjustOwnerAgencyWallet(tx, agencyId, delta, adminId, req.body?.note);
+      if (delta > 0) await tx.chargingAgency.update({ where: { id: agencyId }, data: { totalTopupCoins: { increment: delta } } });
+      return updated;
     });
-
-    if (result.ok === false) return res.status(409).json({ message: 'Balance cannot go negative' });
-
-    if (deltaNum > 0) {
-      try {
-        await evaluateVip(result.ownerId);
-      } catch (e) {
-        console.warn('[adminAdjustAgencyBalance] evaluateVip failed:', e);
-      }
-    }
-
-    // Key kept as `balanceCoins`: the dashboard and the app both read it, and
-    // it is the agent's wallet now.
-    return res.json({ message: 'Agency balance updated', agency: { ...result.updated, balanceCoins: result.updated.balanceCoins.toString() } });
+    return res.json({ message: 'Agency balance updated', agency });
   } catch (e) {
+    if (e instanceof AgencyWalletError) return res.status(e.status).json({ message: e.message });
     console.error('adminAdjustAgencyBalance error:', e);
     return res.status(500).json({ message: 'Server error' });
   }
