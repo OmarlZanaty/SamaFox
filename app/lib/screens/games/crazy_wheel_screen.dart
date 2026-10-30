@@ -61,7 +61,6 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
     'crazytime': 'CT',
   };
 
-
   static const Map<String, String> _spotEmoji = {
     '1': '1️⃣',
     '2': '2️⃣',
@@ -113,6 +112,11 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
       vsync: this, duration: const Duration(milliseconds: 1400))
     ..repeat(reverse: true);
 
+  /// A slow drift while bets are open, so the wheel never looks frozen; it is
+  /// folded into the spin's start the moment the real spin begins.
+  late final AnimationController _idle =
+      AnimationController(vsync: this, duration: const Duration(seconds: 48));
+
   /// The wheel chrome, decoded once. Null until it loads (and stays null if the
   /// asset is missing), in which case the painter falls back to its own rim.
   ui.Image? _wheelArt;
@@ -155,6 +159,7 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
     _socket.emit('crazy_leave_table', {});
     _spin.dispose();
     _pulse.dispose();
+    _idle.dispose();
     super.dispose();
   }
 
@@ -223,6 +228,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         _animatedRound != state.roundId) {
       _animatedRound = state.roundId;
       _startSpin(state.resultIndex!);
+    } else if (state.isBetting && !_spin.isAnimating && !_idle.isAnimating) {
+      _idle.repeat();
     }
   }
 
@@ -234,14 +241,17 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
     // several full turns for the run-up.
     final slice = 1 / wheel.length;
     final landing = -((resultIndex + 0.5) * slice);
-    _spinFrom = _spinTarget % 1;
+    _spinFrom = (_spinTarget + _idle.value) % 1;
+    _idle
+      ..stop()
+      ..value = 0;
     _spinTarget = _spinFrom.floorToDouble() + 6 + landing;
     _spin.forward(from: 0);
   }
 
   double get _rotation {
     final t = Curves.easeOutQuart.transform(_spin.value);
-    return _spinFrom + (_spinTarget - _spinFrom) * t;
+    return _spinFrom + (_spinTarget - _spinFrom) * t + _idle.value;
   }
 
   // ── Actions ───────────────────────────────────────────────
@@ -456,22 +466,26 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             // stage there is too thin to hold it.
             if (_notice != null)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + (_compact(context) ? 70 : 48),
+                top: MediaQuery.paddingOf(context).top +
+                    (_compact(context) ? 70 : 48),
                 left: 12,
                 right: 12,
                 child: Center(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.82),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                      border:
+                          Border.all(color: Colors.redAccent.withOpacity(0.5)),
                     ),
                     child: Text(_notice!,
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                        style: const TextStyle(
+                            color: Colors.redAccent, fontSize: 12)),
                   ),
                 ),
               ),
@@ -559,7 +573,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             _reelWindow(0.073, 0.502,
                 top == null ? tr('؟', '?') : (_segmentLabels[top.spot] ?? ''),
                 ltr: top != null),
-            _reelWindow(0.507, 0.919, top == null ? tr('؟', '?') : '×${top.multiplier}',
+            _reelWindow(
+                0.507, 0.919, top == null ? tr('؟', '?') : '×${top.multiplier}',
                 ltr: true),
           ],
         ),
@@ -674,18 +689,23 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
       child: Stack(
         alignment: Alignment.center,
         children: [
-          CustomPaint(
-            size: Size.infinite,
-            painter: _WheelPainter(
-              wheel: _layout?.wheel ?? const [],
-              colors: _segmentColors,
-              labels: _segmentLabels,
-              rotationTurns: _rotation,
-              highlightIndex: state.isResult ? state.resultIndex : null,
-              glow: _pulse.value,
-              art: _wheelArt,
-              bandInner: _artBandInner,
-              bandOuter: _artBandOuter,
+          // Only the disc listens to the idle drift; the rest of the screen
+          // keeps its own (slower) rebuild pace.
+          AnimatedBuilder(
+            animation: _idle,
+            builder: (context, _) => CustomPaint(
+              size: Size.infinite,
+              painter: _WheelPainter(
+                wheel: _layout?.wheel ?? const [],
+                colors: _segmentColors,
+                labels: _segmentLabels,
+                rotationTurns: _rotation,
+                highlightIndex: state.isResult ? state.resultIndex : null,
+                glow: _pulse.value,
+                art: _wheelArt,
+                bandInner: _artBandInner,
+                bandOuter: _artBandOuter,
+              ),
             ),
           ),
           // The hub is dead space on the artwork, and it is dead centre — so
@@ -767,8 +787,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
       _ => (tr('النتيجة', 'Result'), Colors.white70),
     };
     // Only the timed phases get a countdown ring; a spin has nothing to wait on.
-    final total =
-        state.isBetting ? (_layout?.bettingMs ?? 0).toDouble() : (state.isBonusPick ? 10000.0 : 0.0);
+    final total = state.isBetting
+        ? (_layout?.bettingMs ?? 0).toDouble()
+        : (state.isBonusPick ? 10000.0 : 0.0);
     final progress = total <= 0 ? 0.0 : (_msLeft / total).clamp(0.0, 1.0);
 
     if (state.isResult) return _resultHub(state);
@@ -964,7 +985,9 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             ],
           ),
           Text(
-            stake > 0 ? tr('رهانك ${_format(stake)}', 'Your bet ${_format(stake)}') : tr('لم تراهن', 'No bet placed'),
+            stake > 0
+                ? tr('رهانك ${_format(stake)}', 'Your bet ${_format(stake)}')
+                : tr('لم تراهن', 'No bet placed'),
             style: TextStyle(
               color: stake > 0 ? _gold : Colors.white38,
               fontWeight: FontWeight.bold,
@@ -1014,8 +1037,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: _actionButton(
-                  tr('تكرار', 'Repeat'), Icons.replay, state.isBetting ? _repeat : null),
+              child: _actionButton(tr('تكرار', 'Repeat'), Icons.replay,
+                  state.isBetting ? _repeat : null),
             ),
           ],
         ),
