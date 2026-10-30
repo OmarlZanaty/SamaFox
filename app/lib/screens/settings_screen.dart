@@ -16,6 +16,8 @@ import '../providers/staff_provider.dart';
 import 'staff/staff_ban_screen.dart';
 import 'staff/staff_panel_screen.dart';
 import '../l10n/tr.dart';
+import '../widgets/app_network_image.dart';
+import 'dart:async';
 
 /// What the signed-in account is actually allowed to do with التارجت, so the
 /// settings screen only offers the actions that can succeed.
@@ -907,7 +909,9 @@ class _TargetConvertDialogState extends State<_TargetConvertDialog> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr('تم إضافة ${data['creditedCoins']} كوينز لرصيدك', '${data['creditedCoins']} coins added to your balance'))),
+          SnackBar(content: Text(data['wallet'] == 'agency'
+              ? tr('تم إضافة ${data['creditedCoins']} كوينز لرصيد وكالة الشحن', '${data['creditedCoins']} coins added to your charging agency balance')
+              : tr('تم إضافة ${data['creditedCoins']} كوينز لرصيدك', '${data['creditedCoins']} coins added to your balance'))),
         );
       }
     } catch (e) {
@@ -1013,11 +1017,60 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
   bool _submitting = false;
   String? _error;
 
+  // «اعمل بحث للتاكد من اللي هبيعله»: the buyer is looked up as the ID is typed
+  // and the sale is only possible once a user was found for exactly that ID.
+  Timer? _lookupDebounce;
+  bool _lookingUp = false;
+  int? _lookedUpId;
+  Map<String, dynamic>? _buyer;
+
   @override
   void dispose() {
+    _lookupDebounce?.cancel();
     _idCtrl.dispose();
     _amountCtrl.dispose();
     super.dispose();
+  }
+
+  void _onIdChanged(String _) {
+    _lookupDebounce?.cancel();
+    setState(() {
+      _buyer = null;
+      _lookedUpId = null;
+    });
+    _lookupDebounce = Timer(const Duration(milliseconds: 500), _lookup);
+  }
+
+  Future<void> _lookup() async {
+    final id = int.tryParse(_idCtrl.text.trim());
+    if (id == null || id <= 0) return;
+    setState(() => _lookingUp = true);
+    Map<String, dynamic>? found;
+    try {
+      final res = await DioClient.dio.get('/users/search', queryParameters: {'query': '$id'});
+      final users = (res.data as Map)['users'];
+      if (users is List && users.isNotEmpty) found = Map<String, dynamic>.from(users.first as Map);
+    } catch (_) {}
+    if (!mounted) return;
+    if (int.tryParse(_idCtrl.text.trim()) != id) {
+      setState(() => _lookingUp = false);
+      return;
+    }
+    setState(() {
+      _lookingUp = false;
+      _lookedUpId = id;
+      _buyer = found;
+    });
+  }
+
+  Widget _buyerAvatar(Map<String, dynamic> b, double r) {
+    final url = (b['avatarUrl'] ?? '').toString();
+    return CircleAvatar(
+      radius: r,
+      backgroundColor: Colors.white24,
+      backgroundImage: url.isNotEmpty ? appImage(url, r * 2) : null,
+      child: url.isEmpty ? Icon(Icons.person, size: r) : null,
+    );
   }
 
   Future<void> _submit() async {
@@ -1025,6 +1078,11 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
     final amount = int.tryParse(_amountCtrl.text.trim());
     if (toUserId == null || toUserId <= 0) {
       setState(() => _error = tr('أدخل معرّف (ID) صحيح', 'Enter a valid ID'));
+      return;
+    }
+    final buyer = _buyer;
+    if (buyer == null || _lookedUpId != toUserId) {
+      setState(() => _error = tr('ابحث عن المستخدم أولاً وتأكد منه', 'Look the user up and check them first'));
       return;
     }
     if (amount == null || amount <= 0) {
@@ -1037,10 +1095,22 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
       builder: (ctx) => AlertDialog(
         backgroundColor: widget.isDark ? const Color(0xFF1A0E3E) : Colors.white,
         title: Text(tr('تأكيد البيع', 'Confirm sale'), style: TextStyle(color: widget.theme.textTheme.bodyLarge?.color)),
-        content: Text(
-          tr('سيتم نقل $amount كوينز من التارجت الخاص بك إلى المستخدم #$toUserId، '
-          'وتُخصم قيمتها بالدولار من حسابك. متابعة؟', '$amount coins will be transferred from your target to user #$toUserId, and their dollar value will be deducted from your account. Continue?'),
-          style: TextStyle(color: widget.theme.textTheme.bodyMedium?.color),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buyerAvatar(buyer, 32),
+            const SizedBox(height: 8),
+            Text('${buyer['name'] ?? ''}',
+                style: TextStyle(color: widget.theme.textTheme.bodyLarge?.color, fontWeight: FontWeight.w800, fontSize: 16)),
+            Text('ID: ${buyer['displayId'] ?? buyer['id']}',
+                style: TextStyle(color: widget.theme.textTheme.bodyMedium?.color, fontSize: 12)),
+            const SizedBox(height: 12),
+            Text(
+              tr('سيتم نقل $amount كوينز من التارجت الخاص بك إلى ${buyer['name'] ?? ''}، '
+              'وتُخصم قيمتها بالدولار من حسابك. متابعة؟', '$amount coins will be transferred from your target to ${buyer['name'] ?? ''}, and their dollar value will be deducted from your account. Continue?'),
+              style: TextStyle(color: widget.theme.textTheme.bodyMedium?.color),
+            ),
+          ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('لا', 'No'))),
@@ -1104,12 +1174,40 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
           TextField(
             controller: _idCtrl,
             keyboardType: TextInputType.number,
+            onChanged: _onIdChanged,
             style: TextStyle(color: theme.textTheme.bodyLarge?.color),
             decoration: InputDecoration(
               labelText: tr('معرّف المستفيد (ID)', 'Recipient ID'),
               border: OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: tr('بحث', 'Search'),
+                icon: const Icon(Icons.search),
+                onPressed: _lookup,
+              ),
             ),
           ),
+          const SizedBox(height: 8),
+          if (_lookingUp)
+            const LinearProgressIndicator(minHeight: 2)
+          else if (_buyer != null)
+            Row(children: [
+              _buyerAvatar(_buyer!, 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${_buyer!['name'] ?? ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: theme.textTheme.bodyLarge?.color, fontWeight: FontWeight.w700)),
+                  Text('ID: ${_buyer!['displayId'] ?? _buyer!['id']}',
+                      style: TextStyle(color: theme.textTheme.bodyMedium?.color, fontSize: 12)),
+                ]),
+              ),
+              const Icon(Icons.verified_rounded, color: Colors.green, size: 20),
+            ])
+          else if (_lookedUpId != null)
+            Text(tr('لا يوجد مستخدم بهذا المعرّف', 'No user with this ID'),
+                style: const TextStyle(color: Colors.red, fontSize: 12)),
           const SizedBox(height: 12),
           TextField(
             controller: _amountCtrl,
@@ -1132,7 +1230,7 @@ class _SellTargetDialogState extends State<_SellTargetDialog> {
           child: Text(tr('إلغاء', 'Cancel')),
         ),
         TextButton(
-          onPressed: _submitting ? null : _submit,
+          onPressed: _submitting || _buyer == null ? null : _submit,
           child: _submitting
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
               : Text(tr('بيع', 'Sell')),

@@ -3,7 +3,7 @@ import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from './oneAgencyRu
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { moveAgencyWallet, AgencyWalletError } from '../controllers/charging-agency.controller';
+import { moveAgencyWallet, AgencyWalletError, chargingWalletFrozen } from '../controllers/charging-agency.controller';
 import { evaluateVip } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { AgencyAccessError } from '../services/agencyIdentity.service';
@@ -1774,6 +1774,35 @@ export const getBroadcastTime = async (req: AuthReq, res: Response) => {
  * swallow a genuine database failure and report it as a lost race.
  */
 class TargetRaceError extends Error {}
+export class ChargingWalletFrozenError extends Error {}
+
+/**
+ * «وكيل الشحن لو اشتري تارجيت وحب يبدله … ينزل في رصيد وكالة الشحن وليس
+ * المحفظه»: a charging agent's (or branch's) swap lands on his agency wallet
+ * seat — he can still charge himself from there; everyone else's on his wallet.
+ */
+export async function creditTargetSwap(tx: any, userId: number, credit: number) {
+  const seat = await tx.agencyMember.findFirst({
+    where: { userId, role: { in: ['OWNER', 'BRANCH'] }, agency: { type: 'CHARGING', status: 'approved' } },
+    orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
+  });
+  if (!seat) {
+    const user = await tx.user.update({ where: { id: userId }, data: { coinsBalance: { increment: credit } }, select: { coinsBalance: true } });
+    return { coinsBalance: user.coinsBalance as number, agencyWalletCoins: null as string | null };
+  }
+  if (await chargingWalletFrozen(tx, seat.agencyId)) throw new ChargingWalletFrozenError();
+  const updated = await tx.agencyMember.update({
+    where: { id: seat.id },
+    data: { agencyWalletCoins: { increment: BigInt(credit) } },
+    select: { agencyWalletCoins: true },
+  });
+  await tx.transaction.create({ data: {
+    userId, senderId: userId, agencyId: seat.agencyId, amountCoins: credit,
+    type: 'AGENCY_WALLET_TARGET_CONVERT', status: 'completed',
+  } });
+  const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { coinsBalance: true } });
+  return { coinsBalance: user.coinsBalance as number, agencyWalletCoins: String(updated.agencyWalletCoins) };
+}
 
 export const convertTarget = async (req: AuthReq, res: Response) => {
   try {
@@ -1854,6 +1883,7 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
     // back before any coins are credited.
     const observedAdjustment = BigInt(membership.targetAdjustmentCoins ?? 0n);
     let updatedUser: { coinsBalance: number };
+    let agencyWalletCoins: string | null = null;
     try {
       updatedUser = await db.$transaction(
         async (tx: Prisma.TransactionClient) => {
@@ -1879,11 +1909,9 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
             },
             tx,
           );
-          return tx.user.update({
-            where: { id: userId },
-            data: { coinsBalance: { increment: credit } },
-            select: { coinsBalance: true },
-          });
+          const credited = await creditTargetSwap(tx, userId, credit);
+          agencyWalletCoins = credited.agencyWalletCoins;
+          return { coinsBalance: credited.coinsBalance };
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -1891,12 +1919,14 @@ export const convertTarget = async (req: AuthReq, res: Response) => {
       if (e instanceof TargetRaceError) {
         return fail(res, 409, 'تم تعديل التارجيت للتو — حدّث الصفحة وحاول مرة أخرى');
       }
+      if (e instanceof ChargingWalletFrozenError) return fail(res, 403, 'رصيد وكالات الشحن مجمّد حالياً');
       throw e;
     }
 
     return res.json({
       success: true,
-      data: { convertedAmount: amount, creditedCoins: credit, newBalance: updatedUser.coinsBalance, remainingConvertible: available - amount },
+      data: { convertedAmount: amount, creditedCoins: credit, newBalance: updatedUser.coinsBalance, remainingConvertible: available - amount,
+        wallet: agencyWalletCoins != null ? 'agency' : 'personal', agencyWalletCoins },
     });
   } catch (e) {
     console.error('[agency.convertTarget] failed:', e);
