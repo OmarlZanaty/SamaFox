@@ -105,7 +105,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       final results = await _service.searchUser(q, agencyType: _agencyType);
       if (mounted) setState(() => _searchResults = results);
     } catch (e) {
-      _toast(tr('فشل البحث: $e', 'Search failed: $e'));
+      _toast(agencyErrorMessage(e));
     } finally {
       if (mounted) setState(() => _searching = false);
     }
@@ -141,7 +141,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       }
       _toast(tr('✓ تم إرسال الدعوة إلى ${user['name']}', '✓ Invitation sent to ${user['name']}'));
     } catch (e) {
-      _toast(tr('فشل إرسال الدعوة: $e', 'Failed to send invitation: $e'));
+      _toast(agencyErrorMessage(e));
     }
   }
 
@@ -192,8 +192,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       _toast(tr('✓ تم تحديث بيانات الوكالة', '✓ Agency details updated'));
       _load();
     } catch (e) {
-      final m = (e is DioException && e.response?.data is Map) ? e.response!.data['message']?.toString() : null;
-      _toast(m ?? tr('تعذر الحفظ', 'Unable to save'));
+      _toast(agencyErrorMessage(e));
     }
   }
 
@@ -206,7 +205,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       _toast(tr('✓ تمت الإزالة', '✓ Removed'));
       _load();
     } catch (e) {
-      _toast(tr('فشل: $e', 'Failed: $e'));
+      _toast(agencyErrorMessage(e));
     }
   }
 
@@ -221,7 +220,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       );
       _toast(tr('✓ تم حفظ إعدادات الخروج', '✓ Exit settings saved'));
     } catch (e) {
-      _toast(tr('فشل: $e', 'Failed: $e'));
+      _toast(agencyErrorMessage(e));
     }
   }
 
@@ -267,7 +266,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       _toast(tr('✓ تم نقل الملكية', '✓ Ownership transferred'));
       _load();
     } catch (e) {
-      _toast(tr('فشل النقل: $e', 'Transfer failed: $e'));
+      _toast(agencyErrorMessage(e));
     }
   }
 
@@ -341,7 +340,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                                         _toast(tr('✓ تم إلغاء الفرع', '✓ Branch removed'));
                                         await reload();
                                       } catch (e) {
-                                        _toast(tr('فشل: $e', 'Failed: $e'));
+                                        _toast(agencyErrorMessage(e));
                                       }
                                     },
                             ),
@@ -389,14 +388,14 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
                               _toast(tr('لم يتم العثور على المستخدم', 'User not found'));
                               return;
                             }
-                            await _service.addBranch(
+                            final message = await _service.addBranch(
                                 (results.first['id'] as num).toInt(),
                                 agencyType: _agencyType);
                             _branchIdCtrl.clear();
-                            _toast(tr('✓ تمت إضافة الفرع', '✓ Branch added'));
+                            _toast(message);
                             await reload();
                           } catch (e) {
-                            _toast(tr('فشل: $e', 'Failed: $e'));
+                            _toast(agencyErrorMessage(e));
                           }
                         },
                         child: Text(tr('إضافة', 'Add'), style: TextStyle(color: Colors.white)),
@@ -434,7 +433,7 @@ class _AgencyPanelScreenState extends State<AgencyPanelScreen> {
       _toast(paid > 0 ? tr('✓ غادرت الوكالة بعد دفع $paid كوينز', '✓ Left the agency after paying $paid coins') : tr('✓ غادرت الوكالة', '✓ Left the agency'));
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      _toast('$e'.replaceFirst('Exception: ', ''));
+      _toast(agencyErrorMessage(e));
     }
   }
 

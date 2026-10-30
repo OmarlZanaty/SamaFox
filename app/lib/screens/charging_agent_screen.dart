@@ -1,3 +1,5 @@
+import '../services/agency_branch_service.dart';
+import '../services/agency_service.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -97,6 +99,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
         ),
         child: RefreshIndicator(
           onRefresh: () async {
+            ref.invalidate(agencyWalletProvider);
             ref.invalidate(agencyBalanceProvider);
             ref.invalidate(myAgenciesProvider);
             ref.invalidate(myMembershipsProvider);
@@ -296,6 +299,7 @@ Future<void> _handleCreateAgencyRequest(
     ref.invalidate(myMembershipsProvider);
     ref.invalidate(chargingAgenciesProvider);
     ref.invalidate(hostingAgenciesProvider);
+    ref.invalidate(agencyWalletProvider);
     ref.invalidate(agencyBalanceProvider);
   } else {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -314,18 +318,23 @@ Future<void> _showChargingActions(
   final role = ref.read(myMembershipsProvider).valueOrNull?[agency.id];
   // Read once, before the sheet builds — ref.watch is only legal inside a
   // widget build. This is the seller's own wallet, فرع included.
-  int agencyBalance = 0;
+  AgencyWalletBalance? wallet;
   if (isAgencyAdmin) {
     try {
-      agencyBalance = await ref.read(agencyBalanceProvider.future);
-    } catch (_) {}
+      wallet = await ref.read(agencyWalletProvider.future);
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(agencyErrorMessage(e))));
+      return;
+    }
   }
   if (!context.mounted) return;
+  final agencyBalance = wallet?.agencyWalletCoins ?? 0;
   await showModalBottomSheet(
     context: context,
     backgroundColor: const Color(0xFF1F1247),
+    isScrollControlled: true,
     builder: (_) => SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -333,6 +342,24 @@ Future<void> _showChargingActions(
             Text(agency.agencyName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             if (isAgencyAdmin) ...[
+              Text(tr('رصيد الوكالة: $agencyBalance', 'Agency balance: $agencyBalance'), style: const TextStyle(color: Colors.white)),
+              Text(tr('محفظتي الشخصية: ${wallet!.personalCoins}', 'My personal wallet: ${wallet!.personalCoins}'), style: const TextStyle(color: Colors.white)),
+              if (wallet!.frozen)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  color: Colors.red.shade800,
+                  child: Text(tr('رصيد الوكالة مجمّد من الإدارة', 'The agency balance is frozen by administration'), style: const TextStyle(color: Colors.white)),
+                ),
+              ListTile(
+                textColor: Colors.white,
+                enabled: !wallet!.frozen,
+                title: Text(tr('تحويل إلى محفظتي الشخصية', 'Transfer to my personal wallet')),
+                onTap: wallet!.frozen ? null : () async {
+                  Navigator.pop(context);
+                  await _withdrawAgencyCoins(context, ref);
+                },
+              ),
               ListTile(
                 textColor: Colors.white,
                 iconColor: Colors.white,
@@ -351,10 +378,10 @@ Future<void> _showChargingActions(
                 // Owner and فرع each sell from their own wallet — quote it via
                 // agencyBalanceProvider, which a branch could not read before.
                 subtitle: Text(
-                  tr('يُخصم من رصيد محفظتك: $agencyBalance كوينز', 'Deducted from your wallet balance: $agencyBalance coins'),
+                  tr('يُخصم من رصيد الوكالة: $agencyBalance كوينز', 'Deducted from the agency balance: $agencyBalance coins'),
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
-                onTap: () async {
+                onTap: wallet!.frozen ? null : () async {
                   Navigator.pop(context);
                   await _sendAgencyCoinsToUser(context, ref);
                 },
@@ -375,6 +402,11 @@ Future<void> _showChargingActions(
                         agencyId: agency.id,
                         agencyName: agency.agencyName,
                         isOwner: role == 'OWNER',
+                        service: AgencyBranchService(onInviteCreated: (message) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+                          }
+                        }),
                       ),
                     ));
                   },
@@ -405,7 +437,7 @@ Future<void> _showChargingActions(
             ],
           ],
         ),
-      ),
+      )),
     ),
   );
 }
@@ -479,6 +511,84 @@ Future<void> _showHostingActions(
   );
 }
 
+Future<void> _withdrawAgencyCoins(BuildContext context, WidgetRef ref) async {
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _WithdrawAgencyDialog(onSuccess: (balance) async {
+      ref.invalidate(agencyWalletProvider);
+      ref.invalidate(agencyBalanceProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr(
+          'تم التحويل — رصيد الوكالة: ${balance.agencyWalletCoins}، محفظتي الشخصية: ${balance.personalCoins}',
+          'Transfer complete — Agency balance: ${balance.agencyWalletCoins}, my personal wallet: ${balance.personalCoins}',
+        ))));
+      }
+      try { await ref.read(authStateProvider.notifier).refreshMe(); } catch (_) {}
+    }),
+  );
+}
+
+class _WithdrawAgencyDialog extends StatefulWidget {
+  const _WithdrawAgencyDialog({required this.onSuccess});
+  final Future<void> Function(AgencyWalletBalance) onSuccess;
+
+  @override
+  State<_WithdrawAgencyDialog> createState() => _WithdrawAgencyDialogState();
+}
+
+class _WithdrawAgencyDialogState extends State<_WithdrawAgencyDialog> {
+  final _amount = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final amount = int.tryParse(_amount.text.trim());
+    if (amount == null || amount <= 0) {
+      setState(() => _error = tr('أدخل كمية صحيحة أكبر من صفر', 'Enter a valid amount greater than zero'));
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      final response = await DioClient.dio.post('/charging-agencies/my/withdraw', data: {'amount': amount});
+      final balance = AgencyWalletBalance.fromJson(response.data as Map);
+      if (!mounted) return;
+      Navigator.pop(context);
+      await widget.onSuccess(balance);
+    } catch (e) {
+      if (mounted) setState(() { _error = agencyErrorMessage(e); _busy = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_busy,
+    child: AlertDialog(
+      title: Text(tr('تحويل إلى محفظتي الشخصية', 'Transfer to my personal wallet')),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(
+          controller: _amount,
+          enabled: !_busy,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(labelText: tr('الكمية', 'Amount')),
+        ),
+        if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+      ]),
+      actions: [
+        TextButton(onPressed: _busy ? null : () => Navigator.pop(context), child: Text(tr('إلغاء', 'Cancel'))),
+        ElevatedButton(onPressed: _busy ? null : _submit, child: Text(_busy ? tr('جارٍ التحويل', 'Transferring') : tr('تحويل', 'Transfer'))),
+      ],
+    ),
+  );
+}
+
 Future<void> _requestCoinsFromAdmin(BuildContext context) async {
   final amountCtrl = TextEditingController();
   final receiptCtrl = TextEditingController();
@@ -512,28 +622,31 @@ Future<void> _requestCoinsFromAdmin(BuildContext context) async {
       'note': noteCtrl.text.trim(),
     });
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم إرسال الطلب', 'Request sent'))));
-  } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('فشل إرسال الطلب', 'Failed to send request'))));
+  } catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(agencyErrorMessage(e))));
   }
 }
 
 // #5-7: "إضافة كوينز" flow — enter the person's ID, THEY APPEAR (name/avatar)
 // so the agent confirms it's the right person, then a box for the coin count,
 // then إرسال. Replaces the old raw userId+amount dialog with no confirmation.
-// The coins come out of the agent's OWN wallet (the agency has no separate
-// pot any more), so the dialog shows that balance and refreshes it after.
+// Sales debit the agency wallet and the server selects the recipient wallet.
 Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
   final idCtrl = TextEditingController();
   final amountCtrl = TextEditingController();
   Map<String, dynamic>? foundUser;
   bool searching = false;
+  bool recipientIsAgent = false;
   String? error;
 
   // The wallet the charge is paid from — the caller's own, وكيل or فرع.
   int agencyBalance = 0;
   try {
     agencyBalance = await ref.read(agencyBalanceProvider.future);
-  } catch (_) {}
+  } catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(agencyErrorMessage(e))));
+    return;
+  }
   if (!context.mounted) return;
 
   final ok = await showDialog<bool>(
@@ -547,13 +660,22 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
           try {
             final resp = await DioClient.dio.get('/agencies/search-user', queryParameters: {'q': q});
             final list = (resp.data is Map) ? (resp.data['data'] as List? ?? const []) : const [];
+            if (!context.mounted) return;
             if (list.isNotEmpty) {
-              setState(() { foundUser = Map<String, dynamic>.from(list.first as Map); searching = false; });
+              final user = Map<String, dynamic>.from(list.first as Map);
+              final recipient = await DioClient.dio.get('/charging-agencies/recipient/${user['id']}');
+              if (!context.mounted) return;
+              setState(() {
+                foundUser = user;
+                recipientIsAgent = recipient.data['isChargingAgent'] == true;
+                searching = false;
+              });
             } else {
               setState(() { error = tr('لم يتم العثور على مستخدم بهذا الرقم', 'No user found with this ID'); searching = false; });
             }
-          } catch (_) {
-            setState(() { error = tr('فشل البحث', 'Search failed'); searching = false; });
+          } catch (e) {
+            if (!context.mounted) return;
+            setState(() { error = agencyErrorMessage(e); searching = false; });
           }
         }
 
@@ -566,7 +688,7 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  tr('رصيد محفظتك: $agencyBalance كوينز', 'Your wallet balance: $agencyBalance coins'),
+                  tr('رصيد الوكالة: $agencyBalance كوينز', 'Agency balance: $agencyBalance coins'),
                   style: const TextStyle(color: Color(0xFFFFD700), fontSize: 13),
                 ),
               ),
@@ -604,6 +726,7 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
                   subtitle: Text('#${foundUser!['displayId'] ?? foundUser!['id']}', style: const TextStyle(color: Colors.white70)),
                 ),
                 const SizedBox(height: 8),
+                Text(recipientIsAgent ? tr('سيُضاف إلى رصيد وكالته', 'Will be added to their agency balance') : tr('سيُضاف إلى محفظته الشخصية', 'Will be added to their personal wallet'), style: const TextStyle(color: Colors.white70)),
                 _MiniField(controller: amountCtrl, label: tr('عدد الكوينز', 'Number of coins')),
               ],
             ],
@@ -611,7 +734,14 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(tr('إلغاء', 'Cancel'))),
             ElevatedButton(
-              onPressed: foundUser == null ? null : () => Navigator.pop(dialogContext, true),
+              onPressed: foundUser == null ? null : () {
+                final amount = int.tryParse(amountCtrl.text.trim());
+                if (amount == null || amount <= 0) {
+                  setState(() => error = tr('أدخل كمية صحيحة أكبر من صفر', 'Enter a valid amount greater than zero'));
+                  return;
+                }
+                Navigator.pop(dialogContext, true);
+              },
               child: Text(tr('إرسال', 'Send')),
             ),
           ],
@@ -621,21 +751,18 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
   );
   if (ok != true || foundUser == null) return;
   try {
-    await DioClient.dio.post('/agencies/send-coins', data: {
+    final response = await DioClient.dio.post('/agencies/send-coins', data: {
       'userId': foundUser!['id'],
       'amount': int.tryParse(amountCtrl.text.trim()) ?? 0,
     });
     // The charge just moved coins — pull the fresh balances so the next charge
     // (and the profile) don't show the pre-charge number.
     try { await ref.read(authStateProvider.notifier).refreshMe(); } catch (_) {}
+    ref.invalidate(agencyWalletProvider);
     ref.invalidate(agencyBalanceProvider);
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم الشحن بنجاح', 'Recharged successfully'))));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text((response.data['wallet'] ?? response.data['data']?['wallet']) == 'agency' ? tr('تم الشحن إلى رصيد وكالته', 'Recharged their agency balance') : tr('تم الشحن إلى محفظته الشخصية', 'Recharged their personal wallet'))));
   } catch (e) {
-    // A blind 'فشل الشحن' made a 403 (wrong/unapproved agency) and an empty
-    // agency wallet look identical — show what the server actually said.
-    final message = e is DioException && e.response?.data is Map
-        ? (e.response!.data['message']?.toString() ?? tr('فشل الشحن', 'Recharge failed'))
-        : tr('فشل الشحن', 'Recharge failed');
+    final message = agencyErrorMessage(e);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
@@ -668,8 +795,9 @@ Future<void> _transferAgencyOwnership(BuildContext context, {required String age
             } else {
               setState(() { error = tr('لم يتم العثور على مستخدم بهذا الرقم', 'No user found with this ID'); searching = false; });
             }
-          } catch (_) {
-            setState(() { error = tr('فشل البحث', 'Search failed'); searching = false; });
+          } catch (e) {
+            if (!context.mounted) return;
+            setState(() { error = agencyErrorMessage(e); searching = false; });
           }
         }
 
@@ -737,8 +865,8 @@ Future<void> _transferAgencyOwnership(BuildContext context, {required String age
       'agencyType': agencyType,
     });
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم نقل الملكية بنجاح', 'Ownership transferred successfully'))));
-  } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('فشل نقل الملكية', 'Failed to transfer ownership'))));
+  } catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(agencyErrorMessage(e))));
   }
 }
 
@@ -801,14 +929,14 @@ Future<void> _manageBranches(
                             return;
                           }
                           final id = ((found.first as Map)['id'] as num).toInt();
-                          await DioClient.dio.post('/agencies/branches', data: {'userId': id, 'agencyType': agencyType});
+                          final message = await AgencyService().addBranch(id, agencyType: agencyType);
                           idCtrl.clear();
                           setState(() {});
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تمت الإضافة كفرع', 'Added as a branch'))));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
                           }
                         } catch (e) {
-                          final msg = e is DioException ? (e.response?.data?['message'] ?? tr('فشل الإضافة', 'Failed to add')) : tr('فشل الإضافة', 'Failed to add');
+                          final msg = agencyErrorMessage(e);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg.toString())));
                           }
@@ -920,8 +1048,8 @@ Future<void> _openJoinRequestsManager(BuildContext context) async {
         }).toList(),
       ),
     );
-  } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تعذر تحميل الطلبات', 'Unable to load requests'))));
+  } catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(agencyErrorMessage(e))));
   }
 }
 
@@ -1067,20 +1195,6 @@ class _CreateChargingAgencyDialogState extends State<_CreateChargingAgencyDialog
     _phone.dispose();
     super.dispose();
   }
-
-  final agencyBalanceProvider = FutureProvider<int>((ref) async {
-    final dio = DioClient.dio;
-    try {
-      final resp = await dio.get('/charging-agencies/my/balance');
-      return (resp.data['balanceCoins'] ?? 0) as int;
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 404) {
-        return 0; // ✅ pending/not approved yet
-      }
-      rethrow;
-    }
-  });
-
 
   Future<XFile?> _pickImage() async {
     return _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
@@ -1578,19 +1692,26 @@ class _AgencyGridCard extends StatelessWidget {
 
 // ========================== Providers / Controllers ==========================
 
-/// ✅ Agency wallet balance (ChargingAgency.balanceCoins)
-/// The wallet a charge is actually paid from — the caller's own, وكيل or فرع.
-/// The old `/agencies/my-agency` source was owner-only, so a branch always saw
-/// 0 here even though he was charging from a funded wallet.
+class AgencyWalletBalance {
+  const AgencyWalletBalance(this.agencyWalletCoins, this.personalCoins, this.frozen);
+  final int agencyWalletCoins;
+  final int personalCoins;
+  final bool frozen;
+
+  factory AgencyWalletBalance.fromJson(Map data) => AgencyWalletBalance(
+    int.tryParse('${data['agencyWalletCoins'] ?? data['balanceCoins'] ?? 0}') ?? 0,
+    int.tryParse('${data['personalCoins'] ?? 0}') ?? 0,
+    data['frozen'] == true,
+  );
+}
+
+final agencyWalletProvider = FutureProvider<AgencyWalletBalance>((ref) async {
+  final response = await DioClient.dio.get('/charging-agencies/my/balance');
+  return AgencyWalletBalance.fromJson(response.data as Map);
+});
+
 final agencyBalanceProvider = FutureProvider<int>((ref) async {
-  final dio = DioClient.dio;
-  try {
-    final resp = await dio.get('/charging-agencies/my/balance');
-    final bal = (resp.data is Map) ? (resp.data['balanceCoins'] ?? 0) : 0;
-    return int.tryParse('$bal') ?? 0;
-  } on DioException {
-    return 0;
-  }
+  return (await ref.watch(agencyWalletProvider.future)).agencyWalletCoins;
 });
 
 final chargingAgenciesProvider = FutureProvider<List<ChargingAgency>>((ref) async {
@@ -1737,7 +1858,8 @@ class CreateAgencyController extends StateNotifier<bool> {
       ref.invalidate(myAgenciesProvider);
       ref.invalidate(chargingAgenciesProvider);
       ref.invalidate(hostingAgenciesProvider);
-      ref.invalidate(agencyBalanceProvider);
+      ref.invalidate(agencyWalletProvider);
+    ref.invalidate(agencyBalanceProvider);
 
       return true;
     } catch (e) {

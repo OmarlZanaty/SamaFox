@@ -30,7 +30,7 @@ class IdempotencyInterceptor extends Interceptor {
     RegExp(r'store/(buy|send)$'),
     RegExp(r'vip/buy$'),
     RegExp(r'messages/conversations/[^/]+/unlock$'),
-    RegExp(r'charging-agencies/(transfer|topup)$'),
+    RegExp(r'charging-agencies/(transfer|topup|my/withdraw)$'),
     RegExp(r'agencies/(send-coins|target/convert|target/sell)$'),
     RegExp(r'agencies/invite/[^/]+/respond$'),
     RegExp(r'cp/(requests|requests/[^/]+/(accept|reject)|unlock/confirm|partners/[^/]+)$'),

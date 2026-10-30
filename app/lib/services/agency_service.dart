@@ -4,6 +4,26 @@ import 'dio_client.dart';
 import '../utils/storage_service.dart';
 import '../l10n/tr.dart';
 
+/// Only server messages and explicitly safe local errors reach the UI.
+String agencyErrorMessage(Object error) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    final message = data is Map ? data['message'] : null;
+    if (message is String && message.trim().isNotEmpty) {
+      return tr(message, message);
+    }
+  }
+  if (error is AgencyActionException && error.message.trim().isNotEmpty) {
+    return tr(error.message, error.message);
+  }
+  return tr('تعذر إتمام العملية، يرجى المحاولة مجدداً', 'Could not complete action. Please try again');
+}
+
+class AgencyActionException implements Exception {
+  const AgencyActionException(this.message);
+  final String message;
+}
+
 /// Hosting-agency client: agent panel (invite/search/members/exit policy)
 /// and member actions (membership info, leave).
 class AgencyService {
@@ -89,7 +109,7 @@ class AgencyService {
       options: await _auth(),
     );
     if (res.data is Map && res.data['success'] != true) {
-      throw Exception(res.data['message'] ?? tr('فشل إرسال الدعوة', 'Failed to send the invite'));
+      throw AgencyActionException(res.data['message'] ?? tr('فشل إرسال الدعوة', 'Failed to send the invite'));
     }
     final d = res.data is Map ? res.data['data'] : null;
     return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
@@ -123,15 +143,14 @@ class AgencyService {
       );
       final body = res.data;
       if (body is! Map || body['success'] != true) {
-        throw Exception((body is Map ? body['message'] : null) ?? tr('فشل الرد على الدعوة', 'Failed to answer the invite'));
+        throw AgencyActionException((body is Map ? body['message'] : null) ?? tr('فشل الرد على الدعوة', 'Failed to answer the invite'));
       }
       // Older servers do not send `joined`; treat success as joined there.
       if (accept && body.containsKey('joined') && body['joined'] != true) {
-        throw Exception(tr('لم يكتمل الانضمام — حاول مرة أخرى', 'Joining did not complete — try again'));
+        throw AgencyActionException(tr('لم يكتمل الانضمام — حاول مرة أخرى', 'Joining did not complete — try again'));
       }
     } on DioException catch (e) {
-      final data = e.response?.data;
-      throw Exception((data is Map ? data['message'] : null) ?? e.error?.toString() ?? tr('فشل الرد على الدعوة', 'Failed to answer the invite'));
+      throw AgencyActionException(agencyErrorMessage(e));
     }
   }
 
@@ -181,7 +200,7 @@ class AgencyService {
     } on DioException catch (e) {
       final msg = (e.response?.data is Map) ? e.response?.data['message'] : null;
       if (msg == 'INSUFFICIENT_COINS') {
-        throw Exception(tr('رصيد الكوينز غير كافٍ لدفع رسوم الخروج', 'Not enough coins to pay the exit fee'));
+        throw AgencyActionException(tr('رصيد الكوينز غير كافٍ لدفع رسوم الخروج', 'Not enough coins to pay the exit fee'));
       }
       rethrow;
     }
@@ -211,12 +230,16 @@ class AgencyService {
     return list.map(_asMap).toList();
   }
 
-  Future<void> addBranch(int userId, {String agencyType = 'HOSTING'}) async {
-    await DioClient.dio.post(
+  Future<String> addBranch(int userId, {String agencyType = 'HOSTING'}) async {
+    final res = await DioClient.dio.post(
       '/agencies/branches',
       data: {'userId': userId, 'agencyType': agencyType},
       options: await _auth(),
     );
+    final message = res.data is Map ? res.data['message'] : null;
+    return message is String && message.trim().isNotEmpty
+        ? tr(message, message)
+        : tr('تم إرسال طلب الفرع — بانتظار موافقته', 'Branch invitation sent — awaiting acceptance');
   }
 
   Future<void> removeBranch(int userId, {String agencyType = 'HOSTING'}) async {

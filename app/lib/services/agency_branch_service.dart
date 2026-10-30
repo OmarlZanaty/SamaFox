@@ -1,3 +1,4 @@
+import 'agency_service.dart';
 import '../l10n/tr.dart';
 import 'package:dio/dio.dart';
 
@@ -6,21 +7,14 @@ import 'dio_client.dart';
 /// The server scopes every read to the authenticated owner or branch owner.
 /// Never fetch a combined ledger and filter it on the device.
 class AgencyBranchService {
-  AgencyBranchService({Dio? dio}) : _dio = dio ?? DioClient.dio;
+  AgencyBranchService({Dio? dio, this.onInviteCreated}) : _dio = dio ?? DioClient.dio;
+
+  final void Function(String message)? onInviteCreated;
 
   final Dio _dio;
   static const transferPageSize = 100;
 
-  static String errorMessage(Object error) {
-    if (error is DioException) {
-      final body = error.response?.data;
-      if (body is Map && body['message'] is String) {
-        return body['message'] as String;
-      }
-    }
-    if (error is AgencyBranchException) return error.message;
-    return tr('تعذر إتمام العملية، يرجى المحاولة مجدداً', "Could not complete action. Please try again");
-  }
+  static String errorMessage(Object error) => agencyErrorMessage(error);
 
   dynamic _data(Response<dynamic> response) {
     final body = response.data;
@@ -85,13 +79,18 @@ class AgencyBranchService {
     return rows;
   }
 
-  Future<void> create(int agencyId, String name, int ownerUserId) async {
-    _data(
-      await _dio.post(
-        '/agencies/$agencyId/branches',
-        data: {'name': name.trim(), 'ownerUserId': ownerUserId},
-      ),
+  Future<String> create(int agencyId, String name, int ownerUserId) async {
+    final response = await _dio.post(
+      '/agencies/$agencyId/branches',
+      data: {'name': name.trim(), 'ownerUserId': ownerUserId},
     );
+    _data(response);
+    final message = response.data['message'];
+    final pendingMessage = message is String && message.trim().isNotEmpty
+        ? tr(message, message)
+        : tr('تم إرسال طلب الفرع — بانتظار موافقته', 'Branch invitation sent — awaiting acceptance');
+    onInviteCreated?.call(pendingMessage);
+    return pendingMessage;
   }
 
   Future<void> update(
@@ -127,7 +126,6 @@ class AgencyBranchService {
   }
 }
 
-class AgencyBranchException implements Exception {
-  const AgencyBranchException(this.message);
-  final String message;
+class AgencyBranchException extends AgencyActionException {
+  const AgencyBranchException(super.message);
 }

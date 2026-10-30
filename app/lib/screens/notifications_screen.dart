@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../services/agency_service.dart';
@@ -72,7 +71,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
         );
       }
     } catch (e) {
-      final message = _extractErrorMessage(e);
+      final message = agencyErrorMessage(e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
@@ -92,7 +91,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
         );
       }
     } catch (e) {
-      final message = _extractErrorMessage(e);
+      final message = agencyErrorMessage(e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
@@ -131,15 +130,15 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
       if (id != 0) await NotificationService.markRead(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(accept ? tr('✓ انضممت إلى الوكالة', '✓ Joined the agency') : tr('تم رفض الدعوة', 'Invitation rejected'))),
+          SnackBar(content: Text(accept ? (_isBranchInvite(item) ? tr('✓ انضممت كفرع للوكالة', '✓ Joined the agency as a branch') : tr('✓ انضممت إلى الوكالة', '✓ Joined the agency')) : tr('تم رفض الدعوة', 'Invitation rejected'))),
         );
       }
       await _load();
     } catch (e) {
       if (mounted) {
-        final msg = e.toString().replaceFirst('Exception: ', '');
+        final msg = agencyErrorMessage(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg.isEmpty ? tr('فشل الرد على الدعوة', 'Failed to respond to invitation') : msg)),
+          SnackBar(content: Text(msg)),
         );
       }
       await _load();
@@ -155,6 +154,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
   }
 
   String _titleForNotification(Map<String, dynamic> item) {
+    if (_isBranchInvite(item)) return tr('دعوة لتكون فرعاً', 'Invitation to become a branch');
+    if (item['type'] == 'AGENCY_INVITE') return tr('دعوة للانضمام إلى الوكالة', 'Invitation to join the agency');
     final type = (item['type'] as String? ?? '').toLowerCase();
     final title = (item['title'] as String? ?? '').trim();
     if (title.isNotEmpty && !_looksEnglish(title)) return title;
@@ -167,6 +168,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
   }
 
   String _bodyForNotification(Map<String, dynamic> item) {
+    if (_isBranchInvite(item)) return tr('دعوة لتكون فرعاً', 'Invitation to become a branch');
+    if (item['type'] == 'AGENCY_INVITE') return tr('دعوة للانضمام إلى الوكالة', 'Invitation to join the agency');
     final type = (item['type'] as String? ?? '').toLowerCase();
     final body = (item['body'] as String? ?? '').trim();
     if (body.isNotEmpty && !_looksEnglish(body)) return body;
@@ -184,15 +187,13 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
     return latin.hasMatch(value) && !arabic.hasMatch(value);
   }
 
-  String _extractErrorMessage(Object error) {
-    if (error is DioException) {
-      final data = error.response?.data;
-      if (data is Map && data['message'] is String) {
-        return data['message'] as String;
-      }
-      return error.message ?? tr('حدث خطأ أثناء تنفيذ الطلب', 'An error occurred while processing the request');
+  bool _isBranchInvite(Map<String, dynamic> item) {
+    if (item['type'] != 'AGENCY_INVITE') return false;
+    dynamic data = item['data'];
+    if (data is String) {
+      try { data = jsonDecode(data); } catch (_) { return false; }
     }
-    return tr('حدث خطأ أثناء تنفيذ الطلب', 'An error occurred while processing the request');
+    return (data is Map ? data['role'] : item['role']) == 'BRANCH';
   }
 
   Future<void> _openNotification(Map<String, dynamic> item) async {
