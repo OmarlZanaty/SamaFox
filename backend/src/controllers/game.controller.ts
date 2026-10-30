@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
+import { cairoDay } from '../services/halalGames.service';
 import { intParam } from '../utils/http';
 import {
   DICE_ENTRY_TIERS,
@@ -316,15 +317,16 @@ const user = await prisma.user.findUnique({
   }
 };
 
-// Rank stakes across every game using the same UTC day as GameDailyStat writers.
+// Rank today's (Cairo) stakes across every game from the game ledger: every
+// game writes a 'stake' row there, refunds are negative 'refund' rows.
 export const getTopWagerers = async (_req: Request, res: Response) => {
   try {
-    const rows = await prisma.gameDailyStat.groupBy({
+    const rows = await prisma.gameLedger.groupBy({
       by: ['userId'],
-      where: { day: new Date().toISOString().slice(0, 10) },
-      _sum: { wagered: true },
-      having: { wagered: { _sum: { gt: 0 } } },
-      orderBy: [{ _sum: { wagered: 'desc' } }, { userId: 'asc' }],
+      where: { day: cairoDay(), kind: { in: ['stake', 'refund'] } },
+      _sum: { amount: true },
+      having: { amount: { _sum: { gt: 0 } } },
+      orderBy: [{ _sum: { amount: 'desc' } }, { userId: 'asc' }],
       take: 3,
     });
     const users = await prisma.user.findMany({
@@ -335,7 +337,7 @@ export const getTopWagerers = async (_req: Request, res: Response) => {
     res.json({ items: rows.flatMap(row => {
       const user = byId.get(row.userId);
       return user ? [{ userId: user.id, displayId: user.displayId,
-        name: user.name, avatar: user.avatarUrl, wagered: row._sum.wagered ?? 0 }] : [];
+        name: user.name, avatar: user.avatarUrl, wagered: row._sum.amount ?? 0 }] : [];
     }) });
   } catch (error) {
     console.error('Top wagerers error:', error);
