@@ -143,8 +143,8 @@ void main() {
                           child: RoomSeatsChatLayout(
                             seatCount: seatCount,
                             seats: Padding(
-                              // Same as the room: + the left rail gutter (SPEC52 #19).
-                              padding: const EdgeInsets.fromLTRB(12 + kRoomRailGutter, 0, 12, 40),
+                              // Same as the room (the icon rail now sits above the chat bar).
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 40),
                               child: SeatsGrid(
                                 seats: {
                                   for (var i = 1; i <= seatCount; i++)

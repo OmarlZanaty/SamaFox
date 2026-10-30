@@ -54,10 +54,11 @@ class FakeBranches extends AgencyBranchService {
   }
 
   @override
-  Future<void> create(int agencyId, String name, int ownerUserId) async {
+  Future<String> create(int agencyId, String name, int ownerUserId) async {
     mutations
         .add({'agencyId': agencyId, 'name': name, 'ownerUserId': ownerUserId});
     rows = [branch()..['name'] = name];
+    return 'تم إرسال الدعوة';
   }
 
   @override

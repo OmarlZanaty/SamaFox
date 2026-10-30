@@ -44,7 +44,7 @@ function harness() {
     './gameBroadcast.service': { setGameBroadcastEmitter: noop },
     './gameWinFeed.service': { startGameWinFeed: noop },
     './roomStateSnapshot': { takeSnapshotFile: noop, applySnapshot: noop },
-    './vipStyle.service': { nameColorSync: () => null },
+    './vipStyle.service': { nameColorSync: () => null, vipStyleSync: () => ({ nameColor: null, nameGradient: null }) },
     './cpEffect.service': { cpSeatLinks: async () => [] },
     '../controllers/settings.controller': { readSettings: async () => ({}), voiceEngineForRoom: () => 'mesh' },
     './broadcast.service': { startBroadcast: asyncNoop, endBroadcast: asyncNoop },
