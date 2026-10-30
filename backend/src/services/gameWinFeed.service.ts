@@ -8,7 +8,8 @@ import prisma from '../utils/prisma';
  * they are committed (by id, every 2 s), so an announcement can never describe
  * a win that rolled back, and every game — present and future — is covered
  * without touching its code. Each win is stored once in game_win_events with
- * the room the player was in, and pushed to that room as `game_win`.
+ * the room the player was in, and pushed to that room as `game_win` and
+ * app-wide as `game_win_broadcast`, even when the player is in no room.
  */
 export const GAME_NAMES_AR: Record<string, string> = {
   olympus: 'بوابات أوليمبوس',
@@ -44,6 +45,7 @@ export interface GameWinEventDto {
 }
 
 type Emit = (roomId: number, payload: GameWinEventDto) => void;
+type EmitAll = (payload: GameWinEventDto) => void;
 type RoomOf = (userId: number) => number | null;
 
 let lastLedgerId = 0;
@@ -53,7 +55,7 @@ let busy = false;
 /** Minimum prize worth a line in the room (tiny wins would flood it). */
 const MIN_WIN = Number(process.env.GAME_WIN_STRIP_MIN ?? 100);
 
-export async function pollGameWins(emit: Emit, roomOf: RoomOf, db: any = prisma): Promise<number> {
+export async function pollGameWins(emit: Emit, roomOf: RoomOf, db: any = prisma, emitAll?: EmitAll): Promise<number> {
   if (busy) return 0;
   busy = true;
   try {
@@ -90,20 +92,20 @@ export async function pollGameWins(emit: Emit, roomOf: RoomOf, db: any = prisma)
         .catch(() => null); // unique ledgerId: already announced
       if (!row) continue;
       n++;
-      if (roomId != null) {
-        const u = byId.get(w.userId);
-        emit(roomId, {
-          id: row.id,
-          userId: w.userId,
-          name: u?.name ?? 'لاعب',
-          avatarUrl: u?.avatarUrl ?? null,
-          roomId,
-          gameId: w.game,
-          gameName: row.gameName,
-          winCoins: row.winCoins,
-          timestamp: new Date(row.createdAt).toISOString(),
-        });
-      }
+      const u = byId.get(w.userId);
+      const payload: GameWinEventDto = {
+        id: row.id,
+        userId: w.userId,
+        name: u?.name ?? 'لاعب',
+        avatarUrl: u?.avatarUrl ?? null,
+        roomId,
+        gameId: w.game,
+        gameName: row.gameName,
+        winCoins: row.winCoins,
+        timestamp: new Date(row.createdAt).toISOString(),
+      };
+      if (roomId != null) emit(roomId, payload);
+      emitAll?.(payload);
     }
     return n;
   } catch (e) {
@@ -114,7 +116,7 @@ export async function pollGameWins(emit: Emit, roomOf: RoomOf, db: any = prisma)
   }
 }
 
-export async function startGameWinFeed(emit: Emit, roomOf: RoomOf) {
+export async function startGameWinFeed(emit: Emit, roomOf: RoomOf, emitAll?: EmitAll) {
   if (timer) return;
   try {
     // Start after what already exists: only new wins are announced.
@@ -123,7 +125,7 @@ export async function startGameWinFeed(emit: Emit, roomOf: RoomOf) {
   } catch {
     lastLedgerId = 0;
   }
-  timer = setInterval(() => void pollGameWins(emit, roomOf), 2000);
+  timer = setInterval(() => void pollGameWins(emit, roomOf, prisma, emitAll), 2000);
   timer.unref?.();
 }
 

@@ -14,8 +14,8 @@ import '../../l10n/tr.dart';
 /// Client spec: *"شريط تحت … بالشخص اللي كسب وعدد أضعاف مكسبه، وده شريط لكل
 /// الناس اللي بتلعب حظ في البرنامج، ولو ضغطت عليه يظهر صفحة صاحب الشريط"*.
 ///
-/// Fed by `lucky_broadcast` (every win at or above the admin's threshold,
-/// from any room) and primed from `/gifts/lucky/recent` so a room that has
+/// Shows headline wins from `lucky_broadcast` (at or above the admin's threshold,
+/// from any room) and is primed from `/gifts/lucky/recent` so a room that has
 /// just opened is not blank. Cycles through the most recent wins; a tap opens
 /// [showLuckyWinnerCard]. Hidden entirely when there is nothing to show.
 class LuckyTicker extends StatefulWidget {
@@ -65,7 +65,7 @@ class _LuckyTickerState extends State<LuckyTicker> {
     if (!mounted || repository != widget.repository || recent.isEmpty) return;
     setState(() {
       for (final e in recent.reversed) {
-        if (e.payoutCoins <= 0) continue;
+        if (!e.headline || e.payoutCoins <= 0) continue;
         if (_items.any((x) => x.rollId == e.rollId)) continue;
         _items.insert(0, e);
       }
@@ -75,7 +75,7 @@ class _LuckyTickerState extends State<LuckyTicker> {
   }
 
   void _push(LuckyRollEvent e) {
-    if (!mounted || e.payoutCoins <= 0) return;
+    if (!mounted || !e.headline || e.payoutCoins <= 0) return;
     setState(() {
       _items.removeWhere((x) => x.rollId == e.rollId);
       _items.insert(0, e);

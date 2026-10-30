@@ -167,7 +167,7 @@ export async function emitLuckyOutcome(ev: {
     const targets = new Set<string>([e.senderId.toString()]);
     if (e.roomId != null) targets.add(`room:${e.roomId}`);
     ioRef.to([...targets]).emit('lucky_win', payload);
-    if (e.multiplier > 0 && e.multiplier >= broadcastMin) ioRef.emit('lucky_broadcast', payload);
+    if (e.multiplier > 0) ioRef.emit('lucky_broadcast', { ...payload, headline: e.multiplier >= broadcastMin });
   }
 }
 

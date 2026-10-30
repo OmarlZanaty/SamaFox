@@ -1279,7 +1279,7 @@ export const initializeSocketHandlers = (io: Server) => {
   setGameBroadcastEmitter((event, payload) => io.emit(event, payload));
   // SPEC52 #39 — committed game wins → the player's room strip.
   void import('./gameWinFeed.service').then((m) =>
-    m.startGameWinFeed((rid, win) => io.to(`room:${rid}`).emit('game_win', win), (uid) => userCurrentRoom.get(uid) ?? null),
+    m.startGameWinFeed((rid, win) => io.to(`room:${rid}`).emit('game_win', win), (uid) => userCurrentRoom.get(uid) ?? null, (win) => io.emit('game_win_broadcast', win)),
   );
   startRoomStatePersistence(io);
   startPublishGuardSweep();

@@ -364,6 +364,7 @@ class LuckyRollEvent {
   final int multiplier;
   final int payoutCoins;
   final DateTime ts;
+  final bool headline;
 
   const LuckyRollEvent({
     required this.rollId,
@@ -383,6 +384,7 @@ class LuckyRollEvent {
     required this.multiplier,
     required this.payoutCoins,
     required this.ts,
+    this.headline = true,
   });
 
   bool get won => multiplier > 0;
@@ -407,6 +409,7 @@ class LuckyRollEvent {
       hostCoins: (json['hostCoins'] as num?)?.toInt() ?? 0,
       multiplier: (json['multiplier'] as num?)?.toInt() ?? 0,
       payoutCoins: (json['payoutCoins'] as num?)?.toInt() ?? 0,
+      headline: json['headline'] != false,
       ts: tsRaw is num
           ? DateTime.fromMillisecondsSinceEpoch(tsRaw.toInt())
           : DateTime.now(),
