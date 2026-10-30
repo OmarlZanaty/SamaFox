@@ -315,3 +315,30 @@ const user = await prisma.user.findUnique({
     res.status(500).json({ error: 'Failed to fetch user stats' });
   }
 };
+
+// Rank stakes across every game using the same UTC day as GameDailyStat writers.
+export const getTopWagerers = async (_req: Request, res: Response) => {
+  try {
+    const rows = await prisma.gameDailyStat.groupBy({
+      by: ['userId'],
+      where: { day: new Date().toISOString().slice(0, 10) },
+      _sum: { wagered: true },
+      having: { wagered: { _sum: { gt: 0 } } },
+      orderBy: [{ _sum: { wagered: 'desc' } }, { userId: 'asc' }],
+      take: 3,
+    });
+    const users = await prisma.user.findMany({
+      where: { id: { in: rows.map(row => row.userId) } },
+      select: { id: true, displayId: true, name: true, avatarUrl: true },
+    });
+    const byId = new Map(users.map(user => [user.id, user]));
+    res.json({ items: rows.flatMap(row => {
+      const user = byId.get(row.userId);
+      return user ? [{ userId: user.id, displayId: user.displayId,
+        name: user.name, avatar: user.avatarUrl, wagered: row._sum.wagered ?? 0 }] : [];
+    }) });
+  } catch (error) {
+    console.error('Top wagerers error:', error);
+    res.status(500).json({ error: 'Failed to fetch top wagerers' });
+  }
+};

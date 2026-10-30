@@ -28,7 +28,6 @@ String fruitMultiplierLabel(double value) =>
 
 /// Additive server outcomes, with support for installed servers' single result.
 List<String> fruitWinningCards(Map<String, dynamic> j) {
-  if (j['result'] == 'crown') return [];
   final cards = (j['results'] is List ? j['results'] as List : const [])
       .whereType<String>()
       .where(fruitCards.contains)
@@ -42,10 +41,10 @@ List<String> fruitWinningCards(Map<String, dynamic> j) {
 List<String> fruitHistoryOutcomes(Map<String, dynamic> j) =>
     j['result'] == 'crown' ? ['crown'] : fruitWinningCards(j);
 
-/// Ten equal segments matching the server, including the crown at index 9.
+/// Ten equal segments matching the server, with 77 at indices 4 and 9.
 const fruitSegments = [
   'watermelon', 'plum', 'watermelon', 'plum', 'sevens', //
-  'watermelon', 'plum', 'watermelon', 'plum', 'crown',
+  'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
 ];
 const fruitChips = [100, 1000, 10000, 100000];
 const fruitTickerLength = 10;
@@ -103,7 +102,7 @@ class FruitBets {
 /// Newest outcome first, at most [fruitTickerLength].
 List<String> fruitPushTicker(List<String> ticker, String outcome) =>
     [outcome, ...ticker]
-        .where(fruitSegments.contains)
+        .where((card) => fruitCards.contains(card) || card == 'crown')
         .take(fruitTickerLength)
         .toList();
 
@@ -166,7 +165,7 @@ class FruitWheelState {
                 .toList()
             : (j['history'] is List ? j['history'] as List : const [])
                 .whereType<String>()
-                .where(fruitSegments.contains)
+                .where((card) => fruitCards.contains(card) || card == 'crown')
                 .map((card) => [card])
                 .toList(),
         totals = _ints(j['totals']),
@@ -174,7 +173,7 @@ class FruitWheelState {
         winners = _maps(j['winners']),
         history = (j['history'] is List ? j['history'] as List : const [])
             .whereType<String>()
-            .where(fruitSegments.contains)
+            .where((card) => fruitCards.contains(card) || card == 'crown')
             .toList(),
         myStakes = _ints(_me(j)?['stakes']),
         myChips = _maps(_me(j)?['chipList']),

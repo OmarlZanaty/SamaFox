@@ -13,6 +13,7 @@ import { authenticate } from '../middlewares/auth.middleware';
 import {
   playDice,
   getLeaderboard,
+  getTopWagerers,
   getUserGameStats,
   fireFishShot,
   captureFish,
@@ -385,6 +386,7 @@ router.post('/neon/verify', authenticate, verifyNeonFortuneSpin);
 router.get('/boxing/round', authenticate, getBoxingRound);
 router.post('/boxing/round/join', authenticate, idempotent('game:boxing:round:join'), boxingLimiter, gameGuard('boxing'), joinBoxingRound);
 router.post('/boxing/round/submit', authenticate, boxingLimiter, submitBoxingRound);
+router.get('/top-wagerers', authenticate, getTopWagerers);
 router.get('/leaderboard', getLeaderboard);
 router.get('/stats/:userId', getUserGameStats);
 router.post('/fish/shoot', authenticate, idempotent('game:fish:shoot'), fishShotLimiter, fireFishShot);

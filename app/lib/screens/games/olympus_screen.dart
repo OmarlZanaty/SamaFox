@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -141,19 +140,11 @@ class _OlympusScreenState extends ConsumerState<OlympusScreen> {
   @override
   void initState() {
     super.initState();
-    // The brief asks for landscape-first play. The rest of the app is portrait,
-    // so the preference is set on entry and released on exit rather than
-    // globally — a player who leaves the game gets their normal app back.
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ],);
     _boot();
   }
 
   @override
   void dispose() {
-    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _sfx.dispose();
     super.dispose();
@@ -1196,50 +1187,23 @@ class _OlympusScreenState extends ConsumerState<OlympusScreen> {
   Widget _playfieldBody(OlympusStrings s) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final landscape = constraints.maxWidth > constraints.maxHeight * 1.25;
-        final board = _board(s);
-
-        if (!landscape) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  height: constraints.maxHeight * 0.26,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(child: Center(child: _statRail(s, compact: false))),
-                      SizedBox(
-                        width: constraints.maxWidth * 0.40,
-                        child: _zeus(constraints.maxHeight * 0.26),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Expanded(child: Center(child: board)),
-              ],
-            ),
-          );
-        }
-
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Column(
             children: [
-              // Left ornament rail: the sequence stats and, in the feature, the
-              // meter. Stands in for the golden owl panel until that art lands.
+              Expanded(child: Center(child: _board(s))),
+              const SizedBox(height: 4),
               SizedBox(
-                width: math.min(140, constraints.maxWidth * 0.17),
-                child: Center(child: _statRail(s, compact: true)),
-              ),
-              Expanded(child: Center(child: board)),
-              SizedBox(
-                width: math.min(300, constraints.maxWidth * 0.30),
-                child: _zeus(constraints.maxHeight),
+                height: constraints.maxHeight * .24,
+                child: Row(
+                  children: [
+                    Expanded(child: Center(child: _statRail(s, compact: false))),
+                    SizedBox(
+                      width: constraints.maxWidth * .3,
+                      child: _zeus(constraints.maxHeight * .24),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1416,22 +1380,25 @@ class _OlympusScreenState extends ConsumerState<OlympusScreen> {
 
   Widget _bottomBar(OlympusStrings s) {
     final canPlay = !_busy && !_loading && _layout != null;
-    final children = [
-      _betControl(s, canPlay),
-      const SizedBox(width: 10),
-      _winReadout(s),
-      const SizedBox(width: 10),
-      _autoButton(s, canPlay),
-      const SizedBox(width: 10),
-      Expanded(child: _spinButton(s, canPlay)),
-    ];
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-      child: Row(
-        // Left-handed play mirrors the row so SPIN falls under the other thumb.
-        textDirection: _leftHanded ? TextDirection.rtl : TextDirection.ltr,
-        children: children,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [_betControl(s, canPlay), _winReadout(s)],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            textDirection: _leftHanded ? TextDirection.rtl : TextDirection.ltr,
+            children: [
+              _autoButton(s, canPlay),
+              const SizedBox(width: 10),
+              Expanded(child: _spinButton(s, canPlay)),
+            ],
+          ),
+        ],
       ),
     );
   }

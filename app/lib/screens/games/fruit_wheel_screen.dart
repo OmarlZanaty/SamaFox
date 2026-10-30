@@ -55,7 +55,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
 
   FruitWheelStrings get _s => FruitWheelStrings(_arabic);
   int get _balance => ref.read(authStateProvider).user?.coinsBalance ?? 0;
-  int get _maxBet => (_layout?['maxPerKey'] as num?)?.toInt() ?? 1000000;
+  double get _maxBet => (_layout?['maxPerKey'] as num?)?.toDouble() ?? double.infinity;
   Map<String, double> get _multipliers =>
       fruitTableMultipliers(_layout?['multipliers']);
   List<int> get _chips => fruitChips;
@@ -253,11 +253,11 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         _sfx.spin();
       }
     }
-    if (next.phase == 'result' && next.result != null) {
+    if (next.phase == 'result' && next.results.isNotEmpty) {
       _spin.stop();
       _spinAngle = null;
       _angle = fruitStopAngle(_angle, next.segment, next.offset, 0);
-      _highlight = next.segment;
+      _highlight = next.results.length > 1 ? null : next.segment;
       _glow.value = 1;
       if (mine && _announced != next.round) {
         _announced = next.round;
@@ -275,7 +275,8 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                 winners: next.winners,
                 staked: next.myStaked,
                 payout: next.myPayout,
-                crown: next.result == 'crown',
+                results: next.results,
+                multipliers: _multipliers,
                 duration: next.left,
               ),
             );
@@ -947,6 +948,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                             );
                           },
                         ),
+                      if (!(state?.phase == 'result' && (state?.results.length ?? 0) > 1))
                       Positioned(
                         top: -size * .03,
                         left: size / 2 - size * .06,
@@ -963,13 +965,6 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           child: _hub(size * .27, center),
                         ),
                       ),
-                      if (state?.phase == 'result' && state?.result == 'crown')
-                        Positioned(
-                          top: size * .76,
-                          left: 8,
-                          right: 8,
-                          child: _bonusLabel(_s.text('crownRound')),
-                        ),
                       if (state?.phase == 'result' && state?.bonus != null)
                         Positioned(
                           top: size * .04,
@@ -1111,7 +1106,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           )
                         : null,
                     child: Semantics(
-                      label: _ticker[i].map(_s.text).join(' + '),
+                      label: _ticker[i].map((card) => card == 'crown' ? '—' : _s.text(card)).join(' + '),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

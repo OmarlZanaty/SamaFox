@@ -1,32 +1,31 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../screens/games_hub_screen.dart';
 import '../../l10n/tr.dart';
 
-/// SPEC52 #11 — games inside the room.
-///
-/// The hub (3 games per row) and every game open in a sheet that rises from
-/// the bottom and takes about two thirds of the screen — never the whole
-/// room. A nested navigator keeps the game INSIDE the sheet, and the header
-/// always has ← (back to the list) and ✕ (close, back to the room). Closing
-/// the sheet never leaves the room: it is only a sheet over it.
-///
-/// The games were drawn for a full phone screen, so the game page is laid out
-/// at the phone's own size and scaled down to the sheet (FittedBox). Their
-/// layout, art and touch targets stay exactly as designed, just smaller.
+/// Floating room games card with its own navigator.
 class RoomGamesHost extends StatefulWidget {
   const RoomGamesHost({super.key});
 
-  /// Share of the screen height the sheet may use.
-  static const double heightFactor = 0.66;
-
-  static Future<void> show(BuildContext context) => showModalBottomSheet<void>(
+  static Future<void> show(BuildContext context) => showDialog<void>(
         context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        enableDrag: false,
-        backgroundColor: Colors.transparent,
-        builder: (_) => const RoomGamesHost(),
+        useSafeArea: false,
+        barrierDismissible: true,
+        builder: (context) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(context).pop(),
+          child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom + 64),
+            child: GestureDetector(
+              onTap: () {},
+              child: const RoomGamesHost(),
+            ),
+          ),
+        ),
+        ),
       );
 
   @override
@@ -50,19 +49,23 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
     final screen = mq.size;
-    final sheetH = screen.height * RoomGamesHost.heightFactor;
-    const headerH = 44.0;
+    final width = math.max(0.0, screen.width - 12);
+    final sheetH = (width * 1.12).clamp(0.0, screen.height * .64);
+    const headerH = 36.0;
 
     return PopScope(
       canPop: !_inGame,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _back();
       },
-      child: Container(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+        width: width,
         height: sheetH,
         decoration: const BoxDecoration(
           color: Color(0xFF07030F),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          borderRadius: BorderRadius.all(Radius.circular(22)),
           boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 20)],
         ),
         clipBehavior: Clip.antiAlias,
@@ -108,6 +111,7 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
           ],
         ),
       ),
+      ),
     );
   }
 }
@@ -122,12 +126,13 @@ class _ScaledCanvas extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!scale) return child;
     final mq = MediaQuery.of(context);
-    final full = MediaQueryData.fromView(View.of(context));
-    final canvas = Size(full.size.width, full.size.height - full.padding.top);
-    return ColoredBox(
-      color: Colors.black,
-      child: FittedBox(
-        fit: BoxFit.contain,
+    return LayoutBuilder(builder: (context, box) {
+      if (box.maxHeight <= 0 || box.maxWidth <= 0) return const SizedBox.shrink();
+      final designH = math.max(box.maxHeight, 640.0);
+      final k = box.maxHeight / designH;
+      final canvas = Size(box.maxWidth / k, designH);
+      return FittedBox(
+        fit: BoxFit.fill,
         child: SizedBox(
           width: canvas.width,
           height: canvas.height,
@@ -136,8 +141,8 @@ class _ScaledCanvas extends StatelessWidget {
             child: child,
           ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 

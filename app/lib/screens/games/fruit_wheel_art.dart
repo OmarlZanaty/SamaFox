@@ -32,7 +32,14 @@ class FruitArt extends StatelessWidget {
   const FruitArt(this.name, {super.key, required this.size});
 
   @override
-  Widget build(BuildContext context) => SizedBox.square(
+  Widget build(BuildContext context) => name == 'crown'
+      ? Container(
+          width: size, height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(6)),
+          child: const Text('—', style: TextStyle(color: Colors.white)),
+        )
+      : SizedBox.square(
         dimension: size,
         child: Image.asset(
           '$_dir/$name.png',
@@ -206,40 +213,7 @@ class _SymbolPainter extends CustomPainter {
             ..strokeWidth = s * .035
             ..strokeCap = StrokeCap.round,
         );
-      case 'crown':
-        final p = Path()
-          ..moveTo(s * .1, s * .75)
-          ..lineTo(s * .15, s * .3)
-          ..lineTo(s * .35, s * .52)
-          ..lineTo(s * .5, s * .2)
-          ..lineTo(s * .65, s * .52)
-          ..lineTo(s * .85, s * .3)
-          ..lineTo(s * .9, s * .75)
-          ..close();
-        canvas.drawPath(
-          p,
-          Paint()
-            ..shader = const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [fwCream, fwGold, fwGoldDark],
-            ).createShader(Offset.zero & size),
-        );
-        canvas.drawCircle(
-          Offset(s * .5, s * .6),
-          s * .07,
-          Paint()..color = fwPink,
-        );
-        canvas.drawCircle(
-          Offset(s * .28, s * .64),
-          s * .05,
-          Paint()..color = fwBlueBright,
-        );
-        canvas.drawCircle(
-          Offset(s * .72, s * .64),
-          s * .05,
-          Paint()..color = fwBlueBright,
-        );
+
     }
   }
 
@@ -294,10 +268,9 @@ class _CapsulePainter extends CustomPainter {
   bool shouldRepaint(_CapsulePainter old) => false;
 }
 
-/// Pink 77 and the purple crown separate the alternating blue wedges.
+/// Two pink 77 wedges separate the alternating blue wedges.
 Color fruitSegmentColor(int index) => switch (fruitSegments[index]) {
       'sevens' => fwPink,
-      'crown' => fwPurple,
       _ => (index < 4 ? index : index - 1).isEven
           ? const Color(0xFF087EDB)
           : const Color(0xFF0B5FC4),

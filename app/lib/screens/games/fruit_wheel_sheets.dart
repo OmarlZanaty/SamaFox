@@ -164,7 +164,8 @@ class FruitWinners extends StatefulWidget {
   final FruitWheelStrings strings;
   final List<Map<String, dynamic>> winners;
   final int staked, payout;
-  final bool crown;
+  final List<String> results;
+  final Map<String, double> multipliers;
   final Duration duration;
   const FruitWinners({
     super.key,
@@ -172,7 +173,8 @@ class FruitWinners extends StatefulWidget {
     required this.winners,
     required this.staked,
     required this.payout,
-    this.crown = false,
+    this.results = const [],
+    this.multipliers = fruitMultipliers,
     required this.duration,
   });
   @override
@@ -215,20 +217,19 @@ class _FruitWinnersState extends State<FruitWinners> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                s.text(widget.crown ? 'crown' : 'goodLuck'),
+                s.text('goodLuck'),
                 style: const TextStyle(
                   color: fwGold,
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (widget.crown)
+              for (final card in widget.results)
                 Text(
-                  s.text('crownRound'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: fwCream),
+                  '${s.text(card)} ${fruitMultiplierLabel(widget.multipliers[card] ?? fruitMultipliers[card]!)}',
+                  style: const TextStyle(color: fwCream, fontSize: 18),
                 ),
-              for (final w in widget.winners.take(widget.crown ? 0 : 3))
+              for (final w in widget.winners.take(3))
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: fruitAvatar(

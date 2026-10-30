@@ -1,3 +1,4 @@
+import '../services/dio_client.dart';
 import '../l10n/tr.dart';
 import '../widgets/room/room_games_host.dart';
 import 'package:flutter/material.dart';
@@ -147,7 +148,7 @@ List<_GameEntry> get _games => [
   if (_fruitWheelEnabled)
   _GameEntry(
     title: 'عجلة الفواكه',
-    tagline: tr('بطيخ ×2 · 777 ×3 · برقوق ×2', "Watermelon ×2 · 777 ×3 · Plum ×2"),
+    tagline: tr('بطيخ ×2 · 77 ×8 · برقوق ×2', "Watermelon ×2 · 77 ×8 · Plum ×2"),
     emoji: '🍉',
     accent: Color(0xFFFFD332),
     gradient: [Color(0xFF16072E), Color(0xFF5724A0)],
@@ -229,17 +230,25 @@ class GamesHubScreen extends ConsumerWidget {
         ),
         child: SafeArea(
           child: _WithWinTicker(
-            child: GridView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 10,
-                childAspectRatio: .78,
-              ),
-              itemCount: _games.length,
-              itemBuilder: (_, i) =>
-                  _GameCard(entry: _games[i], onTap: () => _open(context, i)),
+            child: CustomScrollView(
+              slivers: [
+                const SliverToBoxAdapter(child: _TopWagerers()),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
+                  sliver: SliverGrid(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: .78,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (_, i) => _GameCard(entry: _games[i], onTap: () => _open(context, i)),
+                      childCount: _games.length,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -428,5 +437,83 @@ class _GameCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _TopWagerers extends StatefulWidget {
+  const _TopWagerers();
+  @override
+  State<_TopWagerers> createState() => _TopWagerersState();
+}
+
+class _TopWagerersState extends State<_TopWagerers> {
+  List<Map<String, dynamic>> _items = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final response = await DioClient.dio.get<Map<String, dynamic>>('games/top-wagerers');
+      final raw = response.data?['items'];
+      if (mounted && raw is List) {
+        setState(() => _items = raw.whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item)).take(3).toList());
+      }
+    } catch (_) {
+      // The games remain available when the optional podium cannot be loaded.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      child: Column(children: [
+        Text(tr('أكثر اللاعبين رهانًا اليوم', 'Today’s top bettors'),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [for (final rank in [2, 1, 3]) Expanded(child: _place(rank))],
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _place(int rank) {
+    if (rank > _items.length) return const SizedBox.shrink();
+    final item = _items[rank - 1];
+    final color = [const Color(0xFFFFD54F), const Color(0xFFC0C0C0), const Color(0xFFCD7F32)][rank - 1];
+    final size = rank == 1 ? 64.0 : 48.0;
+    final avatar = item['avatar']?.toString();
+    final name = item['name']?.toString() ?? tr('لاعب', 'Player');
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      if (rank == 1) const Text('👑', style: TextStyle(fontSize: 26)),
+      Container(
+        width: size, height: size,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: color, width: 3)),
+        child: ClipOval(
+          child: avatar == null || avatar.isEmpty
+              ? const Icon(Icons.person, color: Colors.white)
+              : Image.network(avatar, fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.person, color: Colors.white)),
+        ),
+      ),
+      Text('#$rank', style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
+      Text(tr('${item['wagered'] ?? 0} عملة', '${item['wagered'] ?? 0} coins'),
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: color, fontSize: 12)),
+    ]);
   }
 }
