@@ -1,5 +1,6 @@
 import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS, seatHolders } from './seatLease';
 import { sessionFor, joinRoomSession, sessionHeartbeat, sessionDisconnected, sessionSeat, endRoomSession, reconcileRoomSessions, LeaveReason } from './roomSession.service';
+import { cairoDay } from './halalGames.service';
 import { nameColorSync } from './vipStyle.service';
 import { Server, Socket } from 'socket.io';
 import { setGameBroadcastEmitter } from './gameBroadcast.service';
@@ -282,7 +283,9 @@ function roomSocketUserIds(rid: number): Set<number> {
   const sids = _io?.sockets.adapter.rooms.get(`room:${rid}`);
   if (!sids) return out;
   for (const sid of sids) {
-    const uid = Number(_io!.sockets.sockets.get(sid)?.data?.userId);
+    const socket = _io!.sockets.sockets.get(sid);
+    if (!socket?.connected) continue;
+    const uid = Number(socket.data?.userId);
     if (Number.isFinite(uid) && uid > 0) out.add(uid);
   }
   return out;
@@ -295,15 +298,11 @@ function isLiveInRoom(uid: number, rid: number, socketsInRoom: Set<number>): boo
 }
 
 export function getLiveRoomCounts(): Map<number, number> {
-  const out = new Map<number, number>();
-  const socketsByRoom = new Map<number, Set<number>>();
-  for (const [uid, rid] of userCurrentRoom) {
-    let inRoom = socketsByRoom.get(rid);
-    if (!inRoom) socketsByRoom.set(rid, (inRoom = roomSocketUserIds(rid)));
-    if (!isLiveInRoom(uid, rid, inRoom)) continue;
-    out.set(rid, (out.get(rid) ?? 0) + 1);
-  }
-  return out;
+  return new Map([...new Set(userCurrentRoom.values())].map(rid => [rid, visibleRoomCount(rid)]));
+}
+
+export function visibleRoomCount(roomId: number): number {
+  return getLiveRoomUserIds(roomId).length;
 }
 
 /** The visible users live in a room (for the avatars on a room card). */
@@ -507,6 +506,103 @@ function getQueue(roomId: number): number[] {
   return roomMicQueue.get(roomId)!;
 }
 
+const micApprovals = new Map<number, Set<number>>();
+function grantMicApproval(rid: number, uid: number) {
+  if (!micApprovals.has(rid)) micApprovals.set(rid, new Set());
+  micApprovals.get(rid)!.add(uid);
+}
+
+async function roomSettings(roomId: number) {
+  const [room, blocks] = await Promise.all([
+    (prisma as any).room.findUnique({ where: { id: roomId }, select: { chatLocked: true, micRequestRequired: true } }),
+    (prisma as any).roomChatBlock.findMany({ where: { roomId }, select: { userId: true }, orderBy: { userId: 'asc' } }),
+  ]);
+  return { roomId, chatLocked: room?.chatLocked ?? false, chatBlockedUserIds: blocks.map((b: { userId: number }) => b.userId) as number[], micRequestRequired: room?.micRequestRequired ?? false };
+}
+
+function chatRejection(settings: { chatLocked: boolean; chatBlockedUserIds: number[] }, uid: number, admin: boolean) {
+  if (settings.chatBlockedUserIds.includes(uid)) return { code: 'CHAT_BLOCKED', message: 'تم منعك من الكتابة في هذه الغرفة' };
+  if (settings.chatLocked && !admin) return { code: 'CHAT_LOCKED', message: 'الكتابة مقفولة في الغرفة حاليًا' };
+  return null;
+}
+
+async function emitMicQueue(io: Server, rid: number, recipient?: AuthenticatedSocket) {
+  try {
+    const queue = getQueue(rid).filter(uid => !isHiddenInRoom(uid, rid) && isUserInRoom(uid, rid) && roomSocketUserIds(rid).has(uid));
+    const users = await prisma.user.findMany({ where: { id: { in: queue } }, select: { id: true, name: true, avatarUrl: true } });
+    const byId = new Map(users.map(u => [u.id, u]));
+    const entries = queue.map(userId => ({ userId, name: byId.get(userId)?.name ?? 'مستخدم', avatar: byId.get(userId)?.avatarUrl ?? null }));
+    (recipient ?? io.to(`room:${rid}`)).emit('mic_queue_updated', { roomId: rid, queue, entries });
+  } catch (e) { console.warn('[mic queue]', e); }
+}
+
+/** Find the Cairo midnight boundary, including DST days, using the shared day helper. */
+function cairoDayStart(now = new Date()): Date {
+  const day = cairoDay(now);
+  let lo = now.getTime() - 27 * 60 * 60 * 1000;
+  let hi = now.getTime();
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (cairoDay(new Date(mid)) === day) hi = mid; else lo = mid;
+  }
+  return new Date(hi);
+}
+
+async function roomTopSupporters(roomId: number) {
+  const now = new Date();
+  const rows = await prisma.giftTransaction.groupBy({
+    by: ['senderId'], where: { roomId, createdAt: { gte: cairoDayStart(now), lte: now } },
+    _sum: { paidCoins: true }, orderBy: [{ _sum: { paidCoins: 'desc' } }, { senderId: 'asc' }], take: 2,
+  });
+  const users = await prisma.user.findMany({ where: { id: { in: rows.map(r => r.senderId) } }, select: { id: true, name: true, avatarUrl: true } });
+  const byId = new Map(users.map(u => [u.id, u]));
+  // Hidden entry affects presence only, never the sender's gift contributions.
+  return rows.map(r => ({ userId: r.senderId, name: byId.get(r.senderId)?.name ?? 'مستخدم', avatar: byId.get(r.senderId)?.avatarUrl ?? null, amount: r._sum.paidCoins ?? 0 }));
+}
+
+/** Observe the committed gift outbox's broadcast without changing the gift worker. */
+function observeRoomGifts(io: Server) {
+  const pending = new Map<number, { timer?: NodeJS.Timeout; dirty: boolean; running: boolean; last: number }>();
+  const adapter = io.sockets.adapter;
+  const broadcast = adapter.broadcast.bind(adapter);
+  function schedule(roomId: number) {
+    let state = pending.get(roomId);
+    if (!state) { state = { dirty: false, running: false, last: 0 }; pending.set(roomId, state); }
+    state.dirty = true;
+    if (state.timer || state.running) return;
+    const current = state;
+    current.timer = setTimeout(async () => {
+      current.timer = undefined;
+      current.running = true;
+      current.dirty = false;
+      try {
+        const items = await roomTopSupporters(roomId);
+        current.last = Date.now();
+        io.to(`room:${roomId}`).emit('room_top_supporters', { roomId, items });
+      } catch (e) { console.warn('[room supporters]', e); }
+      finally {
+        current.running = false;
+        if (current.dirty) schedule(roomId);
+        else {
+          current.timer = setTimeout(() => {
+            current.timer = undefined;
+            if (current.dirty) schedule(roomId); else pending.delete(roomId);
+          }, 3000);
+          current.timer.unref?.();
+        }
+      }
+    }, Math.max(0, current.last + 3000 - Date.now()));
+    current.timer.unref?.();
+  }
+  adapter.broadcast = (packet, options) => {
+    broadcast(packet, options);
+    if (packet.data?.[0] === 'gift_sent') {
+      const rid = toInt(packet.data[1]?.roomId);
+      if (rid) schedule(rid);
+    }
+  };
+}
+
 /// A18 — قفل مايك / فتح مايك / كتم / فك كتم for a PLATFORM admin, in any room
 /// including a super admin's.
 ///
@@ -599,7 +695,7 @@ async function populateAdmins(roomId: number) {
   roomAdmins.set(roomId, admins);
 }
 
-async function emitRoomState(io: Server, rid: number) {
+async function emitRoomState(io: Server, rid: number, recipient?: AuthenticatedSocket) {
   // make sure admins are populated
   let adminsSet = getAdmins(rid);
   if (adminsSet.size === 0) {
@@ -608,7 +704,7 @@ async function emitRoomState(io: Server, rid: number) {
   }
 const locked = getLockedSeats(rid);
 
-  const seatsMap = getSeats(rid);
+  const seatsMap = new Map([...getSeats(rid)].filter(([, uid]) => !isHiddenInRoom(uid, rid)));
   const mutedMap = getMuted(rid);
 
     // Build FULL seat list (1..maxSeats), not only occupied seats
@@ -705,14 +801,18 @@ await Promise.all(
     };
   });
 
-  const adminList = Array.from(adminsSet);
+  const adminList = Array.from(adminsSet).filter(uid => !isHiddenInRoom(uid, rid));
 
   // CP partners on the mics and the effect their level earns (item 11). The
   // app draws it only for neighbouring seats; a snapshot without the link is
   // what removes it.
   const cpLinks = await cpSeatLinks(seatsMap).catch(() => []);
 
-  io.to(`room:${rid}`).emit('room_seats_state', {
+  const settings = await roomSettings(rid);
+  (recipient ?? io.to(`room:${rid}`)).emit('room_seats_state', {
+    ...settings,
+    membersCount: visibleRoomCount(rid),
+    topSupporters: await roomTopSupporters(rid),
     roomId: rid,
     ownerId: room?.ownerId ?? 0,
     admins: adminList,
@@ -727,7 +827,8 @@ await Promise.all(
   // Every seat change lands here, and a seat change IS a voice-topology change
   // (see voiceSnapshot): someone just became, or stopped being, a speaker that
   // the listeners need a connection to.
-  await emitVoiceUsers(io, rid);
+  if (recipient) recipient.emit('voice_users', voiceSnapshot(rid));
+  else await emitVoiceUsers(io, rid);
   void publishGuard.sync(rid);
 }
 
@@ -750,12 +851,13 @@ await Promise.all(
 function voiceSnapshot(rid: number) {
   return {
     roomId: rid,
-    users: Array.from(getVoiceSet(rid).values()),
+    users: getLiveRoomUserIds(rid),
+    membersCount: visibleRoomCount(rid),
     // A room on LiveKit has no mesh: nobody is a mesh "speaker", so a mesh
     // engine still alive on a phone (every build up to 1.0.37 keeps its
     // handlers after the room moved) builds no links and drops the ones it
     // has. The LiveKit engine and the room UI read `users` only.
-    speakers: isLiveKitRoom(rid) ? [] : Array.from(new Set(getSeats(rid).values())),
+    speakers: isLiveKitRoom(rid) ? [] : Array.from(new Set(getSeats(rid).values())).filter(uid => getLiveRoomUserIds(rid).includes(uid)),
   };
 }
 
@@ -814,9 +916,8 @@ async function buildRoomUsers(io: Server, rid: number, viewerId?: number) {
   const inRoom = new Set(
     sockets.map((s) => Number((s.data as any)?.userId)).filter((n) => Number.isFinite(n) && n > 0),
   );
-  // Same rule as the room card's number (getLiveRoomCounts); the viewer always
-  // sees themself.
-  const ids = Array.from(inRoom).filter((n) => n === viewerId || isLiveInRoom(n, rid, inRoom));
+  // Same visible presence as the room card, including for a hidden viewer.
+  const ids = Array.from(inRoom).filter((n) => isLiveInRoom(n, rid, inRoom));
   if (ids.length === 0) return [];
 
   const users = await prisma.user.findMany({
@@ -1045,8 +1146,10 @@ async function hasLiveRoomSocket(io: Server, uid: number): Promise<boolean> {
 function dropUserFromVoice(io: Server, uid: number) {
   for (const [rid, set] of voiceUsers.entries()) {
     if (set.delete(uid)) {
-      io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
-      emitVoiceUsers(io, rid).catch(console.error);
+      if (!isHiddenInRoom(uid, rid)) {
+        io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
+        emitVoiceUsers(io, rid).catch(console.error);
+      }
     }
   }
 }
@@ -1055,6 +1158,7 @@ function releaseUserFromRooms(io: Server, uid: number, reason: LeaveReason = 'le
   cancelPendingRelease(uid);
   endRoomSession(uid, reason);
   const lastRoom = userCurrentRoom.get(uid) ?? null;
+  for (const approvals of micApprovals.values()) approvals.delete(uid);
   userCurrentRoom.delete(uid); // #25/#31: no longer in any room
   const notifiedRooms = new Set<number>();
 
@@ -1066,7 +1170,7 @@ function releaseUserFromRooms(io: Server, uid: number, reason: LeaveReason = 'le
     if (q.includes(uid)) {
       const nq = q.filter((id) => id !== uid);
       roomMicQueue.set(rid, nq);
-      io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: nq });
+      void emitMicQueue(io, rid);
     }
   });
 
@@ -1077,8 +1181,10 @@ function releaseUserFromRooms(io: Server, uid: number, reason: LeaveReason = 'le
       if (occupant === uid) {
         seats.delete(num);
         roomMuted.get(rid)?.delete(uid);
-        io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
-        io.to(`room:${rid}`).emit('user_left', { userId: uid, roomId: rid });
+        if (!isHiddenInRoom(uid, rid)) {
+          io.to(`room:${rid}`).emit('seat_released', { seatNumber: num, userId: uid });
+          io.to(`room:${rid}`).emit('user_left', { userId: uid, roomId: rid });
+        }
         notifiedRooms.add(rid);
         changed = true;
       }
@@ -1160,6 +1266,7 @@ export function evictRoomUser(rid: number, uid: number, reason: LeaveReason) {
 
 export const initializeSocketHandlers = (io: Server) => {
   _io = io;
+  observeRoomGifts(io);
   sessionStartup = reconcileRoomSessions().catch(e => console.warn('[room session restart]', e));
   setGameBroadcastEmitter((event, payload) => io.emit(event, payload));
   // SPEC52 #39 — committed game wins → the player's room strip.
@@ -1237,7 +1344,7 @@ socket.on('get_room_users', async ({ roomId }: any) => {
   const rid = toInt(roomId);
   if (!rid) return;
   try {
-    socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid, socket.userId) });
+    socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid, socket.userId), membersCount: visibleRoomCount(rid) });
   } catch (e) {
     console.warn('[get_room_users] failed:', e);
   }
@@ -1687,6 +1794,38 @@ socket.on('moveSeat', async ({ roomId, fromSeat, toSeat }: any) => {
 
 
 
+// Room owner/admin settings; platform mic-only privileges do not grant these.
+for (const event of ['room_set_chat_lock', 'room_chat_block', 'room_set_mic_request_mode']) {
+  socket.on(event, async (payload: any = {}) => {
+    try {
+      const rid = toInt(payload.roomId);
+      const uid = socket.userId;
+      if (!rid || !uid) return;
+      await populateAdmins(rid);
+      if (!getAdmins(rid).has(uid)) return;
+      if (event === 'room_chat_block') {
+        const targetId = toInt(payload.userId);
+        if (!targetId || typeof payload.blocked !== 'boolean') return;
+        if (payload.blocked) {
+          await (prisma as any).roomChatBlock.upsert({
+            where: { roomId_userId: { roomId: rid, userId: targetId } },
+            create: { roomId: rid, userId: targetId, byUserId: uid }, update: { byUserId: uid },
+          });
+        } else await (prisma as any).roomChatBlock.deleteMany({ where: { roomId: rid, userId: targetId } });
+      } else {
+        const value = event === 'room_set_chat_lock' ? payload.locked : payload.required;
+        if (typeof value !== 'boolean') return;
+        const data = event === 'room_set_chat_lock' ? { chatLocked: value } : { micRequestRequired: value };
+        await (prisma as any).room.update({ where: { id: rid }, data });
+      }
+      io.to(`room:${rid}`).emit('room_settings_updated', await roomSettings(rid));
+    } catch (e) {
+      console.warn('[room settings]', e);
+      socket.emit('error', { event, message: 'تعذر تحديث إعدادات الغرفة' });
+    }
+  });
+}
+
 socket.on('seat_lock', async ({ roomId, seatNumber, locked }: any) => {
   const rid = toInt(roomId);
   const sn = toInt(seatNumber);
@@ -1746,7 +1885,13 @@ socket.on('take_seat', async ({ roomId, seatNumber }: any) => {
   const uid = socket.userId;
   if (!rid || !sn || !uid) return;
   // Only someone the room admitted can sit on its mics.
-  if (!(await mayListen(uid, rid))) return;
+  if (!(await mayListen(uid, rid)) || isHiddenInRoom(uid, rid)) return;
+  await populateAdmins(rid);
+  const settings = await roomSettings(rid);
+  if (settings.micRequestRequired && !getAdmins(rid).has(uid) && !micApprovals.get(rid)?.has(uid)) {
+    socket.emit('seat_error', { roomId: rid, seatNumber: sn, code: 'MIC_REQUEST_REQUIRED', message: 'اطلب المايك أولاً' });
+    return;
+  }
 
   // make sure socket is in the room so it receives updates too
   socket.join(`room:${rid}`);
@@ -1811,6 +1956,7 @@ socket.emit('seat_error', {
     }
   }
 
+  const approved = micApprovals.get(rid)?.delete(uid) ?? false;
   seats.set(sn, uid);
 
 // Persist seat to DB — composite PK @@id([userId, roomId])
@@ -1823,6 +1969,7 @@ try {
 } catch (err) {
   console.error('[socket.take_seat] roomMember upsert failed:', err);
   seats.delete(sn); // roll back in-memory seat
+  if (approved) grantMicApproval(rid, uid);
   socket.emit('seat_error', { roomId: rid, seatNumber: sn, message: 'Failed to claim seat, please try again' });
   return;
 }
@@ -1901,8 +2048,8 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
   // make sure socket is in the room so it receives updates
   socket.join(`room:${rid}`);
 
-  // send FULL snapshot to requester (and also refresh room to be safe)
-  await emitRoomState(io, rid);
+  // Snapshot requests are private, including hidden entrants.
+  await emitRoomState(io, rid, socket);
 });
 
     // ----------------------------
@@ -1922,15 +2069,6 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         socket.emit('join_denied', { roomId: rid, reason: 'closed' });
         return;
       }
-      // A room the dashboard took off the home list returns when its owner
-      // opens it again. (Imported lazily: roomRanking imports this module.)
-      if (roomRow.ownerId === uid) {
-        void import('./roomRanking.service')
-          .then((m) => m.unhideRoom(rid))
-          .then((was) => { if (was) console.log('[room hidden] owner reopened', { rid, uid }); })
-          .catch(() => {});
-      }
-
       // Already admitted and just re-syncing after a reconnect: the gate was
       // passed on the way in, so do not ask for the password again.
       const alreadyInside = userCurrentRoom.get(uid) === rid;
@@ -2021,6 +2159,15 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         else hiddenInRoom.get(rid)?.delete(uid);
       }
 
+      // A room the dashboard took off the home list returns when its owner
+      // opens it again. (Imported lazily: roomRanking imports this module.)
+      if (roomRow.ownerId === uid && !hiddenEntry) {
+        void import('./roomRanking.service')
+          .then((m) => m.unhideRoom(rid))
+          .then((was) => { if (was) console.log('[room hidden] owner reopened', { rid, uid }); })
+          .catch(() => {});
+      }
+
       cancelPendingRelease(uid); // back in time — keep whatever they still hold
       socket.join(`room:${rid}`);
       userCurrentRoom.set(uid, rid); // #25/#31: track actual current room
@@ -2033,7 +2180,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       // Their voice join was held back until the gate let them in: complete it.
       if (deferredVoice.delete(`${rid}:${uid}`)) {
         getVoiceSet(rid).add(uid);
-        await emitVoiceUsers(io, rid);
+        if (!hiddenEntry) await emitVoiceUsers(io, rid);
       }
 
       if (!alreadyInside) {
@@ -2139,7 +2286,7 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
       // normal take-seat path already handles admins correctly.
 
       // Unified snapshot (full seats 1..maxSeats) to avoid payload mismatches.
-      await emitRoomState(io, rid);
+      await emitRoomState(io, rid, hiddenEntry ? socket : undefined);
 
       // Roster, both directions:
       //  • `user_joined` for EVERY entrant — it used to fire only inside the
@@ -2167,13 +2314,13 @@ socket.on('init_room_seats', async ({ roomId }: any) => {
         // A hidden entrant is told about himself only.
         if (hiddenEntry) socket.emit('user_joined', joinedPayload);
         else io.to(`room:${rid}`).emit('user_joined', joinedPayload);
-        socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid, uid) });
+        socket.emit('room_users', { roomId: rid, users: await buildRoomUsers(io, rid, uid), membersCount: visibleRoomCount(rid) });
         socket.emit('room_entry_mode', { roomId: rid, hidden: hiddenEntry, lockBypass });
       } catch (e) {
         console.warn('[join_room] roster emit failed:', e);
       }
 
-      io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue });
+      void emitMicQueue(io, rid, socket);
 
       // Music already playing? Hand the newcomer the current track AND its
       // position so they join mid-song instead of starting it over.
@@ -2208,6 +2355,7 @@ async function performLeaveRoom(
 ) {
   if (userCurrentRoom.get(uid) !== rid) return;
   cancelPendingRelease(uid);
+  micApprovals.get(rid)?.delete(uid);
   endRoomSession(uid, reason);
   socket.leave(`room:${rid}`);
   if (userCurrentRoom.get(uid) === rid) userCurrentRoom.delete(uid); // #25/#31
@@ -2227,8 +2375,8 @@ async function performLeaveRoom(
   // and every remaining client kept trying to hold a peer connection open to
   // someone who was gone.
   if (getVoiceSet(rid).delete(uid)) {
-    io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
-    await emitVoiceUsers(io, rid);
+    if (!wasHidden) io.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
+    if (!wasHidden) await emitVoiceUsers(io, rid);
   }
 
   // cleanup: remove from queue
@@ -2251,10 +2399,10 @@ async function performLeaveRoom(
   }
 
   // ✅ ONE strong snapshot after all cleanup
-  await emitRoomState(io, rid);
+  if (!wasHidden) await emitRoomState(io, rid);
   cleanupRoomStateIfEmpty(rid);
 
-  io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
+  if (!wasHidden) void emitMicQueue(io, rid);
 
   if (!wasHidden) {
     io.to(`room:${rid}`).emit('user_left', {
@@ -2316,6 +2464,12 @@ socket.on('leave_room', async ({ roomId }: any) => {
           : raw;
       }
       if (!uid || !rid || (!clean && !picture)) return;
+      if (!isUserInRoom(uid, rid) || !socket.rooms.has(`room:${rid}`)) return;
+      await populateAdmins(rid);
+      const settings = await roomSettings(rid);
+      const rejection = chatRejection(settings, uid, getAdmins(rid).has(uid));
+      if (rejection) { socket.emit('room_message_rejected', rejection); return; }
+
 
       // ✅ FIX: fetch username from DB — never trust client-provided username (was spoofable)
       const user = await prisma.user.findUnique({
@@ -2395,7 +2549,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
     socket.on('speaking', ({ roomId, isSpeaking }: any) => {
       const rid = toInt(roomId);
       const uid = socket.userId;
-      if (!rid || !uid) return;
+      if (!rid || !uid || isHiddenInRoom(uid, rid)) return;
       socket.to(`room:${rid}`).emit('user_speaking', {
         roomId: rid,
         userId: uid,
@@ -2405,7 +2559,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
     socket.on('typing', ({ roomId, username, isTyping }: any) => {
       const rid = toInt(roomId);
-      if (!rid) return;
+      if (!rid || !socket.userId || isHiddenInRoom(socket.userId, rid)) return;
       io.to(`room:${rid}`).emit('typing', {
         userId: socket.userId,
         username,
@@ -2419,13 +2573,13 @@ socket.on('leave_room', async ({ roomId }: any) => {
     socket.on('request_mic', ({ roomId }: any) => {
       const rid = toInt(roomId);
       const uid = socket.userId;
-      if (!uid || !rid) return;
+      if (!uid || !rid || !isUserInRoom(uid, rid) || isHiddenInRoom(uid, rid)) return;
 
       console.log('[request_mic]', { uid, rid });
 
       const q = getQueue(rid);
       if (!q.includes(uid)) q.push(uid);
-      io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
+      void emitMicQueue(io, rid);
     });
 
     socket.on('cancel_mic_request', ({ roomId }: any) => {
@@ -2437,7 +2591,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
       const q = getQueue(rid).filter((id) => id !== uid);
       roomMicQueue.set(rid, q);
-      io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
+      void emitMicQueue(io, rid);
     });
 
     socket.on('approve_mic', async ({ roomId, targetUserId, userId }: any) => {
@@ -2459,6 +2613,8 @@ socket.on('leave_room', async ({ roomId }: any) => {
     return;
   }
 
+  if (!getQueue(rid).includes(targetId) || !roomSocketUserIds(rid).has(targetId) || !isUserInRoom(targetId, rid) || isHiddenInRoom(targetId, rid)) return;
+  grantMicApproval(rid, targetId);
   // remove from queue
   const q = getQueue(rid).filter((id) => id !== targetId);
   roomMicQueue.set(rid, q);
@@ -2495,10 +2651,11 @@ socket.on('leave_room', async ({ roomId }: any) => {
 
   if (seatNum == null) {
     console.log('[approve_mic] no seat available', { rid, targetId });
-    io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
+    void emitMicQueue(io, rid);
     return;
   }
 
+  micApprovals.get(rid)?.delete(targetId);
   seats.set(seatNum, targetId);
   getMuted(rid).set(targetId, false);
   await publishGuard.syncWithin(rid);
@@ -2534,7 +2691,7 @@ socket.on('leave_room', async ({ roomId }: any) => {
   isMuted: false,
 });
 
-  io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
+  void emitMicQueue(io, rid);
 
   // voice list
   getVoiceSet(rid).add(targetId);
@@ -2629,7 +2786,10 @@ socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
     if (userCurrentRoom.get(uid) !== rid || !socket.rooms.has(`room:${rid}`)) return;
     const seatNum = invite.seatNumber;
 
-    if (!accept) {
+    if (isHiddenInRoom(uid, rid)) return;
+    await populateAdmins(rid);
+    if (!getAdmins(rid).has(invite.fromUserId)) return;
+    if (accept !== true) {
       io.to(invite.fromUserId.toString()).emit('seat_invite_result', {
         roomId: rid, seatNumber: seatNum, userId: uid, accepted: false,
       });
@@ -2649,6 +2809,8 @@ socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
     for (const [num, occ] of seats.entries()) if (occ === uid) seats.delete(num);
     roomMicQueue.set(rid, getQueue(rid).filter((id) => id !== uid));
 
+    micApprovals.get(rid)?.delete(uid);
+    void emitMicQueue(io, rid);
     seats.set(seatNum, uid);
     getMuted(rid).set(uid, false);
     await publishGuard.syncWithin(rid);
@@ -2694,9 +2856,10 @@ socket.on('seat_invite_response', async ({ inviteId, accept }: any) => {
       }
       if (!adminsSet.has(adminId)) return;
 
+      micApprovals.get(rid)?.delete(targetId);
       const q = getQueue(rid).filter((id) => id !== targetId);
       roomMicQueue.set(rid, q);
-      io.to(`room:${rid}`).emit('mic_queue_updated', { roomId: rid, queue: q });
+      void emitMicQueue(io, rid);
     });
 
     socket.on('set_seat_mute', async ({ roomId, seatNumber, targetUserId, mute }) => {
@@ -2888,12 +3051,12 @@ await emitRoomState(io, rid);
       // re-creating it. Tell the room to tear that peer down first, then
       // re-add — otherwise the returning user comes back mute.
       const voice = getVoiceSet(rid);
-      if (resume === true && voice.has(uid)) {
+      if (resume === true && voice.has(uid) && !isHiddenInRoom(uid, rid)) {
         socket.to(`room:${rid}`).emit('user_left_voice', { userId: uid, roomId: rid });
       }
 
       voice.add(uid);
-      await emitVoiceUsers(io, rid);
+      if (!isHiddenInRoom(uid, rid)) await emitVoiceUsers(io, rid);
     });
 
     
@@ -2915,7 +3078,7 @@ await emitRoomState(io, rid);
       console.log('🎤 user_left_voice', { rid, uid });
 
       getVoiceSet(rid).delete(uid);
-      await emitVoiceUsers(io, rid);
+      if (!isHiddenInRoom(uid, rid)) await emitVoiceUsers(io, rid);
 
     });
 
@@ -2976,6 +3139,12 @@ socket.on('webrtc_ice_candidate', ({ to, candidate, roomId }: any) => {
       const uid = socket.userId;
       if (!uid) return;
 
+      const rid = userCurrentRoom.get(uid);
+      if (rid && !isHiddenInRoom(uid, rid) && !roomSocketUserIds(rid).has(uid)) {
+        io.to(`room:${rid}`).emit('user_left', { roomId: rid, userId: uid });
+        void emitVoiceUsers(io, rid);
+        void buildRoomUsers(io, rid).then(users => io.to(`room:${rid}`).emit('room_users', { roomId: rid, users, membersCount: visibleRoomCount(rid) })).catch(console.error);
+      }
       if (sessionDisconnected(uid, socket.id, String(reason))) holdForReconnect(io, uid);
       // Another device/tab of the same user is still connected → nothing to
       // tear down, they're demonstrably still here.

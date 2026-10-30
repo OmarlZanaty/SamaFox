@@ -1,3 +1,4 @@
+import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/oneAgencyRule';
 import { Prisma, StaffRole, TemporaryEntitlement } from '@prisma/client';
 import prisma from '../utils/prisma';
@@ -468,7 +469,7 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
   if (op === 'lookup') {
     const id = positiveId(query.id);
     // The ID people see and type is the displayId; the row id is the fallback.
-    const user = await c.db.user.findUnique({ where: { displayId: id }, select: userSelect }) ?? await c.db.user.findUnique({ where: { id }, select: userSelect });
+    const user = await resolveUserByPublicId(id, c.db, userSelect);
     if (!user) fail(404, 'المستخدم غير موجود');
     return { ...user, isBanned: user.isBanned && (user.banExpiresAt === null || user.banExpiresAt > c.now),
       staffRole: c.access.tree.find(r => r.userId === user.id && rules.isLive(r, c.now)) ?? null };

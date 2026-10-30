@@ -18,6 +18,7 @@ router.get('/role-rewards', handle('roleRewards'));
 router.put('/role-rewards', requireSuperAdmin, handle('roleRewardsSet'));
 router.get('/audit', handle('audit'));
 router.get('/grants', handle('grants'));
+router.post('/grants/:id/revoke', requireSuperAdmin, handle('grantRevoke'));
 router.get('/bans', handle('bans'));
 router.get('/ban-holders', handle('banHolders'));
 // Fixed paths above, `/:roleId` ones below, so a word is never read as an id.

@@ -1,3 +1,4 @@
+import { listHeldItems, revokeHeldItem } from '../controllers/adminGrant.controller';
 import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from "express";
 import multer from "multer";
@@ -48,5 +49,8 @@ router.delete("/products/:id", authMiddleware, adminMiddleware, requireOwnerPerm
 router.get("/products", authMiddleware, adminMiddleware, listProductsAdmin);
 router.patch("/products/:id", authMiddleware, adminMiddleware, requireOwnerPermission('store.products'), setProductVisibility);
 router.post("/grant", authMiddleware, adminMiddleware, grantProduct);
+
+router.get('/holdings/:publicId', authMiddleware, adminMiddleware, listHeldItems);
+router.post('/revoke', authMiddleware, adminMiddleware, revokeHeldItem);
 
 export default router;

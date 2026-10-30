@@ -26,7 +26,7 @@ test('dashboard surface matches Part D and mounts before the existing dashboard 
     'GET /', 'POST /managers', 'POST /members', 'GET /:roleId', 'POST /:roleId/extend', 'POST /:roleId/renew',
     'POST /:roleId/revoke', 'POST /:roleId/parent',
     'GET /pool', 'PUT /pool', 'GET /role-rewards', 'PUT /role-rewards', 'GET /audit', 'GET /grants', 'GET /bans',
-    'GET /ban-holders',
+    'GET /ban-holders', 'POST /grants/:id/revoke',
   ].sort());
   const index = readFileSync(resolve(__dirname, '../../index.ts'), 'utf8');
   for (const prefix of ['/api/v1/admin-dashboard', '/admin-dashboard']) {

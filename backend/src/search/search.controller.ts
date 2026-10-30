@@ -1,3 +1,4 @@
+import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 
@@ -37,8 +38,8 @@ export const search = async (req: Request, res: Response) => {
           where: {
             isBanned: false,
             OR: [
-              { name: { contains: q } },
-              ...(numQ !== null ? [{ displayId: numQ }] : []),
+              ...(numQ === null ? [{ name: { contains: q } }] : []),
+              ...(numQ !== null ? [{ id: (await resolveUserByPublicId(numQ))?.id ?? -1 }] : []),
             ],
           },
           select: {
@@ -66,7 +67,8 @@ export const search = async (req: Request, res: Response) => {
       id: u.id,
       name: u.name,
       imageUrl: u.avatarUrl,
-      subtitle: u.displayId ? `#${u.displayId}` : null,
+      displayId: u.displayId,
+      subtitle: `#${u.displayId ?? u.id}`,
       level: u.level,
     })),
   ];

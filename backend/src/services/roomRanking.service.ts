@@ -96,7 +96,7 @@ export async function unhideRoom(roomId: number): Promise<boolean> {
   return true;
 }
 
-type Row = { id: number; ownerId: number; createdAt: Date; owner: { displayId: number | null } | null };
+type Row = { roomType?: string; id: number; ownerId: number; createdAt: Date; owner: { displayId: number | null } | null };
 
 /**
  * Resolve each pin to one room among [rows]: the owner's newest room for a
@@ -148,10 +148,11 @@ export async function rankedRoomIds(where: any, featuredId: number, viewerId?: n
   const hidden = new Set(await getHiddenRooms());
   const rows: Row[] = (await db.room.findMany({
     where,
-    select: { id: true, ownerId: true, createdAt: true, owner: { select: { displayId: true } } },
+    select: { id: true, ownerId: true, roomType: true, createdAt: true, owner: { select: { displayId: true } } },
   })).filter((r: Row) => !hidden.has(r.id) || (viewerId != null && r.ownerId === viewerId));
   const pins = await getRoomPins();
   const pinRanks = resolvePinRanks(pins, rows);
   const live = getLiveRoomCounts();
-  return { ids: orderRooms(rows, { featuredId, pinRanks, live }), live, pinRanks };
+  const visible = rows.filter(r => (live.get(r.id) ?? 0) > 0 || r.ownerId === viewerId || r.id === featuredId || r.roomType === 'OFFICIAL_ROOM' || pinRanks.has(r.id));
+  return { ids: orderRooms(visible, { featuredId, pinRanks, live }), live, pinRanks };
 }

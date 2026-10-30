@@ -1234,7 +1234,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     // "تحت العمر الايدي في النص بالظبط" — the ID sits under the
                     // age, centred, on its own line. It used to be pushed to
                     // the far side of a row shared with the level.
-                    Center(child: _buildUserIdRow(user.publicDisplayId, context)),
+                    Center(child: _buildUserIdRow(user.publicId, context)),
                     const SizedBox(height: 6),
 
                     // "تحت العمر الليفل والفي اي بي في النص بردو … الفي اي بي

@@ -127,7 +127,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             'id': m['id'],
             'name': m['name'],
             'imageUrl': m['avatarUrl'],
-            'subtitle': m['displayId'] != null ? '#${m['displayId']}' : null,
+            'subtitle': '#${m['displayId'] ?? m['id']}',
           };
         }),
       );
@@ -148,7 +148,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             'id': user['id'],
             'name': user['name'],
             'imageUrl': user['avatarUrl'],
-            'subtitle': user['displayId'] != null ? '#${user['displayId']}' : null,
+            'subtitle': '#${user['displayId'] ?? user['id']}',
           });
         }
       } catch (_) {

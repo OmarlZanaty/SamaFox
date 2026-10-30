@@ -1,3 +1,4 @@
+import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import { adjustOwnerAgencyWallet, AgencyWalletError, CHARGING_WALLETS_FROZEN_KEY } from './charging-agency.controller';
 import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/oneAgencyRule';
 import { AgencyAccessError } from '../services/agencyIdentity.service';
@@ -96,11 +97,12 @@ export const adminDashboardListUsers = async (req: Request, res: Response) => {
             { name: { contains: search, mode: 'insensitive' } },
             { email: { contains: search, mode: 'insensitive' } },
             { phone: { contains: search } },
-            ...(numeric != null ? [{ displayId: numeric }, { id: numeric }] : []),
+            ...(numeric != null ? [{ id: (await resolveUserByPublicId(numeric))?.id ?? -1 }] : []),
           ],
         }
       : {};
 
+    if (numeric !== null) { where.OR = [{ id: (await resolveUserByPublicId(numeric))?.id ?? -1 }]; }
     const [total, users] = await Promise.all([
       prisma.user.count({ where }),
       prisma.user.findMany({

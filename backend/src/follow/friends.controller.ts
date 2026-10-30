@@ -1,3 +1,4 @@
+import { friendIds } from './friendIds';
 import { Request, Response, Router } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware as auth } from '../middlewares/auth.middleware';
@@ -21,6 +22,7 @@ export const friendsRouter = Router();
 /** Friendship state between me and :userId — none | pending_out | pending_in | friends | blocked */
 export async function friendState(me: number, other: number) {
   const f = await db.friendship.findUnique({ where: { userLowId_userHighId: pair(me, other) } });
+  if (f?.status !== 'blocked' && (await friendIds(db, me)).includes(other)) return { state: 'friends', id: f?.id ?? null };
   if (!f || f.status === 'rejected') return { state: 'none', id: f?.id ?? null };
   if (f.status === 'accepted') return { state: 'friends', id: f.id };
   if (f.status === 'blocked') return { state: 'blocked', id: f.id };
@@ -116,8 +118,7 @@ friendsRouter.post('/:userId/block', auth, async (req: R, res) => {
 /** Accepted friends of the caller. */
 friendsRouter.get('/', auth, async (req: R, res) => {
   const me = req.userId!;
-  const rows = await db.friendship.findMany({ where: { status: 'accepted', OR: [{ userLowId: me }, { userHighId: me }] }, take: 1000 });
-  const ids = rows.map((r: any) => (r.userLowId === me ? r.userHighId : r.userLowId));
+  const ids = await friendIds(db, me);
   const users = ids.length ? await db.user.findMany({ where: { id: { in: ids } }, select: PUBLIC }) : [];
   res.json({ success: true, data: withNameStyles(users) });
 });
@@ -125,7 +126,7 @@ friendsRouter.get('/', auth, async (req: R, res) => {
 /** Real counts from the database — no fixed numbers anywhere. */
 export async function socialCounts(userId: number) {
   const [friends, followers, following, visitors] = await Promise.all([
-    db.friendship.count({ where: { status: 'accepted', OR: [{ userLowId: userId }, { userHighId: userId }] } }),
+    friendIds(db, userId).then(ids => ids.length),
     db.follow.count({ where: { followingId: userId, status: 'ACCEPTED' } }),
     db.follow.count({ where: { followerId: userId, status: 'ACCEPTED' } }),
     db.profileVisit.groupBy({ by: ['viewerId'], where: { profileId: userId } }).then((g: any[]) => g.length),

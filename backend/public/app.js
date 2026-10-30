@@ -510,7 +510,7 @@ async function loadUsers() {
     const tr = document.createElement("tr");
     const displayIdValue = Number(u.displayId || 0) >= 10000 ? `#${u.displayId}` : "—";
     tr.innerHTML = `
-      <td><span class="cell-id">${escapeHtml(u.id ?? "")}</span></td>
+      <td><span class="cell-id">${escapeHtml(u.displayId ?? u.id ?? "")}</span><small class="cell-muted"> #${escapeHtml(u.id)}</small></td>
       <td><span class="cell-id js-display-id">${escapeHtml(displayIdValue)}</span></td>
       <td>${escapeHtml(u.name ?? "")}</td>
       <td><span class="cell-muted">${escapeHtml(u.email ?? "")}</span></td>
@@ -536,6 +536,7 @@ async function loadUsers() {
           <button class="btn-bad" onclick="openCoinsModal('${escapeHtml(u.id ?? "")}', 'remove')">- كوينز</button>
           <button class="btn-outline" onclick="openDisplayIdModal(${Number(u.id || 0)}, this)">Change ID</button>
           <button class="btn-outline" onclick="openEditProfileModal(${Number(u.id || 0)}, ${JSON.stringify(u.name ?? "").replace(/"/g, '&quot;')}, '${escapeHtml(u.gender ?? "")}', ${u.nameLocked ? "true" : "false"})">تعديل</button>
+          <button class="btn-outline" onclick="openHeldItems(${Number(u.displayId ?? u.id)})">الممتلكات / سحب</button>
           <button class="btn-outline" onclick="openProgressionModal(${Number(u.id || 0)}, ${Number(u.level || 1)}, ${Number(u.xp || 0)}, ${Number(u.vipLevel || 0)})">المستوى/VIP</button>
           <button class="btn-bad" onclick="toggleUserBan(${u.id}, ${u.isBanned ? "false" : "true"})">${u.isBanned ? "فك حظر" : "حظر"}</button>
         </div>
@@ -1374,6 +1375,7 @@ function renderProductRow(p, isPrivate) {
     <td>
       <div class="td-actions">
         <button class="btn-ok" onclick="openGrantItemModal('${p.id}', '${safeName}')">منح</button>
+        <button class="btn-bad" onclick="revokeAllGrants('${p.id}')">سحب من الكل</button>
         <button class="btn-ghost-sm" onclick="openEditProductModal('${p.id}')">تعديل</button>
         ${moveBtn}
         <button class="btn-bad" onclick="deleteProduct('${p.id}')">حذف</button>
@@ -4213,3 +4215,42 @@ async function tlLoad(page) {
     (d.page > 1 ? `<button class="btn btn-outline btn-sm" onclick="tlLoad(${d.page - 1})">السابق</button>` : "") +
     (d.page < pages ? `<button class="btn btn-outline btn-sm" onclick="tlLoad(${d.page + 1})">التالي</button>` : "");
 }
+
+// Held products include badges, frames, entrances and profile decoration.
+window.openHeldItems = async function(publicId) {
+  try {
+    const data = (await apiFetch(`/admin-products/holdings/${publicId}`)).data;
+    let box = document.getElementById('heldItemsModal');
+    if (!box) {
+      box = document.createElement('dialog'); box.id = 'heldItemsModal';
+      box.style.cssText = 'max-width:720px;width:90%;background:#172033;color:white;border:1px solid #666;border-radius:12px;padding:24px';
+      document.body.appendChild(box);
+    }
+    box.replaceChildren();
+    const heading = document.createElement('h3');
+    heading.textContent = `${data.user.name} #${data.user.displayId ?? data.user.id} — الممتلكات`;
+    box.appendChild(heading);
+    if (!data.items.length) box.appendChild(document.createTextNode('لا توجد ممتلكات حالياً'));
+    for (const row of data.items) {
+      const line = document.createElement('p');
+      line.textContent = `${row.item.name} (${row.item.type}) `;
+      const button = document.createElement('button'); button.className = 'btn-bad'; button.textContent = 'سحب';
+      button.onclick = async () => {
+        if (!confirm('سحب هذا المنتج من المستخدم؟')) return;
+        button.disabled = true;
+        try { await apiFetch('/admin-products/revoke', 'POST', { publicId, itemId: row.itemId }); await openHeldItems(publicId); }
+        catch (e) { showToast(e.message); button.disabled = false; }
+      };
+      line.appendChild(button); box.appendChild(line);
+    }
+    const close = document.createElement('button'); close.textContent = 'إغلاق'; close.onclick = () => box.close(); box.appendChild(close);
+    if (!box.open) box.showModal();
+  } catch (e) { showToast(e.message); }
+};
+window.revokeAllGrants = async function(itemId) {
+  if (!confirm('سحب هذا المنتج من كل من حصل عليه بمنحة؟ (المشتريات والهدايا لا تتأثر)')) return;
+  try {
+    const result = await apiFetch('/admin-products/revoke', 'POST', { itemId, scope: 'all' });
+    showToast(`تم السحب من ${result.data.count} مستخدم`); await loadProducts();
+  } catch (e) { showToast(e.message); }
+};

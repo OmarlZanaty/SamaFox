@@ -206,7 +206,8 @@ class User {
   bool get userIsOnline => isOnline ?? false;
   int get userFollowersCount => followersCount ?? 0;
   int get userFollowingCount => followingCount ?? 0;
-  int get publicDisplayId => (displayId != null && displayId! >= 10000) ? displayId! : id;
+  int get publicId => displayId ?? id;
+  int get publicDisplayId => publicId;
 
   User copyWith({
     int? id,

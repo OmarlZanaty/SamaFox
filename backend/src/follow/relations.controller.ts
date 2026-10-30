@@ -1,3 +1,4 @@
+import { friendIds as getFriendIds } from './friendIds';
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 
@@ -51,13 +52,7 @@ export const getRelations = async (req: AuthReq, res: Response) => {
     const followingIds = new Set<number>(following.map((f: any) => f.followingId));
     const followerIds = new Set<number>(followers.map((f: any) => f.followerId));
 
-    // SPEC52 #12 — الأصدقاء = accepted friend requests only; أتابعه = everyone
-    // I follow; يتابعني = everyone who follows me (the reverse query).
-    const fr = await db.friendship.findMany({
-      where: { status: 'accepted', OR: [{ userLowId: userId }, { userHighId: userId }] },
-      select: { userLowId: true, userHighId: true },
-    });
-    const friendIds = fr.map((r: any) => (r.userLowId === userId ? r.userHighId : r.userLowId));
+    const friendIds = await getFriendIds(db, userId);
     const outgoingIds = [...followingIds];
     const incomingIds = [...followerIds];
 

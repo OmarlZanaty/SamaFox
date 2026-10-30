@@ -1,3 +1,4 @@
+import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from './oneAgencyRule';
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
@@ -250,6 +251,7 @@ export const inviteMember = async (req: AuthReq, res: Response) => {
     const ownerId = req.userId;
     if (!ownerId) return fail(res, 401, 'Unauthorized');
 
+    // The app sends the internal id of the user picked from the search results.
     const inviteeId = Number(req.params.userId);
     if (!inviteeId) return fail(res, 400, 'Invalid userId');
     if (inviteeId === ownerId) return fail(res, 400, 'لا يمكنك دعوة نفسك');
@@ -716,7 +718,7 @@ export const searchUserForInvite = async (req: AuthReq, res: Response) => {
       where: {
         id: { not: userId },
         OR: [
-          ...(numQ !== null ? [{ displayId: numQ }] : []),
+          ...(numQ !== null ? [{ id: (await resolveUserByPublicId(numQ))?.id ?? -1 }] : []),
           { name: { contains: q, mode: 'insensitive' } },
         ],
       },
@@ -1943,12 +1945,7 @@ export const sellTarget = async (req: AuthReq, res: Response) => {
 
     // Buyers are typed in by the ID people can actually see — the public
     // `displayId` on profiles — with a fallback to the internal id.
-    const byDisplayId = await db.user.findFirst({
-      where: { displayId: rawTarget },
-      select: { id: true, name: true },
-    });
-    const buyer =
-      byDisplayId ?? (await db.user.findUnique({ where: { id: rawTarget }, select: { id: true, name: true } }));
+    const buyer = await resolveUserByPublicId(rawTarget);
     if (!buyer) return fail(res, 404, 'المستخدم غير موجود');
     if (buyer.id === sellerId) return fail(res, 400, 'لا يمكنك بيع التارجت لنفسك');
 

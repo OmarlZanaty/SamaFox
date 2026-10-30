@@ -1,0 +1,10 @@
+ALTER TABLE "rooms" ADD COLUMN IF NOT EXISTS "chatLocked" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "rooms" ADD COLUMN IF NOT EXISTS "micRequestRequired" BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS "room_chat_blocks" (
+    "roomId" INTEGER NOT NULL REFERENCES "rooms"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    "userId" INTEGER NOT NULL,
+    "byUserId" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "room_chat_blocks_roomId_userId_key" ON "room_chat_blocks"("roomId", "userId");

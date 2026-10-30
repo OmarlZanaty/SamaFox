@@ -1,3 +1,4 @@
+import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import { withNameStyle } from '../services/vipStyle.service';
 // File: src/controllers/user.controller.ts
 
@@ -274,8 +275,8 @@ export const searchUsers = async (req: Request, res: Response) => {
       where: {
         isBanned: false,
         OR: [
-          { name: { contains: q } },
-          ...(numeric !== null ? [{ displayId: numeric }] : []),
+          ...(numeric === null ? [{ name: { contains: q } }] : []),
+          ...(numeric !== null ? [{ id: (await resolveUserByPublicId(numeric))?.id ?? -1 }] : []),
         ],
       },
       // Only expose safe, public fields — never coins/email/phone/recharge here.

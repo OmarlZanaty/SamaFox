@@ -3,7 +3,7 @@ import { roomAdmission, shareInviter } from '../services/roomShare.service';
 import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
-import { broadcastRoomClosed, getLiveRoomUserIds } from '../services/socket.service';
+import { broadcastRoomClosed, getLiveRoomUserIds, visibleRoomCount, giftSeatSnapshot } from '../services/socket.service';
 import { rankedRoomIds } from '../services/roomRanking.service';
 import { hasFeature, isFeatureOn } from '../services/features.service';
 
@@ -175,8 +175,22 @@ export const getRoomById = async (req: Request, res: Response) => {
 
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
+    const liveIds = getLiveRoomUserIds(room.id);
+    const liveUsers = await prisma.user.findMany({
+      where: { id: { in: liveIds } },
+      select: { id: true, name: true, avatarUrl: true, displayId: true, relationId: true, activeFrameId: true,
+        activeFrame: { select: { id: true, assetUrl: true, name: true } }, level: true, vipLevel: true },
+    });
+    const membersById = new Map(room.members.map(m => [m.userId, m]));
+    const members = liveUsers.map(user => ({
+      userId: user.id, user,
+      role: membersById.get(user.id)?.role ?? 'member',
+      isMuted: membersById.get(user.id)?.isMuted ?? true,
+      joinedAt: membersById.get(user.id)?.joinedAt ?? null,
+    }));
+    const seatsByUser = new Map(giftSeatSnapshot(room.id).map(s => [s.recipientId, s.seatNumber]));
     const relationIds = Array.from(
-      new Set(room.members.map((m) => m.user.relationId).filter((id): id is number => !!id)),
+      new Set(members.map((m) => m.user.relationId).filter((id): id is number => !!id)),
     );
     const relations = relationIds.length
       ? await prisma.relation.findMany({
@@ -189,8 +203,8 @@ export const getRoomById = async (req: Request, res: Response) => {
       : [];
     const relationById = new Map(relations.map((r) => [r.id, r]));
 
-    const seats = room.members.map((m, i) => ({
-      seatNumber: i + 1,
+    const seats = members.filter(m => seatsByUser.has(m.userId)).map((m) => ({
+      seatNumber: seatsByUser.get(m.userId)!,
       userId: m.userId,
       role: m.role,
       owner: {
@@ -220,8 +234,8 @@ export const getRoomById = async (req: Request, res: Response) => {
       isLocked: room.isLocked,
       owner: room.owner,
       ownerFrameImageUrl: room.owner.activeFrame?.assetUrl ?? null,
-      membersCount: getLiveRoomUserIds(room.id).length,
-      members: room.members.map(m => ({
+      membersCount: visibleRoomCount(room.id),
+      members: members.map(m => ({
         userId: m.userId,
         role: m.role,
         isMuted: m.isMuted,

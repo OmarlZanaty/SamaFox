@@ -18,10 +18,11 @@ function stub(relative: string, exports: any) {
   require.cache[filename] = { id: filename, filename, loaded: true, exports } as any;
 }
 stub('utils/prisma', { __esModule: true, default: db });
-stub('services/socket.service', { getLiveRoomCounts: () => new Map() });
+let live = new Map<number, number>();
+stub('services/socket.service', { getLiveRoomCounts: () => live });
 const ranking: typeof import('../roomRanking.service') = require('../roomRanking.service');
 
-beforeEach(() => { settings.clear(); ranking.invalidateHiddenRooms(); ranking.invalidateRoomPins(); });
+beforeEach(() => { settings.clear(); live = new Map([[1, 1], [2, 1], [3, 1]]); ranking.invalidateHiddenRooms(); ranking.invalidateRoomPins(); });
 
 test('a hidden room is left out of the list for everyone but its owner', async () => {
   await ranking.setHiddenRooms([2]);
@@ -39,4 +40,13 @@ test('the owner opening it puts it back; unhiding a visible room changes nothing
 test('a broken setting hides nothing', async () => {
   settings.set(ranking.ROOM_HIDDEN_KEY, '{oops');
   assert.deepEqual(await ranking.getHiddenRooms(), []);
+});
+
+test('empty rooms disappear except for their owner, pinned and featured rooms', async () => {
+  live.clear();
+  assert.deepEqual((await ranking.rankedRoomIds({}, 0)).ids, []);
+  assert.deepEqual((await ranking.rankedRoomIds({}, 0, 20)).ids, [2]);
+  settings.set(ranking.ROOM_PIN_KEY, '[100]');
+  ranking.invalidateRoomPins();
+  assert.deepEqual((await ranking.rankedRoomIds({}, 3)).ids, [3, 1]);
 });

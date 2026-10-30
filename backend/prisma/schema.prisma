@@ -197,6 +197,9 @@ model MusicTrack {
 
 model Room {
   id                  Int       @id @default(autoincrement())
+  chatLocked          Boolean   @default(false)
+  micRequestRequired  Boolean   @default(false)
+  chatBlocks          RoomChatBlock[]
   name                String
   description         String?
   coverImageUrl       String?
@@ -2782,4 +2785,15 @@ model DisplayIdHistory {
 
   @@index([userId, createdAt])
   @@map("display_id_history")
+}
+
+model RoomChatBlock {
+  roomId    Int
+  userId    Int
+  byUserId  Int
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@map("room_chat_blocks")
 }

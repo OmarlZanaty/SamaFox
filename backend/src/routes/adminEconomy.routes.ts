@@ -1,3 +1,4 @@
+import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { adminRoomEventsRouter } from './roomEvents.routes';
 import { Router, type Request, type Response } from 'express';
@@ -75,7 +76,7 @@ async function userCard(raw: unknown) {
     id: true, name: true, displayId: true, avatarUrl: true, coinsBalance: true,
     isBanned: true, banExpiresAt: true, isAdmin: true, isSuperAdmin: true, level: true, vipLevel: true, createdAt: true,
   };
-  const u = (await db.user.findUnique({ where: { displayId: n }, select })) ?? (await db.user.findUnique({ where: { id: n }, select }));
+  const u = await resolveUserByPublicId(n, db, select);
   if (!u) return null;
   const banned = u.isBanned && (!u.banExpiresAt || new Date(u.banExpiresAt) > new Date());
   return { ...u, accountStatus: banned ? 'BANNED' : 'ACTIVE' };

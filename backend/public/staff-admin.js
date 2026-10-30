@@ -165,7 +165,7 @@
   function loadGrants() {
     return loadPanel("staffGrants", async () => {
       const rows = await api("/grants");
-      return () => { $("staffGrants").innerHTML = table(["المنحة", "منحها", "المستفيد", "النوع", "القيمة / المنتج", "المصدر", "البداية", "النهاية", "الحالة"], rows.map(r => `<tr><td>${esc(r.id)}</td><td>${person(r.grantedBy, r.grantedById)}</td><td>${person(r.user, r.userId)}</td><td>${({ VIP: "VIP", LEVEL: "Level", ITEM: "منتج" })[r.type] || "—"}</td><td>${esc(r.type === "ITEM" ? (r.item?.name || state.items.find(i => i.id === r.itemId)?.name || r.itemId) : r.value)}</td><td>${r.source === "ROLE_REWARD" ? "مكافأة إدارة" : "منحة مؤقتة"}</td><td>${date(r.startedAt)}</td><td>${endDate(r.expiresAt)}</td><td>${status(r)}</td></tr>`)); };
+      return () => { $("staffGrants").innerHTML = table(["المنحة", "منحها", "المستفيد", "النوع", "القيمة / المنتج", "المصدر", "البداية", "النهاية", "الحالة"], rows.map(r => `<tr><td>${esc(r.id)}</td><td>${person(r.grantedBy, r.grantedById)}</td><td>${person(r.user, r.userId)}</td><td>${({ VIP: "VIP", LEVEL: "Level", ITEM: "منتج" })[r.type] || "—"}</td><td>${esc(r.type === "ITEM" ? (r.item?.name || state.items.find(i => i.id === r.itemId)?.name || r.itemId) : r.value)}</td><td>${r.source === "ROLE_REWARD" ? "مكافأة إدارة" : "منحة مؤقتة"}</td><td>${date(r.startedAt)}</td><td>${endDate(r.expiresAt)}</td><td>${status(r)}${state.canWrite && r.status === "ACTIVE" ? `<button class="btn-bad" onclick="revokeStaffGrant(${Number(r.id)})">سحب</button>` : ""}</td></tr>`)); };
     });
   }
   function loadBans() {
@@ -337,3 +337,9 @@
     if (event.target.matches?.("[data-staff-thumbnail]")) event.target.replaceWith(document.createTextNode("🖼️"));
   }, true);
 })();
+
+window.revokeStaffGrant = async function(id) {
+  if (!confirm('سحب هذه المنحة؟')) return;
+  try { await apiFetch(`/admin-dashboard/staff/grants/${id}/revoke`, 'POST', {}); showToast('تم سحب المنحة — حدّث الصفحة لرؤية الحالة'); }
+  catch (e) { showToast(e.message); }
+};

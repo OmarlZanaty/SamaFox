@@ -1,3 +1,4 @@
+import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import fs from 'fs';
 import path from "path";
 import { optimizeUpload, GifRole } from '../utils/mediaOptimize';
@@ -353,10 +354,7 @@ export const grantProduct = async (req: Request, res: Response) => {
       });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { displayId },
-      select: { id: true, name: true, displayId: true },
-    });
+    const user = await resolveUserByPublicId(displayId);
     if (!user) return res.status(404).json({ message: "لا يوجد مستخدم بهذا الرقم" });
 
     try {
