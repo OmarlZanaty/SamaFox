@@ -1,145 +1,238 @@
 import 'dart:async';
-
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-
 import '../../services/dio_client.dart';
-import '../../services/socket_service.dart';
 import '../../l10n/tr.dart';
+import '../app_network_image.dart';
+import 'room_win_announcement.dart';
 
-/// SPEC52 #39 — «🎮 محمد فاز في بوابات أوليمبوس بـ 20,000 كوينز».
-///
-/// Only real, committed game payouts (the server reads them from the game
-/// ledger after the round is paid) of players in THIS room. Nothing is shown
-/// when there is nothing real to show. A light slide, one line high.
 class RoomGameWinStrip extends StatefulWidget {
   const RoomGameWinStrip({super.key, required this.roomId});
   final int roomId;
-
   static const double height = 22;
-
   @override
   State<RoomGameWinStrip> createState() => _RoomGameWinStripState();
 }
 
-class _Win {
-  _Win(this.name, this.game, this.coins) : seq = ++_seqCounter;
-  static int _seqCounter = 0;
-  final int seq;
-  final String name;
-  final String game;
-  final int coins;
-}
-
-class _RoomGameWinStripState extends State<RoomGameWinStrip> {
-  final List<_Win> _queue = [];
-  _Win? _current;
+class _RoomGameWinStripState extends State<RoomGameWinStrip>
+    with SingleTickerProviderStateMixin {
+  final _queue = <GameWinAnnouncement>[];
+  final _seen = <String>{};
+  GameWinAnnouncement? _current;
   Timer? _rotate;
-  static bool _wired = false;
-  static final StreamController<Map<String, dynamic>> _events = StreamController.broadcast();
-  StreamSubscription<Map<String, dynamic>>? _sub;
-
-  static void _wire() {
-    if (_wired) return;
-    _wired = true;
-    SocketService().on('game_win', (d) {
-      if (d is Map) _events.add(Map<String, dynamic>.from(d));
-    });
-  }
-
+  StreamSubscription<GameWinAnnouncement>? _sub;
+  late final _shine =
+      AnimationController(vsync: this, duration: const Duration(seconds: 3))
+        ..repeat();
   @override
   void initState() {
     super.initState();
-    _wire();
-    _sub = _events.stream.listen((d) {
-      if ((d['roomId'] as num?)?.toInt() != widget.roomId) return;
-      _push(_parse(d));
+    _sub = RoomGameWins.stream.listen((w) {
+      if (w.roomId == widget.roomId) _push(w);
     });
     _loadRecent();
   }
 
-  _Win _parse(Map d) => _Win(
-        (d['name'] ?? tr('لاعب', 'Player')).toString(),
-        (d['gameName'] ?? d['gameId'] ?? '').toString(),
-        (d['winCoins'] as num?)?.toInt() ?? 0,
-      );
+  @override
+  void didUpdateWidget(covariant RoomGameWinStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.roomId != widget.roomId) {
+      _rotate?.cancel();
+      _queue.clear();
+      _seen.clear();
+      _current = null;
+      _loadRecent();
+    }
+  }
 
   Future<void> _loadRecent() async {
+    final room = widget.roomId;
     try {
-      final res = await DioClient.dio.get('/games/wins/recent', queryParameters: {'roomId': widget.roomId, 'limit': 3});
-      final list = (res.data is Map ? res.data['data'] : null) as List? ?? const [];
+      final res = await DioClient.dio.get('/games/wins/recent',
+          queryParameters: {'roomId': room, 'limit': 3});
+      if (!mounted || widget.roomId != room) return;
+      final list =
+          (res.data is Map ? res.data['data'] : null) as List? ?? const [];
       for (final d in list.reversed) {
-        if (d is Map) _push(_parse(d));
+        if (d is Map) _push(GameWinAnnouncement.fromMap(d));
       }
     } catch (_) {}
   }
 
-  void _push(_Win w) {
-    if (!mounted || w.coins <= 0) return;
+  void _push(GameWinAnnouncement w) {
+    if (!mounted || w.coins <= 0 || !_seen.add(w.key)) return;
+    if (_seen.length > 100) _seen.remove(_seen.first);
     _queue.add(w);
-    while (_queue.length > 5) {
-      _queue.removeAt(0);
-    }
+    if (_queue.length > 5) _queue.removeAt(0);
     if (_current == null) _next();
   }
 
   void _next() {
     _rotate?.cancel();
     if (!mounted) return;
-    setState(() => _current = _queue.isEmpty ? _current : _queue.removeAt(0));
-    _rotate = Timer(const Duration(seconds: 5), () {
-      if (_queue.isNotEmpty) _next();
-    });
+    setState(() => _current = _queue.isEmpty ? null : _queue.removeAt(0));
+    if (_current != null) _rotate = Timer(const Duration(seconds: 5), _next);
   }
 
   @override
   void dispose() {
     _rotate?.cancel();
     _sub?.cancel();
+    _shine.dispose();
     super.dispose();
-  }
-
-  String _fmt(int n) {
-    final s = n.toString();
-    final b = StringBuffer();
-    for (var i = 0; i < s.length; i++) {
-      if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
-      b.write(s[i]);
-    }
-    return b.toString();
   }
 
   @override
   Widget build(BuildContext context) {
     final w = _current;
-    if (w == null) return const SizedBox.shrink();
     return SizedBox(
-      height: RoomGameWinStrip.height,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 450),
-        transitionBuilder: (child, anim) => SlideTransition(
-          position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(anim),
-          child: FadeTransition(opacity: anim, child: child),
-        ),
-        child: Container(
-          key: ValueKey(w.seq),
-          margin: const EdgeInsets.symmetric(horizontal: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          alignment: AlignmentDirectional.centerStart,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(11),
-            gradient: LinearGradient(colors: [
-              const Color(0xFF00C853).withOpacity(0.28),
-              Colors.black.withOpacity(0.15),
-            ]),
-          ),
-          child: Text(
-            tr('🎮 ${w.name} فاز في ${w.game} بـ ${_fmt(w.coins)} كوينز', '🎮 ${w.name} won ${_fmt(w.coins)} coins in ${w.game}'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
-          ),
-        ),
-      ),
-    );
+        height: RoomGameWinStrip.height,
+        child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 350),
+            child: w == null
+                ? const SizedBox.shrink()
+                : GestureDetector(
+                    key: ValueKey(w.key),
+                    onTap: () => showGameWinnerCard(context, w),
+                    child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(11),
+                            border: Border.all(color: const Color(0xFFFFDB81)),
+                            gradient: const LinearGradient(colors: [
+                              Color(0xFF080909),
+                              Color(0xFF584015),
+                              Color(0xFF171006)
+                            ]),
+                            boxShadow: const [
+                              BoxShadow(color: Color(0x665B410B), blurRadius: 6)
+                            ]),
+                        child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: AnimatedBuilder(
+                              animation: _shine,
+                              builder: (context, child) => CustomPaint(
+                                  foregroundPainter: _RoyalShine(_shine.value),
+                                  child: child),
+                              child: Container(
+                                  margin: const EdgeInsets.all(2),
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 5),
+                                  decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                          color: const Color(0xFF977237),
+                                          width: .5)),
+                                  child: Row(
+                                      textDirection: TextDirection.rtl,
+                                      children: [
+                                        SizedBox(
+                                            width: 21,
+                                            child: Stack(
+                                                clipBehavior: Clip.none,
+                                                alignment:
+                                                    Alignment.bottomCenter,
+                                                children: [
+                                                  ClipOval(
+                                                      child: w.avatar
+                                                                  ?.isNotEmpty ==
+                                                              true
+                                                          ? AppNetworkImage(
+                                                              w.avatar!,
+                                                              width: 12,
+                                                              height: 12,
+                                                              fit: BoxFit.cover)
+                                                          : const Icon(
+                                                              Icons.person,
+                                                              color: Color(
+                                                                  0xFFFFDB81),
+                                                              size: 12)),
+                                                  const Positioned(
+                                                      top: -5,
+                                                      child: Text('♛',
+                                                          style: TextStyle(
+                                                              color: Color(
+                                                                  0xFFFFDE86),
+                                                              fontSize: 12,
+                                                              height: 1))),
+                                                ])),
+                                        const SizedBox(width: 3),
+                                        Expanded(
+                                            child: Text(
+                                                tr('${w.name} ربح في ${w.game}',
+                                                    '${w.name} won in ${w.game}'),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                    color: Color(0xFFFFEBC4),
+                                                    fontSize: 10,
+                                                    fontWeight:
+                                                        FontWeight.w700))),
+                                        const SizedBox(width: 4),
+                                        if (w.icon?.isNotEmpty == true)
+                                          AppNetworkImage(w.icon!,
+                                              width: 13, height: 13)
+                                        else
+                                          const Icon(Icons.casino,
+                                              size: 13,
+                                              color: Color(0xFFFFD67A)),
+                                        const SizedBox(width: 5),
+                                        Flexible(
+                                            child: FittedBox(
+                                                child: ShaderMask(
+                                                    blendMode: BlendMode.srcIn,
+                                                    shaderCallback: (r) =>
+                                                        const LinearGradient(
+                                                            colors: [
+                                                              Color(0xFFFFF5CA),
+                                                              Color(0xFFE9B344),
+                                                              Color(0xFFFFE6A3)
+                                                            ]).createShader(r),
+                                                    child: Text(
+                                                        '🪙 +${w.coins}',
+                                                        textDirection:
+                                                            TextDirection.ltr,
+                                                        style: const TextStyle(
+                                                            color: Colors.white,
+                                                            fontSize: 12,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w900))))),
+                                      ])),
+                            ))))));
   }
+}
+
+class _RoyalShine extends CustomPainter {
+  _RoyalShine(this.progress);
+  final double progress;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final x = (size.width + 70) * progress - 70;
+    final rect = Rect.fromLTWH(x, 0, 50, size.height);
+    canvas.drawRect(
+        rect,
+        Paint()
+          ..shader = const LinearGradient(colors: [
+            Colors.transparent,
+            Color(0x44FFF0B6),
+            Colors.transparent
+          ]).createShader(rect));
+    for (var i = 0; i < 9; i++) {
+      final opacity = (.15 + .25 * math.sin(progress * math.pi * 2 + i).abs());
+      final p = Offset(size.width * ((i * .137 + .08) % 1),
+          3 + (i % 3) * (size.height - 6) / 3);
+      final paint = Paint()
+        ..color = const Color(0xFFFFE1A0).withOpacity(opacity)
+        ..strokeWidth = .7;
+      canvas.drawLine(
+          p - const Offset(1.5, 0), p + const Offset(1.5, 0), paint);
+      canvas.drawLine(
+          p - const Offset(0, 1.5), p + const Offset(0, 1.5), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoyalShine oldDelegate) =>
+      oldDelegate.progress != progress;
 }

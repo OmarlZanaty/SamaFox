@@ -55,10 +55,17 @@ class _LuckyTickerState extends State<LuckyTicker> {
   }
 
   Future<void> _prime() async {
-    final recent = await widget.repository.luckyRecent();
-    if (!mounted || recent.isEmpty) return;
+    final repository = widget.repository;
+    final List<LuckyRollEvent> recent;
+    try {
+      recent = await repository.luckyRecent();
+    } catch (_) {
+      return;
+    }
+    if (!mounted || repository != widget.repository || recent.isEmpty) return;
     setState(() {
       for (final e in recent.reversed) {
+        if (e.payoutCoins <= 0) continue;
         if (_items.any((x) => x.rollId == e.rollId)) continue;
         _items.insert(0, e);
       }
@@ -68,13 +75,27 @@ class _LuckyTickerState extends State<LuckyTicker> {
   }
 
   void _push(LuckyRollEvent e) {
-    if (!mounted || !e.won) return;
+    if (!mounted || e.payoutCoins <= 0) return;
     setState(() {
       _items.removeWhere((x) => x.rollId == e.rollId);
       _items.insert(0, e);
       while (_items.length > _kKeep) _items.removeLast();
       _index = 0; // a fresh win jumps to the front
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant LuckyTicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.socket != widget.socket) {
+      _sub?.cancel();
+      _items.clear();
+      _index = 0;
+      _sub = widget.socket.luckyBroadcastStream.listen(_push);
+      _prime();
+    } else if (oldWidget.repository != widget.repository) {
+      _prime();
+    }
   }
 
   @override
@@ -102,7 +123,9 @@ class _LuckyTickerState extends State<LuckyTicker> {
           transitionBuilder: (child, anim) => FadeTransition(
             opacity: anim,
             child: SlideTransition(
-              position: Tween<Offset>(begin: const Offset(0.15, 0), end: Offset.zero).animate(anim),
+              position:
+                  Tween<Offset>(begin: const Offset(0.15, 0), end: Offset.zero)
+                      .animate(anim),
               child: child,
             ),
           ),
@@ -124,28 +147,39 @@ class _LuckyTickerState extends State<LuckyTicker> {
                   child: SizedBox(
                     width: 20,
                     height: 20,
-                    child: (e.senderAvatarUrl == null || e.senderAvatarUrl!.isEmpty)
+                    child: (e.senderAvatarUrl == null ||
+                            e.senderAvatarUrl!.isEmpty)
                         ? Container(color: Colors.white24)
-                        : AppNetworkImage(e.senderAvatarUrl!, width: 20, height: 20, fit: BoxFit.cover, cacheWidth: 48),
+                        : AppNetworkImage(e.senderAvatarUrl!,
+                            width: 20,
+                            height: 20,
+                            fit: BoxFit.cover,
+                            cacheWidth: 48),
                   ),
                 ),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
-                    '${e.senderName ?? tr('مستخدم', 'User')} كسب ',
+                    tr('${e.senderName ?? tr('مستخدم', 'User')} كسب ',
+                        '${e.senderName ?? tr('مستخدم', 'User')} won '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
                   ),
                 ),
                 Text(
                   '×${e.multiplier}',
-                  style: TextStyle(color: tint, fontSize: 14, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                      color: tint, fontSize: 14, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   '${e.payoutCoins} 🪙',
-                  style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 11),
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.85), fontSize: 11),
                 ),
               ],
             ),

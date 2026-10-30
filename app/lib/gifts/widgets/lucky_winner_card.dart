@@ -12,19 +12,30 @@ import '../../l10n/tr.dart';
 /// فيها متابعة… إرسال رسالة… مسار — ولو ضغطت على مسار أدخل الغرفة اللي هو
 /// فيها"*. The three actions reuse what the rest of the app already does:
 /// [FollowService], the `/chat` route, and [followUserTrail].
-Future<void> showLuckyWinnerCard(BuildContext context, LuckyRollEvent e, {int? myUserId}) {
+Future<void> showLuckyWinnerCard(BuildContext context, LuckyRollEvent e,
+    {int? myUserId, String? winLabel, num? displayMultiplier}) {
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (_) => _LuckyWinnerCard(event: e, myUserId: myUserId),
+    builder: (_) => _LuckyWinnerCard(
+        event: e,
+        myUserId: myUserId,
+        winLabel: winLabel,
+        displayMultiplier: displayMultiplier),
   );
 }
 
 class _LuckyWinnerCard extends StatefulWidget {
-  const _LuckyWinnerCard({required this.event, this.myUserId});
+  const _LuckyWinnerCard(
+      {required this.event,
+      this.myUserId,
+      this.winLabel,
+      this.displayMultiplier});
   final LuckyRollEvent event;
   final int? myUserId;
+  final String? winLabel;
+  final num? displayMultiplier;
 
   @override
   State<_LuckyWinnerCard> createState() => _LuckyWinnerCardState();
@@ -134,9 +145,17 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
                     child: SizedBox(
                       width: 64,
                       height: 64,
-                      child: (e.senderAvatarUrl == null || e.senderAvatarUrl!.isEmpty)
-                          ? Container(color: Colors.white24, child: const Icon(Icons.person, color: Colors.white70, size: 34))
-                          : AppNetworkImage(e.senderAvatarUrl!, width: 64, height: 64, fit: BoxFit.cover, cacheWidth: 160),
+                      child: (e.senderAvatarUrl == null ||
+                              e.senderAvatarUrl!.isEmpty)
+                          ? Container(
+                              color: Colors.white24,
+                              child: const Icon(Icons.person,
+                                  color: Colors.white70, size: 34))
+                          : AppNetworkImage(e.senderAvatarUrl!,
+                              width: 64,
+                              height: 64,
+                              fit: BoxFit.cover,
+                              cacheWidth: 160),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -148,27 +167,49 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
                           e.senderName ?? tr('مستخدم', 'User'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          tr('كسب ×${e.multiplier} — ${e.payoutCoins} كوينز'
-                          '${e.giftName != null ? ' من ${e.giftName}' : ''}', 'Won ×${e.multiplier} — ${e.payoutCoins} coins${e.giftName != null ? ' from ${e.giftName}' : ''}'),
-                          style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 13, fontWeight: FontWeight.w600),
+                          widget.winLabel != null
+                              ? '${widget.winLabel} — ${e.payoutCoins} ${tr('عملة', 'coins')}'
+                              : tr(
+                                  'كسب ×${e.multiplier} — ${e.payoutCoins} كوينز'
+                                      '${e.giftName != null ? ' من ${e.giftName}' : ''}',
+                                  'Won ×${e.multiplier} — ${e.payoutCoins} coins${e.giftName != null ? ' from ${e.giftName}' : ''}'),
+                          style: const TextStyle(
+                              color: Color(0xFFFFD54F),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600),
                         ),
                         if (e.recipientName != null)
                           Text(
-                            tr('على ${e.recipientName}', 'For ${e.recipientName}'),
-                            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+                            tr('على ${e.recipientName}',
+                                'For ${e.recipientName}'),
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 12),
                           ),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(color: const Color(0xFFFFB300), borderRadius: BorderRadius.circular(12)),
-                    child: Text('×${e.multiplier}',
-                        style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 20)),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFFFFB300),
+                        borderRadius: BorderRadius.circular(12)),
+                    child: Text(
+                        (widget.displayMultiplier ?? e.multiplier) > 0
+                            ? '×${widget.displayMultiplier ?? e.multiplier}'
+                            : '🪙',
+                        style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20)),
                   ),
                 ],
               ),
@@ -176,15 +217,31 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
               if (!isMe)
                 Row(
                   children: [
-                    Expanded(child: _ActionBtn(icon: Icons.favorite, label: _followLabel, color: const Color(0xFF22D3EE), onTap: _busy ? null : _follow)),
+                    Expanded(
+                        child: _ActionBtn(
+                            icon: Icons.favorite,
+                            label: _followLabel,
+                            color: const Color(0xFF22D3EE),
+                            onTap: _busy ? null : _follow)),
                     const SizedBox(width: 10),
-                    Expanded(child: _ActionBtn(icon: Icons.chat_bubble_rounded, label: tr('إرسال رسالة', 'Send message'), color: const Color(0xFFF472B6), onTap: _message)),
+                    Expanded(
+                        child: _ActionBtn(
+                            icon: Icons.chat_bubble_rounded,
+                            label: tr('إرسال رسالة', 'Send message'),
+                            color: const Color(0xFFF472B6),
+                            onTap: _message)),
                     const SizedBox(width: 10),
-                    Expanded(child: _ActionBtn(icon: Icons.route_rounded, label: tr('مسار', 'Trail'), color: const Color(0xFF00C853), onTap: _trail)),
+                    Expanded(
+                        child: _ActionBtn(
+                            icon: Icons.route_rounded,
+                            label: tr('مسار', 'Trail'),
+                            color: const Color(0xFF00C853),
+                            onTap: _trail)),
                   ],
                 )
               else
-                Text(tr('ده أنت 😄', 'That is you 😄'), style: TextStyle(color: Colors.white.withOpacity(0.7))),
+                Text(tr('ده أنت 😄', 'That is you 😄'),
+                    style: TextStyle(color: Colors.white.withOpacity(0.7))),
             ],
           ),
         ),
@@ -194,7 +251,11 @@ class _LuckyWinnerCardState extends State<_LuckyWinnerCard> {
 }
 
 class _ActionBtn extends StatelessWidget {
-  const _ActionBtn({required this.icon, required this.label, required this.color, this.onTap});
+  const _ActionBtn(
+      {required this.icon,
+      required this.label,
+      required this.color,
+      this.onTap});
   final IconData icon;
   final String label;
   final Color color;
@@ -214,7 +275,11 @@ class _ActionBtn extends StatelessWidget {
             children: [
               Icon(icon, color: color, size: 22),
               const SizedBox(height: 4),
-              Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+              Text(label,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600)),
             ],
           ),
         ),
