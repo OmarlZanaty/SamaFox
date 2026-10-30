@@ -6,6 +6,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import '../widgets/room/room_header_glass.dart';
 import '../widgets/room/room_info_sheet.dart';
+import '../widgets/room/room_cp_top.dart' show CpActivatedPopup;
 import '../widgets/room/room_left_rail.dart';
 import '../widgets/room/agency_bell.dart';
 import '../widgets/room/room_games_host.dart';
