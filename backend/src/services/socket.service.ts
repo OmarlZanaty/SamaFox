@@ -2451,18 +2451,11 @@ socket.on('leave_room', async ({ roomId }: any) => {
           socket.emit('room_message_rejected', { code: 'BAD_IMAGE', message: 'صورة غير صالحة' });
           return;
         }
-        const { getRoomImageMinVip } = await import('../controllers/messages.controller');
-        const minVip = await getRoomImageMinVip();
-        if (minVip > 0 && uid) {
-          const me = await prisma.user.findUnique({ where: { id: uid }, select: { vipLevel: true } });
-          if ((me?.vipLevel ?? 0) < minVip) {
-            socket.emit('room_message_rejected', {
-              code: 'VIP_REQUIRED',
-              minVip,
-              message: `إرسال الصور في الغرفة متاح من VIP ${minVip} فما فوق`,
-            });
-            return;
-          }
+        const { pictureDenial } = await import('../controllers/messages.controller');
+        const denial = uid ? await pictureDenial(uid, 'room') : null;
+        if (denial) {
+          socket.emit('room_message_rejected', denial);
+          return;
         }
         // Stored and sent absolute, like every other upload url the app gets.
         picture = raw.startsWith('/')

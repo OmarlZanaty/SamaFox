@@ -3063,7 +3063,10 @@ export const adminGetGates = async (_req: AdminReq, res: Response) => {
     ]);
     const { animatedRoomImageMinVip } = await import('../services/animatedAvatar.service');
     const animatedRoomImageMinVipValue = await animatedRoomImageMinVip();
-    return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode, animatedRoomImageMinVip: animatedRoomImageMinVipValue } });
+    const { getMessageImageMinLevel, getRoomImageMinLevel } = await import('./messages.controller');
+    const [messageImageMinLevel, roomImageMinLevel] = await Promise.all([getMessageImageMinLevel(), getRoomImageMinLevel()]);
+    return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode, animatedRoomImageMinVip: animatedRoomImageMinVipValue,
+      messageImageMinLevel, roomImageMinLevel } });
   } catch (e) {
     console.error('adminGetGates error:', e);
     return fail(res, 500, 'Server error');
@@ -3081,7 +3084,15 @@ export const adminSetGates = async (req: AdminReq, res: Response) => {
       messageImageMinVip: await mc.getMessageImageMinVip(),
       roomImageMinVip: await mc.getRoomImageMinVip(),
       imageGiftMode: await mc.getImageGiftMode(),
+      messageImageMinLevel: await mc.getMessageImageMinLevel(),
+      roomImageMinLevel: await mc.getRoomImageMinLevel(),
     };
+    for (const [field, key] of [['messageImageMinLevel', mc.MESSAGE_IMAGE_MIN_LEVEL_KEY], ['roomImageMinLevel', mc.ROOM_IMAGE_MIN_LEVEL_KEY]] as const) {
+      if (body?.[field] == null || body[field] === '') continue;
+      const v = Math.floor(Number(body[field]));
+      if (!Number.isFinite(v) || v < 0) return fail(res, 400, `${field} must be >= 0`);
+      out[field] = await mc.setMinSetting(key, v);
+    }
     if (body?.imageGiftMode != null) {
       out.imageGiftMode = await mc.setImageGiftMode(String(body.imageGiftMode));
     }

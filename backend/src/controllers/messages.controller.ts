@@ -77,18 +77,66 @@ export async function setImageGiftMode(mode: string): Promise<'lock' | 'hide'> {
   return value;
 }
 
+/**
+ * «الصور في الرسايل … تكون محكومه ب lv معين احدده من لوحة التحكم» — next to the
+ * VIP bar, a LEVEL bar (the user's ليفل الداعم) per scope. 0 / unset = off.
+ */
+export const MESSAGE_IMAGE_MIN_LEVEL_KEY = 'message_image_min_level';
+export const ROOM_IMAGE_MIN_LEVEL_KEY = 'room_image_min_level';
+
+async function readMinSetting(key: string): Promise<number> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key } });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0; // fail open, like the VIP bars
+  }
+}
+
+export async function setMinSetting(key: string, level: number): Promise<number> {
+  const value = String(Math.max(0, Math.floor(level)));
+  await prisma.appSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
+  return Number(value);
+}
+
+export const getMessageImageMinLevel = () => readMinSetting(MESSAGE_IMAGE_MIN_LEVEL_KEY);
+export const getRoomImageMinLevel = () => readMinSetting(ROOM_IMAGE_MIN_LEVEL_KEY);
+
+/**
+ * May [userId] send a picture in a DM / the room chat? null = yes; otherwise
+ * the refusal. An expired VIP counts as no VIP («مخصصه ل vip معين مش شغاله»:
+ * the old check read vipLevel alone, so a lapsed VIP still passed).
+ */
+export async function pictureDenial(userId: number, scope: 'dm' | 'room') {
+  const [minVip, minLevel] = await Promise.all(scope === 'dm'
+    ? [getMessageImageMinVip(), getMessageImageMinLevel()]
+    : [getRoomImageMinVip(), getRoomImageMinLevel()]);
+  if (minVip <= 0 && minLevel <= 0) return null;
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, vipExpiresAt: true, level: true } });
+  const vipActive = !me?.vipExpiresAt || me.vipExpiresAt.getTime() > Date.now();
+  const myVip = vipActive ? me?.vipLevel ?? 0 : 0;
+  const where = scope === 'dm' ? 'إرسال الصور' : 'إرسال الصور في الغرفة';
+  if (minVip > 0 && myVip < minVip) {
+    return { code: 'VIP_REQUIRED', minVip, minLevel, message: `${where} متاح من VIP ${minVip} فما فوق` };
+  }
+  if (minLevel > 0 && (me?.level ?? 0) < minLevel) {
+    return { code: 'LEVEL_REQUIRED', minVip, minLevel, message: `${where} متاح من ليفل ${minLevel} فما فوق` };
+  }
+  return null;
+}
+
 /** GET /messages/room-image-policy — what the picture button should look like for me. */
 export const getRoomImagePolicy = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId as number;
-    const [minVip, mode, me] = await Promise.all([
+    const [minVip, minLevel, mode, denial] = await Promise.all([
       getRoomImageMinVip(),
+      getRoomImageMinLevel(),
       getImageGiftMode(),
-      prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, vipExpiresAt: true } }),
+      pictureDenial(userId, 'room'),
     ]);
-    const vipActive = !me?.vipExpiresAt || me.vipExpiresAt.getTime() > Date.now();
-    const myVip = vipActive ? me?.vipLevel ?? 0 : 0;
-    return res.json({ success: true, data: { minVip, mode, allowed: minVip <= 0 || myVip >= minVip } });
+    return res.json({ success: true, data: { minVip, minLevel, mode, allowed: denial == null, message: denial?.message ?? null } });
   } catch (e) {
     return res.status(500).json({ success: false, message: 'Failed' });
   }
@@ -311,17 +359,8 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
   // courtesy, this is the rule. Voice notes are deliberately ungated — the
   // client only ever asked for the image restriction.
   if (imageUrl) {
-    const minVip = await getMessageImageMinVip();
-    if (minVip > 0) {
-      const sender = await prisma.user.findUnique({ where: { id: me }, select: { vipLevel: true } });
-      if ((sender?.vipLevel ?? 0) < minVip) {
-        return res.status(403).json({
-          code: 'VIP_REQUIRED',
-          minVip,
-          message: `إرسال الصور متاح من VIP ${minVip} فما فوق`,
-        });
-      }
-    }
+    const denial = await pictureDenial(me, 'dm');
+    if (denial) return res.status(403).json(denial);
   }
 
   // ensure participant

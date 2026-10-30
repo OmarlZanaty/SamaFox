@@ -3326,6 +3326,8 @@ async function loadModeration() {
   document.getElementById("gate_visitors").value    = gates?.data?.visitorsMinLevel ?? 0;
   document.getElementById("gate_image_vip").value   = gates?.data?.messageImageMinVip ?? 0;
   document.getElementById("gate_room_image_vip").value = gates?.data?.roomImageMinVip ?? 0;
+  if (document.getElementById("gate_image_level")) document.getElementById("gate_image_level").value = gates?.data?.messageImageMinLevel ?? 0;
+  if (document.getElementById("gate_room_image_level")) document.getElementById("gate_room_image_level").value = gates?.data?.roomImageMinLevel ?? 0;
   if (document.getElementById("gate_image_gift_mode")) document.getElementById("gate_image_gift_mode").value = gates?.data?.imageGiftMode ?? "lock";
   if (document.getElementById("gate_anim_room_vip")) document.getElementById("gate_anim_room_vip").value = gates?.data?.animatedRoomImageMinVip ?? "";
 
@@ -3413,7 +3415,9 @@ async function saveGates() {
   const roomImageMinVip    = Number(document.getElementById("gate_room_image_vip").value || 0);
   const imageGiftMode = document.getElementById("gate_image_gift_mode")?.value || "lock";
   const animatedRoomImageMinVip = document.getElementById("gate_anim_room_vip")?.value ?? "";
-  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode, animatedRoomImageMinVip });
+  const messageImageMinLevel = Number(document.getElementById("gate_image_level")?.value || 0);
+  const roomImageMinLevel = Number(document.getElementById("gate_room_image_level")?.value || 0);
+  await apiFetch("/admin-dashboard/gates", "POST", { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode, animatedRoomImageMinVip, messageImageMinLevel, roomImageMinLevel });
   showToast("✅ تم الحفظ");
 }
 
