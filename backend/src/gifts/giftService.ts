@@ -1,4 +1,5 @@
 import { buildGiftEvent } from './giftEvent';
+import { findAgencyCommissionOwner } from './agencyCommission';
 import type { GiftTransactionContext } from './giftOperation';
 import prisma from '../utils/prisma';
 import { coinFreezeReason } from '../utils/coinFreeze';
@@ -267,10 +268,7 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
       let commission: { ownerId: number; agencyId: number; amount: number; ratePercent: number; productionCoins: number } | null = null;
       if (hostMembership) {
         const COMMISSION_RATE = Number(process.env.AGENCY_COMMISSION_RATE ?? 0.2);
-        const owner = await tx.agencyMember.findFirst({
-          where: { agencyId: hostMembership.agencyId, role: 'OWNER' },
-          select: { id: true, userId: true },
-        });
+        const owner = await findAgencyCommissionOwner(tx, hostMembership.agencyId);
         if (owner) {
           const amount = Math.floor(recipientCoins * COMMISSION_RATE);
           if (amount > 0) {

@@ -1,3 +1,6 @@
+import { adjustOwnerAgencyWallet, AgencyWalletError, CHARGING_WALLETS_FROZEN_KEY } from './charging-agency.controller';
+import { findBlockingMembership, ALREADY_IN_AGENCY_MESSAGE } from '../agencies/oneAgencyRule';
+import { AgencyAccessError } from '../services/agencyIdentity.service';
 import { recordAdminAuditStrict } from '../services/adminAudit.service';
 import { Request, Response } from 'express';
 
@@ -469,9 +472,9 @@ export const adminDashboardTopupRequests = async (req: Request, res: Response) =
     const data = await prisma.agencyTopupRequest.findMany({
       where: status ? { status } : undefined,
       orderBy: { createdAt: 'desc' },
-      include: { agency: { select: { id: true, agencyName: true, userId: true, balanceCoins: true } } },
+      include: { agency: { select: { id: true, agencyName: true, userId: true, balanceCoins: true, walletFrozen: true, members: { where: { role: 'OWNER' }, select: { agencyWalletCoins: true }, take: 1 } } } },
     });
-    return ok(res, { data: serialize(data) });
+    return ok(res, { data: serialize(data.map((r: any) => ({ ...r, agency: r.agency ? { ...r.agency, balanceCoins: String(r.agency.members[0]?.agencyWalletCoins ?? 0), agencyWalletCoins: String(r.agency.members[0]?.agencyWalletCoins ?? 0), walletFrozen: r.agency.walletFrozen, members: undefined } : null }))) });
   } catch {
     return fail(res, 500, 'Server error');
   }
@@ -486,7 +489,6 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
 
     // Set inside the transaction, acted on after it commits.
     let chargedAgencyId = 0;
-    let creditedUserId = 0;
     let chargedAmount = 0;
 
     const result = await db.$transaction(async (tx: any) => {
@@ -494,31 +496,12 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
       if (!topup) return { ok: false as const, status: 404, message: 'Topup request not found' };
       if (topup.status !== 'pending') return { ok: false as const, status: 409, message: 'Already reviewed' };
 
+      const claimed = await tx.agencyTopupRequest.updateMany({ where: { id, status: 'pending' }, data: { status, reviewedBy: adminId, reviewedAt: new Date() } });
+      if (!claimed.count) return { ok: false as const, status: 409, message: 'Already reviewed' };
       if (status === 'approved') {
-        // Credited to the AGENT'S WALLET, not the agency pot — same rule as
-        // adminTopupAgency below: the agent charges, plays and gifts from one
-        // balance ("كوينزات وكيل الشحن تكون في محفظته الشخصيه").
-        const ownerRow = await tx.agencyMember.findFirst({
-          where: { agencyId: topup.agencyId, role: 'OWNER' },
-          select: { userId: true },
-        });
-        const agency = await tx.chargingAgency.findUniqueOrThrow({
-          where: { id: topup.agencyId },
-          select: { userId: true },
-        });
-        const ownerId = ownerRow?.userId ?? agency.userId;
-        await tx.user.update({
-          where: { id: ownerId },
-          data: {
-            coinsBalance: { increment: topup.amount },
-            // E2 — same rule as adminTopupAgency: an approved top-up is a real
-            // recharge and must count toward VIP.
-            totalRecharge: { increment: topup.amount },
-          },
-        });
+        await adjustOwnerAgencyWallet(tx, topup.agencyId, topup.amount, adminId, `Topup request ${id}`);
         chargedAgencyId = topup.agencyId;
         chargedAmount = topup.amount;
-        creditedUserId = ownerId;
       }
 
       const updated = await tx.agencyTopupRequest.update({
@@ -534,14 +517,9 @@ export const adminDashboardReviewTopupRequest = async (req: Request, res: Respon
     // Outside the transaction: the reward ladder must not be able to roll back
     // an approved top-up.
     if (chargedAgencyId) await recordAgencySelfCharge(chargedAgencyId, chargedAmount);
-    // E2 — re-evaluate VIP after the credit commits, never inside the
-    // transaction: a tier grant must not be able to roll the top-up back.
-    if (creditedUserId) {
-      try { await evaluateVip(creditedUserId); } catch (e) { console.warn('evaluateVip failed:', e); }
-    }
-
     return ok(res, { data: serialize(result.data) });
-  } catch {
+  } catch (e) {
+    if (e instanceof AgencyWalletError) return fail(res, e.status, e.message);
     return fail(res, 500, 'Server error');
   }
 };
@@ -1110,7 +1088,7 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
 
     const agencies = await prisma.chargingAgency.findMany({
       where,
-      include: { user: true },
+      include: { user: true, members: { where: { role: 'OWNER' }, select: { agencyWalletCoins: true }, take: 1 } },
       orderBy: { createdAt: 'desc' },
     });
     // `a.earnedCoins` is a dead column that nothing ever writes, so it always
@@ -1124,10 +1102,10 @@ export const adminDashboardListChargingAgencies = async (req: Request, res: Resp
           ...serialize(a),
           earnedCoins: String(earned),
           dollars: await computeDollarsFromCoins(BigInt(earned)),
-          // The dashboard's "رصيد المحفظة" column. ChargingAgency.balanceCoins
-          // is a retired pot (charging is paid from the agent's own wallet), so
-          // report the wallet the admin actually tops up.
-          balanceCoins: String(a.user?.coinsBalance ?? 0),
+          balanceCoins: String(a.type === 'CHARGING' ? a.members[0]?.agencyWalletCoins ?? 0 : a.user?.coinsBalance ?? 0),
+          agencyWalletCoins: String(a.members[0]?.agencyWalletCoins ?? 0),
+          walletFrozen: a.walletFrozen,
+          members: undefined,
           // B10 — "كل وكاله شحنت كام مره لنفسها": how often this agency topped
           // ITSELF up, and the coins behind those charges, so the owner can
           // rank agencies and reward the biggest charger.
@@ -1255,6 +1233,12 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
       // owner ended up with no الفروع button, `GET/POST /agencies/branches`
       // answering 403 and even شحن مستخدم refused — "فروع وكالة الشحن توقفت".
       if (status === 'approved') {
+        const existingMember = await tx.agencyMember.findUnique({
+          where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
+        });
+        if (!existingMember && await findBlockingMembership(tx, agency.userId, agency.id, 'OWNER')) {
+          throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+        }
         await tx.agencyMember.upsert({
           where: { agencyId_userId: { agencyId: agency.id, userId: agency.userId } },
           update: { role: 'OWNER' },
@@ -1264,7 +1248,8 @@ export const adminDashboardUpdateAgencyStatus = async (req: Request, res: Respon
       return agency;
     });
     return ok(res, { data: serialize(updated) });
-  } catch {
+  } catch (e) {
+    if (e instanceof AgencyAccessError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
     return fail(res, 500, 'Server error');
   }
 };
@@ -1322,6 +1307,9 @@ export const adminReviewAgencyRequest = async (req: AdminReq, res: Response) => 
           },
         });
 
+        if (await findBlockingMembership(tx, request.userId, agency.id, 'OWNER')) {
+          throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+        }
         await tx.agencyMember.create({
           data: { agencyId: agency.id, userId: request.userId, role: 'OWNER' },
         });
@@ -1334,7 +1322,8 @@ export const adminReviewAgencyRequest = async (req: AdminReq, res: Response) => 
 
     if (!result.ok) return fail(res, result.status, result.message);
     return ok(res, { data: result.data });
-  } catch {
+  } catch (e) {
+    if (e instanceof AgencyAccessError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
     return fail(res, 500, 'Server error');
   }
 };
@@ -1380,6 +1369,9 @@ export const adminAssignAgency = async (req: AdminReq, res: Response) => {
           assignedByAdminId: req.userId,
         },
       });
+      if (await findBlockingMembership(tx, user.id, agency.id, 'OWNER')) {
+        throw new AgencyAccessError(409, ALREADY_IN_AGENCY_MESSAGE, 'ALREADY_IN_AGENCY');
+      }
       await tx.agencyMember.create({
         data: { agencyId: agency.id, userId: user.id, role: 'OWNER' },
       });
@@ -1401,6 +1393,7 @@ export const adminAssignAgency = async (req: AdminReq, res: Response) => {
 
     return ok(res, { data: serialize(result) });
   } catch (e) {
+    if (e instanceof AgencyAccessError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
     console.error('adminAssignAgency error:', e);
     return fail(res, 500, 'Server error');
   }
@@ -1413,10 +1406,10 @@ export const adminListAssignedAgencies = async (req: AdminReq, res: Response) =>
     if (!req.userId) return fail(res, 401, 'Unauthorized');
     const agencies = await db.chargingAgency.findMany({
       where: { assignedByAdminId: req.userId },
-      include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
+      include: { members: { where: { role: 'OWNER' }, select: { agencyWalletCoins: true }, take: 1 }, user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    return ok(res, { data: serialize(agencies) });
+    return ok(res, { data: serialize(agencies.map((a: any) => ({ ...a, agencyWalletCoins: String(a.members[0]?.agencyWalletCoins ?? 0), walletFrozen: a.walletFrozen, members: undefined }))) });
   } catch (e) {
     console.error('adminListAssignedAgencies error:', e);
     return fail(res, 500, 'Server error');
@@ -1428,64 +1421,48 @@ export const adminListAssignedAgencies = async (req: AdminReq, res: Response) =>
  * (ownership can be transferred), with `ChargingAgency.userId` as the fallback
  * for an agency that has no member rows yet.
  */
-const resolveAgencyOwnerId = async (agencyId: number): Promise<number | null> => {
-  const ownerRow = await db.agencyMember.findFirst({
-    where: { agencyId, role: 'OWNER' },
-    select: { userId: true },
-  });
-  if (ownerRow) return ownerRow.userId;
-  const agency = await db.chargingAgency.findUnique({
-    where: { id: agencyId },
-    select: { userId: true },
-  });
-  return agency?.userId ?? null;
-};
-
 export const adminTopupAgency = async (req: AdminReq, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { amount } = req.body as { amount?: number | string };
-    const numericAmount = Number(amount);
-
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      return fail(res, 400, 'Positive amount required');
-    }
-
-    // 2026-08 (client complaint "كوينزات وكيل الشحن منفصله عن كوينزات المحفظه"):
-    // the top-up used to land in ChargingAgency.balanceCoins, a pot the agent
-    // could only ever spend on charging. Charging now comes out of his own
-    // wallet, so the top-up goes there too — the same coins he plays and gifts
-    // with. totalTopupCoins stays as the lifetime "how much was he given" stat.
-    const ownerId = await resolveAgencyOwnerId(id);
-    if (!ownerId) return fail(res, 404, 'Agency not found');
-
-    const owner = await db.user.update({
-      where: { id: ownerId },
-      data: {
-        coinsBalance: { increment: numericAmount },
-        // E2 — "اي شحن علي محفظه المستخدم يتفاعل مع الـVIP". VIP progress is
-        // read off `totalRecharge`, so a credit that moves only coinsBalance is
-        // invisible to it. Every path that genuinely tops a wallet up has to
-        // move both, or the tier silently stops advancing.
-        totalRecharge: { increment: numericAmount },
-      },
-      select: { coinsBalance: true },
-    });
-    try { await evaluateVip(ownerId); } catch (e) { console.warn('evaluateVip failed:', e); }
-
-    // Counts as one self-charge for the dashboard ranking, and pays out any
-    // reward rung it crosses. It also owns the `totalTopupCoins` increment
-    // that used to sit in the transaction above — keeping both in one place is
-    // what makes the reward high-water mark trustworthy.
-    await recordAgencySelfCharge(id, numericAmount);
-
-    // Key kept as `balanceCoins` — the dashboard reads it to print the new
-    // balance, and it is now the agent's wallet.
-    return ok(res, { data: { balanceCoins: String(owner.coinsBalance) } });
+    const amount = Number(req.body?.amount);
+    if (!Number.isSafeInteger(id) || id <= 0 || !Number.isSafeInteger(amount) || amount <= 0 || amount > 2_147_483_647) return fail(res, 400, 'Positive integer amount required');
+    const wallet = await db.$transaction((tx: any) => adjustOwnerAgencyWallet(tx, id, amount, req.userId!, req.body?.note));
+    await recordAgencySelfCharge(id, amount);
+    return ok(res, { data: wallet });
   } catch (e) {
+    if (e instanceof AgencyWalletError) return fail(res, e.status, e.message);
     console.error('adminTopupAgency error:', e);
     return fail(res, 500, 'Server error');
   }
+};
+
+export const adminFreezeAgencyWallet = async (req: AdminReq, res: Response) => {
+  const id = Number(req.params.id);
+  const frozen = req.body?.frozen;
+  if (!Number.isSafeInteger(id) || id <= 0 || typeof frozen !== 'boolean') return fail(res, 400, 'Valid id and boolean frozen required');
+  try {
+    const data = await prisma.$transaction(async tx => {
+      const before = await tx.chargingAgency.findUnique({ where: { id } });
+      if (!before || before.type !== 'CHARGING') throw new AgencyWalletError(404, 'Charging agency not found');
+      await tx.chargingAgency.update({ where: { id }, data: { walletFrozen: frozen } });
+      await tx.adminAuditLog.create({ data: { adminId: req.userId!, action: 'agency_wallet_freeze', targetType: 'agency', targetId: String(id), before: { walletFrozen: before.walletFrozen }, after: { walletFrozen: frozen } } });
+      return { id, walletFrozen: frozen };
+    });
+    return ok(res, { data });
+  } catch (e) { return fail(res, e instanceof AgencyWalletError ? e.status : 500, e instanceof AgencyWalletError ? e.message : 'Server error'); }
+};
+
+export const adminFreezeAllAgencyWallets = async (req: AdminReq, res: Response) => {
+  const frozen = req.body?.frozen;
+  if (typeof frozen !== 'boolean') return fail(res, 400, 'Boolean frozen required');
+  try {
+    await prisma.$transaction(async tx => {
+      const before = await tx.appSetting.findUnique({ where: { key: CHARGING_WALLETS_FROZEN_KEY } });
+      await tx.appSetting.upsert({ where: { key: CHARGING_WALLETS_FROZEN_KEY }, create: { key: CHARGING_WALLETS_FROZEN_KEY, value: String(frozen) }, update: { value: String(frozen) } });
+      await tx.adminAuditLog.create({ data: { adminId: req.userId!, action: 'agency_wallet_global_freeze', targetType: 'setting', targetId: CHARGING_WALLETS_FROZEN_KEY, before: { value: before?.value ?? 'false' }, after: { value: String(frozen) } } });
+    });
+    return ok(res, { data: { frozen } });
+  } catch { return fail(res, 500, 'Server error'); }
 };
 
 // ── B11: automatic reward when a charging agency tops itself up past a

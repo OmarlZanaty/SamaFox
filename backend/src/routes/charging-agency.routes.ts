@@ -2,10 +2,12 @@ import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import {
+  chargingRecipient,
   listChargingAgencies,
   myChargingAgencies,
   createChargingAgency,
   myAgencyBalance,
+  withdrawAgencyWallet,
   myAgencyTransfers,
   agencyTransferCoins,
   createTopupRequest,
@@ -23,10 +25,12 @@ const router = Router();
 router.get('/', listChargingAgencies);
 
 // Agent (auth)
+router.get('/recipient/:userId', authMiddleware, chargingRecipient);
 router.get('/me', authMiddleware, myChargingAgencies);
 router.post('/', authMiddleware, createChargingAgency);
 
 router.get('/my/balance', authMiddleware, myAgencyBalance);
+router.post('/my/withdraw', authMiddleware, idempotent('agency_wallet_withdraw'), withdrawAgencyWallet);
 router.get('/my/transfers', authMiddleware, myAgencyTransfers);
 
 router.post('/transfer', authMiddleware, idempotent('agency_transfer'), agencyTransferCoins);
@@ -39,7 +43,7 @@ router.get('/my/topups', authMiddleware, myTopupRequests);
 router.get('/admin/topups', authMiddleware, adminListTopups);
 router.patch('/topup/:id/review', authMiddleware, requireOwnerPermission('finance.recharge'), idempotent('agency_topup_review'), reviewTopupRequest);
 
-router.patch('/:id/balance', authMiddleware, requireOwnerPermission('finance.charging_agency'), adminAdjustAgencyBalance);
+router.patch('/:id/balance', authMiddleware, requireOwnerPermission('finance.charging_agency'), idempotent('agency_wallet_adjust'), adminAdjustAgencyBalance);
 router.patch('/:id/status', authMiddleware, updateChargingAgencyStatus);
 
 export default router;

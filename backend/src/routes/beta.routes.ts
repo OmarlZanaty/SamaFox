@@ -11,7 +11,6 @@ import {
   isBetaSyncOffline,
   verifyGoogleIdToken,
 } from '../services/beta.service';
-import { sendFallbackInvite } from '../services/betaWatchdog.service';
 import { enrollAdapter } from '../services/betaPlay.service';
 
 const router = Router();
@@ -65,11 +64,6 @@ router.post('/enroll', enrollLimiter, async (req, res) => {
     // Tell the page up front when the daemon is down, so it can show the honest
     // "we'll send you the link" copy instead of a spinner that cannot resolve.
     const delayed = !outcome.playSynced && (await isBetaSyncOffline());
-    // Queue the email invite in the same breath rather than waiting for the
-    // watchdog's next sweep — during an outage it is the only channel left, and
-    // arriving minutes late is what made it useless before. Deliberately not
-    // awaited: the response must not wait on Firebase.
-    if (delayed) void sendFallbackInvite(outcome.email);
 
     return res.json({
       success: true,

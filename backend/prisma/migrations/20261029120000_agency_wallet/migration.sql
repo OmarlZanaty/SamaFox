@@ -1,0 +1,3 @@
+ALTER TABLE "AgencyMember" ADD COLUMN "agencyWalletCoins" BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE "charging_agencies" ADD COLUMN "walletFrozen" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "AgencyInvite" ADD COLUMN "role" TEXT NOT NULL DEFAULT 'MEMBER';

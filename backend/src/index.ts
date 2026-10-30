@@ -63,7 +63,6 @@ import { startExpirySweep } from './services/expiry.service';
 import staffRoutes from './staff/staff.routes';
 import staffDashboardRoutes from './staff/staffDashboard.routes';
 import { startStaffExpiryJob } from './staff/staff.service';
-import { startBetaSyncWatchdog } from './services/betaWatchdog.service';
 import giftRoutes from './gifts/routes';
 import giftAdminRoutes from './gifts/admin.routes';
 import appDownloadRoutes from './routes/appDownload.routes';
@@ -358,9 +357,6 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // backgrounds. Runs on boot and every 15 minutes.
   startExpirySweep();
   startStaffExpiryJob();
-  // Notice when the operator's beta-sync PC goes dark and fall back to the
-  // email invite, so a signup never just spins. Every minute.
-  startBetaSyncWatchdog();
   // هدايا الحظ: close rounds whose window passed without enough players.
   startLuckyRoundSweeper(emitLuckyRoundsClosed);
   // Idempotency keys only matter for retries; three days is plenty.
