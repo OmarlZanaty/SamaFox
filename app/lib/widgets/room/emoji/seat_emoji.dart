@@ -22,16 +22,17 @@ class SeatEmoji extends StatefulWidget {
 }
 
 class _SeatEmojiState extends State<SeatEmoji> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: SeatEmoji.duration)
-    ..addStatusListener((s) {
-      if (s == AnimationStatus.completed && mounted) setState(() => _event = null);
-    });
+  late final AnimationController _c;
   StreamSubscription<RoomEmojiEvent>? _sub;
   RoomEmojiEvent? _event;
 
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: SeatEmoji.duration)
+      ..addStatusListener((s) {
+        if (s == AnimationStatus.completed && mounted) setState(() => _event = null);
+      });
     _sub = roomEmojiEvents.stream.listen((e) {
       if (!mounted || e.senderId != widget.senderId) return;
       setState(() => _event = e);

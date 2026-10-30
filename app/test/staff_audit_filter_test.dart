@@ -29,7 +29,7 @@ void main() {
     await tester.pumpWidget(ProviderScope(
       overrides: [
         staffServiceProvider.overrideWithValue(service),
-        staffMeProvider.overrideWith((ref) async => me),
+        staffPanelAccessProvider.overrideWith((ref) async => me),
       ],
       child: const MaterialApp(home: StaffAuditScreen()),
     ));

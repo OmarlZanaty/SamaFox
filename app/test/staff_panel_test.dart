@@ -29,7 +29,7 @@ Future<void> pumpPanel(WidgetTester tester, StaffAccess me) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(ProviderScope(
-    overrides: [staffMeProvider.overrideWith((ref) async => me)],
+    overrides: [staffPanelAccessProvider.overrideWith((ref) async => me)],
     child: const MaterialApp(home: StaffPanelScreen()),
   ));
   await tester.pumpAndSettle();
