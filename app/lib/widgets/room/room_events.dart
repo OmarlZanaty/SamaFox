@@ -734,9 +734,9 @@ class _RoomPkBarState extends State<RoomPkBar> {
             _hideButton(Icons.keyboard_arrow_up_rounded),
           ]),
           const SizedBox(height: 6),
-          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(child: _player(aId, 'A', fire: true, canSupport: !global || mySide == 'A')),
-            const _VsMark(),
+            const Padding(padding: EdgeInsets.only(top: 22), child: _VsMark()),
             Expanded(child: _player(bId, 'B', fire: false, canSupport: !global || mySide == 'B')),
           ]),
           const SizedBox(height: 6),
@@ -753,20 +753,25 @@ class _RoomPkBarState extends State<RoomPkBar> {
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
             child: SizedBox(
-              height: 7,
+              height: 8,
               child: Row(children: [
                 Expanded(
                   flex: math.max(1, (share * 1000).round()),
-                  child: const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFFE082)]))),
+                  child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFFE082)]))),
                 ),
                 const SizedBox(width: 2),
                 Expanded(
                   flex: math.max(1, ((1 - share) * 1000).round()),
-                  child: const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)]))),
+                  child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)]))),
                 ),
               ]),
             ),
           ),
+          if (!pending) ...[
+            const SizedBox(height: 5),
+            Text(tr('ادعم لاعبك بالهدايا عشان يكسب · PK ينتهي خلال $clock', 'Support your player with gifts to help them win · PK ends in $clock'),
+                textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 9.5)),
+          ],
         ]),
       ),
     );
@@ -828,10 +833,19 @@ class _RoomPkBarState extends State<RoomPkBar> {
     final name = (p?['name'] ?? fallback).toString();
     final url = p?['avatarUrl']?.toString();
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      _RingAvatar(url: url, fire: fire, size: 56),
+      _RingAvatar(url: url, fire: fire, size: 64),
       const SizedBox(height: 4),
-      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Colors.white.withValues(alpha: .18), Colors.white.withValues(alpha: .05)]),
+          border: Border.all(color: Colors.white.withValues(alpha: .15)),
+        ),
+        child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+      ),
       if (canSupport && uid != null && widget.onSupport != null)
         Padding(
           padding: const EdgeInsets.only(top: 3),
