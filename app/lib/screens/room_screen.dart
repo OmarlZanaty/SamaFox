@@ -5927,11 +5927,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final isMine = seat.userId == myUserId;
 
-    // Relation-seat leave has its own special sheet
-    if (isMine && seat.relationPartner != null) {
-      _showLeaveSeatSheet(context, seatNumber, seat);
-      return;
-    }
+    // The old «إرتباط» relation sheet on one's own seat is gone (client,
+    // 2026-10-22/28: «طلبنا الغائه» · «ما زالت دي بتظهر»): every seat tap now
+    // opens the unified profile card below.
 
     // ── Unified profile dialog (self / admin / regular user) ──
     // Fetched once, outside the builder, so sheet-internal rebuilds (e.g.
@@ -6588,6 +6586,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     );
   }
 
+  // ignore: unused_element
   void _showLeaveSeatSheet(BuildContext context, int seatNumber, SeatData seat) {
     showModalBottomSheet(
       context: context,
