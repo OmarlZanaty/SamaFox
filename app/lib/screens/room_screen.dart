@@ -5023,7 +5023,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   ),
                 RoomGameWinStrip(roomId: widget.roomId),
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
-                RoomPkBar(roomId: widget.roomId),
+                RoomPkBar(
+                  roomId: widget.roomId,
+                  onSupport: (id, name, avatar) => _openGiftSheetToUser(
+                      context, _Recipient(id: id, name: name, avatarUrl: avatar)),
+                ),
 
                 // The CP list moved out of the room to the home screen, above the
                 // rooms (client @390/@427: «ال cp مكانه مش في الغرفه خالص»).

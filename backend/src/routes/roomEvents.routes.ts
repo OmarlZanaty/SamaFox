@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { authenticate } from '../middlewares/auth.middleware';
 import { idempotent } from '../middlewares/idempotency.middleware';
 import { requireOwnerPermission } from '../services/ownerPermissions.service';
-import { acceptPk, claimRocket, fundEventPool, integer, pkView, rocketView, saveEventConfig, startPk, RoomEventError } from '../services/roomEvents.service';
+import { acceptPk, cancelRandomPk, joinRandomPk, claimRocket, fundEventPool, integer, pkView, rocketView, saveEventConfig, startPk, RoomEventError } from '../services/roomEvents.service';
 import { isUserInRoom, getSeatedUserIds } from '../services/socket.service';
 import { readBalance } from '../services/economyAccounts.service';
 
@@ -30,6 +30,8 @@ roomEventsRouter.get('/room-events/:roomId', wrap(async req => {
 }));
 roomEventsRouter.post('/rockets/:eventId/claim', idempotent('rocket-claim'), wrap(req => claimRocket(String(req.params.eventId), req.userId!)));
 roomEventsRouter.post('/pk/start', idempotent('pk-start'), wrap(req => startPk(req.userId!, req.body)));
+roomEventsRouter.post('/pk/random', wrap(req => joinRandomPk(req.userId!, req.body)));
+roomEventsRouter.post('/pk/random/cancel', wrap(req => cancelRandomPk(req.userId!, req.body)));
 roomEventsRouter.post('/pk/:id/accept', idempotent('pk-accept'), wrap(req => acceptPk(String(req.params.id), req.userId!)));
 
 // Mounted inside the authenticated admin dashboard router.

@@ -2,6 +2,7 @@ import { randomInt } from 'crypto';
 import prisma from '../utils/prisma';
 import { creditAccount, debitAccount, readBalance, PROGRAM_ACCOUNT } from './economyAccounts.service';
 import { recordAdminAuditStrict } from './adminAudit.service';
+import { PkMatchQueue } from './pkMatchmaking';
 import { emitGlobal, emitToRoomAndUsers, emitToUser, isUserInRoom, getSeatedUserIds } from './socket.service';
 
 const db = prisma as any;
@@ -207,14 +208,28 @@ export async function requireRoomManager(tx: any, roomId: number, userId: number
     throw new RoomEventError('ليست لديك صلاحية', 403);
   return room;
 }
+/** Custom length (client @199: «مربع كمان احط فيه المده»): 1–60 minutes. */
+export function pkDurationSec(raw: unknown, cfg: any): number {
+  const fallback = Array.isArray(cfg?.allowedDurations) && cfg.allowedDurations.length ? cfg.allowedDurations[0] : 300;
+  return integer(raw ?? fallback, 60, 3600);
+}
+async function reservePk(tx: any, pk: any, cfg: any, userId: number) {
+  const reserve = Object.values(cfg.rewards as Record<string, Reward>).reduce((sum, reward) =>
+    sum + (reward.type === 'coins' ? (reward.coins ?? 0) * reward.quantity : 0), 0);
+  if (reserve) {
+    const movement = { kind: 'PK_RESERVE', refType: 'pk', refId: pk.id, userId };
+    if (await debitAccount(tx, 'PK_POOL', reserve, movement) === null) throw new RoomEventError('رصيد صندوق PK غير كافٍ', 409);
+    await creditAccount(tx, `PK_ESCROW:${pk.id}`, reserve, movement);
+  }
+  for (const id of new Set<number>([pk.room1Id, pk.room2Id])) await tx.pkRoomLock.create({ data: { roomId: id, pkId: pk.id } });
+}
 export async function startPk(userId: number, raw: any) {
   const roomId = integer(raw.roomId);
   const p: any = await eventTransaction(async tx => {
     const room = await requireRoomManager(tx, roomId, userId);
     const cfg = await tx.pkConfig.findFirst({ orderBy: { id: 'desc' } });
     if (!cfg?.enabled) throw new RoomEventError('PK غير متاح');
-    const durationSec = integer(raw.durationSec ?? cfg.allowedDurations[0], 30, 3600);
-    if (!cfg.allowedDurations.includes(durationSec)) throw new RoomEventError('المدة غير متاحة');
+    const durationSec = pkDurationSec(raw.durationSec, cfg);
     if (!['ROOM', 'GLOBAL'].includes(raw.type)) throw new RoomEventError('نوع PK غير صالح');
     const global = raw.type === 'GLOBAL';
     const room2Id = global ? integer(raw.opponentRoomId) : roomId;
@@ -231,19 +246,67 @@ export async function startPk(userId: number, raw: any) {
       sideAUserId: a, sideBUserId: b, durationSec, configSnapshot: cfg, createdBy: userId,
       status: global ? 'PENDING' : 'ACTIVE', startedAt: global ? null : now,
       endsAt: new Date(now.getTime() + (global ? 90 : durationSec) * 1000) } });
-    const reserve = Object.values(cfg.rewards as Record<string, Reward>).reduce((sum, reward) =>
-      sum + (reward.type === 'coins' ? (reward.coins ?? 0) * reward.quantity : 0), 0);
-    if (reserve) {
-      const movement = { kind: 'PK_RESERVE', refType: 'pk', refId: pk.id, userId };
-      if (await debitAccount(tx, 'PK_POOL', reserve, movement) === null) throw new RoomEventError('رصيد صندوق PK غير كافٍ', 409);
-      await creditAccount(tx, `PK_ESCROW:${pk.id}`, reserve, movement);
-    }
-    for (const id of ids) await tx.pkRoomLock.create({ data: { roomId: id, pkId: pk.id } });
+    await reservePk(tx, pk, cfg, userId);
     return pk;
   });
   if (p.status === 'PENDING') emitToUser(p.sideBUserId, 'pk_invite', pkView(p));
   for (const id of new Set<number>([p.room1Id, p.room2Id])) emitToRoomAndUsers(id, [], 'pk_state', pkView(p));
   return pkView(p);
+}
+
+const randomQueue = new PkMatchQueue();
+const lockedRooms = new Set<number>();
+
+/**
+ * Random PK: the room waits for another room that also opted in; both opted
+ * in, so the battle starts at once (no invitation). The longer-waiting room is
+ * side A and its chosen length is used.
+ */
+export async function joinRandomPk(userId: number, raw: any) {
+  const roomId = integer(raw.roomId);
+  const durationSec = await eventTransaction(async tx => {
+    await requireRoomManager(tx, roomId, userId);
+    const cfg = await tx.pkConfig.findFirst({ orderBy: { id: 'desc' } });
+    if (!cfg?.enabled) throw new RoomEventError('PK غير متاح');
+    if (await tx.pkRoomLock.count({ where: { roomId } })) throw new RoomEventError('يوجد PK أو دعوة قائمة', 409);
+    const busy = await tx.pkRoomLock.findMany({ select: { roomId: true } });
+    lockedRooms.clear();
+    for (const l of busy) lockedRooms.add(l.roomId);
+    return pkDurationSec(raw.durationSec, cfg);
+  });
+  const partner = randomQueue.take({ roomId, userId, durationSec }, id => lockedRooms.has(id));
+  if (!partner) return { status: 'WAITING', roomId, durationSec };
+  let p: any;
+  try {
+    p = await eventTransaction(async tx => {
+      const cfg = await tx.pkConfig.findFirst({ orderBy: { id: 'desc' } });
+      if (!cfg?.enabled) throw new RoomEventError('PK غير متاح');
+      const [room1, room2] = await Promise.all([
+        tx.room.findUnique({ where: { id: partner.roomId } }), tx.room.findUnique({ where: { id: roomId } })]);
+      if (!room1?.isActive || !room2?.isActive) throw new RoomEventError('الغرفة غير متاحة');
+      if (await tx.pkRoomLock.count({ where: { roomId: { in: [partner.roomId, roomId] } } }))
+        throw new RoomEventError('يوجد PK أو دعوة قائمة', 409);
+      const now = new Date();
+      const pk = await tx.pkBattle.create({ data: { room1Id: partner.roomId, room2Id: roomId, type: 'GLOBAL',
+        sideAUserId: room1.ownerId, sideBUserId: room2.ownerId, durationSec: partner.durationSec,
+        configSnapshot: { ...cfg, random: true }, createdBy: partner.userId, status: 'ACTIVE', startedAt: now,
+        endsAt: new Date(now.getTime() + partner.durationSec * 1000) } });
+      await reservePk(tx, pk, cfg, partner.userId);
+      return pk;
+    });
+  } catch (e) {
+    // The partner did nothing wrong: it keeps its place.
+    randomQueue.restore(partner);
+    throw e;
+  }
+  for (const id of [p.room1Id, p.room2Id]) emitToRoomAndUsers(id, [], 'pk_state', pkView(p));
+  for (const uid of new Set<number>([partner.userId, userId])) emitToUser(uid, 'pk_matched', pkView(p));
+  return { status: 'MATCHED', pk: pkView(p) };
+}
+export async function cancelRandomPk(userId: number, raw: any) {
+  const roomId = integer(raw.roomId);
+  await eventTransaction(tx => requireRoomManager(tx, roomId, userId));
+  return { cancelled: randomQueue.cancel(roomId) };
 }
 export async function acceptPk(id: string, userId: number) {
   const p: any = await eventTransaction(async tx => {

@@ -397,6 +397,46 @@ class _SparkPainter extends CustomPainter {
 
 // ─────────────────────────────── PK ───────────────────────────────
 
+/// Rooms searching for a random PK opponent (client @383), shown on the PK
+/// card until a match arrives.
+final ValueNotifier<Set<int>> pkSearchingRooms = ValueNotifier<Set<int>>(<int>{});
+
+/// The server keeps a waiting room for two minutes; re-join while searching.
+final Map<int, Timer> _pkSearchTimers = {};
+
+Future<void> _joinRandomPk(int roomId, int durationSec) async {
+  final res = await DioClient.dio.post('/pk/random', data: {'roomId': roomId, 'durationSec': durationSec});
+  final d = res.data is Map ? res.data['data'] : null;
+  if (d is Map && d['status'] == 'WAITING') {
+    pkSearchingRooms.value = {...pkSearchingRooms.value, roomId};
+    _pkSearchTimers[roomId]?.cancel();
+    _pkSearchTimers[roomId] = Timer(const Duration(seconds: 100), () {
+      if (pkSearchingRooms.value.contains(roomId)) {
+        _joinRandomPk(roomId, durationSec).catchError((Object e) {
+          _stopPkSearch(roomId);
+          _toast(_err(e));
+        });
+      }
+    });
+  } else {
+    _stopPkSearch(roomId);
+  }
+}
+
+void _stopPkSearch(int roomId) {
+  _pkSearchTimers.remove(roomId)?.cancel();
+  if (pkSearchingRooms.value.contains(roomId)) {
+    pkSearchingRooms.value = {...pkSearchingRooms.value}..remove(roomId);
+  }
+}
+
+Future<void> cancelRandomPk(int roomId) async {
+  _stopPkSearch(roomId);
+  try {
+    await DioClient.dio.post('/pk/random/cancel', data: {'roomId': roomId});
+  } catch (_) {}
+}
+
 class RoomPkButton extends StatelessWidget {
   const RoomPkButton({super.key, required this.roomId, required this.canStart, required this.seated});
   final int roomId;
@@ -423,10 +463,10 @@ class RoomPkButton extends StatelessWidget {
 
   void _openStart(BuildContext context) {
     String type = 'ROOM';
-    int duration = 300;
     int? a;
     int? b;
     final opp = TextEditingController();
+    final minutes = TextEditingController(text: '5');
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -440,12 +480,13 @@ class RoomPkButton extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(tr('بدء PK', "Start PK"), textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
+                Text(tr('بدء PK', "Start PK"), textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 10),
                 SegmentedButton<String>(
                   segments: [
                     ButtonSegment(value: 'ROOM', label: Text(tr('داخل الغرفة', "Within room"))),
                     ButtonSegment(value: 'GLOBAL', label: Text(tr('غرفة ضد غرفة', "Room vs room"))),
+                    ButtonSegment(value: 'RANDOM', label: Text(tr('عشوائي', "Random"))),
                   ],
                   selected: {type},
                   onSelectionChanged: (v) => set(() => type = v.first),
@@ -454,40 +495,68 @@ class RoomPkButton extends StatelessWidget {
                 if (type == 'ROOM') ...[
                   _pick(tr('اللاعب A', "Player A"), a, (v) => set(() => a = v)),
                   _pick(tr('اللاعب B', "Player B"), b, (v) => set(() => b = v)),
-                ] else
+                ] else if (type == 'GLOBAL')
                   TextField(
                     controller: opp,
                     keyboardType: TextInputType.number,
                     style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(labelText: tr('رقم الغرفة المنافسة', "Opponent room ID"), labelStyle: TextStyle(color: Colors.white54)),
+                    decoration: InputDecoration(labelText: tr('رقم الغرفة المنافسة', "Opponent room ID"), labelStyle: const TextStyle(color: Colors.white54)),
+                  )
+                else
+                  Text(
+                    tr('هنقابلك بغرفة تانية مفعّلة PK عشوائي، وكل واحد يفضل في غرفته.',
+                        'You will be matched with another room that turned on random PK; each side stays in its own room.'),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12.5),
                   ),
-                const SizedBox(height: 10),
-                Wrap(spacing: 6, children: [
-                  for (final d in const [180, 300, 600])
-                    ChoiceChip(
-                      label: Text(tr('${d ~/ 60} دقائق', "${d ~/ 60} minutes")),
-                      selected: duration == d,
-                      onSelected: (_) => set(() => duration = d),
+                const SizedBox(height: 12),
+                // Client @199: «المطلوب مربع كمان احط فيه المده».
+                Row(children: [
+                  Text(tr('المدة (دقائق)', 'Duration (minutes)'), style: const TextStyle(color: Colors.white70)),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 70,
+                    child: TextField(
+                      key: const Key('pk_minutes'),
+                      controller: minutes,
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                      decoration: const InputDecoration(isDense: true, border: OutlineInputBorder()),
                     ),
+                  ),
+                ]),
+                const SizedBox(height: 6),
+                Wrap(spacing: 6, children: [
+                  for (final m in const [3, 5, 10, 15, 30])
+                    ActionChip(label: Text('$m'), onPressed: () => set(() => minutes.text = '$m')),
                 ]),
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: () async {
+                    final m = int.tryParse(minutes.text.trim());
+                    if (m == null || m < 1 || m > 60) {
+                      _toast(tr('المدة من 1 إلى 60 دقيقة', 'Duration must be 1–60 minutes'));
+                      return;
+                    }
                     try {
-                      await DioClient.dio.post('/pk/start', data: {
-                        'roomId': roomId,
-                        'type': type,
-                        'durationSec': duration,
-                        if (type == 'ROOM') 'sideAUserId': a,
-                        if (type == 'ROOM') 'sideBUserId': b,
-                        if (type == 'GLOBAL') 'opponentRoomId': int.tryParse(opp.text.trim()),
-                      });
+                      if (type == 'RANDOM') {
+                        await _joinRandomPk(roomId, m * 60);
+                      } else {
+                        await DioClient.dio.post('/pk/start', data: {
+                          'roomId': roomId,
+                          'type': type,
+                          'durationSec': m * 60,
+                          if (type == 'ROOM') 'sideAUserId': a,
+                          if (type == 'ROOM') 'sideBUserId': b,
+                          if (type == 'GLOBAL') 'opponentRoomId': int.tryParse(opp.text.trim()),
+                        });
+                      }
                       if (sctx.mounted) Navigator.pop(sctx);
                     } catch (e) {
                       _toast(_err(e));
                     }
                   },
-                  child: Text(tr('ابدأ', "Start")),
+                  child: Text(type == 'RANDOM' ? tr('ابحث عن منافس', 'Find an opponent') : tr('ابدأ', "Start")),
                 ),
               ],
             ),
@@ -509,11 +578,20 @@ class RoomPkButton extends StatelessWidget {
       );
 }
 
-/// A VS B, scores, split progress bar, server countdown — under the header
-/// while a PK runs in this room.
+/// The PK card (design the client sent, image 1025_0102): fire ring vs ice
+/// ring, VS, gifts and a gold/blue bar, the server countdown, a support button
+/// that gifts the side's player, and a button at its edge that hides it to a
+/// small pill and brings it back. The winner is shown mid-screen at the end.
 class RoomPkBar extends StatefulWidget {
-  const RoomPkBar({super.key, required this.roomId});
+  const RoomPkBar({super.key, required this.roomId, this.onSupport, this.initialPk, this.initialPeople});
   final int roomId;
+
+  /// Opens the gift sheet on that player (client @377: «كل دعم يوصل للمضيف»).
+  final void Function(int userId, String name, String? avatarUrl)? onSupport;
+
+  /// Preview/testing only: a PK to show without the server.
+  final Map<String, dynamic>? initialPk;
+  final Map<int, Map>? initialPeople;
 
   @override
   State<RoomPkBar> createState() => _RoomPkBarState();
@@ -524,6 +602,7 @@ class _RoomPkBarState extends State<RoomPkBar> {
   Map<int, Map> _people = {};
   final _subs = <StreamSubscription>[];
   Timer? _tick;
+  bool _hidden = false;
 
   bool _mine(Map d) =>
       (d['roomId'] as num?)?.toInt() == widget.roomId ||
@@ -534,22 +613,32 @@ class _RoomPkBarState extends State<RoomPkBar> {
   @override
   void initState() {
     super.initState();
+    _pk = widget.initialPk;
+    _people = {...?widget.initialPeople};
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _pk != null) setState(() {});
+    });
+    pkSearchingRooms.addListener(_onSearching);
+    if (widget.initialPk != null) return;
     RoomEventsBus.instance.wire();
     _subs.add(RoomEventsBus.instance.pk.listen((d) {
       if (_mine(d) && mounted) {
+        _stopPkSearch(widget.roomId);
         setState(() => _pk = d);
         _loadPeople();
       }
     }));
     _subs.add(RoomEventsBus.instance.pkResult.listen((d) {
       if (!_mine(d) || !mounted) return;
+      final people = _people;
       setState(() => _pk = null);
-      _showResult(d);
+      showPkWinner(context, d, people);
     }));
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _pk != null) setState(() {});
-    });
     _load();
+  }
+
+  void _onSearching() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _load() async {
@@ -580,90 +669,286 @@ class _RoomPkBarState extends State<RoomPkBar> {
     } catch (_) {}
   }
 
-  void _showResult(Map d) {
-    final w = d['winner']?.toString();
-    final a = (d['scoreA'] as num?)?.toInt() ?? 0;
-    final b = (d['scoreB'] as num?)?.toInt() ?? 0;
-    _toast(w == 'TIE' ? tr('🤝 تعادل في PK ($a : $b)', "🤝 PK draw ($a : $b)") : tr('🏆 انتهى PK — الفائز ${w == 'A' ? 'A' : 'B'} ($a : $b)', "🏆 PK ended — winner ${w == 'A' ? 'A' : 'B'} ($a : $b)"));
-  }
-
   @override
   void dispose() {
     _tick?.cancel();
+    pkSearchingRooms.removeListener(_onSearching);
     for (final s in _subs) {
       s.cancel();
     }
     super.dispose();
   }
 
-  Widget _side(int? uid, String fallback, Color c) {
-    final p = uid == null ? null : _people[uid];
-    final url = p?['avatarUrl']?.toString();
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      CircleAvatar(
-        radius: 11,
-        backgroundColor: c,
-        backgroundImage: (url ?? '').isNotEmpty ? appImage(url!, 22) : null,
-      ),
-      const SizedBox(width: 4),
-      ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 70),
-        child: Text((p?['name'] ?? fallback).toString(),
-            maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 10)),
-      ),
-    ]);
-  }
-
   @override
   Widget build(BuildContext context) {
     final pk = _pk;
-    if (pk == null) return const SizedBox.shrink();
+    if (pk == null) {
+      if (!pkSearchingRooms.value.contains(widget.roomId)) return const SizedBox.shrink();
+      return _searching();
+    }
     final a = (pk['scoreA'] as num?)?.toInt() ?? 0;
     final b = (pk['scoreB'] as num?)?.toInt() ?? 0;
-    final total = a + b;
-    final share = total == 0 ? 0.5 : a / total;
     final ends = DateTime.tryParse('${pk['endsAt'] ?? ''}')?.toLocal();
     final left = ends == null ? Duration.zero : ends.difference(DateTime.now());
     final secs = left.isNegative ? 0 : left.inSeconds;
+    final clock = '${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}';
     final pending = pk['status'] == 'PENDING';
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFF5252).withOpacity(0.5)),
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
-          _side((pk['sideAUserId'] as num?)?.toInt(), 'A', const Color(0xFFFF4081)),
-          const Spacer(),
-          Text(pending ? tr('بانتظار القبول', "Awaiting acceptance") : 'VS  ${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}',
-              textDirection: TextDirection.ltr,
-              style: const TextStyle(color: Color(0xFFFFD54F), fontWeight: FontWeight.w900, fontSize: 11)),
-          const Spacer(),
-          _side((pk['sideBUserId'] as num?)?.toInt(), 'B', const Color(0xFF448AFF)),
-        ]),
-        const SizedBox(height: 3),
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Row(children: [
-            Text('$a', style: const TextStyle(color: Color(0xFFFF80AB), fontSize: 10, fontWeight: FontWeight.w800)),
-            const SizedBox(width: 4),
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Row(children: [
-                  Expanded(flex: math.max(1, (share * 1000).round()), child: Container(height: 6, color: const Color(0xFFFF4081))),
-                  Expanded(flex: math.max(1, ((1 - share) * 1000).round()), child: Container(height: 6, color: const Color(0xFF448AFF))),
-                ]),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text('$b', style: const TextStyle(color: Color(0xFF82B1FF), fontSize: 10, fontWeight: FontWeight.w800)),
-          ]),
+    if (_hidden) return _pill(pending ? '…' : clock);
+    final total = a + b;
+    final share = total == 0 ? 0.5 : a / total;
+    final aId = (pk['sideAUserId'] as num?)?.toInt();
+    final bId = (pk['sideBUserId'] as num?)?.toInt();
+    // Room vs room: you can only gift your own room's player from here.
+    final global = pk['type'] == 'GLOBAL';
+    final mySide = (pk['room1Id'] as num?)?.toInt() == widget.roomId ? 'A' : 'B';
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [const Color(0xFF1E2233).withValues(alpha: .92), const Color(0xFF0E1018).withValues(alpha: .92)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: .14)),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .4), blurRadius: 14)],
         ),
-      ]),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            const Icon(Icons.circle, size: 7, color: Color(0xFFFF3B3B)),
+            const SizedBox(width: 4),
+            const Text('LIVE', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            Text(pending ? tr('بانتظار القبول', 'Awaiting acceptance') : 'Voice PK',
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+            const Spacer(),
+            if (!pending) ...[
+              Text(clock, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 3),
+              const Icon(Icons.timer_outlined, size: 13, color: Colors.white),
+            ],
+            const SizedBox(width: 6),
+            _hideButton(Icons.keyboard_arrow_up_rounded),
+          ]),
+          const SizedBox(height: 6),
+          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            Expanded(child: _player(aId, 'A', fire: true, canSupport: !global || mySide == 'A')),
+            const _VsMark(),
+            Expanded(child: _player(bId, 'B', fire: false, canSupport: !global || mySide == 'B')),
+          ]),
+          const SizedBox(height: 6),
+          Row(children: [
+            const Text('🎁', style: TextStyle(fontSize: 12)),
+            const SizedBox(width: 3),
+            Text(_compact(a), style: const TextStyle(color: Color(0xFFFFC94D), fontSize: 13, fontWeight: FontWeight.w900)),
+            const Spacer(),
+            Text(_compact(b), style: const TextStyle(color: Color(0xFF6FB6FF), fontSize: 13, fontWeight: FontWeight.w900)),
+            const SizedBox(width: 3),
+            const Text('🎁', style: TextStyle(fontSize: 12)),
+          ]),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              height: 7,
+              child: Row(children: [
+                Expanded(
+                  flex: math.max(1, (share * 1000).round()),
+                  child: const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFFE082)]))),
+                ),
+                const SizedBox(width: 2),
+                Expanded(
+                  flex: math.max(1, ((1 - share) * 1000).round()),
+                  child: const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)]))),
+                ),
+              ]),
+            ),
+          ),
+        ]),
+      ),
     );
   }
+
+  Widget _hideButton(IconData icon) => InkWell(
+        key: const Key('pk_hide'),
+        onTap: () => setState(() => _hidden = !_hidden),
+        customBorder: const CircleBorder(),
+        child: Padding(padding: const EdgeInsets.all(2), child: Icon(icon, size: 18, color: Colors.white70)),
+      );
+
+  Widget _pill(String clock) => Align(
+        alignment: AlignmentDirectional.centerEnd,
+        child: GestureDetector(
+          key: const Key('pk_show'),
+          onTap: () => setState(() => _hidden = false),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFFFF7A18), Color(0xFF2F80ED)]),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('PK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
+              const SizedBox(width: 6),
+              Text(clock, textDirection: TextDirection.ltr, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+              const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Colors.white),
+            ]),
+          ),
+        ),
+      );
+
+  Widget _searching() => Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: .5),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFFF5252).withValues(alpha: .5)),
+        ),
+        child: Row(children: [
+          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFFD54F))),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(tr('جاري البحث عن منافس PK عشوائي…', 'Looking for a random PK opponent…'),
+                style: const TextStyle(color: Colors.white, fontSize: 12)),
+          ),
+          TextButton(
+            onPressed: () => cancelRandomPk(widget.roomId),
+            child: Text(tr('إلغاء', 'Cancel')),
+          ),
+        ]),
+      );
+
+  Widget _player(int? uid, String fallback, {required bool fire, required bool canSupport}) {
+    final p = uid == null ? null : _people[uid];
+    final name = (p?['name'] ?? fallback).toString();
+    final url = p?['avatarUrl']?.toString();
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      _RingAvatar(url: url, fire: fire, size: 56),
+      const SizedBox(height: 4),
+      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+      if (canSupport && uid != null && widget.onSupport != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: InkWell(
+            onTap: () => widget.onSupport!(uid, name, url),
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: (fire ? const Color(0xFFFF7A18) : const Color(0xFF2F80ED)).withValues(alpha: .85),
+              ),
+              child: Text(tr('دعم', 'Support'), style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ),
+    ]);
+  }
+}
+
+class _VsMark extends StatelessWidget {
+  const _VsMark();
+  @override
+  Widget build(BuildContext context) => ShaderMask(
+        shaderCallback: (r) => const LinearGradient(
+          colors: [Color(0xFFFF8A65), Color(0xFFE1BEE7), Color(0xFF64B5F6)],
+        ).createShader(r),
+        child: const Text('VS',
+            style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, height: 1)),
+      );
+}
+
+/// A photo in a glowing ring: fire (orange/red) for side A, ice (cyan/blue) for B.
+class _RingAvatar extends StatelessWidget {
+  const _RingAvatar({required this.url, required this.fire, required this.size});
+  final String? url;
+  final bool fire;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = fire
+        ? const [Color(0xFFFFE082), Color(0xFFFF7A18), Color(0xFFE53935), Color(0xFFFF7A18), Color(0xFFFFE082)]
+        : const [Color(0xFFE1F5FE), Color(0xFF4FC3F7), Color(0xFF1565C0), Color(0xFF4FC3F7), Color(0xFFE1F5FE)];
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: SweepGradient(colors: colors),
+        boxShadow: [BoxShadow(color: colors[1].withValues(alpha: .7), blurRadius: 12, spreadRadius: 1)],
+      ),
+      child: CircleAvatar(
+        backgroundColor: const Color(0xFF2A2F45),
+        backgroundImage: (url ?? '').isNotEmpty ? appImage(url!, size) : null,
+        child: (url ?? '').isEmpty ? const Icon(Icons.person, color: Colors.white54) : null,
+      ),
+    );
+  }
+}
+
+/// The winner's photo in the middle of the screen with the coins under it
+/// (client @376). A draw shows both players.
+Future<void> showPkWinner(BuildContext context, Map d, Map<int, Map> people) {
+  final w = d['winner']?.toString();
+  final a = (d['scoreA'] as num?)?.toInt() ?? 0;
+  final b = (d['scoreB'] as num?)?.toInt() ?? 0;
+  int? id(String k) => (d[k] as num?)?.toInt();
+  Map? person(int? uid) => uid == null ? null : people[uid];
+  Widget winner(int? uid, int coins, bool fire) {
+    final p = person(uid);
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      _RingAvatar(url: p?['avatarUrl']?.toString(), fire: fire, size: 120),
+      const SizedBox(height: 10),
+      Text((p?['name'] ?? '').toString(),
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, decoration: TextDecoration.none)),
+      const SizedBox(height: 4),
+      Text('🪙 ${_compact(coins)}',
+          style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 20, fontWeight: FontWeight.w900, decoration: TextDecoration.none)),
+    ]);
+  }
+
+  final dialog = showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'pk_winner',
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 350),
+    transitionBuilder: (_, anim, __, child) => ScaleTransition(
+      scale: CurvedAnimation(parent: anim, curve: Curves.elasticOut),
+      child: child,
+    ),
+    pageBuilder: (dctx, _, __) => Center(
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(w == 'TIE' ? tr('🤝 تعادل', '🤝 Draw') : tr('🏆 الفائز في PK', '🏆 PK winner'),
+              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 16),
+          if (w == 'TIE')
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              winner(id('sideAUserId'), a, true),
+              const SizedBox(width: 24),
+              winner(id('sideBUserId'), b, false),
+            ])
+          else
+            winner(id(w == 'A' ? 'sideAUserId' : 'sideBUserId'), w == 'A' ? a : b, w == 'A'),
+        ]),
+      ),
+    ),
+  );
+  // Closes itself after 5 s unless the viewer already tapped it away.
+  var open = true;
+  dialog.whenComplete(() => open = false);
+  Timer(const Duration(seconds: 5), () {
+    if (open && context.mounted) Navigator.of(context, rootNavigator: true).pop();
+  });
+  return dialog;
 }
