@@ -103,6 +103,7 @@
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
       الرسائل والحظر
     </a>
+    <a href="#" class="nav-item" data-section="nameImageBans">حظر الاسم والصور</a>
 
     <div class="nav-section-label" style="margin-top:16px">الإعدادات</div>
     <a href="#" class="nav-item" data-section="settings">
@@ -1178,6 +1179,20 @@
 
     <!-- ======================== SETTINGS SECTION ======================== -->
     <!-- ======================== A15 / A14: REWARDS ======================== -->
+    <section class="section" id="section-nameImageBans">
+      <div class="section-header"><h2 class="section-title">حظر الاسم والصور</h2><button class="btn btn-outline" onclick="loadNameImageBans().catch(e => showToast(e.message))">تحديث</button></div>
+      <div class="form-card"><div class="form-card-title">الأسماء المحظورة</div>
+        <div class="table-wrap"><table id="nameBansTable"><thead><tr><th>الاسم</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="form-card"><div class="form-card-title">الصور المحظورة</div>
+        <div class="table-wrap"><table id="imageBansTable"><thead><tr><th>الصورة</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="form-card"><div class="form-card-title">أصحاب الاستثناء</div>
+        <div class="form-row"><input id="banBypassId" class="form-input" type="number" min="1" placeholder="ID المستخدم" /><button class="btn btn-primary" onclick="addNameImageBypass()">إضافة</button></div>
+        <div class="table-wrap"><table id="banBypassTable"><thead><tr><th>ID</th><th>الاسم</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
     <section class="section" id="section-rewards">
       <div class="section-header">
         <div>
@@ -1205,6 +1220,7 @@
         <p class="section-sub">
           لما يوصل الدعم داخل الغرفة للعدد المحدد، تُضاف المكافأة تلقائياً لمحفظة صاحب الغرفة — مرة واحدة لكل غرفة لكل درجة.
           <strong>خاص بوكالة المضيفين فقط.</strong>
+          أضف أكثر من درجة: كل صف مستوى مستقل يُصرف عند الوصول له.
         </p>
         <div class="form-row">
           <input id="rcr_threshold" type="number" min="1" class="form-input" placeholder="عدد كوينز الدعم في الغرفة" />
@@ -1217,6 +1233,18 @@
             <tbody></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="form-card">
+        <div class="form-card-title">كأس الغرفة بالـ ID</div>
+        <div class="form-row">
+          <input id="prc_room" class="form-input" type="number" min="1" placeholder="رقم الغرفة أو ID صاحبها" />
+          <input id="prc_target" class="form-input" type="number" min="1" placeholder="الدعم المطلوب" />
+          <input id="prc_reward" class="form-input" type="number" min="1" placeholder="مكافأة صاحب الغرفة" />
+          <input id="prc_hours" class="form-input" type="number" min="0.01" step="any" placeholder="المدة بالساعات" />
+          <button id="prc_save" class="btn btn-primary" onclick="savePerRoomCup()">إضافة</button>
+        </div>
+        <div class="table-wrap"><table id="perRoomCupsTable"><thead><tr><th>الغرفة</th><th>صاحبها</th><th>التقدم</th><th>المكافأة</th><th>ينتهي</th><th>الحالة</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
       </div>
 
       <div class="form-card">
@@ -2317,7 +2345,7 @@
   <div id="uploadBarLabel" style="margin-bottom:6px">جارٍ الرفع…</div>
   <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
 </div>
-<script src="app.js?v=20261020"></script>
+<script src="app.js?v=20261030-b3b"></script>
 <script src="economy-admin.js?v=20261021-fruitwheel-bonus"></script>
 <script src="staff-admin.js?v=20261011"></script>
 <script src="spec52-admin.js?v=20261020"></script>

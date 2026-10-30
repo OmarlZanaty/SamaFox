@@ -1,4 +1,5 @@
 import { withNameStyle } from '../services/vipStyle.service';
+import { isNameBanned, isImageUrlBanned } from '../services/nameImageBan.service';
 // File: src/controllers/auth.controller.ts
 
 import { Request, Response } from 'express';
@@ -137,6 +138,8 @@ export const register = async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
+    if (typeof name !== 'string' || await isNameBanned(name)) return res.status(400).json({ success: false, message: 'هذا الاسم محظور' });
+
     const user = await prisma.$transaction(async (tx) => {
       return createUserWithDisplayId(tx, {
         name,
@@ -206,6 +209,8 @@ export const facebookLogin = async (req: Request, res: Response) => {
     let user = await prisma.user.findUnique({ where: { email: userEmail } });
 
     if (!user) {
+      if (await isNameBanned(name || 'Facebook User')) return res.status(400).json({ success: false, message: 'هذا الاسم محظور' });
+      if (picture && await isImageUrlBanned(picture)) return res.status(400).json({ success: false, message: 'هذه الصورة محظورة' });
       user = await prisma.$transaction(async (tx) => {
         return createUserWithDisplayId(tx, {
           name: name || 'Facebook User',
@@ -385,6 +390,8 @@ export const googleLogin = async (req: Request, res: Response) => {
 
     let user = await prisma.user.findUnique({ where: { email } });
 
+    if (!user && await isNameBanned(name)) return res.status(400).json({ success: false, message: 'هذا الاسم محظور' });
+    if (!user?.avatarUrl && picture && await isImageUrlBanned(picture, user?.id)) return res.status(400).json({ success: false, message: 'هذه الصورة محظورة' });
     if (!user) {
       user = await prisma.$transaction(async (tx) => {
         return createUserWithDisplayId(tx, {

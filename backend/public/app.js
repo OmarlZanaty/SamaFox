@@ -52,6 +52,7 @@ const sectionTitles = {
   rewards:   "المكافآت",
   games:     "إدارة اقتصاد الألعاب",
   moderation: "الرسائل والحظر",
+  nameImageBans: "حظر الاسم والصور",
   settings:  "الإعدادات",
   perms:     "الصلاحيات المالية",
   giftlists: "قوائم الهدايا",
@@ -76,6 +77,7 @@ function navigate(sec) {
   if (sec === "admins") loadAdmins().catch(e => showToast("خطأ: " + e.message));
   if (sec === "staff") window.staffLoad?.().catch(e => showToast("خطأ: " + e.message));
   if (sec === "rewards") loadRewards().catch(e => showToast("خطأ: " + e.message));
+  if (sec === "nameImageBans") loadNameImageBans().catch(e => showToast("خطأ: " + e.message));
   // 2026-09-26 pages live in economy-admin.js.
   if (sec === "games") {
     window.econLoadGames?.().catch(e => showToast("خطأ: " + e.message));
@@ -539,6 +541,8 @@ async function loadUsers() {
           <button class="btn-outline" onclick="openHeldItems(${Number(u.displayId ?? u.id)})">الممتلكات / سحب</button>
           <button class="btn-outline" onclick="openProgressionModal(${Number(u.id || 0)}, ${Number(u.level || 1)}, ${Number(u.xp || 0)}, ${Number(u.vipLevel || 0)})">المستوى/VIP</button>
           <button class="btn-bad" onclick="toggleUserBan(${u.id}, ${u.isBanned ? "false" : "true"})">${u.isBanned ? "فك حظر" : "حظر"}</button>
+          <button class="btn-bad" onclick="banUserNameImage(${u.id}, 'name')">حظر الاسم</button>
+          <button class="btn-bad" onclick="banUserNameImage(${u.id}, 'image')">حظر الصورة</button>
         </div>
       </td>
     `;
@@ -3089,7 +3093,69 @@ async function loadAll() {
 
 const num = (v) => Number(v ?? 0).toLocaleString("en-US");
 
+async function loadNameImageBans() {
+  const [names, images, bypass] = await Promise.all(['name-bans', 'image-bans', 'ban-bypass'].map(p => apiFetch(`/admin-dashboard/${p}`)));
+  const remove = (kind, id) => `<button class="btn btn-outline btn-sm" onclick="deleteNameImageBan('${kind}', ${id})">حذف</button>`;
+  document.querySelector('#nameBansTable tbody').innerHTML = (names.data || []).map(r => `<tr><td>${escapeHtml(r.original)}</td><td>${remove('name-bans', r.id)}</td></tr>`).join('') || '<tr><td colspan="2">لا توجد أسماء محظورة</td></tr>';
+  document.querySelector('#imageBansTable tbody').innerHTML = (images.data || []).map(r => {
+    const url = /^(https?:\/\/|\/uploads\/)/i.test(r.sampleUrl || '') ? r.sampleUrl : '';
+    return `<tr><td>${url ? `<img src="${escapeHtml(url)}" alt="صورة محظورة" width="64" height="64" loading="lazy" style="object-fit:cover" />` : 'بدون صورة'}</td><td>${remove('image-bans', r.id)}</td></tr>`;
+  }).join('') || '<tr><td colspan="2">لا توجد صور محظورة</td></tr>';
+  document.querySelector('#banBypassTable tbody').innerHTML = (bypass.data || []).map(r => `<tr><td>${r.user?.displayId ?? r.userId}</td><td>${escapeHtml(r.user?.name || '')}</td><td>${remove('ban-bypass', r.userId)}</td></tr>`).join('') || '<tr><td colspan="3">لا توجد استثناءات</td></tr>';
+}
+async function deleteNameImageBan(kind, id) {
+  if (!confirm('تأكيد الحذف؟')) return;
+  try { await apiFetch(`/admin-dashboard/${kind}/${id}`, 'DELETE'); await loadNameImageBans(); }
+  catch (e) { showToast(e.message); }
+}
+async function addNameImageBypass() {
+  try {
+    await apiFetch('/admin-dashboard/ban-bypass', 'POST', { publicId: document.getElementById('banBypassId').value });
+    document.getElementById('banBypassId').value = '';
+    await loadNameImageBans();
+  } catch (e) { showToast(e.message); }
+}
+async function banUserNameImage(userId, kind) {
+  if (!confirm(kind === 'name' ? 'حظر الاسم الحالي ومنع استخدامه للجميع؟' : 'حظر الصورة الحالية ومنع استخدامها للجميع؟')) return;
+  try {
+    await apiFetch(`/admin-dashboard/${kind}-bans/user/${userId}`, 'POST', {});
+    showToast('تم الحظر');
+    await loadUsers();
+  } catch (e) { showToast(e.message); }
+}
+async function loadPerRoomCups() {
+  const result = await apiFetch('/admin-dashboard/rewards/room-cups');
+  document.querySelector('#perRoomCupsTable tbody').innerHTML = (result.data || []).map(r => `<tr>
+    <td>#${r.roomId} ${escapeHtml(r.roomName)}</td><td>${escapeHtml(r.ownerName)}</td>
+    <td>${escapeHtml(r.support)} / ${escapeHtml(r.targetCoins)}</td><td>${escapeHtml(r.ownerRewardCoins)}</td>
+    <td>${escapeHtml(new Date(r.endsAt).toLocaleString('ar'))}</td><td>${escapeHtml(r.status)}</td>
+    <td>${r.paidAt ? '—' : `<button class="btn btn-outline btn-sm" onclick="deletePerRoomCup(${r.id})">حذف</button>`}</td>
+    </tr>`).join('') || '<tr><td colspan="7">لا توجد كؤوس</td></tr>';
+}
+async function savePerRoomCup() {
+  const btn = document.getElementById('prc_save');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    await apiFetch('/admin-dashboard/rewards/room-cups', 'POST', {
+      roomRef: document.getElementById('prc_room').value,
+      targetCoins: document.getElementById('prc_target').value,
+      ownerRewardCoins: document.getElementById('prc_reward').value,
+      hours: document.getElementById('prc_hours').value,
+    });
+    showToast('تمت إضافة الكأس');
+    await loadPerRoomCups();
+  } catch (e) { showToast(e.message); }
+  finally { btn.disabled = false; }
+}
+async function deletePerRoomCup(id) {
+  if (!confirm('تأكيد حذف الكأس؟')) return;
+  try { await apiFetch(`/admin-dashboard/rewards/room-cups/${id}`, 'DELETE'); await loadPerRoomCups(); }
+  catch (e) { showToast(e.message); }
+}
+
 async function loadRewards() {
+  loadPerRoomCups().catch(e => showToast(e.message));
   const [win, cup, sup] = await Promise.all([
     apiFetch("/admin-dashboard/rewards/room-support-window"),
     apiFetch("/admin-dashboard/rewards/room-cup"),

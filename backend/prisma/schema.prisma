@@ -2797,3 +2797,41 @@ model RoomChatBlock {
   @@unique([roomId, userId])
   @@map("room_chat_blocks")
 }
+
+model BannedName {
+  id          Int      @id @default(autoincrement())
+  value       String   @unique
+  original    String
+  createdById Int
+  createdAt   DateTime @default(now())
+}
+
+model BannedImage {
+  id          Int      @id @default(autoincrement())
+  sha256      String   @unique
+  sampleUrl   String?
+  createdById Int
+  createdAt   DateTime @default(now())
+}
+
+model BanBypassUser {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  createdById Int
+  createdAt   DateTime @default(now())
+}
+
+model RoomCup {
+  id               Int       @id @default(autoincrement())
+  roomId           Int
+  targetCoins      BigInt
+  ownerRewardCoins BigInt
+  startsAt         DateTime
+  endsAt           DateTime
+  paidAt           DateTime?
+  paidToUserId     Int?
+  createdById      Int
+  createdAt        DateTime  @default(now())
+
+  @@index([roomId, paidAt])
+}

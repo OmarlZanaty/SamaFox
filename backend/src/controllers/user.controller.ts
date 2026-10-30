@@ -175,6 +175,8 @@ export const updateProfile = async (req: Request, res: Response) => {
 
     const data: any = {};
     if (name) {
+      const { isNameBanned } = await import('../services/nameImageBan.service');
+      if (typeof name !== 'string' || await isNameBanned(name, userId)) return res.status(400).json({ success: false, message: 'هذا الاسم محظور' });
       // Respect an admin-imposed name lock: the user cannot change their own name.
       const current = await (prisma as any).user.findUnique({ where: { id: userId }, select: { nameLocked: true, name: true } });
       if (current?.nameLocked && name !== current.name) {
@@ -187,6 +189,8 @@ export const updateProfile = async (req: Request, res: Response) => {
     if (countryCode) data.countryCode = countryCode.toUpperCase();
     if (country !== undefined) data.country = country;
     if (avatarUrl) {
+      const { isImageUrlBanned } = await import('../services/nameImageBan.service');
+      if (await isImageUrlBanned(String(avatarUrl), userId)) return res.status(400).json({ success: false, message: 'هذه الصورة محظورة' });
       // SPEC52 #6 — an animated avatar written straight into the profile went
       // around the upload gate. Same VIP rule here, judged by the file itself.
       const { animatedAvatarUrlDenial } = await import('../services/animatedAvatar.service');

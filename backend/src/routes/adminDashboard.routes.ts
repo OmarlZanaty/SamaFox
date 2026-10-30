@@ -1,5 +1,7 @@
 import { idempotent } from '../middlewares/idempotency.middleware';
 import express from 'express';
+import { banUserName, banUserImage, listNameBans, listImageBans, deleteNameBan, deleteImageBan, listBanBypass, addBanBypass, deleteBanBypass } from '../controllers/adminNameImageBan.controller';
+import { createRoomCup, listRoomCups, deleteRoomCup } from '../controllers/adminRoomCup.controller';
 import prisma from '../utils/prisma';
 import { authenticate } from '../middlewares/auth.middleware';
 import { requireAdminDashboard, requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
@@ -264,6 +266,16 @@ router.post('/admins/:userId/revoke', requireSuperAdmin, adminRevokeAdmin);
 router.patch('/admins/:userId/super', requireSuperAdmin, adminSetSuperAdmin);
 router.get('/users', adminDashboardListUsers);
 router.patch('/users/:id/ban', adminDashboardBanUser);
+// Same authenticate + requireAdminDashboard gates as account moderation above.
+router.post('/name-bans/user/:userId', banUserName);
+router.post('/image-bans/user/:userId', banUserImage);
+router.get('/name-bans', listNameBans);
+router.delete('/name-bans/:id', deleteNameBan);
+router.get('/image-bans', listImageBans);
+router.delete('/image-bans/:id', deleteImageBan);
+router.get('/ban-bypass', listBanBypass);
+router.post('/ban-bypass', addBanBypass);
+router.delete('/ban-bypass/:userId', deleteBanBypass);
 router.patch('/users/:id/display-id', authenticate, adminChangeUserDisplayId);
 router.patch('/users/:id/profile', adminUpdateUserProfile);
 router.patch('/users/:id/progression', adminUpdateUserProgression);
@@ -350,6 +362,9 @@ router.patch('/settings', requireFinancialSettingsPermission, require('../contro
 
 // ── A15: قائمة المكافآت ──────────────────────────────────────────────────
 router.get('/rewards/room-cup', adminListRoomCupRewards);
+router.get('/rewards/room-cups', requireOwnerPermission('economy.settings'), listRoomCups);
+router.post('/rewards/room-cups', requireOwnerPermission('economy.settings'), createRoomCup);
+router.delete('/rewards/room-cups/:id', requireOwnerPermission('economy.settings'), deleteRoomCup);
 router.post('/rewards/room-cup', requireOwnerPermission('economy.settings'), adminSaveRoomCupReward);
 router.delete('/rewards/room-cup/:id', requireOwnerPermission('economy.settings'), adminDeleteRoomCupReward);
 router.get('/rewards/supporters', adminListSupporterRewards);

@@ -1,4 +1,5 @@
 import passport from 'passport';
+import { isNameBanned, isImageUrlBanned } from '../services/nameImageBan.service';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
@@ -47,6 +48,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
               // If user exists with email, link Google account
               if (user) {
+                const picture = profile.photos?.[0]?.value;
+                if (!user.avatarUrl && picture && await isImageUrlBanned(picture, user.id)) return done(null, false, { message: 'هذه الصورة محظورة', status: 400 } as any);
                 user = await prisma.user.update({
                   where: { id: user.id },
                   data: {
@@ -59,6 +62,9 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
             // Create new user if doesn't exist
             if (!user) {
+              if (await isNameBanned(profile.displayName || 'User')) return done(null, false, { message: 'هذا الاسم محظور', status: 400 } as any);
+              const picture = profile.photos?.[0]?.value;
+              if (picture && await isImageUrlBanned(picture)) return done(null, false, { message: 'هذه الصورة محظورة', status: 400 } as any);
               user = await prisma.$transaction(async (tx) => {
                 return createUserWithDisplayId(tx, {
                   googleId: profile.id,

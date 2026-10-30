@@ -1,4 +1,5 @@
 import { createGiftFallback } from '../utils/mediaOptimize';
+import { isImageHashBanned, sha256 } from '../services/nameImageBan.service';
 import { Request, Response } from 'express';
 import { optimizeUpload, GIF_POLICY, GifRole } from '../utils/mediaOptimize';
 import path from 'path';
@@ -33,6 +34,10 @@ export const uploadImage = async (req: Request, res: Response) => {
     // posts gift and product artwork through, and animated gift icons are the
     // whole point of the catalogue.
     const uploaderId = (req as any).userId as number | undefined;
+    if (await isImageHashBanned(sha256(await fsp.readFile(file.path)), uploaderId)) {
+      await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, message: 'هذه الصورة محظورة' });
+    }
     if (
       uploaderId &&
       isAnimatedUpload({ filename: file.filename, mimetype: file.mimetype, filePath: file.path })
@@ -82,6 +87,11 @@ export const uploadImage = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });
     }
     const storedName = path.basename(opt.path);
+    if (await isImageHashBanned(sha256(await fsp.readFile(opt.path)), uploaderId)) {
+      await fsp.unlink(opt.path).catch(() => {});
+      if (opt.path !== file.path) await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, message: 'هذه الصورة محظورة' });
+    }
 
     const baseUrl = getPublicBaseUrl(req);
     const imageUrl = `${baseUrl}/uploads/${storedName}`;
@@ -275,6 +285,11 @@ if (!userId) {
 
     const file = req.file;
 
+    if (await isImageHashBanned(sha256(await fsp.readFile(file.path)), Number(userId))) {
+      await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, message: 'هذه الصورة محظورة' });
+    }
+
     // A16 - an animated avatar is a VIP perk configured per tier in the
     // dashboard. Checked here, at the only place an avatar file enters the
     // system, so a client that skips the UI gate still cannot use one.
@@ -307,6 +322,11 @@ if (!userId) {
       return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });
     }
     const avatarUrl = `${baseUrl}/uploads/${path.basename(optAvatar.path)}`;
+    if (await isImageHashBanned(sha256(await fsp.readFile(optAvatar.path)), Number(userId))) {
+      await fsp.unlink(optAvatar.path).catch(() => {});
+      if (optAvatar.path !== file.path) await fsp.unlink(file.path).catch(() => {});
+      return res.status(400).json({ success: false, message: 'هذه الصورة محظورة' });
+    }
 
     // Update user's avatar URL in database
     const updatedUser = await prisma.user.update({

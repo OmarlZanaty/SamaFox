@@ -62,6 +62,45 @@ import { rungDue } from './roomCupMath';
 /** Advisory-lock namespace for room cup payouts (one lock per room). */
 const ROOM_CUP_LOCK = 41501;
 
+/** Same host-share amount as roomSupportTotal, bounded to this cup's window. */
+export async function perRoomCupSupport(cup: { roomId: number; startsAt: Date; endsAt: Date }, client: any = db): Promise<bigint> {
+  const agg = await client.giftTransaction.aggregate({
+    where: { roomId: cup.roomId, createdAt: { gte: cup.startsAt, lte: cup.endsAt } },
+    _sum: { totalCoins: true },
+  });
+  return BigInt(agg._sum?.totalCoins ?? 0);
+}
+
+export async function evaluatePerRoomCups(roomId: number): Promise<void> {
+  try {
+    const now = new Date();
+    const cups = await db.roomCup.findMany({ where: { roomId, paidAt: null, startsAt: { lte: now }, endsAt: { gt: new Date(now.getTime() - 60000) } } });
+    for (const candidate of cups) {
+      const paid = await db.$transaction(async (tx: any) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ROOM_CUP_LOCK}::int, ${roomId}::int)`;
+        const cup = await tx.roomCup.findUnique({ where: { id: candidate.id } });
+        const paidAt = new Date();
+        if (!cup || cup.paidAt || cup.startsAt > paidAt || cup.endsAt.getTime() <= paidAt.getTime() - 60000) return null;
+        if (await perRoomCupSupport(cup, tx) < BigInt(cup.targetCoins)) return null;
+        const room = await tx.room.findUnique({ where: { id: roomId }, select: { ownerId: true } });
+        if (!room?.ownerId) return null;
+        const coins = Number(cup.ownerRewardCoins);
+        if (!Number.isSafeInteger(coins) || coins <= 0 || coins > 2147483647) return null;
+        const claimed = await tx.roomCup.updateMany({ where: { id: cup.id, paidAt: null }, data: { paidAt, paidToUserId: room.ownerId } });
+        if (claimed.count !== 1) return null;
+        await tx.user.update({ where: { id: room.ownerId }, data: { coinsBalance: { increment: coins } } });
+        await tx.transaction.create({ data: { userId: room.ownerId, type: 'ROOM_CUP_BY_ID_REWARD', amountCoins: coins, status: 'completed', externalId: `room-cup:${cup.id}` } });
+        return { userId: room.ownerId, coins };
+      });
+      if (paid) await createNotification({
+        userId: paid.userId, type: 'room_cup_reward', title: 'مكافأة كأس الغرفة 🏆',
+        body: `تهانينا! اكتمل دعم الغرفة وحصلت على ${paid.coins} كوينز`,
+        data: { roomId, cupId: candidate.id, coins: paid.coins },
+      }).catch(e => console.warn('[roomReward] notification failed:', e));
+    }
+  } catch (e) { console.warn('[roomReward] evaluatePerRoomCups failed:', (e as Error).message); }
+}
+
 /**
  * A15a — pay the room owner any كأس الروم rung this room has now crossed.
  *
@@ -73,6 +112,8 @@ const ROOM_CUP_LOCK = 41501;
  * advisory lock, so a rung is never paid twice for one window.
  */
 export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
+  // Keep the protected gift caller unchanged; run before hosting checks.
+  await evaluatePerRoomCups(roomId);
   try {
     const rungs = await db.roomCupReward.findMany({
       where: { isActive: true },
