@@ -17,8 +17,8 @@ class _StaffMembersScreenState extends StaffActionState<StaffMembersScreen> {
   String status = '', role = '';
   @override
   Widget build(BuildContext context) => StaffScreen(title: tr('👥 الإداريون', '👥 Staff'), allowed: (a) => a.manages,
-    child: StaffLoad<List<StaffRole>>(revision: revision,
-      load: () => service.members(status: status.isEmpty ? null : status, role: role.isEmpty ? null : role),
+    child: StaffPagedLoad<StaffRole>(revision: revision,
+      load: (page) => service.members(page: page, status: status.isEmpty ? null : status, role: role.isEmpty ? null : role),
       header: [staffSelect(tr('الحالة', 'Status'), status, staffStatuses, (v) { setState(() => status = v); reload(); }),
         staffSelect(tr('النوع', 'Type'), role, {'': tr('كل الأنواع', 'All types'), 'SUPER_ADMIN': tr('مشرف عام', 'Super Admin'), 'ADMIN': tr('مشرف', 'Admin')}, (v) { setState(() => role = v); reload(); })],
       builder: (rows) => rows.map((r) => staffCard(r.user?.label ?? 'ID ${r.userId}',
@@ -47,7 +47,7 @@ class _StaffMemberScreenState extends StaffActionState<StaffMemberScreen> {
   }
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     return StaffScreen(title: tr('ملف الإداري', 'Staff profile'), allowed: (a) => a.manages,
       child: StaffLoad<StaffFile>(revision: revision, load: () => service.member(roleId), builder: (file) => [
         staffUserCard(file.user),
@@ -109,7 +109,7 @@ class _StaffAppointScreenState extends StaffActionState<StaffAppointScreen> {
   Future<StaffEditorData> load() => loadStaffEditor(service, access!);
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     return StaffScreen(title: tr('تعيين ${staffRoles[widget.role]}', 'Appoint ${staffRoles[widget.role]}'),
       allowed: (a) => a.manages && (widget.role == 'ADMIN' || a.manager),
       child: StaffLoad<StaffEditorData>(load: load, builder: (data) {

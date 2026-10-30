@@ -44,7 +44,7 @@ class _StaffBanScreenState extends StaffActionState<StaffBanScreen> {
 
   @override
   Widget build(BuildContext context) => StaffScreen(title: tr('🚫 نظام الحظر', '🚫 Ban system'), allowed: (a) => a.ban,
-    child: StaffLoad<List<StaffBan>>(revision: revision, load: () => service.bans(status: status.isEmpty ? null : status), header: [
+    child: StaffPagedLoad<StaffBan>(revision: revision, load: (page) => service.bans(page: page, status: status.isEmpty ? null : status), header: [
       StaffUserLookup(onSelected: (v) => setState(() => user = v)),
       if (user?.staffRole != null) Text(tr('تنبيه: هذا الحساب ${staffRoles[user!.staffRole!.role]} — لا يمكن حظر إداري من نفس الرتبة أو أعلى.', 'Notice: this account is ${staffRoles[user!.staffRole!.role]} — you cannot ban staff of the same or a higher rank.')),
       staffSelect(tr('مدة الحظر', 'Ban duration'), duration, banDurations, (v) => setState(() => duration = v)),

@@ -27,7 +27,7 @@ abstract class StaffActionState<T extends ConsumerStatefulWidget> extends Consum
   bool busy = false;
   int revision = 0;
   StaffService get service => ref.read(staffServiceProvider);
-  StaffAccess? get access => ref.read(staffMeProvider).valueOrNull;
+  StaffAccess? get access => ref.read(staffPanelAccessProvider).valueOrNull;
   void reload() { if (mounted) setState(() => revision++); }
   Future<bool> act(Future<void> Function() operation, {String? message}) async {
     if (busy) return false;
@@ -41,7 +41,7 @@ abstract class StaffActionState<T extends ConsumerStatefulWidget> extends Consum
     } catch (e) {
       if (mounted) {
         staffSnack(context, staffError(e));
-        if (e is DioException && e.response?.statusCode == 403) ref.invalidate(staffMeProvider);
+        if (e is DioException && e.response?.statusCode == 403) ref.invalidate(staffPanelAccessProvider);
       }
       return false;
     } finally {
@@ -59,7 +59,7 @@ class StaffScreen extends ConsumerWidget {
   final Widget child;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(staffMeProvider);
+    final state = ref.watch(staffPanelAccessProvider);
     if (!state.isLoading && !state.hasError && (state.valueOrNull == null || !allowed(state.valueOrNull!))) {
       final route = ModalRoute.of(context);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -80,8 +80,8 @@ class StaffScreen extends ConsumerWidget {
     );
     return Theme(data: theme, child: Directionality(textDirection: TextDirection.rtl,
       child: Scaffold(appBar: AppBar(title: Text(title), backgroundColor: staffCardColor),
-        body: state.hasError ? StaffRefreshList(onRefresh: () async { ref.invalidate(staffMeProvider); await ref.read(staffMeProvider.future); },
-          children: [Text(staffError(state.error!)), TextButton(onPressed: () => ref.invalidate(staffMeProvider), child: Text(tr('إعادة المحاولة', 'Retry')))])
+        body: state.hasError ? StaffRefreshList(onRefresh: () async { ref.invalidate(staffPanelAccessProvider); await ref.read(staffPanelAccessProvider.future); },
+          children: [Text(staffError(state.error!)), TextButton(onPressed: () => ref.invalidate(staffPanelAccessProvider), child: Text(tr('إعادة المحاولة', 'Retry')))])
           : state.valueOrNull == null || !allowed(state.valueOrNull!)
             ? const Center(child: CircularProgressIndicator()) : child)));
   }
@@ -96,6 +96,39 @@ class StaffRefreshList extends StatelessWidget {
     try { await onRefresh(); } catch (e) { if (context.mounted) staffSnack(context, staffError(e)); }
   }, child: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.all(16),
       children: children.map((w) => Padding(padding: const EdgeInsets.only(bottom: 12), child: w)).toList()));
+}
+
+/// Keeps only one page mounted, with explicit navigation and no prefetching.
+class StaffPagedLoad<T> extends StatefulWidget {
+  const StaffPagedLoad({super.key, required this.load, required this.builder, this.revision = 0, this.header = const []});
+  final Future<List<T>> Function(int page) load;
+  final List<Widget> Function(List<T>) builder;
+  final int revision;
+  final List<Widget> header;
+  @override
+  State<StaffPagedLoad<T>> createState() => _StaffPagedLoadState<T>();
+}
+class _StaffPagedLoadState<T> extends State<StaffPagedLoad<T>> {
+  int page = 1;
+  @override
+  void didUpdateWidget(covariant StaffPagedLoad<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.revision != widget.revision) page = 1;
+  }
+  @override
+  Widget build(BuildContext context) => StaffLoad<List<T>>(
+    key: ValueKey((widget.revision, page)), load: () => widget.load(page), header: widget.header,
+    builder: (rows) => [
+      ...widget.builder(rows),
+      if (rows.isEmpty) Text(tr('لا توجد بيانات', 'No data')),
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        TextButton(onPressed: page > 1 ? () => setState(() => page--) : null,
+          child: Text(tr('السابق', 'Previous'))),
+        Text('$page'),
+        TextButton(onPressed: rows.length == 20 ? () => setState(() => page++) : null,
+          child: Text(tr('التالي', 'Next'))),
+      ]),
+    ]);
 }
 
 class StaffLoad<T> extends ConsumerStatefulWidget {
@@ -118,7 +151,7 @@ class _StaffLoadState<T> extends ConsumerState<StaffLoad<T>> {
     final next = widget.load();
     setState(() => future = next);
     // Both requests are observed even when one fails.
-    await Future.wait([next, ref.refresh(staffMeProvider.future)]);
+    await Future.wait([next, ref.refresh(staffPanelAccessProvider.future)]);
   }
   @override
   Widget build(BuildContext context) => FutureBuilder<T>(future: future, builder: (context, snapshot) {

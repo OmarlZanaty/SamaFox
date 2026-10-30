@@ -54,8 +54,8 @@ async function treeRows(db: Db): Promise<StaffRole[]> {
   for (const row of rows) if (!latest.has(row.userId)) latest.set(row.userId, row);
   return [...latest.values()];
 }
-export async function resolveAccess(db: Db, userId: number, now = new Date()): Promise<Access> {
-  const tree = await treeRows(db);
+export async function resolveAccess(db: Db, userId: number, now = new Date(), ownOnly = false): Promise<Access> {
+  const tree = ownOnly ? await db.staffRole.findMany({ where: { userId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 }) : await treeRows(db);
   // A live appointment is valid in its own right. When the Manager above it
   // ends, the staff under him keep working for the term they were given
   // (spec B12); the dashboard re-attaches them to another Manager.
@@ -64,6 +64,8 @@ export async function resolveAccess(db: Db, userId: number, now = new Date()): P
   const permissions = role?.role === 'MANAGER' ? [...rules.permissionKeys] :
     [...new Set(rows.filter(p => p.staffRoleId === null ? p.permission === 'ban_users' : p.staffRoleId === role?.id)
       .filter(p => rules.mayHold(role?.role ?? null, p.permission)).map(p => p.permission as rules.Permission))];
+  // Every live appointment carries panel access; action permissions stay explicit.
+  if (role && !permissions.includes('role_panel')) permissions.push('role_panel');
   return { role, permissions, tree, ids: role ? rules.subtree(tree, userId) : [userId] };
 }
 function requirePermission(c: Context, key: string) {
@@ -402,8 +404,8 @@ async function auditRows(c: Context, query: Body, own?: number) {
     adminId: own ?? actorId, ...(!c.dashboard && own == null ?
       { AND: c.access.role?.role === 'ADMIN' || !c.access.role ? [{ adminId: c.userId }] :
         [{ OR: [{ adminId: { in: await overseenIds(c) } }, { targetUserId: { in: c.access.ids } }] }] } : {}) };
-  const [rows, total] = await Promise.all([c.db.adminAuditLog.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * 50, take: 50 }), c.db.adminAuditLog.count({ where })]);
-  return { rows: await withPeople(c, rows.map(r => ({ ...r, actorId: r.adminId })), ['actor', 'targetUser']), page, total, pageSize: 50 };
+  const [rows, total] = await Promise.all([c.db.adminAuditLog.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * 20, take: 20 }), c.db.adminAuditLog.count({ where })]);
+  return { rows: await withPeople(c, rows.map(r => ({ ...r, actorId: r.adminId })), ['actor', 'targetUser']), page, total, pageSize: 20 };
 }
 
 export type Operation = 'me' | 'catalog' | 'lookup' | 'members' | 'member' | 'appoint' | 'extend' | 'renew' | 'revoke' |
@@ -452,6 +454,11 @@ async function scopeGuard(c: Context, op: Operation, body: Body, params: Body) {
   }
 }
 
+function pageWindow(query: Body) {
+  const page = query.page == null ? 1 : positiveId(query.page);
+  return { skip: (page - 1) * 20, take: 20 };
+}
+
 async function action(c: Context, op: Operation, body: Body, params: Body, query: Body): Promise<unknown> {
   if (op === 'me') {
     const r = c.access.role;
@@ -477,7 +484,9 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
   if (op === 'members') {
     const status = statusFilter(query.status, ['ACTIVE', 'EXPIRED', 'REVOKED']);
     const role = statusFilter(query.role, rules.ROLES);
-    const rows = await c.db.staffRole.findMany({ where: { role, ...(!c.dashboard ? { userId: { in: c.access.ids.filter(id => id !== c.userId) } } : {}) }, orderBy: { id: 'desc' } });
+    const rows = await c.db.staffRole.findMany({ where: { role,
+      ...(status === 'ACTIVE' ? { status, expiresAt: { gt: c.now } } : status === 'EXPIRED' ? { OR: [{ status }, { status: 'ACTIVE', expiresAt: { lte: c.now } }] } : status ? { status } : {}),
+      ...(!c.dashboard ? { userId: { in: c.access.ids.filter(id => id !== c.userId) } } : {}) }, orderBy: { id: 'desc' }, ...pageWindow(query) });
     const ids = [...new Set(rows.flatMap(r => [r.userId, r.parentUserId, r.assignedById]).filter((id): id is number => id != null))];
     const users = await c.db.user.findMany({ where: { id: { in: ids } }, select: userSelect });
     return rows.map(r => ({ ...r, status: r.status === 'ACTIVE' && r.expiresAt <= c.now ? 'EXPIRED' : r.status,
@@ -602,7 +611,8 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
   if (op === 'banHolders') {
     const holders = await c.db.staffPermission.findMany({ where: { permission: 'ban_users', ...liveWhere(c.now),
       ...(!c.dashboard ? { AND: [{ OR: [{ grantedById: { in: c.access.ids } }, { userId: { in: c.access.ids } }] }] } : {}) } });
-    const valid = holders.filter(p => p.staffRoleId === null || c.access.tree.some(r => r.id === p.staffRoleId && rules.isLive(r, c.now)));
+    const valid = holders.filter(p => p.staffRoleId === null || c.access.tree.some(r => r.id === p.staffRoleId && rules.isLive(r, c.now)))
+      .sort((a, b) => b.id - a.id).slice(pageWindow(query).skip, pageWindow(query).skip + 20);
     const users = await c.db.user.findMany({ where: { id: { in: valid.map(p => p.userId) } }, select: userSelect });
     return valid.map(p => ({ ...p, user: users.find(u => u.id === p.userId) }));
   }
@@ -653,7 +663,8 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
   if (op === 'grants') {
     const rows = await c.db.temporaryEntitlement.findMany({ where: {
       status: statusFilter(query.status, ['ACTIVE', 'EXPIRED', 'REVOKED']),
-      ...(!c.dashboard ? { grantedById: { in: c.access.ids } } : {}) }, orderBy: { id: 'desc' }, take: 500 });
+      ...(!c.dashboard ? { source: 'GRANT' } : {}),
+      ...(!c.dashboard ? { grantedById: { in: c.access.ids } } : {}) }, orderBy: { id: 'desc' }, ...pageWindow(query) });
     const items = await c.db.item.findMany({ where: { id: { in: rows.map(r => r.itemId).filter((id): id is string => !!id) } }, select: itemSelect });
     return withPeople(c, rows.map(r => ({ ...r, item: items.find(i => i.id === r.itemId) ?? null })), ['user', 'grantedBy']);
   }
@@ -661,7 +672,7 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
     const grant = await c.db.temporaryEntitlement.findUniqueOrThrow({ where: { id: positiveId(params.id) } });
     return grant.expiresAt <= c.now ? endGrant({ ...c, userId: 0 }, grant, 'EXPIRED') : endGrant(c, grant, 'REVOKED');
   }
-  if (op === 'agencies') return (await Promise.all((await agencyIds(c)).map(id => agencySummary(c, id)))).filter(Boolean);
+  if (op === 'agencies') return (await Promise.all((await agencyIds(c)).sort((a, b) => a - b).slice(pageWindow(query).skip, pageWindow(query).skip + 20).map(id => agencySummary(c, id)))).filter(Boolean);
   if (op === 'agency') return agencySummary(c, positiveId(params.id), true);
   if (op === 'agencyCreate') {
     const owner = await targetUser(c, { userId: body.ownerUserId, displayId: body.ownerDisplayId });
@@ -726,7 +737,7 @@ async function action(c: Context, op: Operation, body: Body, params: Body, query
     return updated;
   }
   if (op === 'bans') return withPeople(c, await c.db.banRecord.findMany({ where: { status: statusFilter(query.status, ['ACTIVE', 'LIFTED', 'EXPIRED']),
-    ...(!c.dashboard ? { bannedById: { in: await overseenIds(c) } } : {}) }, orderBy: { id: 'desc' }, take: 500 }), ['user', 'bannedBy', 'liftedBy']);
+    ...(!c.dashboard ? { bannedById: { in: await overseenIds(c) } } : {}) }, orderBy: { id: 'desc' }, ...pageWindow(query) }), ['user', 'bannedBy', 'liftedBy']);
   if (op === 'audit') return auditRows(c, query);
   return fail(404, 'المسار غير موجود');
 }
@@ -751,7 +762,8 @@ export async function runStaffAction(actor: ActorContext, op: Operation, body: B
   if (!actor.userId) fail(401, 'يرجى تسجيل الدخول');
   return transaction(async (db, effects) => {
     const now = new Date();
-    const c: Context = { ...actor, db, effects, now, access: await resolveAccess(db, actor.userId, now) };
+    const c: Context = { ...actor, db, effects, now, access: await resolveAccess(db, actor.userId, now, op === 'me') };
+    if (op === 'me') return action(c, op, body, params, query);
     // Authentication is performed by the router. These phases run again inside
     // the serializable action, so simultaneous revocations cannot bypass a guard.
     authorizeRole(c, op);

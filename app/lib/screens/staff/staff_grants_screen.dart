@@ -49,7 +49,7 @@ class _StaffGrantScreenState extends StaffActionState<StaffGrantScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     final cap = widget.kind == 'vip' ? me?.vipCap ?? 5 : me?.levelCap ?? 20;
     final kinds = {for (final e in _itemKinds.entries) if (me?.has(e.value.$2) == true) e.key: e.value.$1};
     if (widget.kind == 'item' && itemKind.isEmpty && kinds.isNotEmpty) itemKind = kinds.keys.first;
@@ -94,10 +94,10 @@ class _StaffGrantsListScreenState extends StaffActionState<StaffGrantsListScreen
   };
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     return StaffScreen(title: tr('🎁 المنح المؤقتة', '🎁 Temporary grants'), allowed: (a) => a.rolePanel,
-      child: StaffLoad<List<StaffGrant>>(revision: revision,
-        load: () => service.grants(status: status.isEmpty ? null : status),
+      child: StaffPagedLoad<StaffGrant>(revision: revision,
+        load: (page) => service.grants(page: page, status: status.isEmpty ? null : status),
         header: [staffSelect(tr('الحالة', 'Status'), status, {'': tr('الكل', 'All'), 'ACTIVE': tr('🟢 سارية', '🟢 Active'), 'EXPIRED': tr('🔴 منتهية', '🔴 Expired'), 'REVOKED': tr('مسحوبة', 'Revoked')},
             (v) { setState(() => status = v); reload(); })],
         builder: (rows) => rows.where((g) => g.source == 'GRANT').map((g) => staffCard(

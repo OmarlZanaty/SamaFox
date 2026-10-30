@@ -144,7 +144,7 @@ class SettingsScreen extends ConsumerWidget {
     // نظام الإدارة — what the server says this account holds right now. The
     // provider refreshes on the staff_access_changed socket event and on resume,
     // so a withdrawn role disappears from here without reopening the app.
-    final staff = ref.watch(staffMeProvider).valueOrNull;
+    final staff = ref.watch(staffPanelAccessProvider).valueOrNull;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentLocale = ref.watch(localeProvider);
@@ -245,7 +245,7 @@ class SettingsScreen extends ConsumerWidget {
                         : staff.role == 'SUPER_ADMIN'
                             ? Icons.diamond_outlined
                             : Icons.shield_outlined,
-                    title: StaffPanelScreen.titleFor(staff.role),
+                    title: tr('لوحة الإدارة', 'Staff panel'),
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const StaffPanelScreen()),

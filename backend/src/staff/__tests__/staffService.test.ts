@@ -112,8 +112,8 @@ test('live role/permission expiry and suspension block actions before the job ru
   row('staffRole', 2).expiresAt = new Date(Date.now() + DAY);
   const panel = tables.staffPermission!.find(p => p.userId === 2 && p.permission === 'role_panel')!;
   panel.expiresAt = new Date(Date.now() - 1);
-  assert.equal((await call(2, 'me')).panels.superAdmin, false);
-  await reject(call(2, 'members'), 403);
+  assert.equal((await call(2, 'me')).panels.superAdmin, true);
+  await call(2, 'members');
 });
 test('appointments enforce subtree, self, conflict, role caps and audit metadata', async () => {
   await reject(call(2, 'appoint', { userId: 8, role: 'SUPER_ADMIN' }), 403);
@@ -134,7 +134,8 @@ test('permission delegation restricts SA to own keys and Managers alone control 
   await call(1, 'permissions', { permissions: { grant_vip: true }, expiresInDays: { grant_vip: 1 } }, { roleId: 3 });
   assert.ok((await call(3, 'me')).permissions.includes('grant_vip'));
   await call(1, 'permissions', { permissions: { role_panel: false } }, { roleId: 3 });
-  await reject(call(3, 'vipGrant', { userId: 8, level: 5 }), 403);
+  assert.equal((await call(3, 'me')).panels.admin, true);
+  await call(3, 'vipGrant', { userId: 8, level: 5 });
 });
 test('standalone bans survive role loss while role-linked ban permission ends', async () => {
   await call(1, 'banHolderGrant', { userId: 8, days: 7 });
@@ -317,4 +318,41 @@ test('only a Manager grants up to VIP 10 / Level 30; Super Admins stay at VIP 5 
   await reject(call(2, 'levelGrant', { userId: 10, level: 21 }), 400);
   assert.deepEqual((await call(1, 'me')).grantCaps, { vip: 10, level: 30 });
   assert.deepEqual((await call(2, 'me')).grantCaps, { vip: 5, level: 20 });
+});
+
+for (const role of ['SUPER_ADMIN', 'ADMIN']) test(
+  `Manager appointment exposes ${role} panel without an explicit checklist permission`, async () => {
+    await call(1, 'appoint', { userId: 8, role, days: 30, permissions: {} });
+    const me = await call(8, 'me');
+    assert.equal(me.role, role);
+    assert.equal(me.panels[role === 'ADMIN' ? 'admin' : 'superAdmin'], true);
+    assert.ok(me.permissions.includes('role_panel'));
+    // Super Admins get their role defaults (grant_vip among them); Admins never hold it.
+    if (role === 'ADMIN') assert.equal(me.permissions.includes('grant_vip'), false);
+    assert.ok(events.some(e => e.userId === 8 && e.event === 'staff_access_changed'));
+    if (role === 'ADMIN') await reject(call(8, 'vipGrant', { userId: 9, level: 5 }), 403);
+    row('staffRole', me.roleId).expiresAt = new Date(Date.now() - 1);
+    const expired = await call(8, 'me');
+    assert.equal(expired.panels.admin, false);
+    assert.equal(expired.panels.superAdmin, false);
+  });
+
+test('members, grants and audit paginate in bounded pages of twenty', async () => {
+  for (let id = 20; id < 45; id++) {
+    await db.staffRole.create({ data: { userId: id, role: 'ADMIN', parentUserId: 1,
+      expiresAt: new Date(Date.now() + DAY), allowedItemIds: [], rewardItemIds: [] } });
+    await db.temporaryEntitlement.create({ data: { userId: id, grantedById: 1,
+      type: 'VIP', source: 'GRANT', value: 4, expiresAt: new Date(Date.now() + DAY) } });
+    await db.adminAuditLog.create({ data: { adminId: 1, action: 'STAFF_GRANT_VIP', targetUserId: id } });
+  }
+  for (const op of ['members', 'grants'] as const) {
+    const first = await call(1, op, {}, {}, false, { page: 1 });
+    const second = await call(1, op, {}, {}, false, { page: 2 });
+    assert.equal(first.length, 20);
+    assert.ok(second.length > 0 && second.length <= 20);
+    assert.ok(second.every((r: Row) => !first.some((p: Row) => p.id === r.id)));
+  }
+  const audit = await call(1, 'audit', {}, {}, false, { page: 1 });
+  assert.equal(audit.pageSize, 20);
+  assert.equal(audit.rows.length, 20);
 });

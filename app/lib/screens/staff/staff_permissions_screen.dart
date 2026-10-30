@@ -72,7 +72,7 @@ class _StaffPermissionEditorScreenState extends StaffActionState<StaffPermission
 
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     return StaffScreen(title: tr('🔐 صلاحيات الإدارة', '🔐 Management permissions'), allowed: (a) => a.manages,
       child: StaffLoad<(StaffFile, StaffEditorData)>(revision: revision, load: load, builder: (result) {
         final (file, data) = result;
@@ -163,13 +163,13 @@ class _StaffPermissionsHubScreenState extends StaffActionState<StaffPermissionsH
   StaffUser? user;
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     final found = user?.staffRole;
     // Your own role is not editable here; the server answers 403 for it.
     final self = found != null && found.id == me?.roleId;
     final role = self ? null : found;
     return StaffScreen(title: tr('🔐 صلاحيات الإدارة', '🔐 Management permissions'), allowed: (a) => a.manages,
-      child: StaffRefreshList(onRefresh: () async => ref.refresh(staffMeProvider.future), children: [
+      child: StaffRefreshList(onRefresh: () async => ref.refresh(staffPanelAccessProvider.future), children: [
         Text(tr('أدخل ID الإداري لعرض نوع إدارته وصلاحياته:', 'Enter the staff ID to view their role and permissions:')),
         StaffUserLookup(onSelected: (v) => setState(() => user = v)),
         if (self) Text(tr('لا يمكنك تعديل صلاحياتك بنفسك.', 'You cannot edit your own permissions.')),
@@ -209,7 +209,7 @@ class _StaffBanHoldersScreenState extends StaffActionState<StaffBanHoldersScreen
   int days = 0;
   @override
   Widget build(BuildContext context) => StaffScreen(title: tr('🚫 صلاحية نظام الحظر', '🚫 Ban system permission'), allowed: (a) => a.manager,
-    child: StaffLoad<List<StaffPermission>>(revision: revision, load: service.banHolders, header: [
+    child: StaffPagedLoad<StaffPermission>(revision: revision, load: (page) => service.banHolders(page: page), header: [
       staffHeading(tr('منح صلاحية الحظر', 'Grant ban permission')),
       StaffUserLookup(onSelected: (v) => setState(() => user = v)),
       permissionDuration(days, (v) => setState(() => days = v), standalone: user?.staffRole == null),

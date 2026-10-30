@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/dio_client.dart';
+import '../widgets/home/cp_ranking_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../providers/localization_provider.dart';
@@ -14,10 +20,45 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
+  HomeCpEntry? _cp;
+  final _cpCancel = CancelToken();
+  static const _cpKey = 'home_cp_top_one';
   @override
   void initState() {
     super.initState();
+    unawaited(_loadCp());
     _initialize();
+  }
+
+  Future<void> _loadCp() async {
+    // Cache/network work never joins the navigation initialization future.
+    SharedPreferences? prefs;
+    try {
+      prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(_cpKey);
+      if (cached != null && mounted) {
+        setState(() => _cp = HomeCpEntry(Map<String, dynamic>.from(jsonDecode(cached) as Map)));
+      }
+    } catch (_) { /* A damaged cache must not prevent the live request. */ }
+    if (!mounted) return;
+    try {
+      final response = await DioClient.dio.get('/cp/top', queryParameters: {'limit': 1},
+        cancelToken: _cpCancel).timeout(const Duration(milliseconds: 1500), onTimeout: () {
+          _cpCancel.cancel('Splash CP deadline');
+          throw TimeoutException('Splash CP deadline');
+        });
+      final rows = response.data['data'] as List;
+      final next = rows.isEmpty ? null : HomeCpEntry(Map<String, dynamic>.from(rows.first as Map));
+      if (mounted) setState(() => _cp = next);
+      if (next == null) { await prefs?.remove(_cpKey); }
+      else { await prefs?.setString(_cpKey, jsonEncode(next.json)); }
+    } catch (_) { /* Keep the last known pair; startup continues independently. */ }
+  }
+
+  @override
+  void dispose() {
+    _cpCancel.cancel('Splash closed');
+    super.dispose();
   }
 
   /// How long the logo is guaranteed to stay up. Long enough to read, short
@@ -86,7 +127,19 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Custom Logo
-            Image.asset(
+            if (_cp != null) ...[
+              const Text('♛', style: TextStyle(color: Color(0xFFFFD477), fontSize: 56)),
+              SizedBox(width: 250, height: 210, child: Stack(alignment: Alignment.center, children: [
+                const Icon(Icons.favorite, color: Color(0xFFFFD477), size: 245),
+                const Icon(Icons.favorite, color: Color(0xFF702E71), size: 228),
+                Padding(padding: const EdgeInsets.only(bottom: 26),
+                  child: CpPairAvatars(pair: _cp!.pair, size: 84)),
+              ])),
+              Text('${_cp!.pair.a.name} ❤ ${_cp!.pair.b.name}', textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 22)),
+              const Text('CP Top 1', style: TextStyle(color: Color(0xFFFFD477), fontSize: 24, fontWeight: FontWeight.bold)),
+              CpLevelBadge(pair: _cp!.pair),
+            ] else Image.asset(
               'assets/images/logo.png',
               width: 200,
               height: 200,

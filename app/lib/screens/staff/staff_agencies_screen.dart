@@ -36,13 +36,13 @@ class StaffAgenciesScreen extends ConsumerStatefulWidget {
 class _StaffAgenciesScreenState extends StaffActionState<StaffAgenciesScreen> {
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     final canCreate = me?.has('manage_host_agency') == true;
     final canFollow = me?.has('follow_agencies') == true;
     return StaffScreen(title: tr('🏢 وكالات المضيفين', '🏢 Hosting agencies'),
       allowed: (a) => a.rolePanel && (a.has('follow_agencies') || a.has('manage_host_agency')),
-      child: StaffLoad<List<StaffAgency>>(revision: revision,
-        load: () async => canFollow ? await service.agencies() : <StaffAgency>[],
+      child: StaffPagedLoad<StaffAgency>(revision: revision,
+        load: (page) async => canFollow ? await service.agencies(page: page) : <StaffAgency>[],
         header: [
           if (canCreate) FilledButton.icon(icon: const Icon(Icons.add_business),
             onPressed: () async { await openStaff(context, const StaffAgencyCreateScreen()); reload(); },
@@ -68,7 +68,7 @@ class _StaffAgencyCreateScreenState extends StaffActionState<StaffAgencyCreateSc
   @override
   Widget build(BuildContext context) => StaffScreen(title: tr('إنشاء وكالة مضيفين', 'Create hosting agency'),
     allowed: (a) => a.rolePanel && a.has('manage_host_agency'),
-    child: StaffRefreshList(onRefresh: () async => ref.refresh(staffMeProvider.future), children: [
+    child: StaffRefreshList(onRefresh: () async => ref.refresh(staffPanelAccessProvider.future), children: [
       Text(tr('ID الوكيل (المسؤول عن الوكالة):', 'Agent ID (agency manager):')),
       StaffUserLookup(onSelected: (v) => setState(() => owner = v)),
       TextField(controller: name, decoration: InputDecoration(labelText: tr('اسم الوكالة', 'Agency name'))),
@@ -111,7 +111,7 @@ class _StaffAgencyScreenState extends StaffActionState<StaffAgencyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     final canAssign = me?.manages == true && me?.has('manage_host_agency') == true;
     return StaffScreen(title: tr('تفاصيل الوكالة', 'Agency details'), allowed: (a) => a.rolePanel && a.has('follow_agencies'),
       child: StaffLoad<StaffAgency>(revision: revision, load: () => service.agency(widget.agencyId), builder: (a) => [

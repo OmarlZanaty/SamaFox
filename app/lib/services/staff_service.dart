@@ -214,7 +214,7 @@ class StaffService {
   Future<StaffAccess> me() async => StaffAccess.fromJson(staffJson(await _request('/me')));
   Future<List<StaffPermissionDefinition>> catalog() async => staffList(await _request('/permissions/catalog'), StaffPermissionDefinition.fromJson);
   Future<StaffUser> lookup(int id) async => StaffUser.fromJson(staffJson(await _request('/users/lookup', query: {'id': id})));
-  Future<List<StaffRole>> members({String? status, String? role}) async => staffList(await _request('/members', query: {if (status != null) 'status': status, if (role != null) 'role': role}), StaffRole.fromJson);
+  Future<List<StaffRole>> members({int page = 1, String? status, String? role}) async => staffList(await _request('/members', query: {'page': page, if (status != null) 'status': status, if (role != null) 'role': role}), StaffRole.fromJson);
   Future<StaffFile> member(int roleId) async => StaffFile.fromJson(staffJson(await _request('/members/$roleId')));
   Future<StaffRole> appoint({required int userId, required String role, required int days,
     required Map<String, bool> permissions, required List<String> allowedItemIds, int? banDays}) async =>
@@ -229,7 +229,7 @@ class StaffService {
       staffList(await _request('/members/$id/permissions', method: 'PUT', body: {'permissions': permissions, 'expiresInDays': terms}), StaffPermission.fromJson);
   Future<void> setAllowedItems(int id, List<String> ids) async { await _request('/members/$id/allowed-items', method: 'PUT', body: {'itemIds': ids}); }
   Future<void> setRewardItems(int id, List<String> ids) async { await _request('/members/$id/reward-items', method: 'PUT', body: {'itemIds': ids}); }
-  Future<List<StaffPermission>> banHolders() async => staffList(await _request('/ban-holders'), StaffPermission.fromJson);
+  Future<List<StaffPermission>> banHolders({int page = 1}) async => staffList(await _request('/ban-holders', query: {'page': page}), StaffPermission.fromJson);
   Future<void> grantBanPermission(int userId, int? days) async { await _request('/ban-holders', method: 'POST', body: {'userId': userId, 'days': days}); }
   Future<void> revokeBanPermission(int userId) async { await _request('/ban-holders/$userId', method: 'DELETE'); }
   Future<List<StaffItem>> grantable({String? type}) async => staffList(await _request('/items/grantable', query: {if (type != null) 'type': type}), StaffItem.fromJson);
@@ -243,15 +243,15 @@ class StaffService {
   Future<StaffGrant> grantVip(int userId, int level) async => StaffGrant.fromJson(staffJson(await _request('/grants/vip', method: 'POST', body: {'userId': userId, 'level': level})));
   Future<StaffGrant> grantLevel(int userId, int level) async => StaffGrant.fromJson(staffJson(await _request('/grants/level', method: 'POST', body: {'userId': userId, 'level': level})));
   Future<StaffGrant> grantItem(int userId, String itemId) async => StaffGrant.fromJson(staffJson(await _request('/grants/item', method: 'POST', body: {'userId': userId, 'itemId': itemId})));
-  Future<List<StaffGrant>> grants({String? status}) async => staffList(await _request('/grants', query: {if (status != null) 'status': status}), StaffGrant.fromJson);
+  Future<List<StaffGrant>> grants({int page = 1, String? status}) async => staffList(await _request('/grants', query: {'page': page, if (status != null) 'status': status}), StaffGrant.fromJson);
   Future<void> revokeGrant(int id) async { await _request('/grants/$id/revoke', method: 'POST'); }
-  Future<List<StaffAgency>> agencies() async => staffList(await _request('/agencies'), StaffAgency.fromJson);
+  Future<List<StaffAgency>> agencies({int page = 1}) async => staffList(await _request('/agencies', query: {'page': page}), StaffAgency.fromJson);
   Future<StaffAgency> agency(int id) async => StaffAgency.fromJson(staffJson(await _request('/agencies/$id')));
   Future<int> createAgency(int ownerUserId, String name) async => staffJson(await _request('/agencies', method: 'POST', body: {'ownerUserId': ownerUserId, 'agencyName': name}))['id'] as int;
   Future<void> addFollower(int id, int staffUserId) async { await _request('/agencies/$id/followers', method: 'POST', body: {'staffUserId': staffUserId}); }
   Future<void> removeFollower(int id, int staffUserId) async { await _request('/agencies/$id/followers/$staffUserId', method: 'DELETE'); }
   Future<StaffBan> ban(int userId, String duration, String reason) async => StaffBan.fromJson(staffJson(await _request('/bans', method: 'POST', body: {'userId': userId, 'duration': duration, 'reason': reason})));
   Future<void> unban(int userId) async { await _request('/bans/$userId/unban', method: 'POST'); }
-  Future<List<StaffBan>> bans({String? status}) async => staffList(await _request('/bans', query: {if (status != null) 'status': status}), StaffBan.fromJson);
+  Future<List<StaffBan>> bans({int page = 1, String? status}) async => staffList(await _request('/bans', query: {'page': page, if (status != null) 'status': status}), StaffBan.fromJson);
   Future<StaffAuditPage> audit({int page = 1, int? actorId, String? action}) async => StaffAuditPage.fromJson(staffJson(await _request('/audit', query: {'page': page, if (actorId != null) 'actorId': actorId, if (action != null) 'action': action})));
 }

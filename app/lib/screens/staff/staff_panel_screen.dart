@@ -29,9 +29,9 @@ class StaffPanelScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final me = ref.watch(staffMeProvider).valueOrNull;
+    final me = ref.watch(staffPanelAccessProvider).valueOrNull;
     return StaffScreen(title: titleFor(me?.role), allowed: (a) => a.rolePanel,
-      child: me == null ? const SizedBox() : StaffRefreshList(onRefresh: () async => ref.refresh(staffMeProvider.future), children: [
+      child: me == null ? const SizedBox() : StaffRefreshList(onRefresh: () async => ref.refresh(staffPanelAccessProvider.future), children: [
         _header(me),
         if (me.manages) ...[
           staffHeading(tr('الإدارة', "Management")),
