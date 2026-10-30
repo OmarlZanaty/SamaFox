@@ -2,13 +2,13 @@ import { Server, Socket } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
 import { getGameSettings, checkGamePlayable, fruitWheelBonusSettings } from './gameConfig.service';
-import { grantStakeValue, payPrize, releasePrize, reservePrize, freePrizePoolBalance } from './halalGames.service';
+import { grantStakeValue, payPrize, releasePrize, freePrizePoolBalance } from './halalGames.service';
 import { broadcastGameWin } from './gameBroadcast.service';
-import { CHIPS, MAX_PER_KEY, MULTIPLIERS, WHEEL_ORDER, SEGMENTS, maxPayout, parseBetKey, payoutFor, rollFromSeed, presentationFor } from './fruitWheelRound.math';
-import { BonusKind, winningCards, payoutForResults, bonusPrimaryFromSeed } from './fruitWheelRound.math';
+import { CHIPS, MULTIPLIERS, WHEEL_ORDER, SEGMENTS, parseBetKey, payoutFor, rollFromSeed, rollAmongFromSeed, presentationFor } from './fruitWheelRound.math';
+import { BonusKind, winningCards, payoutForResults } from './fruitWheelRound.math';
 
 // Shared fruit table, adapted from carWheel.service.ts. All coin charges,
-// reservations, stake grants, payouts and boot refunds follow that engine.
+// stake grants, payouts and boot refunds follow that engine.
 // The old single-player fruitWheel.service.ts remains independent.
 export const GAME = 'fruitwheel';
 export const FRUIT_WHEEL_ROOM = 'fruitwheel:main';
@@ -138,7 +138,7 @@ function broadcast() {
 
 export async function getLayout() {
   const settings = await getGameSettings(GAME);
-  return { wheel: WHEEL_ORDER, multipliers: MULTIPLIERS, chips: CHIPS, minBet: 100, maxPerKey: settings.maxBet ?? MAX_PER_KEY, maxCards: 2, programShareBp: settings.programShareBp, phases: PHASE_MS,
+  return { wheel: WHEEL_ORDER, multipliers: MULTIPLIERS, chips: CHIPS, minBet: 100, maxPerKey: settings.maxBet ?? null, maxCards: 2, programShareBp: settings.programShareBp, phases: PHASE_MS,
     segments: SEGMENTS };
 }
 
@@ -186,21 +186,11 @@ async function place(userId: number, key: string, amount: number, anyAmount = fa
     return fail('MAX_CARDS', 'تقدر تراهن على خيارين بس في الجولة');
   }
   const settings = await getGameSettings(GAME);
-  if ((player.stakes[key] ?? 0) + amount > (settings.maxBet ?? MAX_PER_KEY)) {
+  if (settings.maxBet != null && (player.stakes[key] ?? 0) + amount > settings.maxBet) {
     return fail('MAX_BET', 'تجاوزت الحد الأقصى لهذه البطاقة');
   }
-  const staked = sum(player.stakes);
-  // Hold back whatever this chip adds to the player's best possible return.
   const next = { ...player.stakes, [key]: (player.stakes[key] ?? 0) + amount };
-  const need = maxPayout(next) - player.reserved;
-  let token: string | null = null, cap = 0;
-  if (need > 0) {
-    const reserved = await reservePrize(userId, GAME, need, staked + amount);
-    if (!reserved.ok) return fail(reserved.code, reserved.message);
-    token = reserved.token;
-    cap = reserved.cap;
-  }
-  const roundId = await ensureRoundRow(r).catch(e => { releasePrize(token); throw e; });
+  const roundId = await ensureRoundRow(r);
   let chipId: number;
   try {
     chipId = await prisma.$transaction(async tx => {
@@ -210,19 +200,16 @@ async function place(userId: number, key: string, amount: number, anyAmount = fa
       return (await tx.fruitWheelStake.create({ data: { roundId, userId, betKey: key, amount } })).id;
     });
   } catch (e) {
-    releasePrize(token);
     if ((e as { code?: string }).code === 'INSUFFICIENT_COINS') return fail('INSUFFICIENT_COINS', 'رصيدك لا يكفي');
     throw e;
   }
   // Betting closed while the charge was in flight: give the chip back.
   if (round !== r || r.phase !== 'betting' || Date.now() >= r.endsAt) {
-    releasePrize(token);
     await refundChips([chipId]);
     return closed();
   }
   player.stakes = next;
   player.chips.push({ id: chipId, key, amount });
-  if (token) { player.tokens.push(token); player.reserved += cap; }
   broadcastSoon();
   return ok({ stakes: player.stakes, chipList: player.chips, balance: await balanceOf(userId), round: roundNo() });
 }
@@ -299,19 +286,12 @@ export const repeatBets = (userId: number) => withLock(userId, async () => {
     if (!parseBetKey(key)) return fail('BAD_TARGET', 'خانة رهان غير صحيحة');
     if (!Number.isSafeInteger(value) || value <= 0 || value % 100 !== 0) return fail('BAD_AMOUNT', 'قيمة رهان غير صحيحة');
     next[key] = (next[key] ?? 0) + value;
-    if (next[key]! > (settings.maxBet ?? MAX_PER_KEY)) return fail('MAX_BET', 'تجاوزت الحد الأقصى لهذه الخانة');
+    if (settings.maxBet != null && next[key]! > settings.maxBet) return fail('MAX_BET', 'تجاوزت الحد الأقصى لهذه الخانة');
   }
   if (Object.values(next).filter(v => v > 0).length > 2) {
     return fail('MAX_CARDS', 'تقدر تراهن على خيارين بس في الجولة');
   }
   if (await balanceOf(userId) < amount) return fail('INSUFFICIENT_COINS', 'رصيدك لا يكفي');
-  const need = maxPayout(next) - p.reserved;
-  let token: string | null = null, cap = 0;
-  if (need > 0) {
-    const held = await reservePrize(userId, GAME, need, sum(next));
-    if (!held.ok) return fail(held.code, held.message);
-    token = held.token; cap = held.cap;
-  }
   let chips: Chip[];
   try {
     const roundId = await ensureRoundRow(r);
@@ -327,61 +307,48 @@ export const repeatBets = (userId: number) => withLock(userId, async () => {
       return added;
     });
   } catch (error) {
-    releasePrize(token);
     if ((error as { code?: string }).code === 'INSUFFICIENT_COINS') return fail('INSUFFICIENT_COINS', 'رصيدك لا يكفي');
     throw error;
   }
   if (round !== r || r.phase !== 'betting' || Date.now() >= r.endsAt) {
-    releasePrize(token);
     await refundChips(chips.map(c => c.id));
     return closed();
   }
   p.stakes = next;
   p.chips.push(...chips);
-  if (token) { p.tokens.push(token); p.reserved += cap; }
   broadcastSoon();
   return ok({ stakes: p.stakes, chipList: p.chips, balance: await balanceOf(userId), round: roundNo() });
 });
 
 // ── Settlement ──────────────────────────────────────────────
-/** Fund the entire table before announcing a bonus. Failed attempts hold nothing. */
-async function prepareBonus(r: Round) {
-  const primary = r.result!;
-  r.results = [primary];
+/** Choose only funded cards, or the cheapest outcome if none fits. */
+async function prepareResult(r: Round) {
   const live = [...r.players.values()].filter(p => sum(p.stakes) > 0);
-  if (!r.bonusSettings.bonusEnabled || r.roundsToBonus !== 0 || !live.length) return;
-  let kind: BonusKind;
+  r.result = rollFromSeed(r.seed, r.number);
+  r.results = [r.result];
+  if (!live.length) return;
+  let available = 0, poolRead = false;
   try {
-    kind = await freePrizePoolBalance(GAME) >= r.bonusSettings.tripleMinPool ? 'triple' : 'double';
+    available = await freePrizePoolBalance(GAME) + [...r.players.values()].reduce((n, p) => n + p.reserved, 0);
+    poolRead = true;
   } catch (err) {
-    console.error('[fruitwheel] bonus pool read failed; using primary', err);
-    return;
+    console.error('[fruitwheel] pool read failed; using cheapest outcome', err);
   }
+  const payouts = SEGMENTS.map(s => ({ key: s.key, payout: live.reduce((n, p) => n + payoutFor(p.stakes, s.key), 0) }));
+  const eligible = payouts.filter(s => s.payout <= available);
+  const minimum = Math.min(...payouts.map(s => s.payout));
+  r.result = rollAmongFromSeed(r.seed, r.number, (eligible.length ? eligible : payouts.filter(s => s.payout === minimum)).map(s => s.key));
+  r.results = [r.result];
+  if (!poolRead || !r.bonusSettings.bonusEnabled || r.roundsToBonus !== 0) return;
+  let kind: BonusKind = available >= r.bonusSettings.tripleMinPool ? 'triple' : 'double';
   while (kind) {
-    const cards = winningCards(r.seed, r.number, primary, kind);
-    const extras: { player: Player; token: string; cap: number }[] = [];
-    let funded = false;
-    try {
-      funded = true;
-      for (const p of live) {
-        const coveredPrimary = Math.min(p.reserved, payoutFor(p.stakes, primary));
-        const extra = payoutForResults(p.stakes, cards) - coveredPrimary;
-        if (extra <= 0) continue;
-        const held = await reservePrize(p.userId, GAME, extra, sum(p.stakes));
-        if (!held.ok) { funded = false; break; }
-        extras.push({ player: p, token: held.token, cap: held.cap });
-      }
-    } catch (err) {
-      funded = false;
-      console.error('[fruitwheel] bonus reservation failed', err);
-    }
-    if (funded) {
-      for (const e of extras) { e.player.tokens.push(e.token); e.player.reserved += e.cap; }
+    const cards = winningCards(r.seed, r.number, r.result, kind);
+    if (live.reduce((n, p) => n + payoutForResults(p.stakes, cards), 0) <= available) {
       r.bonus = kind;
       r.results = cards;
+      r.result = cards[0]!;
       return;
     }
-    for (const e of extras) releasePrize(e.token);
     kind = kind === 'triple' ? 'double' : null;
   }
 }
@@ -412,6 +379,15 @@ async function recordDaily(p: Player, staked: number, payout: number) {
 async function settle(r: Round) {
   const result = r.result!;
   if (!r.bonus) r.results = [result];
+  const totalPrize = [...r.players.values()].reduce((n, p) => n + payoutForResults(p.stakes, r.results), 0);
+  const available = totalPrize > 0 ? await freePrizePoolBalance(GAME) + [...r.players.values()].reduce((n, p) => n + p.reserved, 0) : 0;
+  const scale = totalPrize > 0 ? Math.min(1, available / totalPrize) : 1;
+  // Release our holds before paying; every winner uses the same pool share.
+  for (const p of r.players.values()) {
+    for (const token of p.tokens) releasePrize(token);
+    p.tokens = [];
+    p.reserved = 0;
+  }
   const winners: Round['winners'] = [];
   let totalBet = 0, playerCount = 0;
   for (const p of r.players.values()) {
@@ -420,7 +396,7 @@ async function settle(r: Round) {
     totalBet += staked;
     playerCount++;
     lastStakes.set(p.userId, { ...p.stakes });
-    const prize = payoutForResults(p.stakes, r.results);
+    const prize = Math.floor(payoutForResults(p.stakes, r.results) * scale);
     const tokens = p.tokens;
     p.tokens = [];
     let paid = 0;
@@ -491,13 +467,7 @@ async function advance() {
   }
   if (r.phase === 'closing') {
     if (timer) clearTimeout(timer);
-    r.result = rollFromSeed(r.seed, r.number);
-    // A bonus round always pays: it never lands on the crown.
-    if (r.result === 'crown' && r.bonusSettings.bonusEnabled && r.roundsToBonus === 0 &&
-        [...r.players.values()].some(p => sum(p.stakes) > 0)) {
-      r.result = bonusPrimaryFromSeed(r.seed, r.number);
-    }
-    await prepareBonus(r);
+    await prepareResult(r);
     Object.assign(r, presentationFor(r.result as ReturnType<typeof rollFromSeed>));
     schedule(r, 'spinning');
     broadcast();
@@ -556,7 +526,7 @@ export async function startFruitWheelRoundEngine(server: Server) {
     throw err;
   }
   await startRound();
-  console.log('[fruitwheel] engine started — three cards and crown, 70% return');
+  console.log('[fruitwheel] engine started — three cards, pool-funded payouts, 30/70 stake split');
 }
 
 export function stopFruitWheelRoundEngine() {

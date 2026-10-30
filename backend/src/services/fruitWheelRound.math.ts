@@ -1,62 +1,44 @@
 import crypto from 'crypto';
 
-// 2026-10-21: back to ×2 / ×2 / ×8 WITH the crown (no-win slice). The client
-// objected to ×1.6 / ×5.6 («ليه قللت المضاعف»); ×2/×8 with no losing slice would
-// return 100% on the 77, so the crown (21.25%) is what keeps every card at 70%.
+// Natural weights; occupied rounds only draw cards the pool can fund.
 export const SEGMENTS = [
-  { key: 'watermelon', multiplierX10: 20, weight: 3500 },
-  { key: 'plum', multiplierX10: 20, weight: 3500 },
-  { key: 'sevens', multiplierX10: 80, weight: 875 },
-  { key: 'crown', multiplierX10: 0, weight: 2125 },
+  { key: 'watermelon', multiplierX10: 20, weight: 4500 },
+  { key: 'plum', multiplierX10: 20, weight: 4500 },
+  { key: 'sevens', multiplierX10: 80, weight: 1000 },
 ] as const;
 export type Outcome = typeof SEGMENTS[number]['key'];
-export type Card = Exclude<Outcome, 'crown'>;
+export type Card = Outcome;
 export type BonusKind = 'double' | 'triple' | null;
 
-/** Primary stays first, including when a triple must fall back to a double. */
+/** Doubles always pair 77 with one fruit. */
 export function winningCards(seed: string, roundNumber: number, primary: string, bonus: BonusKind): string[] {
   if (!bonus) return [primary];
-  const others = SEGMENTS.filter(s => s.key !== 'crown' && s.key !== primary).map(s => s.key);
-  if (bonus === 'triple') return [primary, ...others];
+  if (bonus === 'triple') return [primary, ...SEGMENTS.filter(s => s.key !== primary).map(s => s.key)];
   const digest = crypto.createHash('sha256').update(`${seed}:${roundNumber}:bonus`).digest('hex');
-  return [primary, others[Number(BigInt(`0x${digest}`) % BigInt(others.length))]!];
-}
-
-/** A bonus round is never a crown: re-draw the primary among the cards by their weights. */
-export function bonusPrimaryFromSeed(seed: string, roundNumber: number): Card {
-  const cards = SEGMENTS.filter(s => s.key !== 'crown');
-  const total = cards.reduce((n, s) => n + s.weight, 0);
-  const digest = crypto.createHash('sha256').update(`${seed}:${roundNumber}:bonus-primary`).digest('hex');
-  let roll = Number(BigInt(`0x${digest.slice(0, 13)}`) % BigInt(total));
-  for (const c of cards) {
-    if (roll < c.weight) return c.key as Card;
-    roll -= c.weight;
-  }
-  return cards[0]!.key as Card;
+  return ['sevens', ['watermelon', 'plum'][Number(BigInt(`0x${digest}`) % 2n)]!];
 }
 
 export function payoutForResults(stakes: Record<string, number>, results: readonly string[]): number {
   return results.reduce((total, card) => total + payoutFor(stakes, card), 0);
 }
-// Installed apps use these indices; the crown is slot 9.
+// Installed apps still paint a crown at slot 9; never present that slot.
 export const WHEEL_ORDER: Outcome[] = [
   'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
-  'watermelon', 'plum', 'watermelon', 'plum', 'crown',
+  'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
 ];
 export const MULTIPLIERS = { watermelon: 2, sevens: 8, plum: 2 };
 export const TOTAL_WEIGHT = 10000;
 export const CHIPS = [100, 1000, 10000, 100000];
 export const MIN_BET = 100;
-export const MAX_PER_KEY = 1_000_000;
-export function assertBalancedTable() {
+export function assertValidTable() {
   if (SEGMENTS.reduce((n, s) => n + s.weight, 0) !== TOTAL_WEIGHT ||
-      SEGMENTS.some(s => s.key !== 'crown' && s.multiplierX10 * s.weight !== 70000)) {
-    throw new Error('FRUIT WHEEL must return exactly 70% on every card');
+      SEGMENTS.some(s => s.multiplierX10 <= 0)) {
+    throw new Error('Invalid FRUIT WHEEL outcome table');
   }
 }
-assertBalancedTable();
+assertValidTable();
 export function parseBetKey(key: unknown) {
-  return SEGMENTS.find(s => s.key !== 'crown' && s.key === key) ?? null;
+  return SEGMENTS.find(s => s.key === key) ?? null;
 }
 export function payoutFor(stakes: Record<string, number>, result: string): number {
   const card = parseBetKey(result);
@@ -66,9 +48,15 @@ export function maxPayout(stakes: Record<string, number>): number {
   return Math.max(...SEGMENTS.map(s => payoutFor(stakes, s.key)));
 }
 export function rollFromSeed(seed: string, roundId: number): Outcome {
+  return rollAmongFromSeed(seed, roundId, SEGMENTS.map(s => s.key));
+}
+export function rollAmongFromSeed(seed: string, roundId: number, allowedKeys: readonly string[]): Outcome {
+  const allowed = SEGMENTS.filter(s => allowedKeys.includes(s.key));
+  const total = allowed.reduce((n, s) => n + s.weight, 0);
+  if (!total) throw new Error('No FRUIT WHEEL outcomes allowed');
   const digest = crypto.createHash('sha256').update(`${seed}:${roundId}`).digest('hex');
-  let roll = Number(BigInt(`0x${digest.slice(0, 13)}`) % BigInt(TOTAL_WEIGHT));
-  for (const s of SEGMENTS) {
+  let roll = Number(BigInt(`0x${digest.slice(0, 13)}`) % BigInt(total));
+  for (const s of allowed) {
     if (s.weight <= 0) continue;
     if (roll < s.weight) return s.key;
     roll -= s.weight;
@@ -78,7 +66,7 @@ export function rollFromSeed(seed: string, roundId: number): Outcome {
 /** Presentation only; the weighted outcome has already been committed. */
 export function presentationFor(outcome: Outcome) {
   if (!WHEEL_ORDER.includes(outcome)) throw new Error('Invalid FRUIT WHEEL outcome');
-  const slots = WHEEL_ORDER.flatMap((key, i) => key === outcome ? [i] : []);
+  const slots = WHEEL_ORDER.flatMap((key, i) => key === outcome && i !== 9 ? [i] : []);
   return { segment: slots[crypto.randomInt(slots.length)]!, offset: crypto.randomInt(150, 851) / 1000 };
 }
 export const returnOf = (key: Card) => {

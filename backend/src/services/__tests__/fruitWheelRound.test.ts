@@ -1,8 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import { accounts, balances, ledger, economyLedger, xpAwards, settings, fakePrisma } from './halalStubs';
-import { WHEEL_ORDER, SEGMENTS, assertBalancedTable, parseBetKey, payoutFor, maxPayout, rollFromSeed, returnOf, presentationFor, winningCards, payoutForResults, bonusPrimaryFromSeed } from '../fruitWheelRound.math';
+import { WHEEL_ORDER, SEGMENTS, assertValidTable, parseBetKey, payoutFor, maxPayout, rollFromSeed, rollAmongFromSeed, returnOf, presentationFor, winningCards, payoutForResults } from '../fruitWheelRound.math';
 import { invalidateGameConfigCache, getGameSettings, setGameSettings } from '../gameConfig.service';
 import { __resetHalalForTests, freePrizePoolBalance, reservedForGame, reservePrize, releasePrize } from '../halalGames.service';
 import { startFruitWheelRoundEngine, stopFruitWheelRoundEngine, placeBet, undoBet, clearBets, repeatBets, getPublicState, refundOrphans,
@@ -62,19 +61,6 @@ beforeEach(async () => {
 afterEach(() => stopFruitWheelRoundEngine());
 
 const round = () => __test.getRound()!;
-function seedCrownRound() {
-  for (let i = 0; ; i++) {
-    const seed = `crown-round-${i}`;
-    if (rollFromSeed(seed, round().number) !== 'crown') continue;
-    round().seed = seed;
-    round().seedHash = crypto.createHash('sha256').update(seed).digest('hex');
-    return;
-  }
-}
-function bonusPrimary() {
-  const primary = rollFromSeed(round().seed, round().number);
-  return primary === 'crown' ? bonusPrimaryFromSeed(round().seed, round().number) : primary;
-}
 /** Runs betting → closing → spinning → result and waits for settlement. */
 async function playOut() {
   await __test.advance(); // closing
@@ -86,19 +72,18 @@ async function playOut() {
 }
 
 // ── Maths ────────────────────────────────────────────────────
-test('balanced table: each card returns 70%, crown cannot be staked', () => {
-  assert.doesNotThrow(assertBalancedTable);
-  assert.deepEqual(WHEEL_ORDER, ['watermelon', 'plum', 'watermelon', 'plum', 'sevens', 'watermelon', 'plum', 'watermelon', 'plum', 'crown']);
+test('valid table: positive multipliers and natural weights, crown cannot be staked', () => {
+  assert.doesNotThrow(assertValidTable);
+  assert.deepEqual(WHEEL_ORDER, ['watermelon', 'plum', 'watermelon', 'plum', 'sevens', 'watermelon', 'plum', 'watermelon', 'plum', 'sevens']);
   assert.equal(SEGMENTS.reduce((sum, s) => sum + s.weight, 0), 10000);
   assert.deepEqual(SEGMENTS, [
-    { key: 'watermelon', multiplierX10: 20, weight: 3500 },
-    { key: 'plum', multiplierX10: 20, weight: 3500 },
-    { key: 'sevens', multiplierX10: 80, weight: 875 },
-    { key: 'crown', multiplierX10: 0, weight: 2125 },
+    { key: 'watermelon', multiplierX10: 20, weight: 4500 },
+    { key: 'plum', multiplierX10: 20, weight: 4500 },
+    { key: 'sevens', multiplierX10: 80, weight: 1000 },
   ]);
-  for (const s of SEGMENTS) if (s.key !== 'crown') {
-    assert.equal(s.multiplierX10 * s.weight, 70000);
-    assert.equal(returnOf(s.key), .7);
+  for (const s of SEGMENTS) {
+    assert.ok(s.multiplierX10 > 0);
+    assert.equal(returnOf(s.key), s.key === 'sevens' ? .8 : .9);
   }
   for (const bad of ['crown', 'bonus', '777', 'constructor', '__proto__', '', null]) assert.equal(parseBetKey(bad), null);
   assert.equal(maxPayout({ watermelon: 1000, sevens: 100 }), 2000);
@@ -108,18 +93,18 @@ test('balanced table: each card returns 70%, crown cannot be staked', () => {
   assert.equal(payoutFor({ sevens: 101 }, 'sevens'), 808);
   assert.equal(payoutFor({ watermelon: 1000, sevens: 100 }, 'crown'), 0);
 });
-test('committed seed weights include crown and presentation matches all ten slots', () => {
+test('committed seed weights exclude crown and presentation avoids slot nine', () => {
   const counts: Record<string, number> = Object.fromEntries(SEGMENTS.map(s => [s.key, 0]));
   for (let i = 0; i < 200000; i++) counts[rollFromSeed(`seed-${i}`, i)]!++;
-  assert.ok(counts.crown! > 0);
-  assert.equal(presentationFor('crown').segment, 9);
+  assert.equal(counts.crown, undefined);
+  assert.equal(presentationFor('sevens').segment, 4);
   for (const s of SEGMENTS) {
     const expected = 200000 * s.weight / 10000;
     assert.ok(Math.abs(counts[s.key]! - expected) < 6 * Math.sqrt(expected));
     for (let i = 0; i < 100; i++) {
       const p = presentationFor(s.key);
       assert.equal(WHEEL_ORDER[p.segment], s.key);
-      assert.ok(p.segment >= 0 && p.segment <= 9);
+      assert.ok(p.segment >= 0 && p.segment < 9);
       assert.ok(p.offset >= .15 && p.offset <= .85);
     }
   }
@@ -130,6 +115,7 @@ test('table config publishes restored multipliers and compatible wheel indices',
   const layout = await getLayout();
   assert.deepEqual(layout.multipliers, { watermelon: 2, sevens: 8, plum: 2 });
   assert.deepEqual(layout.wheel, WHEEL_ORDER);
+  assert.equal(layout.maxPerKey, null);
 });
 
 // ── The shared round ────────────────────────────────────────
@@ -222,6 +208,7 @@ test('concurrent chips from one player never overdraw', async () => {
 });
 
 test('REPEAT validates all segments and the round limit before charging any chip', async () => {
+  await setGameSettings('fruitwheel', { maxBet: 1_000_000 });
   __test.lastStakes.set(1, { watermelon: 100, sevens: 1_000_000 });
   balances.set(1, 5_000_000);
   await placeBet(1, 'sevens', 100);
@@ -281,27 +268,18 @@ test('repeat union cannot add a third card and charges nothing on rejection', as
   assert.equal(balances.get(1), before);
   assert.equal(stakes.size, 1);
 });
-test('plain crown round reserves the maximum, splits 30/70 and pays nobody', async () => {
-  seedCrownRound();
+test('unfunded cards are excluded and stakes still split 30/70', async () => {
+  accounts.set('GAME_POOL:fruitwheel', 0);
   await placeBet(1, 'watermelon', 1000);
   await placeBet(1, 'sevens', 100);
-  assert.equal(round().players.get(1)!.reserved, 2000);
-  await __test.advance();
+  assert.equal(round().players.get(1)!.reserved, 0);
+  await playOut();
+  assert.equal(round().result, 'plum');
   assert.equal(accounts.get('PROGRAM'), 330);
-  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000770);
-  await __test.advance();
-  assert.equal(round().result, 'crown');
-  assert.equal(round().segment, 9);
-  assert.equal(round().bonus, null);
-  await __test.advance();
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 770);
   assert.equal(getPublicState(1)!.me!.payout, 0);
-  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 100000770);
-  assert.equal(balances.get(1), 98900);
-  assert.deepEqual(getPublicState()!.results, ['crown']);
-  assert.deepEqual(getPublicState()!.history.slice(-1), ['crown']);
-  assert.equal((await getHistory(1))[0]!.prize, 0);
-  assert.equal(reservedForGame('fruitwheel'), 0);
 });
+
 test('77 pays 8 times from pool and history records actual payment', async () => {
   await placeBet(1, 'sevens', 1000);
   await __test.advance(); await __test.advance();
@@ -325,9 +303,10 @@ test('empty rounds still spin; number advances and history retains ten results',
   assert.equal(rounds.size, 0);
   assert.equal(getPublicState()!.history.length, 10);
 });
-test('insufficient pool rejects before charge and a late charge is refunded', async () => {
+test('empty pool accepts bets and a late charge is refunded', async () => {
   accounts.set('GAME_POOL:fruitwheel', 0);
-  assert.equal((await placeBet(1, 'sevens', 100) as any).code, 'PRIZE_POOL_LOW');
+  assert.equal((await placeBet(1, 'sevens', 100)).ok, true);
+  await clearBets(1);
   assert.equal(balances.get(1), 100000);
   accounts.set('GAME_POOL:fruitwheel', 100000);
   const pending = placeBet(1, 'plum', 1000);
@@ -428,21 +407,21 @@ test('Nth occupied round is bonus; empty and cleared rounds do not count; reset 
   assert.equal(getPublicState()!.roundsToBonus, 2);
 });
 
-test('double uses the specified SHA-256 salt and never changes the primary', () => {
+test('double uses the specified SHA-256 salt and always starts with sevens', () => {
   const crypto = require('node:crypto');
   const selections = new Set<string>();
   for (let i = 0; i < 40; i++) {
     const rolled = rollFromSeed(`bonus-${i}`, i);
-    const primary = rolled === 'crown' ? bonusPrimaryFromSeed(`bonus-${i}`, i) : rolled;
-    const others = ['watermelon', 'plum', 'sevens'].filter(c => c !== primary);
+    const primary = rolled;
+    const others = ['watermelon', 'plum'];
     const hash = crypto.createHash('sha256').update(`bonus-${i}:${i}:bonus`).digest('hex');
-    const expected = [primary, others[Number(BigInt(`0x${hash}`) % 2n)]];
+    const expected = ['sevens', others[Number(BigInt(`0x${hash}`) % 2n)]];
     const cards = winningCards(`bonus-${i}`, i, primary, 'double');
     assert.deepEqual(cards, expected);
     selections.add(cards[1]!);
     assert.deepEqual(new Set(winningCards(`bonus-${i}`, i, primary, 'triple')), new Set(['watermelon', 'plum', 'sevens']));
   }
-  assert.equal(selections.size, 3);
+  assert.equal(selections.size, 2);
 });
 
 for (const atThreshold of [false, true]) test(`triple threshold uses free pool including other reservations (${atThreshold})`, async () => {
@@ -462,8 +441,7 @@ for (const atThreshold of [false, true]) test(`triple threshold uses free pool i
 
 for (const kind of ['double', 'triple'] as const) test(`${kind} pays both winning cards and preserves state, event, DB and history`, async () => {
   await nextBonusRound({ tripleMinPool: kind === 'double' ? 1_000_000_000 : 0 });
-  seedCrownRound();
-  const primary = bonusPrimary();
+  const primary = kind === 'double' ? 'sevens' : rollFromSeed(round().seed, round().number);
   const cards = winningCards(round().seed, round().number, primary, kind);
   for (const card of cards.slice(0, 2)) assert.equal((await placeBet(1, card, 1000)).ok, true);
   const bets = { ...round().players.get(1)!.stakes };
@@ -492,33 +470,22 @@ for (const kind of ['double', 'triple'] as const) test(`${kind} pays both winnin
   assert.deepEqual(getPublicState()!.historyRows.slice(-1)[0]!.results, cards);
 });
 
-for (const fallback of ['double', 'plain'] as const) test(`failed extra reservations roll back every attempt before downgrade to ${fallback}`, async () => {
+for (const fallback of ['double', 'plain'] as const) test(`unfunded bonus downgrades to ${fallback}`, async () => {
   await nextBonusRound({ tripleMinPool: 0 });
-  seedCrownRound();
-  const primary = bonusPrimary();
-  const double = winningCards(round().seed, round().number, primary, 'double');
-  const excluded = ['watermelon', 'plum', 'sevens'].find(c => !double.includes(c))!;
-  // First extra succeeds, then the second fails. A double retry must start clean.
+  const double = winningCards(round().seed, round().number, 'sevens', 'double');
+  const excluded = ['watermelon', 'plum'].find(c => !double.includes(c))!;
   await placeBet(1, double[1]!, 1000);
   await placeBet(2, fallback === 'double' ? excluded : double[1]!, 1000);
   await __test.advance();
-  const originalHeld = reservedForGame('fruitwheel');
-  const firstExtra = payoutFor(round().players.get(1)!.stakes, double[1]!);
-  accounts.set('GAME_POOL:fruitwheel', originalHeld + firstExtra);
-  const poolBefore = accounts.get('GAME_POOL:fruitwheel')!;
+  accounts.set('GAME_POOL:fruitwheel', 2000);
   await __test.advance();
   assert.equal(round().bonus, fallback === 'double' ? 'double' : null);
-  assert.equal(round().result, primary);
-  assert.notEqual(round().result, 'crown');
-  assert.deepEqual(getPublicState()!.results, fallback === 'double' ? double : [primary]);
-  assert.equal(reservedForGame('fruitwheel'), originalHeld + (fallback === 'double' ? firstExtra : 0));
+  if (fallback === 'double') assert.deepEqual(round().results, double);
+  else assert.equal(round().results.length, 1);
   await __test.advance();
-  const paid = [...round().players.values()].reduce((s, p) => s + p.payout, 0);
-  assert.equal(paid, fallback === 'double' ? firstExtra : 0);
-  assert.equal(accounts.get('GAME_POOL:fruitwheel'), poolBefore - paid);
-  assert.ok(accounts.get('GAME_POOL:fruitwheel')! >= 0);
+  const paid = [...round().players.values()].reduce((n, p) => n + p.payout, 0);
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 2000 - paid);
   assert.equal(reservedForGame('fruitwheel'), 0);
-  assert.equal(rounds.get(round().dbId!).bonus, fallback === 'double' ? JSON.stringify(double) : null);
   await __test.advance(); assert.equal(getPublicState()!.roundsToBonus, 1);
 });
 
@@ -562,4 +529,84 @@ test('a pool read error cannot stop the table or announce an unfunded bonus', as
   } finally { fakePrisma.economyAccount.findUnique = read; }
   await __test.advance();
   assert.equal(reservedForGame('fruitwheel'), 0);
+});
+
+test('restricted draws are deterministic and retain relative weights', () => {
+  let sevens = 0;
+  for (let i = 0; i < 10000; i++) {
+    const result = rollAmongFromSeed(`allowed-${i}`, i, ['plum', 'sevens']);
+    assert.ok(['plum', 'sevens'].includes(result));
+    assert.equal(result, rollAmongFromSeed(`allowed-${i}`, i, ['sevens', 'plum']));
+    if (result === 'sevens') sevens++;
+  }
+  assert.ok(Math.abs(sevens / 10000 - 1000 / 5500) < .03);
+  assert.throws(() => rollAmongFromSeed('seed', 1, []));
+});
+
+test('null maxBet accepts chips and repeats above a million with an empty pool', async () => {
+  await setGameSettings('fruitwheel', { maxBet: null });
+  balances.set(1, 5_000_000);
+  accounts.set('GAME_POOL:fruitwheel', 0);
+  for (let i = 0; i < 11; i++) assert.equal((await placeBet(1, 'sevens', 100000)).ok, true);
+  assert.equal(getPublicState(1)!.me!.staked, 1_100_000);
+  __test.lastStakes.set(1, { sevens: 1_100_000 });
+  assert.equal((await repeatBets(1)).ok, true);
+  assert.equal(balances.get(1), 2_800_000);
+  assert.equal(reservedForGame('fruitwheel'), 0);
+});
+
+for (const tied of [false, true]) test(`unfunded fallback uses minimum payout and pays pro-rata (${tied})`, async () => {
+  await placeBet(1, 'watermelon', 100);
+  await placeBet(2, 'watermelon', 1000);
+  await placeBet(1, 'plum', 1000);
+  await placeBet(2, 'plum', tied ? 100 : 1000);
+  balances.set(3, 10000);
+  await placeBet(3, 'sevens', 1000);
+  await __test.advance();
+  accounts.set('GAME_POOL:fruitwheel', 1100);
+  const program = accounts.get('PROGRAM');
+  await __test.advance();
+  const expected = rollAmongFromSeed(round().seed, round().number, tied ? ['watermelon', 'plum'] : ['watermelon']);
+  assert.equal(round().result, expected);
+  await __test.advance();
+  for (const p of round().players.values()) assert.equal(p.payout, payoutFor(p.stakes, expected) / 2);
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 0);
+  assert.equal(accounts.get('PROGRAM'), program);
+});
+
+test('legacy crown history still renders', async () => {
+  await placeBet(1, 'plum', 100);
+  await playOut();
+  const row = rounds.get(round().dbId!);
+  row.result = 'crown'; row.bonus = null;
+  const history = await getHistory(1);
+  assert.equal(history[0]!.result, 'crown');
+  assert.deepEqual(history[0]!.results, ['crown']);
+});
+
+test('eligibility includes this round holds but excludes other reservations', async () => {
+  await placeBet(1, 'watermelon', 1000);
+  await placeBet(1, 'plum', 1000);
+  await placeBet(2, 'sevens', 1000);
+  await __test.advance();
+  accounts.set('GAME_POOL:fruitwheel', 10000);
+  const own = await reservePrize(1, 'fruitwheel', 2000, 2000);
+  const other = await reservePrize(3, 'fruitwheel', 8000, 1000);
+  assert.ok(own.ok && other.ok);
+  const player = round().players.get(1)!;
+  player.tokens.push(own.token); player.reserved = own.cap;
+  assert.equal(await freePrizePoolBalance('fruitwheel'), 0);
+  await __test.advance();
+  assert.equal(round().result, rollAmongFromSeed(round().seed, round().number, ['watermelon', 'plum']));
+  await __test.advance();
+  assert.equal(player.payout, 2000);
+  assert.equal(accounts.get('GAME_POOL:fruitwheel'), 8000);
+  releasePrize(other.token);
+});
+
+test('empty rounds use the plain weighted draw', async () => {
+  accounts.set('GAME_POOL:fruitwheel', 0);
+  const expected = rollFromSeed(round().seed, round().number);
+  await playOut();
+  assert.equal(round().result, expected);
 });
