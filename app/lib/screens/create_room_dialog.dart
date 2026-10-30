@@ -9,6 +9,7 @@ import '../providers/room_provider.dart';
 import '../models/room.dart';
 import '../services/image_upload_service.dart';
 import '../utils/storage_service.dart';
+import '../utils/room_picture.dart';
 
 /// Enhanced Create Room Dialog with all required fields
 class CreateRoomDialog extends ConsumerStatefulWidget {
@@ -26,6 +27,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
 
   File? _selectedImage;
   Uint8List? _selectedImageBytes;
+  String _selectedImageName = 'room_cover.jpg';
   int _selectedMicCount = 8; // Default mic count
   bool _isLoading = false;
 
@@ -41,18 +43,15 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
   }
 
   Future<void> _pickImage() async {
+    // Untouched pick, so an animated (VIP) room picture stays animated.
     final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 85,
-    );
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
     if (image != null) {
-      final bytes = await image.readAsBytes();
+      final picture = await roomPictureFrom(await image.readAsBytes(), image.name);
       setState(() {
-        _selectedImageBytes = bytes;
+        _selectedImageBytes = picture.bytes;
+        _selectedImageName = picture.filename;
         if (!kIsWeb) _selectedImage = File(image.path);
       });
     }
@@ -79,6 +78,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
             imageUrl = await imageUploadService.uploadRoomCoverImageBytes(
               _selectedImageBytes!,
               token,
+              filename: _selectedImageName,
             );
           } catch (e) {
             if (mounted) {

@@ -109,8 +109,8 @@ class ImageUploadService {
   }
 
   /// Upload room cover image (web-compatible)
-  Future<String> uploadRoomCoverImageBytes(Uint8List bytes, String token) async {
-    return uploadImageBytes(bytes, token, filename: 'room_cover.jpg');
+  Future<String> uploadRoomCoverImageBytes(Uint8List bytes, String token, {String filename = 'room_cover.jpg'}) async {
+    return uploadImageBytes(bytes, token, filename: filename);
   }
 
   /// Upload room cover image

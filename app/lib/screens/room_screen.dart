@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../widgets/room/room_header_glass.dart';
 import '../widgets/room/room_info_sheet.dart';
 import '../widgets/room/room_cp_top.dart' show CpActivatedPopup;
+import '../utils/room_picture.dart';
 import '../widgets/room/room_left_rail.dart';
 import '../widgets/room/agency_bell.dart';
 import '../widgets/room/room_games_host.dart';
@@ -3619,14 +3620,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _pickAndUploadRoomImage(_RoomImageType type) async {
-    final picked = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 80,
-    );
+    // Untouched pick: an animated (VIP) picture keeps its animation.
+    final picture = await pickRoomPicture();
+    if (picture == null) return;
 
-    if (picked == null) return;
-
-    final url = await _uploadImageToServerFromXFile(picked);
+    final url = await _uploadBytesToServer(picture.bytes, picture.filename);
     if (url == null) return;
 
     // If you still want to apply locally:
@@ -3757,9 +3755,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// Pick an image and set it as the room cover (used by the edit dialog).
   Future<void> _pickAndUploadRoomCover() async {
     try {
-      final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
-      if (picked == null) return;
-      final uploaded = await _uploadImageToServerFromXFile(picked);
+      final picture = await pickRoomPicture();
+      if (picture == null) return;
+      final uploaded = await _uploadBytesToServer(picture.bytes, picture.filename);
       if (uploaded != null && uploaded.isNotEmpty) {
         await _updateRoomImageInBackend(uploaded, isCover: true);
         await ref.read(roomControllerProvider(widget.roomId).notifier).loadRoomDetails();
