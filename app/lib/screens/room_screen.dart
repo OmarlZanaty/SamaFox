@@ -4964,7 +4964,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       // SPEC52 #19/#27 — a narrow left gutter holds the
                       // PK › rocket › games rail, so it never covers a mic.
                       padding: const EdgeInsets.only(
-                        left: roomHorizontalPadding + kRoomRailGutter,
+                        left: roomHorizontalPadding,
                         right: roomHorizontalPadding,
                         bottom: seatsWaveDepth,
                       ),
@@ -4987,26 +4987,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                   ),
-                          ),
-                          // SPEC52 #19/#28/#29 — PK › rocket › games in the
-                          // left gutter at the top of the mics (never over one).
-                          Positioned(
-                            left: 4,
-                            top: 2,
-                            child: RoomLeftRail(
-                              onGames: () => _openGamesSheet(context),
-                              // SPEC52 #29 — PK above the rocket.
-                              pk: RoomPkButton(
-                                roomId: widget.roomId,
-                                canStart: isAdmin,
-                                seated: {
-                                  for (final s in state.seats.values)
-                                    if (s.userId != null) s.userId!: s.username ?? 'User #${s.userId}',
-                                },
-                              ),
-                              // SPEC52 #28 — the gift rocket above the games.
-                              rocket: RoomRocketButton(roomId: widget.roomId),
-                            ),
                           ),
                         ],
                       ),
@@ -5037,6 +5017,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 ),
               ],
             ),
+
+            // Client: «نقل ايقونة ال pk وايقونة الالعاب تحت خالص فوق مربعات
+            // الاعدادات وتحط فوقهم ايقونة الصاروخ» — bottom-left, over the
+            // chat's left edge, never over a mic. Hidden while typing.
+            if (kb == 0 && !_showChatPanel)
+              Positioned(
+                left: 6,
+                bottom: _bottomBarH + 10,
+                child: RoomLeftRail(
+                  onGames: () => _openGamesSheet(context),
+                  pk: RoomPkButton(
+                    roomId: widget.roomId,
+                    canStart: isAdmin,
+                    seated: {
+                      for (final s in state.seats.values)
+                        if (s.userId != null) s.userId!: s.username ?? 'User #${s.userId}',
+                    },
+                  ),
+                  rocket: RoomRocketButton(roomId: widget.roomId),
+                ),
+              ),
 
             if (_showChatPanel)
               Positioned(

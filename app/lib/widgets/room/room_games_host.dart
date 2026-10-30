@@ -6,12 +6,17 @@ import '../../l10n/tr.dart';
 
 /// Floating room games card with its own navigator.
 class RoomGamesHost extends StatefulWidget {
-  const RoomGamesHost({super.key});
+  const RoomGamesHost({super.key, this.initial});
 
-  static Future<void> show(BuildContext context) => showDialog<void>(
+  /// A game to open directly instead of the hub (dev previews).
+  final Widget? initial;
+
+  static Future<void> show(BuildContext context, {Widget? initial}) => showDialog<void>(
         context: context,
         useSafeArea: false,
         barrierDismissible: true,
+        // The mics stay visible above the card.
+        barrierColor: Colors.black26,
         builder: (context) => GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => Navigator.of(context).pop(),
@@ -21,7 +26,7 @@ class RoomGamesHost extends StatefulWidget {
             padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom + 64),
             child: GestureDetector(
               onTap: () {},
-              child: const RoomGamesHost(),
+              child: RoomGamesHost(initial: initial),
             ),
           ),
         ),
@@ -100,11 +105,13 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
                   if (mounted && v != _inGame) setState(() => _inGame = v);
                 })],
                 onGenerateRoute: (_) => MaterialPageRoute(
-                  builder: (_) => const _ScaledCanvas(
-                    // The hub is a list: it fits the sheet as it is.
-                    scale: false,
-                    child: GamesHubScreen(embedded: true),
-                  ),
+                  builder: (_) => widget.initial != null
+                      ? _ScaledCanvas(child: widget.initial!)
+                      : const _ScaledCanvas(
+                          // The hub is a list: it fits the sheet as it is.
+                          scale: false,
+                          child: GamesHubScreen(embedded: true),
+                        ),
                 ),
               ),
             ),

@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../l10n/tr.dart';
 
-/// Width the seats area leaves free on the left for the rail.
-const double kRoomRailGutter = 40;
-
-/// SPEC52 #19 / #28 / #29 — the column at the top-LEFT of the room, under the
-/// header: [PK] above [Rocket] above [Games]. Physically left in RTL too (the
-/// caller positions it with `left:`), and it only takes its own width, so the
-/// seats keep the space the bottom bar used to give the games button.
+/// The column at the BOTTOM-LEFT of the room, just above the action bar:
+/// [Rocket] above [PK] above [Games] (client: «ايقونة ال pk وايقونة الالعاب
+/// تحت خالص فوق مربعات الاعدادات وتحط فوقهم ايقونة الصاروخ»). Physically left
+/// in RTL too (the caller positions it with `left:`).
 class RoomLeftRail extends StatelessWidget {
   const RoomLeftRail({
     super.key,
@@ -26,8 +23,8 @@ class RoomLeftRail extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (pk != null) ...[pk!, const SizedBox(height: 8)],
         if (rocket != null) ...[rocket!, const SizedBox(height: 8)],
+        if (pk != null) ...[pk!, const SizedBox(height: 8)],
         RoomRailButton(
           icon: Icons.sports_esports_rounded,
           color: Colors.greenAccent,

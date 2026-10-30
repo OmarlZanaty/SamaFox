@@ -55,7 +55,7 @@ class OlympusPlayApp extends StatelessWidget {
         theme: ThemeData.dark().copyWith(
           textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'ElMessiri'),
         ),
-        home: OlympusScreen(repository: _RecordedRepository(fixture)),
+        home: OlympusScreen(repository: RecordedOlympusRepository(fixture)),
       );
 }
 
@@ -64,8 +64,8 @@ class OlympusPlayApp extends StatelessWidget {
 /// Subclasses the real repository rather than reimplementing an interface, so
 /// if the contract changes this stops compiling instead of silently drifting
 /// out of sync with what the screen expects.
-class _RecordedRepository extends OlympusRepository {
-  _RecordedRepository(this.fixture);
+class RecordedOlympusRepository extends OlympusRepository {
+  RecordedOlympusRepository(this.fixture);
 
   final Map<String, dynamic> fixture;
 
