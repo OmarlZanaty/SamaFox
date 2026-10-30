@@ -188,7 +188,7 @@ void main() {
     expect(find.text('الجائزة: 1234'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
-  test('per-card cap and two distinct cards, 77 pays ×8, crown at slot 9', () {
+  test('per-card cap and two distinct cards, 77 pays ×8, 77 at slots 4 and 9', () {
     final bets = FruitBets();
     expect(bets.add('watermelon', 1000, 1000), true);
     expect(bets.add('sevens', 1000, 1000), true);
@@ -199,7 +199,7 @@ void main() {
     expect(fruitMultipliers, {'watermelon': 2, 'sevens': 8, 'plum': 2});
     expect(fruitSegments, [
       'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
-      'watermelon', 'plum', 'watermelon', 'plum', 'crown',
+      'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
     ]);
     expect(fruitSegments.length, 10);
     expect(fruitTickerLength, 10);
@@ -214,7 +214,7 @@ void main() {
       }
     }
   });
-  test('shared state keeps the crown result and clamps server geometry', () {
+  test('shared state drops the retired crown result and clamps server geometry', () {
     final s = FruitWheelState.fromJson({
       'round': 3,
       'phase': 'result',
@@ -228,7 +228,7 @@ void main() {
         'payout': 0,
       },
     });
-    expect(s.result, 'crown');
+    expect(s.result, isNull);
     expect(s.segment, 9);
     expect(s.offset, .23);
     expect(s.history, ['watermelon', 'crown']);
@@ -392,21 +392,16 @@ void main() {
     expect(t.takeException(), isNull);
     await t.pumpWidget(const SizedBox());
   });
-  test('rules disclose fruit odds, multipliers, program share and the crown',
-      () {
+  test('rules disclose multipliers and program share, no crown', () {
     for (final ar in [true, false]) {
       final s = FruitWheelStrings(ar);
-      expect(s.text('odds'), contains('35%'));
-      expect(s.text('odds'), contains('8.75%'));
-      expect(s.text('odds'), contains('21.25%'));
       expect(s.text('odds'), contains('×2'));
       expect(s.text('odds'), contains('×8'));
-      expect(s.text('odds'), contains('70%'));
-      expect(s.text('odds'), contains(ar ? 'التاج' : 'Crown'));
-      expect(s.text('rules'), contains(ar
-          ? 'التاج يعني لا يوجد فائز'
-          : 'The crown means no card wins'));
+      expect(s.text('odds'), isNot(contains('%')));
+      expect(s.text('odds'), isNot(contains(ar ? 'التاج' : 'Crown')));
+      expect(s.text('rules'), isNot(contains(ar ? 'التاج' : 'crown')));
       expect(s.text('poolHelp'), contains('30%'));
+      expect(s.text('poolHelp'), contains('70%'));
       expect(s.text('sevens'), '77');
     }
   });
