@@ -1129,6 +1129,13 @@ class SocketService {
       if (data is Map) _roomMessageRejected.add(Map<String, dynamic>.from(data));
     });
 
+    _socket!.on('seat_error', (data) {
+      if (data is Map && data['code'] == 'MIC_REQUEST_REQUIRED') {
+        final message = data['message']?.toString();
+        if (message != null && message.isNotEmpty) _errorController.add(message);
+      }
+    });
+
     // Typing
     _socket!.on('typing', (data) {
       try {
@@ -1362,8 +1369,8 @@ class SocketService {
   // Mic queue
   void requestMic({required int roomId}) => emit('request_mic', {'roomId': roomId});
   void cancelMicRequest({required int roomId}) => emit('cancel_mic_request', {'roomId': roomId});
-  void approveMic({required int roomId, required int userId}) => emit('approve_mic', {'roomId': roomId, 'targetUserId': userId});
-  void rejectMic({required int roomId, required int userId}) => emit('reject_mic', {'roomId': roomId, 'targetUserId': userId});
+  void approveMic({required int roomId, required int userId}) => emit('approve_mic', {'roomId': roomId, 'userId': userId});
+  void rejectMic({required int roomId, required int userId}) => emit('reject_mic', {'roomId': roomId, 'userId': userId});
 
   // Seats
   void leaveSeat({required int roomId, required int seatNumber}) => emit('leave_seat', {'roomId': roomId, 'seatNumber': seatNumber});
@@ -1597,8 +1604,36 @@ class SeatUpdate {
   }
 }
 
+/// Shared identity supplied by mic queues and supporter rankings.
+class RoomParticipant {
+  final int userId;
+  final String name;
+  final String? avatar;
+  final num amount;
+  const RoomParticipant({required this.userId, required this.name, this.avatar, this.amount = 0});
+
+  static List<RoomParticipant> parseList(dynamic value) {
+    if (value is! List) return const [];
+    return value.whereType<Map>().map((item) => RoomParticipant(
+      userId: int.tryParse('${item['userId']}') ?? 0,
+      name: (item['name'] ?? '').toString(),
+      avatar: item['avatar']?.toString(),
+      amount: num.tryParse('${item['amount']}') ?? 0,
+    )).where((item) => item.userId > 0).toList();
+  }
+}
+
+List<int> parseRoomUserIds(dynamic value) => value is List
+    ? value.map((id) => int.tryParse('$id')).whereType<int>().where((id) => id > 0).toList()
+    : const [];
+
 class RoomSeatsState {
   final int roomId;
+  final bool chatLocked;
+  final List<int> chatBlockedUserIds;
+  final bool micRequestRequired;
+  final List<RoomParticipant> topSupporters;
+  final int membersCount;
   final int ownerId;
   final List<int> adminIds;
   final List<int> lockedSeats; // ✅ NEW
@@ -1616,6 +1651,11 @@ class RoomSeatsState {
 
   RoomSeatsState({
     required this.roomId,
+    this.chatLocked = false,
+    this.chatBlockedUserIds = const [],
+    this.micRequestRequired = false,
+    this.topSupporters = const [],
+    this.membersCount = 0,
     required this.ownerId,
     required this.adminIds,
     required this.seatCount,
@@ -1681,6 +1721,11 @@ class RoomSeatsState {
 
     return RoomSeatsState(
       roomId: rid,
+      chatLocked: json['chatLocked'] == true,
+      chatBlockedUserIds: parseRoomUserIds(json['chatBlockedUserIds']),
+      micRequestRequired: json['micRequestRequired'] == true,
+      topSupporters: RoomParticipant.parseList(json['topSupporters']),
+      membersCount: _i(json['membersCount']),
       ownerId: owner,
       adminIds: adminIds,
       seatCount: seatCount > 0 ? seatCount : fallbackCount,

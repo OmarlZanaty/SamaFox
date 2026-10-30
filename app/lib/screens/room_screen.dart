@@ -1,3 +1,6 @@
+import '../widgets/room/room_role_chip.dart';
+import '../widgets/room/room_top_supporters.dart';
+import '../widgets/room/mic_queue_panel.dart';
 import '../l10n/tr.dart';
 import 'dart:async';
 import 'dart:collection';
@@ -3606,11 +3609,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   }
 
   void _sendText() {
-    if (_externalTextController.text.isNotEmpty) {
-      // Handle sending the message here
-      debugPrint('Message sent: ${_externalTextController.text}');
-      _externalTextController.clear(); // Clear the text field after sending
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final hint = _chatDisabledHint(state, ref.read(authStateProvider).user?.id);
+    if (hint != null) {
+      _showRoomSnack(hint, error: true);
+      return;
     }
+    final text = _externalTextController.text.trim();
+    if (text.isEmpty) return;
+    ref.read(roomControllerProvider(widget.roomId).notifier).sendRoomMessage(message: text);
+    _externalTextController.clear();
   }
   /// A20 — live seat-earnings updates driven by the gift socket.
   StreamSubscription<GiftSendEvent>? _giftEarningsSub;
@@ -4276,6 +4284,57 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     RoomGamesHost.show(context);
   }
 
+  String? _chatDisabledHint(RoomControllerState state, int? userId) {
+    if (state.chatBlockedUserIds.contains(userId)) {
+      return tr('تم منعك من الكتابة', 'You are blocked from chatting');
+    }
+    if (state.chatLocked && userId != state.ownerId && !state.adminIds.contains(userId)) {
+      return tr('الكتابة مقفولة', 'Chat is locked');
+    }
+    return null;
+  }
+
+  void _openMicRequests() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF2A1655),
+      isScrollControlled: true,
+      builder: (_) => Consumer(builder: (context, ref, _) {
+        final state = ref.watch(roomControllerProvider(widget.roomId));
+        final me = ref.watch(authStateProvider).user?.id;
+        final ctrl = ref.read(roomControllerProvider(widget.roomId).notifier);
+        return SafeArea(child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .65),
+          child: SingleChildScrollView(child: MicQueuePanel(
+            queueUserIds: state.micQueue,
+            entries: state.micQueueEntries,
+            isAdmin: me == state.ownerId || state.adminIds.contains(me),
+            myUserId: me,
+            onRequest: ctrl.requestMic,
+            onCancel: ctrl.cancelMic,
+            onApprove: (id) => ctrl.approveMic(userId: id),
+            onReject: (id) => ctrl.rejectMic(userId: id),
+          )),
+        ));
+      }),
+    );
+  }
+
+  Future<void> _confirmMicRequest(int myUserId) async {
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final queued = state.micQueue.contains(myUserId);
+    final accepted = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(queued ? tr('إلغاء طلب المايك', 'Cancel mic request') : tr('طلب المايك؟', 'Request mic?')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('لا', 'No'))),
+        TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('نعم', 'Yes'))),
+      ],
+    ));
+    if (accepted != true || !mounted) return;
+    final ctrl = ref.read(roomControllerProvider(widget.roomId).notifier);
+    if (queued) { ctrl.cancelMic(); } else { ctrl.requestMic(); }
+  }
+
   void _openMoreMenu(BuildContext context) {
     final auth = ref.read(authStateProvider);
     final state = ref.read(roomControllerProvider(widget.roomId));
@@ -4306,6 +4365,25 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Consumer(builder: (ctx, ref, _) {
+                  final live = ref.watch(roomControllerProvider(widget.roomId));
+                  final me = ref.watch(authStateProvider).user?.id;
+                  if (me != live.ownerId && !live.adminIds.contains(me)) return const SizedBox.shrink();
+                  return Column(children: [
+                    SwitchListTile(
+                      secondary: const Icon(Icons.comments_disabled, color: Colors.white),
+                      title: Text(tr('حظر تيكست الجميع', 'Lock chat for everyone'), style: const TextStyle(color: Colors.white)),
+                      value: live.chatLocked,
+                      onChanged: (value) => SocketService().emit('room_set_chat_lock', {'roomId': widget.roomId, 'locked': value}),
+                    ),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.mic, color: Colors.white),
+                      title: Text(tr('طلبات المايك', 'Mic requests'), style: const TextStyle(color: Colors.white)),
+                      value: live.micRequestRequired,
+                      onChanged: (value) => SocketService().emit('room_set_mic_request_mode', {'roomId': widget.roomId, 'required': value}),
+                    ),
+                  ]);
+                }),
 
                 // 🔘 handle
                 Container(
@@ -4541,6 +4619,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // player stays alive (and keeps playing) even while the room is collapsed
     // into the floating bubble. Listeners need it too: this is what makes the
     // song audible to people who cannot control it.
+    final chatDisabledHint = _chatDisabledHint(state, userId);
     ref.watch(roomMusicProvider(widget.roomId));
 
     final size = MediaQuery.of(context).size;
@@ -4932,6 +5011,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
                 // SPEC52 #39 — real game wins of people in this room.
+                if (state.topSupporters.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: RoomTopSupporters(items: state.topSupporters, onTap: (user) => showUserProfileCard(
+                        userId: user.userId, username: user.name, avatarUrl: user.avatar,
+                      )),
+                    ),
+                  ),
                 RoomGameWinStrip(roomId: widget.roomId),
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
                 RoomPkBar(roomId: widget.roomId),
@@ -4980,6 +5069,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     ),
                   ),
                           ),
+                          if (isAdmin && state.micQueue.isNotEmpty)
+                            Positioned(
+                              bottom: 0, right: 12,
+                              child: Badge(
+                                label: Text('${state.micQueue.length}'),
+                                backgroundColor: Colors.red,
+                                child: IconButton(
+                                  tooltip: tr('طلبات المايك', 'Mic requests'),
+                                  onPressed: _openMicRequests,
+                                  icon: const Icon(Icons.record_voice_over, color: Colors.white),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                       chat: RoomChatPanel(
@@ -5081,7 +5183,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   ],
                                 ),
                           tooltip: tr('صورة', "Image"),
-                          onPressed: _sendingRoomImage
+                          onPressed: _sendingRoomImage || chatDisabledHint != null
                               ? null
                               : (_imageGiftAllowed
                                   ? _pickAndSendRoomImage
@@ -5089,6 +5191,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         ),
                       Expanded(
                         child: TextField(
+                          enabled: chatDisabledHint == null,
                           controller: _externalTextController,
                           focusNode: _topChatFocus,
                           autofocus: true,
@@ -5099,7 +5202,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           },
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
-                            hintText: tr('اكتب رسالتك...', "Type your message..."),
+                            hintText: chatDisabledHint ?? tr('اكتب رسالتك...', "Type your message..."),
                             hintStyle: TextStyle(color: Colors.white54),
                             border: InputBorder.none,
                           ),
@@ -5107,14 +5210,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                       IconButton(
                         icon: const Icon(Icons.send, color: Colors.white),
-                          onPressed: () {
-                            final text = _externalTextController.text.trim();
-                            if (text.isEmpty) return;
-
-                            ref.read(roomControllerProvider(widget.roomId).notifier)
-                                .sendRoomMessage(message: text);
-
-                            _externalTextController.clear();
+                          onPressed: chatDisabledHint != null ? null : () {
+                            _sendText();
 
                             _closeChat();
 
@@ -5150,7 +5247,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(100),
-                              onTap: () {
+                              onTap: chatDisabledHint != null ? null : () {
                                 setState(() {
                                   _showChatPanel = true;
                                 });
@@ -5180,7 +5277,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     SizedBox(width: 6),
                                     Flexible(
                                       child: Text(
-                                        tr("تكلم  ...", "Speak..."),
+                                        chatDisabledHint ?? tr("تكلم  ...", "Speak..."),
                                         maxLines: 1,
                                         softWrap: false,
                                         overflow: TextOverflow.ellipsis,
@@ -5811,6 +5908,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // ==========================
 
     if (seat.userId == null) {
+      final live = ref.read(roomControllerProvider(widget.roomId));
+      final roomAdmin = myUserId == live.ownerId || live.adminIds.contains(myUserId);
+      if (live.micRequestRequired && !roomAdmin) {
+        _confirmMicRequest(myUserId);
+        return;
+      }
 
       // NOTE: compute whether the tapper is already seated BEFORE the admin
       // shortcut, so a seated admin/owner can still move to the empty seat.
@@ -6032,6 +6135,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                         Text(flag, style: const TextStyle(fontSize: 20)),
                                         const SizedBox(width: 6),
                                       ],
+                                      Consumer(builder: (context, ref, _) {
+                                        final live = ref.watch(roomControllerProvider(widget.roomId));
+                                        final owner = seat.userId == live.ownerId;
+                                        if (!owner && !live.adminIds.contains(seat.userId)) return const SizedBox.shrink();
+                                        return Padding(padding: const EdgeInsets.symmetric(horizontal: 4),
+                                          child: RoomRoleChip(isOwner: owner, size: 20));
+                                      }),
                                       Flexible(
                                         child: Text(
                                           seat.username ?? 'Unknown',
@@ -6453,6 +6563,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         }),
                       ),
                     ]),
+                    Consumer(builder: (context, ref, _) {
+                      final live = ref.watch(roomControllerProvider(widget.roomId));
+                      final me = ref.watch(authStateProvider).user?.id;
+                      final canManage = me == live.ownerId || live.adminIds.contains(me);
+                      if (!canManage || seat.userId == null || seat.userId == me) return const SizedBox.shrink();
+                      final blocked = live.chatBlockedUserIds.contains(seat.userId);
+                      return TextButton.icon(
+                        icon: Icon(blocked ? Icons.chat : Icons.comments_disabled),
+                        label: Text(blocked ? tr('فك حظر الكتابة', 'Unblock chat') : tr('حظر الكتابة', 'Block chat')),
+                        onPressed: () => SocketService().emit('room_chat_block', {
+                          'roomId': widget.roomId, 'userId': seat.userId, 'blocked': !blocked,
+                        }),
+                      );
+                    }),
                     // ── Moderation ──
                     // Two different powers live here and used to be gated as
                     // one, which is why a PLATFORM admin who happened not to

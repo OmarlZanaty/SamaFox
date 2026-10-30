@@ -19,6 +19,12 @@ StateNotifierProvider.autoDispose.family<RoomControllerNotifier, RoomControllerS
 
 class RoomControllerState {
   final int roomId;
+  final bool chatLocked;
+  final List<int> chatBlockedUserIds;
+  final bool micRequestRequired;
+  final List<RoomParticipant> topSupporters;
+  final List<RoomParticipant> micQueueEntries;
+  final int membersCount;
   final int ownerId;
   final List<int> adminIds;
   final List<SocketMessage> messages;
@@ -40,6 +46,12 @@ class RoomControllerState {
 
   const RoomControllerState({
     required this.roomId,
+    this.chatLocked = false,
+    this.chatBlockedUserIds = const [],
+    this.micRequestRequired = false,
+    this.topSupporters = const [],
+    this.micQueueEntries = const [],
+    this.membersCount = 0,
     this.ownerId = 0,
     this.adminIds = const <int>[],
     this.messages = const <SocketMessage>[],
@@ -63,6 +75,12 @@ class RoomControllerState {
 
 
   RoomControllerState copyWith({
+    bool? chatLocked,
+    List<int>? chatBlockedUserIds,
+    bool? micRequestRequired,
+    List<RoomParticipant>? topSupporters,
+    List<RoomParticipant>? micQueueEntries,
+    int? membersCount,
     int? ownerId,
     List<int>? adminIds,
     List<SocketMessage>? messages,
@@ -84,6 +102,12 @@ class RoomControllerState {
   }) {
     return RoomControllerState(
       roomId: roomId,
+      chatLocked: chatLocked ?? this.chatLocked,
+      chatBlockedUserIds: chatBlockedUserIds ?? this.chatBlockedUserIds,
+      micRequestRequired: micRequestRequired ?? this.micRequestRequired,
+      topSupporters: topSupporters ?? this.topSupporters,
+      micQueueEntries: micQueueEntries ?? this.micQueueEntries,
+      membersCount: membersCount ?? this.membersCount,
       ownerId: ownerId ?? this.ownerId,
       adminIds: adminIds ?? this.adminIds,
       messages: messages ?? this.messages,
@@ -548,6 +572,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   /// Every raw socket event this controller listens to. Kept as one list so
   /// binding and unbinding cannot drift — they had, and that is the bug below.
   static const List<String> _rawRoomEvents = [
+    'room_settings_updated',
+    'room_top_supporters',
     'mic_queue_updated',
     'seat_occupied',
     'seat_released',
@@ -784,6 +810,11 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
       state = state.copyWith(
         seats: nextSeats,
+        chatLocked: s.chatLocked,
+        chatBlockedUserIds: s.chatBlockedUserIds,
+        micRequestRequired: s.micRequestRequired,
+        topSupporters: s.topSupporters,
+        membersCount: s.membersCount,
         ownerId: s.ownerId,
         adminIds: s.adminIds,
         seatCount: ensureSeatsUpTo,
@@ -913,6 +944,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
       if (rid != roomId) return;
 
+      if (map['code'] == 'MIC_REQUEST_REQUIRED') {
+        state = state.copyWith(micRequestRequired: true);
+      }
       final sn = _safeInt(map['seatNumber']) ?? _safeInt(map['seat_number']);
       if (sn == null) return;
 
@@ -1053,9 +1087,22 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       _socket.emit('init_room_seats', {'roomId': roomId});
     });
 
+    _onRaw('room_settings_updated', (data) {
+      if (data is! Map || _safeInt(data['roomId']) != roomId) return;
+      state = state.copyWith(
+        chatLocked: data['chatLocked'] == true,
+        chatBlockedUserIds: parseRoomUserIds(data['chatBlockedUserIds']),
+        micRequestRequired: data['micRequestRequired'] == true,
+      );
+    });
+    _onRaw('room_top_supporters', (data) {
+      if (data is! Map || _safeInt(data['roomId']) != roomId) return;
+      state = state.copyWith(topSupporters: RoomParticipant.parseList(data['items']));
+    });
     _onRaw('mic_queue_updated', (data) {
       if (data is Map) {
         final map = Map<String, dynamic>.from(data);
+        if (_safeInt(map['roomId']) != roomId) return;
         final rawQueue = map['queue'];
 
         final q = (rawQueue is List)
@@ -1065,14 +1112,13 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
             .toList()
             : <int>[];
 
-        state = state.copyWith(micQueue: q);
+        state = state.copyWith(micQueue: q, micQueueEntries: RoomParticipant.parseList(map['entries']));
 
         final me = ref.read(authStateProvider).user?.id;
         MyMicStatus nextStatus = state.myMicStatus;
 
         if (me != null) {
-          final onMic = state.voiceUserIds.contains(me) ||
-              state.seats.values.any((s) => s.userId == me);
+          final onMic = state.seats.values.any((s) => s.userId == me);
 
           if (onMic) {
             nextStatus = MyMicStatus.onMic;
@@ -1080,8 +1126,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
             nextStatus = MyMicStatus.requested;
           } else if (state.myMicStatus == MyMicStatus.requested) {
             // I was requested but removed (maybe rejected/canceled/approved)
-            // Don't force to none; approve event will set approved.
-            nextStatus = state.myMicStatus;
+            // A rejection/cancellation allows a fresh request.
+            nextStatus = MyMicStatus.none;
           }
         }
 
@@ -1331,6 +1377,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   void sendRoomMessage({required String message}) {
     final user = ref.read(authStateProvider).user;
     if (user == null) return;
+    if (state.chatBlockedUserIds.contains(user.id) ||
+        (state.chatLocked && user.id != state.ownerId && !state.adminIds.contains(user.id))) return;
 
     _socket.sendRoomMessage(
       roomId: roomId,
@@ -1344,6 +1392,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   void sendRoomImage({required String imageUrl}) {
     final user = ref.read(authStateProvider).user;
     if (user == null) return;
+    if (state.chatBlockedUserIds.contains(user.id) ||
+        (state.chatLocked && user.id != state.ownerId && !state.adminIds.contains(user.id))) return;
     _socket.sendRoomImage(
       roomId: roomId,
       userId: user.id,
@@ -1378,7 +1428,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     // ✅ Block re-request if already pending/approved/onMic
     final alreadyPending = state.micQueue.contains(me);
-    final alreadyOnMic = state.voiceUserIds.contains(me) || state.seats.values.any((s) => s.userId == me);
+    final alreadyOnMic = state.seats.values.any((s) => s.userId == me);
 
     if (alreadyPending || alreadyOnMic || state.myMicStatus == MyMicStatus.approved) {
       debugPrint('⛔ requestMic blocked (already pending/approved/onMic)');

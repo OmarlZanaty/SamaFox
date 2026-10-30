@@ -1,8 +1,11 @@
+import '../../services/socket_service.dart';
+import '../app_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../l10n/tr.dart';
 
 class MicQueuePanel extends StatelessWidget {
   final List<int> queueUserIds;
+  final List<RoomParticipant> entries;
   final bool isAdmin;
   final int? myUserId;
   final VoidCallback onRequest;
@@ -13,6 +16,7 @@ class MicQueuePanel extends StatelessWidget {
   const MicQueuePanel({
     super.key,
     required this.queueUserIds,
+    this.entries = const [],
     required this.isAdmin,
     required this.myUserId,
     required this.onRequest,
@@ -70,21 +74,30 @@ class MicQueuePanel extends StatelessWidget {
             )
           else
             ...queueUserIds.map((uid) {
+              final matches = entries.where((entry) => entry.userId == uid);
+              final entry = matches.isEmpty ? null : matches.first;
               return ListTile(
+                leading: CircleAvatar(
+                  backgroundImage: (entry?.avatar ?? '').isNotEmpty
+                      ? appImage(entry!.avatar!, 40) : null,
+                  child: (entry?.avatar ?? '').isEmpty ? const Icon(Icons.person) : null,
+                ),
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                title: Text(tr('مستخدم #$uid', 'User #$uid'),
+                title: Text((entry?.name.isNotEmpty ?? false) ? entry!.name : tr('مستخدم #$uid', 'User #$uid'),
                     style: const TextStyle(color: Colors.white)),
                 trailing: isAdmin
                     ? Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
+                      tooltip: tr('قبول', 'Approve'),
                       onPressed: () => onApprove(uid),
                       icon: const Icon(Icons.check_circle,
                           color: Colors.green),
                     ),
                     IconButton(
+                      tooltip: tr('رفض', 'Reject'),
                       onPressed: () => onReject(uid),
                       icon:
                       const Icon(Icons.cancel, color: Colors.red),

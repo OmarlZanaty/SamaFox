@@ -1,3 +1,4 @@
+import 'room_role_chip.dart';
 import 'package:flutter/material.dart';
 import '../user_name_text.dart';
 import '../../services/socket_service.dart';
@@ -167,7 +168,10 @@ class SeatCard extends StatelessWidget {
                   ? Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  UserNameText(
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    textDirection: TextDirection.ltr,
+                    children: [Flexible(child: UserNameText(
                     // ✅ Show username if seat is taken — in his VIP colour (SPEC52 #7)
                     username,
                     nameColor: seat.nameColor,
@@ -180,6 +184,12 @@ class SeatCard extends StatelessWidget {
                       fontSize: nameSize,
                       fontWeight: FontWeight.w500,
                     ),
+                    )),
+                    if (isOwnerSeat || isAdminSeat) ...[
+                      const SizedBox(width: 2),
+                      RoomRoleChip(isOwner: isOwnerSeat, size: nameSize + 2),
+                    ],
+                    ],
                   ),
                   if (coins24h > 0)
                     Row(
