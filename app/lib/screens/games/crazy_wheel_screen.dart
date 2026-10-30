@@ -392,35 +392,31 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                   // wheel shrinks; it never pushes the controls off-screen.
                   : Column(
                       children: [
-                        _historyBar(state),
-                        const SizedBox(height: 4),
-                        _topSlot(state),
+                        // The room sheet is nearly square: there the top slot
+                        // shares a row with the history so the wheel keeps the
+                        // height it needs to read as a wheel.
+                        if (_compact(context))
+                          SizedBox(
+                            height: 66,
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                    width: 166,
+                                    child: FittedBox(child: _topSlot(state))),
+                                Expanded(child: _historyBar(state)),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          _historyBar(state),
+                          const SizedBox(height: 4),
+                          _topSlot(state),
+                        ],
                         Expanded(
-                          // The notice floats over the wheel's foot: as a row
-                          // of its own it pushed the chip rack off a short
-                          // (embedded) screen.
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: _wheelStage(state),
-                              ),
-                              if (_notice != null)
-                                Positioned(
-                                  left: 8,
-                                  right: 8,
-                                  bottom: 4,
-                                  child: Text(_notice!,
-                                      textAlign: TextAlign.center,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          color: Colors.redAccent,
-                                          fontSize: 12,
-                                          shadows: [Shadow(color: Colors.black, blurRadius: 4)])),
-                                ),
-                            ],
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: _wheelStage(state),
                           ),
                         ),
                         // The wheel is cropped right behind this panel, so the
@@ -455,10 +451,40 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                       ],
                     ),
             ),
+            // A refusal floats under the history bar: as a row of its own it
+            // pushed the chip rack off the short room sheet, and the wheel's
+            // stage there is too thin to hold it.
+            if (_notice != null)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + (_compact(context) ? 70 : 48),
+                left: 12,
+                right: 12,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.82),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                    ),
+                    child: Text(_notice!,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  /// True on a wide, short canvas (the in-room games sheet) rather than a phone.
+  bool _compact(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return size.width > size.height * 0.75;
   }
 
   // History strip of the last rounds.
@@ -592,12 +618,19 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
       builder: (context, constraints) {
         final available = constraints.maxHeight;
         // A bonus round is self-contained, so it gets the space uncropped.
+        // The bonus panels are laid out for at least a 480 square (coin flip needs ~445); a shorter
+        // stage (the room sheet) scales them down instead of overflowing.
         if (state.inBonus && state.bonus != null) {
+          final side = min(constraints.maxWidth, available);
+          final design = max(side, 480.0);
           return Center(
             child: SizedBox(
-              width: min(constraints.maxWidth, available),
-              height: min(constraints.maxWidth, available),
-              child: _bonusGame(state),
+              width: side,
+              height: side,
+              child: FittedBox(
+                child: SizedBox(
+                    width: design, height: design, child: _bonusGame(state)),
+              ),
             ),
           );
         }
@@ -606,7 +639,10 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         // whatever will not fit vertically is cropped off the bottom. Sizing it
         // to the available height instead would leave a small wheel with dead
         // space either side — the opposite of what this screen is for.
-        final diameter = constraints.maxWidth;
+        // The room sheet is nearly square, so there the stage is short and a
+        // full-width disc would show only a sliver of its middle; capping the
+        // diameter keeps the flapper and the hub in frame.
+        final diameter = min(constraints.maxWidth, available * 1.45);
 
         // Park the hub a little below the middle of the visible window: that
         // keeps the countdown whole and the flapper in frame, and spends the
@@ -954,15 +990,21 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         ];
     return Column(
       children: [
-        GridView.count(
-          crossAxisCount: 4,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 6,
-          mainAxisSpacing: 6,
-          childAspectRatio: 1.02,
-          children: spots.map((spot) => _betTile(spot, state)).toList(),
-        ),
+        // Tiles stay near-square on a phone, but on a wide canvas (the room
+        // sheet) square tiles ate the wheel's whole stage, so cap their height.
+        LayoutBuilder(builder: (context, box) {
+          final tileW = (box.maxWidth - 18) / 4;
+          final tileH = min(tileW / 1.02, _compact(context) ? 70.0 : 88.0);
+          return GridView.count(
+            crossAxisCount: 4,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 6,
+            mainAxisSpacing: 6,
+            childAspectRatio: tileW / tileH,
+            children: spots.map((spot) => _betTile(spot, state)).toList(),
+          );
+        }),
         const SizedBox(height: 10),
         Row(
           children: [

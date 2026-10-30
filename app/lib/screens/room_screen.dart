@@ -145,7 +145,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   // counted towards the memory that got the app killed.
   StreamSubscription<SocketUserEvent>? _userEventSub;
   /// When each user's "joined" line was last added (reconnects repeat it).
-  final Map<int, DateTime> _joinAnnouncedAt = {};
   StreamSubscription<Map<String, dynamic>>? _joinDeniedSub;
   bool _pinDialogOpen = false; // guards against stacking PIN dialogs
   final TextEditingController _chatController = TextEditingController();  // Text controller for input
@@ -3311,21 +3310,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       final notifier = ref.read(roomControllerProvider(widget.roomId).notifier);
 
       if (event.type == UserEventType.joined) {
+        // Only the roster: the chat line comes from `user_entered` (with the
+        // VIP/level tags), so announcing here too printed every entrance twice.
         notifier.addOnlineUser(
           User(
             id: event.userId,
             name: event.username,
           ),
-        );
-        // A reconnect re-announces the same user; one line is enough.
-        final now = DateTime.now();
-        final last = _joinAnnouncedAt[event.userId];
-        _joinAnnouncedAt[event.userId] = now;
-        if (last != null && now.difference(last) < const Duration(seconds: 60)) return;
-        notifier.addActivity(
-          tr('انضم إلى الغرفة', "Joined the room"),
-          RoomEventType.join,
-          username: event.username,
         );
       }
 
@@ -5036,13 +5027,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   onToggleMute: mySeatNumber != null ? _toggleMicFromMenu : null,
                   muted: mySeatMuted,
                   // Open only when on a mic that is neither self- nor admin-muted;
-                  // the other room's player (global PK) isn't ours to know.
+                  // the other room's player (room-vs-room PK) isn't ours to know.
                   micOn: (id) {
-                    if (!state.onlineUsers.containsKey(id)) return true;
                     for (final e in state.seats.entries) {
                       if (e.value.userId == id) return !e.value.isMuted && !state.mutedSeats.contains(e.key);
                     }
-                    return null;
+                    return state.onlineUsers.containsKey(id) ? false : null;
                   },
                   onSupport: (id, name, avatar) => _openGiftSheetToUser(
                       context, _Recipient(id: id, name: name, avatarUrl: avatar)),

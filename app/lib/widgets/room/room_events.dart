@@ -591,7 +591,8 @@ class RoomPkBar extends StatefulWidget {
   final VoidCallback? onGift;
   final VoidCallback? onToggleMute;
   final bool muted;
-  /// The player's mic: true open, false muted, null not on a mic.
+  /// The player's mic: true open, false muted or off the mics, null unknown
+  /// (the other room's player in a room-vs-room PK) — then it isn't shown.
   final bool? Function(int userId)? micOn;
   final int roomId;
 
@@ -895,7 +896,8 @@ class _RoomPkBarState extends State<RoomPkBar> {
   Widget _player(int? uid, String fallback, {required bool fire, required int score, required double avatarSize, required bool canSupport}) {
     final p = uid == null ? null : _people[uid];
     final name = (p?['name'] ?? fallback).toString().toUpperCase();
-    final onMic = widget.micOn == null || (uid != null && widget.micOn!(uid) == true);
+    final mic = widget.micOn == null ? true : (uid == null ? false : widget.micOn!(uid));
+    final onMic = mic == true;
     final color = fire ? const Color(0xFFFFD78B) : const Color(0xFF9EDFFF);
     return Column(mainAxisSize: MainAxisSize.min, children: [
       GestureDetector(
@@ -922,10 +924,12 @@ class _RoomPkBarState extends State<RoomPkBar> {
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
             decoration: BoxDecoration(color: Colors.black.withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
             child: FittedBox(fit: BoxFit.scaleDown, child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(onMic ? Icons.mic : Icons.mic_off, size: 13, color: onMic ? color : const Color(0xFFFF6B6B)),
-              const SizedBox(width: 3),
-              Text(onMic ? tr('مفتوح', 'ON') : tr('مغلق', 'OFF'), style: TextStyle(color: onMic ? color : const Color(0xFFFF6B6B), fontSize: 11, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 9),
+              if (mic != null) ...[
+                Icon(onMic ? Icons.mic : Icons.mic_off, size: 13, color: onMic ? color : const Color(0xFFFF6B6B)),
+                const SizedBox(width: 3),
+                Text(onMic ? tr('مفتوح', 'ON') : tr('مغلق', 'OFF'), style: TextStyle(color: onMic ? color : const Color(0xFFFF6B6B), fontSize: 11, fontWeight: FontWeight.w700)),
+                const SizedBox(width: 9),
+              ],
               const Icon(Icons.headphones, size: 13, color: Colors.white),
               const SizedBox(width: 3),
               Text(_compact(score), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
