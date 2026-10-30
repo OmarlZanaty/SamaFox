@@ -396,18 +396,33 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                         const SizedBox(height: 4),
                         _topSlot(state),
                         Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: _wheelStage(state),
+                          // The notice floats over the wheel's foot: as a row
+                          // of its own it pushed the chip rack off a short
+                          // (embedded) screen.
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: _wheelStage(state),
+                              ),
+                              if (_notice != null)
+                                Positioned(
+                                  left: 8,
+                                  right: 8,
+                                  bottom: 4,
+                                  child: Text(_notice!,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: Colors.redAccent,
+                                          fontSize: 12,
+                                          shadows: [Shadow(color: Colors.black, blurRadius: 4)])),
+                                ),
+                            ],
                           ),
                         ),
-                        if (_notice != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(_notice!,
-                                style: const TextStyle(
-                                    color: Colors.redAccent, fontSize: 12)),
-                          ),
                         // The wheel is cropped right behind this panel, so the
                         // panel needs its own ground to sit on or the two read
                         // as one muddled mass.

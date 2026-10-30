@@ -144,6 +144,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   // disposed` from it — 518 reports in one day, and the screens it kept alive
   // counted towards the memory that got the app killed.
   StreamSubscription<SocketUserEvent>? _userEventSub;
+  /// When each user's "joined" line was last added (reconnects repeat it).
+  final Map<int, DateTime> _joinAnnouncedAt = {};
   StreamSubscription<Map<String, dynamic>>? _joinDeniedSub;
   bool _pinDialogOpen = false; // guards against stacking PIN dialogs
   final TextEditingController _chatController = TextEditingController();  // Text controller for input
@@ -3315,6 +3317,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             name: event.username,
           ),
         );
+        // A reconnect re-announces the same user; one line is enough.
+        final now = DateTime.now();
+        final last = _joinAnnouncedAt[event.userId];
+        _joinAnnouncedAt[event.userId] = now;
+        if (last != null && now.difference(last) < const Duration(seconds: 60)) return;
         notifier.addActivity(
           tr('انضم إلى الغرفة', "Joined the room"),
           RoomEventType.join,
@@ -5028,7 +5035,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   onGift: () => _openGiftSheet(context),
                   onToggleMute: mySeatNumber != null ? _toggleMicFromMenu : null,
                   muted: mySeatMuted,
-                  isOnMic: (id) => !state.onlineUsers.containsKey(id) || state.seats.values.any((seat) => seat.userId == id),
+                  // Open only when on a mic that is neither self- nor admin-muted;
+                  // the other room's player (global PK) isn't ours to know.
+                  micOn: (id) {
+                    if (!state.onlineUsers.containsKey(id)) return true;
+                    for (final e in state.seats.entries) {
+                      if (e.value.userId == id) return !e.value.isMuted && !state.mutedSeats.contains(e.key);
+                    }
+                    return null;
+                  },
                   onSupport: (id, name, avatar) => _openGiftSheetToUser(
                       context, _Recipient(id: id, name: name, avatarUrl: avatar)),
                 ),

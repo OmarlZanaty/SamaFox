@@ -70,7 +70,7 @@ class SeatsGrid extends StatelessWidget {
   static const List<int> _columnChoices = [4, 5, 6, 7, 8];
 
   /// Name (+ optional coins line) drawn under each avatar.
-  static const double _labelHeight = 26;
+  static const double _labelHeight = 32;
   static const double _spacing = 8;
 
   /// Nobody needs a 120px seat in a two-person room.

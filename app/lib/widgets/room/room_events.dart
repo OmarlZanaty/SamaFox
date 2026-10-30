@@ -586,12 +586,13 @@ class RoomPkBar extends StatefulWidget {
   const RoomPkBar({
     super.key, required this.roomId, this.onSupport, this.initialPk,
     this.initialPeople, this.onGift, this.onToggleMute, this.muted = false,
-    this.isOnMic,
+    this.micOn,
   });
   final VoidCallback? onGift;
   final VoidCallback? onToggleMute;
   final bool muted;
-  final bool Function(int userId)? isOnMic;
+  /// The player's mic: true open, false muted, null not on a mic.
+  final bool? Function(int userId)? micOn;
   final int roomId;
 
   /// Opens the gift sheet on that player (client @377: «كل دعم يوصل للمضيف»).
@@ -725,102 +726,87 @@ class _RoomPkBarState extends State<RoomPkBar> {
     final roundLabel = pk['round'] != null || pk['rounds'] != null
         ? " · ${tr('جولة', 'ROUND')} ${pk['round'] ?? 1}/${pk['rounds'] ?? pk['round']}"
         : '';
+    // Compact on purpose: the card sits above the seats and the chat, so it
+    // must leave them room (about 240 dp with the actions).
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [const Color(0xFF191C27).withValues(alpha: .93), const Color(0xFF0B1420).withValues(alpha: .91)]),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.white.withValues(alpha: .25)),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .4), blurRadius: 14)],
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [const Color(0xFF191C27).withValues(alpha: .93), const Color(0xFF0B1420).withValues(alpha: .91)]),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: .25)),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .4), blurRadius: 14)],
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: .07), borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                const Icon(Icons.circle, size: 6, color: Color(0xFFFF565F)),
+                const SizedBox(width: 4),
+                Text(tr('مباشر', 'LIVE'), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                Expanded(child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: FittedBox(fit: BoxFit.scaleDown, child: Text(
+                    pending ? tr('صندوق PK · بانتظار القبول', 'PK box · awaiting acceptance') : '${tr('صندوق PK', 'PK box')}$roundLabel',
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800))),
+                )),
+                Text(clock, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                const SizedBox(width: 3),
+                const Icon(Icons.timer_outlined, size: 13, color: Colors.white70),
+                const SizedBox(width: 6),
+                _hideButton(Icons.close_rounded),
+              ]),
             ),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: .07), borderRadius: BorderRadius.circular(10)),
+            const SizedBox(height: 4),
+            LayoutBuilder(builder: (context, constraints) {
+              final avatarSize = math.min(48.0, ((constraints.maxWidth - 44) / 2) * .62);
+              final frameSize = avatarSize / .62;
+              return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: _player(aId, tr('لاعب أ', 'Player A'), fire: true, score: a, avatarSize: avatarSize, canSupport: !global || mySide == 'A')),
+                SizedBox(width: 44, height: frameSize, child: const Center(child: _VsMark())),
+                Expanded(child: _player(bId, tr('لاعب ب', 'Player B'), fire: false, score: b, avatarSize: avatarSize, canSupport: !global || mySide == 'B')),
+              ]);
+            }),
+            const SizedBox(height: 5),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              _gifts(a, fire: true),
+              _gifts(b, fire: false),
+            ]),
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                height: 6,
                 child: Row(children: [
-                  const Icon(Icons.circle, size: 6, color: Color(0xFFFF565F)),
-                  const SizedBox(width: 4),
-                  Text(tr('مباشر', 'LIVE'), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
-                  Expanded(child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: FittedBox(fit: BoxFit.scaleDown, child: Text('${tr('تحدي صوتي', 'Voice PK')}$roundLabel',
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600))),
-                  )),
-                  Text(clock, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.timer_outlined, size: 14, color: Colors.white70),
-                  const SizedBox(width: 6),
-                  _hideButton(Icons.close_rounded),
+                  Expanded(
+                    flex: math.max(1, (share * 1000).round()),
+                    child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFFE082)]))),
+                  ),
+                  const SizedBox(width: 2),
+                  Expanded(
+                    flex: math.max(1, ((1 - share) * 1000).round()),
+                    child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)]))),
+                  ),
                 ]),
               ),
-              const SizedBox(height: 12),
-              Text(tr('صندوق PK', 'PK box'), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
-              if (pending)
-                Text(tr('بانتظار القبول', 'Awaiting acceptance'), style: const TextStyle(color: Colors.white60, fontSize: 10)),
-              const SizedBox(height: 12),
-              LayoutBuilder(builder: (context, constraints) {
-                final avatarSize = math.min(72.0, ((constraints.maxWidth - 44) / 2) * .62);
-                final frameSize = avatarSize / .62;
-                return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(child: _player(aId, tr('لاعب أ', 'Player A'), fire: true, score: a, avatarSize: avatarSize, canSupport: !global || mySide == 'A')),
-                  SizedBox(width: 44, height: frameSize, child: const Center(child: _VsMark())),
-                  Expanded(child: _player(bId, tr('لاعب ب', 'Player B'), fire: false, score: b, avatarSize: avatarSize, canSupport: !global || mySide == 'B')),
-                ]);
-              }),
-              const SizedBox(height: 20),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                _gifts(a, fire: true),
-                _gifts(b, fire: false),
-              ]),
-              const SizedBox(height: 7),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: SizedBox(
-                  height: 8,
-                  child: Row(children: [
-                    Expanded(
-                      flex: math.max(1, (share * 1000).round()),
-                      child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFFE082)]))),
-                    ),
-                    const SizedBox(width: 2),
-                    Expanded(
-                      flex: math.max(1, ((1 - share) * 1000).round()),
-                      child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)]))),
-                    ),
-                  ]),
-                ),
-              ),
-              if (!pending) ...[
-                const SizedBox(height: 5),
-                Text(tr('ادعم لاعبك بالهدايا عشان يكسب · PK ينتهي خلال $clock', 'Support your player with gifts to help them win · PK ends in $clock'),
-                    textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 9.5)),
-              ],
-              ]),
-          ),
-          if (actions.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF10141F).withValues(alpha: .94),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white.withValues(alpha: .18)),
-              ),
-              child: Row(children: [
+            ),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(children: [
                 for (var i = 0; i < actions.length; i++) ...[
-                  if (i > 0) Container(width: 1, height: 38, color: Colors.white12),
+                  if (i > 0) Container(width: 1, height: 22, color: Colors.white12),
                   Expanded(child: actions[i]),
                 ],
               ]),
-            ),
-          ],
-        ]),
+            ],
+          ]),
+        ),
       ),
     );
   }
@@ -828,39 +814,31 @@ class _RoomPkBarState extends State<RoomPkBar> {
   Widget _action(IconData icon, String label, Color color, VoidCallback onTap, {bool dot = false}) =>
       InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 28, color: color),
-            const SizedBox(height: 4),
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              if (dot) ...[
-                const Icon(Icons.circle, size: 5, color: Color(0xFFFF5252)),
-                const SizedBox(width: 4),
-              ],
-              Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700))),
-            ]),
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 5),
+            if (dot) ...[
+              const Icon(Icons.circle, size: 5, color: Color(0xFFFF5252)),
+              const SizedBox(width: 3),
+            ],
+            Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700))),
           ]),
         ),
       );
 
   Widget _gifts(int score, {required bool fire}) {
     final color = fire ? const Color(0xFFFFD778) : const Color(0xFF79CBFF);
-    final contents = <Widget>[
-      Icon(Icons.card_giftcard, color: color, size: 24),
-      const SizedBox(width: 5),
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(tr('هدايا', 'Gifts'), style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
-        Row(children: [
-          Text(_compact(score), style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.w800)),
-          const SizedBox(width: 5),
-          Icon(fire ? Icons.monetization_on : Icons.diamond, color: color, size: 18),
-        ]),
-      ]),
-    ];
-    return Row(mainAxisSize: MainAxisSize.min, children: contents);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.card_giftcard, color: color, size: 16),
+      const SizedBox(width: 4),
+      Text('${tr('هدايا', 'Gifts')} ${_compact(score)}', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800)),
+      const SizedBox(width: 3),
+      Icon(fire ? Icons.monetization_on : Icons.diamond, color: color, size: 14),
+    ]);
   }
 
   Widget _hideButton(IconData icon) => InkWell(
@@ -917,7 +895,7 @@ class _RoomPkBarState extends State<RoomPkBar> {
   Widget _player(int? uid, String fallback, {required bool fire, required int score, required double avatarSize, required bool canSupport}) {
     final p = uid == null ? null : _people[uid];
     final name = (p?['name'] ?? fallback).toString().toUpperCase();
-    final onMic = widget.isOnMic == null || (uid != null && widget.isOnMic!(uid));
+    final onMic = widget.micOn == null || (uid != null && widget.micOn!(uid) == true);
     final color = fire ? const Color(0xFFFFD78B) : const Color(0xFF9EDFFF);
     return Column(mainAxisSize: MainAxisSize.min, children: [
       GestureDetector(
@@ -936,19 +914,19 @@ class _RoomPkBarState extends State<RoomPkBar> {
           border: Border.all(color: Colors.white.withValues(alpha: .15)),
         ),
         child: Column(children: [
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
             child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800))),
+              style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800))),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
             decoration: BoxDecoration(color: Colors.black.withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
             child: FittedBox(fit: BoxFit.scaleDown, child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(onMic ? Icons.mic : Icons.mic_off, size: 15, color: color),
+              Icon(onMic ? Icons.mic : Icons.mic_off, size: 13, color: onMic ? color : const Color(0xFFFF6B6B)),
               const SizedBox(width: 3),
-              Text(onMic ? tr('مفتوح', 'ON') : tr('مغلق', 'OFF'), style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+              Text(onMic ? tr('مفتوح', 'ON') : tr('مغلق', 'OFF'), style: TextStyle(color: onMic ? color : const Color(0xFFFF6B6B), fontSize: 11, fontWeight: FontWeight.w700)),
               const SizedBox(width: 9),
-              const Icon(Icons.headphones, size: 15, color: Colors.white),
+              const Icon(Icons.headphones, size: 13, color: Colors.white),
               const SizedBox(width: 3),
               Text(_compact(score), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
             ])),
@@ -967,7 +945,7 @@ class _VsMark extends StatelessWidget {
           colors: [Color(0xFFFF98D5), Color(0xFFB783F5), Color(0xFF64CFFF)],
         ).createShader(r),
         child: Text('VS',
-            style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, height: 1)),
+            style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, height: 1)),
       );
 }
 
@@ -1032,8 +1010,8 @@ Future<void> showPkWinner(BuildContext context, Map d, Map<int, Map> people) {
   Widget winner(int? uid, int coins, bool fire) {
     final p = person(uid);
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      _RingAvatar(url: p?['avatarUrl']?.toString(), fire: fire, size: 120),
-      const SizedBox(height: 10),
+      _RingAvatar(url: p?['avatarUrl']?.toString(), fire: fire, size: 84, framed: true),
+      const SizedBox(height: 4),
       Text((p?['name'] ?? '').toString(),
           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, decoration: TextDecoration.none)),
       const SizedBox(height: 4),
@@ -1060,9 +1038,9 @@ Future<void> showPkWinner(BuildContext context, Map d, Map<int, Map> people) {
               style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
           const SizedBox(height: 16),
           if (w == 'TIE')
-            Row(mainAxisSize: MainAxisSize.min, children: [
+            Row(mainAxisSize: MainAxisSize.min, textDirection: TextDirection.ltr, children: [
               winner(id('sideAUserId'), a, true),
-              const SizedBox(width: 24),
+              const SizedBox(width: 8),
               winner(id('sideBUserId'), b, false),
             ])
           else
