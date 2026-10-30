@@ -1,7 +1,7 @@
 import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS, seatHolders } from './seatLease';
 import { sessionFor, joinRoomSession, sessionHeartbeat, sessionDisconnected, sessionSeat, endRoomSession, reconcileRoomSessions, LeaveReason } from './roomSession.service';
 import { cairoDay } from './halalGames.service';
-import { nameColorSync } from './vipStyle.service';
+import { nameColorSync, vipStyleSync } from './vipStyle.service';
 import { Server, Socket } from 'socket.io';
 import { setGameBroadcastEmitter } from './gameBroadcast.service';
 import { verifyAccessToken } from '../utils/jwt';
@@ -726,6 +726,7 @@ const locked = getLockedSeats(rid);
   avatarUrl: true,        // 🔥 ADD THIS
   displayId: true,
   vipLevel: true,
+  vipExpiresAt: true,
   relationId: true,
   avatarFrameUrl: true,
   activeFrameId: true,
@@ -784,7 +785,12 @@ await Promise.all(
       username: u?.name ?? null,
       displayId: u?.displayId ?? null,
       vipLevel: u?.vipLevel ?? 0,
-      nameColor: nameColorSync(u?.vipLevel),
+      // The same VIP name style the chat shows (colour AND gradient), so the
+      // name under the mic matches (@426: «لون الاسم لم يظهر تحت المايك»).
+      nameColor: nameColorSync(u?.vipLevel, u?.vipExpiresAt),
+      nameGradient: u?.vipExpiresAt && new Date(u.vipExpiresAt).getTime() <= Date.now()
+        ? null
+        : vipStyleSync(u?.vipLevel).nameGradient,
       avatarUrl: u?.avatarUrl ?? null,
   avatarFrameUrl: occupant ? frameMap.get(occupant) ?? null : null, // ✅ ADD
       frameImageUrl: occupant ? frameMap.get(occupant) ?? null : null,

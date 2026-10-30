@@ -1742,6 +1742,9 @@ class SeatData {
   /// SPEC52 #7 — server-decided VIP name colour (null = default).
   final String? nameColor;
 
+  /// The VIP name gradient, when the tier has one (as in the chat).
+  final List<String>? nameGradient;
+
   /// SPEC52 #5 — 'occupied' or 'held' (the occupant lost connection; the mic
   /// is kept for him for up to 5 minutes).
   final String? leaseStatus;
@@ -1771,6 +1774,7 @@ class SeatData {
     this.displayId,
     this.vipLevel = 0,
     this.nameColor,
+    this.nameGradient,
     this.leaseStatus,
     required this.username,
     required this.avatarUrl,
@@ -1806,6 +1810,7 @@ class SeatData {
     int? displayId,
     int? vipLevel,
     String? nameColor,
+    List<String>? nameGradient,
     String? username,
     String? avatarUrl,
     String? avatarFrameUrl,
@@ -1824,6 +1829,7 @@ class SeatData {
       displayId: displayId ?? this.displayId,
       vipLevel: vipLevel ?? this.vipLevel,
       nameColor: nameColor ?? this.nameColor,
+      nameGradient: nameGradient ?? this.nameGradient,
       leaseStatus: leaseStatus,
       username: username ?? this.username,
       avatarUrl: avatarUrl ?? this.avatarUrl,
@@ -1855,6 +1861,9 @@ class SeatData {
           : toInt(json['displayId'] ?? json['display_id'] ?? json['userDisplayId']),
       vipLevel: toInt(json['vipLevel'] ?? json['vip_level']),
       nameColor: json['nameColor']?.toString(),
+      nameGradient: json['nameGradient'] is List
+          ? (json['nameGradient'] as List).map((e) => e.toString()).toList()
+          : null,
       leaseStatus: json['status']?.toString(),
       username: (json['username'] ?? json['name'])?.toString(),
       avatarUrl: (json['avatarUrl'] ?? json['avatar_url'])?.toString(),

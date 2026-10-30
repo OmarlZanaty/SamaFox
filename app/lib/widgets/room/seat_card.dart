@@ -171,6 +171,7 @@ class SeatCard extends StatelessWidget {
                     // ✅ Show username if seat is taken — in his VIP colour (SPEC52 #7)
                     username,
                     nameColor: seat.nameColor,
+                    nameGradient: seat.nameGradient,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
