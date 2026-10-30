@@ -3,7 +3,7 @@
 // rollLucky against an in-memory transaction.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LUCKY_DEFAULTS, analyzeTiers, rollLucky, validateTiers, type LuckyConfig } from '../lucky.service';
+import { LUCKY_DEFAULTS, analyzeTiers, batchLuckyStake, rollLucky, validateTiers, type LuckyConfig } from '../lucky.service';
 
 type Row = Record<string, any>;
 
@@ -134,4 +134,21 @@ test('RTP is E[m]; the proposed table fits the 65% target', () => {
   // The old table (built for m × 10%) is now far above target and refused.
   const old = [{ multiplier: 5, weightBp: 3500 }, { multiplier: 10, weightBp: 2000 }];
   assert.notEqual(validateTiers(old, LUCKY_DEFAULTS), null);
+});
+
+// «مضاعف المحظوظ ما زال بيحسب علي مايك واحد مش كل المايكات»
+test('a lucky gift to every mic is one draw on the whole amount', async () => {
+  const sends = [1, 2, 3, 4].map((r) => ({ transactionId: `b${r}`, recipientId: 100 + r, totalCoins: 1000, recipientCoins: 100 }));
+  const stake = batchLuckyStake(sends)!;
+  assert.deepEqual(stake, { giftTxId: 'b1', recipientId: 101, giftCoins: 4000, hostCoins: 400 });
+  assert.equal(batchLuckyStake(sends.slice(0, 1)), null, 'one recipient keeps its own entry');
+
+  const cfg = { ...LUCKY_DEFAULTS, minPlayers: 1 };
+  const { tx, rolls, wins } = fakeTx({ pool: 10_000_000n, tiers: [{ multiplier: 5, weightBp: 10_000 }] });
+  await enter(tx, 2, 100_000, cfg, 7); // another player in the room, so the shared pool pays
+  const r = await rollLucky(tx, { ...stake, senderId: 1, roomId: 7, cfg });
+  assert.equal(r.own.multiplier, 5);
+  assert.equal(r.own.payoutCoins, 20_000, 'x5 on 4 × 1000, not on 1000');
+  assert.equal(rolls.filter((x) => x.senderId === 1).length, 1, 'one entry for the four mics');
+  assert.equal(wins.filter((w) => w.userId === 1).length, 1);
 });

@@ -24,7 +24,9 @@ export interface SendGiftInput {
   batchSize?: number;
   cpActivate?: boolean;
   cpXp?: number;
-
+  /** A lucky gift sent to several recipients in one action: the caller enters
+   *  the whole action into ONE lucky draw, so this send skips its own entry. */
+  deferLucky?: boolean;
 }
 
 export interface SendGiftResult {
@@ -369,7 +371,7 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
       // and — once the round is competitive — drawn and paid from the pool.
       let lucky: LuckyRollResult | null = null;
       let luckySettled: SettledEntry[] = [];
-      if (giftIsLucky && luckySettings) {
+      if (giftIsLucky && luckySettings && !input.deferLucky) {
         const entry = await rollLucky(tx, {
           giftTxId: txRow.id,
           senderId: input.senderId,

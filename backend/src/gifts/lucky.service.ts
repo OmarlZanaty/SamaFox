@@ -463,6 +463,21 @@ export async function rollLucky(tx: Prisma.TransactionClient, input: EntryInput)
   };
 }
 
+/**
+ * «مضاعف المحظوظ … على كل المايكات»: a lucky gift sent to several recipients in
+ * one action is one entry whose stake is the whole action. The first send's
+ * transaction carries the roll (its proof id); host shares add up.
+ */
+export function batchLuckyStake(sends: { transactionId: string; recipientId: number; totalCoins: number; recipientCoins: number }[]) {
+  if (sends.length < 2) return null;
+  return {
+    giftTxId: sends[0]!.transactionId,
+    recipientId: sends[0]!.recipientId,
+    giftCoins: sends.reduce((n, s) => n + s.totalCoins, 0),
+    hostCoins: sends.reduce((n, s) => n + s.recipientCoins, 0),
+  };
+}
+
 /** What a player has put into the pool and not yet won back (never < 0). */
 async function netPoolContribution(tx: Prisma.TransactionClient, senderId: number) {
   const agg = await tx.luckyRoll.aggregate({

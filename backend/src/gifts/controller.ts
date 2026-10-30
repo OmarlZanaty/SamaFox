@@ -6,7 +6,7 @@ import prisma from '../utils/prisma';
 import { sendGiftAtomic, GiftSendError } from './giftService';
 import { readCatalogCache, writeCatalogCache, getCatalogVersion } from './catalogCache';
 import { maybeCreateRelationRequestFromRing } from '../services/relationRing.service';
-import { getLuckySettings, isLuckyGift, verifyRoll, type LuckyRollResult, type SettledEntry } from './lucky.service';
+import { batchLuckyStake, getLuckyConfig, getLuckySettings, isLuckyGift, rollLucky, verifyRoll, type LuckyRollResult, type SettledEntry } from './lucky.service';
 import type { Server } from 'socket.io';
 
 let ioRef: Server | null = null;
@@ -102,6 +102,9 @@ export async function emitLuckyOutcome(ev: {
   settled: SettledEntry[];
   senderId: number;
   roomId: number | null;
+  /** The sender's entry covered this many recipients (one lucky gift sent to
+   *  every mic is one draw on the whole amount). */
+  recipientCount?: number;
 }) {
   if (!ioRef) return;
   if (ev.own && ev.own.status === 'PENDING') {
@@ -140,6 +143,7 @@ export async function emitLuckyOutcome(ev: {
 
   for (const e of ev.settled) {
     const sender = userById.get(e.senderId);
+    const recipientCount = e.rollId === ev.own?.rollId ? ev.recipientCount ?? 1 : 1;
     const payload = {
       rollId: e.rollId,
       roundCode: e.roundCode,
@@ -149,7 +153,8 @@ export async function emitLuckyOutcome(ev: {
       senderAvatarUrl: sender?.avatarUrl ?? null,
       senderDisplayId: sender?.displayId ?? null,
       recipientId: e.recipientId,
-      recipientName: userById.get(e.recipientId)?.name ?? null,
+      recipientName: recipientCount > 1 ? null : userById.get(e.recipientId)?.name ?? null,
+      recipientCount,
       roomId: e.roomId,
       roomName: e.roomId != null ? roomById.get(e.roomId)?.name ?? null : null,
       gift: giftByTx.get(e.giftTxId) ?? null,
@@ -581,10 +586,30 @@ export async function sendBatch(req: Request, res: Response) {
           quantity: quantity == null ? 1 : Number(quantity), comboKey: comboKey ?? null,
           targetType: targetType === 'all_mics' ? 'all_mics' : 'user', batchSize: targets.length,
           operationId: operation.id, clientRequestId: `${operation.id}:${target.recipientId}`,
+          deferLucky: targets.length > 1,
         }, context));
+      }
+      // A lucky gift to several recipients is ONE entry: the stake is the whole
+      // action (price × quantity × recipients) and so is the win (multiplier ×
+      // that stake), drawn once — not one small draw per mic.
+      let batchLucky: Awaited<ReturnType<typeof rollLucky>> | null = null;
+      let senderBalance = sends[sends.length - 1]!.senderBalance;
+      const stake = sends[0]!.gift.isLucky
+        ? batchLuckyStake(sends.map(s => ({ transactionId: s.transactionId, recipientId: s.event.recipientId,
+          totalCoins: s.totalCoins, recipientCoins: s.recipientCoins })))
+        : null;
+      if (stake) {
+        batchLucky = await rollLucky(context.tx, { ...stake, senderId, roomId: rid, cfg: await getLuckyConfig() });
+        if (batchLucky.settled.some((e) => e.senderId === senderId && e.payoutCoins > 0)) {
+          const after = await context.tx.user.findUnique({ where: { id: senderId }, select: { coinsBalance: true } });
+          senderBalance = after?.coinsBalance ?? senderBalance;
+        }
       }
       context.afterCommit.push(async () => {
         await flushGiftDeliveries();
+        if (batchLucky) {
+          await emitLuckyOutcome({ own: batchLucky.own, settled: batchLucky.settled, senderId, roomId: rid, recipientCount: targets.length });
+        }
         for (const result of sends) {
           if (result.lucky) await emitLuckyOutcome({ own: result.lucky, settled: result.luckySettled, senderId, roomId: rid });
           await maybeCreateRelationRequestFromRing({ senderId, receiverId: result.event.recipientId, giftId });
@@ -596,8 +621,9 @@ export async function sendBatch(req: Request, res: Response) {
           recipientCount: targets.length, totalCoins: sends.reduce((n, s) => n + s.totalCoins, 0) });
       });
       return { success: true, operationId: operation.id, sent: sends.length, requested: targets.length,
-        senderBalance: sends[sends.length - 1]!.senderBalance, broadcast: sends.some(s => s.broadcast),
-        results: sends.map(s => ({ recipientId: s.event.recipientId, transactionId: s.transactionId })), failures: [] };
+        senderBalance, broadcast: sends.some(s => s.broadcast),
+        results: sends.map(s => ({ recipientId: s.event.recipientId, transactionId: s.transactionId })), failures: [],
+        ...(batchLucky ? luckyResponse(batchLucky.own) : {}) };
     });
     if (completed.replayed) res.setHeader('Idempotent-Replayed', 'true');
     return res.json(completed.body);
