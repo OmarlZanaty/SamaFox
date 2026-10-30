@@ -1,4 +1,5 @@
 import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS, seatHolders } from './seatLease';
+import { roomEmojiOutcome } from './roomEmojiOutcome';
 import { sessionFor, joinRoomSession, sessionHeartbeat, sessionDisconnected, sessionSeat, endRoomSession, reconcileRoomSessions, LeaveReason } from './roomSession.service';
 import { cairoDay } from './halalGames.service';
 import { nameColorSync, vipStyleSync } from './vipStyle.service';
@@ -54,6 +55,7 @@ const ROOM_EMOJI_IDS = new Set([
   'kiss_right', 'kiss_left', 'magnifier', 'yawn_sleep', 'heartbroken', 'clap', 'cry', 'laugh',
   'hello_sign', 'heart', 'dance', 'bride_groom', 'hug', 'couple_kiss', 'spit_right', 'spit_left',
   'wow', 'angry', 'shock', 'fire_heart', 'lol', 'sleep', 'party', 'fire_clap', 'stars', 'crown',
+  'dice', 'slot',
 ]);
 const lastRoomEmojiAt = new Map<number, number>();
 const roomMuted = new Map<number, Map<number, boolean>>();
@@ -1667,7 +1669,7 @@ async function stepMusic(rid: number, uid: number, delta: number) {
 // emoji id is accepted (the app ships the light animations; nothing heavy
 // travels), the seat is the server's own record of where the sender sits, and
 // one emoji per 1.5 s per user. Broadcast: {emojiId, senderId, seatId, ts}.
-socket.on('room_emoji_send', ({ roomId, emojiId }: any) => {
+socket.on('room_emoji_send', ({ roomId, emojiId }: any = {}) => {
   try {
     const rid = toInt(roomId);
     const uid = socket.userId;
@@ -1688,7 +1690,9 @@ socket.on('room_emoji_send', ({ roomId, emojiId }: any) => {
       return;
     }
     lastRoomEmojiAt.set(uid, now);
-    io.to(`room:${rid}`).emit('room_emoji', { roomId: rid, emojiId: id, senderId: uid, seatId, timestamp: now });
+    // Draw once on the server; never accept a result supplied by the sender.
+    const outcome = roomEmojiOutcome(id);
+    io.to(`room:${rid}`).emit('room_emoji', { roomId: rid, emojiId: id, senderId: uid, seatId, ...outcome, timestamp: now });
   } catch (err) {
     console.error('[socket.room_emoji_send] handler error:', err);
   }

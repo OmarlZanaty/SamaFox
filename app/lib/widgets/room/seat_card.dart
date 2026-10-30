@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../user_name_text.dart';
 import '../../services/socket_service.dart';
 import '../FramedAvatar.dart';
+import 'emoji/seat_emoji.dart';
 
 class SeatCard extends StatelessWidget {
   final int seatNumber;
@@ -76,6 +77,8 @@ class SeatCard extends StatelessWidget {
                   if (_isOccupied)
                   // Occupied: show framed avatar
                     FramedAvatar(
+                      avatarWrapper: (photo) =>
+                          SeatEmoji(senderId: seat.userId!, child: photo),
                       size: outerSize,
                       avatarSize: innerAvatar,
                       imageUrl: imageUrl,

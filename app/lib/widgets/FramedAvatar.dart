@@ -69,6 +69,10 @@ class FramedAvatar extends StatelessWidget {
   final bool glow;
   final Color glowColor;
 
+  /// Wraps the clipped photo, e.g. to play a seat emoji inside the circle
+  /// while the frame artwork stays on top.
+  final Widget Function(Widget photo)? avatarWrapper;
+
   const FramedAvatar({
     super.key,
     required this.size,
@@ -78,6 +82,7 @@ class FramedAvatar extends StatelessWidget {
     this.glow = false,
     required this.avatarSize,
     this.glowColor = const Color(0xFF22C55E),
+    this.avatarWrapper,
   });
 
   @override
@@ -126,13 +131,13 @@ class FramedAvatar extends StatelessWidget {
               top: hole.top,
               right: hole.right,
               bottom: hole.bottom,
-              child: ClipOval(child: _avatarChild(context)),
+              child: ClipOval(child: _wrappedAvatar(context)),
             )
           else
             SizedBox(
               width: f != null ? size * f.innerScale : avatarSize,
               height: f != null ? size * f.innerScale : avatarSize,
-              child: ClipOval(child: _avatarChild(context)),
+              child: ClipOval(child: _wrappedAvatar(context)),
             ),
           // The frame occupies the seat box itself. An unmeasured frame has its
           // artwork auto-fitted instead, so a file with a wide transparent
@@ -211,6 +216,11 @@ class FramedAvatar extends StatelessWidget {
     }
 
     return const SizedBox.shrink();
+  }
+
+  Widget _wrappedAvatar(BuildContext context) {
+    final photo = _avatarChild(context);
+    return avatarWrapper?.call(photo) ?? photo;
   }
 
   Widget _avatarChild(BuildContext context) {

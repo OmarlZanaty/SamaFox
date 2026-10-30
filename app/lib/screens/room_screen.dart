@@ -5159,6 +5159,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             return;
                           }
                           RoomEmojiPicker.show(context, onPick: (e) {
+                            Navigator.of(context).maybePop();
                             SocketService().emit('room_emoji_send', {'roomId': widget.roomId, 'emojiId': e.id});
                           });
                         },

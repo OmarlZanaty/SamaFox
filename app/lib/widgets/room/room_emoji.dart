@@ -1,31 +1,32 @@
-import '../../l10n/tr.dart';
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-
+import '../../l10n/tr.dart';
 import '../../services/socket_service.dart';
+import 'emoji/game_emoji.dart';
 
-/// SPEC52 #20 — animated emoji over the sender's mic.
-///
-/// The catalogue ships with the app (light WebP stickers in
-/// `assets/images/emoji/<id>.webp`, an emoji glyph as fallback), so the server
-/// only relays `{emojiId, senderId, seatId, timestamp}` — nothing heavy is
-/// downloaded per emoji. The ids must match the server's allow-list.
 class RoomEmojiDef {
-  const RoomEmojiDef(this.id, this.label, this.glyph, {this.drift = 0});
+  const RoomEmojiDef(this.id, this.label, this.glyph);
   final String id;
   final String label;
   final String glyph;
-
-  /// Horizontal drift while it plays: +1 = to the right, -1 = to the left.
-  final double drift;
-
+  bool get isGame => id == 'dice' || id == 'slot';
   String get asset => 'assets/images/emoji/$id.webp';
 }
 
-List<RoomEmojiDef> get kRoomEmojis => [
-  RoomEmojiDef('kiss_right', tr('قبلة يمين', "Kiss right"), '😘', drift: 1),
-  RoomEmojiDef('kiss_left', tr('قبلة شمال', "Kiss left"), '😘', drift: -1),
+class RoomEmojiCategory {
+  const RoomEmojiCategory(this.id, this.icon, this.label, this.emojis);
+  final String id;
+  final String icon;
+  final String label;
+  final List<RoomEmojiDef> emojis;
+}
+
+/// SPEC52 #20 — seat emoji. Stickers ship with the app
+/// (`assets/images/emoji/<id>.webp`); ids must match the server allow-list.
+List<RoomEmojiCategory> get kRoomEmojis {
+  final stickers = <RoomEmojiDef>[
+  RoomEmojiDef('kiss_right', tr('قبلة يمين', "Kiss right"), '😘'),
+  RoomEmojiDef('kiss_left', tr('قبلة شمال', "Kiss left"), '😘'),
   RoomEmojiDef('magnifier', tr('نظارة مكبرة', "Magnifying glasses"), '🧐'),
   RoomEmojiDef('yawn_sleep', tr('تثاؤب ونوم', "Yawn and sleep"), '🥱'),
   RoomEmojiDef('heartbroken', tr('قلب مكسور', "Broken heart"), '💔'),
@@ -38,9 +39,9 @@ List<RoomEmojiDef> get kRoomEmojis => [
   RoomEmojiDef('bride_groom', tr('عروس وعريس', "Bride and groom"), '👰'),
   RoomEmojiDef('hug', tr('حضن', "Hug"), '🤗'),
   RoomEmojiDef('couple_kiss', tr('قبلة', "Kiss"), '💏'),
-  RoomEmojiDef('spit_right', tr('بصق يمين', "Spit right"), '💦', drift: 1),
-  RoomEmojiDef('spit_left', tr('بصق شمال', "Spit left"), '💦', drift: -1),
-  RoomEmojiDef('wow', 'Wow', '😮'),
+  RoomEmojiDef('spit_right', tr('بصق يمين', "Spit right"), '💦'),
+  RoomEmojiDef('spit_left', tr('بصق شمال', "Spit left"), '💦'),
+  RoomEmojiDef('wow', tr('واو', 'Wow'), '😮'),
   RoomEmojiDef('angry', tr('غضب', "Angry"), '😡'),
   RoomEmojiDef('shock', tr('صدمة', "Shocked"), '😱'),
   RoomEmojiDef('fire_heart', tr('قلب مشتعل', "Heart on fire"), '❤️‍🔥'),
@@ -50,213 +51,153 @@ List<RoomEmojiDef> get kRoomEmojis => [
   RoomEmojiDef('fire_clap', tr('تصفيق ناري', "Fiery clap"), '🔥'),
   RoomEmojiDef('stars', tr('نجوم', "Stars"), '🤩'),
   RoomEmojiDef('crown', tr('تاج', "Crown"), '👑'),
-];
+  ];
+  List<RoomEmojiDef> group(List<String> ids) =>
+      [for (final id in ids) stickers.firstWhere((e) => e.id == id)];
+  return [
+    RoomEmojiCategory('faces', '😀', tr('وجوه', 'Faces'), group([
+      'magnifier', 'yawn_sleep', 'cry', 'laugh', 'wow', 'angry', 'shock', 'lol', 'sleep', 'stars',
+    ])),
+    RoomEmojiCategory('love', '❤️', tr('حب', 'Love'), group([
+      'kiss_right', 'kiss_left', 'heartbroken', 'heart', 'bride_groom', 'hug', 'couple_kiss', 'fire_heart',
+    ])),
+    RoomEmojiCategory('reactions', '👏', tr('تفاعل', 'Reactions'), group([
+      'clap', 'hello_sign', 'dance', 'spit_right', 'spit_left', 'party', 'fire_clap', 'crown',
+    ])),
+    RoomEmojiCategory('games', '🎲', tr('ألعاب', 'Games'), [
+      RoomEmojiDef('dice', tr('نرد', 'Dice'), '🎲'),
+      RoomEmojiDef('slot', tr('اختارني', 'Pick me'), '🎰'),
+    ]),
+  ];
+}
 
 RoomEmojiDef? roomEmojiById(String id) {
-  for (final e in kRoomEmojis) {
-    if (e.id == id) return e;
+  for (final category in kRoomEmojis) {
+    for (final emoji in category.emojis) {
+      if (emoji.id == id) return emoji;
+    }
   }
   return null;
 }
 
-Widget roomEmojiArt(RoomEmojiDef e, double size) => Image.asset(
-      e.asset,
-      width: size,
-      height: size,
-      fit: BoxFit.contain,
-      gaplessPlayback: true,
-      errorBuilder: (_, __, ___) => SizedBox(
-        width: size,
-        height: size,
-        child: FittedBox(child: Text(e.glyph, style: const TextStyle(decoration: TextDecoration.none))),
-      ),
-    );
+Widget roomEmojiArt(RoomEmojiDef e, double size, {int? result, double? rollPhase}) {
+  if (e.isGame) return GameEmoji(id: e.id, size: size, result: result, rollPhase: rollPhase);
+  return Image.asset(e.asset, width: size, height: size, fit: BoxFit.contain,
+    gaplessPlayback: true,
+    errorBuilder: (_, __, ___) => SizedBox(width: size, height: size,
+      child: FittedBox(child: Text(e.glyph,
+        style: const TextStyle(decoration: TextDecoration.none)))),
+  );
+}
 
-/// The picker (opened by the 😀 button next to the chat input).
 class RoomEmojiPicker {
+  static String _category = 'faces';
+  static double? _keyboardHeight;
   static Future<void> show(BuildContext context, {required void Function(RoomEmojiDef) onPick}) {
+    final media = MediaQuery.of(context);
+    if (media.viewInsets.bottom > 0) _keyboardHeight = media.viewInsets.bottom;
+    final height = (_keyboardHeight ?? 320.0).clamp(0.0, media.size.height * .65).toDouble();
+    FocusManager.instance.primaryFocus?.unfocus();
     return showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF160C33),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(tr('إيموجي متحرك', "Animated emoji"), style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.45),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 5,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 6,
-                    childAspectRatio: .82,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, update) {
+        final categories = kRoomEmojis;
+        final selected = categories.firstWhere((c) => c.id == _category);
+        return SizedBox(height: height, child: SafeArea(top: false,
+          child: Column(children: [
+            Row(children: [for (final category in categories)
+              Expanded(child: Semantics(selected: category.id == _category,
+                child: InkWell(
+                  onTap: () => update(() => _category = category.id),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(border: Border(bottom: BorderSide(
+                      color: category.id == _category ? Colors.amber : Colors.transparent, width: 3))),
+                    child: Column(children: [
+                      Text(category.icon, style: const TextStyle(fontSize: 25)),
+                      Text(category.label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                    ]),
                   ),
-                  itemCount: kRoomEmojis.length,
-                  itemBuilder: (_, i) {
-                    final e = kRoomEmojis[i];
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        onPick(e);
-                      },
-                      child: Column(
-                        children: [
-                          Expanded(child: roomEmojiArt(e, 44)),
-                          Text(e.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white70, fontSize: 9.5)),
-                        ],
-                      ),
-                    );
-                  },
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
+              )),
+            ]),
+            Expanded(child: GridView.builder(
+              key: ValueKey(selected.id),
+              padding: const EdgeInsets.all(10),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: .9),
+              itemCount: selected.emojis.length,
+              itemBuilder: (_, i) {
+                final emoji = selected.emojis[i];
+                return InkWell(borderRadius: BorderRadius.circular(12),
+                  onTap: () => onPick(emoji),
+                  child: Column(children: [
+                    Expanded(child: FittedBox(child: roomEmojiArt(emoji, 76))),
+                    Text(emoji.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                  ]),
+                );
+              },
+            )),
+          ]),
+        ));
+      }),
     );
   }
 }
 
 class RoomEmojiEvent {
-  RoomEmojiEvent(this.def, this.seatId, this.senderId);
+  RoomEmojiEvent(this.def, this.seatId, this.senderId, this.result, this.route);
   final RoomEmojiDef def;
   final int seatId;
   final int senderId;
-  final int key = DateTime.now().microsecondsSinceEpoch;
+  final int? result;
+  final ModalRoute<dynamic>? route;
 }
 
-/// Paints incoming emoji over the sender's mic for ~3 s.
+final roomEmojiEvents = StreamController<RoomEmojiEvent>.broadcast();
+
+/// Nonvisual compatibility bridge for the existing room-screen call site.
+/// Rendering belongs to seats; resolveSeat is no longer used for placement.
 class RoomEmojiLayer extends StatefulWidget {
   const RoomEmojiLayer({super.key, required this.roomId, required this.resolveSeat});
   final int roomId;
-
-  /// Centre of a seat in this layer's coordinates.
   final Offset Function(int seatNumber) resolveSeat;
-
-  static final StreamController<Map<String, dynamic>> _events = StreamController.broadcast();
-  static bool _wired = false;
-
-  static void _wire() {
-    if (_wired) return;
-    _wired = true;
-    SocketService().on('room_emoji', (data) {
-      if (data is Map) _events.add(Map<String, dynamic>.from(data));
-    });
-  }
-
   @override
   State<RoomEmojiLayer> createState() => _RoomEmojiLayerState();
 }
 
 class _RoomEmojiLayerState extends State<RoomEmojiLayer> {
-  final List<RoomEmojiEvent> _live = [];
-  StreamSubscription<Map<String, dynamic>>? _sub;
-  static const _max = 6;
-
+  ModalRoute<dynamic>? _route;
   @override
   void initState() {
     super.initState();
-    RoomEmojiLayer._wire();
-    _sub = RoomEmojiLayer._events.stream.listen((d) {
-      if ((d['roomId'] as num?)?.toInt() != widget.roomId) return;
-      final def = roomEmojiById('${d['emojiId']}');
-      final seat = (d['seatId'] as num?)?.toInt();
-      if (def == null || seat == null || !mounted) return;
-      setState(() {
-        _live.add(RoomEmojiEvent(def, seat, (d['senderId'] as num?)?.toInt() ?? 0));
-        while (_live.length > _max) {
-          _live.removeAt(0);
-        }
-      });
-    });
+    SocketService().on('room_emoji', _receive);
   }
-
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+  void _receive(dynamic data) {
+    if (!mounted || data is! Map || data['roomId'] != widget.roomId) return;
+    final def = roomEmojiById('${data['emojiId']}');
+    final seat = data['seatId'];
+    final sender = data['senderId'];
+    final result = data['result'];
+    if (def == null || seat is! int || sender is! int) return;
+    if (def.isGame && (result is! int ||
+        (def.id == 'dice' ? result < 1 || result > 6 : result < 0 || result > 2))) return;
+    roomEmojiEvents.add(RoomEmojiEvent(def, seat, sender, def.isGame ? result as int : null, _route));
+  }
   @override
   void dispose() {
-    _sub?.cancel();
+    SocketService().off('room_emoji', _receive);
     super.dispose();
   }
-
   @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Stack(
-        children: [
-          for (final e in _live)
-            _FloatingEmoji(
-              key: ValueKey(e.key),
-              event: e,
-              origin: widget.resolveSeat(e.seatId),
-              onDone: () {
-                if (mounted) setState(() => _live.remove(e));
-              },
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FloatingEmoji extends StatefulWidget {
-  const _FloatingEmoji({super.key, required this.event, required this.origin, required this.onDone});
-  final RoomEmojiEvent event;
-  final Offset origin;
-  final VoidCallback onDone;
-
-  @override
-  State<_FloatingEmoji> createState() => _FloatingEmojiState();
-}
-
-class _FloatingEmojiState extends State<_FloatingEmoji> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 3000))..forward();
-
-  @override
-  void initState() {
-    super.initState();
-    _c.addStatusListener((s) {
-      if (s == AnimationStatus.completed) widget.onDone();
-    });
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const size = 64.0;
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (_, child) {
-        final t = _c.value;
-        // pop in (0–15%), hold with a gentle bob, fade out (80–100%).
-        final scale = t < .15 ? Curves.elasticOut.transform(t / .15) : 1.0;
-        final opacity = t > .8 ? (1 - (t - .8) / .2) : 1.0;
-        final dy = -24 * t + 4 * (t * 6.28 * 2).remainder(6.28).clamp(0, 3.14) / 3.14;
-        final dx = widget.event.def.drift * 36 * Curves.easeOut.transform(t);
-        return Positioned(
-          left: widget.origin.dx - size / 2 + dx,
-          top: widget.origin.dy - size / 2 - 18 + dy,
-          child: Opacity(
-            opacity: opacity.clamp(0.0, 1.0),
-            child: Transform.scale(scale: scale.clamp(0.0, 1.4), child: child),
-          ),
-        );
-      },
-      child: RepaintBoundary(child: roomEmojiArt(widget.event.def, size)),
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
