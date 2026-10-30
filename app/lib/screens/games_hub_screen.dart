@@ -230,25 +230,9 @@ class GamesHubScreen extends ConsumerWidget {
         ),
         child: SafeArea(
           child: _WithWinTicker(
-            child: CustomScrollView(
-              slivers: [
-                const SliverToBoxAdapter(child: _TopWagerers()),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
-                  sliver: SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: .78,
-                    ),
-                    delegate: SliverChildBuilderDelegate(
-                      (_, i) => _GameCard(entry: _games[i], onTap: () => _open(context, i)),
-                      childCount: _games.length,
-                    ),
-                  ),
-                ),
-              ],
+            child: _TopWagerers(
+              games: _games,
+              onOpen: (index) => _open(context, index),
             ),
           ),
         ),
@@ -441,7 +425,10 @@ class _GameCard extends StatelessWidget {
 }
 
 class _TopWagerers extends StatefulWidget {
-  const _TopWagerers();
+  const _TopWagerers({required this.games, required this.onOpen});
+
+  final List<_GameEntry> games;
+  final ValueChanged<int> onOpen;
   @override
   State<_TopWagerers> createState() => _TopWagerersState();
 }
@@ -464,56 +451,247 @@ class _TopWagerersState extends State<_TopWagerers> {
             .map((item) => Map<String, dynamic>.from(item)).take(3).toList());
       }
     } catch (_) {
-      // The games remain available when the optional podium cannot be loaded.
+      // The games remain available when the optional ranking cannot be loaded.
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_items.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-      child: Column(children: [
-        Text(tr('أكثر اللاعبين رهانًا اليوم', 'Today’s top bettors'),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [for (final rank in [2, 1, 3]) Expanded(child: _place(rank))],
+    final hasRanking = _items.isNotEmpty && widget.games.isNotEmpty;
+    final offset = hasRanking ? 1 : 0;
+    return CustomScrollView(
+      slivers: [
+        if (hasRanking)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            sliver: SliverToBoxAdapter(
+              child: LayoutBuilder(builder: (context, constraints) {
+                final tileWidth = (constraints.maxWidth - 20) / 3;
+                return SizedBox(
+                  height: tileWidth / .78,
+                  child: Row(
+                    // Keep the reference's physical order in Arabic as well.
+                    textDirection: TextDirection.ltr,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: tileWidth * 2 + 10, child: _rankingCard()),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: tileWidth,
+                        child: _GameCard(
+                          entry: widget.games.first,
+                          onTap: () => widget.onOpen(0),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ),
+          ),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(12, hasRanking ? 12 : 10, 12, 16),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 10,
+              childAspectRatio: .78,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (_, i) => _GameCard(
+                entry: widget.games[i + offset],
+                onTap: () => widget.onOpen(i + offset),
+              ),
+              childCount: widget.games.length - offset,
+            ),
           ),
         ),
-      ]),
+      ],
+    );
+  }
+
+  Widget _rankingCard() {
+    const gold = Color(0xFFC8A650);
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: const RadialGradient(
+          center: Alignment(0, .3),
+          radius: .9,
+          colors: [Color(0xFF163B23), Color(0xFF020C08)],
+        ),
+        border: Border.all(color: gold),
+        boxShadow: [
+          BoxShadow(color: gold.withValues(alpha: .2), blurRadius: 8),
+        ],
+      ),
+      child: Stack(
+        children: [
+          for (final corner in [
+            Alignment.topLeft,
+            Alignment.topRight,
+            Alignment.bottomLeft,
+            Alignment.bottomRight,
+          ])
+            Positioned(
+              left: corner.x < 0 ? 3 : null,
+              right: corner.x > 0 ? 3 : null,
+              top: corner.y < 0 ? 3 : null,
+              bottom: corner.y > 0 ? 3 : null,
+              child: Container(
+                width: 13,
+                height: 13,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  border: Border.all(color: gold),
+                  borderRadius: BorderRadius.only(
+                    topLeft: corner == Alignment.topLeft
+                        ? const Radius.circular(6) : Radius.zero,
+                    topRight: corner == Alignment.topRight
+                        ? const Radius.circular(6) : Radius.zero,
+                    bottomLeft: corner == Alignment.bottomLeft
+                        ? const Radius.circular(6) : Radius.zero,
+                    bottomRight: corner == Alignment.bottomRight
+                        ? const Radius.circular(6) : Radius.zero,
+                  ),
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(border: Border.all(color: gold)),
+                ),
+              ),
+            ),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  width: 240,
+                  height: 132,
+                  child: Row(
+                    textDirection: TextDirection.ltr,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (final rank in [3, 1, 2])
+                        Expanded(child: _place(rank)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _place(int rank) {
     if (rank > _items.length) return const SizedBox.shrink();
     final item = _items[rank - 1];
-    final color = [const Color(0xFFFFD54F), const Color(0xFFC0C0C0), const Color(0xFFCD7F32)][rank - 1];
-    final size = rank == 1 ? 64.0 : 48.0;
+    final color = [
+      const Color(0xFFFFD54F),
+      const Color(0xFFC0C0C0),
+      const Color(0xFFCD7F32),
+    ][rank - 1];
+    final size = rank == 1 ? 64.0 : 54.0;
     final avatar = item['avatar']?.toString();
-    final name = item['name']?.toString() ?? tr('لاعب', 'Player');
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      if (rank == 1) const Text('👑', style: TextStyle(fontSize: 26)),
-      Container(
-        width: size, height: size,
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: color, width: 3)),
-        child: ClipOval(
-          child: avatar == null || avatar.isEmpty
-              ? const Icon(Icons.person, color: Colors.white)
-              : Image.network(avatar, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.person, color: Colors.white)),
+    final rawName = item['name']?.toString().trim() ?? '';
+    final name = rawName.isEmpty ? tr('لاعب', 'Player') : rawName;
+    final amount = tr('${item['wagered'] ?? 0} عملة', '${item['wagered'] ?? 0} coins');
+    final fallback = ColoredBox(
+      color: color.withValues(alpha: .35),
+      child: Center(
+        child: Text(
+          name.characters.first.toUpperCase(),
+          style: const TextStyle(color: Colors.white, fontSize: 22),
         ),
       ),
-      Text('#$rank', style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-      Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
-      Text(tr('${item['wagered'] ?? 0} عملة', '${item['wagered'] ?? 0} coins'),
-          maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: color, fontSize: 12)),
-    ]);
+    );
+    return Tooltip(
+      message: amount,
+      excludeFromSemantics: true,
+      child: Semantics(
+        label: 'Top $rank, $name, $amount',
+        excludeSemantics: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Top $rank',
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(color: Color(0xFFFFEDBB), fontSize: 11),
+            ),
+            const SizedBox(height: 3),
+            CustomPaint(
+              size: Size(rank == 1 ? 26 : 22, rank == 1 ? 19 : 16),
+              painter: _WagererCrownPainter(color),
+            ),
+            Container(
+              width: size,
+              height: size,
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: color, width: 2),
+                boxShadow: [
+                  BoxShadow(color: color.withValues(alpha: .25), blurRadius: 6),
+                ],
+              ),
+              child: ClipOval(
+                child: avatar == null || avatar.trim().isEmpty
+                    ? fallback
+                    : Image.network(
+                        avatar,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => fallback,
+                      ),
+              ),
+            ),
+            const SizedBox(height: 5),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
+}
+
+class _WagererCrownPainter extends CustomPainter {
+  const _WagererCrownPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final crown = Path()
+      ..moveTo(size.width * .15, size.height * .9)
+      ..lineTo(size.width * .05, size.height * .2)
+      ..lineTo(size.width * .3, size.height * .5)
+      ..lineTo(size.width * .5, size.height * .05)
+      ..lineTo(size.width * .7, size.height * .5)
+      ..lineTo(size.width * .95, size.height * .2)
+      ..lineTo(size.width * .85, size.height * .9)
+      ..close();
+    canvas.drawPath(crown, Paint()..color = color);
+    canvas.drawLine(
+      Offset(size.width * .17, size.height),
+      Offset(size.width * .83, size.height),
+      Paint()
+        ..color = color
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_WagererCrownPainter oldDelegate) => oldDelegate.color != color;
 }

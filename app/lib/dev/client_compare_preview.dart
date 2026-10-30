@@ -168,7 +168,11 @@ class _PkViewState extends State<_PkView> {
   Widget build(BuildContext context) => _Room(
         child: Column(children: [
           const SizedBox(height: 70),
-          RoomPkBar(roomId: 1, initialPk: _pk, initialPeople: _people, onSupport: (_, __, ___) {}),
+          RoomPkBar(
+            roomId: 1, initialPk: _pk, initialPeople: _people,
+            onSupport: (_, __, ___) {},
+            onGift: () {}, onToggleMute: () {}, muted: false,
+          ),
         ]),
       );
 }

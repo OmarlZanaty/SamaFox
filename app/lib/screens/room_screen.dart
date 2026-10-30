@@ -5025,6 +5025,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
                 RoomPkBar(
                   roomId: widget.roomId,
+                  onGift: () => _openGiftSheet(context),
+                  onToggleMute: mySeatNumber != null ? _toggleMicFromMenu : null,
+                  muted: mySeatMuted,
+                  isOnMic: (id) => !state.onlineUsers.containsKey(id) || state.seats.values.any((seat) => seat.userId == id),
                   onSupport: (id, name, avatar) => _openGiftSheetToUser(
                       context, _Recipient(id: id, name: name, avatarUrl: avatar)),
                 ),

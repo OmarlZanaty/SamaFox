@@ -583,7 +583,15 @@ class RoomPkButton extends StatelessWidget {
 /// that gifts the side's player, and a button at its edge that hides it to a
 /// small pill and brings it back. The winner is shown mid-screen at the end.
 class RoomPkBar extends StatefulWidget {
-  const RoomPkBar({super.key, required this.roomId, this.onSupport, this.initialPk, this.initialPeople});
+  const RoomPkBar({
+    super.key, required this.roomId, this.onSupport, this.initialPk,
+    this.initialPeople, this.onGift, this.onToggleMute, this.muted = false,
+    this.isOnMic,
+  });
+  final VoidCallback? onGift;
+  final VoidCallback? onToggleMute;
+  final bool muted;
+  final bool Function(int userId)? isOnMic;
   final int roomId;
 
   /// Opens the gift sheet on that player (client @377: «كل دعم يوصل للمضيف»).
@@ -691,7 +699,7 @@ class _RoomPkBarState extends State<RoomPkBar> {
     final ends = DateTime.tryParse('${pk['endsAt'] ?? ''}')?.toLocal();
     final left = ends == null ? Duration.zero : ends.difference(DateTime.now());
     final secs = left.isNegative ? 0 : left.inSeconds;
-    final clock = '${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}';
+    final clock = '${(secs ~/ 60).toString().padLeft(2, '0')}:${(secs % 60).toString().padLeft(2, '0')}';
     final pending = pk['status'] == 'PENDING';
     if (_hidden) return _pill(pending ? '…' : clock);
     final total = a + b;
@@ -701,80 +709,158 @@ class _RoomPkBarState extends State<RoomPkBar> {
     // Room vs room: you can only gift your own room's player from here.
     final global = pk['type'] == 'GLOBAL';
     final mySide = (pk['room1Id'] as num?)?.toInt() == widget.roomId ? 'A' : 'B';
+    final supportId = global && mySide == 'B' ? bId : aId;
+    final supportPerson = _people[supportId];
+    final actions = <Widget>[
+      if (widget.onGift != null)
+        _action(Icons.card_giftcard, tr('هدية', 'Gift'), const Color(0xFFFFD778), widget.onGift!),
+      if (widget.onToggleMute != null)
+        _action(Icons.mic, tr('كتم', 'Mute'), const Color(0xFFFFDDA0), widget.onToggleMute!, dot: widget.muted),
+      if (widget.onSupport != null && supportId != null)
+        _action(Icons.star_rounded, tr('دعم', 'Support'), const Color(0xFF65B4FF),
+          () => widget.onSupport!(supportId,
+            (supportPerson?['name'] ?? (global && mySide == 'B' ? tr('لاعب ب', 'Player B') : tr('لاعب أ', 'Player A'))).toString(),
+            supportPerson?['avatarUrl']?.toString())),
+    ];
+    final roundLabel = pk['round'] != null || pk['rounds'] != null
+        ? " · ${tr('جولة', 'ROUND')} ${pk['round'] ?? 1}/${pk['rounds'] ?? pk['round']}"
+        : '';
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-        padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [const Color(0xFF1E2233).withValues(alpha: .92), const Color(0xFF0E1018).withValues(alpha: .92)],
-          ),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white.withValues(alpha: .14)),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .4), blurRadius: 14)],
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            const Icon(Icons.circle, size: 7, color: Color(0xFFFF3B3B)),
-            const SizedBox(width: 4),
-            const Text('LIVE', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
-            const Spacer(),
-            Text(pending ? tr('بانتظار القبول', 'Awaiting acceptance') : 'Voice PK',
-                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-            const Spacer(),
-            if (!pending) ...[
-              Text(clock, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
-              const SizedBox(width: 3),
-              const Icon(Icons.timer_outlined, size: 13, color: Colors.white),
-            ],
-            const SizedBox(width: 6),
-            _hideButton(Icons.keyboard_arrow_up_rounded),
-          ]),
-          const SizedBox(height: 6),
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(child: _player(aId, 'A', fire: true, canSupport: !global || mySide == 'A')),
-            const Padding(padding: EdgeInsets.only(top: 22), child: _VsMark()),
-            Expanded(child: _player(bId, 'B', fire: false, canSupport: !global || mySide == 'B')),
-          ]),
-          const SizedBox(height: 6),
-          Row(children: [
-            const Text('🎁', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 3),
-            Text(_compact(a), style: const TextStyle(color: Color(0xFFFFC94D), fontSize: 13, fontWeight: FontWeight.w900)),
-            const Spacer(),
-            Text(_compact(b), style: const TextStyle(color: Color(0xFF6FB6FF), fontSize: 13, fontWeight: FontWeight.w900)),
-            const SizedBox(width: 3),
-            const Text('🎁', style: TextStyle(fontSize: 12)),
-          ]),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: SizedBox(
-              height: 8,
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+                colors: [const Color(0xFF191C27).withValues(alpha: .93), const Color(0xFF0B1420).withValues(alpha: .91)]),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: .25)),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .4), blurRadius: 14)],
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                decoration: BoxDecoration(color: Colors.white.withValues(alpha: .07), borderRadius: BorderRadius.circular(10)),
+                child: Row(children: [
+                  const Icon(Icons.circle, size: 6, color: Color(0xFFFF565F)),
+                  const SizedBox(width: 4),
+                  Text(tr('مباشر', 'LIVE'), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                  Expanded(child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: FittedBox(fit: BoxFit.scaleDown, child: Text('${tr('تحدي صوتي', 'Voice PK')}$roundLabel',
+                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600))),
+                  )),
+                  Text(clock, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.timer_outlined, size: 14, color: Colors.white70),
+                  const SizedBox(width: 6),
+                  _hideButton(Icons.close_rounded),
+                ]),
+              ),
+              const SizedBox(height: 12),
+              Text(tr('صندوق PK', 'PK box'), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+              if (pending)
+                Text(tr('بانتظار القبول', 'Awaiting acceptance'), style: const TextStyle(color: Colors.white60, fontSize: 10)),
+              const SizedBox(height: 12),
+              LayoutBuilder(builder: (context, constraints) {
+                final avatarSize = math.min(72.0, ((constraints.maxWidth - 44) / 2) * .62);
+                final frameSize = avatarSize / .62;
+                return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(child: _player(aId, tr('لاعب أ', 'Player A'), fire: true, score: a, avatarSize: avatarSize, canSupport: !global || mySide == 'A')),
+                  SizedBox(width: 44, height: frameSize, child: const Center(child: _VsMark())),
+                  Expanded(child: _player(bId, tr('لاعب ب', 'Player B'), fire: false, score: b, avatarSize: avatarSize, canSupport: !global || mySide == 'B')),
+                ]);
+              }),
+              const SizedBox(height: 20),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                _gifts(a, fire: true),
+                _gifts(b, fire: false),
+              ]),
+              const SizedBox(height: 7),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: SizedBox(
+                  height: 8,
+                  child: Row(children: [
+                    Expanded(
+                      flex: math.max(1, (share * 1000).round()),
+                      child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFFE082)]))),
+                    ),
+                    const SizedBox(width: 2),
+                    Expanded(
+                      flex: math.max(1, ((1 - share) * 1000).round()),
+                      child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)]))),
+                    ),
+                  ]),
+                ),
+              ),
+              if (!pending) ...[
+                const SizedBox(height: 5),
+                Text(tr('ادعم لاعبك بالهدايا عشان يكسب · PK ينتهي خلال $clock', 'Support your player with gifts to help them win · PK ends in $clock'),
+                    textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 9.5)),
+              ],
+              ]),
+          ),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF10141F).withValues(alpha: .94),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white.withValues(alpha: .18)),
+              ),
               child: Row(children: [
-                Expanded(
-                  flex: math.max(1, (share * 1000).round()),
-                  child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFFE082)]))),
-                ),
-                const SizedBox(width: 2),
-                Expanded(
-                  flex: math.max(1, ((1 - share) * 1000).round()),
-                  child: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF1565C0)]))),
-                ),
+                for (var i = 0; i < actions.length; i++) ...[
+                  if (i > 0) Container(width: 1, height: 38, color: Colors.white12),
+                  Expanded(child: actions[i]),
+                ],
               ]),
             ),
-          ),
-          if (!pending) ...[
-            const SizedBox(height: 5),
-            Text(tr('ادعم لاعبك بالهدايا عشان يكسب · PK ينتهي خلال $clock', 'Support your player with gifts to help them win · PK ends in $clock'),
-                textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 9.5)),
           ],
         ]),
       ),
     );
+  }
+
+  Widget _action(IconData icon, String label, Color color, VoidCallback onTap, {bool dot = false}) =>
+      InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 28, color: color),
+            const SizedBox(height: 4),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              if (dot) ...[
+                const Icon(Icons.circle, size: 5, color: Color(0xFFFF5252)),
+                const SizedBox(width: 4),
+              ],
+              Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700))),
+            ]),
+          ]),
+        ),
+      );
+
+  Widget _gifts(int score, {required bool fire}) {
+    final color = fire ? const Color(0xFFFFD778) : const Color(0xFF79CBFF);
+    final contents = <Widget>[
+      Icon(Icons.card_giftcard, color: color, size: 24),
+      const SizedBox(width: 5),
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(tr('هدايا', 'Gifts'), style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
+        Row(children: [
+          Text(_compact(score), style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.w800)),
+          const SizedBox(width: 5),
+          Icon(fire ? Icons.monetization_on : Icons.diamond, color: color, size: 18),
+        ]),
+      ]),
+    ];
+    return Row(mainAxisSize: MainAxisSize.min, children: contents);
   }
 
   Widget _hideButton(IconData icon) => InkWell(
@@ -828,40 +914,47 @@ class _RoomPkBarState extends State<RoomPkBar> {
         ]),
       );
 
-  Widget _player(int? uid, String fallback, {required bool fire, required bool canSupport}) {
+  Widget _player(int? uid, String fallback, {required bool fire, required int score, required double avatarSize, required bool canSupport}) {
     final p = uid == null ? null : _people[uid];
-    final name = (p?['name'] ?? fallback).toString();
-    final url = p?['avatarUrl']?.toString();
+    final name = (p?['name'] ?? fallback).toString().toUpperCase();
+    final onMic = widget.isOnMic == null || (uid != null && widget.isOnMic!(uid));
+    final color = fire ? const Color(0xFFFFD78B) : const Color(0xFF9EDFFF);
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      _RingAvatar(url: url, fire: fire, size: 64),
-      const SizedBox(height: 4),
+      GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: canSupport && uid != null && widget.onSupport != null
+            ? () => widget.onSupport!(uid, (p?['name'] ?? fallback).toString(), p?['avatarUrl']?.toString())
+            : null,
+        child: _RingAvatar(url: p?['avatarUrl']?.toString(), fire: fire, size: avatarSize, framed: true),
+      ),
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        width: double.infinity,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [Colors.white.withValues(alpha: .18), Colors.white.withValues(alpha: .05)]),
+            colors: [color.withValues(alpha: .25), const Color(0xFF151925).withValues(alpha: .9)]),
           border: Border.all(color: Colors.white.withValues(alpha: .15)),
         ),
-        child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
-      ),
-      if (canSupport && uid != null && widget.onSupport != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 3),
-          child: InkWell(
-            onTap: () => widget.onSupport!(uid, name, url),
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: (fire ? const Color(0xFFFF7A18) : const Color(0xFF2F80ED)).withValues(alpha: .85),
-              ),
-              child: Text(tr('دعم', 'Support'), style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w800)),
-            ),
+        child: Column(children: [
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+            child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800))),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 7),
+            decoration: BoxDecoration(color: Colors.black.withValues(alpha: .25), borderRadius: BorderRadius.circular(9)),
+            child: FittedBox(fit: BoxFit.scaleDown, child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(onMic ? Icons.mic : Icons.mic_off, size: 15, color: color),
+              const SizedBox(width: 3),
+              Text(onMic ? tr('مفتوح', 'ON') : tr('مغلق', 'OFF'), style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 9),
+              const Icon(Icons.headphones, size: 15, color: Colors.white),
+              const SizedBox(width: 3),
+              Text(_compact(score), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+            ])),
           ),
-        ),
+        ]),
+      ),
     ]);
   }
 }
@@ -871,22 +964,42 @@ class _VsMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ShaderMask(
         shaderCallback: (r) => const LinearGradient(
-          colors: [Color(0xFFFF8A65), Color(0xFFE1BEE7), Color(0xFF64B5F6)],
+          colors: [Color(0xFFFF98D5), Color(0xFFB783F5), Color(0xFF64CFFF)],
         ).createShader(r),
-        child: const Text('VS',
-            style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, height: 1)),
+        child: Text('VS',
+            style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, height: 1)),
       );
 }
 
 /// A photo in a glowing ring: fire (orange/red) for side A, ice (cyan/blue) for B.
 class _RingAvatar extends StatelessWidget {
-  const _RingAvatar({required this.url, required this.fire, required this.size});
+  const _RingAvatar({required this.url, required this.fire, required this.size, this.framed = false});
   final String? url;
   final bool fire;
   final double size;
+  final bool framed;
 
   @override
   Widget build(BuildContext context) {
+    if (framed) {
+      final frameSize = size / .62;
+      return SizedBox(
+        width: frameSize,
+        height: frameSize,
+        child: Stack(alignment: Alignment.center, children: [
+          SizedBox(width: size, height: size, child: CircleAvatar(
+            backgroundColor: const Color(0xFF2A2F45),
+            backgroundImage: (url ?? '').isNotEmpty ? appImage(url!, size) : null,
+            child: (url ?? '').isEmpty ? const Icon(Icons.person, color: Colors.white54) : null,
+          )),
+          Image.asset(
+            fire ? 'assets/images/pk/pk_ring_fire.png' : 'assets/images/pk/pk_ring_ice.png',
+            width: frameSize, height: frameSize, fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => _RingAvatar(url: url, fire: fire, size: size),
+          ),
+        ]),
+      );
+    }
     final colors = fire
         ? const [Color(0xFFFFE082), Color(0xFFFF7A18), Color(0xFFE53935), Color(0xFFFF7A18), Color(0xFFFFE082)]
         : const [Color(0xFFE1F5FE), Color(0xFF4FC3F7), Color(0xFF1565C0), Color(0xFF4FC3F7), Color(0xFFE1F5FE)];
