@@ -1,6 +1,7 @@
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// A room picture ready to upload: the bytes and a filename whose extension
@@ -17,26 +18,71 @@ class RoomPicture {
 /// gone before the VIP check on the server ever saw it.
 ///
 /// The file is now picked untouched. An animated GIF / WebP is uploaded as
-/// it is; only a still picture over the 5 MB upload cap is scaled down.
+/// it is; a still photo over 1.5 MB is scaled down to 1280 px wide.
+///
+/// Weak phones (31/10, Huawei STK-L21) kill the app while the gallery is
+/// open; the native picker then stays "already_active" and every later tap
+/// threw, so the room was never created. A second tap while a pick is
+/// running returns null, and a stale pick is collected or restarted.
 Future<RoomPicture?> pickRoomPicture() async {
-  final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-  if (picked == null) return null;
-  return roomPictureFrom(await picked.readAsBytes(), picked.name);
+  if (_picking) return null;
+  _picking = true;
+  try {
+    final picked = await _pickOnce();
+    if (picked == null) return null;
+    return roomPictureFrom(await picked.readAsBytes(), picked.name);
+  } finally {
+    _picking = false;
+  }
+}
+
+bool _picking = false;
+
+Future<XFile?> _pickOnce() async {
+  final picker = ImagePicker();
+  try {
+    return await picker.pickImage(source: ImageSource.gallery);
+  } on PlatformException catch (e) {
+    if (e.code != 'already_active' || !_isAndroid) rethrow;
+    final lost = await picker.retrieveLostData();
+    return lost.file ?? await picker.pickImage(source: ImageSource.gallery);
+  }
+}
+
+bool get _isAndroid => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+/// The picture chosen just before Android killed the app, if any.
+Future<RoomPicture?> recoverLostRoomPicture() async {
+  if (!_isAndroid) return null;
+  try {
+    final lost = await ImagePicker().retrieveLostData();
+    final file = lost.file;
+    if (file == null) return null;
+    return roomPictureFrom(await file.readAsBytes(), file.name);
+  } catch (_) {
+    return null;
+  }
 }
 
 const _maxUploadBytes = 4 * 1024 * 1024;
+const _scaleAboveBytes = 1536 * 1024;
 
 Future<RoomPicture> roomPictureFrom(Uint8List raw, String name) async {
   final animated = isAnimatedImageBytes(raw);
-  if (animated || raw.length <= _maxUploadBytes) {
+  if (animated || raw.length <= _scaleAboveBytes) {
     return RoomPicture(raw, _nameFor(raw, name, animated));
   }
-  final codec = await ui.instantiateImageCodec(raw, targetWidth: 1600);
+  final codec = await ui.instantiateImageCodec(raw, targetWidth: 1280);
   final frame = await codec.getNextFrame();
   final png = await frame.image.toByteData(format: ui.ImageByteFormat.png);
   frame.image.dispose();
   codec.dispose();
-  return RoomPicture(png!.buffer.asUint8List(), 'room_picture.png');
+  final scaled = png!.buffer.asUint8List();
+  // A PNG of a photo can outgrow the JPEG it came from.
+  if (scaled.length > raw.length && raw.length <= _maxUploadBytes) {
+    return RoomPicture(raw, _nameFor(raw, name, false));
+  }
+  return RoomPicture(scaled, 'room_picture.png');
 }
 
 /// GIF, or a WebP whose VP8X header has the animation flag.

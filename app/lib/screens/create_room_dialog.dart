@@ -1,9 +1,7 @@
 import '../l10n/tr.dart';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import '../providers/auth_provider.dart';
 import '../providers/room_provider.dart';
 import '../models/room.dart';
@@ -25,7 +23,6 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
   final _numberController = TextEditingController();
   final _descriptionController = TextEditingController();
 
-  File? _selectedImage;
   Uint8List? _selectedImageBytes;
   String _selectedImageName = 'room_cover.jpg';
   int _selectedMicCount = 8; // Default mic count
@@ -42,18 +39,34 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
     super.dispose();
   }
 
+  @override
+  void initState() {
+    super.initState();
+    // The phone may have killed the app while the gallery was open.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final picture = await recoverLostRoomPicture();
+      if (picture != null && mounted) _setPicture(picture);
+    });
+  }
+
+  void _setPicture(RoomPicture picture) {
+    setState(() {
+      _selectedImageBytes = picture.bytes;
+      _selectedImageName = picture.filename;
+    });
+  }
+
   Future<void> _pickImage() async {
     // Untouched pick, so an animated (VIP) room picture stays animated.
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-
-    if (image != null) {
-      final picture = await roomPictureFrom(await image.readAsBytes(), image.name);
-      setState(() {
-        _selectedImageBytes = picture.bytes;
-        _selectedImageName = picture.filename;
-        if (!kIsWeb) _selectedImage = File(image.path);
-      });
+    try {
+      final picture = await pickRoomPicture();
+      if (picture != null && mounted) _setPicture(picture);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr('تعذر فتح المعرض، حاول مرة أخرى', 'Could not open the gallery, try again'))),
+        );
+      }
     }
   }
 
