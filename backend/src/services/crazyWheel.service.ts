@@ -31,7 +31,8 @@ export const CRAZY_ROOM = 'crazy-wheel:main';
 
 export const CHIP_TIERS = [1000, 5000, 10000, 50000, 100000];
 export const MIN_BET = 1000;
-export const MAX_BET_PER_SEGMENT = 5_000_000;
+// Open betting (client rule): only a sanity bound against overflow.
+export const MAX_BET_PER_SEGMENT = 1_000_000_000_000;
 
 // ── Wheel layout ────────────────────────────────────────────
 export type SegmentKey = '1' | '2' | '5' | '10' | 'coinflip' | 'cashhunt' | 'pachinko' | 'crazytime';
@@ -318,6 +319,8 @@ interface PlayerBets {
   multiplier: number;
   /** Prize-fund reservations, one per stake placed this round. */
   prizeTokens: string[];
+  /** Segments bet while the pool was short: the round steers away from them. */
+  shortSegments?: Set<string>;
 }
 
 interface Round {
@@ -483,6 +486,7 @@ export async function placeBet(userId: number, segment: string, amount: number) 
   }
   player.bets[segment] = (player.bets[segment] ?? 0) + amount;
   player.prizeTokens.push(reserved.token);
+  if (reserved.short) (player.shortSegments ??= new Set()).add(segment);
 
   const balance = await balanceOf(userId);
   broadcast();
@@ -688,6 +692,12 @@ function advance() {
       );
     }
     r.resultIndex = randInt(WHEEL.length);
+    // A bet the short pool could not cover should not win: move to the next
+    // segment nobody holds such a bet on (client rule: then the player loses).
+    const short = new Set([...r.players.values()].flatMap(p => [...(p.shortSegments ?? [])]));
+    for (let i = 0; i < WHEEL.length && short.has(WHEEL[r.resultIndex]!); i++) {
+      r.resultIndex = (r.resultIndex + 1) % WHEEL.length;
+    }
     r.resultSegment = WHEEL[r.resultIndex]!;
     r.topSlot = rollTopSlot();
     r.phase = 'spinning';

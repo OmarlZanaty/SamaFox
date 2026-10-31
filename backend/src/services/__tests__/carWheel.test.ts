@@ -188,7 +188,7 @@ test('concurrent chips from one player never overdraw', async () => {
 });
 
 test('REPEAT validates all segments and the round limit before charging any chip', async () => {
-  __test.lastStakes.set(1, { aurelia: 100, lambrex: 1_000_000 });
+  __test.lastStakes.set(1, { aurelia: 100, lambrex: 1_000_000_000_000 });
   balances.set(1, 5_000_000);
   await placeBet(1, 'lambrex', 100);
   const before = balances.get(1);

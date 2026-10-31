@@ -138,6 +138,8 @@ interface Reservation {
   amount: number;
   stake: number | null;
   at: number;
+  /** Held less than the full prize because the pool was short. */
+  short?: boolean;
 }
 const RESERVATION_TTL_MS = 30 * 60_000;
 const reservations = new Map<string, Reservation>();
@@ -162,7 +164,7 @@ function reservedTotals(game: string, userId: number) {
 
 export type ReserveCode = 'PRIZE_POOL_LOW' | 'PRIZE_FUND_EMPTY' | 'PRIZE_CAP_REACHED' | 'DAILY_WIN_CAP';
 export type ReserveResult =
-  | { ok: true; token: string; cap: number }
+  | { ok: true; token: string; cap: number; short?: boolean }
   | { ok: false; code: ReserveCode; message: string };
 
 /**
@@ -203,17 +205,16 @@ export async function reservePrize(
       message: 'وصلت للحد اليومي لمكاسبك في هذه اللعبة — قلّل المبلغ أو ارجع بكرة',
     };
   }
-  if (held.pool + cap > pool) {
-    return {
-      ok: false,
-      code: 'PRIZE_POOL_LOW',
-      message: 'صندوق جوائز اللعبة لا يغطي هذا الرهان حالياً — قلّل المبلغ أو حاول لاحقاً',
-    };
-  }
+  // Client rule (31/10): a bet is never refused for the pool. When the pool
+  // cannot cover the whole prize, the bet still goes in with what is left
+  // (maybe nothing) held for it; a win beyond that is not paid — the player
+  // simply loses, and the round engines steer shared results away from it.
+  const short = held.pool + cap > pool;
+  const amount = short ? Math.max(0, Math.min(cap, pool - held.pool)) : cap;
 
   const token = `${normalizeGameKey(game)}:${userId}:${nextToken++}`;
-  reservations.set(token, { userId, game, amount: cap, stake: stake ?? null, at: Date.now() });
-  return { ok: true, token, cap };
+  reservations.set(token, { userId, game, amount, stake: stake ?? null, at: Date.now(), short });
+  return { ok: true, token, cap: amount, short };
 }
 
 /** The round ended without a prize (a loss, a refund, a cancelled bet). */
@@ -250,10 +251,12 @@ export async function payPrize(
   const tokens = (Array.isArray(token) ? token : [token]).filter((t): t is string => !!t);
   let reservedAmount: number | null = null;
   let reservedStake: number | null = null;
+  let short = false;
   for (const t of tokens) {
     const r = reservations.get(t);
     reservations.delete(t);
     if (!r) continue;
+    if (r.short) short = true;
     reservedAmount = (reservedAmount ?? 0) + r.amount;
     if (r.stake != null) reservedStake = (reservedStake ?? 0) + r.stake;
   }
@@ -264,7 +267,9 @@ export async function payPrize(
   const effStake = stake ?? reservedStake;
   const ruleCap = await prizeCapFor(game, requested, effStake);
   const cap = reservedAmount != null ? Math.min(reservedAmount, ruleCap) : ruleCap;
-  let amount = Math.min(requested, cap);
+  // A bet taken while the pool was short loses any prize the pool could not
+  // hold for it, rather than being paid a part of it.
+  let amount = short && requested > cap ? 0 : Math.min(requested, cap);
   let capped = amount < requested;
   const account = gamePoolAccount(game);
   const s = today();

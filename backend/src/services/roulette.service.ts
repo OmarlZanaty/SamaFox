@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
 import { getGameSettings, checkGamePlayable } from './gameConfig.service';
+import { steerForPool } from './poolSteer';
 import { grantStakeValue, payPrize, releasePrize, reservePrize } from './halalGames.service';
 import { broadcastGameWin } from './gameBroadcast.service';
 import { CHIPS, MAX_PER_KEY, MULTIPLIERS, WHEEL_ORDER, colorOf, maxPayout, parseBetKey, payoutFor, rollFromSeed } from './roulette.math';
@@ -373,7 +374,7 @@ function advance() {
     return;
   }
   if (r.phase === 'closing') {
-    r.result = rollFromSeed(r.seed, r.dbId!);
+    r.result = steerForPool(rollFromSeed(r.seed, r.dbId!), WHEEL_ORDER, r.players.values(), payoutFor);
     schedule(r, 'spinning');
     broadcast();
     return;

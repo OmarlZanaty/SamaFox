@@ -44,7 +44,8 @@ export const MULTIPLIERS: Record<BetType, number> = {
 /** The same table in tenths, so payouts are integer maths (1.4 × 500 is not 700 in floats). */
 const TENTHS = Object.fromEntries(Object.entries(MULTIPLIERS).map(([k, m]) => [k, Math.round(m * 10)])) as Record<BetType, number>;
 export const CHIPS = [100, 500, 1000, 5000, 10000];
-export const MAX_PER_KEY = 1_000_000;
+// Open betting (client rule): only a sanity bound against overflow.
+export const MAX_PER_KEY = 1_000_000_000_000;
 
 const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 const OUTSIDE: Record<string, number[]> = {

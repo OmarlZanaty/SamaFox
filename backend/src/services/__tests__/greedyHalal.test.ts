@@ -35,9 +35,10 @@ test('greedy: a stake whose prize the pool cannot cover is refused before chargi
 
   const ok = await greedy.placeBet(40, 'chicken', 1_000); // reserves 45,000
   assert.equal(ok.ok, true, JSON.stringify(ok));
-  const no = await greedy.placeBet(40, 'tomato', 100); // needs 400 more
-  assert.deepEqual([no.ok, no.code], [false, 'PRIZE_POOL_LOW']);
-  assert.equal(balances.get(40), 99_000);
+  // Short pool: still taken (client rule), with nothing held for it.
+  const no = await greedy.placeBet(40, 'tomato', 100);
+  assert.equal(no.ok, true, JSON.stringify(no));
+  assert.equal(balances.get(40), 98_900);
 
   await greedy.clearBets(40);
   assert.equal(balances.get(40), 100_000);
@@ -105,11 +106,9 @@ test('greedy: simultaneous requests share the per-symbol allowance', async (t) =
 test('greedy: unset maxBet uses the per-symbol game limit', async (t) => {
   prepare(44, null);
   t.after(() => greedy.stopGreedyCatEngine());
+  // Open betting: only an overflow bound is left.
   const limit = greedy.getLayout().maxBetPerSymbol;
-  assert.ok(Number.isInteger(limit));
-  assert.equal((await greedy.placeBet(44, 'tomato', limit)).ok, true);
-  assert.equal((await greedy.placeBet(44, 'pepper', limit)).ok, true);
-  assert.equal((await greedy.placeBet(44, 'tomato', 100)).code, 'BET_TOO_HIGH');
+  assert.equal(limit, 1_000_000_000_000);
 });
 
 test('greedy: repeat accepts multiple full symbols and rejects an overflowing item before charging', async (t) => {

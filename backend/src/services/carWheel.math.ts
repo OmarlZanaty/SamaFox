@@ -21,7 +21,8 @@ export const WHEEL_ORDER = SEGMENTS.map(s => s.key);
 export const MULTIPLIERS = Object.fromEntries(SEGMENTS.map(s => [s.key, s.multiplier])) as Record<SegmentKey, number>;
 export const TOTAL_WEIGHT = 8942;
 export const CHIPS = [100, 1000, 10000, 100000];
-export const MAX_PER_KEY = 1_000_000;
+// Open betting (client rule): only a sanity bound against overflow.
+export const MAX_PER_KEY = 1_000_000_000_000;
 
 export function assertBalancedTable() {
   if (SEGMENTS.some(s => s.multiplier * s.weight !== 6600)

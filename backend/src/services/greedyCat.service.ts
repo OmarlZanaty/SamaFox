@@ -42,7 +42,8 @@ export const GREEDY_ROOM = 'greedy-cat:main';
 /** Wager tiles, per the Arabic reference screen. */
 export const DENOMINATIONS = [100, 1_000, 5_000, 20_000, 100_000, 500_000];
 export const MIN_BET = 100;
-export const MAX_BET_PER_SYMBOL = 5_000_000;
+// Open betting (client rule): only a sanity bound against overflow.
+export const MAX_BET_PER_SYMBOL = 1_000_000_000_000;
 
 // ── Table layout ────────────────────────────────────────────
 export type SymbolKey =

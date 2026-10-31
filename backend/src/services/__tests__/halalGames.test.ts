@@ -33,10 +33,13 @@ test('reservations are limited by the game pool and by the daily cap, and free u
   assert.equal(a.ok, true);
   const b = await halal.reservePrize(1, 'x', 2_000);
   assert.deepEqual([b.ok, b.code], [false, 'DAILY_WIN_CAP']);
+  // A short pool never refuses (client rule): it holds what is left.
   const c = await halal.reservePrize(2, 'x', 5_001);
-  assert.deepEqual([c.ok, c.code], [false, 'PRIZE_POOL_LOW']);
+  assert.deepEqual([c.ok, (c as any).cap, (c as any).short], [true, 5_000, true]);
   halal.releasePrize(a.token);
-  assert.equal((await halal.reservePrize(2, 'x', 5_001)).ok, true);
+  halal.releasePrize((c as any).token);
+  const d = await halal.reservePrize(2, 'x', 5_001);
+  assert.deepEqual([d.ok, (d as any).cap, (d as any).short], [true, 5_001, false]);
 });
 
 test('payPrize: pool debited and player credited together; capped by round max and payout ratio', async () => {
@@ -87,22 +90,25 @@ test('payPrize: null round and daily caps pay a large prize in full when the poo
   assert.equal(accounts.get('GAME_POOL:x'), 1_000_000);
 });
 
-test('reservePrize refuses a bet whose possible prize exceeds the pool', async () => {
+test('a bet whose possible prize exceeds the pool goes in, and that prize is a loss', async () => {
   reset({ x: 1_999_999 }, { x: { maxWinPerRound: null, dailyMaxWinPerUser: null, maxPayoutRatio: null } });
   balances.set(8, 0);
   const t = await halal.reservePrize(8, 'x', 2_000_000);
-  assert.deepEqual([t.ok, t.code], [false, 'PRIZE_POOL_LOW']);
+  assert.deepEqual([t.ok, (t as any).short], [true, true]);
+  const paid = await halal.payPrize((t as any).token, 8, 'x', 2_000_000);
+  assert.deepEqual([paid.paid, paid.capped], [0, true]);
   assert.equal(balances.get(8), 0);
-  assert.equal(ledger.length, 0);
+  assert.equal(accounts.get('GAME_POOL:x'), 1_999_999);
 });
 
-test('plinko: an empty prize pool refuses the drop before any coin moves', async () => {
+test('plinko: an empty prize pool still takes the drop, and nothing is paid', async () => {
   reset({});
   balances.set(11, 100_000);
   const r = await plinko.dropBall(11, 'high', 16, 1_000);
-  assert.deepEqual([r.ok, r.code], [false, 'PRIZE_POOL_LOW']);
-  assert.equal(balances.get(11), 100_000);
-  assert.equal(xpAwards.length, 0);
+  assert.equal(r.ok, true);
+  assert.equal(balances.get(11), 99_000);
+  // The pool kept its 70% share of the stake and paid nothing out.
+  assert.equal(accounts.get('GAME_POOL:plinko'), 700);
 });
 
 test('plinko tables: every board at or under 80%, and printable as the app prints them', () => {

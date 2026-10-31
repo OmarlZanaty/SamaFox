@@ -97,7 +97,8 @@ export async function resolveSpin(userId:number,rawBets:unknown,requestId:string
         throw new FruitWheelError('DAILY_WIN_CAP','وصلت للحد اليومي لمكاسبك في هذه اللعبة');
       }
       await tx.economyAccount.updateMany({where:{key:pool},data:{balance:{increment:0}}});
-      if (Number(await readBalance(tx,pool) ?? 0n) < reserved.cap) throw new FruitWheelError('PRIZE_POOL_LOW','صندوق الجوائز لا يغطي الرهان');
+      // Never refused for the pool (client rule): a prize the pool cannot pay is a loss.
+      const payable = Math.min(reserved.cap, Number(await readBalance(tx,pool) ?? 0n));
       const ref = `${userId}:${seed.serverSeedHash}:${seed.nonce}`;
       const movement = {refType:GAME,refId:ref,userId};
       const programShare = bpShare(totalBet,settings.programShareBp);
@@ -106,9 +107,9 @@ export async function resolveSpin(userId:number,rawBets:unknown,requestId:string
       await creditAccount(tx,PROGRAM_ACCOUNT,programShare,{...movement,kind:'GAME_STAKE_PROGRAM'});
       await creditAccount(tx,pool,poolShare,{...movement,kind:'GAME_STAKE_POOL'});
       await tx.gameLedger.create({data:{userId,game:GAME,kind:'stake',amount:totalBet,xp,ref,day,programShare,poolShare}});
-      const paid = Math.min(spin.totalPrize,reserved.cap);
+      const paid = spin.totalPrize <= payable ? spin.totalPrize : 0;
       if (paid > 0 && await debitAccount(tx,pool,paid,{...movement,kind:'GAME_PRIZE'}) === null) {
-        throw new FruitWheelError('PRIZE_POOL_LOW','صندوق الجوائز لا يغطي الرهان');
+        throw new FruitWheelError('SPIN_FAILED','تعذر تنفيذ الجولة');
       }
       const user = await tx.user.update({where:{id:userId},data:{coinsBalance:{increment:paid}},select:{coinsBalance:true}});
       const capped = paid < spin.totalPrize;

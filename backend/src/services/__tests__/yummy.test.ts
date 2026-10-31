@@ -208,7 +208,10 @@ test('concurrent spins cannot overdraw the user',async()=>{
 });
 test('empty pool, disabled game and total-bet admin limits reject before charging',async()=>{
   accounts.set('GAME_POOL:yummy',0);
-  await assert.rejects(resolveSpin(701,100,9,'pool'),{code:'PRIZE_POOL_LOW'});
+  // An empty pool takes the spin (client rule); any prize is a loss.
+  const pooled:any=await resolveSpin(701,100,9,'pool');
+  assert.equal(pooled.spin.totalPrize,0);
+  balances.set(701,50000);
   settings.set('game_config',JSON.stringify({yummy:{enabled:false}}));invalidateGameConfigCache();
   await assert.rejects(resolveSpin(701,100,9,'off'),{code:'GAME_DISABLED'});
   settings.set('game_config',JSON.stringify({yummy:{maxBet:800}}));invalidateGameConfigCache();
