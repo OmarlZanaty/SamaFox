@@ -41,11 +41,23 @@ List<String> fruitWinningCards(Map<String, dynamic> j) {
 List<String> fruitHistoryOutcomes(Map<String, dynamic> j) =>
     j['result'] == 'crown' ? ['crown'] : fruitWinningCards(j);
 
-/// Ten equal segments matching the server, with 77 at indices 4 and 9.
+/// Nine equal segments clockwise from the pointer, with a single 77 — the
+/// layout of the client's reference video.
 const fruitSegments = [
-  'watermelon', 'plum', 'watermelon', 'plum', 'sevens', //
-  'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
+  'watermelon', 'plum', 'watermelon', 'plum', 'watermelon', //
+  'plum', 'sevens', 'watermelon', 'plum',
 ];
+
+/// The server still sends an index into its ten-slot wheel; land on a slot of
+/// the same card here, picked from that index so every viewer agrees.
+int fruitLocalSegment(Object? result, int serverSegment) {
+  final slots = [
+    for (var i = 0; i < fruitSegments.length; i++)
+      if (fruitSegments[i] == result) i,
+  ];
+  if (slots.isEmpty) return serverSegment.clamp(0, fruitSegments.length - 1);
+  return slots[serverSegment.abs() % slots.length];
+}
 const fruitChips = [100, 1000, 10000, 100000];
 const fruitTickerLength = 10;
 
@@ -139,7 +151,7 @@ class FruitWheelState {
 
   FruitWheelState.fromJson(Map<String, dynamic> j)
       : tableId = j['tableId']?.toString() ?? '',
-        segment = _int(j['segment']).clamp(0, fruitSegments.length - 1),
+        segment = fruitLocalSegment(j['result'], _int(j['segment'])),
         offset = ((j['offset'] as num?)?.toDouble() ?? .5).clamp(.15, .85),
         round = _int(j['round']),
         msLeft = _int(j['msLeft']),

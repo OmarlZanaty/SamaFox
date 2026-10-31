@@ -7,6 +7,7 @@ import '../../providers/auth_provider.dart';
 import '../../repositories/fruit_wheel_repository.dart';
 import '../../services/socket_service.dart';
 import '../wallet_screen.dart';
+import 'room_native_game.dart';
 import 'fruit_wheel_art.dart';
 import 'fruit_wheel_engine.dart';
 import 'fruit_wheel_preferences.dart';
@@ -14,7 +15,7 @@ import 'fruit_wheel_sfx.dart';
 import 'fruit_wheel_sheets.dart';
 import 'fruit_wheel_strings.dart';
 
-class FruitWheelScreen extends ConsumerStatefulWidget {
+class FruitWheelScreen extends ConsumerStatefulWidget implements RoomNativeGame {
   final FruitWheelRepository? repository;
   final bool live;
   const FruitWheelScreen({super.key, this.repository, this.live = true});
@@ -491,6 +492,10 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
   /// in which case it takes the height that is left.
   Widget _game(int balance, int? userId) => LayoutBuilder(
         builder: (context, box) {
+          // The room's games card is about square.
+          if (box.maxWidth > box.maxHeight * .75 && box.maxHeight < 700) {
+            return _roomGame(balance, box);
+          }
           final width = min(box.maxWidth, 560.0);
           // Fits one screen from 640 px tall; only tiny phones (iPhone SE 1st
           // gen) scroll, and then a 640-tall layout rather than a squashed one.
@@ -521,6 +526,256 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
           );
         },
       );
+
+  /// The room layout from the client's reference video: history down the
+  /// left, the wheel as large as the card allows, the buttons down the right,
+  /// then three big cards and the chips. Laid out at full size, no scaling.
+  Widget _roomGame(int balance, BoxConstraints box) {
+    const cardsH = 92.0, barH = 50.0, side = 44.0;
+    final stageH = max(0.0, box.maxHeight - cardsH - barH - 18);
+    final wheel = min(box.maxWidth - 2 * side - 8, stageH);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Column(
+        children: [
+          const SizedBox(height: 4),
+          SizedBox(
+            height: stageH,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: side,
+                  child: Column(
+                    children: [
+                      _RoundButton(
+                        icon: _arabic ? Icons.arrow_forward : Icons.arrow_back,
+                        label: _s.text('back'),
+                        onTap: () => Navigator.maybePop(context),
+                        size: 34,
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(color: fwRed, borderRadius: BorderRadius.circular(8)),
+                        child: Text(_s.text('new'),
+                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)),
+                      ),
+                      Expanded(
+                        child: Container(
+                          margin: const EdgeInsets.only(top: 3),
+                          width: 34,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(17),
+                            color: fwPurpleDeep.withValues(alpha: .8),
+                            border: Border.all(color: fwPurpleLight.withValues(alpha: .7)),
+                          ),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            itemCount: _ticker.length,
+                            itemBuilder: (_, i) => Semantics(
+                              label: _ticker[i].map((card) => card == 'crown' ? '—' : _s.text(card)).join(' + '),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 1),
+                                child: Column(
+                                  children: [
+                                    for (final card in _ticker[i]) FruitArt(card, size: i == 0 ? 28 : 24),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: wheel,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned.fill(child: _wheel()),
+                          if (_notice != null)
+                            Positioned(
+                              left: -30,
+                              right: -30,
+                              bottom: wheel * .04,
+                              child: IgnorePointer(
+                                child: Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      color: const Color(0xEE1F0A3D),
+                                      border: Border.all(color: fwGold, width: 1.5),
+                                    ),
+                                    child: Text(
+                                      _notice!,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(color: fwCream, fontSize: 13, fontWeight: FontWeight.w800),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: side,
+                  child: Column(
+                    children: [
+                      _RoundButton(icon: Icons.emoji_events, label: _s.text('leaders'), onTap: _openLeaders, size: 34),
+                      const SizedBox(height: 5),
+                      _RoundButton(icon: Icons.question_mark, label: _s.text('help'), onTap: _openHelp, size: 30),
+                      const SizedBox(height: 5),
+                      _RoundButton(icon: Icons.receipt_long, label: _s.text('history'), onTap: _openHistory, size: 30),
+                      const SizedBox(height: 5),
+                      _RoundButton(
+                        icon: _sound ? Icons.volume_up : Icons.volume_off,
+                        label: _s.text(_sound ? 'soundOff' : 'soundOn'),
+                        onTap: () => _setSound(!_sound),
+                        size: 30,
+                      ),
+                      const Spacer(),
+                      _RoundButton(
+                        icon: Icons.repeat,
+                        label: _s.text('repeatBets'),
+                        onTap: _busy ? null : () => _send(_repository.repeat),
+                        size: 34,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: cardsH,
+            child: Row(
+              children: [
+                for (final card in fruitCards)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: _roomCard(card),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: barH,
+            child: Row(
+              children: [
+                const Icon(Icons.monetization_on, color: fwGold, size: 18),
+                const SizedBox(width: 3),
+                Text(fruitCompact(balance),
+                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      children: [
+                        for (final chip in _chips)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            child: _Chip(
+                              value: chip,
+                              selected: chip == _chip,
+                              onTap: _busy ? null : () => _pickChip(chip),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: _s.text('undo'),
+                  visualDensity: VisualDensity.compact,
+                  color: fwCream,
+                  onPressed: _busy ? null : () => _send(_repository.undo),
+                  icon: const Icon(Icons.undo, size: 20),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  /// A reference-style card: pot on top, symbol and multiplier side by side,
+  /// the player's own stake (or win) at the bottom.
+  Widget _roomCard(String card) {
+    final mine = bets[card];
+    final winning = state?.phase == 'result' && state!.results.contains(card);
+    final won = winning && state?.bonus == null ? _payout : 0;
+    final bottom = won > 0 ? '+${fruitCompact(won)}' : fruitCompact(mine);
+    return Semantics(
+      button: true,
+      label:
+          '${_s.text(card)} ${fruitMultiplierLabel(_multipliers[card]!)}, ${_s.text('yourBet')}: $mine',
+      child: _Pressable(
+        onTap: _busy ? null : () => placeChip(card),
+        child: AnimatedBuilder(
+          animation: _glow,
+          builder: (context, _) => Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFFB02BC9), Color(0xFF6A1696)],
+              ),
+              border: Border.all(color: winning ? fwCream : fwGold, width: winning ? 3 : 2.5),
+              boxShadow: [
+                if (winning) BoxShadow(color: fwGold.withValues(alpha: .8 * _glow.value), blurRadius: 16, spreadRadius: 2),
+              ],
+            ),
+            child: Column(
+              children: [
+                Text(fruitCompact(state?.totals[card] ?? 0),
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800)),
+                Expanded(
+                  child: FittedBox(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FruitArt('capsule_$card', size: 52),
+                        Text(
+                          fruitMultiplierLabel(_multipliers[card]!),
+                          style: const TextStyle(
+                            color: fwGold,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
+                            shadows: [Shadow(color: fwGoldDark, offset: Offset(0, 2))],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Text(bottom,
+                    style: TextStyle(
+                      color: won > 0 ? fwGreen : fwGold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    )),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _header(int balance) => Padding(
         padding: const EdgeInsets.only(top: 6),

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../screens/games_hub_screen.dart';
+import '../../screens/games/room_native_game.dart';
 import '../../l10n/tr.dart';
 
 /// Floating room games card with its own navigator.
@@ -41,6 +42,9 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
   final _nav = GlobalKey<NavigatorState>();
   bool _inGame = false;
 
+  /// The open game lays itself out for this card: no header bar over it.
+  bool _native = false;
+
   void _back() {
     final nav = _nav.currentState;
     if (nav != null && nav.canPop()) {
@@ -55,8 +59,10 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
     final mq = MediaQuery.of(context);
     final screen = mq.size;
     final width = math.max(0.0, screen.width - 12);
-    final sheetH = (width * 1.12).clamp(0.0, screen.height * .64);
-    const headerH = 36.0;
+    // Still about square, a little taller than wide; the client wants the
+    // games big and centred with the mics visible above.
+    final sheetH = (width * 1.2).clamp(0.0, screen.height * .64);
+    final headerH = _native ? 0.0 : 36.0;
 
     return PopScope(
       canPop: !_inGame,
@@ -76,7 +82,7 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
         clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
-            SizedBox(
+            if (headerH > 0) SizedBox(
               height: headerH,
               child: Row(
                 children: [
@@ -101,8 +107,13 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
             Expanded(
               child: Navigator(
                 key: _nav,
-                observers: [_InGameObserver((v) {
-                  if (mounted && v != _inGame) setState(() => _inGame = v);
+                observers: [_InGameObserver((v, native) {
+                  if (mounted && (v != _inGame || native != _native)) {
+                    setState(() {
+                      _inGame = v;
+                      _native = native;
+                    });
+                  }
                 })],
                 onGenerateRoute: (_) => MaterialPageRoute(
                   builder: (_) => widget.initial != null
@@ -131,8 +142,14 @@ class _ScaledCanvas extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!scale) return child;
     final mq = MediaQuery.of(context);
+    if (!scale) return child;
+    if (child is RoomNativeGame) {
+      return MediaQuery(
+        data: mq.copyWith(padding: EdgeInsets.zero, viewPadding: EdgeInsets.zero),
+        child: child,
+      );
+    }
     return LayoutBuilder(builder: (context, box) {
       if (box.maxHeight <= 0 || box.maxWidth <= 0) return const SizedBox.shrink();
       final designH = math.max(box.maxHeight, 640.0);
@@ -154,22 +171,28 @@ class _ScaledCanvas extends StatelessWidget {
 }
 
 /// Wraps any page a game pushes inside the sheet so it is scaled too.
-Route<T> roomGameRoute<T>(Widget page) => MaterialPageRoute<T>(builder: (_) => _ScaledCanvas(child: page));
+Route<T> roomGameRoute<T>(Widget page) => MaterialPageRoute<T>(
+      settings: RouteSettings(name: page is RoomNativeGame ? _nativeRoute : null),
+      builder: (_) => _ScaledCanvas(child: page),
+    );
+
+const _nativeRoute = 'room-native-game';
 
 class _InGameObserver extends NavigatorObserver {
   _InGameObserver(this.onChange);
-  final void Function(bool inGame) onChange;
+  final void Function(bool inGame, bool native) onChange;
 
-  void _update() {
+  void _update(Route<dynamic>? top) {
     final nav = navigator;
     if (nav == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) => onChange(nav.canPop()));
+    final native = top?.settings.name == _nativeRoute;
+    WidgetsBinding.instance.addPostFrameCallback((_) => onChange(nav.canPop(), native));
   }
 
   @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => _update();
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => _update(route);
   @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => _update();
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => _update(previousRoute);
   @override
-  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) => _update();
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) => _update(previousRoute);
 }

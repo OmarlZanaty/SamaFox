@@ -110,6 +110,22 @@ int _coins(WidgetTester tester) =>
     ProviderScope.containerOf(tester.element(find.byType(RouletteScreen))).read(authStateProvider).user!.coinsBalance ?? 0;
 
 void main() {
+  testWidgets('room games card: big wheel and the eight reference bets', (tester) async {
+    final repository = _Repository();
+    await _mount(tester, repository, size: const Size(381, 457));
+    expect(tester.takeException(), isNull);
+    for (final label in ['0', '1-12', '13-24', '25-36']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    await tester.tap(find.text('13-24'));
+    await _settle(tester);
+    expect(repository.stakes['dozen2'], 1000);
+    await tester.tap(find.text('أحمر'));
+    await _settle(tester);
+    expect(repository.stakes['red'], 1000);
+    await _unmount(tester);
+  });
+
   group('engine', () {
     test('European wheel: 37 pockets, one zero, standard order, alternating colours', () {
       expect(rouletteWheel.length, 37);

@@ -268,12 +268,11 @@ class _CapsulePainter extends CustomPainter {
   bool shouldRepaint(_CapsulePainter old) => false;
 }
 
-/// Two pink 77 wedges separate the alternating blue wedges.
+/// One pink 77 wedge; watermelon and plum wedges alternate two blues.
 Color fruitSegmentColor(int index) => switch (fruitSegments[index]) {
       'sevens' => fwPink,
-      _ => (index < 4 ? index : index - 1).isEven
-          ? const Color(0xFF087EDB)
-          : const Color(0xFF0B5FC4),
+      'watermelon' => const Color(0xFF087EDB),
+      _ => const Color(0xFF0B5FC4),
     };
 
 /// The wheel face, rim and bulbs. [angle] turns only the face.

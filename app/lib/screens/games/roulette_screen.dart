@@ -13,11 +13,12 @@ import 'roulette_engine.dart';
 import 'roulette_sfx.dart';
 import 'roulette_sheets.dart';
 import 'roulette_strings.dart';
+import 'room_native_game.dart';
 
 /// الروليت: one European single-zero table shared by everyone. Bets go in
 /// while the timer runs; the server rolls the committed seed, the wheel and
 /// ball replay it, and winners are paid from the game's prize pool.
-class RouletteScreen extends ConsumerStatefulWidget {
+class RouletteScreen extends ConsumerStatefulWidget implements RoomNativeGame {
   final RouletteRepository? repository;
 
   /// Off in tests: the shared table is then fed through [RouletteScreenState.applyState].
@@ -531,6 +532,11 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
   /// left to right, with the outside bets along its bottom edge.
   Widget _game(int balance) => LayoutBuilder(
         builder: (context, box) {
+          // The room's games card is about square: the client's reference
+          // table (big wheel, eight outside bets, chips) at full size.
+          if (box.maxWidth > box.maxHeight * .75 && box.maxHeight < 700) {
+            return _roomTable(balance, box);
+          }
           final width = min(box.maxWidth, 560.0);
           return Center(
             child: SizedBox(
@@ -591,6 +597,291 @@ class RouletteScreenState extends ConsumerState<RouletteScreen>
             ),
           );
         },
+      );
+
+  /// "62000" → "62K".
+  static String _short(int v) => v >= 1000000
+      ? '${(v / 1000000).toStringAsFixed(v % 1000000 == 0 ? 0 : 1)}M'
+      : v >= 10000
+          ? '${v ~/ 1000}K'
+          : '$v';
+
+  /// The room layout: wheel on top with the menu, ranking, last result and
+  /// timer around it, then 0 / dozens and red / black / odd / even, then the
+  /// balance and chips. Nothing is scaled down.
+  Widget _roomTable(int balance, BoxConstraints box) {
+    const gridH = 120.0, barH = 46.0, totalsH = 34.0;
+    final stageH = max(0.0, box.maxHeight - gridH - barH - totalsH - 8);
+    final wheel = min(box.maxWidth * .66, stageH);
+    final history = state?.history ?? const <int>[];
+    final last = history.isEmpty ? null : history.last;
+    Widget corner(Widget child, {double? left, double? right, double? top, double? bottom}) =>
+        Positioned(left: left, right: right, top: top, bottom: bottom, child: child);
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [rlNavy, rlFeltDark, rlFelt],
+          stops: [0, .45, 1],
+        ),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            height: stageH,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Center(
+                  child: SizedBox.square(
+                    dimension: wheel,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.center,
+                      children: [
+                        _wheelBlock(wheel),
+                        if (_notice != null)
+                          Positioned(left: -40, right: -40, bottom: wheel * .04, child: _noticeView()),
+                      ],
+                    ),
+                  ),
+                ),
+                corner(
+                  _RoundButton(icon: Icons.arrow_back, label: _s.text('back'), onTap: () => Navigator.maybePop(context), size: 36),
+                  left: 8, top: 6,
+                ),
+                corner(
+                  _RoundButton(icon: Icons.menu, label: _s.text('settings'), onTap: _openSettings, size: 32),
+                  left: 10, top: 50,
+                ),
+                corner(
+                  _RoundButton(icon: Icons.question_mark, label: _s.text('help'), onTap: _openHelp, size: 32),
+                  left: 10, top: 88,
+                ),
+                corner(
+                  Semantics(
+                    button: true,
+                    label: _s.text('ranking'),
+                    child: GestureDetector(
+                      onTap: _openRanking,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.emoji_events, color: rlGold, size: 30),
+                          Text(_s.text('ranking'),
+                              style: const TextStyle(color: rlGoldLight, fontSize: 11, fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  right: 8, top: 4,
+                ),
+                corner(
+                  Semantics(
+                    button: true,
+                    label: _s.text('history'),
+                    child: GestureDetector(
+                      onTap: _openHistory,
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(8, 3, 8, 5),
+                        decoration: BoxDecoration(
+                          color: rlFeltDark,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: rlFeltBorder),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('${_s.text('new')} ›',
+                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 2),
+                            if (last != null) rouletteBall(last, size: 26, ring: true) else const SizedBox(height: 26),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  left: 8, bottom: 4,
+                ),
+                corner(
+                  _RoundButton(icon: Icons.people, label: _s.text('players'), onTap: _openPlayers, size: 38),
+                  right: 12, bottom: 48,
+                ),
+                corner(
+                  ValueListenableBuilder<int>(
+                    valueListenable: _seconds,
+                    builder: (_, sec, __) => Container(
+                      width: 46,
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: rlBlack,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: rlFeltBorder, width: 2),
+                      ),
+                      child: Text(
+                        _betting ? '$sec' : '--',
+                        style: const TextStyle(
+                          color: Color(0xFF7CF7C0),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ),
+                  right: 8, bottom: 6,
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: totalsH,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text.rich(
+                  TextSpan(children: [
+                    TextSpan(text: '${_s.text('totalBet')}: '),
+                    TextSpan(text: '${state?.totalBet ?? 0}', style: const TextStyle(color: rlGold)),
+                  ]),
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+                Text('${_s.text('myTotalBet')}: $_myTotal',
+                    style: const TextStyle(color: rlGoldLight, fontSize: 11, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: gridH,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Column(
+                children: [
+                  for (final row in const [
+                    ['n:0', 'dozen1', 'dozen2', 'dozen3'],
+                    ['red', 'black', 'odd', 'even'],
+                  ])
+                    Expanded(
+                      child: Row(
+                        children: [for (final key in row) Expanded(child: _roomCell(key))],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          SizedBox(height: barH, child: _roomChipBar(balance)),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _roomCell(String key) {
+    final result = state?.phase == 'result' && _landed != null ? state?.result : null;
+    final bet = rouletteBet(key)!;
+    final mine = myStakes[key] ?? 0, all = state?.totals[key] ?? 0;
+    final wins = result != null && bet.numbers.contains(result);
+    final label = switch (key) {
+      'n:0' => '0',
+      'dozen1' => '1-12',
+      'dozen2' => '13-24',
+      'dozen3' => '25-36',
+      _ => _s.text(key),
+    };
+    final m = bet.multiplier;
+    final mult = '×${m == m.roundToDouble() ? m.toStringAsFixed(0) : m}';
+    return Padding(
+      padding: const EdgeInsets.all(2),
+      child: Semantics(
+        button: true,
+        label: '$label $mult, ${_s.text('myTotalBet')}: $mine',
+        child: GestureDetector(
+          onTap: _betting ? () => placeChip(key) : null,
+          child: Container(
+            decoration: BoxDecoration(
+              color: wins ? rlGold.withValues(alpha: .35) : const Color(0x33000000),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: wins ? rlGoldLight : rlFeltBorder.withValues(alpha: .8),
+                width: wins ? 2 : 1,
+              ),
+            ),
+            child: Column(
+              children: [
+                Text('${_short(mine)}/${_short(all)}',
+                    maxLines: 1,
+                    style: const TextStyle(color: rlGoldLight, fontSize: 10, fontWeight: FontWeight.w700)),
+                Expanded(
+                  child: FittedBox(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(label,
+                          style: TextStyle(
+                            color: key == 'red' ? const Color(0xFFFF5A64) : Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          )),
+                    ),
+                  ),
+                ),
+                Text(mult,
+                    style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _roomChipBar(int balance) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        color: const Color(0x66000000),
+        child: Row(
+          children: [
+            const Icon(Icons.monetization_on, color: rlGold, size: 16),
+            const SizedBox(width: 3),
+            Text(_short(balance),
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (final value in rouletteChips)
+                    Semantics(
+                      button: true,
+                      selected: value == chip,
+                      label: '$value',
+                      child: GestureDetector(
+                        onTap: () => _pickChip(value),
+                        child: Container(
+                          padding: const EdgeInsets.all(1.5),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: value == chip ? rlGoldLight : Colors.transparent,
+                              width: 2.5,
+                            ),
+                          ),
+                          child: RouletteChip(value: value, size: value == chip ? 34 : 30),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            _RoundButton(
+              icon: _myTotal > 0 ? Icons.undo : Icons.replay,
+              label: _s.text(_myTotal > 0 ? 'undo' : 'rebet'),
+              onTap: !_betting ? null : (_myTotal > 0 ? _undo : _rebet),
+              size: 32,
+            ),
+          ],
+        ),
       );
 
   Widget _header(int balance) => Padding(

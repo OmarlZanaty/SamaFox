@@ -120,6 +120,19 @@ Future<FruitWheelScreenState> _mount(
 }
 
 void main() {
+  testWidgets('room games card: reference layout at full size, bets land', (t) async {
+    final repo = _Repository();
+    // The room's card on a 393-wide phone, header hidden.
+    await _mount(t, repo, size: const Size(381, 457));
+    expect(t.takeException(), isNull);
+    final wheel = t.getSize(find.byType(CustomPaint).first);
+    expect(wheel.width, greaterThan(250));
+    await t.tap(find.text('×8'));
+    await t.pumpAndSettle();
+    expect(repo.stakes['sevens'], 100);
+    await t.pumpWidget(const SizedBox());
+  });
+
   test('bonus state reads all winners and falls back to legacy primary/history', () {
     final legacy = FruitWheelState.fromJson({'result': 'plum', 'history': ['plum']});
     expect(legacy.results, ['plum']);
@@ -166,7 +179,7 @@ void main() {
         final painter = t.widgetList<CustomPaint>(find.byType(CustomPaint))
             .map((w) => w.painter).whereType<FruitWheelPainter>().single;
         expect(painter.winningCards, cards);
-        expect(fruitSegmentAt(painter.angle), 1);
+        expect(fruitSegments[fruitSegmentAt(painter.angle)], 'plum');
         expect(game.state!.myPayout, 1234);
         expect(t.takeException(), isNull);
       }
@@ -198,13 +211,13 @@ void main() {
     expect(bets.add('crown', 100, 1000), false);
     expect(fruitMultipliers, {'watermelon': 2, 'sevens': 8, 'plum': 2});
     expect(fruitSegments, [
-      'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
-      'watermelon', 'plum', 'watermelon', 'plum', 'sevens',
+      'watermelon', 'plum', 'watermelon', 'plum', 'watermelon',
+      'plum', 'sevens', 'watermelon', 'plum',
     ]);
-    expect(fruitSegments.length, 10);
+    expect(fruitSegments.where((s) => s == 'sevens').length, 1);
     expect(fruitTickerLength, 10);
   });
-  test('server segment and offset land under pointer across all ten wedges',
+  test('server segment and offset land under pointer across all nine wedges',
       () {
     for (var segment = 0; segment < fruitSegments.length; segment++) {
       for (final offset in [.15, .5, .85]) {
@@ -229,14 +242,21 @@ void main() {
       },
     });
     expect(s.result, isNull);
-    expect(s.segment, 9);
+    expect(s.segment, 8);
     expect(s.offset, .23);
     expect(s.history, ['watermelon', 'crown']);
     expect(s.myStaked, 100);
     expect(s.betting, false);
     expect(FruitWheelState.fromJson({'segment': -1}).segment, 0);
     expect(FruitWheelState.fromJson({'result': 'bonus'}).result, isNull);
-    expect(FruitWheelState.fromJson({'segment': 42}).segment, 9);
+    expect(FruitWheelState.fromJson({'segment': 42}).segment, 8);
+    // Any server slot of a card lands on that card on the nine-slot wheel.
+    for (var i = 0; i < 10; i++) {
+      for (final card in ['watermelon', 'plum', 'sevens']) {
+        final s = FruitWheelState.fromJson({'result': card, 'segment': i});
+        expect(fruitSegments[s.segment], card);
+      }
+    }
   });
   test('adjacent wheel colors differ including the wraparound seam', () {
     for (var i = 0; i < fruitSegments.length; i++) {
