@@ -135,6 +135,17 @@ async function call(handler: (req: any, res: any) => Promise<any>, body: Row, us
 }
 
 for (const handler of [agencyTransferCoins, sendCoinsToUser]) {
+  // «لا استطيع شحن محفظتي لنفسي، المطلوب امكانية الشحن لنفسي علي المحفظه»
+  test(`${handler.name}: an agent charging themself fills their own personal wallet`, async () => {
+    const result = await call(handler, { userId: 10, toUserId: 10, amount: 25 });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.wallet ?? result.body.data?.wallet, 'personal');
+    assert.equal(seats[0]!.agencyWalletCoins, 75n);
+    assert.equal(users[0]!.coinsBalance, 525);
+    assert.equal(users[0]!.totalRecharge, 0);
+    assert.equal(transactions[0]!.type, 'AGENCY_WALLET_WITHDRAW');
+  });
+
   test(`${handler.name}: sale spends only the seller's agency wallet`, async () => {
     const result = await call(handler, { userId: 30, toUserId: 30, amount: 25 });
     assert.equal(result.status, 200);

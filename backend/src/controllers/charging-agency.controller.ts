@@ -57,7 +57,9 @@ export async function moveAgencyWallet(userId: number, toUserId: number, amount:
   if (!Number.isSafeInteger(amount) || amount <= 0 || amount > MAX_COINS_BALANCE ||
       !Number.isSafeInteger(toUserId) || toUserId <= 0 ||
       (agencyId !== undefined && (!Number.isSafeInteger(agencyId) || agencyId <= 0))) throw new AgencyWalletError(400, 'Invalid amount/userId/agencyId');
-  if (!withdraw && userId === toUserId) throw new AgencyWalletError(400, 'Cannot charge yourself');
+  // Charging yourself (client request 30/10) moves agency coins into your own
+  // personal wallet — the same as «تحويل إلى محفظتي الشخصية».
+  if (userId === toUserId) withdraw = true;
   return prisma.$transaction(async tx => {
     const seat = await tx.agencyMember.findFirst({
       where: { userId, ...(agencyId !== undefined ? { agencyId } : {}), role: { in: ['OWNER', 'BRANCH'] }, agency: { type: 'CHARGING', status: 'approved' } },

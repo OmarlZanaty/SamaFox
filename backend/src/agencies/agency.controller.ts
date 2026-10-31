@@ -714,9 +714,12 @@ export const searchUserForInvite = async (req: AuthReq, res: Response) => {
     if (!q) return fail(res, 400, 'q required');
 
     const numQ = /^\d+$/.test(q) ? Number(q) : null;
+    // The charge dialog may find the agent themself (client: «امكانية الشحن
+    // لنفسي علي المحفظه»); invites never list yourself.
+    const includeSelf = ['1', 'true'].includes(String((req.query as any)?.includeSelf ?? ''));
     const users = await db.user.findMany({
       where: {
-        id: { not: userId },
+        ...(includeSelf ? {} : { id: { not: userId } }),
         OR: [
           ...(numQ !== null ? [{ id: (await resolveUserByPublicId(numQ))?.id ?? -1 }] : []),
           { name: { contains: q, mode: 'insensitive' } },

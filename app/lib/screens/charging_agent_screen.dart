@@ -658,7 +658,8 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
           if (q.isEmpty) return;
           setState(() { searching = true; error = null; foundUser = null; });
           try {
-            final resp = await DioClient.dio.get('/agencies/search-user', queryParameters: {'q': q});
+            // includeSelf: an agent may charge their own personal wallet.
+            final resp = await DioClient.dio.get('/agencies/search-user', queryParameters: {'q': q, 'includeSelf': 1});
             final list = (resp.data is Map) ? (resp.data['data'] as List? ?? const []) : const [];
             if (!context.mounted) return;
             if (list.isNotEmpty) {
@@ -667,7 +668,9 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
               if (!context.mounted) return;
               setState(() {
                 foundUser = user;
-                recipientIsAgent = recipient.data['isChargingAgent'] == true;
+                // Charging yourself always lands in your personal wallet.
+                recipientIsAgent = recipient.data['isChargingAgent'] == true &&
+                    user['id'] != ref.read(authStateProvider).user?.id;
                 searching = false;
               });
             } else {
