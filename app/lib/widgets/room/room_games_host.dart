@@ -61,7 +61,14 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
     final width = math.max(0.0, screen.width - 12);
     // Still about square, a little taller than wide; the client wants the
     // games big and centred with the mics visible above.
-    final sheetH = (width * 1.2).clamp(0.0, screen.height * .64);
+    // A full-screen game scaled into the card gets a taller card (client
+    // 31/10: «باقي الالعاب عاوز اكبرها زي 77»): ~92% of its size, not ~72%,
+    // with the first row of mics still in view.
+    final scaledGame = !_native &&
+        (_inGame || (widget.initial != null && widget.initial is! RoomNativeGame));
+    final sheetH = scaledGame
+        ? (width * 1.5).clamp(0.0, screen.height * .72)
+        : (width * 1.2).clamp(0.0, screen.height * .64);
     final headerH = _native ? 0.0 : 36.0;
 
     return PopScope(
