@@ -152,7 +152,10 @@ class _ScaledCanvas extends StatelessWidget {
     }
     return LayoutBuilder(builder: (context, box) {
       if (box.maxHeight <= 0 || box.maxWidth <= 0) return const SizedBox.shrink();
-      final designH = math.max(box.maxHeight, 640.0);
+      // Client 31/10: «كل الالعاب كبر شكلهم». 580 dp is the usable height of a
+      // small phone, which every game already lays out in — any taller design
+      // only shrinks the game further inside the card.
+      final designH = math.max(box.maxHeight, 580.0);
       final k = box.maxHeight / designH;
       final canvas = Size(box.maxWidth / k, designH);
       return FittedBox(
