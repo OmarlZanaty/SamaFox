@@ -308,6 +308,12 @@ test('the dashboard appoints Super Admins / Admins under a live Manager it names
   assert.equal(admin.parentUserId, 2);
   assert.deepEqual((await call(9, 'me')).permissions.sort(), ['manage_host_agency', 'role_panel']);
 });
+test('a role reward deleted from the store does not block appointing a Manager', async () => {
+  tables.appSetting!.push({ id: 950, key: 'staff_role_rewards', value: JSON.stringify({ MANAGER: ['frame', 'deleted-item'], SUPER_ADMIN: [], ADMIN: [] }) });
+  const manager = await call(99, 'appoint', { displayId: 10008, role: 'MANAGER', days: 30 }, {}, true);
+  assert.equal(manager.role, 'MANAGER');
+  assert.deepEqual(tables.temporaryEntitlement!.filter(g => g.staffRoleId === manager.id).map(g => g.itemId), ['frame']);
+});
 test('only a Manager grants up to VIP 10 / Level 30; Super Admins stay at VIP 5 / Level 20', async () => {
   assert.equal((await call(1, 'vipGrant', { userId: 8, level: 10 })).value, 10);
   assert.equal((await call(1, 'levelGrant', { userId: 8, level: 30 })).value, 30);

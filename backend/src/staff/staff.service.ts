@@ -242,7 +242,10 @@ async function syncRewards(c: Context, role: StaffRole) {
       await c.db.temporaryEntitlement.update({ where: { id: grant.id }, data: { expiresAt: role.expiresAt, previousValue } });
     }
   }
-  for (const id of desired) if (!active.some(g => g.itemId === id)) await applyItemGrant(c, role.userId, id, role.expiresAt, 'ROLE_REWARD', role.id);
+  // A reward product deleted from the store after it was configured is skipped;
+  // it used to fail every Manager appointment with 404 «المنتج غير موجود» (client 31/10).
+  const live = new Set((await c.db.item.findMany({ where: { id: { in: desired } }, select: { id: true } })).map(i => i.id));
+  for (const id of desired) if (live.has(id) && !active.some(g => g.itemId === id)) await applyItemGrant(c, role.userId, id, role.expiresAt, 'ROLE_REWARD', role.id);
 }
 
 async function endRole(c: Context, role: StaffRole, status: 'EXPIRED' | 'REVOKED') {
