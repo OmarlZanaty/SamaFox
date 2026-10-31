@@ -196,9 +196,9 @@ model MusicTrack {
 // ============================================
 
 model Room {
-  id                  Int       @id @default(autoincrement())
-  chatLocked          Boolean   @default(false)
-  micRequestRequired  Boolean   @default(false)
+  id                  Int             @id @default(autoincrement())
+  chatLocked          Boolean         @default(false)
+  micRequestRequired  Boolean         @default(false)
   chatBlocks          RoomChatBlock[]
   name                String
   description         String?
@@ -208,28 +208,28 @@ model Room {
   // owned: this is when it reverts. null = the free/default background.
   backgroundExpiresAt DateTime?
   ownerId             Int
-  type                String    @default("public")
+  type                String          @default("public")
   passwordHash        String?
-  maxSeats            Int       @default(8)
-  isActive            Boolean   @default(true)
-  xp                  Int       @default(0)
-  level               Int       @default(1)
+  maxSeats            Int             @default(8)
+  isActive            Boolean         @default(true)
+  xp                  Int             @default(0)
+  level               Int             @default(1)
   activeThemeId       String?
-  isLocked            Boolean   @default(false)
+  isLocked            Boolean         @default(false)
   accessCode          String? // 5-digit PIN required to enter when isLocked (owner/admins bypass)
-  nameLocked          Boolean   @default(false) // when true, owner cannot rename the room (dashboard-controlled)
+  nameLocked          Boolean         @default(false) // when true, owner cannot rename the room (dashboard-controlled)
   backgroundMusicUrl  String?
-  muteGiftSounds      Boolean   @default(false)
-  muteEntranceSounds  Boolean   @default(false)
+  muteGiftSounds      Boolean         @default(false)
+  muteEntranceSounds  Boolean         @default(false)
   contributionResetAt DateTime? // #4: admin reset point for per-user room coin counters
   // 'USER' | 'OFFICIAL_ROOM'. An official room is never closed or deleted by
   // anything automatic, nor by its owner — only from the dashboard or by an
   // admin holding OFFICIAL_ROOM_MANAGE.
-  roomType            String    @default("USER")
+  roomType            String          @default("USER")
   // Whether a HIDDEN_MODE holder may enter this room while it is locked
   // without the password (they are asked first, and the server re-checks).
-  allowHiddenEntry    Boolean   @default(true)
-  createdAt           DateTime  @default(now())
+  allowHiddenEntry    Boolean         @default(true)
+  createdAt           DateTime        @default(now())
 
   owner           User              @relation("RoomOwner", fields: [ownerId], references: [id])
   members         RoomMember[]
@@ -1054,7 +1054,7 @@ model RoomGiftJob {
 }
 
 model ChargingAgency {
-  walletFrozen Boolean @default(false)
+  walletFrozen   Boolean               @default(false)
   id             Int                   @id @default(autoincrement())
   userId         Int
   agencyName     String
@@ -1242,14 +1242,14 @@ model TargetMovement {
 }
 
 model AgencyMember {
-  agencyWalletCoins BigInt @default(0)
-  id       Int            @id @default(autoincrement())
-  agencyId Int
-  agency   ChargingAgency @relation(fields: [agencyId], references: [id])
-  userId   Int
-  user     User           @relation(fields: [userId], references: [id])
-  role     String         @default("MEMBER")
-  joinedAt DateTime       @default(now())
+  agencyWalletCoins BigInt         @default(0)
+  id                Int            @id @default(autoincrement())
+  agencyId          Int
+  agency            ChargingAgency @relation(fields: [agencyId], references: [id])
+  userId            Int
+  user              User           @relation(fields: [userId], references: [id])
+  role              String         @default("MEMBER")
+  joinedAt          DateTime       @default(now())
 
   // Per-member TARGET GOAL set by the agency owner/admin. The member's *earned*
   // amount is derived from gifts received since joinedAt (excluding self-gifts);
@@ -1313,7 +1313,7 @@ model TargetSale {
 }
 
 model AgencyInvite {
-  role String @default("MEMBER")
+  role        String         @default("MEMBER")
   id          Int            @id @default(autoincrement())
   agencyId    Int
   agency      ChargingAgency @relation(fields: [agencyId], references: [id])
@@ -1502,40 +1502,42 @@ model GiftOperation {
   requestHash  String
   responseBody Json
   createdAt    DateTime @default(now())
+
   @@map("gift_operations")
 }
 
 model GiftDelivery {
-  transactionId String @id
+  transactionId String    @id
   payload       Json
   deliveredAt   DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
+
   @@index([deliveredAt, createdAt])
   @@map("gift_deliveries")
 }
 
 model GiftTransaction {
-  clientRequestId String? @unique
+  clientRequestId String?  @unique
   operationId     String?
   seatNumber      Int?
   targetType      String?
   eventSnapshot   Json?
-  id          String   @id @default(cuid())
-  senderId    Int
-  recipientId Int
-  roomId      Int?
-  giftId      String
-  quantity    Int      @default(1)
+  id              String   @id @default(cuid())
+  senderId        Int
+  recipientId     Int
+  roomId          Int?
+  giftId          String
+  quantity        Int      @default(1)
   /// What the RECIPIENT's side of the ledger sees (target, room cup,
   /// leaderboards). Equal to what the sender paid for an ordinary gift; for a
   /// lucky gift it is the host's 10% only — the other 90% went to the pool.
-  totalCoins  Int
+  totalCoins      Int
   /// What the sender actually paid. Backfilled to totalCoins for rows that
   /// predate lucky gifts.
-  paidCoins   Int      @default(0)
-  comboKey    String?
-  comboCount  Int      @default(1)
-  createdAt   DateTime @default(now())
+  paidCoins       Int      @default(0)
+  comboKey        String?
+  comboCount      Int      @default(1)
+  createdAt       DateTime @default(now())
 
   luckyRoll LuckyRoll?
 
@@ -2157,15 +2159,15 @@ model DeviceBan {
 /// the client was explicit that opening someone from inside a room does not
 /// count ("اللي دخلوا بروفايلي من الصفحه الرئيسيه مش من الغرفه").
 model ProfileVisit {
-  id        Int      @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   /// Whose profile was opened.
-  profileId Int
+  profileId   Int
   /// Who opened it.
-  viewerId  Int
+  viewerId    Int
   /// 'home' is the only source that is stored; kept as a column so a future
   /// surface can be counted separately instead of silently joining this one.
-  source    String   @default("home")
-  createdAt DateTime @default(now())
+  source      String   @default("home")
+  createdAt   DateTime @default(now())
   /// SPEC52 #12 — one row per (viewer, profile): later visits move these
   /// instead of adding rows.
   lastVisitAt DateTime @default(now())
@@ -2834,4 +2836,33 @@ model RoomCup {
   createdAt        DateTime  @default(now())
 
   @@index([roomId, paidAt])
+}
+
+// Client 31/10 — emoji lists managed from the dashboard, like gifts. A list
+// with no minVip and no userIds is open to everyone; otherwise it opens for a
+// VIP of at least minVip, or for the users (internal ids) the admin listed.
+model EmojiList {
+  id        Int         @id @default(autoincrement())
+  nameAr    String
+  imageUrl  String?
+  sortOrder Int         @default(0)
+  isActive  Boolean     @default(true)
+  minVip    Int         @default(0)
+  userIds   Int[]       @default([])
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  emojis    EmojiItem[]
+}
+
+model EmojiItem {
+  id        Int       @id @default(autoincrement())
+  listId    Int
+  list      EmojiList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  name      String
+  imageUrl  String
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  @@index([listId])
 }

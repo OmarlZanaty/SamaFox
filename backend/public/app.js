@@ -56,6 +56,7 @@ const sectionTitles = {
   settings:  "الإعدادات",
   perms:     "الصلاحيات المالية",
   giftlists: "قوائم الهدايا",
+  emojilists: "قوائم الإيموجي",
 };
 
 navItems.forEach(item => {

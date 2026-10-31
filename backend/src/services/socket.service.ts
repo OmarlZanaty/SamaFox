@@ -1,5 +1,6 @@
 import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS, seatHolders } from './seatLease';
 import { roomEmojiOutcome } from './roomEmojiOutcome';
+import { customEmojiForSend } from '../emoji/emoji.service';
 import { sessionFor, joinRoomSession, sessionHeartbeat, sessionDisconnected, sessionSeat, endRoomSession, reconcileRoomSessions, LeaveReason } from './roomSession.service';
 import { cairoDay } from './halalGames.service';
 import { nameColorSync, vipStyleSync } from './vipStyle.service';
@@ -1669,15 +1670,23 @@ async function stepMusic(rid: number, uid: number, delta: number) {
 // emoji id is accepted (the app ships the light animations; nothing heavy
 // travels), the seat is the server's own record of where the sender sits, and
 // one emoji per 1.5 s per user. Broadcast: {emojiId, senderId, seatId, ts}.
-socket.on('room_emoji_send', ({ roomId, emojiId }: any = {}) => {
+socket.on('room_emoji_send', async ({ roomId, emojiId }: any = {}) => {
   try {
     const rid = toInt(roomId);
     const uid = socket.userId;
     const id = String(emojiId ?? '');
-    if (!rid || !uid || !ROOM_EMOJI_IDS.has(id)) return;
+    // Client 31/10 — "c:<id>" is an emoji the admin uploaded from the
+    // dashboard; its list may be open only to VIP or to chosen IDs.
+    const customId = /^c:\d+$/.test(id) ? Number(id.slice(2)) : null;
+    if (!rid || !uid || (customId == null && !ROOM_EMOJI_IDS.has(id))) return;
     const now = Date.now();
     const last = lastRoomEmojiAt.get(uid) ?? 0;
     if (now - last < 1500) return;
+    const custom = customId != null ? await customEmojiForSend(uid, customId) : null;
+    if (customId != null && !custom) {
+      socket.emit('room_emoji_rejected', { roomId: rid, message: 'هذا الإيموجي غير متاح لك' });
+      return;
+    }
     let seatId: number | null = null;
     for (const [sn, occ] of roomSeats.get(rid) ?? new Map<number, number>()) {
       if (occ === uid) {
@@ -1691,8 +1700,12 @@ socket.on('room_emoji_send', ({ roomId, emojiId }: any = {}) => {
     }
     lastRoomEmojiAt.set(uid, now);
     // Draw once on the server; never accept a result supplied by the sender.
-    const outcome = roomEmojiOutcome(id);
-    io.to(`room:${rid}`).emit('room_emoji', { roomId: rid, emojiId: id, senderId: uid, seatId, ...outcome, timestamp: now });
+    const outcome = custom ? {} : roomEmojiOutcome(id);
+    io.to(`room:${rid}`).emit('room_emoji', {
+      roomId: rid, emojiId: id, senderId: uid, seatId, ...outcome,
+      ...(custom ? { imageUrl: custom.imageUrl, name: custom.name } : {}),
+      timestamp: now,
+    });
   } catch (err) {
     console.error('[socket.room_emoji_send] handler error:', err);
   }

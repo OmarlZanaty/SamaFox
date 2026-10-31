@@ -1,24 +1,87 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../config/app_config.dart';
 import '../../l10n/tr.dart';
+import '../../services/dio_client.dart';
 import '../../services/socket_service.dart';
 import 'emoji/game_emoji.dart';
 
 class RoomEmojiDef {
-  const RoomEmojiDef(this.id, this.label, this.glyph);
+  const RoomEmojiDef(this.id, this.label, this.glyph, {this.imageUrl});
   final String id;
   final String label;
   final String glyph;
+  /// Set for an emoji the admin uploaded from the dashboard (id `c:<n>`).
+  final String? imageUrl;
   bool get isGame => id == 'dice' || id == 'slot';
   String get asset => 'assets/images/emoji/$id.webp';
 }
 
+/// Dashboard uploads may be site-relative; they are served from the server root.
+String roomEmojiImageUrl(String raw) {
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  final base = AppConfig.socketUrl.replaceFirst(RegExp(r'/+$'), '');
+  return raw.startsWith('/') ? '$base$raw' : '$base/$raw';
+}
+
+/// Client 31/10 — the emoji lists the admin manages from the dashboard. The
+/// server only returns the lists this user may open (public, his VIP level,
+/// or his ID), and checks again on every send.
+class RoomCustomEmoji {
+  static List<RoomEmojiCategory> _lists = const [];
+  static DateTime? _loadedAt;
+  static Future<void>? _loading;
+
+  static List<RoomEmojiCategory> get lists => _lists;
+
+  static Future<void> load({bool force = false}) {
+    final fresh = _loadedAt != null && DateTime.now().difference(_loadedAt!) < const Duration(minutes: 1);
+    if (fresh && !force) return Future.value();
+    return _loading ??= _fetch().whenComplete(() => _loading = null);
+  }
+
+  static Future<void> _fetch() async {
+    try {
+      final res = await DioClient.dio.get('/emoji/lists');
+      final data = res.data is Map ? res.data['data'] : null;
+      if (data is! List) return;
+      _lists = parse(data);
+      _loadedAt = DateTime.now();
+    } catch (_) {
+      // Offline or an older server: keep what we had; the built-ins still work.
+    }
+  }
+
+  static List<RoomEmojiCategory> parse(List<dynamic> data) => [
+        for (final l in data.whereType<Map>())
+          RoomEmojiCategory(
+            'c:list:${l['id']}',
+            '',
+            '${l['nameAr'] ?? ''}',
+            [
+              for (final e in (l['emojis'] as List? ?? const []).whereType<Map>())
+                if (e['id'] is int && e['imageUrl'] is String)
+                  RoomEmojiDef('c:${e['id']}', '${e['name'] ?? ''}', '', imageUrl: e['imageUrl'] as String),
+            ],
+            imageUrl: l['imageUrl'] as String?,
+          ),
+      ];
+
+  @visibleForTesting
+  static void debugSet(List<RoomEmojiCategory> lists) {
+    _lists = lists;
+    _loadedAt = DateTime.now();
+  }
+}
+
 class RoomEmojiCategory {
-  const RoomEmojiCategory(this.id, this.icon, this.label, this.emojis);
+  const RoomEmojiCategory(this.id, this.icon, this.label, this.emojis, {this.imageUrl});
   final String id;
   final String icon;
   final String label;
   final List<RoomEmojiDef> emojis;
+  final String? imageUrl;
 }
 
 /// SPEC52 #20 — seat emoji. Stickers ship with the app
@@ -82,6 +145,18 @@ RoomEmojiDef? roomEmojiById(String id) {
 
 Widget roomEmojiArt(RoomEmojiDef e, double size, {int? result, double? rollPhase}) {
   if (e.isGame) return GameEmoji(id: e.id, size: size, result: result, rollPhase: rollPhase);
+  final url = e.imageUrl;
+  if (url != null) {
+    // An animated GIF / WebP keeps playing.
+    return Image(
+      image: CachedNetworkImageProvider(roomEmojiImageUrl(url)),
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+      errorBuilder: (_, __, ___) => SizedBox(width: size, height: size),
+    );
+  }
   return Image.asset(e.asset, width: size, height: size, fit: BoxFit.contain,
     gaplessPlayback: true,
     errorBuilder: (_, __, ___) => SizedBox(width: size, height: size,
@@ -91,9 +166,11 @@ Widget roomEmojiArt(RoomEmojiDef e, double size, {int? result, double? rollPhase
 }
 
 class RoomEmojiPicker {
-  static String _category = 'faces';
+  static String _category = ''; // '' = the first tab (a dashboard list when there is one)
   static double? _keyboardHeight;
-  static Future<void> show(BuildContext context, {required void Function(RoomEmojiDef) onPick}) {
+  static Future<void> show(BuildContext context, {required void Function(RoomEmojiDef) onPick}) async {
+    await RoomCustomEmoji.load().timeout(const Duration(seconds: 3), onTimeout: () {});
+    if (!context.mounted) return;
     final media = MediaQuery.of(context);
     if (media.viewInsets.bottom > 0) _keyboardHeight = media.viewInsets.bottom;
     final height = (_keyboardHeight ?? 320.0).clamp(0.0, media.size.height * .65).toDouble();
@@ -104,26 +181,33 @@ class RoomEmojiPicker {
       backgroundColor: const Color(0xFF160C33),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, update) {
-        final categories = kRoomEmojis;
-        final selected = categories.firstWhere((c) => c.id == _category);
+        // Dashboard lists first, then the built-in stickers.
+        final categories = [...RoomCustomEmoji.lists, ...kRoomEmojis];
+        final selected = categories.firstWhere((c) => c.id == _category, orElse: () => categories.first);
         return SizedBox(height: height, child: SafeArea(top: false,
           child: Column(children: [
-            Row(children: [for (final category in categories)
-              Expanded(child: Semantics(selected: category.id == _category,
-                child: InkWell(
-                  onTap: () => update(() => _category = category.id),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(border: Border(bottom: BorderSide(
-                      color: category.id == _category ? Colors.amber : Colors.transparent, width: 3))),
-                    child: Column(children: [
-                      Text(category.icon, style: const TextStyle(fontSize: 25)),
-                      Text(category.label, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                    ]),
+            // The tabs scroll sideways once the dashboard adds many lists.
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [for (final category in categories)
+                Semantics(selected: category.id == selected.id,
+                  child: InkWell(
+                    onTap: () => update(() => _category = category.id),
+                    child: Container(
+                      width: media.size.width / categories.length.clamp(1, 5),
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                      decoration: BoxDecoration(border: Border(bottom: BorderSide(
+                        color: category.id == selected.id ? Colors.amber : Colors.transparent, width: 3))),
+                      child: Column(children: [
+                        SizedBox(height: 30, child: _tabIcon(category)),
+                        Text(category.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      ]),
+                    ),
                   ),
                 ),
-              )),
-            ]),
+              ]),
+            ),
             Expanded(child: GridView.builder(
               key: ValueKey(selected.id),
               padding: const EdgeInsets.all(10),
@@ -147,6 +231,18 @@ class RoomEmojiPicker {
       }),
     );
   }
+}
+
+Widget _tabIcon(RoomEmojiCategory category) {
+  final image = category.imageUrl;
+  if (image != null && image.isNotEmpty) {
+    return Image(image: CachedNetworkImageProvider(roomEmojiImageUrl(image)), width: 30, height: 30,
+      fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.emoji_emotions, color: Colors.amber));
+  }
+  if (category.icon.isNotEmpty) return Text(category.icon, style: const TextStyle(fontSize: 25));
+  return category.emojis.isEmpty
+      ? const Icon(Icons.emoji_emotions, color: Colors.amber)
+      : roomEmojiArt(category.emojis.first, 30);
 }
 
 class RoomEmojiEvent {
@@ -184,7 +280,13 @@ class _RoomEmojiLayerState extends State<RoomEmojiLayer> {
   }
   void _receive(dynamic data) {
     if (!mounted || data is! Map || data['roomId'] != widget.roomId) return;
-    final def = roomEmojiById('${data['emojiId']}');
+    final id = '${data['emojiId']}';
+    final image = data['imageUrl'];
+    // A dashboard emoji travels with its picture, so everyone in the room sees
+    // it even when the list is closed to them.
+    final def = id.startsWith('c:')
+        ? (image is String && image.isNotEmpty ? RoomEmojiDef(id, '${data['name'] ?? ''}', '', imageUrl: image) : null)
+        : roomEmojiById(id);
     final seat = data['seatId'];
     final sender = data['senderId'];
     final result = data['result'];

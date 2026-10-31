@@ -69,6 +69,7 @@
     <a href="#" class="nav-item" data-section="roomSessions">🛰️ جلسات الغرف</a>
     <a href="#" class="nav-item" data-section="perms" data-owner-only>🔐 الصلاحيات المالية</a>
     <a href="#" class="nav-item" data-section="giftlists">🎁 قوائم الهدايا</a>
+    <a href="#" class="nav-item" data-section="emojilists">😀 قوائم الإيموجي</a>
     <a href="#" class="nav-item" data-section="rocketpk">🚀 الصاروخ و PK</a>
     <a href="#" class="nav-item" data-section="storelists">🛍️ قوائم المتجر</a>
     <a href="#" class="nav-item" data-section="rewards">
@@ -1616,6 +1617,25 @@
       </div>
     </section>
 
+    <section class="section" id="section-emojilists">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">قوائم الإيموجي</h2>
+          <p class="section-sub">إيموجي الغرف على المايك. ارفع PNG أو WebP أو GIF متحرك. القائمة بدون VIP وبدون IDs تظهر للجميع؛ مع «أقل VIP» تفتح لمن عنده هذا المستوى فأعلى؛ مع IDs تفتح لهؤلاء الأشخاص فقط (أو الاثنين معاً).</p>
+        </div>
+        <div class="section-actions"><button class="btn btn-outline" onclick="emojiListsLoad()">تحديث</button></div>
+      </div>
+      <div class="form-card">
+        <div class="form-row">
+          <input id="el_new_name" class="form-input" placeholder="اسم القائمة الجديدة" />
+          <input id="el_new_vip" type="number" min="0" class="form-input" placeholder="أقل VIP (0 = بدون)" />
+          <input id="el_new_users" class="form-input" placeholder="IDs أشخاص مسموح لهم (اختياري، مفصولة بفاصلة)" />
+          <button class="btn btn-primary" onclick="elAdd()">+ إضافة قائمة</button>
+        </div>
+      </div>
+      <div id="emojiLists"></div>
+    </section>
+
     <section class="section" id="section-perms">
       <div class="section-header">
         <div>
@@ -2345,10 +2365,11 @@
   <div id="uploadBarLabel" style="margin-bottom:6px">جارٍ الرفع…</div>
   <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
 </div>
-<script src="app.js?v=20261030-b3b"></script>
+<script src="app.js?v=20261031-emoji"></script>
 <script src="economy-admin.js?v=20261021-fruitwheel-bonus"></script>
 <script src="staff-admin.js?v=20261011"></script>
 <script src="spec52-admin.js?v=20261020"></script>
+<script src="emoji-admin.js?v=20261031"></script>
 <script>
 // Page-local agency wallet UI; reuse app.js authentication, requests and toasts.
 (() => {

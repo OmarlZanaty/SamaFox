@@ -21,6 +21,17 @@ async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
 }
 
+// The upload temp dir and the assets dir can sit on different disks (EXDEV).
+async function moveFile(from: string, to: string) {
+  try {
+    await fs.rename(from, to);
+  } catch (err: any) {
+    if (err?.code !== 'EXDEV') throw err;
+    await fs.copyFile(from, to);
+    await fs.unlink(from).catch(() => {});
+  }
+}
+
 const TIERS = new Set(['SMALL', 'MEDIUM', 'LARGE', 'LEGENDARY']);
 const FORMATS = new Set(['SVG_CSS', 'VIDEO']);
 
@@ -279,7 +290,7 @@ export async function uploadVideo(req: Request, res: Response) {
     }
     await ensureDir(VIDEOS_DIR);
     const target = path.join(VIDEOS_DIR, path.basename(file.path) + path.extname(file.originalname));
-    await fs.rename(file.path, target);
+    await moveFile(file.path, target);
     // Absolute — the Flutter video player parses this straight into a Uri, and a
     // relative path there resolves to nothing playable.
     // SPEC52 #24 — baseline rendition for weak devices; never fails the upload.
@@ -323,7 +334,7 @@ export async function uploadIcon(req: Request, res: Response) {
     }
     await ensureDir(ICONS_DIR);
     const target = path.join(ICONS_DIR, path.basename(file.path) + ext);
-    await fs.rename(file.path, target);
+    await moveFile(file.path, target);
     // A gift icon is a 60px tile in the sheet: 256px is more than enough —
     // WebP for stills, a 256px / 15fps GIF for animated icons.
     const opt = ext === '.gif'
