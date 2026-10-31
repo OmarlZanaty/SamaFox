@@ -121,6 +121,9 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
   // CREATE ROOM  ✅ RESTORED
   // ===============================
 
+  /// The room the last [createRoom] opened (new, or the account's existing one).
+  int? lastCreatedRoomId;
+
   Future<bool> createRoom(CreateRoomRequest request, int userId) async {
     // ✅ CHECK FIRST (IMPORTANT)
     final alreadyHasRoom = state.rooms.any(
@@ -140,6 +143,7 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
       final result = await _repository.createRoom(request);
 
       if (result.isSuccess) {
+        lastCreatedRoomId = result.data?.id;
         await loadRooms();
         return true;
       } else {

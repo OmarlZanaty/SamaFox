@@ -30,7 +30,9 @@ class RoomRepository {
     }
   }
 
-  Future<Result<void>> createRoom(CreateRoomRequest request) async {
+  /// The server answers with the account's one room: a new one, or the
+  /// existing room reopened.
+  Future<Result<Room>> createRoom(CreateRoomRequest request) async {
     try {
       final room = await _apiService.createRoom(request);
       return Result.success(room);

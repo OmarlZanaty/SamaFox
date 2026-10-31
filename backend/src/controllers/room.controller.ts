@@ -288,6 +288,39 @@ export async function createRoom(req: Request, res: Response) {  try {
       if (denial) return res.status(403).json({ error: denial, code: 'ANIMATED_ROOM_IMAGE_NOT_ALLOWED' });
     }
 
+    // One room per account (client rule 31/10): "creating" again — e.g. when
+    // the app could not see the owner's room in the list — reopens that room
+    // with the new name/picture instead of adding a duplicate.
+    const existing = await prisma.room.findFirst({
+      where: { ownerId: userId, roomType: 'USER' },
+      orderBy: [{ isActive: 'desc' }, { id: 'desc' }],
+      include: { owner: { select: { id: true, name: true, avatarUrl: true, level: true, vipLevel: true } } },
+    });
+    if (existing) {
+      const room = await prisma.room.update({
+        where: { id: existing.id },
+        data: {
+          isActive: true,
+          ...(existing.nameLocked ? {} : { name }),
+          ...(description ? { description } : {}),
+          ...(cover ? { coverImageUrl: cover } : {}),
+        },
+        include: { owner: { select: { id: true, name: true, avatarUrl: true, level: true, vipLevel: true } } },
+      });
+      return res.status(200).json({
+        id: room.id,
+        name: room.name,
+        description: room.description,
+        type: room.type,
+        maxSeats: room.maxSeats,
+        coverImageUrl: room.coverImageUrl,
+        backgroundImageUrl: room.backgroundImageUrl,
+        owner: room.owner,
+        createdAt: room.createdAt,
+        existing: true,
+      });
+    }
+
     const room = await prisma.room.create({
       data: {
         name,
