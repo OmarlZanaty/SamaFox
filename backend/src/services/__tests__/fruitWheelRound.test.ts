@@ -355,7 +355,7 @@ test('history and winners show actual capped pool payment', async () => {
 });
 
 async function configureBonus(patch: Record<string, unknown> = {}) {
-  await setGameSettings('fruitwheel', { bonusEveryRounds: 2, ...patch });
+  await setGameSettings('fruitwheel', { bonusEveryRounds: 2, bonusMaxRounds: 2, ...patch });
   // Settings are snapshotted when a round starts, not changed during betting.
   stopFruitWheelRoundEngine();
   await startFruitWheelRoundEngine(io);
@@ -373,19 +373,21 @@ test('bonus settings default, clear to defaults, and reject invalid values', asy
   const defaults = await getGameSettings('fruitwheel');
   assert.equal(defaults.bonusEnabled, true);
   assert.equal(defaults.bonusEveryRounds, 20);
+  assert.equal(defaults.bonusMaxRounds, 90);
   assert.equal(defaults.tripleMinPool, 15_000_000);
   for (const patch of [
     { bonusEveryRounds: 1 }, { bonusEveryRounds: 1001 }, { bonusEveryRounds: 2.5 },
     { bonusEveryRounds: '20' }, { tripleMinPool: -1 }, { tripleMinPool: Infinity },
     { tripleMinPool: '10' }, { bonusEnabled: 'false' },
+    { bonusMaxRounds: 1001 }, { bonusEveryRounds: 50, bonusMaxRounds: 30 },
   ]) await assert.rejects(setGameSettings('fruitwheel', patch as any));
-  await setGameSettings('fruitwheel', { bonusEnabled: false, bonusEveryRounds: 1000, tripleMinPool: 0 });
-  await setGameSettings('fruitwheel', { bonusEnabled: null, bonusEveryRounds: null, tripleMinPool: null });
+  await setGameSettings('fruitwheel', { bonusEnabled: false, bonusEveryRounds: 1000, bonusMaxRounds: 1000, tripleMinPool: 0 });
+  await setGameSettings('fruitwheel', { bonusEnabled: null, bonusEveryRounds: null, bonusMaxRounds: null, tripleMinPool: null });
   assert.deepEqual(await getGameSettings('fruitwheel'), defaults);
 });
 
 test('Nth occupied round is bonus; empty and cleared rounds do not count; reset after bonus and boot', async () => {
-  await configureBonus({ bonusEveryRounds: 3 });
+  await configureBonus({ bonusEveryRounds: 3, bonusMaxRounds: 3 });
   assert.equal(getPublicState()!.roundsToBonus, 2);
   await placeBet(1, 'plum', 100); await clearBets(1);
   await playOut(); await __test.advance();

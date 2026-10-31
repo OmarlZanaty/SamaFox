@@ -59,6 +59,8 @@ let timer: NodeJS.Timeout | null = null;
 /** The number the next round will get, so an idle table still shows one. */
 let nextRoundNo = 1;
 let roundsSinceBonus = 0;
+/** Occupied rounds from one double win to the next; redrawn after each (client 31/10: «اعداد ملخبطه بس تكون كبيره»). */
+let bonusGap: number | null = null;
 const results: { round: number; number: string; results: string[]; bonus: BonusKind; at: number }[] = [];
 const lastStakes = new Map<number, Record<string, number>>();
 
@@ -109,7 +111,8 @@ export function getPublicState(userId?: number) {
     result: preResult ? null : round.result,
     results: preResult ? [] : round.results,
     bonus: preResult ? null : round.bonus,
-    roundsToBonus: round.roundsToBonus,
+    // A random gap stays secret so nobody waits for it; a fixed one shows its countdown.
+    roundsToBonus: round.bonusSettings.bonusMaxRounds > round.bonusSettings.bonusEveryRounds ? null : round.roundsToBonus,
     bonusEveryRounds: round.bonusSettings.bonusEveryRounds,
     bonusEnabled: round.bonusSettings.bonusEnabled,
     segment: preResult ? null : round.segment,
@@ -432,7 +435,9 @@ async function settle(r: Round) {
   if (results.length > 100) results.splice(0, results.length - 100);
   if (playerCount > 0) {
     // The Nth occupied round is due; a funding downgrade still consumes its turn.
-    roundsSinceBonus = r.bonusSettings.bonusEnabled && r.roundsToBonus === 0 ? 0 : roundsSinceBonus + 1;
+    const due = r.bonusSettings.bonusEnabled && r.roundsToBonus === 0;
+    roundsSinceBonus = due ? 0 : roundsSinceBonus + 1;
+    if (due) bonusGap = null;
   }
 
 }
@@ -488,10 +493,12 @@ async function advance() {
 
 async function startRound() {
   const bonusSettings = fruitWheelBonusSettings(await getGameSettings(GAME));
+  const { bonusEveryRounds: min, bonusMaxRounds: max } = bonusSettings;
+  if (bonusGap == null || bonusGap < min || bonusGap > max) bonusGap = crypto.randomInt(min, max + 1);
   const seed = crypto.randomBytes(16).toString('hex');
   round = { dbId: null, number: nextRoundNo++, segment: null, offset: null, phase: 'betting', endsAt: 0, seed, seedHash: crypto.createHash('sha256').update(seed).digest('hex'),
     result: null, results: [], bonus: null, bonusSettings,
-    roundsToBonus: Math.max(0, bonusSettings.bonusEveryRounds - 1 - roundsSinceBonus), players: new Map(), winners: [] };
+    roundsToBonus: Math.max(0, bonusGap - 1 - roundsSinceBonus), players: new Map(), winners: [] };
   schedule(round, 'betting');
   broadcast();
 }
@@ -536,6 +543,7 @@ export function stopFruitWheelRoundEngine() {
   for (const p of round?.players.values() ?? []) for (const token of p.tokens) releasePrize(token);
   round = null;
   roundsSinceBonus = 0;
+  bonusGap = null;
   io?.off('connection', subscribe);
   io = null;
   results.length = 0;

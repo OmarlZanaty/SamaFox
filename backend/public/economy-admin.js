@@ -108,6 +108,7 @@
     $("econFruitBonus").style.display = game === "fruitwheel" ? "" : "none";
     $("econ_bonusEnabled").value = (s.bonusEnabled ?? true) ? "1" : "0";
     $("econ_bonusEveryRounds").value = s.bonusEveryRounds ?? 20;
+    $("econ_bonusMaxRounds").value = s.bonusMaxRounds ?? 90;
     $("econ_tripleMinPool").value = s.tripleMinPool ?? 15000000;
     $("econNatural").textContent =
       `أعلى مضاعف طبيعي للعبة: ×${g.naturalMaxMultiplier ?? "—"} — نسبة دفع أقل منه تقص المكاسب الكبيرة. ` +
@@ -133,6 +134,7 @@
       ...(econGame === "fruitwheel" ? {
         bonusEnabled: val("econ_bonusEnabled") === "1",
         bonusEveryRounds: val("econ_bonusEveryRounds") === "" ? null : Number(val("econ_bonusEveryRounds")),
+        bonusMaxRounds: val("econ_bonusMaxRounds") === "" ? null : Number(val("econ_bonusMaxRounds")),
         tripleMinPool: val("econ_tripleMinPool") === "" ? null : Number(val("econ_tripleMinPool")),
       } : {}),
       reason,

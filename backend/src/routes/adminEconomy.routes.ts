@@ -104,7 +104,7 @@ r.patch('/games-economy/:game', requireOwnerPermission('economy.settings'), asyn
     const patch: Record<string, unknown> = {};
     if (b.enabled != null) patch.enabled = Boolean(b.enabled);
     if (game === 'fruitwheel') {
-      for (const f of ['bonusEnabled', 'bonusEveryRounds', 'tripleMinPool'] as const) {
+      for (const f of ['bonusEnabled', 'bonusEveryRounds', 'bonusMaxRounds', 'tripleMinPool'] as const) {
         if (b[f] === undefined) continue;
         // Preserve types and fractions: validation must reject, never coerce them.
         patch[f] = b[f];

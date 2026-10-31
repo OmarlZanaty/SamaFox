@@ -42,17 +42,21 @@ export interface GameSettings {
   broadcastMinX?: number | null;
   bonusEnabled?: boolean | null;
   bonusEveryRounds?: number | null;
+  /** Upper end of the double-win gap; each gap is drawn in [bonusEveryRounds, this]. */
+  bonusMaxRounds?: number | null;
   tripleMinPool?: number | null;
 }
 
 export const FRUIT_WHEEL_BONUS_DEFAULTS = {
-  bonusEnabled: true, bonusEveryRounds: 20, tripleMinPool: 15_000_000,
+  bonusEnabled: true, bonusEveryRounds: 20, bonusMaxRounds: 90, tripleMinPool: 15_000_000,
 };
 
 export function fruitWheelBonusSettings(s: Partial<GameSettings>) {
   return {
     bonusEnabled: s.bonusEnabled ?? FRUIT_WHEEL_BONUS_DEFAULTS.bonusEnabled,
     bonusEveryRounds: s.bonusEveryRounds ?? FRUIT_WHEEL_BONUS_DEFAULTS.bonusEveryRounds,
+    bonusMaxRounds: Math.max(s.bonusEveryRounds ?? FRUIT_WHEEL_BONUS_DEFAULTS.bonusEveryRounds,
+      s.bonusMaxRounds ?? FRUIT_WHEEL_BONUS_DEFAULTS.bonusMaxRounds),
     tripleMinPool: s.tripleMinPool ?? FRUIT_WHEEL_BONUS_DEFAULTS.tripleMinPool,
   };
 }
@@ -131,6 +135,12 @@ export function validateGameSettings(game: string, s: GameSettings): string | nu
     if (s.bonusEnabled != null && typeof s.bonusEnabled !== 'boolean') return 'تشغيل المكسب المزدوج يجب أن يكون نعم أو لا';
     if (s.bonusEveryRounds != null && (!Number.isInteger(s.bonusEveryRounds) || s.bonusEveryRounds < 2 || s.bonusEveryRounds > 1000)) {
       return 'عدد لفات المكسب المزدوج يجب أن يكون عدداً صحيحاً بين 2 و1000';
+    }
+    if (s.bonusMaxRounds != null && (!Number.isInteger(s.bonusMaxRounds) || s.bonusMaxRounds < 2 || s.bonusMaxRounds > 1000)) {
+      return 'أقصى عدد لفات للمكسب المزدوج يجب أن يكون عدداً صحيحاً بين 2 و1000';
+    }
+    if (s.bonusEveryRounds != null && s.bonusMaxRounds != null && s.bonusMaxRounds < s.bonusEveryRounds) {
+      return 'أقصى عدد لفات للمكسب المزدوج أقل من أقل عدد';
     }
     if (s.tripleMinPool != null && (!Number.isFinite(s.tripleMinPool) || s.tripleMinPool < 0)) return 'حد صندوق المكسب الثلاثي يجب أن يكون صفر أو أكثر';
   }
