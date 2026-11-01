@@ -1556,6 +1556,7 @@
       </div>
       <div class="form-card">
         <div class="form-card-title">🚀 الصاروخ — رصيد الصندوق: <span id="rk_pool">0</span> <button class="btn btn-outline btn-sm" onclick="eventFund('rocket')" data-perm="economy.settings">تمويل</button></div>
+        <div id="rk_status" class="table-meta" style="margin-bottom:8px"></div>
         <div class="form-row">
           <label>الهدف (كوينز) <input id="rk_target" type="number" min="1" class="form-input"></label>
           <label>نسبة كأس الغرفة % <input id="rk_pct" type="number" min="0" max="100" step="0.5" class="form-input" title="نسبة قيمة كل هدية تُحسب للصاروخ"></label>
@@ -2445,6 +2446,27 @@
     }
   };
 
+  window.withdrawAgencyBalance = async function (id, name, current) {
+    const input = prompt(`سحب كوينز من الوكالة: ${name}
+رصيد الوكالة الحالي: ${formatCoins(current)} كوينز
+
+أدخل المبلغ المراد سحبه:`, '');
+    if (input === null) return;
+    const amount = Number(input.trim());
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2147483647) {
+      return showToast('❗ أدخل عدداً صحيحاً من 1 إلى 2,147,483,647');
+    }
+    const note = prompt('ملاحظة (اختياري):', '') || undefined;
+    if (!confirm(`سحب ${formatCoins(amount)} كوينز من رصيد الوكالة ${name}؟`)) return;
+    try {
+      const result = await apiFetch(`/admin-dashboard/agencies/${id}/withdraw`, 'PATCH', { amount, note });
+      showToast(`✓ تم السحب — رصيد الوكالة الآن: ${formatCoins(result.data.agencyWalletCoins)} كوينز`);
+      await loadAgencies();
+    } catch (e) {
+      showToast('❌ ' + (/negative/i.test(e.message) ? 'رصيد الوكالة لا يكفي' : e.message));
+    }
+  };
+
   // Replace the legacy renderer here because this task is confined to this HTML file.
   window.loadAgencies = async function () {
     const version = ++agencyLoadVersion;
@@ -2526,6 +2548,7 @@
       if (charging) {
         button('الشحنات', 'btn btn-outline', () => showAgencyCharges(a.id, a.agencyName || ''));
         button('شحن رصيد الوكالة', 'btn btn-primary', () => topupAgencyBalance(a.id, a.agencyName || '', a.agencyWalletCoins));
+        button('سحب كوينز من الوكالة', 'btn btn-bad', () => withdrawAgencyBalance(a.id, a.agencyName || '', a.agencyWalletCoins));
         button(a.walletFrozen ? 'فك التجميد' : 'تجميد الرصيد', a.walletFrozen ? 'btn btn-outline' : 'btn btn-bad', async () => {
           const frozen = !a.walletFrozen;
           if (!confirm(`${frozen ? 'تجميد الرصيد' : 'فك التجميد'} للوكالة ${a.agencyName || a.id}؟`)) return;

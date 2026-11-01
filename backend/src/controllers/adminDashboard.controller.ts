@@ -1438,6 +1438,21 @@ export const adminTopupAgency = async (req: AdminReq, res: Response) => {
   }
 };
 
+/** Admin pulls coins back out of a charging agency's wallet (never below zero). */
+export const adminWithdrawAgency = async (req: AdminReq, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const amount = Number(req.body?.amount);
+    if (!Number.isSafeInteger(id) || id <= 0 || !Number.isSafeInteger(amount) || amount <= 0 || amount > 2_147_483_647) return fail(res, 400, 'Positive integer amount required');
+    const wallet = await db.$transaction((tx: any) => adjustOwnerAgencyWallet(tx, id, -amount, req.userId!, req.body?.note));
+    return ok(res, { data: wallet });
+  } catch (e) {
+    if (e instanceof AgencyWalletError) return fail(res, e.status, e.message);
+    console.error('adminWithdrawAgency error:', e);
+    return fail(res, 500, 'Server error');
+  }
+};
+
 export const adminFreezeAgencyWallet = async (req: AdminReq, res: Response) => {
   const id = Number(req.params.id);
   const frozen = req.body?.frozen;

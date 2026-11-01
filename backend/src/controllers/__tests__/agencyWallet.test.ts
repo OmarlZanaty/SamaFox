@@ -321,6 +321,14 @@ test('admin topup credits the owner seat even when frozen', async () => {
   assert.equal(transactions[0]!.type, 'AGENCY_WALLET_ADJUST');
 });
 
+test('admin withdraw debits the owner seat and never goes below zero', async () => {
+  const before = seats[0]!.agencyWalletCoins;
+  await db.$transaction(tx => adjustOwnerAgencyWallet(tx, 7, -25, 99));
+  assert.equal(seats[0]!.agencyWalletCoins, before - 25n);
+  await assert.rejects(db.$transaction(tx => adjustOwnerAgencyWallet(tx, 7, -(Number(before) + 1), 99)), { status: 409 });
+  assert.equal(seats[0]!.agencyWalletCoins, before - 25n);
+});
+
 test('recipient eligibility filters role, agency type and approval', async () => {
   for (const [role, type, status, expected] of [
     ['OWNER', 'CHARGING', 'approved', true], ['BRANCH', 'CHARGING', 'approved', true],

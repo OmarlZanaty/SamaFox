@@ -355,6 +355,10 @@
     $("rk_active").checked = !!c.isActive;
     $("rk_rewards").innerHTML = (c.rewards || [{ type: "coins", coins: 100, weight: 1, quantity: 1 }]).map(rewardRow).join("");
     $("rk_pool").textContent = n(R.poolBalance);
+    const rkSt = $("rk_status");
+    if (!R.config || !R.config.isActive) { rkSt.style.color = "#e53935"; rkSt.textContent = "⚠️ الصاروخ غير مفعّل — فعّل خانة «مفعّل» واحفظ حتى يظهر تقدمه ويبدأ العد"; }
+    else if (!Number(R.poolBalance)) { rkSt.style.color = "#fb8c00"; rkSt.textContent = "⚠️ صندوق الجوائز فارغ — موّله حتى يقدر المستخدمون يستلموا"; }
+    else { rkSt.style.color = "#43a047"; rkSt.textContent = "✅ الصاروخ مفعّل والصندوق ممول"; }
     $("rkEvents").querySelector("tbody").innerHTML = (R.events || []).map((e) => `<tr><td>${esc(e.roomId)}</td><td>${esc(e.status)}</td><td>${n(e.currentCoins)} / ${n(e.targetCoins)}</td><td>${dt(e.startedAt)}</td><td>${dt(e.launchedAt)}</td><td>${(e.claims || []).length}</td></tr>`).join("") || '<tr><td colspan="6" class="cell-muted">لا توجد أحداث</td></tr>';
     const q = P.config || {};
     $("pk_durations").value = (q.allowedDurations || [180, 300, 600]).join(",");

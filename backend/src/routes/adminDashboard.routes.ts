@@ -45,6 +45,7 @@ import {
   adminAssignAgency,
   adminListAssignedAgencies,
   adminTopupAgency,
+  adminWithdrawAgency,
   adminFreezeAgencyWallet,
   adminFreezeAllAgencyWallets,
   adminListAgencyChargeRewards,
@@ -317,6 +318,7 @@ router.patch('/agency-requests/:id/review', adminReviewAgencyRequest);
 router.post('/agencies/assign', adminAssignAgency);
 router.get('/agencies/assigned-by-me', adminListAssignedAgencies);
 router.patch('/agencies/:id/topup', requireOwnerPermission('finance.charging_agency'), idempotent('admin_agency_topup'), adminTopupAgency);
+router.patch('/agencies/:id/withdraw', requireOwnerPermission('finance.charging_agency'), idempotent('admin_agency_withdraw'), adminWithdrawAgency);
 router.patch('/charging-agencies/:id/freeze', requireOwnerPermission('finance.charging_agency'), adminFreezeAgencyWallet);
 router.put('/charging-agencies/freeze', requireOwnerPermission('finance.charging_agency'), adminFreezeAllAgencyWallets);
 // B11 — automatic charge rewards ladder

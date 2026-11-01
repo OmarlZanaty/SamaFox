@@ -129,6 +129,7 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
   Map<String, dynamic>? _rocket;
   final _subs = <StreamSubscription>[];
   bool _enabled = false;
+  bool _disposed = false;
 
   @override
   void initState() {
@@ -145,7 +146,9 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
     _load();
   }
 
-  Future<void> _load() async {
+  /// The server answers 403 until the socket has joined the room, so a first
+  /// failure is retried (2s, 4s, 8s…) instead of leaving the rocket blank.
+  Future<void> _load([int attempt = 0]) async {
     try {
       final res = await DioClient.dio.get('/room-events/${widget.roomId}');
       final d = (res.data is Map ? res.data['data'] : null) as Map?;
@@ -155,11 +158,16 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
         final r = d['rocket'];
         _rocket = r is Map ? Map<String, dynamic>.from(r) : null;
       });
-    } catch (_) {}
+    } catch (_) {
+      if (attempt >= 4) return;
+      await Future<void>.delayed(Duration(seconds: 2 << attempt));
+      if (!_disposed && mounted) _load(attempt + 1);
+    }
   }
 
   @override
   void dispose() {
+    _disposed = true;
     for (final s in _subs) {
       s.cancel();
     }
@@ -168,7 +176,6 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_enabled && _rocket == null) return const SizedBox.shrink();
     final active = _rocket?['status'] == 'ACTIVE';
     final cur = active ? ((_rocket?['current'] ?? _rocket?['currentCoins']) as num?)?.toInt() ?? 0 : 0;
     final target = ((_rocket?['target'] ?? _rocket?['targetCoins']) as num?)?.toInt() ?? 0;
@@ -190,8 +197,11 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
                   color: const Color(0xFFFFB300),
                   backgroundColor: Colors.white12,
                 ),
-                Image.asset('assets/images/spec52/rocket.png',
+                Opacity(
+                  opacity: _enabled || _rocket != null ? 1 : 0.5,
+                  child: Image.asset('assets/images/spec52/rocket.png',
                     width: 22, height: 22, errorBuilder: (_, __, ___) => const Text('🚀', style: TextStyle(fontSize: 16))),
+                ),
               ],
             ),
           ),
@@ -219,6 +229,10 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
             children: [
               Text(tr('🚀 صاروخ الهدايا', "🚀 Gift rocket"), style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
               const SizedBox(height: 10),
+              if (!_enabled && r == null)
+                Text(tr('الصاروخ غير مفعّل حالياً', 'The rocket is not active right now'),
+                    textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 14))
+              else ...[
               LinearProgressIndicator(
                 value: target > 0 ? (cur / target).clamp(0.0, 1.0) : 0,
                 minHeight: 10,
@@ -228,6 +242,7 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
               ),
               const SizedBox(height: 6),
               Text(tr('$cur / $target كوينز', "$cur / $target coins"), textDirection: TextDirection.ltr, style: const TextStyle(color: Colors.white70)),
+              ],
               const SizedBox(height: 10),
               Text(tr('كل هدية في الغرفة تملأ الصاروخ. عند اكتماله ينطلق ويستلم المتواجدون جوائز من الصندوق.', "Every gift in the room fills the rocket. When full, it launches and everyone present can claim a prize from the chest."),
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 12)),
