@@ -2,21 +2,10 @@ import { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { MIN_DISPLAY_ID } from '../utils/displayId';
 import { recordAdminAuditStrict, auditContext } from './adminAudit.service';
-import { createNotification } from './notification.service';
 
-/**
- * SPEC52 #41 — owner-created store lists (e.g. «ID مميز») and purchases.
- *
- * Buying a special ID never changes anything on the tap itself:
- *   create order (PENDING, unique idempotency key)
- *   → ONE serializable transaction: lock the product row (FOR UPDATE),
- *     check available + stock, check no account holds that ID, guarded coin
- *     debit, ledger row, assign users.displayId, history row, stock/sold-out,
- *     order COMPLETED
- *   → any failure rolls the whole transaction back, the order is FAILED
- *     with the reason, and no coins move.
- * A retry with the same key returns the same order. The old ID is released
- * (anyone may get it again later through the normal allocator).
+/** Store purchases, special-ID rentals and gifts commit the guarded debit,
+ * ledger, holding, ID history and notification in one serializable transaction.
+ * Original IDs remain reserved until their holding is revoked or expires.
  */
 const db = prisma as any;
 export class StoreError extends Error {
@@ -55,109 +44,198 @@ export async function publicCategories() {
   }));
 }
 
+const DAY_MS = 86_400_000;
+const positiveId = (value: number) => Number.isSafeInteger(value) && value > 0 && value <= 2_147_483_647;
+function validateSpecialId(userId: number, displayId?: number, days?: number | null) {
+  if (!positiveId(userId) || (displayId !== undefined && !positiveId(displayId)) ||
+      (days != null && (!Number.isSafeInteger(days) || days <= 0 || days > 36500))) {
+    throw new StoreError(400, 'المستخدم أو الرقم أو المدة غير صالحة', 'INVALID_INPUT');
+  }
+}
+
+async function specialTransaction<T>(work: (tx: any) => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await prisma.$transaction(work, { isolationLevel: 'Serializable', timeout: 15000 });
+    } catch (e: any) {
+      const conflict = e?.code === 'P2034' || String(e?.message ?? '').includes('40001');
+      // A simultaneous request may win the order's unique key. A fresh
+      // transaction then returns that receipt instead of charging twice.
+      if ((conflict || e?.code === 'P2002') && attempt < 3) continue;
+      if (conflict) throw new StoreError(409, 'حاول مرة أخرى', 'RETRY');
+      if (e?.code === 'P2002') throw new StoreError(409, 'الرقم مستخدم بالفعل', 'ID_TAKEN');
+      throw e;
+    }
+  }
+}
+
+async function assignSpecialId(tx: any, userId: number, displayId: number, durationDays: number | null,
+    source: 'store' | 'gift' | 'admin', grantedBy: number | null, orderId?: number) {
+  validateSpecialId(userId, displayId, durationDays);
+  await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "users" WHERE "id" = ${userId} FOR UPDATE`);
+  const user = await tx.user.findUnique({ where: { id: userId } });
+  if (!user) throw new StoreError(404, 'المستخدم غير موجود', 'USER_NOT_FOUND');
+  const active = await tx.userSpecialId.findFirst({ where: { userId, status: 'active' } });
+  if (active) {
+    if (source !== 'store' || active.displayId !== displayId) {
+      throw new StoreError(409, 'المستلم لديه آيدي مميز فعال بالفعل', 'ACTIVE_SPECIAL_ID');
+    }
+    if (!active.expiresAt) throw new StoreError(409, 'هذا الرقم ملكك بشكل دائم', 'ALREADY_YOURS');
+    const expiresAt = durationDays == null ? null : new Date(Math.max(Date.now(), +new Date(active.expiresAt)) + durationDays * DAY_MS);
+    return tx.userSpecialId.update({ where: { id: active.id }, data: { expiresAt } });
+  }
+  const holder = await tx.user.findFirst({ where: { displayId } });
+  const reserved = await tx.userSpecialId.findFirst({ where: { status: 'active', OR: [{ displayId }, { originalDisplayId: displayId }] } });
+  if (holder || reserved) throw new StoreError(409, 'الرقم مستخدم أو محجوز بالفعل', 'ID_TAKEN');
+  const holding = await tx.userSpecialId.create({ data: {
+    userId, displayId, originalDisplayId: user.displayId, source, grantedBy,
+    expiresAt: durationDays == null ? null : new Date(Date.now() + durationDays * DAY_MS),
+  } });
+  await tx.user.update({ where: { id: userId }, data: { displayId } });
+  await tx.displayIdHistory.create({ data: { userId, oldId: user.displayId, newId: displayId, orderId } });
+  return holding;
+}
+
 export async function buyStoreProduct(userId: number, productId: number, idempotencyKey: string) {
+  return purchaseStoreProduct(userId, productId, idempotencyKey);
+}
+
+async function purchaseStoreProduct(userId: number, productId: number, idempotencyKey: string, recipientUserId: number | null = null) {
+  validateSpecialId(userId);
+  if (!positiveId(productId)) throw new StoreError(400, 'المنتج غير صالح', 'BAD_PRODUCT');
   const key = String(idempotencyKey || '').slice(0, 120);
   if (!key) throw new StoreError(400, 'مفتاح العملية مطلوب', 'NO_KEY');
-  const prior = await db.storeOrder.findUnique({ where: { idempotencyKey: key } });
-  if (prior) {
-    if (prior.userId !== userId || prior.productId !== productId) throw new StoreError(409, 'مفتاح عملية مستخدم لطلب آخر', 'KEY_REUSED');
-    return prior;
-  }
-  const product = await db.storeProduct.findUnique({ where: { id: productId } });
-  if (!product) throw new StoreError(404, 'المنتج غير موجود', 'NOT_FOUND');
-  const me = await db.user.findUnique({ where: { id: userId }, select: { displayId: true } });
-  const order = await db.storeOrder.create({
-    data: { userId, productId, priceCoins: product.priceCoins, idempotencyKey: key, oldDisplayId: me?.displayId ?? null },
-  });
-
-  const isConflict = (e: any) => e?.code === 'P2034' || String(e?.message ?? '').includes('40001');
-  try {
-    const run = () => prisma.$transaction(
-      async (tx: any) => {
-        // Lock the product so two buyers cannot both pass the checks.
-        const locked: any[] = await tx.$queryRaw(Prisma.sql`SELECT * FROM "store_products" WHERE "id" = ${productId} FOR UPDATE`);
-        const p = locked[0];
-        if (!p || !p.isAvailable) throw new StoreError(409, 'المنتج لم يعد متاحاً', 'UNAVAILABLE');
-        if (p.stock != null && p.stock <= 0) throw new StoreError(409, 'نفد المنتج', 'SOLD_OUT');
-
-        let newDisplayId: number | null = null;
-        if (p.kind === 'special_id') {
-          newDisplayId = Number(p.specialDisplayId);
-          if (!newDisplayId) throw new StoreError(409, 'المنتج غير صالح', 'BAD_PRODUCT');
-          const holder = await tx.user.findFirst({ where: { displayId: newDisplayId }, select: { id: true } });
-          if (holder && holder.id !== userId) throw new StoreError(409, 'الرقم لم يعد متاحاً', 'ID_TAKEN');
-          if (holder?.id === userId) throw new StoreError(409, 'هذا الرقم هو رقمك بالفعل', 'ALREADY_YOURS');
-        }
-
-        const debit = await tx.user.updateMany({
-          where: { id: userId, coinsBalance: { gte: p.priceCoins } },
-          data: { coinsBalance: { decrement: p.priceCoins } },
-        });
-        if (debit.count === 0) throw new StoreError(402, 'رصيد غير كافٍ', 'INSUFFICIENT');
-
-        const ledger = await tx.transaction.create({
-          data: { userId, type: 'STORE_PURCHASE', amountCoins: p.priceCoins, status: 'completed', externalId: `store_order:${order.id}` },
-        });
-
-        if (p.kind === 'special_id') {
-          await tx.user.update({ where: { id: userId }, data: { displayId: newDisplayId } });
-          await tx.displayIdHistory.create({ data: { userId, oldId: order.oldDisplayId, newId: newDisplayId!, orderId: order.id } });
-        } else if (p.itemId) {
-          const expiresAt = p.durationDays ? new Date(Date.now() + p.durationDays * 86_400_000) : null;
-          await tx.userItem.upsert({
-            where: { userId_itemId: { userId, itemId: p.itemId } },
-            create: { userId, itemId: p.itemId, expiresAt },
-            update: { expiresAt },
-          });
-        }
-
-        // One special ID = one sale. Other products: stock counts down.
-        const soldOut = p.kind === 'special_id' || (p.stock != null && p.stock - 1 <= 0);
-        await tx.storeProduct.update({
-          where: { id: productId },
-          data: { ...(p.stock != null ? { stock: { decrement: 1 } } : {}), ...(soldOut ? { isAvailable: false } : {}) },
-        });
-        return tx.storeOrder.update({
-          where: { id: order.id },
-          data: { status: 'COMPLETED', completedAt: new Date(), newDisplayId, transactionId: ledger.id },
-        });
-      },
-      { isolationLevel: 'Serializable', timeout: 15000 },
-    );
-    // A concurrent buyer makes Postgres abort one transaction (40001): run it
-    // again — it then sees the product sold and fails cleanly.
-    let done: any;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        done = await run();
-        break;
-      } catch (e) {
-        if (isConflict(e) && attempt < 3) continue;
-        throw e;
+  const targetId = recipientUserId ?? userId;
+  const done = await specialTransaction(async (tx: any) => {
+    const prior = await tx.storeOrder.findUnique({ where: { idempotencyKey: key } });
+    if (prior) {
+      if (prior.userId !== userId || prior.productId !== productId || (prior.recipientUserId ?? null) !== recipientUserId) {
+        throw new StoreError(409, 'مفتاح عملية مستخدم لطلب آخر', 'KEY_REUSED');
       }
+      return prior;
     }
-    await createNotification({
-      userId,
-      type: 'store_purchase',
-      title: 'تم الشراء ✅',
-      body: done.newDisplayId ? `أصبح رقمك المميز ${done.newDisplayId}` : `تم شراء ${product.name}`,
-      data: { orderId: done.id, productId },
-    }).catch(() => {});
-    return done;
-  } catch (e: any) {
-    const reason = e instanceof StoreError ? e.message : e?.code === 'P2002' ? 'الرقم لم يعد متاحاً' : 'تعذر إتمام الشراء';
-    await db.storeOrder.update({ where: { id: order.id }, data: { status: 'FAILED', failureReason: reason } }).catch(() => {});
-    if (e instanceof StoreError) throw e;
-    if (e?.code === 'P2002') throw new StoreError(409, 'الرقم لم يعد متاحاً', 'ID_TAKEN');
-    if (isConflict(e)) throw new StoreError(409, 'حاول مرة أخرى', 'RETRY');
-    throw e;
+    const locked: any[] = await tx.$queryRaw(Prisma.sql`SELECT * FROM "store_products" WHERE "id" = ${productId} FOR UPDATE`);
+    const p = locked[0];
+    if (!p) throw new StoreError(404, 'المنتج غير موجود', 'NOT_FOUND');
+    if (recipientUserId !== null && p.kind !== 'special_id') throw new StoreError(400, 'المنتج ليس آيدي مميز', 'BAD_PRODUCT');
+    const active = p.kind === 'special_id' && recipientUserId === null
+      ? await tx.userSpecialId.findFirst({ where: { userId, displayId: p.specialDisplayId, status: 'active' } }) : null;
+    // A sold special ID remains renewable by its current rental holder.
+    if (!active && !p.isAvailable) throw new StoreError(409, 'المنتج لم يعد متاحاً', 'UNAVAILABLE');
+    if (!active && p.stock != null && p.stock <= 0) throw new StoreError(409, 'نفد المنتج', 'SOLD_OUT');
+    const recipient = await tx.user.findUnique({ where: { id: targetId }, select: { displayId: true } });
+    if (!recipient) throw new StoreError(404, 'المستخدم غير موجود', 'USER_NOT_FOUND');
+    const order = await tx.storeOrder.create({ data: {
+      userId, productId, recipientUserId, priceCoins: p.priceCoins, idempotencyKey: key, oldDisplayId: recipient.displayId,
+    } });
+    let newDisplayId: number | null = null;
+    if (p.kind === 'special_id') {
+      newDisplayId = Number(p.specialDisplayId);
+      await assignSpecialId(tx, targetId, newDisplayId, p.durationDays, recipientUserId === null ? 'store' : 'gift',
+        recipientUserId === null ? null : userId, order.id);
+    }
+    const debit = await tx.user.updateMany({
+      where: { id: userId, coinsBalance: { gte: p.priceCoins } },
+      data: { coinsBalance: { decrement: p.priceCoins } },
+    });
+    if (debit.count !== 1) throw new StoreError(402, 'رصيد غير كافٍ', 'INSUFFICIENT');
+    const ledger = await tx.transaction.create({ data: {
+      userId, type: 'STORE_PURCHASE', amountCoins: p.priceCoins, status: 'completed', externalId: `store_order:${order.id}`,
+    } });
+    if (p.kind !== 'special_id' && p.itemId) {
+      const expiresAt = p.durationDays ? new Date(Date.now() + p.durationDays * DAY_MS) : null;
+      await tx.userItem.upsert({ where: { userId_itemId: { userId, itemId: p.itemId } },
+        create: { userId, itemId: p.itemId, expiresAt }, update: { expiresAt } });
+    }
+    if (!active) {
+      const soldOut = p.kind === 'special_id' || (p.stock != null && p.stock - 1 <= 0);
+      await tx.storeProduct.update({ where: { id: productId }, data: {
+        ...(p.stock != null ? { stock: { decrement: 1 } } : {}), ...(soldOut ? { isAvailable: false } : {}),
+      } });
+    }
+    // Persist the notification in the same transaction: retries cannot duplicate it.
+    await tx.notification.create({ data: { userId: targetId, type: 'store_purchase',
+      title: recipientUserId === null ? 'تم الشراء' : 'وصلتك هدية',
+      body: newDisplayId ? `أصبح رقمك المميز ${newDisplayId}` : `تم شراء ${p.name}`,
+      data: { orderId: order.id, productId, senderId: userId },
+    } });
+    return tx.storeOrder.update({ where: { id: order.id }, data: {
+      status: 'COMPLETED', completedAt: new Date(), newDisplayId, transactionId: ledger.id,
+    } });
+  });
+  return done;
+}
+
+// orderId selects a product from the sender's own order; this is a new paid
+// purchase, never a transfer that would change the sender's current ID.
+export async function sendSpecialId(userId: number, input: { orderId?: number; productId?: number; toUserId: number }, idempotencyKey: string) {
+  validateSpecialId(userId);
+  validateSpecialId(input.toUserId);
+  if (input.toUserId === userId) throw new StoreError(400, 'اختر مستلماً آخر', 'SELF_GIFT');
+  if ((input.orderId == null) === (input.productId == null)) throw new StoreError(400, 'حدد الطلب أو المنتج فقط', 'INVALID_INPUT');
+  let productId = input.productId;
+  if (input.orderId != null) {
+    if (!positiveId(input.orderId)) throw new StoreError(400, 'الطلب غير صالح', 'INVALID_INPUT');
+    const order = await db.storeOrder.findUnique({ where: { id: input.orderId } });
+    if (!order || order.userId !== userId) throw new StoreError(404, 'الطلب غير موجود', 'NOT_FOUND');
+    productId = order.productId;
+  }
+  return purchaseStoreProduct(userId, productId!, idempotencyKey, input.toUserId);
+}
+
+export async function grantSpecialId(adminId: number, userId: number, displayId: number, durationDays: number | null) {
+  validateSpecialId(adminId);
+  return specialTransaction(async (tx: any) => {
+    const holding = await assignSpecialId(tx, userId, displayId, durationDays, 'admin', adminId);
+    await recordAdminAuditStrict(tx, { adminId, action: 'SPECIAL_ID_GRANT', targetType: 'user', targetId: userId, before: null, after: holding });
+    return holding;
+  });
+}
+
+async function restoreSpecialId(tx: any, userId: number, status: 'revoked' | 'expired', adminId?: number, now = new Date()) {
+  await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "users" WHERE "id" = ${userId} FOR UPDATE`);
+  const holding = await tx.userSpecialId.findFirst({ where: { userId, status: 'active' } });
+  if (!holding || (status === 'expired' && (!holding.expiresAt || +new Date(holding.expiresAt) >= +now))) return null;
+  await tx.user.update({ where: { id: userId }, data: { displayId: holding.originalDisplayId } });
+  const after = await tx.userSpecialId.update({ where: { id: holding.id }, data: { status } });
+  await tx.displayIdHistory.create({ data: { userId, oldId: holding.displayId, newId: holding.originalDisplayId } });
+  if (adminId != null) await recordAdminAuditStrict(tx, {
+    adminId, action: 'SPECIAL_ID_REVOKE', targetType: 'user', targetId: userId, before: holding, after,
+  });
+  if (status === 'expired') await tx.notification.create({ data: {
+    userId, type: 'store_purchase', title: 'انتهت مدة الآيدي المميز',
+    body: 'انتهت مدة الآيدي المميز وتمت استعادة رقمك الأصلي', data: { specialId: holding.id, displayId: holding.originalDisplayId },
+  } });
+  return after;
+}
+
+export async function revokeSpecialId(adminId: number, userId: number) {
+  validateSpecialId(adminId);
+  validateSpecialId(userId);
+  return specialTransaction((tx) => restoreSpecialId(tx, userId, 'revoked', adminId));
+}
+
+export async function listSpecialIds(userId?: number) {
+  if (userId !== undefined) validateSpecialId(userId);
+  return db.userSpecialId.findMany({ where: { status: 'active', ...(userId === undefined ? {} : { userId }) }, orderBy: { id: 'desc' } });
+}
+
+export async function sweepExpiredSpecialIds(now = new Date()) {
+  const expired = await db.userSpecialId.findMany({ where: { status: 'active', expiresAt: { lt: now } }, select: { userId: true } });
+  for (const row of expired) {
+    try {
+      await specialTransaction((tx) => restoreSpecialId(tx, row.userId, 'expired', undefined, now));
+    } catch (e) {
+      console.error('[special-id.expiry]', row.userId, e);
+    }
   }
 }
 
 /** Numbers listed for sale must never be handed out by the normal allocator. */
 export async function isReservedDisplayId(tx: any, id: number): Promise<boolean> {
   const p = await tx.storeProduct?.findFirst?.({ where: { specialDisplayId: id, isAvailable: true }, select: { id: true } });
-  return !!p;
+  const holding = await tx.userSpecialId?.findFirst?.({ where: { status: 'active', OR: [{ displayId: id }, { originalDisplayId: id }] }, select: { id: true } });
+  return !!p || !!holding;
 }
 
 // ── admin (requires store.products) ────────────────────────────────────────

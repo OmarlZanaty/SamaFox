@@ -504,6 +504,24 @@ router.post("/custom/:productId/buy", buyLimiter, async (req: any, res) => {
   }
 });
 
+router.post("/special-id/send", buyLimiter, async (req: any, res) => {
+  try {
+    const { sendSpecialId } = await import("../services/storeLists.service");
+    const body = req.body ?? {};
+    const order = await sendSpecialId(Number(req.userId ?? req.user?.id), {
+      ...(body.orderId == null ? {} : { orderId: Number(body.orderId) }),
+      ...(body.productId == null ? {} : { productId: Number(body.productId) }),
+      toUserId: Number(body.toUserId),
+    }, String(req.get("Idempotency-Key") || body.requestId || ""));
+    if (order.status === "FAILED") return res.status(409).json({ success: false, message: order.failureReason, data: order });
+    return res.json({ success: true, data: order });
+  } catch (e: any) {
+    if (e?.status) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+    console.error("[store.special-id.send]", e);
+    return res.status(500).json({ success: false, message: "تعذر إرسال الآيدي المميز" });
+  }
+});
+
 router.get("/products", async (_req, res) => {
   try {
     // Private-store items (isPurchasable=false) are hidden from the app —

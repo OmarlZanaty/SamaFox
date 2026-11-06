@@ -228,6 +228,29 @@
   Object.assign(window, { giftListsLoad, glAdd, glSave, glDelete, glMove, glToggle, glUploadImage, glRenderGifts });
 
   // ── SPEC52 #41: قوائم المتجر و ID مميز ───────────────────────────────────
+  const specialTr = (ar, en) => typeof window.tr === "function" ? window.tr(ar, en) : ar;
+  async function slSpecialLoad() {
+    const filter = val("special_filter");
+    const r = await call("/admin-dashboard/special-ids" + (filter ? "?userId=" + encodeURIComponent(filter) : ""));
+    $("special_holdings").innerHTML = (r?.data || []).map((h) => `<tr>
+      <td>${esc(h.userId)}</td><td>${esc(h.displayId)}</td><td>${esc(h.originalDisplayId ?? "—")}</td>
+      <td>${h.expiresAt ? esc(dt(h.expiresAt)) : specialTr("دائم", "Permanent")}</td>
+      <td><button class="btn btn-outline btn-sm" data-perm="store.products" onclick="slSpecialRevoke(${Number(h.userId)})">${specialTr("سحب", "Revoke")}</button></td>
+    </tr>`).join("") || `<tr><td colspan="5">${specialTr("لا توجد آيديات مميزة فعالة", "No active special IDs")}</td></tr>`;
+    await loadCaps();
+  }
+  async function slSpecialGrant() {
+    await call("/admin-dashboard/special-ids/grant", "POST", {
+      userId: Number(val("special_user")), displayId: Number(val("special_display")),
+      durationDays: val("special_days") ? Number(val("special_days")) : null,
+    });
+    await slSpecialLoad();
+  }
+  async function slSpecialRevoke(userId) {
+    await call("/admin-dashboard/special-ids/revoke", "POST", { userId: userId || Number(val("special_user")) });
+    await slSpecialLoad();
+  }
+  Object.assign(window, { slSpecialLoad, slSpecialGrant, slSpecialRevoke });
   async function storeListsLoad() {
     await loadCaps();
     const r = await call("/admin-dashboard/store-lists");
@@ -261,6 +284,27 @@
           <button class="btn btn-outline btn-sm" onclick="slAddProd(${c.id})" data-perm="store.products">+ منتج</button>
         </div>
       </div>`).join("") || '<p class="cell-muted">لا توجد قوائم بعد</p>';
+    if (window.spec52Can("store.products")) {
+      $("slBody").insertAdjacentHTML("beforeend", `<div class="form-card" style="margin-top:10px">
+        <h3>${specialTr("منح آيدي مميز / سحب", "Grant / revoke special ID")}</h3>
+        <div class="form-row">
+          <input class="form-input" id="special_user" type="number" min="1" placeholder="${specialTr("رقم حساب المستخدم", "User account ID")}">
+          <input class="form-input" id="special_display" type="number" min="1" placeholder="${specialTr("الآيدي المميز", "Special display ID")}">
+          <input class="form-input" id="special_days" type="number" min="1" max="36500" placeholder="${specialTr("الأيام (فارغ = دائم)", "Days (blank = permanent)")}">
+          <button class="btn btn-primary" data-perm="store.products" onclick="slSpecialGrant()">${specialTr("منح", "Grant")}</button>
+          <button class="btn btn-outline" data-perm="store.products" onclick="slSpecialRevoke()">${specialTr("سحب", "Revoke")}</button>
+        </div>
+        <div class="form-row">
+          <input class="form-input" id="special_filter" type="number" min="1" placeholder="${specialTr("تصفية برقم حساب المستخدم", "Filter by user account ID")}">
+          <button class="btn btn-outline" onclick="slSpecialLoad()">${specialTr("عرض", "Show")}</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>${specialTr("المستخدم", "User")}</th><th>${specialTr("الآيدي المميز", "Special ID")}</th>
+          <th>${specialTr("الرقم الأصلي", "Original ID")}</th><th>${specialTr("الانتهاء", "Expires")}</th><th></th>
+        </tr></thead><tbody id="special_holdings"></tbody></table></div>
+      </div>`);
+      await slSpecialLoad();
+    }
     loadCaps();
   }
   async function slAddCat() {

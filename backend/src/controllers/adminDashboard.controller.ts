@@ -181,19 +181,24 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
       return res.status(400).json({ success: false, message: 'الـ ID لازم يكون رقم صحيح من 1 إلى 2147483647' });
     }
 
-    const taken = await prisma.user.findFirst({
-      where: { displayId: newDisplayId, NOT: { id: userId } },
-    });
-    if (taken) return res.status(400).json({ success: false, message: 'ID already in use' });
-
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { displayId: newDisplayId },
-      select: { id: true, name: true, displayId: true },
-    });
+    const { StoreError } = await import('../services/storeLists.service');
+    const updated = await prisma.$transaction(async (tx: any) => {
+      const before = await tx.user.findUnique({ where: { id: userId } });
+      if (!before) throw new StoreError(404, 'المستخدم غير موجود');
+      const active = await tx.userSpecialId.findFirst({ where: { userId, status: 'active' } });
+      if (active) throw new StoreError(409, 'اسحب الآيدي المميز أولاً');
+      const taken = await tx.user.findFirst({ where: { displayId: newDisplayId, NOT: { id: userId } } });
+      const reserved = await tx.userSpecialId.findFirst({ where: { status: 'active', originalDisplayId: newDisplayId } });
+      if (taken || reserved) throw new StoreError(409, 'الرقم مستخدم أو محجوز بالفعل');
+      const after = await tx.user.update({ where: { id: userId }, data: { displayId: newDisplayId },
+        select: { id: true, name: true, displayId: true } });
+      await tx.displayIdHistory.create({ data: { userId, oldId: before.displayId, newId: newDisplayId } });
+      return after;
+    }, { isolationLevel: 'Serializable' });
 
     return res.json({ success: true, data: updated });
-  } catch {
+  } catch (e: any) {
+    if (e?.status) return res.status(e.status).json({ success: false, message: e.message });
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -3078,10 +3083,11 @@ export const adminGetGates = async (_req: AdminReq, res: Response) => {
     ]);
     const { animatedRoomImageMinVip } = await import('../services/animatedAvatar.service');
     const animatedRoomImageMinVipValue = await animatedRoomImageMinVip();
-    const { getMessageImageMinLevel, getRoomImageMinLevel } = await import('./messages.controller');
+    const { getMessageImageMinLevel, getRoomImageMinLevel, getImageLevelKind } = await import('./messages.controller');
+    const gate_image_level_kind = await getImageLevelKind();
     const [messageImageMinLevel, roomImageMinLevel] = await Promise.all([getMessageImageMinLevel(), getRoomImageMinLevel()]);
     return ok(res, { data: { visitorsMinLevel, messageImageMinVip, roomImageMinVip, imageGiftMode, animatedRoomImageMinVip: animatedRoomImageMinVipValue,
-      messageImageMinLevel, roomImageMinLevel } });
+      messageImageMinLevel, roomImageMinLevel, gate_image_level_kind } });
   } catch (e) {
     console.error('adminGetGates error:', e);
     return fail(res, 500, 'Server error');
@@ -3094,6 +3100,9 @@ export const adminSetGates = async (req: AdminReq, res: Response) => {
     const body = req.body as any;
     const { getVisitorsMinLevel: gv } = await import('../follow/relations.controller');
     const mc = await import('./messages.controller');
+    if (body?.gate_image_level_kind != null && !['supporter', 'supported'].includes(body.gate_image_level_kind)) {
+      return fail(res, 400, 'Invalid level kind / نوع المستوى غير صالح');
+    }
     const before = {
       visitorsMinLevel: await gv(),
       messageImageMinVip: await mc.getMessageImageMinVip(),
@@ -3101,7 +3110,9 @@ export const adminSetGates = async (req: AdminReq, res: Response) => {
       imageGiftMode: await mc.getImageGiftMode(),
       messageImageMinLevel: await mc.getMessageImageMinLevel(),
       roomImageMinLevel: await mc.getRoomImageMinLevel(),
+      gate_image_level_kind: await mc.getImageLevelKind(),
     };
+    if (body?.gate_image_level_kind != null) out.gate_image_level_kind = await mc.setImageLevelKind(body.gate_image_level_kind);
     for (const [field, key] of [['messageImageMinLevel', mc.MESSAGE_IMAGE_MIN_LEVEL_KEY], ['roomImageMinLevel', mc.ROOM_IMAGE_MIN_LEVEL_KEY]] as const) {
       if (body?.[field] == null || body[field] === '') continue;
       const v = Math.floor(Number(body[field]));

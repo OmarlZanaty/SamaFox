@@ -40,7 +40,7 @@ test('the level bar applies per scope', async () => {
   user = { vipLevel: 0, vipExpiresAt: null, level: 10 };
   const r = await pictureDenial(1, 'room');
   assert.equal(r?.code, 'LEVEL_REQUIRED');
-  assert.match(r!.message, /ليفل 20/);
+  assert.match(r!.message, /ليفل.*20/);
   assert.equal(await pictureDenial(1, 'dm'), null, 'the DM bar is separate');
   user = { ...user, level: 20 };
   assert.equal(await pictureDenial(1, 'room'), null);

@@ -2,6 +2,7 @@ import prisma from '../utils/prisma';
 import { KNOWN_GAMES, getGameSettings, naturalMaxMultiplier } from './gameConfig.service';
 import { PROGRAM_ACCOUNT, creditAccount, debitAccount, gamePoolAccount, normalizeGameKey, readBalance } from './economyAccounts.service';
 import { reservedForGame } from './halalGames.service';
+import { recordAdminAuditStrict as recordAdminAudit, type AdminAuditInput } from './adminAudit.service';
 
 const db = prisma as any;
 
@@ -148,6 +149,68 @@ export async function fundLuckyPool(amount: number, adminId: number) {
   });
 }
 
+type ResetAudit = Pick<AdminAuditInput, 'adminId' | 'reason' | 'ip' | 'sessionId' | 'userAgent' | 'device'>;
+
+export class EconomyResetError extends Error {}
+
+/** All balances and audit rows commit together. Locks serialize funding and resets. */
+export async function resetEconomyPools(games: readonly string[], lucky: boolean, audit: ResetAudit, client = db) {
+  if (!audit.reason || audit.reason.trim().length < 3) throw new EconomyResetError('Reason required / السبب مطلوب');
+  const keys = [...new Set(games.map(normalizeGameKey))].sort();
+  if (keys.some(key => !(KNOWN_GAMES as readonly string[]).includes(key))) throw new EconomyResetError('Unknown game / لعبة غير معروفة');
+  return client.$transaction(async (tx: any) => {
+    await tx.$executeRawUnsafe('LOCK TABLE economy_accounts, lucky_pool, lucky_rounds, lucky_rolls IN SHARE ROW EXCLUSIVE MODE');
+    if (keys.some(key => reservedForGame(key) > 0)) throw new EconomyResetError('Active game reservations / توجد مبالغ محجوزة للعب');
+    if (lucky && await tx.luckyRoll.count({ where: { status: 'PENDING' } })) throw new EconomyResetError('Pending lucky entries / توجد مشاركات محظوظ معلقة');
+    const pools = [];
+    for (const key of keys) {
+      const account = gamePoolAccount(key);
+      const before = (await readBalance(tx, account)) ?? 0n;
+      if (before < 0n) throw new EconomyResetError('Negative pool / رصيد الصندوق سالب');
+      const movement = { kind: 'POOL_RESET', refType: 'game', refId: key, userId: audit.adminId };
+      const after = await debitAccount(tx, account, before, movement);
+      if (after === null || after !== 0n) throw new EconomyResetError('Pool changed / تغير رصيد الصندوق');
+      await creditAccount(tx, PROGRAM_ACCOUNT, before, movement);
+      const out = { game: key, poolBalance: '0', transferred: String(before) };
+      await recordAdminAudit(tx, { ...audit, action: 'GAME_POOL_RESET', targetType: 'game_pool', targetId: key, before: { poolBalance: before }, after: out });
+      pools.push(out);
+    }
+    if (lucky) {
+      const pool = await tx.luckyPool.findUnique({ where: { id: 1 } });
+      const before = BigInt(pool?.balance ?? 0);
+      if (before < 0n) throw new EconomyResetError('Negative pool / رصيد الصندوق سالب');
+      if (before > 0n) {
+        const changed = await tx.luckyPool.updateMany({ where: { id: 1, balance: { gte: before } }, data: { balance: { decrement: before }, totalOut: { increment: before } } });
+        if (changed.count !== 1) throw new EconomyResetError('Pool changed / تغير رصيد الصندوق');
+        // LuckyPool is the authoritative balance, not an EconomyAccount mirror.
+        const movement = { kind: 'POOL_RESET', refType: 'lucky', refId: 'lucky_pool', userId: audit.adminId };
+        await tx.economyLedger.create({ data: { account: 'LUCKY_POOL', delta: -before, balanceAfter: 0n, ...movement } });
+        await creditAccount(tx, PROGRAM_ACCOUNT, before, movement);
+      }
+      const out = { game: 'lucky', poolBalance: '0', transferred: String(before) };
+      await recordAdminAudit(tx, { ...audit, action: 'LUCKY_POOL_RESET', targetType: 'lucky_pool', targetId: '1', before: { poolBalance: before }, after: out });
+      pools.push(out);
+    }
+    return { pools };
+  });
+}
+
+/** Archive completed history, retaining financial/provably-fair evidence and configuration. */
+export async function resetLuckyRounds(audit: ResetAudit, client = db) {
+  if (!audit.reason || audit.reason.trim().length < 3) throw new EconomyResetError('Reason required / السبب مطلوب');
+  return client.$transaction(async (tx: any) => {
+    await tx.$executeRawUnsafe('LOCK TABLE lucky_pool, lucky_rounds, lucky_rolls IN SHARE ROW EXCLUSIVE MODE');
+    if (await tx.luckyRoll.count({ where: { status: 'PENDING' } }) || await tx.luckyRound.count({ where: { status: 'OPEN' } })) throw new EconomyResetError('Active lucky rounds / توجد جولات محظوظ نشطة');
+    const rolls = await tx.luckyRoll.updateMany({ where: { archived: false }, data: { archived: true } });
+    const rounds = await tx.luckyRound.updateMany({ where: { archived: false, status: { not: 'OPEN' } }, data: { archived: true } });
+    const pool = await tx.luckyPool.findUnique({ where: { id: 1 } });
+    await tx.luckyPool.updateMany({ where: { id: 1 }, data: { totalIn: 0n, totalOut: 0n } });
+    const out = { rolls: rolls.count, rounds: rounds.count, totalIn: '0', totalOut: '0' };
+    await recordAdminAudit(tx, { ...audit, action: 'LUCKY_ROUNDS_RESET', targetType: 'lucky', targetId: 'history', before: { totalIn: pool?.totalIn ?? 0n, totalOut: pool?.totalOut ?? 0n }, after: out });
+    return out;
+  });
+}
+
 // ── Lucky ────────────────────────────────────────────────────
 
 export async function luckyReport(from: Date, to: Date) {
@@ -163,19 +226,19 @@ export async function luckyReport(from: Date, to: Date) {
             COUNT(*) FILTER (WHERE multiplier>0)::int AS wins,
             COUNT(*) FILTER (WHERE status='PENDING')::int AS pending,
             COUNT(*) FILTER (WHERE status='NO_COMPETITION')::int AS "noCompetition"
-       FROM lucky_rolls WHERE "createdAt" >= $1 AND "createdAt" < $2`,
+       FROM lucky_rolls WHERE archived = false AND "createdAt" >= $1 AND "createdAt" < $2`,
     from,
     to,
   )) as any[];
   const byMult: any[] = await db.$queryRawUnsafe(
     `SELECT multiplier, COUNT(*)::int AS n, COALESCE(SUM("payoutCoins"),0)::bigint AS paid
-       FROM lucky_rolls WHERE "createdAt" >= $1 AND "createdAt" < $2 AND status='SETTLED'
+       FROM lucky_rolls WHERE archived = false AND "createdAt" >= $1 AND "createdAt" < $2 AND status='SETTLED'
       GROUP BY multiplier ORDER BY multiplier`,
     from,
     to,
   );
   const rounds: any[] = await db.$queryRawUnsafe(
-    `SELECT status, COUNT(*)::int AS n FROM lucky_rounds WHERE "startedAt" >= $1 AND "startedAt" < $2 GROUP BY status`,
+    `SELECT status, COUNT(*)::int AS n FROM lucky_rounds WHERE archived = false AND "startedAt" >= $1 AND "startedAt" < $2 GROUP BY status`,
     from,
     to,
   );
@@ -209,7 +272,7 @@ export async function luckyLog(q: {
   page?: number;
   pageSize?: number;
 }) {
-  const where: any = {};
+  const where: any = { archived: false };
   if (q.userId) where.senderId = q.userId;
   if (q.roomId) where.roomId = q.roomId;
   if (q.from || q.to) where.createdAt = { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lt: q.to } : {}) };

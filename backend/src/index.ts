@@ -329,6 +329,19 @@ io.engine.on('connection_error', (err: any) => {
 
 initializeSocketHandlers(io);
 startRoomEvents();
+let specialIdSweepRunning = false;
+setInterval(async () => {
+  if (specialIdSweepRunning) return;
+  specialIdSweepRunning = true;
+  try {
+    const { sweepExpiredSpecialIds } = await import('./services/storeLists.service');
+    await sweepExpiredSpecialIds();
+  } catch (e) {
+    console.error('[special-id.expiry]', e);
+  } finally {
+    specialIdSweepRunning = false;
+  }
+}, 60_000).unref();
 setGiftIo(io);
 startSkillDiceEngine(io);
 startSkillWheelEngine(io);

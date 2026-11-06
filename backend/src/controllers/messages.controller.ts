@@ -4,6 +4,7 @@ import { createNotification } from '../services/notification.service';
 import { isBlockedBetween, blockedUserIds } from '../utils/blockGuard';
 import { checkDmAccess, unlockConversationWithFee, DmUnlockError } from '../services/dmAccess.service';
 import { getChatBubble, getChatBubbles } from '../utils/chatBubble';
+import { calculateLevelWithOverrides, getLevelThresholdOverrides } from '../services/xp.service';
 
 /**
  * C18 — minimum VIP tier allowed to send images in a DM, set from لوحة التحكم.
@@ -83,6 +84,24 @@ export async function setImageGiftMode(mode: string): Promise<'lock' | 'hide'> {
  */
 export const MESSAGE_IMAGE_MIN_LEVEL_KEY = 'message_image_min_level';
 export const ROOM_IMAGE_MIN_LEVEL_KEY = 'room_image_min_level';
+export const IMAGE_LEVEL_KIND_KEY = 'gate_image_level_kind';
+export type ImageLevelKind = 'supporter' | 'supported';
+
+export async function getImageLevelKind(): Promise<ImageLevelKind> {
+  const row = await prisma.appSetting.findUnique({ where: { key: IMAGE_LEVEL_KIND_KEY } });
+  return row?.value === 'supported' ? 'supported' : 'supporter';
+}
+
+export async function setImageLevelKind(value: ImageLevelKind) {
+  await prisma.appSetting.upsert({ where: { key: IMAGE_LEVEL_KIND_KEY }, update: { value }, create: { key: IMAGE_LEVEL_KIND_KEY, value } });
+  return value;
+}
+
+export function pictureGateLevel(user: { level?: number; receivedXp?: bigint } | null, kind: ImageLevelKind, thresholds: Map<number, number>) {
+  return kind === 'supported'
+    ? calculateLevelWithOverrides(Number(user?.receivedXp ?? 0n), thresholds)
+    : user?.level ?? 0;
+}
 
 async function readMinSetting(key: string): Promise<number> {
   try {
@@ -109,36 +128,51 @@ export const getRoomImageMinLevel = () => readMinSetting(ROOM_IMAGE_MIN_LEVEL_KE
  * the old check read vipLevel alone, so a lapsed VIP still passed).
  */
 export async function pictureDenial(userId: number, scope: 'dm' | 'room') {
+  return (await picturePolicy(userId, scope)).denial;
+}
+
+export async function picturePolicy(userId: number, scope: 'dm' | 'room') {
   const [minVip, minLevel] = await Promise.all(scope === 'dm'
     ? [getMessageImageMinVip(), getMessageImageMinLevel()]
     : [getRoomImageMinVip(), getRoomImageMinLevel()]);
-  if (minVip <= 0 && minLevel <= 0) return null;
-  const me = await prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, vipExpiresAt: true, level: true } });
+  const kind = await getImageLevelKind();
+  const policy = { minVip, minLevel, kind };
+  if (minVip <= 0 && minLevel <= 0) return { ...policy, denial: null };
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, vipExpiresAt: true, level: true, receivedXp: true } });
   const vipActive = !me?.vipExpiresAt || me.vipExpiresAt.getTime() > Date.now();
   const myVip = vipActive ? me?.vipLevel ?? 0 : 0;
   const where = scope === 'dm' ? 'إرسال الصور' : 'إرسال الصور في الغرفة';
   if (minVip > 0 && myVip < minVip) {
-    return { code: 'VIP_REQUIRED', minVip, minLevel, message: `${where} متاح من VIP ${minVip} فما فوق` };
+    return { ...policy, denial: { code: 'VIP_REQUIRED', ...policy, message: `${where} متاح من VIP ${minVip} فما فوق / Images require VIP ${minVip}` } };
   }
-  if (minLevel > 0 && (me?.level ?? 0) < minLevel) {
-    return { code: 'LEVEL_REQUIRED', minVip, minLevel, message: `${where} متاح من ليفل ${minLevel} فما فوق` };
+  const thresholds = kind === 'supported' ? await getLevelThresholdOverrides() : new Map<number, number>();
+  if (minLevel > 0 && pictureGateLevel(me, kind, thresholds) < minLevel) {
+    return { ...policy, denial: { code: 'LEVEL_REQUIRED', ...policy, message: `${where} متاح من ليفل ${kind === 'supported' ? 'المدعوم' : 'الداعم'} ${minLevel} فما فوق / Images require ${kind} level ${minLevel}` } };
   }
-  return null;
+  return { ...policy, denial: null };
 }
 
 /** GET /messages/room-image-policy — what the picture button should look like for me. */
 export const getRoomImagePolicy = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId as number;
-    const [minVip, minLevel, mode, denial] = await Promise.all([
-      getRoomImageMinVip(),
-      getRoomImageMinLevel(),
+    const [{ minVip, minLevel, kind, denial }, mode] = await Promise.all([
+      picturePolicy(userId, 'room'),
       getImageGiftMode(),
-      pictureDenial(userId, 'room'),
     ]);
-    return res.json({ success: true, data: { minVip, minLevel, mode, allowed: denial == null, message: denial?.message ?? null } });
+    return res.json({ success: true, data: { minVip, minLevel, kind, mode, allowed: denial == null, message: denial?.message ?? null } });
   } catch (e) {
     return res.status(500).json({ success: false, message: 'Failed' });
+  }
+};
+
+/** GET /messages/image-policy — the same server-side gate used by sendMessage. */
+export const getMessageImagePolicy = async (req: Request, res: Response) => {
+  try {
+    const { minVip, minLevel, kind, denial } = await picturePolicy((req as any).userId, 'dm');
+    return res.json({ success: true, data: { allowed: denial == null, minVip, minLevel, kind, message: denial?.message ?? null } });
+  } catch {
+    return res.status(500).json({ success: false, message: 'Failed / فشل' });
   }
 };
 

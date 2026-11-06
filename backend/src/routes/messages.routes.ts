@@ -8,6 +8,7 @@ import {
   getDmAccess,
   unlockConversation,
   getRoomImagePolicy,
+  getMessageImagePolicy,
 } from '../controllers/messages.controller';
 import { authenticate as requireAuth } from '../middlewares/auth.middleware';
 import multer from "multer";
@@ -31,6 +32,7 @@ router.get('/conversations/:conversationId/messages', requireAuth, getMessages);
 router.post('/send', requireAuth, sendMessage);
 // SPEC52 #17 — image-gift button state (min VIP + lock/hide).
 router.get('/room-image-policy', requireAuth, getRoomImagePolicy);
+router.get('/image-policy', requireAuth, getMessageImagePolicy);
 
 // قفل الرسائل الخاصة — the gate, and paying through it.
 router.get('/access/:partnerId', requireAuth, getDmAccess);

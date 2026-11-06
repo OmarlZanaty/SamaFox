@@ -6,7 +6,7 @@ import prisma from '../utils/prisma';
 import { requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
 import { AUDIT_ACTIONS, auditContext, recordAdminAudit } from '../services/adminAudit.service';
 import { GameSettingsError, KNOWN_GAMES, getGameSettings, setGameSettings } from '../services/gameConfig.service';
-import { auditLog, fundGamePool, fundLuckyPool, gameEconomyReport, luckyLog, luckyReport, parseRange } from '../services/economyAdmin.service';
+import { auditLog, fundGamePool, fundLuckyPool, gameEconomyReport, luckyLog, luckyReport, parseRange, resetEconomyPools, resetLuckyRounds, EconomyResetError } from '../services/economyAdmin.service';
 import {
   LUCKY_CONFIG_KEY,
   LUCKY_MULTIPLIERS,
@@ -68,6 +68,26 @@ const intOrNull = (v: unknown) => {
   const n = Math.floor(Number(v));
   return Number.isFinite(n) ? n : NaN;
 };
+
+for (const path of ['/games-economy/:game/reset-pool', '/games-economy/reset-all', '/lucky-mgmt/reset-pool', '/lucky-mgmt/reset-rounds']) {
+  r.post(path, requireOwnerPermission('economy.settings'), async (req, res) => {
+    try {
+      const reason = needReason(req, res);
+      if (!reason) return;
+      const game = String(req.params.game ?? '');
+      if (path.includes(':game') && !(KNOWN_GAMES as readonly string[]).includes(game)) return bad(res, 404, 'Unknown game');
+      const audit = { ...auditContext(req), adminId: adminId(req), reason };
+      const out = path.endsWith('reset-rounds')
+        ? await resetLuckyRounds(audit)
+        : await resetEconomyPools(path.endsWith('reset-all') ? KNOWN_GAMES : game ? [game] : [], path.startsWith('/lucky'), audit);
+      return ok(res, out);
+    } catch (e) {
+      if (e instanceof EconomyResetError) return bad(res, 409, e.message, 'RESET_CONFLICT');
+      console.error('[admin.economy.reset]', e);
+      return bad(res, 500, 'Reset failed / فشلت إعادة الضبط');
+    }
+  });
+}
 
 async function userCard(raw: unknown) {
   const n = Number(raw);

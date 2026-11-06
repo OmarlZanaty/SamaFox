@@ -56,6 +56,7 @@
   let econGame = null;
 
   async function econLoadGames() {
+    installResetButtons();
     const q = new URLSearchParams();
     if (val("econ_from")) q.set("from", val("econ_from"));
     if (val("econ_to")) q.set("to", new Date(new Date(val("econ_to")).getTime() + 86_400_000).toISOString().slice(0, 10));
@@ -162,6 +163,7 @@
   let lkTiers = [];
 
   async function lkLoad() {
+    installResetButtons();
     const q = new URLSearchParams();
     if (val("lk_from")) q.set("from", val("lk_from"));
     if (val("lk_to")) q.set("to", new Date(new Date(val("lk_to")).getTime() + 86_400_000).toISOString().slice(0, 10));
@@ -287,6 +289,52 @@
     $("lk_fund").value = "";
     toast(`✅ الصندوق الآن ${n(r?.data?.poolBalance)}`);
     lkLoad().catch(() => {});
+  }
+
+  function installResetButtons() {
+    const groups = [
+      ['econFundGame()', [
+        ['econResetPool', 'تصفير الصندوق / Reset pool', () => econGame && resetEconomy(`/games-economy/${encodeURIComponent(econGame)}/reset-pool`, econLoadGames)],
+        ['econResetAll', 'تصفير كل صناديق الألعاب / Reset all game pools', () => resetEconomy('/games-economy/reset-all', econLoadGames)],
+      ]],
+      ['lkFund()', [
+        ['lkResetPool', 'تصفير صندوق المحظوظ / Reset lucky pool', () => resetEconomy('/lucky-mgmt/reset-pool', lkLoad)],
+        ['lkResetRounds', 'تصفير سجل الجولات / Reset round history', () => resetEconomy('/lucky-mgmt/reset-rounds', lkLoad)],
+      ]],
+    ];
+    for (const [handler, buttons] of groups) {
+      const anchor = document.querySelector(`[onclick="${handler}"]`);
+      if (!anchor) continue;
+      for (const [id, label, action] of buttons) {
+        if ($(id)) continue;
+        const button = document.createElement('button');
+        button.id = id;
+        button.className = 'btn btn-outline btn-sm';
+        button.textContent = label;
+        button.onclick = async () => {
+          button.disabled = true;
+          try { await action(); } catch (_) { /* call() displays the error */ }
+          finally { button.disabled = false; }
+        };
+        anchor.insertAdjacentElement('afterend', button);
+      }
+    }
+  }
+
+  async function resetEconomy(path, reload) {
+    const history = path.endsWith('reset-rounds');
+    if (!confirm(history
+      ? 'تصفير سجل المحظوظ والعدادات مع الاحتفاظ بالإعدادات؟ / Reset lucky history and counters, keeping configuration?'
+      : 'تحويل كامل رصيد الصندوق المحدد إلى حساب البرنامج؟ / Transfer the selected pool balance(s) to the program account?')) return;
+    const reason = prompt('سبب إعادة الضبط (3 أحرف على الأقل) / Reset reason (at least 3 characters):')?.trim();
+    if (!reason) return;
+    if (reason.length < 3) return toast('السبب قصير / Reason is too short');
+    const result = await call('/admin-dashboard' + path, 'POST', { reason });
+    const d = result?.data;
+    toast(history
+      ? `تم تصفير السجل / History reset: ${n(d?.rounds)} جولات / rounds, ${n(d?.rolls)} مشاركات / entries`
+      : `تم التحويل إلى البرنامج / Transferred to program: ${(d?.pools || []).map(p => `${p.game}: ${p.transferred}`).join(', ')}`);
+    await reload();
   }
 
   const LK_STATUS = { PENDING: "بانتظار لاعب", SETTLED: "تمت", NO_COMPETITION: "بدون منافسة" };

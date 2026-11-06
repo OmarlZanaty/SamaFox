@@ -230,6 +230,14 @@ router.patch('/store-lists/products/:productId', requireOwnerPermission('store.p
 router.delete('/store-lists/products/:productId', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).deleteProduct(req)));
 router.post('/store-lists/bulk-ids', requireOwnerPermission('store.products'), storeWrap(async (req) => (await SL()).bulkAddIds(req)));
 
+router.get('/special-ids', requireOwnerPermission('store.products'), storeWrap(async (req) =>
+  (await SL()).listSpecialIds(req.query.userId === undefined ? undefined : Number(req.query.userId))));
+router.post('/special-ids/grant', requireOwnerPermission('store.products'), storeWrap(async (req) =>
+  (await SL()).grantSpecialId(Number(req.userId), Number(req.body?.userId), Number(req.body?.displayId),
+    req.body?.durationDays == null ? null : Number(req.body.durationDays))));
+router.post('/special-ids/revoke', requireOwnerPermission('store.products'), storeWrap(async (req) =>
+  (await SL()).revokeSpecialId(Number(req.userId), Number(req.body?.userId))));
+
 router.get('/permissions/catalog', (_req, res) => {
   res.json({
     success: true,

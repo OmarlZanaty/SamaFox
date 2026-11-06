@@ -34,6 +34,8 @@ model User {
   dmPriceCoins             Int                       @default(0)
   level                    Int                       @default(1)
   xp                       Int                       @default(0)
+  receivedXp               BigInt                    @default(0)
+  supportedLevel           Int                       @default(1)
   vipLevel                 Int                       @default(0)
   totalRecharge            Int                       @default(0) // cumulative coins ever charged (drives VIP level)
   vipExpiresAt             DateTime? // set when VIP was BOUGHT for a term; null = earned by recharge and permanent
@@ -1621,6 +1623,7 @@ model LuckyTier {
 /// Every roll, win or lose — the audit trail behind the pool balance, and what
 /// the verification endpoint recomputes.
 model LuckyRoll {
+  archived       Boolean   @default(false)
   id             Int       @id @default(autoincrement())
   giftTxId       String    @unique
   senderId       Int
@@ -2373,6 +2376,7 @@ model EconomyLedger {
 /// Lucky rounds: per room, a time window. Entries are settled only once the
 /// round has `minPlayers` distinct players.
 model LuckyRound {
+  archived     Boolean  @default(false)
   id           Int       @id @default(autoincrement())
   code         String    @unique
   roomId       Int?
@@ -2796,6 +2800,7 @@ model StoreOrder {
   productId      Int
   status         String    @default("PENDING") // PENDING | COMPLETED | FAILED
   priceCoins     Int
+  recipientUserId Int? // null = self purchase; otherwise gift recipient
   oldDisplayId   Int?
   newDisplayId   Int?
   idempotencyKey String    @unique
@@ -2812,7 +2817,7 @@ model DisplayIdHistory {
   id        Int      @id @default(autoincrement())
   userId    Int
   oldId     Int?
-  newId     Int
+  newId     Int?
   orderId   Int?
   createdAt DateTime @default(now())
 
@@ -2896,4 +2901,20 @@ model EmojiItem {
   createdAt DateTime  @default(now())
 
   @@index([listId])
+}
+
+model UserSpecialId {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  displayId         Int
+  originalDisplayId Int?
+  expiresAt         DateTime?
+  source            String   @default("store") // store | gift | admin
+  grantedBy         Int?
+  status            String   @default("active") // active | revoked | expired
+  createdAt         DateTime @default(now())
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@map("user_special_ids")
 }

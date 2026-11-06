@@ -7,7 +7,7 @@ import { getLuckyConfig, isLuckyGift, luckyHostCoins, rollLucky, type LuckyRollR
 import type { GiftTier } from '@prisma/client';
 import { createNotification } from '../services/notification.service';
 import { getCpConfig } from '../controllers/settings.controller';
-import { awardUserXP, notifyLevelUp } from '../services/xp.service';
+import { awardUserXP, calculateLevel, notifyLevelUp } from '../services/xp.service';
 import { checkAchievements } from '../controllers/achievement.controller';
 
 export interface SendGiftInput {
@@ -344,6 +344,19 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
             grantedItemCount: (xpResult.grantedItemIds ?? []).length,
           };
         }
+      }
+
+      // "Supported" (مدعوم) level — coins RECEIVED as gifts. The recipient's
+      // receivedXp grows 1:1 with the coins they were sent; the level uses the
+      // same curve as the supporter level. Self-gifts excluded.
+      if (xpGained > 0 && !isSelfGift) {
+        const rec = await tx.user.update({
+          where: { id: input.recipientId },
+          data: { receivedXp: { increment: BigInt(xpGained) } },
+          select: { receivedXp: true },
+        });
+        const supportedLevel = calculateLevel(Number(rec.receivedXp));
+        await tx.user.update({ where: { id: input.recipientId }, data: { supportedLevel } });
       }
 
       const txRow = await tx.giftTransaction.create({
