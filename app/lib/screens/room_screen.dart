@@ -118,8 +118,167 @@ class RoomScreen extends ConsumerStatefulWidget {
 class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObserver {
   late final ApiService _api = ApiService(DioClient.dio);
   late final GiftSocketService _giftSocket = GiftSocketService(SocketService());
-  late final GiftRepository _giftRepository = GiftRepository();
+  late final GiftRepository _giftRepository = _RoomGiftRepository(_giftSent);
   bool _openingMic = false;
+  final GlobalKey _effectsViewportKey = GlobalKey();
+  final ValueNotifier<int> _effectsLayout = ValueNotifier(0);
+  final GlobalKey _roomSeatsKey = GlobalKey();
+  final Set<String> _seatedCpPairs = {};
+  final Queue<List<SeatData>> _cpMicQueue = Queue();
+  List<SeatData>? _cpMicPair;
+  Timer? _cpMicTimer;
+  Timer? _comboTimer;
+  int _comboLeft = 0;
+  bool _comboSending = false;
+  Future<void> Function()? _repeatGift;
+  Route<dynamic>? _giftPickerRoute;
+
+  void _detectCpPairs(RoomControllerState state) {
+    final seated = {for (final s in state.seats.values) if (s.userId != null) s.userId!: s};
+    final pairs = <String, List<SeatData>>{};
+    void add(int a, int b) {
+      if (a == b || !seated.containsKey(a) || !seated.containsKey(b)) return;
+      pairs[a < b ? '$a:$b' : '$b:$a'] = [seated[a]!, seated[b]!];
+    }
+    for (final seat in seated.values) {
+      final partner = seat.relationPartner;
+      if (partner != null) add(seat.userId!, partner.id);
+    }
+    for (final link in state.cpLinks) {
+      add(link.userA, link.userB);
+    }
+    for (final entry in pairs.entries) {
+      if (!_seatedCpPairs.contains(entry.key)) _cpMicQueue.add(entry.value);
+    }
+    _seatedCpPairs..clear()..addAll(pairs.keys);
+    if (_cpMicPair == null && _cpMicQueue.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showNextCpPair());
+    }
+  }
+
+  void _showNextCpPair() {
+    if (!mounted || _cpMicPair != null || _cpMicQueue.isEmpty) return;
+    setState(() => _cpMicPair = _cpMicQueue.removeFirst());
+    _cpMicTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => _cpMicPair = null);
+      // Give every queued couple its own complete three-second display.
+      _showNextCpPair();
+    });
+  }
+
+  Widget _cpMicCard() => Container(
+    width: 300, height: 132,
+    margin: const EdgeInsets.symmetric(horizontal: 20),
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(borderRadius: BorderRadius.circular(24)),
+    child: Stack(fit: StackFit.expand, children: [
+      Image.asset('assets/images/room/cp_mic_up_card.png', fit: BoxFit.fill,
+        errorBuilder: (_, __, ___) => Container(
+          decoration: const BoxDecoration(gradient: LinearGradient(
+            colors: [Color(0xEE842957), Color(0xEE482477)])),
+          alignment: Alignment.topCenter,
+          child: const Icon(Icons.favorite, color: Colors.pinkAccent, size: 44),
+        )),
+      Padding(padding: const EdgeInsets.all(16), child: Row(children: [
+        for (var i = 0; i < 2; i++) ...[
+          if (i == 1) Padding(padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(tr('CP', 'CP'), style: const TextStyle(
+              color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
+          Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            CircleAvatar(radius: 26,
+              backgroundImage: (_cpMicPair![i].avatarUrl ?? '').isNotEmpty
+                  ? appImage(_cpMicPair![i].avatarUrl!, 52) : null,
+              child: (_cpMicPair![i].avatarUrl ?? '').isEmpty
+                  ? const Icon(Icons.person) : null),
+            const SizedBox(height: 6),
+            Text(_cpMicPair![i].username ?? tr('مستخدم', 'User'),
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white)),
+          ])),
+        ],
+      ])),
+    ]),
+  );
+
+  Widget _roomArt(String name, Widget fallback) => Image.asset(
+    'assets/images/room/$name', width: 26, height: 26, fit: BoxFit.contain,
+    errorBuilder: (_, __, ___) => fallback,
+  );
+
+  Future<void> _showRoomGiftPicker(BuildContext context, {
+    required GiftRepository repository,
+    required List<GiftRecipient> recipients,
+    int? roomId,
+    required int balance,
+    required void Function(int) onBalanceChanged,
+    List<int> initialRecipientIds = const [],
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context, isScrollControlled: true,
+      backgroundColor: const Color(0xFF171024),
+      builder: (sheetContext) {
+        _giftPickerRoute = ModalRoute.of(sheetContext);
+        return SizedBox(height: MediaQuery.sizeOf(sheetContext).height * .5,
+          child: GiftPickerSheet(repository: repository, recipients: recipients,
+            roomId: roomId, balance: balance, onBalanceChanged: onBalanceChanged,
+            initialRecipientIds: initialRecipientIds));
+      },
+    );
+    _giftPickerRoute = null;
+  }
+
+  void _giftSent(Future<void> Function() repeat) {
+    if (!mounted) return;
+    _repeatGift = repeat;
+    _comboTimer?.cancel();
+    setState(() => _comboLeft = 5);
+    final expires = DateTime.now().add(const Duration(seconds: 5));
+    _comboTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!mounted) { timer.cancel(); return; }
+      final left = (expires.difference(DateTime.now()).inMilliseconds / 1000).ceil().clamp(0, 5);
+      if (left != _comboLeft) setState(() => _comboLeft = left);
+      if (left == 0) timer.cancel();
+    });
+    // Wait until the picker has consumed its successful repository result.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final route = _giftPickerRoute;
+      if (route != null && route.isCurrent) route.navigator?.pop();
+    });
+  }
+
+  Future<void> _sendGiftAgain() async {
+    final repeat = _repeatGift;
+    if (_comboSending || _comboLeft <= 0 || repeat == null) return;
+    setState(() => _comboSending = true);
+    try {
+      await repeat();
+      if (mounted) await ref.read(authStateProvider.notifier).refreshUser();
+    } catch (e) {
+      if (mounted) _showRoomSnack(tr('تعذر إرسال الهدية مجدداً', 'Could not send the gift again'), error: true);
+    } finally {
+      if (mounted) setState(() => _comboSending = false);
+    }
+  }
+
+  Widget _comboCircle() => Semantics(
+    button: true, label: tr('إرسال مرة أخرى', 'Send again'),
+    child: GestureDetector(onTap: _sendGiftAgain,
+      child: SizedBox.square(dimension: 76, child: Stack(alignment: Alignment.center, children: [
+        Positioned.fill(child: Image.asset('assets/images/room/gift_combo_ring.png',
+          fit: BoxFit.contain, errorBuilder: (_, __, ___) => Container(
+            decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xDD63279C),
+              border: Border.all(color: Colors.amber, width: 3))))),
+        Positioned.fill(child: CircularProgressIndicator(value: _comboLeft / 5,
+          strokeWidth: 3, color: Colors.amber)),
+        Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('$_comboLeft', style: const TextStyle(color: Colors.white, fontSize: 22)),
+          Text(tr('إرسال مجدداً', 'Send again'), style: const TextStyle(color: Colors.white, fontSize: 10)),
+        ]),
+      ])),
+    ),
+  );
   /// WebRTC audio service for voice chat
   /// Mesh or SFU — whichever the server selected. See VoiceEngine.
   late VoiceEngine _audioService;
@@ -1545,7 +1704,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         ownerName: owner?.name,
         ownerAvatarUrl: owner?.avatarUrl,
         ownerIdLabel: ownerDid != null && ownerDid != 0 ? 'ID: $ownerDid' : null,
-        usersCount: state.voiceUserIds.length,
+        usersCount: state.membersCount,
         usedSeats: used,
         totalSeats: total,
         onOwnerTap: owner == null
@@ -2894,6 +3053,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     };
 
     _audioService.onVoiceUsersUpdated = (users) {
+      // Engine peers drive voice state only; membersCount comes from the server.
       debugPrint("🔥 UPDATE UI USERS: $users");
       if (!mounted) return;
       ref.read(roomControllerProvider(roomId).notifier).setVoiceUsers(users);
@@ -3500,6 +3660,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
+    _effectsLayout.dispose();
+    _cpMicTimer?.cancel();
+    _comboTimer?.cancel();
     _recordingSub?.cancel();
     unawaited(ScreenRecordService.instance.stop());
     // Close the room and dispose resources
@@ -4279,7 +4442,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   /// SPEC52 #11 — games in a ⅔-height sheet with ← / ✕; the room stays.
   void _openGamesSheet(BuildContext context) {
-    RoomGamesHost.show(context);
+    final seats = _roomSeatsKey.currentContext?.findRenderObject();
+    final mq = MediaQuery.of(context);
+    final seatsBottom = seats is RenderBox && seats.hasSize
+        ? seats.localToGlobal(Offset(0, seats.size.height)).dy
+        : mq.padding.top + 150;
+    RoomGamesHost.show(context, availableHeight:
+        (mq.size.height - mq.padding.bottom - 76 - seatsBottom).clamp(0.0, mq.size.height));
   }
 
   String? _chatDisabledHint(RoomControllerState state, int? userId) {
@@ -4589,10 +4758,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
     final state = ref.watch(roomControllerProvider(widget.roomId));
+    _detectCpPairs(state);
     final userId = auth.user?.id;
 
     // Step 10: when an admin force-mutes me, cut my live mic immediately.
     ref.listen(roomControllerProvider(widget.roomId), (prev, next) {
+      _detectCpPairs(next);
       final me = ref.read(authStateProvider).user?.id;
       if (me == null) return;
       final wasForced = prev?.seats.values
@@ -4789,6 +4960,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           key: _overlayKey,
           children: [
             // ===== Background image =====
+            if ((state.roomBackgroundUrl ?? '').trim().isEmpty)
+              Positioned.fill(child: Image.asset(
+                'assets/images/room/room_bg_cosmic.png', fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              )),
             if ((state.roomBackgroundUrl ?? '').trim().isNotEmpty)
               Positioned.fill(
                 child: Builder(builder: (context) {
@@ -4907,7 +5083,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                       children: [
                                         const Icon(Icons.remove_red_eye, color: Colors.white70, size: 16),
                                         const SizedBox(width: 5),
-                                        Text('${state.voiceUserIds.length}'),
+                                        Text('${state.membersCount}'),
                                       ],
                                     ),
                                   ),
@@ -5048,12 +5224,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     child: RoomSeatsChatLayout(
                       seatCount: state.seatCount,
                       seats: Stack(
+                        key: _roomSeatsKey,
                         // The rail may run past a one-row seats box.
                         clipBehavior: Clip.none,
                         children: [
                           Positioned.fill(
-                            child: ClipPath(
-                    clipper: BottomWaveClipper(depth: seatsWaveDepth), // 👈 ADD THIS
+                            child: ClipRect(
                     child: Padding(
                       // SPEC52 #19/#27 — a narrow left gutter holds the
                       // PK › rocket › games rail, so it never covers a mic.
@@ -5082,22 +5258,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     ),
                   ),
                           ),
-                          if (isAdmin && state.micQueue.isNotEmpty)
-                            Positioned(
-                              bottom: 0, right: 12,
-                              child: Badge(
-                                label: Text('${state.micQueue.length}'),
-                                backgroundColor: Colors.red,
-                                child: IconButton(
-                                  tooltip: tr('طلبات المايك', 'Mic requests'),
-                                  onPressed: _openMicRequests,
-                                  icon: const Icon(Icons.record_voice_over, color: Colors.white),
-                                ),
-                              ),
-                            ),
                         ],
                       ),
                       chat: RoomChatPanel(
+                    effectsViewportKey: _effectsViewportKey,
+                    onEffectsLayout: () { if (mounted) _effectsLayout.value++; },
                     roomId: widget.roomId,
                     // هدايا الحظ: the app-wide winners ticker lives with the
                     // messages. Tap → the winner's card (متابعة / رسالة / مسار).
@@ -5272,9 +5437,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                 });
                               },
                               child: Container(
-                                height: double.infinity,
-                                margin: const EdgeInsets.symmetric(horizontal: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                height: 36,
+                                margin: EdgeInsets.symmetric(horizontal: size.width < 380 ? 4 : 8),
+                                padding: EdgeInsets.symmetric(horizontal: size.width < 380 ? 4 : 12),
                                 decoration: BoxDecoration(
                                   color: Colors.deepPurple.withOpacity(0.35),
                                   borderRadius: BorderRadius.circular(100),
@@ -5288,8 +5453,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                   children: [
                                     Icon(Icons.chat_bubble_outline,
                                         color: Colors.white54, size: 18),
-                                    SizedBox(width: 6),
-                                    Flexible(
+                                    if (size.width >= 380) const SizedBox(width: 6),
+                                    if (size.width >= 380) Flexible(
                                       child: Text(
                                         chatDisabledHint ?? tr("تكلم  ...", "Speak..."),
                                         maxLines: 1,
@@ -5313,7 +5478,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             // SPEC52 #16 — seats (me included, with my seat), the
                             // absent owner's seat, then everyone else online.
                             final list = _giftRecipients();
-                            GiftPickerSheet.show(
+                            _showRoomGiftPicker(
                               context,
                               repository: _giftRepository,
                               recipients: list,
@@ -5322,9 +5487,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               onBalanceChanged: (_) {},
                             );
                           },
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 10),
-                            child: Icon(Icons.card_giftcard, color: Colors.purpleAccent),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: _roomArt('btn_gift.png',
+                              const Icon(Icons.card_giftcard, color: Colors.purpleAccent)),
                           ),
                         ),
 
@@ -5368,6 +5534,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           },
                         ),
 
+                        if (isAdmin && state.micQueue.isNotEmpty)
+                          Badge(
+                            label: Text('${state.micQueue.length}'),
+                            child: IconButton(
+                              tooltip: tr('طلبات المايك', 'Mic requests'),
+                              onPressed: _openMicRequests,
+                              icon: const Icon(Icons.record_voice_over, color: Colors.white),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
                         if (_currentSeatNumber != null)
                           GestureDetector(
                             onTap: () async {
@@ -5391,7 +5567,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ),
                           ),
 
-                        // SPEC52 #19 — the games button moved to the top-left rail.
+                        IconButton(
+                          tooltip: tr('الألعاب', 'Games'),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _openGamesSheet(context),
+                          icon: _roomArt('btn_games.png',
+                            const Icon(Icons.sports_esports, color: Colors.white)),
+                        ),
 
                         GestureDetector(
                           onTap: () {
@@ -5418,7 +5600,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 // ===== Seat video overlay =====
             if (_showSeatVideo && _seatVideoController != null)
               Positioned.fill(
-                child: IgnorePointer(
+                child: ClipRect(
+                  clipper: _RoomEffectsClipper(_overlayKey, _effectsViewportKey, _effectsLayout),
+                  child: IgnorePointer(
                   child: AnimatedOpacity(
                     duration: const Duration(milliseconds: 400),
                     opacity: _showSeatVideo ? 1 : 0,
@@ -5441,6 +5625,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
                     ),
                   ),
+                ),
                 ),
               ),
 
@@ -5487,9 +5672,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
             // ===== Gift flight overlay (rendered LAST so it paints ABOVE seats) =====
             Positioned.fill(
-              child: GiftAnimationOverlay(
-                socket: _giftSocket,
-                resolvePosition: _getSeatPositionByUser,
+              child: ClipRect(
+                clipper: _RoomEffectsClipper(_overlayKey, _effectsViewportKey, _effectsLayout),
+                child: GiftAnimationOverlay(
+                  socket: _giftSocket,
+                  resolvePosition: _getSeatPositionByUser,
+                ),
               ),
             ),
 
@@ -5521,6 +5709,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 if (coins != null) GiftPickerSheet.liveBalance.value = coins;
               },
             ),
+
+            if (_cpMicPair != null)
+              Positioned.fill(child: IgnorePointer(child: Center(child: _cpMicCard()))),
+            if (_comboLeft > 0)
+              Positioned(right: 16, bottom: _bottomBarH + 16, child: _comboCircle()),
 
             // ===== Music control bar — draggable, only for owner/admins, and
             // only while the room is actually playing something. =====
@@ -5662,7 +5855,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // Pre-selected user first, then the seats / owner / others (SPEC52 #16).
     final list = _giftRecipients(firstId: r.id, firstName: r.name, firstAvatar: r.avatarUrl);
 
-    GiftPickerSheet.show(
+    _showRoomGiftPicker(
       context,
       repository: _giftRepository,
       recipients: list,
@@ -6358,7 +6551,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                       );
                                   Navigator.of(context).push(
                                     MaterialPageRoute(
-                                      builder: (_) => ProfileScreen(userId: seat.userId!),
+                                      builder: (_) => ProfileScreen(userId: seat.userId!, roomId: widget.roomId),
                                     ),
                                   );
                                 },
@@ -6510,7 +6703,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               );
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => ProfileScreen(userId: seat.userId!),
+                              builder: (_) => ProfileScreen(userId: seat.userId!, roomId: widget.roomId),
                             ),
                           );
                         },
@@ -7500,7 +7693,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final recipients = _giftRecipients();
 
-    GiftPickerSheet.show(
+    _showRoomGiftPicker(
       context,
       repository: _giftRepository,
       recipients: recipients,
@@ -7509,6 +7702,59 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       onBalanceChanged: (_) {},
     );
   }
+}
+
+// Preserve the picker's normal request/error handling while handing successful
+// sends to the room, whose combo control outlives the modal route.
+class _RoomGiftRepository extends GiftRepository {
+  _RoomGiftRepository(this.onSent);
+  final void Function(Future<void> Function()) onSent;
+
+  @override
+  Future<GiftSendResult> send({required String giftId, required int recipientId,
+    int? roomId, int quantity = 1, String? comboKey}) async {
+    final result = await super.send(giftId: giftId, recipientId: recipientId,
+      roomId: roomId, quantity: quantity, comboKey: comboKey);
+    onSent(() async {
+      await send(giftId: giftId, recipientId: recipientId, roomId: roomId,
+        quantity: quantity, comboKey: comboKey);
+    });
+    return result;
+  }
+
+  @override
+  Future<GiftBatchSendResult> sendBatch({required String giftId,
+    required List<int> recipientIds, int? roomId, int quantity = 1,
+    String? comboKey}) async {
+    final recipients = List<int>.of(recipientIds);
+    final result = await super.sendBatch(giftId: giftId, recipientIds: recipients,
+      roomId: roomId, quantity: quantity, comboKey: comboKey);
+    if (result.sent > 0) onSent(() async {
+      await sendBatch(giftId: giftId, recipientIds: recipients, roomId: roomId,
+        quantity: quantity, comboKey: comboKey);
+    });
+    return result;
+  }
+}
+
+class _RoomEffectsClipper extends CustomClipper<Rect> {
+  _RoomEffectsClipper(this.roomKey, this.chatKey, Listenable layout) : super(reclip: layout);
+  final GlobalKey roomKey;
+  final GlobalKey chatKey;
+
+  @override
+  Rect getClip(Size size) {
+    final room = roomKey.currentContext?.findRenderObject();
+    final chat = chatKey.currentContext?.findRenderObject();
+    if (room is! RenderBox || chat is! RenderBox || !chat.hasSize || !chat.attached) {
+      return Rect.zero;
+    }
+    return (chat.localToGlobal(Offset.zero, ancestor: room) & chat.size)
+        .intersect(Offset.zero & size);
+  }
+
+  @override
+  bool shouldReclip(covariant _RoomEffectsClipper oldClipper) => true;
 }
 
 class _Recipient {

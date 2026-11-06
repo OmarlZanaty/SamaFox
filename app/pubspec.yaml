@@ -139,6 +139,7 @@ flutter:
     # line even though it lives under assets/images/.
     - assets/images/cp/
     - assets/images/pk/
+    - assets/images/room/
     # SPEC52 — room emoji stickers and rocket / PK / handshake art.
     - assets/images/emoji/
     - assets/images/spec52/

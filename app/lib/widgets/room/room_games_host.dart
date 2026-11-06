@@ -7,12 +7,13 @@ import '../../l10n/tr.dart';
 
 /// Floating room games card with its own navigator.
 class RoomGamesHost extends StatefulWidget {
-  const RoomGamesHost({super.key, this.initial});
+  const RoomGamesHost({super.key, this.initial, this.availableHeight});
 
   /// A game to open directly instead of the hub (dev previews).
   final Widget? initial;
+  final double? availableHeight;
 
-  static Future<void> show(BuildContext context, {Widget? initial}) => showDialog<void>(
+  static Future<void> show(BuildContext context, {Widget? initial, double? availableHeight}) => showDialog<void>(
         context: context,
         useSafeArea: false,
         barrierDismissible: true,
@@ -24,10 +25,10 @@ class RoomGamesHost extends StatefulWidget {
           child: Align(
           alignment: Alignment.bottomCenter,
           child: Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom + 64),
+            padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom + 76),
             child: GestureDetector(
               onTap: () {},
-              child: RoomGamesHost(initial: initial),
+              child: RoomGamesHost(initial: initial, availableHeight: availableHeight),
             ),
           ),
         ),
@@ -66,9 +67,12 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
     // with the first row of mics still in view.
     final scaledGame = !_native &&
         (_inGame || (widget.initial != null && widget.initial is! RoomNativeGame));
-    final sheetH = scaledGame
-        ? (width * 1.5).clamp(0.0, screen.height * .72)
-        : (width * 1.2).clamp(0.0, screen.height * .64);
+    final availableH = math.max(0.0, math.min(
+        widget.availableHeight ?? screen.height,
+        screen.height - mq.padding.top - mq.padding.bottom - 76 - 150));
+    final sheetH = scaledGame || _native || widget.initial is RoomNativeGame
+        ? availableH
+        : math.min(width * 1.35, availableH);
     final headerH = _native ? 0.0 : 36.0;
 
     return PopScope(
@@ -162,7 +166,7 @@ class _ScaledCanvas extends StatelessWidget {
       // Client 31/10: «كل الالعاب كبر شكلهم». 580 dp is the usable height of a
       // small phone, which every game already lays out in — any taller design
       // only shrinks the game further inside the card.
-      final designH = math.max(box.maxHeight, 580.0);
+      final designH = math.max(box.maxHeight, 480.0);
       final k = box.maxHeight / designH;
       final canvas = Size(box.maxWidth / k, designH);
       return FittedBox(

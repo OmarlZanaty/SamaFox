@@ -702,6 +702,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final rid = _safeInt(data['roomId']);
       if (rid != null && rid != roomId) return;
 
+      final count = _safeInt(data['membersCount']);
+      if (count != null) state = state.copyWith(membersCount: count);
+
       final list = data['users'];
       if (list is! List) return;
 
@@ -712,9 +715,11 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         if (uid == null) continue;
         updated[uid] = User(id: uid, name: (e['username'] ?? tr('مستخدم', 'User')).toString());
       }
-      // The snapshot is authoritative, but never let a malformed/empty payload
-      // wipe a list we already built from live events.
-      if (updated.isNotEmpty) state = state.copyWith(onlineUsers: updated);
+      // An empty roster is valid; voice-engine peers are not room membership.
+      state = state.copyWith(
+        onlineUsers: updated,
+        membersCount: _safeInt(data['membersCount']) ?? updated.length,
+      );
     });
 
     // Pull the roster right away — join_room also pushes one, but this covers
@@ -1154,7 +1159,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
           : <int>[];
 
       debugPrint('👥 voice_users in room $roomId: $users');
-      state = state.copyWith(voiceUserIds: users); // ✅ ADD
+      state = state.copyWith(
+        voiceUserIds: users,
+        membersCount: _safeInt(data['membersCount']),
+      );
 
       final me = ref.read(authStateProvider).user?.id;
       if (me != null && users.contains(me)) {

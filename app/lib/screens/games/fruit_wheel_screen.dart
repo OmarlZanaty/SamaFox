@@ -1236,6 +1236,28 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                           top: size * .76,
                           child: _bonusLabel(_s.bonusCountdown(state!.roundsToBonus!)),
                         ),
+                      Positioned(
+                        left: size * .15,
+                        right: size * .15,
+                        bottom: size * .02,
+                        child: IgnorePointer(child: Center(child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: fwPurpleDeep.withOpacity(.92),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: fwGold),
+                          ),
+                          child: FittedBox(fit: BoxFit.scaleDown, child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              for (final multiplier in [1, 7, 77, 777, 7777])
+                                Padding(padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  child: Text('×$multiplier', style: const TextStyle(
+                                    color: fwGold, fontSize: 11, fontWeight: FontWeight.w800))),
+                            ],
+                          )),
+                        ))),
+                      ),
                       // A pill just under the hub: bare red text over the
                       // wedges was unreadable against the fruit art.
                       if (_urgent)

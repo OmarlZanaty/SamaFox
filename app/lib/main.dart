@@ -46,6 +46,7 @@ import 'utils/app_route_observer.dart';
 import 'services/global_notification_service.dart';
 import 'repositories/cp_repository.dart';
 import 'widgets/cp_request_dialog.dart';
+import 'widgets/room/room_events.dart';
 import 'widgets/global_notification_bar.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'l10n/tr.dart';
@@ -190,6 +191,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
     _applyWakelock(true);
 
     _socketService = SocketService();
+    RoomEventsBus.instance.wire();
     _globalNotificationSub = _socketService.notificationStream.listen((data) {
       final type = (data['type'] as String? ?? '').toLowerCase();
       final title = (data['title'] as String? ?? '').trim();

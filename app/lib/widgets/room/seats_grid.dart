@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../services/socket_service.dart';
 import 'seat_card.dart';
-import 'cp_seat_effect.dart';
+import 'cp_seat_effect.dart' show CpEffectPair;
+import '../../l10n/tr.dart';
 
 /// The mic grid.
 ///
@@ -70,7 +71,7 @@ class SeatsGrid extends StatelessWidget {
   static const List<int> _columnChoices = [4, 5, 6, 7, 8];
 
   /// Name (+ optional coins line) drawn under each avatar.
-  static const double _labelHeight = 32;
+  static const double _labelHeight = 48;
   static const double _spacing = 8;
 
   /// Nobody needs a 120px seat in a two-person room.
@@ -213,15 +214,28 @@ class SeatsGrid extends StatelessWidget {
                 fit: StackFit.passthrough,
                 clipBehavior: Clip.none,
                 children: [
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: CpSeatEffectLayer(
-                        pairs: neighbourLinks,
-                        seatKeys: seatKeys,
-                        seatSize: solved.seatSize,
-                      ),
+                  for (final pair in neighbourLinks)
+                    Positioned(
+                      left: _pairLeft(pair, solved.columns, solved.seatSize, safeCount, box.width),
+                      top: ((pair.seatA - 1) ~/ solved.columns) *
+                          (solved.seatSize + _labelHeight + _spacing),
+                      width: solved.seatSize * 2 + _spacing,
+                      height: solved.seatSize + _labelHeight,
+                      child: IgnorePointer(child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.pinkAccent.withOpacity(.6)),
+                          gradient: const LinearGradient(colors: [Color(0x304D2787), Color(0x30E84393)]),
+                        ),
+                        alignment: Alignment.bottomCenter,
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: SizedBox(height: 14, child: FittedBox(fit: BoxFit.scaleDown,
+                          child: Text(tr('♥ CP مستوى ${pair.link.level} ♥', '♥ CP LV ${pair.link.level} ♥'),
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.pinkAccent, fontSize: 11))),
+                        ),
+                      )),
                     ),
-                  ),
                   grid,
                 ],
               );
@@ -245,6 +259,14 @@ class SeatsGrid extends StatelessWidget {
     );
   }
 
+  double _pairLeft(CpEffectPair pair, int columns, double size, int count, double width) {
+    final first = pair.seatA < pair.seatB ? pair.seatA : pair.seatB;
+    final row = (first - 1) ~/ columns;
+    final rowCount = (count - row * columns).clamp(0, columns);
+    return (width - rowCount * (size + _spacing)) / 2 +
+        ((first - 1) % columns) * (size + _spacing) + _spacing / 2;
+  }
+
   Widget _seat(int seatNumber, double seatSize) {
     final isLocked = lockedSeats.contains(seatNumber);
     final seat = seats[seatNumber] ?? SeatData.empty(seatNumber);
@@ -258,7 +280,8 @@ class SeatsGrid extends StatelessWidget {
 
     return KeyedSubtree(
       key: seatKey,
-      child: SeatCard(
+      child: Stack(alignment: Alignment.topCenter, children: [
+        SeatCard(
         seatNumber: seatNumber,
         seat: seat,
         seatSize: seatSize,
@@ -270,7 +293,17 @@ class SeatsGrid extends StatelessWidget {
         isAdminSeat: isAdminSeat,
         coins24h: uid != null ? (seatEarnings[uid] ?? 0) : 0,
         onTap: () => onSeatTap(seatNumber, seat),
-      ),
+        ),
+        if (uid == null)
+          GestureDetector(
+            onTap: () => onSeatTap(seatNumber, seat),
+            child: Image.asset(
+              'assets/images/room/${isLocked ? 'mic_seat_locked.png' : 'mic_seat_empty.png'}',
+              width: seatSize, height: seatSize, fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+      ]),
     );
   }
 }

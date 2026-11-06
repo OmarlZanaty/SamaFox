@@ -85,6 +85,8 @@ class RoomChatPanel extends ConsumerStatefulWidget {
   /// It used to float over the bottom bar and cover the message input
   /// ("شريط هدايا الحظ ... مغطى على ارسال الرسالة", 29/09).
   final Widget? header;
+  final GlobalKey? effectsViewportKey;
+  final VoidCallback? onEffectsLayout;
 
   /// SPEC52 #31 — sits at the far end of the tabs row, just above the
   /// messages: the agency notifications bell.
@@ -95,6 +97,8 @@ class RoomChatPanel extends ConsumerStatefulWidget {
     required this.roomId,
     this.onUserTap,
     this.header,
+    this.effectsViewportKey,
+    this.onEffectsLayout,
     this.tabsTrailing,
     this.giftSocket,
   });
@@ -583,6 +587,9 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onEffectsLayout?.call();
+    });
     final st = ref.watch(roomControllerProvider(widget.roomId));
 
     final messages = st.messages;
@@ -698,6 +705,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
             // 🔥 ONE LIST (CHAT + EVENTS)
             // ==========================
             Expanded(
+              key: widget.effectsViewportKey,
               child: Stack(key: _viewportKey, children: [
                 Positioned.fill(
                     child: Directionality(

@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../main.dart' show navigatorKey;
+import '../../repositories/room_events_repository.dart';
+import '../../screens/room_screen.dart';
 import '../../services/active_room.dart';
 import '../../services/dio_client.dart';
 import '../../services/socket_service.dart';
@@ -27,6 +29,8 @@ class RoomEventsBus {
   final _pk = StreamController<Map<String, dynamic>>.broadcast();
   final _pkResult = StreamController<Map<String, dynamic>>.broadcast();
   bool _wired = false;
+  OverlayEntry? _prizeBanner;
+  Timer? _prizeBannerTimer;
 
   Stream<Map<String, dynamic>> get rocket => _rocket.stream;
   Stream<Map<String, dynamic>> get launch => _launch.stream;
@@ -44,6 +48,9 @@ class RoomEventsBus {
     pipe('rocket_launched', _launch);
     pipe('pk_state', _pk);
     pipe('pk_result', _pkResult);
+    s.on('pk_prize', (d) {
+      if (d is Map) _showPkPrize(Map<String, dynamic>.from(d));
+    });
     s.on('pk_invite', (d) {
       if (d is Map) _showPkInvite(Map<String, dynamic>.from(d));
     });
@@ -64,6 +71,69 @@ class RoomEventsBus {
         ),
       ));
     });
+  }
+
+  void _dismissPkPrize() {
+    _prizeBannerTimer?.cancel();
+    _prizeBannerTimer = null;
+    _prizeBanner?.remove();
+    _prizeBanner?.dispose();
+    _prizeBanner = null;
+  }
+
+  void _showPkPrize(Map<String, dynamic> d) {
+    final rooms = d['roomIds'];
+    if (rooms is! List || rooms.isEmpty) return;
+    final roomId = int.tryParse(rooms.first.toString());
+    final expiresAt = DateTime.tryParse(d['expiresAt']?.toString() ?? '');
+    if (roomId == null || expiresAt == null) return;
+    final remaining = expiresAt.difference(DateTime.now());
+    if (remaining <= Duration.zero) return;
+    final overlay = navigatorKey.currentState?.overlay;
+    if (overlay == null) return;
+    _dismissPkPrize();
+    _prizeBanner = OverlayEntry(builder: (_) => Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Material(
+          color: const Color(0xFF2A1655),
+          borderRadius: BorderRadius.circular(24),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () {
+              _dismissPkPrize();
+              if (ActiveRoom.instance.roomId == roomId) return;
+              navigatorKey.currentState?.push(MaterialPageRoute<void>(
+                builder: (_) => RoomScreen(roomId: roomId),
+              ));
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Image.asset('assets/images/pk/pk_winner_banner.png',
+                    width: 120, height: 48, fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                        Icons.emoji_events, color: Color(0xFFFFD54F), size: 48)),
+                Text(tr('الفائز في PK', 'PK winner'),
+                    style: const TextStyle(color: Colors.white, fontSize: 20)),
+                const SizedBox(height: 8),
+                _RingAvatar(url: d['winnerAvatar']?.toString(),
+                    fire: true, size: 72, framed: true),
+                Text(d['winnerName']?.toString() ?? '',
+                    maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 18)),
+                Text(tr('اضغط لدخول الغرفة', 'Tap to enter the room'),
+                    style: const TextStyle(color: Color(0xFFFFD54F))),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    ));
+    overlay.insert(_prizeBanner!);
+    _prizeBannerTimer = Timer(
+        remaining < const Duration(seconds: 8) ? remaining : const Duration(seconds: 8),
+        _dismissPkPrize);
   }
 
   void _showPkInvite(Map<String, dynamic> d) {
@@ -644,7 +714,6 @@ class _RoomPkBarState extends State<RoomPkBar> {
       if (mounted && _pk != null) setState(() {});
     });
     pkSearchingRooms.addListener(_onSearching);
-    if (widget.initialPk != null) return;
     RoomEventsBus.instance.wire();
     _subs.add(RoomEventsBus.instance.pk.listen((d) {
       if (_mine(d) && mounted) {
@@ -659,6 +728,7 @@ class _RoomPkBarState extends State<RoomPkBar> {
       setState(() => _pk = null);
       showPkWinner(context, d, people);
     }));
+    if (widget.initialPk != null) return;
     _load();
   }
 
@@ -1021,6 +1091,9 @@ class _RingAvatar extends StatelessWidget {
 /// The winner's photo in the middle of the screen with the coins under it
 /// (client @376). A draw shows both players.
 Future<void> showPkWinner(BuildContext context, Map d, Map<int, Map> people) {
+  final pkId = (d['pkId'] ?? d['id'])?.toString();
+  final prizeEligible = d['prizeEligible'] == true && pkId != null;
+  Route<void>? winnerRoute;
   final w = d['winner']?.toString();
   final a = (d['scoreA'] as num?)?.toInt() ?? 0;
   final b = (d['scoreB'] as num?)?.toInt() ?? 0;
@@ -1042,14 +1115,16 @@ Future<void> showPkWinner(BuildContext context, Map d, Map<int, Map> people) {
   final dialog = showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
-    barrierLabel: 'pk_winner',
+    barrierLabel: tr('إغلاق نتيجة PK', 'Close PK result'),
     barrierColor: Colors.black54,
     transitionDuration: const Duration(milliseconds: 350),
     transitionBuilder: (_, anim, __, child) => ScaleTransition(
       scale: CurvedAnimation(parent: anim, curve: Curves.elasticOut),
       child: child,
     ),
-    pageBuilder: (dctx, _, __) => Center(
+    pageBuilder: (dctx, _, __) {
+      winnerRoute = ModalRoute.of<void>(dctx);
+      return Center(
       child: Material(
         type: MaterialType.transparency,
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1064,15 +1139,81 @@ Future<void> showPkWinner(BuildContext context, Map d, Map<int, Map> people) {
             ])
           else
             winner(id(w == 'A' ? 'sideAUserId' : 'sideBUserId'), w == 'A' ? a : b, w == 'A'),
+          if (prizeEligible) ...[
+            const SizedBox(height: 16),
+            _PkPrizeButton(pkId: pkId!),
+          ],
         ]),
       ),
-    ),
+      );
+    },
   );
-  // Closes itself after 5 s unless the viewer already tapped it away.
-  var open = true;
-  dialog.whenComplete(() => open = false);
-  Timer(const Duration(seconds: 5), () {
-    if (open && context.mounted) Navigator.of(context, rootNavigator: true).pop();
-  });
+  // Keep claimable results open so the request and its result stay visible.
+  if (!prizeEligible) {
+    final timer = Timer(const Duration(seconds: 5), () {
+      final route = winnerRoute;
+      if (route != null && route.isActive) route.navigator?.removeRoute(route);
+    });
+    dialog.whenComplete(timer.cancel);
+  }
   return dialog;
+}
+
+class _PkPrizeButton extends StatefulWidget {
+  const _PkPrizeButton({required this.pkId});
+  final String pkId;
+
+  @override
+  State<_PkPrizeButton> createState() => _PkPrizeButtonState();
+}
+
+class _PkPrizeButtonState extends State<_PkPrizeButton> {
+  bool _claiming = false;
+  bool _claimed = false;
+  String? _message;
+
+  Future<void> _claim() async {
+    if (_claiming || _claimed) return;
+    setState(() => _claiming = true);
+    try {
+      final rewards = await RoomEventsRepository.claimPk(widget.pkId);
+      if (!mounted) return;
+      setState(() {
+        _claimed = true;
+        _message = rewards.map((reward) => reward['type'] == 'coins'
+            ? tr('🎉 ربحت ${reward['coins']} كوينز', '🎉 You won ${reward['coins']} coins')
+            : tr('🎉 ربحت ${reward['name'] ?? 'منتج'}', '🎉 You won ${reward['name'] ?? 'an item'}'))
+            .join('\n');
+      });
+    } catch (e) {
+      if (mounted) setState(() => _message = _err(e));
+    } finally {
+      if (mounted) setState(() => _claiming = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      ElevatedButton(
+        onPressed: _claiming || _claimed ? null : _claim,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Image.asset('assets/images/pk/pk_prize_box.png',
+              width: 64, height: 64, fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Icon(
+                  Icons.card_giftcard, size: 64, color: Color(0xFFFFD54F))),
+          Text(_claimed ? tr('تم استلام الجائزة', 'Prize claimed')
+              : _claiming ? tr('جارٍ استلام الجائزة...', 'Claiming prize...')
+              : tr('استلم الجائزة', 'Claim prize')),
+        ]),
+      ),
+      if (_message != null)
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(_message!, textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 16)),
+        ),
+    ],
+  );
 }
