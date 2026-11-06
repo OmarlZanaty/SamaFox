@@ -22,6 +22,7 @@ import 'package:path_provider/path_provider.dart';
 import '../widgets/app_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
+import '../services/dio_client.dart';
 import '../l10n/tr.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -620,6 +621,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// being second-guessed here.
   Future<void> _pickAndSendImage(ChatController ctrl) async {
     try {
+      // Ask the server first (GET /messages/image-policy) so a user below the
+      // dashboard's level bar sees WHY the picture button is locked instead of
+      // picking an image and failing after the upload.
+      try {
+        final pr = await DioClient.dio.get('/messages/image-policy');
+        final d = (pr.data is Map ? pr.data['data'] : null);
+        if (d is Map && d['allowed'] == false) {
+          if (!mounted) return;
+          final kind = d['kind']?.toString() == 'supported'
+              ? tr('مدعوم', 'supported')
+              : tr('داعم', 'supporter');
+          final lvl = d['minLevel'];
+          final msg = d['message']?.toString() ??
+              tr('إرسال الصور يحتاج ليفل $kind $lvl', 'Sending pictures needs $kind level $lvl');
+          await showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text(tr('الصور مقفولة', 'Pictures locked')),
+              content: Text(msg),
+              actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('حسناً', 'OK')))],
+            ),
+          );
+          return;
+        }
+      } catch (_) {
+        // Policy lookup failed → fall through; the server still enforces on send.
+      }
       final picked = await ImagePicker().pickImage(
         source: ImageSource.gallery,
         imageQuality: 82,

@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../repositories/cp_repository.dart';
+import '../widgets/cp_request_dialog.dart';
 
 import '../providers/message_providers.dart';
 import '../providers/locale_provider.dart';
@@ -35,10 +39,48 @@ class MessagesScreen extends ConsumerStatefulWidget {
 class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   final _searchCtrl = TextEditingController();
   StreamSubscription? _messageSub;
+  StreamSubscription? _notifSub;
   String _q = '';
+  Set<int> _pinned = {};
+  List<CpRequest> _cpInvites = const [];
+
+  static const _kPinnedKey = 'pinned_conversation_partners';
+
+  Future<void> _loadPins() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final ids = (p.getStringList(_kPinnedKey) ?? const []).map(int.tryParse).whereType<int>().toSet();
+      if (mounted) setState(() => _pinned = ids);
+    } catch (_) {}
+  }
+
+  Future<void> _togglePin(int partnerId) async {
+    final next = {..._pinned};
+    if (!next.remove(partnerId)) next.add(partnerId);
+    setState(() => _pinned = next);
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setStringList(_kPinnedKey, next.map((e) => '$e').toList());
+    } catch (_) {}
+  }
+
+  /// Pending CP invitations live here (not only in a popup): they survive
+  /// leaving a game / being offline and can be accepted or rejected any time.
+  Future<void> _loadCpInvites() async {
+    try {
+      final list = await CpRepository().pendingRequests();
+      if (mounted) setState(() => _cpInvites = list);
+    } catch (_) {}
+  }
+
+  Future<void> _openCpInvite(CpRequest r) async {
+    await CpRequestDialog.show(context, r);
+    if (mounted) _loadCpInvites();
+  }
 
   @override
   void dispose() {
+    _notifSub?.cancel();
     _messageSub?.cancel();
     _searchCtrl.dispose();
     super.dispose();
@@ -54,6 +96,13 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
     _messageSub = SocketService().messageStream.listen((_) {
       if (!mounted) return;
       ref.read(conversationsControllerProvider.notifier).load();
+    });
+    _loadPins();
+    _loadCpInvites();
+    _notifSub = SocketService().notificationStream.listen((d) {
+      if ((d['type']?.toString().toLowerCase() ?? '') == 'cp_request' && mounted) {
+        _loadCpInvites();
+      }
     });
   }
 
@@ -101,9 +150,19 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
               Expanded(
                 child: asyncList.when(
                   data: (list) {
-                    final filtered = _q.isEmpty
-                        ? list
+                    final base = _q.isEmpty
+                        ? [...list]
                         : list.where((c) => c.partnerName.toLowerCase().contains(_q.toLowerCase())).toList();
+                    // Pinned people first, then the newest last message first.
+                    DateTime t(ConversationItem c) =>
+                        DateTime.tryParse(c.lastMessageTime ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+                    base.sort((a, b) {
+                      final pa = _pinned.contains(a.partnerId) ? 0 : 1;
+                      final pb = _pinned.contains(b.partnerId) ? 0 : 1;
+                      if (pa != pb) return pa - pb;
+                      return t(b).compareTo(t(a));
+                    });
+                    final filtered = base;
 
                     return Column(
                       children: [
@@ -129,6 +188,35 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                           ),
                         ),
 
+                        if (_cpInvites.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            child: Column(
+                              children: [
+                                for (final r in _cpInvites)
+                                  Card(
+                                    color: const Color(0xFF3A1550),
+                                    margin: const EdgeInsets.only(bottom: 6),
+                                    child: ListTile(
+                                      onTap: () => _openCpInvite(r),
+                                      leading: const Icon(Icons.favorite, color: Color(0xFFFF4081)),
+                                      title: Text(
+                                        tr('دعوة CP من ${r.senderName}', 'CP invitation from ${r.senderName}'),
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                      ),
+                                      subtitle: Text(
+                                        '${r.giftName} ×${r.quantity} · ${r.totalCoins}',
+                                        style: const TextStyle(color: Colors.white70),
+                                      ),
+                                      trailing: Text(
+                                        tr('قبول / رفض', 'Accept / Reject'),
+                                        style: const TextStyle(color: Color(0xFFFFD54F), fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                         Expanded(
                           child: filtered.isEmpty
                               ? _EmptyState(isDark: isDark, strings: strings)
@@ -136,12 +224,26 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                             itemCount: filtered.length,
                             itemBuilder: (_, i) {
                               final c = filtered[i];
-                              return _ConversationTile(
-                                conversation: c,
-                                strings: strings,
-                                isDark: isDark,
-                                myUserId: myUserId,
-                                onOpenChat: widget.onOpenChat, // 👈 ADD THIS
+                              final pinned = _pinned.contains(c.partnerId);
+                              return GestureDetector(
+                                onLongPress: () => _togglePin(c.partnerId),
+                                child: Stack(
+                                  children: [
+                                    _ConversationTile(
+                                      conversation: c,
+                                      strings: strings,
+                                      isDark: isDark,
+                                      myUserId: myUserId,
+                                      onOpenChat: widget.onOpenChat, // 👈 ADD THIS
+                                    ),
+                                    if (pinned)
+                                      const Positioned(
+                                        left: 6,
+                                        top: 6,
+                                        child: Icon(Icons.push_pin, size: 14, color: Color(0xFFFFD54F)),
+                                      ),
+                                  ],
+                                ),
                               );
                             },
                           ),

@@ -17,6 +17,7 @@ import '../utils/result.dart';
 import 'package:dio/dio.dart';
 import '../widgets/app_network_image.dart';
 import 'agency_branches_screen.dart';
+import 'chat_screen.dart';
 import '../l10n/tr.dart';
 
 /// Charging Agent Screen - وكيل الشحن
@@ -32,6 +33,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
   // pick which interface to work in rather than seeing both stacked at once.
   // null = not chosen yet (only relevant when they actually have both).
   String? _activeInterface;
+  String _agencyQuery = '';
 
   @override
   Widget build(BuildContext context) {
@@ -59,9 +61,21 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
     // system admins) still browse the whole list, which is how they join one.
     final hasMembership = myRoles.isNotEmpty;
     final scopedToMine = hasMembership && !isSystemAdmin;
-    List<ChargingAgency> scope(List<ChargingAgency> items) => scopedToMine
-        ? items.where((a) => myRoles.containsKey(a.id)).toList()
-        : items;
+    List<ChargingAgency> scope(List<ChargingAgency> items) {
+      final base = scopedToMine ? items.where((a) => myRoles.containsKey(a.id)).toList() : items;
+      final q = _agencyQuery.trim().toLowerCase();
+      if (q.isEmpty) return base;
+      return base.where((a) {
+        if (a.agencyName.toLowerCase().contains(q)) return true;
+        for (final m in a.members) {
+          final u = (m['user'] is Map ? m['user'] as Map : m);
+          if ('${u['displayId'] ?? ''}'.toLowerCase().contains(q) || '${u['name'] ?? ''}'.toLowerCase().contains(q)) {
+            return true;
+          }
+        }
+        return false;
+      }).toList();
+    }
 
     // Once scoped, a section the user has no agency in is just an empty box —
     // hide it instead.
@@ -131,18 +145,32 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                       children: [
                         Expanded(
                           child: _CreateAgencyButton(
-                            label: tr(' وكالة شحن', ' Recharge agency'),
+                            label: tr('طلب تفعيل وكالة شحن', 'Request recharge agency'),
                             onTap: () => _handleCreateAgencyRequest(context, ref, type: 'CHARGING'),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _CreateAgencyButton(
-                            label: tr('وكالة استضافة', 'Hosting agency'),
+                            label: tr('طلب تفعيل وكالة مضيفين', 'Request hosting agency'),
                             onTap: () => _handleCreateAgencyRequest(context, ref, type: 'HOSTING'),
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      onChanged: (v) => setState(() => _agencyQuery = v),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                        hintText: tr('ابحث باسم الوكالة أو ID الوكيل', 'Search by agency name or agent ID'),
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.white10,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide.none),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     if (showCharging) ...[
@@ -223,6 +251,24 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _CreateAgencyButton(
+                    label: tr('طلب تفعيل وكالة شحن', 'Request recharge agency'),
+                    onTap: () => _handleCreateAgencyRequest(context, ref, type: 'CHARGING'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _CreateAgencyButton(
+                    label: tr('طلب تفعيل وكالة مضيفين', 'Request hosting agency'),
+                    onTap: () => _handleCreateAgencyRequest(context, ref, type: 'HOSTING'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
             Text(
               tr('تعمل كوكيل شحن ووكيل استضافة معاً — اختر الواجهة التي تريد العمل عليها الآن', 'You are both a recharge agent and a hosting agent — choose an interface to use now'),
               textAlign: TextAlign.center,
@@ -427,6 +473,35 @@ Future<void> _showChargingActions(
                 ),
               ],
             ] else ...[
+              for (final m in agency.members.where((m) => (m['role'] ?? 'OWNER') == 'OWNER'))
+                Builder(builder: (ctx) {
+                  final u = (m['user'] is Map ? (m['user'] as Map) : m).cast<String, dynamic>();
+                  final uid = (u['id'] as num?)?.toInt();
+                  return ListTile(
+                    textColor: Colors.white,
+                    leading: const Icon(Icons.verified_user, color: Colors.amberAccent),
+                    title: Text('${u['name'] ?? ''}'),
+                    subtitle: Text(tr('ID الوكيل: ${u['displayId'] ?? uid ?? ''}', 'Agent ID: ${u['displayId'] ?? uid ?? ''}'),
+                        style: const TextStyle(color: Colors.white70)),
+                    trailing: uid == null
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.message_rounded, color: Colors.lightBlueAccent),
+                            tooltip: tr('رسالة للوكيل', 'Message the agent'),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              Navigator.of(context).push(MaterialPageRoute(
+                                builder: (_) => ChatScreen(
+                                  partnerId: uid,
+                                  partnerName: '${u['name'] ?? ''}',
+                                  partnerAvatarUrl: u['avatarUrl']?.toString(),
+                                  partnerOnline: false,
+                                ),
+                              ));
+                            },
+                          ),
+                  );
+                }),
               ListTile(
                 textColor: Colors.white,
                 iconColor: Colors.white70,

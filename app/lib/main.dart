@@ -1,3 +1,4 @@
+import 'widgets/top_snack.dart';
 import 'services/effects_prefs.dart';
 import 'services/room_link_handler.dart';
 import 'services/screen_record_service.dart';
@@ -176,7 +177,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
           : state['error']?.toString() ??
             (state['recording'] == true && state['roomAudioIncluded'] == false
               ? ScreenRecordService.fallbackHint : null);
-      if (message != null) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(message)));
+      if (message != null) showTopSnackBar(context, SnackBar(content: Text(message)));
     });
 
     // A10 — "طول ما المستخدم داخل التطبيق الشاشة ما تفصلش تلقائي", and
@@ -318,7 +319,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       if (ctx == null) return;
       final from = (data is Map ? data['fromUser'] : null) as Map?;
       final name = from?['name']?.toString() ?? tr('مستخدم', 'User');
-      ScaffoldMessenger.of(ctx).showSnackBar(
+      showTopSnackBar(ctx, 
         SnackBar(
           backgroundColor: const Color(0xFF1A2744),
           content: Text(tr('👤 $name أرسل طلب متابعة', '👤 $name sent you a follow request')),
@@ -336,14 +337,14 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       if (context == null) return;
       final byUser = (data is Map ? data['byUser'] : null) as Map?;
       final name = byUser?['name']?.toString() ?? tr('مستخدم', 'User');
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnackBar(context, 
         SnackBar(content: Text(tr('$name قبل طلب متابعتك', '$name accepted your follow request'))),
       );
     });
     _socketService.on('follow_rejected', (_) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnackBar(context, 
         SnackBar(content: Text(tr('تم رفض طلب المتابعة', 'Follow request declined'))),
       );
     });
@@ -352,7 +353,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       if (context == null) return;
       final fromUser = (data is Map ? data['fromUser'] : null) as Map?;
       final name = fromUser?['name']?.toString() ?? tr('مستخدم', 'User');
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnackBar(context, 
         SnackBar(
           backgroundColor: const Color(0xFF2D1B69),
           content: Text(tr('💍 $name يريد أن يكون في علاقة معك', '💍 $name wants to be in a relationship with you')),
@@ -370,7 +371,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
       if (context == null) return;
       final byUser = (data is Map ? data['byUser'] : null) as Map?;
       final name = byUser?['name']?.toString() ?? tr('مستخدم', 'User');
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnackBar(context, 
         SnackBar(
           backgroundColor: const Color(0xFF1a3a1a),
           content: Text(tr('💍 $name قبل طلب العلاقة!', '💍 $name accepted the relationship request!')),
@@ -381,7 +382,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
     _socketService.on('relation_ended', (_) {
       final context = navigatorKey.currentContext;
       if (context == null) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      showTopSnackBar(context, 
         SnackBar(
           content: Text(tr('انتهت العلاقة', 'Relationship ended')),
           duration: Duration(seconds: 3),

@@ -322,6 +322,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     final st = ref.watch(roomControllerProvider(roomId));
     final isAdmin = myId == st.ownerId || st.adminIds.contains(myId);
     if (!isAdmin) return null;
+    final chatBlocked = st.chatBlockedUserIds.contains(user.id);
 
     Future<void> act(String path, String okText, {Map<String, dynamic> extra = const {}}) async {
       try {
@@ -384,6 +385,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                       extra: {'minutes': 0})),
               btn(Icons.block, tr('حظر', 'Block'), const Color(0xFFEF5350),
                   () => act('room-admin/ban', tr('تم حظر ${user.name} من الغرفة', '${user.name} was banned from the room'))),
+              // Per-user text block (client 31/10): the owner / a moderator mutes
+              // this user's chat in the room without removing him. Server side:
+              // socket `room_chat_block` (RoomChatBlock table).
+              btn(
+                chatBlocked ? Icons.chat : Icons.speaker_notes_off,
+                chatBlocked ? tr('فك حظر الكتابة', 'Unblock chat') : tr('حظر الكتابة', 'Block chat'),
+                const Color(0xFFAB47BC),
+                () {
+                  SocketService().emit('room_chat_block', {
+                    'roomId': roomId,
+                    'userId': user.id,
+                    'blocked': !chatBlocked,
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(chatBlocked
+                        ? tr('تم فك حظر الكتابة عن ${user.name}', "${user.name}'s chat was unblocked")
+                        : tr('تم حظر الكتابة على ${user.name}', "${user.name}'s chat was blocked")),
+                  ));
+                },
+              ),
             ],
           ),
         ],

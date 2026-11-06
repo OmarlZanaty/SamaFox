@@ -1,3 +1,4 @@
+import '../widgets/top_snack.dart';
 import '../l10n/tr.dart';
 import '../widgets/home/home_cp_top_card.dart';
 import 'dart:async';
@@ -22,6 +23,7 @@ import '../widgets/app_network_image.dart';
 import '../services/device_tier.dart';
 import '../services/room_audio_keepalive.dart';
 import '../utils/app_route_observer.dart';
+import 'messages_screen.dart' show unreadCountProvider;
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -1083,7 +1085,7 @@ class _GlassBottomBar extends StatelessWidget {
   static const _brand = Color(0xFF6B4CE6);
 
   void _showTestMessage(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    showTopSnackBar(context, 
       SnackBar(
         content: Text(
           tr("عفوا هذه النسخة مخصصة لأختبار الغرف فقط", "Sorry, this version is for testing rooms only"),
@@ -1124,11 +1126,14 @@ class _GlassBottomBar extends StatelessWidget {
                   ),
 
                   Expanded(
-                    child: _BarItem(
-                      icon: Icons.message_rounded, // ✅ was search
-                      label: searchLabel, // label now messages
-                      onTap: onSearch, // ✅ go messages
-                      compact: true,
+                    child: Consumer(
+                      builder: (context, ref, _) => _BarItem(
+                        icon: Icons.message_rounded, // ✅ was search
+                        label: searchLabel, // label now messages
+                        onTap: onSearch, // ✅ go messages
+                        compact: true,
+                        badge: ref.watch(unreadCountProvider),
+                      ),
                     ),
                   ),
 
@@ -1205,8 +1210,10 @@ class _BarItem extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.compact = false,
+    this.badge = 0,
   });
 
+  final int badge;
   final IconData icon;
   final String label;
   final VoidCallback onTap;
@@ -1222,10 +1229,34 @@ class _BarItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              color: Colors.white.withOpacity(0.85),
-              size: compact ? 20 : 22,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  icon,
+                  color: Colors.white.withOpacity(0.85),
+                  size: compact ? 20 : 22,
+                ),
+                if (badge > 0)
+                  Positioned(
+                    right: -9,
+                    top: -7,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: Colors.white, width: 1),
+                      ),
+                      child: Text(
+                        badge > 99 ? '99+' : '$badge',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 4),
             Padding(

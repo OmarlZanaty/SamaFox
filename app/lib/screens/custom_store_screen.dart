@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../services/dio_client.dart';
+import '../repositories/user_repository.dart';
+import '../models/user.dart';
 import '../widgets/app_network_image.dart';
 import '../l10n/tr.dart';
 
@@ -71,6 +73,69 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_msg(e))));
       _load();
+    }
+  }
+
+  /// Send a special ID to another user: the sender pays, the recipient gets it
+  /// (rental length copied from the product); the sender's own ID is untouched.
+  Future<void> _sendId(Map p) async {
+    final ctrl = TextEditingController();
+    User? target;
+    final recipient = await showDialog<User>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setS) {
+          Future<void> search() async {
+            final r = await UserRepository().searchUsers(ctrl.text.trim());
+            final list = r.data ?? const <User>[];
+            setS(() => target = list.isEmpty ? null : list.first);
+          }
+          return AlertDialog(
+            title: Text(tr('إرسال الرقم المميز ${p['specialDisplayId']}', 'Send special ID ${p['specialDisplayId']}')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  decoration: InputDecoration(
+                    hintText: tr('ID المستلم أو اسمه', "Recipient's ID or name"),
+                    suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: search),
+                  ),
+                  onSubmitted: (_) => search(),
+                ),
+                if (target != null)
+                  ListTile(
+                    leading: const Icon(Icons.person),
+                    title: Text(target!.name),
+                    subtitle: Text('ID ${target!.displayId ?? target!.id}'),
+                  ),
+                Text(tr('السعر: ${p['priceCoins']} كوينز يدفعها المُرسِل', 'Price: ${p['priceCoins']} coins paid by the sender'),
+                    style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('إلغاء', 'Cancel'))),
+              FilledButton(
+                onPressed: target == null ? null : () => Navigator.pop(c, target),
+                child: Text(tr('إرسال', 'Send')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (recipient == null) return;
+    try {
+      await DioClient.dio.post('/store/special-id/send',
+          data: {'productId': p['id'], 'toUserId': recipient.id},
+          options: Options(headers: {'Idempotency-Key': const Uuid().v4()}));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(tr('✅ تم إرسال الرقم إلى ${recipient.name}', '✅ ID sent to ${recipient.name}')),
+      ));
+      _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_msg(e))));
     }
   }
 
@@ -158,6 +223,13 @@ class _CustomStoreScreenState extends State<CustomStoreScreen> {
                   Text('🪙 ${p['priceCoins']}', style: const TextStyle(color: Color(0xFFFFE082), fontWeight: FontWeight.w700)),
                   if (p['durationDays'] != null)
                     Text(tr('${p['durationDays']} يوم', '${p['durationDays']} days'), style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                  if (isId)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: EdgeInsets.zero),
+                      onPressed: () => _sendId(p),
+                      icon: const Icon(Icons.card_giftcard, size: 14, color: Color(0xFFFF80AB)),
+                      label: Text(tr('إرسال', 'Send'), style: const TextStyle(color: Color(0xFFFF80AB), fontSize: 12)),
+                    ),
                 ],
               ),
             ),

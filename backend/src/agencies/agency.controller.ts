@@ -104,7 +104,7 @@ export const listChargingAgencies = async (req: AuthReq, res: Response) => {
         contactInfo: true,
         members: {
           where: { role: 'OWNER' },
-          select: { id: true, role: true, user: { select: { id: true, name: true, avatarUrl: true } } },
+          select: { id: true, role: true, user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -123,7 +123,7 @@ export const listHostingAgencies = async (req: AuthReq, res: Response) => {
     const mine = await visibleAgencyFilter(req.userId, 'HOSTING');
     const agencies = await db.chargingAgency.findMany({
       where: { type: 'HOSTING', status: 'approved', ...(mine ?? {}) },
-      include: { members: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } } },
+      include: { members: { include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
 
