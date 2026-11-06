@@ -23,15 +23,28 @@ export const sendFollowRequest = async (req: AuthReq, res: Response) => {
   if (block) return res.status(403).json({ success: false, message: 'Cannot follow this user' });
 
   const existing = await prisma.follow.findFirst({ where: { followerId, followingId } });
+  // Follow-back (client 3/11): if THEY already follow me (or asked to), my follow
+  // is accepted at once and theirs is accepted too — mutual follows are friends.
+  const reverse = await prisma.follow.findFirst({ where: { followerId: followingId, followingId: followerId } });
+  const mutual = !!reverse && (reverse.status === 'PENDING' || reverse.status === 'ACCEPTED');
+  const myStatus = mutual ? 'ACCEPTED' : 'PENDING';
   let followId = existing?.id ?? null;
   if (existing) {
-    if (existing.status === 'PENDING') return res.status(400).json({ success: false, message: 'Request already sent' });
+    if (existing.status === 'PENDING' && !mutual) return res.status(400).json({ success: false, message: 'Request already sent' });
     if (existing.status === 'ACCEPTED') return res.status(400).json({ success: false, message: 'Already following' });
-    const updated = await prisma.follow.update({ where: { id: existing.id }, data: { status: 'PENDING', createdAt: new Date() } });
+    const updated = await prisma.follow.update({ where: { id: existing.id }, data: { status: myStatus, createdAt: new Date() } });
     followId = updated.id;
   } else {
-    const created = await prisma.follow.create({ data: { followerId, followingId, status: 'PENDING' } });
+    const created = await prisma.follow.create({ data: { followerId, followingId, status: myStatus } });
     followId = created.id;
+  }
+  if (mutual && reverse && reverse.status === 'PENDING') {
+    await prisma.follow.update({ where: { id: reverse.id }, data: { status: 'ACCEPTED' } });
+    const me = await prisma.user.findUnique({ where: { id: followerId }, select: { id: true, name: true, avatarUrl: true, displayId: true } });
+    io.to(`user:${followingId}`).emit('follow_accepted', { byUser: me });
+  }
+  if (mutual) {
+    return res.status(201).json({ success: true, message: 'Followed — you are now friends', friends: true });
   }
 
   const follower = await prisma.user.findUnique({ where: { id: followerId }, select: { id: true, name: true, avatarUrl: true, displayId: true } });
