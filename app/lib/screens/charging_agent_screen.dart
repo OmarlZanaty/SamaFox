@@ -1228,7 +1228,7 @@ class _CreateAgencyButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 56,
+      height: 64,
       width: double.infinity,
       child: ElevatedButton.icon(
         onPressed: onTap,
@@ -1239,7 +1239,14 @@ class _CreateAgencyButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         ),
         icon: const Icon(Icons.add_business_rounded),
-        label: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        // Two lines allowed: «طلب تفعيل وكالة شحن» / «طلب تفعيل وكالة مضيفين»
+        // were both cut to «طلب تفعيل» on a narrow phone and looked identical.
+        label: Text(
+          label,
+          maxLines: 2,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, height: 1.15),
+        ),
       ),
     );
   }
