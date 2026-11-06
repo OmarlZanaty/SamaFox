@@ -24,7 +24,7 @@ export async function eventTransaction<T>(work: (tx: any) => Promise<T>): Promis
     }
   }
 }
-export type Reward = { type: 'coins' | 'item'; coins?: number; itemId?: string; weight: number; quantity: number; durationDays?: number | null; name?: string };
+export type Reward = { type: 'coins' | 'item' | 'both'; coins?: number; itemId?: string; weight: number; quantity: number; durationDays?: number | null; name?: string };
 export function drawReward(rewards: Reward[], pick = randomInt): Reward {
   const sum = rewards.reduce((n, r) => n + r.weight, 0);
   let roll = pick(sum);
@@ -32,6 +32,11 @@ export function drawReward(rewards: Reward[], pick = randomInt): Reward {
   throw new RoomEventError('الجوائز غير متاحة');
 }
 async function validateReward(tx: any, raw: any, weighted: boolean): Promise<Reward> {
+  if (!raw || typeof raw !== 'object') throw new RoomEventError('الجائزة غير صالحة');
+  if (!weighted && raw.itemId && raw.coins > 0) {
+    const item = await validateReward(tx, { ...raw, type: 'item', coins: undefined }, false);
+    return { ...item, type: 'both', coins: integer(raw.coins, 1, 1_000_000) };
+  }
   const quantity = integer(raw.quantity ?? 1, 1, 100);
   const weight = weighted ? integer(raw.weight, 1, 1_000_000) : 1;
   if (raw.type === 'coins' || (!weighted && raw.coins != null)) {
@@ -65,7 +70,11 @@ export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: 
       if (raw.winCondition !== 'HIGHER_SCORE' || !['TIE', 'FIRST_TO_REACH'].includes(raw.tieRule)) throw new RoomEventError('قاعدة الحسم غير صالحة');
       const rewards: any = {};
       for (const side of ['winner', 'loser']) if (raw.rewards?.[side]) rewards[side] = await validateReward(tx, raw.rewards[side], false);
-      data = { allowedDurations: [...new Set(raw.allowedDurations.map((v: any) => integer(v, 30, 3600)))],
+      const viewerGiftCoins = integer(raw.viewerGiftCoins ?? 0, 0, 1_000_000);
+      const viewerGiftItem = raw.viewerGiftItem ? await validateReward(tx,
+        typeof raw.viewerGiftItem === 'string' ? { itemId: raw.viewerGiftItem } : { ...raw.viewerGiftItem, type: 'item', coins: undefined }, false) : null;
+      data = { minTotalCoins: BigInt(integer(Number(raw.minTotalCoins ?? 0), 0, Number.MAX_SAFE_INTEGER)),
+        viewerGiftCoins, viewerGiftItem: viewerGiftItem ?? undefined, allowedDurations: [...new Set(raw.allowedDurations.map((v: any) => integer(v, 30, 3600)))],
         countedGiftIds: raw.countedGiftIds, pointsPerCoin: integer(raw.pointsPerCoin, 1, 1000),
         winCondition: raw.winCondition, tieRule: raw.tieRule, rewards, enabled: raw.enabled === true, updatedBy: adminId };
     }
@@ -74,10 +83,15 @@ export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: 
     if (kind === 'rocket') await model.updateMany({ where: { isActive: true }, data: { isActive: false } });
     const after = await model.create({ data });
     await recordAdminAuditStrict(tx, { adminId, action: kind === 'rocket' ? 'ROCKET_CONFIG_UPDATE' : 'PK_CONFIG_UPDATE', before, after });
-    return after;
+    return kind === 'pk' ? pkConfigSnapshot(after) : after;
   });
 }
-async function grantReward(tx: any, userId: number, reward: Reward, pool: string, ref: string, cap = MAX) {
+async function grantReward(tx: any, userId: number, reward: Reward, pool: string, ref: string, cap = MAX): Promise<any> {
+  if (reward.type === 'both') {
+    const coins = await grantReward(tx, userId, { ...reward, type: 'coins' }, pool, ref, cap);
+    const item = await grantReward(tx, userId, { ...reward, type: 'item' }, pool, ref, cap);
+    return { type: 'both', coins: coins.coins, itemId: reward.itemId, item, before: coins.before, after: coins.after };
+  }
   const before = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { coinsBalance: true } });
   if (reward.type === 'coins') {
     const coins = Math.min(cap, (reward.coins ?? 0) * reward.quantity);
@@ -123,9 +137,14 @@ export function rocketView(e: any) {
   return e ? { ...e, eventId: e.id, current: e.currentCoins, target: e.targetCoins, rewards: e.configSnapshot.rewards,
     claimWindowSeconds: e.configSnapshot.claimWindowSeconds } : null;
 }
+function pkConfigSnapshot(cfg: any) {
+  return { ...cfg, minTotalCoins: String(cfg.minTotalCoins ?? 0) };
+}
 export function pkView(p: any) {
   return p ? { ...p, pkId: p.id, roomId: p.room1Id, opponentRoomId: p.room2Id,
-    scoreA: p.room1Score, scoreB: p.room2Score } : null;
+    scoreA: p.room1Score, scoreB: p.room2Score,
+    prizeEligible: p.status === 'FINISHED' && ['A', 'B'].includes(p.winner) &&
+      BigInt(p.room1Score + p.room2Score) >= BigInt(p.configSnapshot.minTotalCoins ?? 0) } : null;
 }
 export async function processRoomGift(giftTransactionId: string) {
   const out: any = await eventTransaction(async tx => {
@@ -158,8 +177,8 @@ export async function processRoomGift(giftTransactionId: string) {
     let pk = lock?.pk;
     if (pk?.status === 'ACTIVE' && gift.createdAt >= pk.startedAt && gift.createdAt < pk.endsAt) {
       const cfg = pk.configSnapshot;
-      const side = pk.type === 'GLOBAL' ? (gift.roomId === pk.room1Id ? 'A' : 'B')
-        : gift.recipientId === pk.sideAUserId ? 'A' : gift.recipientId === pk.sideBUserId ? 'B' : null;
+      // Attribute every counted gift to its room, independent of recipient.
+      const side = gift.roomId === pk.room1Id ? 'A' : gift.roomId === pk.room2Id ? 'B' : null;
       if (side && (!cfg.countedGiftIds.length || cfg.countedGiftIds.includes(gift.giftId)) &&
         !await tx.pkContribution.findUnique({ where: { giftTransactionId } })) {
         const points = Math.min(MAX, gift.paidCoins * cfg.pointsPerCoin);
@@ -215,7 +234,7 @@ export function pkDurationSec(raw: unknown, cfg: any): number {
 }
 async function reservePk(tx: any, pk: any, cfg: any, userId: number) {
   const reserve = Object.values(cfg.rewards as Record<string, Reward>).reduce((sum, reward) =>
-    sum + (reward.type === 'coins' ? (reward.coins ?? 0) * reward.quantity : 0), 0);
+    sum + (reward.type === 'coins' || reward.type === 'both' ? (reward.coins ?? 0) * reward.quantity : 0), 0);
   if (reserve) {
     const movement = { kind: 'PK_RESERVE', refType: 'pk', refId: pk.id, userId };
     if (await debitAccount(tx, 'PK_POOL', reserve, movement) === null) throw new RoomEventError('رصيد صندوق PK غير كافٍ', 409);
@@ -243,7 +262,7 @@ export async function startPk(userId: number, raw: any) {
     if (await tx.pkRoomLock.count({ where: { roomId: { in: ids } } })) throw new RoomEventError('يوجد PK أو دعوة قائمة', 409);
     const now = new Date();
     const pk = await tx.pkBattle.create({ data: { room1Id: roomId, room2Id, type: raw.type,
-      sideAUserId: a, sideBUserId: b, durationSec, configSnapshot: cfg, createdBy: userId,
+      sideAUserId: a, sideBUserId: b, durationSec, configSnapshot: pkConfigSnapshot(cfg), createdBy: userId,
       status: global ? 'PENDING' : 'ACTIVE', startedAt: global ? null : now,
       endsAt: new Date(now.getTime() + (global ? 90 : durationSec) * 1000) } });
     await reservePk(tx, pk, cfg, userId);
@@ -289,7 +308,7 @@ export async function joinRandomPk(userId: number, raw: any) {
       const now = new Date();
       const pk = await tx.pkBattle.create({ data: { room1Id: partner.roomId, room2Id: roomId, type: 'GLOBAL',
         sideAUserId: room1.ownerId, sideBUserId: room2.ownerId, durationSec: partner.durationSec,
-        configSnapshot: { ...cfg, random: true }, createdBy: partner.userId, status: 'ACTIVE', startedAt: now,
+        configSnapshot: { ...pkConfigSnapshot(cfg), random: true }, createdBy: partner.userId, status: 'ACTIVE', startedAt: now,
         endsAt: new Date(now.getTime() + partner.durationSec * 1000) } });
       await reservePk(tx, pk, cfg, partner.userId);
       return pk;
@@ -338,27 +357,63 @@ export async function finishPk(id: string) {
     const flip = await tx.pkBattle.updateMany({ where: { id, status: p.status }, data: { status, winner, isActive: false } });
     if (!flip.count) return null;
     const rewards: any[] = [];
-    if (winner && winner !== 'TIE') {
+    const prizeEligible = !!winner && winner !== 'TIE' &&
+      BigInt(p.room1Score + p.room2Score) >= BigInt(p.configSnapshot.minTotalCoins ?? 0);
+    let prizeBox: any = null;
+    if (prizeEligible) {
       for (const side of ['A', 'B']) {
         const reward = p.configSnapshot.rewards[side === winner ? 'winner' : 'loser'];
         if (reward) rewards.push(await grantReward(tx, side === 'A' ? p.sideAUserId : p.sideBUserId, reward, `PK_ESCROW:${id}`, `${id}:${side}`));
       }
     }
+    if (prizeEligible) {
+      const winnerUserId = winner === 'A' ? p.sideAUserId : p.sideBUserId;
+      const user = await tx.user.findUniqueOrThrow({ where: { id: winnerUserId }, select: { name: true, avatarUrl: true } });
+      prizeBox = await tx.pkPrizeBox.create({ data: { pkId: id, winnerUserId,
+        winnerName: user.name ?? '', winnerAvatar: user.avatarUrl, room1Id: p.room1Id, room2Id: p.room2Id,
+        expiresAt: new Date(Date.now() + 10 * 60000), configSnapshot: p.configSnapshot } });
+    }
     const unused = (await readBalance(tx, `PK_ESCROW:${id}`)) ?? 0n;
     if (unused > 0n) {
       const movement = { kind: 'PK_RESERVE_RETURN', refType: 'pk', refId: id };
-      if (await debitAccount(tx, `PK_ESCROW:${id}`, unused, movement) === null) throw new Error('PK escrow changed');
+      if (await debitAccount(tx, `PK_ESCROW:${id}`, unused, movement) === null) throw new RoomEventError('رصيد حجز جوائز PK غير كافٍ، حاول مجدداً', 409);
       await creditAccount(tx, 'PK_POOL', unused, movement);
     }
     await tx.pkRoomLock.deleteMany({ where: { pkId: id } });
-    const after = { ...pkView(p), status, winner, rewards };
+    const after = { ...pkView(p), status, isActive: false, winner, rewards, prizeEligible, prizeBox };
     await recordAdminAuditStrict(tx, { adminId: 0, action: 'PK_RESULT', targetId: id, before: pkView(p), after });
     return after;
   });
   if (result) {
+    if (result.prizeBox) {
+      const box = result.prizeBox;
+      emitGlobal('pk_prize', { pkId: id, winnerName: box.winnerName, winnerAvatar: box.winnerAvatar,
+        roomIds: [...new Set([box.room1Id, box.room2Id])], expiresAt: box.expiresAt });
+    }
     pendingStates.delete(`p:${id}`);
     for (const rid of new Set<number>([result.room1Id, result.room2Id])) emitToRoomAndUsers(rid, [], 'pk_result', result);
   }
+  return result;
+}
+export async function claimPk(pkId: string, userId: number) {
+  return eventTransaction(async tx => {
+    const box = await tx.pkPrizeBox.findUnique({ where: { pkId } });
+    if (!box) throw new RoomEventError('صندوق جوائز PK غير متاح', 409);
+    if (box.expiresAt <= new Date()) throw new RoomEventError('انتهت مهلة استلام جائزة PK', 409);
+    if (box.winnerUserId === userId) throw new RoomEventError('الفائز استلم جائزته بالفعل', 409);
+    if (await tx.pkClaim.findUnique({ where: { pkId_userId: { pkId, userId } } }))
+      throw new RoomEventError('استلمت جائزة PK بالفعل', 409);
+    const cfg = box.configSnapshot;
+    const rewards: any[] = [];
+    if (cfg.viewerGiftCoins > 0) rewards.push(await grantReward(tx, userId,
+      { type: 'coins', coins: cfg.viewerGiftCoins, quantity: 1, weight: 1 }, 'PK_POOL', `${pkId}:${userId}`));
+    if (cfg.viewerGiftItem) rewards.push(await grantReward(tx, userId, cfg.viewerGiftItem, 'PK_POOL', `${pkId}:${userId}`));
+    if (!rewards.length) throw new RoomEventError('لا توجد هدية للمشاهدين في هذا الصندوق', 409);
+    const reward = { rewards };
+    await tx.pkClaim.create({ data: { pkId, userId, rewardJson: JSON.parse(JSON.stringify(reward)) } });
+    await recordAdminAuditStrict(tx, { adminId: 0, action: 'PK_VIEWER_REWARD', targetUserId: userId, targetId: pkId, after: reward });
+    return reward;
+  });
 }
 let running = false;
 export async function recoverRoomEvents() {

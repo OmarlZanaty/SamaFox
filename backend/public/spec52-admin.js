@@ -366,7 +366,17 @@
     $("pk_tie").value = q.tieRule || "TIE";
     $("pk_enabled").checked = !!q.enabled;
     $("pk_gifts").innerHTML = evGifts.map((g) => `<option value="${esc(g.id)}" ${(q.countedGiftIds || []).includes(g.id) ? "selected" : ""}>${esc(g.nameAr || g.name)}</option>`).join("");
-    $("pk_win").innerHTML = rewardRow(q.rewards?.winner || { type: "coins", coins: 0, weight: 1, quantity: 1 });
+    const pkTr = (ar, en) => typeof window.tr === 'function' ? window.tr(ar, en) : ar;
+    const pkOptions = (selected) => `<option value="">${pkTr('بدون منتج', 'No product')}</option>` + evProducts.map(p => `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    const winner = q.rewards?.winner || {};
+    $("pk_win").innerHTML = `<div class="form-row">
+      <label>${pkTr('كوينز الفائز', 'Winner coins')} <input id="pk_win_coins" class="form-input" type="number" min="0" max="1000000" value="${Number(winner.coins || 0)}"></label>
+      <label>${pkTr('منتج الفائز', 'Winner product')} <select id="pk_win_item" class="form-input">${pkOptions(winner.itemId)}</select></label>
+      <label>${pkTr('الكمية', 'Quantity')} <input id="pk_win_qty" class="form-input" type="number" min="1" max="100" value="${Number(winner.quantity || 1)}"></label></div>`;
+    $("pk_prize_settings").innerHTML = `<div class="form-row">
+      <label>${pkTr('الحد الأدنى لمجموع PK للجوائز', 'Minimum PK total for prizes')} <input id="pk_min_total" class="form-input" type="number" min="0" value="${esc(String(q.minTotalCoins ?? 0))}"></label>
+      <label>${pkTr('كوينز لكل مشاهد', 'Coins per viewer')} <input id="pk_viewer_coins" class="form-input" type="number" min="0" max="1000000" value="${Number(q.viewerGiftCoins || 0)}"></label>
+      <label>${pkTr('منتج لكل مشاهد', 'Product per viewer')} <select id="pk_viewer_item" class="form-input">${pkOptions(q.viewerGiftItem?.itemId)}</select></label></div>`;
     $("pk_pool").textContent = n(P.poolBalance);
     $("pkEvents").querySelector("tbody").innerHTML = (P.events || []).map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.room1Id)} / ${esc(e.room2Id)}</td><td>${esc(e.status)}</td><td>${n(e.room1Score)} : ${n(e.room2Score)}</td><td>${esc(e.winner || "—")}</td><td>${dt(e.createdAt)}</td></tr>`).join("") || '<tr><td colspan="6" class="cell-muted">لا توجد مباريات</td></tr>';
   }
@@ -385,7 +395,11 @@
     rocketPkLoad();
   }
   async function pkSave() {
-    const winner = readRewards($("pk_win"))[0];
+    const coins = Number(val("pk_win_coins") || 0);
+    const itemId = val("pk_win_item");
+    const winner = { type: itemId ? (coins > 0 ? 'both' : 'item') : 'coins',
+      ...(coins > 0 || !itemId ? { coins } : {}), ...(itemId ? { itemId } : {}),
+      quantity: Number(val("pk_win_qty") || 1), weight: 1 };
     await callKey("/admin-dashboard/pk/config", "PUT", {
       allowedDurations: val("pk_durations").split(",").map((x) => Number(x.trim())).filter(Boolean),
       countedGiftIds: [...$("pk_gifts").selectedOptions].map((o) => o.value),
@@ -393,7 +407,10 @@
       winCondition: "HIGHER_SCORE",
       tieRule: val("pk_tie"),
       enabled: $("pk_enabled").checked,
-      rewards: winner && ((winner.type === "coins" && winner.coins > 0) || winner.itemId) ? { winner } : {},
+      minTotalCoins: val("pk_min_total") || '0',
+      viewerGiftCoins: Number(val("pk_viewer_coins") || 0),
+      viewerGiftItem: val("pk_viewer_item") || null,
+      rewards: coins > 0 || itemId ? { winner } : {},
     });
     toast("✅ تم حفظ إعدادات PK");
     rocketPkLoad();

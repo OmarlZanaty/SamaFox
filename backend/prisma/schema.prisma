@@ -944,6 +944,7 @@ model PkBattle {
   scoreReachedB  DateTime?
   contributions  PkContribution[]
   roomLocks      PkRoomLock[]
+  prizeBox       PkPrizeBox?
 
   room1 Room @relation("PkBattleRoom1", fields: [room1Id], references: [id])
   room2 Room @relation("PkBattleRoom2", fields: [room2Id], references: [id])
@@ -1008,6 +1009,9 @@ model RocketClaim {
 }
 
 model PkConfig {
+  minTotalCoins   BigInt   @default(0)
+  viewerGiftCoins Int      @default(0)
+  viewerGiftItem  Json?
   id               Int      @id @default(autoincrement())
   allowedDurations Json     @default("[180,300,600]")
   countedGiftIds   Json     @default("[]")
@@ -1020,6 +1024,33 @@ model PkConfig {
   createdAt        DateTime @default(now())
 
   @@map("pk_configs")
+}
+
+model PkPrizeBox {
+  pkId          String    @id
+  winnerUserId  Int
+  winnerName    String
+  winnerAvatar  String?
+  room1Id       Int
+  room2Id       Int
+  expiresAt     DateTime
+  configSnapshot Json
+  pk            PkBattle  @relation(fields: [pkId], references: [id])
+  claims        PkClaim[]
+
+  @@map("pk_prize_boxes")
+}
+
+model PkClaim {
+  id         Int      @id @default(autoincrement())
+  pkId       String
+  userId     Int
+  rewardJson Json
+  claimedAt  DateTime @default(now())
+  box        PkPrizeBox @relation(fields: [pkId], references: [pkId])
+
+  @@unique([pkId, userId])
+  @@map("pk_claims")
 }
 
 model PkContribution {

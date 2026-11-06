@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { authenticate } from '../middlewares/auth.middleware';
 import { idempotent } from '../middlewares/idempotency.middleware';
 import { requireOwnerPermission } from '../services/ownerPermissions.service';
-import { acceptPk, cancelRandomPk, joinRandomPk, claimRocket, fundEventPool, integer, pkView, rocketView, saveEventConfig, startPk, RoomEventError } from '../services/roomEvents.service';
+import { acceptPk, cancelRandomPk, joinRandomPk, claimPk, claimRocket, fundEventPool, integer, pkView, rocketView, saveEventConfig, startPk, RoomEventError } from '../services/roomEvents.service';
 import { isUserInRoom, getSeatedUserIds } from '../services/socket.service';
 import { readBalance } from '../services/economyAccounts.service';
 
@@ -26,9 +26,10 @@ roomEventsRouter.get('/room-events/:roomId', wrap(async req => {
   const rocketConfig = await db.rocketConfig.findFirst({ where: { isActive: true } });
   const seated = await db.user.findMany({ where: { id: { in: getSeatedUserIds(roomId) } }, select: { id: true, name: true, avatarUrl: true } });
   const participants = pk ? await db.user.findMany({ where: { id: { in: [pk.sideAUserId, pk.sideBUserId].filter(Boolean) } }, select: { id: true, name: true, avatarUrl: true } }) : [];
-  return { rocket: rocketView(rocket), rocketConfig, pk: pkView(pk), pkConfig: config, seated, participants };
+  return { rocket: rocketView(rocket), rocketConfig, pk: pkView(pk), pkConfig: config ? { ...config, minTotalCoins: String(config.minTotalCoins ?? 0) } : null, seated, participants };
 }));
 roomEventsRouter.post('/rockets/:eventId/claim', idempotent('rocket-claim'), wrap(req => claimRocket(String(req.params.eventId), req.userId!)));
+roomEventsRouter.post('/pk/:id/claim', wrap(req => claimPk(String(req.params.id), req.userId!)));
 roomEventsRouter.post('/pk/start', idempotent('pk-start'), wrap(req => startPk(req.userId!, req.body)));
 roomEventsRouter.post('/pk/random', wrap(req => joinRandomPk(req.userId!, req.body)));
 roomEventsRouter.post('/pk/random/cancel', wrap(req => cancelRandomPk(req.userId!, req.body)));
@@ -45,7 +46,8 @@ for (const kind of ['rocket', 'pk'] as const) {
       : await db.pkBattle.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
     const products = await db.item.findMany({ select: { id: true, name: true, durationDays: true, type: true }, orderBy: { name: 'asc' } });
     const gifts = await db.gift.findMany({ select: { id: true, name: true, nameAr: true } });
-    return { config, events, products, gifts, poolBalance: String((await readBalance(db, kind === 'rocket' ? 'ROCKET_POOL' : 'PK_POOL')) ?? 0n) };
+    return { config: kind === 'pk' && config ? { ...config, minTotalCoins: String(config.minTotalCoins ?? 0) } : config,
+      events, products, gifts, poolBalance: String((await readBalance(db, kind === 'rocket' ? 'ROCKET_POOL' : 'PK_POOL')) ?? 0n) };
   }));
   adminRoomEventsRouter.put(`/${kind}/config`, idempotent(`${kind}-config`), wrap(req => saveEventConfig(kind, req.body, req.userId!)));
   adminRoomEventsRouter.post(`/${kind}/fund`, idempotent(`${kind}-fund`), wrap(async req => {
