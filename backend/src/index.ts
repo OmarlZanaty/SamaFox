@@ -2,6 +2,14 @@ import { rememberLastRoomApi } from './middlewares/roomSession.middleware';
 import dotenv from 'dotenv';
 dotenv.config();
 
+// User.receivedXp (the "supported" level, coins received) is a BigInt column.
+// Express/socket.io JSON.stringify cannot serialise BigInt, which broke every
+// response that returns a whole user row (register/login). Numbers below 2^53
+// are exact, which is far above any realistic XP.
+if (!(BigInt.prototype as any).toJSON) {
+  (BigInt.prototype as any).toJSON = function () { return Number(this); };
+}
+
 // Last-resort handlers so a single unhandled async error in a socket/route
 // handler doesn't take down the whole Node process.
 process.on('unhandledRejection', (reason) => {
