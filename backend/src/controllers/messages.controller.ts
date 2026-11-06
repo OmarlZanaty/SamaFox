@@ -223,8 +223,25 @@ export async function getConversations(req: AuthedRequest, res: Response) {
     // actually removes the thread instead of leaving it sitting there.
     const blocked = await blockedUserIds(me);
 
-    const out = convs
-      .filter((c) => !blocked.has(c.userAId === me ? c.userBId : c.userAId))
+    // Real unread counts (client 3/11: red number on the messages icon). One
+    // grouped query: messages from the partner newer than my lastReadAt.
+    const visible = convs.filter((c) => !blocked.has(c.userAId === me ? c.userBId : c.userAId));
+    const unreadByConv = new Map<number, number>();
+    await Promise.all(
+      visible.map(async (c) => {
+        const lastRead = c.participants[0]?.lastReadAt ?? null;
+        const n = await prisma.directMessage.count({
+          where: {
+            conversationId: c.id,
+            senderId: { not: me },
+            ...(lastRead ? { createdAt: { gt: lastRead } } : {}),
+          },
+        });
+        unreadByConv.set(c.id, n);
+      }),
+    );
+
+    const out = visible
       .map((c) => {
       const partner = c.userAId === me ? c.userB : c.userA;
       const myPart = c.participants[0] ?? null;
@@ -238,7 +255,7 @@ export async function getConversations(req: AuthedRequest, res: Response) {
         partnerAvatar: partner.avatarUrl,
         lastMessage: c.lastMessage?.text ?? null,
         lastMessageTime: c.lastMessage?.createdAt?.toISOString?.() ?? c.lastMessageAt?.toISOString?.() ?? null,
-        unreadCount: 0, // optional: compute with a second query for speed, see note below
+        unreadCount: unreadByConv.get(c.id) ?? 0,
         muted: myPart?.muted ?? false,
       };
     });
