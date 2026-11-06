@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/music_track.dart';
 import '../services/audio_route.dart';
+import '../services/crash_reporter.dart';
 import '../services/music_service.dart';
 import '../services/socket_service.dart';
 import '../l10n/tr.dart';
@@ -187,6 +190,17 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
   /// every time a state broadcast arrives.
   String? _loadedUrl;
   int _loadedIndex = -1;
+  int _playbackRevision = 0;
+  Future<void> _playbackWork = Future<void>.value();
+  final Dio _downloadClient = Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 15),
+    receiveTimeout: const Duration(seconds: 45),
+  ));
+  CancelToken? _downloadCancel;
+  Directory? _cacheDirectory;
+  final Map<String, String> _cachedFiles = {};
+
+  bool _isCurrent(int revision) => mounted && revision == _playbackRevision;
 
   /// Position drift above this is corrected with a seek. Below it, leaving
   /// playback alone sounds better than a constant stutter.
@@ -202,7 +216,7 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
 
   final _deniedController = StreamController<String>.broadcast();
 
-  /// Server refused a control action (not owner/admin).
+  /// Control refusals and playback errors, shown by the room music snackbar.
   Stream<String> get deniedStream => _deniedController.stream;
 
   void _onDenied(dynamic data) {
@@ -224,12 +238,15 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
     if (data is! Map) return;
     if (_notMyRoom(data)) return;
 
+    final revision = ++_playbackRevision;
+    _downloadCancel?.cancel('Music state changed');
+    final receivedAt = Stopwatch()..start();
     final active = data['active'] == true;
     if (!active) {
       state = const RoomMusicState();
       _loadedUrl = null;
       _loadedIndex = -1;
-      await _player.stop();
+      await _queuePlayback(revision, () => _player.stop());
       return;
     }
 
@@ -255,45 +272,135 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
       hostName: (data['hostName'] ?? '').toString(),
     );
 
-    await _applyToPlayer(positionMs: positionMs, isPlaying: isPlaying);
+    await _queuePlayback(revision, () => _applyToPlayer(
+      positionMs: positionMs,
+      isPlaying: isPlaying,
+      revision: revision,
+      receivedAt: receivedAt,
+    ));
   }
 
-  Future<void> _applyToPlayer({required int positionMs, required bool isPlaying}) async {
+  Future<void> _queuePlayback(int revision, Future<void> Function() action) {
+    _playbackWork = _playbackWork.then((_) async {
+      if (!_isCurrent(revision)) return;
+      try {
+        await action();
+      } catch (e, stack) {
+        _logPlaybackError(e, stack);
+        if (_isCurrent(revision)) _showPlaybackError();
+      }
+    });
+    return _playbackWork;
+  }
+
+  void _logPlaybackError(Object error, StackTrace stack) {
+    debugPrint('[Music] playback failed: $error\n$stack');
+    CrashReporter.record('music_playback', '$error', '$stack');
+  }
+
+  void _showPlaybackError() {
+    if (!_deniedController.isClosed) {
+      _deniedController.add(tr(
+        'تعذر تشغيل الأغنية، حاول مرة أخرى',
+        'Could not play the song. Try again',
+      ));
+    }
+  }
+
+  Future<String> _downloadTrack(String url, int revision) async {
+    final cached = _cachedFiles[url];
+    if (cached != null && await File(cached).exists()) return cached;
+    final temp = await getTemporaryDirectory();
+    _cacheDirectory ??= await Directory(temp.path).createTemp('room_music_');
+    if (!_isCurrent(revision)) throw StateError('Music state changed');
+    final extension = Uri.parse(url).path.split('.').last.toLowerCase();
+    final suffix = const ['mp3', 'm4a', 'aac', 'wav', 'ogg'].contains(extension)
+        ? extension
+        : 'audio';
+    final path = '${_cacheDirectory!.path}/track_$revision.$suffix';
+    final cancel = CancelToken();
+    _downloadCancel = cancel;
+    try {
+      await _downloadClient.download(url, path, cancelToken: cancel);
+      if (await File(path).length() == 0) {
+        throw StateError('Downloaded music file is empty');
+      }
+      _cachedFiles[url] = path;
+      return path;
+    } catch (_) {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+      rethrow;
+    } finally {
+      if (identical(_downloadCancel, cancel)) _downloadCancel = null;
+    }
+  }
+
+  Future<void> _applyToPlayer({
+    required int positionMs,
+    required bool isPlaying,
+    required int revision,
+    required Stopwatch receivedAt,
+  }) async {
     final track = state.current;
     if (track == null) {
+      _loadedUrl = null;
+      _loadedIndex = -1;
       await _player.stop();
       return;
     }
-
     final url = track.playbackUrl;
-    final changedTrack = url != _loadedUrl || state.index != _loadedIndex;
-
-    try {
-      if (changedTrack) {
-        _loadedUrl = url;
-        _loadedIndex = state.index;
-        await _player.stop();
-        await _player.setSourceUrl(url);
-        if (positionMs > 0) {
-          await _player.seek(Duration(milliseconds: positionMs));
+    final index = state.index;
+    var reload = url != _loadedUrl || index != _loadedIndex;
+    // Initial playback, one streaming retry, then a local-file fallback.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (!_isCurrent(revision)) return;
+      try {
+        if (reload || attempt > 0) {
+          _loadedUrl = null;
+          _loadedIndex = -1;
+          await _player.stop();
+          if (!_isCurrent(revision)) return;
+          if (attempt == 2 && !kIsWeb) {
+            final path = await _downloadTrack(url, revision);
+            if (!_isCurrent(revision)) return;
+            await _player.setSourceDeviceFile(path);
+          } else {
+            await _player.setSourceUrl(url);
+          }
         }
-        if (isPlaying) await _player.resume();
-        return;
-      }
-
-      if (isPlaying) {
+        if (!_isCurrent(revision)) return;
+        final target = Duration(milliseconds:
+            positionMs + (isPlaying ? receivedAt.elapsedMilliseconds : 0));
         final current = await _player.getCurrentPosition() ?? Duration.zero;
-        final target = Duration(milliseconds: positionMs);
-        if ((current - target).abs() > _driftTolerance) {
+        if (!_isCurrent(revision)) return;
+        if (reload || attempt > 0 || !isPlaying ||
+            (current - target).abs() > _driftTolerance) {
           await _player.seek(target);
         }
-        await _player.resume();
-      } else {
-        await _player.pause();
-        await _player.seek(Duration(milliseconds: positionMs));
+        if (!_isCurrent(revision)) return;
+        if (isPlaying) {
+          await _player.resume();
+        } else {
+          await _player.pause();
+        }
+        if (!_isCurrent(revision)) return;
+        // Only successful playback is considered loaded; a later sync can
+        // retry a failed source instead of resuming an unusable player.
+        _loadedUrl = url;
+        _loadedIndex = index;
+        return;
+      } catch (e, stack) {
+        if (!_isCurrent(revision)) return;
+        _logPlaybackError(e, stack);
+        _loadedUrl = null;
+        _loadedIndex = -1;
+        reload = true;
+        if (attempt == 2) {
+          _cachedFiles.remove(url);
+          _showPlaybackError();
+        }
       }
-    } catch (e) {
-      debugPrint('🎵 playback error: $e');
     }
   }
 
@@ -348,6 +455,8 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
 
   @override
   void dispose() {
+    ++_playbackRevision;
+    _downloadCancel?.cancel('Room closed');
     AudioRoute.instance.roomMuted.removeListener(_onRoomMute);
     _socket.off('room_music_state');
     _socket.off('music_denied');
@@ -360,12 +469,19 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
     // uncaught crashes on room leave in 1.0.46.
     final player = _player;
     () async {
+      await _playbackWork;
       try {
         await player.stop();
       } catch (_) {}
       try {
         await player.dispose();
       } catch (_) {}
+      _downloadClient.close(force: true);
+      try {
+        await _cacheDirectory?.delete(recursive: true);
+      } catch (e) {
+        debugPrint('[Music] cache cleanup failed: $e');
+      }
     }();
     super.dispose();
   }

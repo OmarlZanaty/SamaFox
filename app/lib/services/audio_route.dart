@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
-import 'package:livekit_client/livekit_client.dart' show Hardware;
+import 'package:livekit_client/livekit_client.dart' show Hardware, MediaDevice;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -40,6 +41,10 @@ class AudioRoute {
   /// Written when the user flips the in-room speaker icon; anything that later
   /// re-applies a route reads this rather than assuming.
   bool speakerOn = true;
+  bool _externalConnected = true; // Until enumerated, do not force the speaker.
+  bool _explicitSpeaker = false;
+  Future<void> _routeWork = Future<void>.value();
+  final Map<AudioPlayer, String> _contexts = {};
 
   /// A3 — the room's volume slider, applied to every registered player.
   ///
@@ -80,7 +85,7 @@ class AudioRoute {
       final prefs = await SharedPreferences.getInstance();
       // SPEC52 #3 — routing is automatic now (headset if one is connected,
       // loudspeaker otherwise), so an old "earpiece" choice is not restored.
-      speakerOn = true;
+      await _refreshDevices();
       masterVolume = (prefs.getDouble(_volumeKey) ?? masterVolume).clamp(0.0, 1.0);
     } catch (e) {
       // A preferences failure must not cost anyone their audio; the defaults
@@ -115,14 +120,13 @@ class AudioRoute {
 
   /// Apply the automatic route now and keep following device changes.
   Future<void> applyAutomatic() async {
-    _watchDevices();
-    if (kIsWeb) return;
+    if (!_supported) return;
+    await apply();
     try {
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid && !_explicitSpeaker && speakerOn) {
         await rtc.Helper.setSpeakerphoneOnButPreferBluetooth();
-      } else if (Platform.isIOS) {
-        // iOS already prefers a connected headset over the speaker.
-        await rtc.Helper.setSpeakerphoneOn(true);
+      } else {
+        await rtc.Helper.setSpeakerphoneOn(_effectiveSpeaker);
       }
     } catch (e) {
       debugPrint('[AudioRoute] automatic route failed: $e');
@@ -132,7 +136,8 @@ class AudioRoute {
   void _watchDevices() {
     if (_deviceSub != null) return;
     try {
-      _deviceSub = Hardware.instance.onDeviceChange.stream.listen((_) {
+      _deviceSub = Hardware.instance.onDeviceChange.stream.listen((devices) {
+        _updateDevices(devices);
         _routeDebounce?.cancel();
         // A headset connecting fires several changes in a row; settle first.
         _routeDebounce = Timer(const Duration(milliseconds: 400), () {
@@ -142,6 +147,54 @@ class AudioRoute {
     } catch (e) {
       debugPrint('[AudioRoute] device watch failed: $e');
     }
+  }
+
+  bool get _effectiveSpeaker =>
+      speakerOn && (!_externalConnected || _explicitSpeaker);
+
+  void _updateDevices(List<MediaDevice> devices) {
+    final external = devices.any((device) {
+      final name = '${device.deviceId} ${device.label} ${device.groupId}'
+          .toLowerCase();
+      if (device.kind != 'audiooutput' && device.kind != 'audioinput') {
+        return false;
+      }
+      return RegExp(r'bluetooth|headset|headphone|wired|usb|airpods|a2dp')
+          .hasMatch(name);
+    });
+    // A newly attached headset takes priority over an earlier speaker choice.
+    if (external && !_externalConnected) _explicitSpeaker = false;
+    _externalConnected = external;
+  }
+
+  Future<void> _refreshDevices() async {
+    if (!_supported) return;
+    _watchDevices();
+    try {
+      _updateDevices(await Hardware.instance.enumerateDevices());
+    } catch (e) {
+      debugPrint('[AudioRoute] device enumeration failed: $e');
+    }
+  }
+
+  Future<void> _applyContexts() {
+    // Serialize registration and refreshes so overlapping room/SFX calls do
+    // not repeatedly write the global audio session with the same context.
+    _routeWork = _routeWork.then((_) async {
+      await _refreshDevices();
+      final context = _contextFor(_effectiveSpeaker);
+      final key = jsonEncode(context.toJson());
+      for (final player in List.of(_players)) {
+        if (!_players.contains(player) || _contexts[player] == key) continue;
+        try {
+          await player.setAudioContext(context);
+          if (_players.contains(player)) _contexts[player] = key;
+        } catch (e) {
+          debugPrint('[AudioRoute] context failed: $e');
+        }
+      }
+    });
+    return _routeWork;
   }
 
   /// Android 12+ needs BLUETOOTH_CONNECT to see a Bluetooth headset at all.
@@ -161,6 +214,7 @@ class AudioRoute {
   /// Flip the route and remember it.
   Future<void> setSpeaker(bool on) async {
     speakerOn = on;
+    _explicitSpeaker = on;
     await apply();
     await _persist();
   }
@@ -220,26 +274,32 @@ class AudioRoute {
           // out of the loudspeaker however the usage type is labelled.
           // During a call it must stay `inCommunication` whatever the route —
           // see [_voiceLive].
-          audioMode: speaker && !_voiceLive
+          audioMode: (speaker || _externalConnected) && !_voiceLive
               ? AndroidAudioMode.normal
               : AndroidAudioMode.inCommunication,
           stayAwake: false,
           contentType: AndroidContentType.sonification,
           usageType:
-              speaker ? AndroidUsageType.media : AndroidUsageType.voiceCommunication,
+              (speaker || _externalConnected) && !_voiceLive
+                  ? AndroidUsageType.media
+                  : AndroidUsageType.voiceCommunication,
           // `none` so a game cue never ducks or stops the room's voice.
           audioFocus: AndroidAudioFocus.none,
         ),
         iOS: AudioContextIOS(
           // The session is shared with WebRTC: `playback` mid-call would drop
           // the microphone and its voice processing.
-          category: speaker && !_voiceLive
+          category: (speaker || _externalConnected) && !_voiceLive
               ? AVAudioSessionCategory.playback
               : AVAudioSessionCategory.playAndRecord,
           options: [
             // Never interrupt the WebRTC session this app is built around.
             AVAudioSessionOptions.mixWithOthers,
-            if (speaker) AVAudioSessionOptions.defaultToSpeaker,
+            if (_voiceLive || (!speaker && !_externalConnected)) ...[
+              AVAudioSessionOptions.allowBluetooth,
+              AVAudioSessionOptions.allowBluetoothA2DP,
+              if (speaker) AVAudioSessionOptions.defaultToSpeaker,
+            ],
           ],
         ),
       );
@@ -252,20 +312,18 @@ class AudioRoute {
     try {
       // Before the route, and regardless of platform: a game opened while the
       // room is muted must not play its first cue at full volume.
-      await player.setVolume(masterVolume);
+      await player.setVolume(effectiveVolume);
     } catch (e) {
       debugPrint('[AudioRoute] initial volume failed: $e');
     }
     if (!_supported) return;
-    try {
-      await player.setAudioContext(_contextFor(speakerOn));
-    } catch (e) {
-      // Sound is decoration — never let a routing failure break a game.
-      debugPrint('[AudioRoute] register failed: $e');
-    }
+    await _applyContexts();
   }
 
-  void unregister(AudioPlayer player) => _players.remove(player);
+  void unregister(AudioPlayer player) {
+    _players.remove(player);
+    _contexts.remove(player);
+  }
 
   /// Convenience for the game SFX pools, which each own a handful of players.
   Future<void> registerAll(Iterable<AudioPlayer> players) async {
@@ -281,15 +339,6 @@ class AudioRoute {
   /// when the user flips the icon.
   Future<void> apply() async {
     if (!_supported) return;
-    final ctx = _contextFor(speakerOn);
-    // Snapshot for the same reason as [applyVolume].
-    for (final p in List.of(_players)) {
-      if (!_players.contains(p)) continue;
-      try {
-        await p.setAudioContext(ctx);
-      } catch (e) {
-        debugPrint('[AudioRoute] apply failed: $e');
-      }
-    }
+    await _applyContexts();
   }
 }

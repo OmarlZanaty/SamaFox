@@ -30,6 +30,7 @@ class MusicLibrarySheet extends ConsumerStatefulWidget {
 }
 
 class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
+  static const _audioExtensions = ['mp3', 'm4a', 'aac', 'wav', 'ogg'];
   static const _panel = Color(0xFF2A1655);
 
   @override
@@ -55,12 +56,12 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
     FilePickerResult? result;
     try {
       // SPEC52 #21 — the system document picker (no storage permission is
-      // asked for), limited to the formats the room plays: MP3/M4A/WAV/AAC.
+      // asked for), limited to the formats the room plays: MP3/M4A/AAC/WAV/OGG.
       // file_picker copies the chosen document into the app cache, so even a
       // Drive/Downloads content:// item comes back with a readable path.
       result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['mp3', 'm4a', 'wav', 'aac'],
+        allowedExtensions: _audioExtensions,
         allowMultiple: true,
       );
     } catch (e) {
@@ -75,6 +76,14 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
     var uploaded = 0;
 
     for (final file in result.files) {
+      final extension = file.extension?.toLowerCase();
+      if (!_audioExtensions.contains(extension)) {
+        _snack(tr(
+          'صيغة الملف غير مدعومة. اختر MP3 أو M4A أو AAC أو WAV أو OGG',
+          'Unsupported format. Choose MP3, M4A, AAC, WAV or OGG',
+        ), error: true);
+        continue;
+      }
       final path = file.path;
       if (path == null || path.isEmpty) {
         // Used to be skipped silently, which looked like "the picker does
