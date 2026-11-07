@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../services/agency_service.dart';
+import '../widgets/room/agency_bell.dart' show AgencyInvitationActions;
 import '../services/follow_service.dart';
 import '../services/notification_service.dart';
 import '../services/relation_service.dart';
@@ -22,6 +23,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
   List<Map<String, dynamic>> _relationRequests = const [];
   List<Map<String, dynamic>> _notifications = const [];
   int _unreadCount = 0;
+  Set<int> _pendingInvites = {};
+  final Set<int> _respondingInvites = {};
   StreamSubscription<Map<String, dynamic>>? _notificationSub;
   late final TabController _tabController;
 
@@ -47,16 +50,20 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
     try {
       final data = await FollowService.getPendingRequests();
       final relationData = await RelationService.getPendingRelationRequests();
+      final pending = await AgencyInvitationActions.pendingIds();
       final notificationsRes = await NotificationService.getNotifications();
       final notificationsRaw = ((notificationsRes['data'] as List?) ?? const []);
       if (mounted) {
         setState(() {
+          _pendingInvites = pending;
           _requests = data;
           _relationRequests = relationData;
           _notifications = notificationsRaw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
           _unreadCount = (notificationsRes['unreadCount'] as num?)?.toInt() ?? 0;
         });
       }
+    } catch (e) {
+      if (mounted) AgencyInvitationActions.toast(context, agencyErrorMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -113,35 +120,24 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
   }
 
   Future<void> _respondAgencyInvite(Map<String, dynamic> item, bool accept) async {
+    final id = AgencyInvitationActions.inviteId(item);
+    if (id == null || _respondingInvites.contains(id)) return;
+    setState(() => _respondingInvites.add(id));
     try {
-      var data = item['data'];
-      if (data is String && data.isNotEmpty) data = jsonDecode(data);
-      final inviteId = (data is Map ? (data['inviteId'] as num?) : null)?.toInt();
-      if (inviteId == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(tr('تعذر تحديد الدعوة', 'Unable to identify invitation'))),
-          );
-        }
-        return;
-      }
-      await AgencyService().respondInvite(inviteId, accept);
-      final id = (item['id'] as num?)?.toInt() ?? 0;
-      if (id != 0) await NotificationService.markRead(id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(accept ? (_isBranchInvite(item) ? tr('✓ انضممت كفرع للوكالة', '✓ Joined the agency as a branch') : tr('✓ انضممت إلى الوكالة', '✓ Joined the agency')) : tr('تم رفض الدعوة', 'Invitation rejected'))),
-        );
-      }
-      await _load();
+      final message = await AgencyInvitationActions.respond(item, accept);
+      if (!mounted) return;
+      setState(() => _pendingInvites.remove(id));
+      AgencyInvitationActions.toast(context, message);
     } catch (e) {
+      if (mounted) AgencyInvitationActions.toast(context, agencyErrorMessage(e));
+    } finally {
       if (mounted) {
-        final msg = agencyErrorMessage(e);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
-        );
+        try {
+          await _load();
+        } finally {
+          if (mounted) setState(() => _respondingInvites.remove(id));
+        }
       }
-      await _load();
     }
   }
 
@@ -263,7 +259,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                             final id = (item['id'] as num?)?.toInt() ?? 0;
                             final isRead = item['isRead'] == true;
                             final type = (item['type'] as String?) ?? 'system';
-                            final isAgencyInvite = type == 'AGENCY_INVITE' && !isRead;
+                            final inviteId = AgencyInvitationActions.inviteId(item);
+                            final isAgencyInvite = type == 'AGENCY_INVITE' && _pendingInvites.contains(inviteId);
                             return Card(
                               color: isRead ? null : Colors.deepPurple.withOpacity(0.2),
                               child: ListTile(
@@ -278,11 +275,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> with 
                                           Row(
                                             children: [
                                               TextButton(
-                                                onPressed: () => _respondAgencyInvite(item, true),
+                                                onPressed: _respondingInvites.contains(inviteId) ? null : () => _respondAgencyInvite(item, true),
                                                 child: Text(tr('قبول', 'Accept')),
                                               ),
                                               TextButton(
-                                                onPressed: () => _respondAgencyInvite(item, false),
+                                                onPressed: _respondingInvites.contains(inviteId) ? null : () => _respondAgencyInvite(item, false),
                                                 child: Text(tr('رفض', 'Reject')),
                                               ),
                                             ],

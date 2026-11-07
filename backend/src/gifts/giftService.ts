@@ -1,4 +1,5 @@
 import { buildGiftEvent } from './giftEvent';
+import { isValidGiftQuantity } from './giftLimits';
 import { findAgencyCommissionOwner } from './agencyCommission';
 import type { GiftTransactionContext } from './giftOperation';
 import prisma from '../utils/prisma';
@@ -75,7 +76,6 @@ export class GiftSendError extends Error {
   }
 }
 
-const MAX_QUANTITY = 99;
 const BROADCAST_TTL_MS = 30 * 1000;
 
 /**
@@ -102,7 +102,7 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
     return result;
   }
   const db = context.tx;
-  if (!Number.isInteger(input.quantity ?? 1) || (input.quantity ?? 1) < 1 || (input.quantity ?? 1) > MAX_QUANTITY) {
+  if (!isValidGiftQuantity(input.quantity ?? 1)) {
     throw new GiftSendError('INVALID_QUANTITY', 'الكمية غير صالحة');
   }
   const recipient = await db.user.findUnique({ where: { id: input.recipientId }, select: { id: true } });
@@ -111,7 +111,7 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
     const { giftSeatSnapshot } = await import('../services/socket.service');
     input = { ...input, seatNumber: giftSeatSnapshot(input.roomId).find(s => s.recipientId === input.recipientId)?.seatNumber ?? null };
   }
-  const quantity = Math.max(1, Math.min(MAX_QUANTITY, Math.floor(input.quantity ?? 1)));
+  const quantity = input.quantity ?? 1;
   // Self-gift is allowed (used for displaying animation to oneself / testing in empty rooms).
 
   const gift = await db.gift.findUnique({ where: { id: input.giftId } });

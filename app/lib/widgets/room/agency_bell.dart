@@ -1,10 +1,66 @@
 import '../../l10n/tr.dart';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import '../../services/notification_service.dart';
+import '../../services/agency_service.dart';
+import '../../services/dio_client.dart';
 import '../../services/socket_service.dart';
+
+/// Shared invitation actions for the room bell and notifications screen.
+class AgencyInvitationActions {
+  static Map<String, dynamic> data(Map<String, dynamic> item) {
+    dynamic value = item['data'];
+    if (value is String) {
+      try { value = jsonDecode(value); } catch (_) { return {}; }
+    }
+    return value is Map ? Map<String, dynamic>.from(value) : {};
+  }
+
+  static int? inviteId(Map<String, dynamic> item) =>
+      int.tryParse('${data(item)['inviteId']}');
+
+  // Read state is not response state. Fetch the server's actionable invites.
+  static Future<Set<int>> pendingIds() async {
+    final response = await DioClient.dio.get('/agencies/my-invites');
+    return (response.data['data'] as List).whereType<Map>()
+        .map((invite) => (invite['id'] as num).toInt()).toSet();
+  }
+
+  static Future<String> respond(Map<String, dynamic> item, bool accept) async {
+    final id = inviteId(item);
+    if (id == null) {
+      throw AgencyActionException(tr('تعذر تحديد الدعوة', 'Unable to identify invitation'));
+    }
+    await AgencyService().respondInvite(id, accept);
+    // The response endpoint marks the invitation's notifications read.
+    return accept
+        ? (data(item)['role'] == 'BRANCH'
+            ? tr('✓ انضممت كفرع للوكالة', '✓ Joined the agency as a branch')
+            : tr('✓ انضممت إلى الوكالة', '✓ Joined the agency'))
+        : tr('تم رفض الدعوة', 'Invitation rejected');
+  }
+
+  static void toast(BuildContext context, String message) {
+    final overlay = Overlay.of(context);
+    final entry = OverlayEntry(builder: (context) => Positioned(
+      left: 24, right: 24, bottom: MediaQuery.of(context).padding.bottom + 32,
+      child: IgnorePointer(child: Material(
+        color: const Color(0xFF323232),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Text(message, textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white)),
+        ),
+      )),
+    ));
+    overlay.insert(entry);
+    Timer(const Duration(seconds: 3), () { entry.remove(); entry.dispose(); });
+  }
+}
 
 /// SPEC52 #31 — agency notices (commission %, targets, invites…) no longer
 /// slide a bar across the room. They collect behind this 🔔 above the room's
@@ -114,6 +170,8 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
   List<Map<String, dynamic>> _items = const [];
   bool _loading = true;
   String? _error;
+  Set<int> _pendingInvites = {};
+  final Set<int> _responding = {};
 
   @override
   void initState() {
@@ -123,21 +181,45 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
 
   Future<void> _load() async {
     try {
+      final pending = await AgencyInvitationActions.pendingIds();
       final r = await NotificationService.getNotifications(limit: 50, category: 'agency');
       final list = (r['data'] as List? ?? const []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
       if (!mounted) return;
       setState(() {
         _items = list;
+        _pendingInvites = pending;
+        _error = null;
         _loading = false;
       });
       // Opening the list reads them.
-      unawaited(NotificationService.markAllRead(category: 'agency').then((_) => AgencyInbox.instance.unread.value = 0));
+      unawaited(NotificationService.markAllRead(category: 'agency')
+          .then((_) => AgencyInbox.instance.refreshCount()).catchError((_) {}));
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = tr('تعذر تحميل الإشعارات', "Could not load notifications");
       });
+    }
+  }
+
+  Future<void> _respondInvite(Map<String, dynamic> item, bool accept) async {
+    final id = AgencyInvitationActions.inviteId(item);
+    if (id == null || _responding.contains(id)) return;
+    setState(() => _responding.add(id));
+    try {
+      final message = await AgencyInvitationActions.respond(item, accept);
+      if (!mounted) return;
+      setState(() => _pendingInvites.remove(id));
+      AgencyInvitationActions.toast(context, message);
+    } catch (e) {
+      if (mounted) AgencyInvitationActions.toast(context, agencyErrorMessage(e));
+    } finally {
+      if (mounted) {
+        await _load();
+        if (mounted) setState(() => _responding.remove(id));
+      }
+      await AgencyInbox.instance.refreshCount();
     }
   }
 
@@ -184,7 +266,9 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
   }
 
   Widget _tile(Map<String, dynamic> n) {
-    final data = (n['data'] is Map) ? Map<String, dynamic>.from(n['data'] as Map) : <String, dynamic>{};
+    final data = AgencyInvitationActions.data(n);
+    final inviteId = AgencyInvitationActions.inviteId(n);
+    final canRespond = n['type'] == 'AGENCY_INVITE' && _pendingInvites.contains(inviteId);
     final at = DateTime.tryParse('${n['createdAt'] ?? ''}')?.toLocal();
     final date = at == null ? '' : '${at.year}/${_two(at.month)}/${_two(at.day)}';
     final time = at == null ? '' : '${_two(at.hour)}:${_two(at.minute)}';
@@ -218,6 +302,17 @@ class _AgencyNoticesSheetState extends State<AgencyNoticesSheet> {
             const SizedBox(height: 4),
             Text('${n['body']}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ],
+          if (canRespond)
+            Row(children: [
+              TextButton(
+                onPressed: _responding.contains(inviteId) ? null : () => _respondInvite(n, true),
+                child: Text(tr('قبول', 'Accept')),
+              ),
+              TextButton(
+                onPressed: _responding.contains(inviteId) ? null : () => _respondInvite(n, false),
+                child: Text(tr('رفض', 'Reject')),
+              ),
+            ]),
           if (rows.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(

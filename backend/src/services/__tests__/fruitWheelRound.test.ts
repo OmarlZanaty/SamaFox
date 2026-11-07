@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { accounts, balances, ledger, economyLedger, xpAwards, settings, fakePrisma } from './halalStubs';
 import { WHEEL_ORDER, SEGMENTS, assertValidTable, parseBetKey, payoutFor, maxPayout, rollFromSeed, rollAmongFromSeed, returnOf, presentationFor, winningCards, payoutForResults } from '../fruitWheelRound.math';
 import { invalidateGameConfigCache, getGameSettings, setGameSettings } from '../gameConfig.service';
+import { bonusInterval } from '../fruitWheelRound.math';
 import { __resetHalalForTests, freePrizePoolBalance, reservedForGame, reservePrize, releasePrize } from '../halalGames.service';
 import { startFruitWheelRoundEngine, stopFruitWheelRoundEngine, placeBet, undoBet, clearBets, repeatBets, getPublicState, refundOrphans,
   getHistory, getLayout, PHASE_MS, __test } from '../fruitWheelRound.service';
@@ -368,6 +369,48 @@ async function nextBonusRound(patch: Record<string, unknown> = {}) {
   await __test.advance();
   assert.equal(getPublicState()!.roundsToBonus, 0);
 }
+
+test('bonus interval defaults to 13, supports fixed overrides and preserves explicit ranges', () => {
+  assert.deepEqual(bonusInterval({}), { bonusEveryRounds: 13, bonusMaxRounds: 13 });
+  assert.deepEqual(bonusInterval({ bonusEveryRounds: null, bonusMaxRounds: null }),
+    { bonusEveryRounds: 13, bonusMaxRounds: 13 });
+  assert.deepEqual(bonusInterval({ bonusEveryRounds: 5 }), { bonusEveryRounds: 5, bonusMaxRounds: 5 });
+  assert.deepEqual(bonusInterval({ bonusEveryRounds: 20, bonusMaxRounds: 90 }),
+    { bonusEveryRounds: 20, bonusMaxRounds: 90 });
+});
+
+for (const kind of ['double', 'triple'] as const) test(`default ${kind} bonus is due on occupied rounds 13 and 26 across players`, async () => {
+  accounts.set('GAME_POOL:fruitwheel', kind === 'double' ? 10_000_000 : 100_000_000);
+  assert.equal(getPublicState()!.bonusEveryRounds, 13);
+  await playOut(); await __test.advance(); // Empty rounds do not advance the counter.
+  for (let occupied = 1; occupied <= 26; occupied++) {
+    assert.equal(getPublicState()!.roundsToBonus, 12 - ((occupied - 1) % 13));
+    // Alternating players share the same table counter.
+    const userId = occupied % 2 + 1;
+    const cards = kind === 'double'
+      ? winningCards(round().seed, round().number, 'sevens', 'double')
+      : ['watermelon', 'plum'];
+    for (const card of cards) {
+      assert.equal((await placeBet(userId, card, 100)).ok, true);
+    }
+    await playOut();
+    assert.equal(round().bonus, occupied % 13 === 0 ? kind : null);
+    // Double pays 100 * 8 + 100 * 2; triple pays both staked fruits at 100 * 2 each.
+    if (occupied % 13 === 0) assert.equal(getPublicState(userId)!.me!.payout, kind === 'double' ? 1000 : 400);
+    await __test.advance();
+  }
+  assert.equal(getPublicState()!.roundsToBonus, 12);
+});
+
+test('engine honors stored fixed and ranged overrides', async () => {
+  await configureBonus({ bonusEveryRounds: 5, bonusMaxRounds: 5 });
+  assert.equal(getPublicState()!.bonusEveryRounds, 5);
+  assert.equal(getPublicState()!.roundsToBonus, 4);
+  await configureBonus({ bonusEveryRounds: 20, bonusMaxRounds: 90 });
+  assert.equal(getPublicState()!.bonusEveryRounds, 20);
+  assert.equal(getPublicState()!.roundsToBonus, null);
+  assert.ok(round().roundsToBonus >= 19 && round().roundsToBonus <= 89);
+});
 
 test('bonus settings default, clear to defaults, and reject invalid values', async () => {
   const defaults = await getGameSettings('fruitwheel');

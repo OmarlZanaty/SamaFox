@@ -167,22 +167,12 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     if (mounted && _repeatLeft != 0) setState(() => _repeatLeft = 0);
   }
 
-  Future<void> _repeatSend() async {
-    if (_sending) return;
-    final cost = _selectedGiftCost * _quantity * _selectedRecipientIds.length;
-    if (cost > _balance) {
-      _stopRepeatWindow();
-      _toast(tr('الرصيد غير كافٍ', "Insufficient balance"), error: true);
-      return;
-    }
-    await _send();
-  }
-  static const List<int> _kQuantities = [1, 7, 10, 20, 50];
-  // 2026-10-18 — "I send 10 My Cats (gift ×10 = 100 coins), win ×5,
-  // and get only 50 instead of 500." Keep the choice across sheet opens
-  // for this app session so reopening does not silently reset it to 1.
-  static int _lastQuantity = 1;
-  int _quantity = _lastQuantity;
+  Future<void> _repeatSend() => _send();
+
+  static const List<int> _kQuantities = [1, 7, 77, 777, 7777];
+  int _quantity = 1;
+  bool _quantityStripOpen = false;
+  final List<Future<void> Function()> _pendingSends = [];
   int _selectedGiftCost = 0; // coin cost of the currently selected gift (for optimistic deduction)
   bool _sending = false;
   late Set<int> _selectedRecipientIds;
@@ -199,7 +189,6 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   final CpRepository _cpRepository = CpRepository();
 
   final GlobalKey _scopeKey = GlobalKey();
-  final GlobalKey _quantityKey = GlobalKey();
 
   @override
   void initState() {
@@ -221,6 +210,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   void dispose() {
     GiftPickerSheet.liveBalance.removeListener(_onLiveBalance);
     _repeatTimer?.cancel();
+    _pendingSends.clear();
     _tab?.dispose();
     super.dispose();
   }
@@ -396,6 +386,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               },
             ),
           ),
+          if (_quantityStripOpen) _quantityStrip(),
           _footer(),
         ],
       ),
@@ -690,26 +681,37 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     );
   }
 
-  void _showQuantityMenu() async {
-    final selected = await showMenu<int>(
-      context: context,
-      // Opens upwards — the button lives in the sheet's bottom bar.
-      position: _menuPositionFor(_quantityKey, above: true),
-      color: _kCardColor,
-      items: _kQuantities
-          .map((q) => PopupMenuItem(value: q, child: Text('x$q', style: const TextStyle(color: Colors.white))))
-          .toList(),
+  Widget _quantityStrip() {
+    return Align(
+      alignment: AlignmentDirectional.centerEnd,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: _kQuantities.map((q) => SizedBox(
+            width: 68,
+            height: 40,
+            child: Material(
+              color: _kCardColor,
+              child: InkWell(
+                onTap: () => setState(() {
+                  _quantity = q;
+                  _quantityStripOpen = false;
+                }),
+                child: Center(child: Text('x$q', style: TextStyle(
+                  color: q == _quantity ? _kGoldColor : Colors.white,
+                  fontSize: 12,
+                ))),
+              ),
+            ),
+          )).toList(),
+        ),
+      ),
     );
-    if (selected != null) {
-      setState(() {
-        _quantity = selected;
-        _lastQuantity = selected;
-      });
-    }
   }
 
   Widget _footer() {
-    final disabled = _selectedGiftId == null || _selectedRecipientIds.isEmpty || _sending;
+    final disabled = _selectedGiftId == null || _selectedRecipientIds.isEmpty;
     return SafeArea(
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -772,11 +774,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                     ),
                     Container(width: 1, height: 24, color: Colors.white24),
                     Material(
-                      key: _quantityKey,
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
-                        onTap: _showQuantityMenu,
+                        onTap: () => setState(() => _quantityStripOpen = !_quantityStripOpen),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: Row(
@@ -853,6 +854,36 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     final recipients = _selectedRecipientIds.toList();
     if (giftId == null || recipients.isEmpty) return;
 
+    final quantity = _quantity;
+    final cost = _selectedGiftCost;
+    final isCp = _selectedGiftIsCp;
+    final isLucky = _selectedGiftIsLucky;
+    _pendingSends.add(() => _sendOnce(giftId, recipients, quantity, cost, isCp, isLucky));
+    if (_sending) return;
+    setState(() => _sending = true);
+    try {
+      while (mounted && _pendingSends.isNotEmpty) {
+        await _pendingSends.removeAt(0)();
+      }
+    } finally {
+      _pendingSends.clear();
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  void _stopPendingSends() {
+    _pendingSends.clear();
+    _stopRepeatWindow();
+  }
+
+  Future<void> _sendOnce(String giftId, List<int> recipients, int quantity,
+      int cost, bool isCp, bool isLucky) async {
+    final optimisticCost = cost * quantity * (isCp ? 1 : recipients.length);
+    if (optimisticCost > _balance) {
+      _stopPendingSends();
+      _toast(tr('الرصيد غير كافٍ', 'Insufficient balance'), error: true);
+      return;
+    }
     // Optimistic deduction: reflect the spend instantly so the balance doesn't
     // lag behind the tap (pro-app pattern). The server's authoritative balance
     // reconciles it below; on total failure we restore the pre-send value.
@@ -860,23 +891,25 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     // A27 — the cost of a fan-out is price × quantity × RECIPIENTS: every
     // person on the list receives the whole gift, they do not share one.
     final int prevBalance = _balance;
-    final int optimisticCost = _selectedGiftCost * _quantity * recipients.length;
     setState(() {
-      _sending = true;
       _balance = (_balance - optimisticCost).clamp(0, 1 << 62);
     });
     widget.onBalanceChanged(_balance);
 
     try {
-      if (_selectedGiftIsCp) {
-        await _sendCp(giftId, recipients, prevBalance);
+      if (isCp) {
+        await _sendCp(giftId, recipients, prevBalance, quantity);
       } else if (recipients.length == 1) {
-        await _sendSingle(giftId, recipients.first, prevBalance);
+        await _sendSingle(giftId, recipients.first, prevBalance, quantity, cost, isLucky);
       } else {
-        await _sendMany(giftId, recipients, prevBalance);
+        await _sendMany(giftId, recipients, prevBalance, quantity, isLucky);
       }
-    } finally {
-      if (mounted) setState(() => _sending = false);
+    } catch (_) {
+      _stopPendingSends();
+      if (!mounted) return;
+      setState(() => _balance = prevBalance);
+      widget.onBalanceChanged(prevBalance);
+      _toast(tr('تعذر إرسال الهدية', 'Could not send gift'), error: true);
     }
   }
 
@@ -898,7 +931,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   /// 2026-09-22 — opening CP may cost coins ([CpUnlockGate]): the fee is shown
   /// and confirmed before the invitation, and the server re-checks it on the
   /// send (403 CP_LOCKED), in which case the gate runs once more.
-  Future<void> _sendCp(String giftId, List<int> recipients, int prevBalance) async {
+  Future<void> _sendCp(String giftId, List<int> recipients, int prevBalance, int quantity) async {
     setState(() => _balance = prevBalance);
     widget.onBalanceChanged(prevBalance);
 
@@ -907,12 +940,15 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     // never charged or counted twice.
     final requestKey = '${DateTime.now().microsecondsSinceEpoch}-$recipientId-$giftId';
     for (var attempt = 0; attempt < 2; attempt++) {
-      if (!await _passCpGate()) return;
+      if (!await _passCpGate()) {
+        _stopPendingSends();
+        return;
+      }
       try {
         final result = await _cpRepository.sendRequest(
           recipientId: recipientId,
           giftId: giftId,
-          quantity: _quantity,
+          quantity: quantity,
           roomId: widget.roomId,
           requestKey: requestKey,
         );
@@ -940,6 +976,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         if (!mounted) return;
         // The policy changed between the quote and the send: quote again.
         if (e.code == 'CP_LOCKED' && attempt == 0) continue;
+        _stopPendingSends();
         _toast(e.message, error: true);
         return;
       }
@@ -958,20 +995,21 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     return gate.proceed;
   }
 
-  Future<void> _sendSingle(String giftId, int recipientId, int prevBalance) async {
+  Future<void> _sendSingle(String giftId, int recipientId, int prevBalance,
+      int quantity, int cost, bool isLucky) async {
     // Capture the stake before awaiting: the picker can change during the send.
-    final sentCost = _selectedGiftCost * _quantity;
+    final sentCost = cost * quantity;
     try {
       final result = await widget.repository.send(
         giftId: giftId,
         recipientId: recipientId,
         roomId: widget.roomId,
-        quantity: _quantity,
+        quantity: quantity,
       );
       if (!mounted) return;
       setState(() => _balance = result.senderBalance);
       widget.onBalanceChanged(result.senderBalance);
-      if (_selectedGiftIsLucky) _startRepeatWindow();
+      if (isLucky) _startRepeatWindow();
       final lucky = result.lucky;
       if (lucky == null) {
         _toast(tr('تم إرسال الهدية!', "Gift sent!"));
@@ -984,7 +1022,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       }
     } on GiftRepositoryException catch (e) {
       if (!mounted) return;
-      _stopRepeatWindow();
+      _stopPendingSends();
       setState(() => _balance = prevBalance);
       widget.onBalanceChanged(prevBalance);
       _toast(e.message, error: true);
@@ -998,22 +1036,24 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   /// off part-way and the sender was left having paid for an arbitrary prefix
   /// of the list. The server now charges the whole fan-out atomically enough to
   /// report exactly how many landed.
-  Future<void> _sendMany(String giftId, List<int> recipients, int prevBalance) async {
+  Future<void> _sendMany(String giftId, List<int> recipients, int prevBalance,
+      int quantity, bool isLucky) async {
     try {
       final result = await widget.repository.sendBatch(
         giftId: giftId,
         recipientIds: recipients,
         roomId: widget.roomId,
-        quantity: _quantity,
+        quantity: quantity,
       );
       if (!mounted) return;
       setState(() => _balance = result.senderBalance);
       widget.onBalanceChanged(result.senderBalance);
-      if (_selectedGiftIsLucky && result.sent > 0) _startRepeatWindow();
+      if (isLucky && result.sent > 0) _startRepeatWindow();
 
       if (result.sent == result.requested) {
         _toast(tr('تم إرسال الهدية إلى ${result.sent} مستلمين', "Gift sent to ${result.sent} recipients"));
       } else {
+        _stopPendingSends();
         _toast(
           tr('تم إرسال ${result.sent} من ${result.requested}'
           '${result.failureMessages.isNotEmpty ? ': ${result.failureMessages.first}' : ''}', "Sent ${result.sent} of ${result.requested}${result.failureMessages.isNotEmpty ? ': ${result.failureMessages.first}' : ''}"),
@@ -1022,6 +1062,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       }
     } on GiftRepositoryException catch (e) {
       if (!mounted) return;
+      _stopPendingSends();
       // Nothing was charged when the batch is refused up front (the server
       // checks the whole cost before moving a single coin), so the optimistic
       // deduction is simply undone.

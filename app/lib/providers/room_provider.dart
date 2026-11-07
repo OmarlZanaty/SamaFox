@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/room.dart';
 import '../repositories/room_repository.dart';
 import '../utils/logger.dart';
-import '../l10n/tr.dart';
 
 final roomRepositoryProvider = Provider((ref) => RoomRepository());
 
@@ -125,25 +124,17 @@ class RoomsNotifier extends StateNotifier<RoomsState> {
   int? lastCreatedRoomId;
 
   Future<bool> createRoom(CreateRoomRequest request, int userId) async {
-    // ✅ CHECK FIRST (IMPORTANT)
-    final alreadyHasRoom = state.rooms.any(
-          (room) => room.ownerId == userId || room.owner?.id == userId,
-    );
-
-    if (alreadyHasRoom) {
-      state = state.copyWith(
-        error: tr('لا يمكنك إنشاء أكثر من غرفة واحدة', 'You cannot create more than one room'),
-      );
-      return false;
-    }
+    // The server reopens the account's existing USER room, even if it is
+    // absent from the paginated client list, and returns its ID.
+    lastCreatedRoomId = null;
 
     state = state.copyWith(isLoading: true, error: null);
 
     try {
       final result = await _repository.createRoom(request);
 
-      if (result.isSuccess) {
-        lastCreatedRoomId = result.data?.id;
+      if (result.isSuccess && result.data != null) {
+        lastCreatedRoomId = result.data!.id;
         await loadRooms();
         return true;
       } else {

@@ -466,7 +466,7 @@ class _TopWagerersState extends State<_TopWagerers> {
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
             sliver: SliverToBoxAdapter(
               child: LayoutBuilder(builder: (context, constraints) {
-                final tileWidth = (constraints.maxWidth - 20) / 3;
+                final tileWidth = (constraints.maxWidth - 10) / 2;
                 return SizedBox(
                   height: tileWidth / .78,
                   child: Row(
@@ -474,7 +474,7 @@ class _TopWagerersState extends State<_TopWagerers> {
                     textDirection: TextDirection.ltr,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(width: tileWidth * 2 + 10, child: _rankingCard()),
+                      SizedBox(width: tileWidth, child: _rankingCard()),
                       const SizedBox(width: 10),
                       SizedBox(
                         width: tileWidth,
@@ -493,7 +493,7 @@ class _TopWagerersState extends State<_TopWagerers> {
           padding: EdgeInsets.fromLTRB(12, hasRanking ? 12 : 10, 12, 16),
           sliver: SliverGrid(
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
+              crossAxisCount: 2,
               mainAxisSpacing: 12,
               crossAxisSpacing: 10,
               childAspectRatio: .78,

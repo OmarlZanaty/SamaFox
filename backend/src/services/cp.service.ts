@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { isValidGiftQuantity } from '../gifts/giftLimits';
 import { runGiftOperation, giftOperationId, type GiftTransactionContext } from '../gifts/giftOperation';
 import prisma from '../utils/prisma';
 import { createNotification } from './notification.service';
@@ -44,8 +45,6 @@ export const CP_REJECT_FEE_RATE = Number(process.env.CP_REJECT_FEE_RATE ?? 0.3);
 /** A pair is stored once, with the lower id first, so (a,b) == (b,a). */
 const orderPair = (x: number, y: number): [number, number] => (x < y ? [x, y] : [y, x]);
 
-const MAX_QUANTITY = 99;
-
 export interface CreateCpRequestInput {
   senderId: number;
   recipientId: number;
@@ -65,7 +64,10 @@ export interface CreateCpRequestInput {
  * of the two happened (`kind`).
  */
 export async function createCpRequest(input: CreateCpRequestInput) {
-  const quantity = Math.max(1, Math.min(MAX_QUANTITY, Math.floor(input.quantity ?? 1)));
+  const quantity = input.quantity ?? 1;
+  if (!isValidGiftQuantity(quantity)) {
+    throw new CpError('INVALID_QUANTITY', 'الكمية غير صالحة');
+  }
   if (input.senderId === input.recipientId) {
     throw new CpError('SELF_CP', 'لا يمكنك إرسال هدية CP لنفسك');
   }

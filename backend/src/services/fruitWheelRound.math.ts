@@ -10,6 +10,15 @@ export type Outcome = typeof SEGMENTS[number]['key'];
 export type Card = Outcome;
 export type BonusKind = 'double' | 'triple' | null;
 
+/** Absent/null intervals mean a fixed 13 occupied rounds; explicit ranges remain supported. */
+export function bonusInterval(settings: { bonusEveryRounds?: number | null; bonusMaxRounds?: number | null }) {
+  const bonusEveryRounds = settings.bonusEveryRounds ?? 13;
+  return {
+    bonusEveryRounds,
+    bonusMaxRounds: Math.max(bonusEveryRounds, settings.bonusMaxRounds ?? bonusEveryRounds),
+  };
+}
+
 /** Doubles always pair 77 with one fruit. */
 export function winningCards(seed: string, roundNumber: number, primary: string, bonus: BonusKind): string[] {
   if (!bonus) return [primary];

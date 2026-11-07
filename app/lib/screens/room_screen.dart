@@ -7,6 +7,7 @@ import 'dart:collection';
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../widgets/room/room_header_glass.dart';
 import '../widgets/room/room_info_sheet.dart';
 import '../widgets/room/room_cp_top.dart' show CpActivatedPopup;
@@ -121,6 +122,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   late final GiftRepository _giftRepository = _RoomGiftRepository(_giftSent);
   bool _openingMic = false;
   final GlobalKey _effectsViewportKey = GlobalKey();
+  final ValueNotifier<double> _topBarsHeight = ValueNotifier(0);
+  final ValueNotifier<double> _foregroundBarsHeight = ValueNotifier(0);
   final ValueNotifier<int> _effectsLayout = ValueNotifier(0);
   final GlobalKey _roomSeatsKey = GlobalKey();
   final Set<String> _seatedCpPairs = {};
@@ -3661,6 +3664,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   @override
   void dispose() {
     _effectsLayout.dispose();
+    _topBarsHeight.dispose();
+    _foregroundBarsHeight.dispose();
     _cpMicTimer?.cancel();
     _comboTimer?.cancel();
     _recordingSub?.cancel();
@@ -4951,78 +4956,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     final onlineCount = state.onlineUsers.length;
 
-    final screen = _isMinimized ? _buildPip() : Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
-          key: _overlayKey,
-          children: [
-            // ===== Background image =====
-            if ((state.roomBackgroundUrl ?? '').trim().isEmpty)
-              Positioned.fill(child: Image.asset(
-                'assets/images/room/room_bg_cosmic.png', fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-              )),
-            if ((state.roomBackgroundUrl ?? '').trim().isNotEmpty)
-              Positioned.fill(
-                child: Builder(builder: (context) {
-                  // Full-screen, so decode at screen width and no more — an
-                  // uploaded 1080p (or larger) background, animated or not,
-                  // otherwise becomes screen-size textures per frame anyway
-                  // but the decode itself was at the source size.
-                  final mq = MediaQuery.of(context);
-                  final w = (mq.size.width * mq.devicePixelRatio).round();
-                  return AppNetworkImage(
-                    state.roomBackgroundUrl!.trim(),
-                    fit: BoxFit.cover,
-                    cacheWidth: w.clamp(360, 1080),
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  );
-                }),
-              ),
-
-            if (_showGlow)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 300),
-                    opacity: _showGlow ? 0.6 : 0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: RadialGradient(
-                          colors: [
-                            _glowColor.withOpacity(0.8),
-                            Colors.transparent,
-                          ],
-                          radius: 0.8,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-
-            // مركبة الدخول is NOT drawn here any more — it used to sit under
-            // the dark overlay and under the seats, so the vehicle played
-            // behind the mics. It is now one of the last children of this
-            // Stack, next to the gift flight overlay
-            // ("خلي مركبة الدخول من فوق زي الهديه ... تغطي علي المايكات عادي").
-
-            // dark overlay
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Container(color: Colors.black.withOpacity(0.45)),
-              ),
-            ),
-
-
-
-            // ===== Main content =====
-            Column(
-              children: [
+    // Measure the foreground bars so seats retain their space as text
+    // scaling, supporters and PK change their actual heights.
+    final topBars = _RoomTopBarsMeasure(
+      onHeight: (height) {
+        if (mounted && _topBarsHeight.value != height) _topBarsHeight.value = height;
+      },
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
                 // Header
                 Padding(
                   padding: const EdgeInsets.all(12),
@@ -5212,6 +5152,86 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   },
                   onSupport: (id, name, avatar) => _openGiftSheetToUser(
                       context, _Recipient(id: id, name: name, avatarUrl: avatar)),
+                ),
+
+      ]),
+    );
+
+    final screen = _isMinimized ? _buildPip() : Scaffold(
+      resizeToAvoidBottomInset: false,
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        bottom: false,
+        child: Stack(
+          key: _overlayKey,
+          children: [
+            // ===== Background image =====
+            if ((state.roomBackgroundUrl ?? '').trim().isEmpty)
+              Positioned.fill(child: Image.asset(
+                'assets/images/room/room_bg_cosmic.png', fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              )),
+            if ((state.roomBackgroundUrl ?? '').trim().isNotEmpty)
+              Positioned.fill(
+                child: Builder(builder: (context) {
+                  // Full-screen, so decode at screen width and no more — an
+                  // uploaded 1080p (or larger) background, animated or not,
+                  // otherwise becomes screen-size textures per frame anyway
+                  // but the decode itself was at the source size.
+                  final mq = MediaQuery.of(context);
+                  final w = (mq.size.width * mq.devicePixelRatio).round();
+                  return AppNetworkImage(
+                    state.roomBackgroundUrl!.trim(),
+                    fit: BoxFit.cover,
+                    cacheWidth: w.clamp(360, 1080),
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  );
+                }),
+              ),
+
+            if (_showGlow)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 300),
+                    opacity: _showGlow ? 0.6 : 0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          colors: [
+                            _glowColor.withOpacity(0.8),
+                            Colors.transparent,
+                          ],
+                          radius: 0.8,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+
+            // مركبة الدخول is NOT drawn here any more — it used to sit under
+            // the dark overlay and under the seats, so the vehicle played
+            // behind the mics. It is now one of the last children of this
+            // Stack, next to the gift flight overlay
+            // ("خلي مركبة الدخول من فوق زي الهديه ... تغطي علي المايكات عادي").
+
+            // dark overlay
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(color: Colors.black.withOpacity(0.45)),
+              ),
+            ),
+
+
+
+            // ===== Main content =====
+            Column(
+              children: [
+                ValueListenableBuilder<double>(
+                  valueListenable: _topBarsHeight,
+                  builder: (_, height, __) => SizedBox(height: height),
                 ),
 
                 // The CP list moved out of the room to the home screen, above the
@@ -5670,7 +5690,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
             ),
 
-            // ===== Gift flight overlay (rendered LAST so it paints ABOVE seats) =====
+            // ===== Gift flight overlay (above seats, below foreground bars) =====
             Positioned.fill(
               child: ClipRect(
                 clipper: _RoomEffectsClipper(_overlayKey, _effectsViewportKey, _effectsLayout),
@@ -5679,21 +5699,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   resolvePosition: _getSeatPositionByUser,
                 ),
               ),
-            ),
-
-            // ===== Group 12: user entrance banner (slides in → pause → out) =====
-            Positioned.fill(
-              child: EntranceBannerLayer(roomId: widget.roomId),
-            ),
-
-            // ===== A22: شريط إعلان الهدية — one at a time, ~1.5s. Deliberately
-            // NOT at the top: the client's complaint was that the notifications
-            // kept covering the gift bar up there. D6/D9: right for the sender,
-            // centred for everyone else — see GiftAnnouncementBar.myUserId.
-            GiftAnnouncementBar(
-              socket: _giftSocket,
-              roomId: widget.roomId,
-              myUserId: userId,
             ),
 
             // ===== هدايا الحظ: "كسب ×N" in the middle of the screen, one at a
@@ -5714,6 +5719,44 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               Positioned.fill(child: IgnorePointer(child: Center(child: _cpMicCard()))),
             if (_comboLeft > 0)
               Positioned(right: 16, bottom: _bottomBarH + 16, child: _comboCircle()),
+
+            // Bars paint above every room effect. SafeArea already offsets
+            // this Stack; the Column lays the entrance below the actual bars.
+            Positioned(
+              top: 0, left: 0, right: 0,
+              child: _RoomTopBarsMeasure(
+                onHeight: (height) {
+                  if (mounted && _foregroundBarsHeight.value != height) {
+                    _foregroundBarsHeight.value = height;
+                  }
+                },
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  topBars,
+                  EntranceBannerLayer(roomId: widget.roomId),
+                ]),
+              ),
+            ),
+
+            // ===== A22: شريط إعلان الهدية — one at a time, ~1.5s. Deliberately
+            // NOT at the top: the client's complaint was that the notifications
+            // kept covering the gift bar up there. D6/D9: right for the sender,
+            // centred for everyone else — see GiftAnnouncementBar.myUserId.
+            ValueListenableBuilder<double>(
+              valueListenable: _foregroundBarsHeight,
+              // Keep the gift announcement below the entrance even when the
+              // header grows. Its sender/recipient alignment is unchanged.
+              builder: (_, height, child) => Positioned.fill(
+                top: height,
+                child: child!,
+              ),
+              child: Stack(children: [
+                GiftAnnouncementBar(
+                  socket: _giftSocket,
+                  roomId: widget.roomId,
+                  myUserId: userId,
+                ),
+              ]),
+            ),
 
             // ===== Music control bar — draggable, only for owner/admins, and
             // only while the room is actually playing something. =====
@@ -7734,6 +7777,37 @@ class _RoomGiftRepository extends GiftRepository {
         quantity: quantity, comboKey: comboKey);
     });
     return result;
+  }
+}
+
+/// Reports the laid-out header height without rebuilding its live bar widgets.
+class _RoomTopBarsMeasure extends SingleChildRenderObjectWidget {
+  const _RoomTopBarsMeasure({required this.onHeight, required super.child});
+  final ValueChanged<double> onHeight;
+
+  @override
+  _RoomTopBarsRenderBox createRenderObject(BuildContext context) =>
+      _RoomTopBarsRenderBox(onHeight);
+
+  @override
+  void updateRenderObject(BuildContext context, _RoomTopBarsRenderBox renderObject) {
+    renderObject.onHeight = onHeight;
+  }
+}
+
+class _RoomTopBarsRenderBox extends RenderProxyBox {
+  _RoomTopBarsRenderBox(this.onHeight);
+  ValueChanged<double> onHeight;
+  double? _lastHeight;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    if (_lastHeight == size.height) return;
+    _lastHeight = size.height;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (attached) onHeight(size.height);
+    });
   }
 }
 

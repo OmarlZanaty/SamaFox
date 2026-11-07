@@ -1,11 +1,11 @@
 import { Server, Socket } from 'socket.io';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
-import { getGameSettings, checkGamePlayable, fruitWheelBonusSettings } from './gameConfig.service';
+import { getGameConfig, getGameSettings, checkGamePlayable, fruitWheelBonusSettings } from './gameConfig.service';
 import { grantStakeValue, payPrize, releasePrize, freePrizePoolBalance } from './halalGames.service';
 import { broadcastGameWin } from './gameBroadcast.service';
 import { CHIPS, MULTIPLIERS, WHEEL_ORDER, SEGMENTS, parseBetKey, payoutFor, rollFromSeed, rollAmongFromSeed, presentationFor } from './fruitWheelRound.math';
-import { BonusKind, winningCards, payoutForResults } from './fruitWheelRound.math';
+import { BonusKind, bonusInterval, winningCards, payoutForResults } from './fruitWheelRound.math';
 
 // Shared fruit table, adapted from carWheel.service.ts. All coin charges,
 // stake grants, payouts and boot refunds follow that engine.
@@ -492,9 +492,13 @@ async function advance() {
 }
 
 async function startRound() {
-  const bonusSettings = fruitWheelBonusSettings(await getGameSettings(GAME));
+  // Read stored overrides before getGameSettings injects the legacy 20–90 defaults.
+  const configured = (await getGameConfig())[GAME] ?? {};
+  const bonusSettings = fruitWheelBonusSettings({ ...configured, ...bonusInterval(configured) });
   const { bonusEveryRounds: min, bonusMaxRounds: max } = bonusSettings;
-  if (bonusGap == null || bonusGap < min || bonusGap > max) bonusGap = crypto.randomInt(min, max + 1);
+  if (bonusGap == null || bonusGap < min || bonusGap > max) {
+    bonusGap = min === max ? min : crypto.randomInt(min, max + 1);
+  }
   const seed = crypto.randomBytes(16).toString('hex');
   round = { dbId: null, number: nextRoundNo++, segment: null, offset: null, phase: 'betting', endsAt: 0, seed, seedHash: crypto.createHash('sha256').update(seed).digest('hex'),
     result: null, results: [], bonus: null, bonusSettings,

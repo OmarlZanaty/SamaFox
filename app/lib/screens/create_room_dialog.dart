@@ -71,9 +71,14 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
   }
 
   Future<void> _createRoom() async {
-    if (!_formKey.currentState!.validate()) {
+    if (_isLoading || !_formKey.currentState!.validate()) {
       return;
     }
+
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final roomsNotifier = ref.read(roomsProvider.notifier);
+    final userId = ref.read(authStateProvider).user!.id;
 
     setState(() {
       _isLoading = true;
@@ -94,8 +99,8 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
               filename: _selectedImageName,
             );
           } catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+            if (messenger.mounted) {
+              messenger.showSnackBar(
                 SnackBar(
                   content: Text(tr('فشل رفع الصورة: $e', "Could not upload image: $e")),
                   backgroundColor: Colors.orange,
@@ -106,6 +111,8 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
           }
         }
       }
+
+      if (!mounted) return;
 
       final request = CreateRoomRequest(
         name: _nameController.text.trim(),
@@ -131,38 +138,29 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
       debugPrint("Request JSON = ${request.toJson()}");
       debugPrint("=================================");
 
-      final userId = ref.read(authStateProvider).user!.id;
-
-      final success = await ref
-          .read(roomsProvider.notifier)
-          .createRoom(request, userId);
+      final success = await roomsNotifier.createRoom(request, userId);
+      if (!mounted) return;
 
       if (!success) {
         final error = ref.read(roomsProvider).error;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error ?? 'Failed')),
-        );
+        if (messenger.mounted) {
+          messenger.showSnackBar(
+            SnackBar(content: Text(error ?? 'Could not create room')),
+          );
+        }
         return;
       }
 
-      if (mounted) {
-        final newRoomId = ref.read(roomsProvider.notifier).lastCreatedRoomId;
-        if (newRoomId == null) {
-          Navigator.of(context).pop();
-          return;
+      final newRoomId = roomsNotifier.lastCreatedRoomId;
+      if (navigator.mounted) {
+        navigator.pop();
+        if (newRoomId != null) {
+          navigator.pushNamed('/room', arguments: newRoomId);
         }
-
-        Navigator.of(context).pop();
-
-        await ref.read(roomsProvider.notifier).loadRooms();
-        if (!mounted) return;
-
-        Navigator.pushNamed(context, '/room', arguments: newRoomId);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (messenger.mounted) {
+        messenger.showSnackBar(
           SnackBar(
             content: Text(tr('فشل إنشاء الغرفة: $e', "Could not create room: $e")),
             backgroundColor: Colors.red,

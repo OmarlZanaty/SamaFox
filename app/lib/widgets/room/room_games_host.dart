@@ -17,7 +17,7 @@ class RoomGamesHost extends StatefulWidget {
         context: context,
         useSafeArea: false,
         barrierDismissible: true,
-        // The mics stay visible above the card.
+        // Keep the room visible behind the card.
         barrierColor: Colors.black26,
         builder: (context) => GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -60,19 +60,12 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
     final mq = MediaQuery.of(context);
     final screen = mq.size;
     final width = math.max(0.0, screen.width - 12);
-    // Still about square, a little taller than wide; the client wants the
-    // games big and centred with the mics visible above.
-    // A full-screen game scaled into the card gets a taller card (client
-    // 31/10: «باقي الالعاب عاوز اكبرها زي 77»): ~92% of its size, not ~72%,
-    // with the first row of mics still in view.
-    final scaledGame = !_native &&
-        (_inGame || (widget.initial != null && widget.initial is! RoomNativeGame));
-    final availableH = math.max(0.0, math.min(
-        widget.availableHeight ?? screen.height,
-        screen.height - mq.padding.top - mq.padding.bottom - 76 - 150));
-    final sheetH = scaledGame || _native || widget.initial is RoomNativeGame
-        ? availableH
-        : math.min(width * 1.35, availableH);
+    // The caller's height is the space below the mics, not a hard limit:
+    // games may cover that area to use about 85% of the screen.
+    final availableH = math.max(0.0,
+        screen.height - mq.padding.top - mq.padding.bottom - 76);
+    final sheetH = math.min(availableH,
+        math.max(screen.height * .85, widget.availableHeight ?? 0.0));
     final headerH = _native ? 0.0 : 36.0;
 
     return PopScope(
@@ -145,7 +138,7 @@ class _RoomGamesHostState extends State<RoomGamesHost> {
   }
 }
 
-/// Lays a game out at [canvas] size and scales it into the available box.
+/// Lays a game out on a compact canvas and uniformly fits it to the card.
 class _ScaledCanvas extends StatelessWidget {
   const _ScaledCanvas({required this.child, this.scale = true});
   final Widget child;
@@ -163,14 +156,15 @@ class _ScaledCanvas extends StatelessWidget {
     }
     return LayoutBuilder(builder: (context, box) {
       if (box.maxHeight <= 0 || box.maxWidth <= 0) return const SizedBox.shrink();
-      // Client 31/10: «كل الالعاب كبر شكلهم». 580 dp is the usable height of a
-      // small phone, which every game already lays out in — any taller design
-      // only shrinks the game further inside the card.
-      final designH = math.max(box.maxHeight, 480.0);
-      final k = box.maxHeight / designH;
-      final canvas = Size(box.maxWidth / k, designH);
+      // Cap the design size instead of imposing a minimum that shrinks games.
+      final design = Size(math.min(box.maxWidth, 360.0),
+          math.min(box.maxHeight, 480.0));
+      final k = math.min(box.maxWidth / design.width,
+          box.maxHeight / design.height);
+      // Extend the non-limiting axis so the canvas fills the whole card.
+      final canvas = Size(box.maxWidth / k, box.maxHeight / k);
       return FittedBox(
-        fit: BoxFit.fill,
+        fit: BoxFit.contain,
         child: SizedBox(
           width: canvas.width,
           height: canvas.height,

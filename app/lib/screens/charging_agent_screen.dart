@@ -638,7 +638,9 @@ class _WithdrawAgencyDialogState extends State<_WithdrawAgencyDialog> {
       Navigator.pop(context);
       await widget.onSuccess(balance);
     } catch (e) {
-      if (mounted) setState(() { _error = agencyErrorMessage(e); _busy = false; });
+      if (mounted) setState(() => _error = agencyErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -668,38 +670,60 @@ Future<void> _requestCoinsFromAdmin(BuildContext context) async {
   final amountCtrl = TextEditingController();
   final receiptCtrl = TextEditingController();
   final noteCtrl = TextEditingController();
+  bool sending = false;
+  String? error;
   final ok = await showDialog<bool>(
     context: context,
-    builder: (_) => AlertDialog(
-      backgroundColor: const Color(0xFF1F1247),
-      title: Text(tr('طلب كوينز', 'Request coins'), style: TextStyle(color: Colors.white)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _MiniField(controller: amountCtrl, label: tr('الكمية', 'Amount')),
-          const SizedBox(height: 8),
-          _MiniField(controller: receiptCtrl, label: tr('رابط الإيصال', 'Receipt link')),
-          const SizedBox(height: 8),
-          _MiniField(controller: noteCtrl, label: tr('ملاحظة', 'Note')),
-        ],
+    barrierDismissible: false,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setState) => PopScope(
+        canPop: !sending,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1F1247),
+          title: Text(tr('طلب كوينز', 'Request coins'), style: TextStyle(color: Colors.white)),
+          content: AbsorbPointer(
+            absorbing: sending,
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MiniField(controller: amountCtrl, label: tr('الكمية', 'Amount')),
+              const SizedBox(height: 8),
+              _MiniField(controller: receiptCtrl, label: tr('رابط الإيصال', 'Receipt link')),
+              const SizedBox(height: 8),
+              _MiniField(controller: noteCtrl, label: tr('ملاحظة', 'Note')),
+              if (error != null) Text(error!, style: const TextStyle(color: Colors.redAccent)),
+            ],
+          ),
+          ),
+          actions: [
+            TextButton(onPressed: sending ? null : () => Navigator.pop(dialogContext, false), child: Text(tr('إلغاء', 'Cancel'))),
+            ElevatedButton(onPressed: sending ? null : () async {
+              if (sending) return;
+              setState(() { sending = true; error = null; });
+              bool sent = false;
+              try {
+                await DioClient.dio.post('/charging-agencies/topup', data: {
+                  'amount': int.tryParse(amountCtrl.text.trim()) ?? 0,
+                  'receiptUrl': receiptCtrl.text.trim(),
+                  'note': noteCtrl.text.trim(),
+                });
+                sent = true;
+              } catch (e) {
+                if (context.mounted) setState(() => error = agencyErrorMessage(e));
+              } finally {
+                if (context.mounted) setState(() => sending = false);
+              }
+              if (sent && dialogContext.mounted) Navigator.pop(dialogContext, true);
+            }, child: sending
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : Text(tr('إرسال', 'Send'))),
+          ],
+        ),
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('إلغاء', 'Cancel'))),
-        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: Text(tr('إرسال', 'Send'))),
-      ],
     ),
   );
   if (ok != true) return;
-  try {
-    await DioClient.dio.post('/charging-agencies/topup', data: {
-      'amount': int.tryParse(amountCtrl.text.trim()) ?? 0,
-      'receiptUrl': receiptCtrl.text.trim(),
-      'note': noteCtrl.text.trim(),
-    });
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم إرسال الطلب', 'Request sent'))));
-  } catch (e) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(agencyErrorMessage(e))));
-  }
+  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم إرسال الطلب', 'Request sent'))));
 }
 
 // #5-7: "إضافة كوينز" flow — enter the person's ID, THEY APPEAR (name/avatar)
@@ -711,6 +735,7 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
   final amountCtrl = TextEditingController();
   Map<String, dynamic>? foundUser;
   bool searching = false;
+  bool sending = false;
   bool recipientIsAgent = false;
   String? error;
 
@@ -724,11 +749,13 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
   }
   if (!context.mounted) return;
 
-  final ok = await showDialog<bool>(
+  final response = await showDialog<Response<dynamic>>(
     context: context,
+    barrierDismissible: false,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setState) {
         Future<void> doSearch() async {
+          if (searching || sending) return;
           final q = idCtrl.text.trim();
           if (q.isEmpty) return;
           setState(() { searching = true; error = null; foundUser = null; });
@@ -746,98 +773,118 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
                 // Charging yourself always lands in your personal wallet.
                 recipientIsAgent = recipient.data['isChargingAgent'] == true &&
                     user['id'] != ref.read(authStateProvider).user?.id;
-                searching = false;
               });
             } else {
-              setState(() { error = tr('لم يتم العثور على مستخدم بهذا الرقم', 'No user found with this ID'); searching = false; });
+              setState(() { error = tr('لم يتم العثور على مستخدم بهذا الرقم', 'No user found with this ID'); });
             }
           } catch (e) {
             if (!context.mounted) return;
-            setState(() { error = agencyErrorMessage(e); searching = false; });
+            setState(() { error = agencyErrorMessage(e); });
+          } finally {
+            if (context.mounted) setState(() => searching = false);
           }
         }
 
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1F1247),
-          title: Text(tr('إضافة كوينز', 'Add coins'), style: TextStyle(color: Colors.white)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  tr('رصيد الوكالة: $agencyBalance كوينز', 'Agency balance: $agencyBalance coins'),
-                  style: const TextStyle(color: Color(0xFFFFD700), fontSize: 13),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(child: _MiniField(controller: idCtrl, label: tr('رقم المستخدم (ID)', 'User ID'))),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: searching ? null : doSearch,
-                    icon: const Icon(Icons.search, color: Colors.white),
+        return PopScope(
+          canPop: !sending && !searching,
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF1F1247),
+            title: Text(tr('إضافة كوينز', 'Add coins'), style: TextStyle(color: Colors.white)),
+            content: AbsorbPointer(
+              absorbing: sending || searching,
+              child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    tr('رصيد الوكالة: $agencyBalance كوينز', 'Agency balance: $agencyBalance coins'),
+                    style: const TextStyle(color: Color(0xFFFFD700), fontSize: 13),
                   ),
-                ],
-              ),
-              if (searching) const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: CircularProgressIndicator(),
-              ),
-              if (error != null) Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(error!, style: const TextStyle(color: Colors.redAccent)),
-              ),
-              if (foundUser != null) ...[
-                const SizedBox(height: 12),
-                ListTile(
-                  leading: CircleAvatar(
-                    backgroundImage: (foundUser!['avatarUrl'] ?? '').toString().isNotEmpty
-                        ? appImage(foundUser!['avatarUrl'].toString(), 40)
-                        : null,
-                    child: (foundUser!['avatarUrl'] ?? '').toString().isEmpty
-                        ? const Icon(Icons.person)
-                        : null,
-                  ),
-                  title: Text((foundUser!['name'] ?? '').toString(), style: const TextStyle(color: Colors.white)),
-                  subtitle: Text('#${foundUser!['displayId'] ?? foundUser!['id']}', style: const TextStyle(color: Colors.white70)),
                 ),
                 const SizedBox(height: 8),
-                Text(recipientIsAgent ? tr('سيُضاف إلى رصيد وكالته', 'Will be added to their agency balance') : tr('سيُضاف إلى محفظته الشخصية', 'Will be added to their personal wallet'), style: const TextStyle(color: Colors.white70)),
-                _MiniField(controller: amountCtrl, label: tr('عدد الكوينز', 'Number of coins')),
+                Row(
+                  children: [
+                    Expanded(child: _MiniField(controller: idCtrl, label: tr('رقم المستخدم (ID)', 'User ID'))),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: searching || sending ? null : doSearch,
+                      icon: const Icon(Icons.search, color: Colors.white),
+                    ),
+                  ],
+                ),
+                if (searching) const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: CircularProgressIndicator(),
+                ),
+                if (error != null) Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(error!, style: const TextStyle(color: Colors.redAccent)),
+                ),
+                if (foundUser != null) ...[
+                  const SizedBox(height: 12),
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundImage: (foundUser!['avatarUrl'] ?? '').toString().isNotEmpty
+                          ? appImage(foundUser!['avatarUrl'].toString(), 40)
+                          : null,
+                      child: (foundUser!['avatarUrl'] ?? '').toString().isEmpty
+                          ? const Icon(Icons.person)
+                          : null,
+                    ),
+                    title: Text((foundUser!['name'] ?? '').toString(), style: const TextStyle(color: Colors.white)),
+                    subtitle: Text('#${foundUser!['displayId'] ?? foundUser!['id']}', style: const TextStyle(color: Colors.white70)),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(recipientIsAgent ? tr('سيُضاف إلى رصيد وكالته', 'Will be added to their agency balance') : tr('سيُضاف إلى محفظته الشخصية', 'Will be added to their personal wallet'), style: const TextStyle(color: Colors.white70)),
+                  _MiniField(controller: amountCtrl, label: tr('عدد الكوينز', 'Number of coins')),
+                ],
               ],
+            ),
+            ),
+            actions: [
+              TextButton(onPressed: sending || searching ? null : () => Navigator.pop(dialogContext), child: Text(tr('إلغاء', 'Cancel'))),
+              ElevatedButton(
+                onPressed: foundUser == null || sending || searching ? null : () async {
+                  if (sending || searching) return;
+                  final amount = int.tryParse(amountCtrl.text.trim());
+                  if (amount == null || amount <= 0) {
+                    setState(() => error = tr('أدخل كمية صحيحة أكبر من صفر', 'Enter a valid amount greater than zero'));
+                    return;
+                  }
+                  setState(() { sending = true; error = null; });
+                  Response<dynamic>? result;
+                  try {
+                    result = await DioClient.dio.post('/agencies/send-coins', data: {
+                      'userId': foundUser!['id'],
+                      'amount': amount,
+                    });
+                  } catch (e) {
+                    if (context.mounted) setState(() => error = agencyErrorMessage(e));
+                  } finally {
+                    if (context.mounted) setState(() => sending = false);
+                  }
+                  if (result != null && dialogContext.mounted) {
+                    Navigator.pop(dialogContext, result);
+                  }
+                },
+                child: sending
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Text(tr('إرسال', 'Send')),
+              ),
             ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(tr('إلغاء', 'Cancel'))),
-            ElevatedButton(
-              onPressed: foundUser == null ? null : () {
-                final amount = int.tryParse(amountCtrl.text.trim());
-                if (amount == null || amount <= 0) {
-                  setState(() => error = tr('أدخل كمية صحيحة أكبر من صفر', 'Enter a valid amount greater than zero'));
-                  return;
-                }
-                Navigator.pop(dialogContext, true);
-              },
-              child: Text(tr('إرسال', 'Send')),
-            ),
-          ],
         );
       },
     ),
   );
-  if (ok != true || foundUser == null) return;
+  if (response == null || !context.mounted) return;
   try {
-    final response = await DioClient.dio.post('/agencies/send-coins', data: {
-      'userId': foundUser!['id'],
-      'amount': int.tryParse(amountCtrl.text.trim()) ?? 0,
-    });
     // The charge just moved coins — pull the fresh balances so the next charge
     // (and the profile) don't show the pre-charge number.
-    try { await ref.read(authStateProvider.notifier).refreshMe(); } catch (_) {}
     ref.invalidate(agencyWalletProvider);
     ref.invalidate(agencyBalanceProvider);
+    try { await ref.read(authStateProvider.notifier).refreshMe(); } catch (_) {}
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text((response.data['wallet'] ?? response.data['data']?['wallet']) == 'agency' ? tr('تم الشحن إلى رصيد وكالته', 'Recharged their agency balance') : tr('تم الشحن إلى محفظته الشخصية', 'Recharged their personal wallet'))));
   } catch (e) {
     final message = agencyErrorMessage(e);

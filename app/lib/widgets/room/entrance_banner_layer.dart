@@ -239,8 +239,11 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
     return IgnorePointer(
       child: Align(
         alignment: Alignment.topCenter,
+        heightFactor: 1,
         child: Padding(
-          padding: const EdgeInsets.only(top: 118),
+          // The parent places this below the actual room bars. SafeArea
+          // padding is already consumed in the room.
+          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8),
           child: SlideTransition(
             position: _offset,
             child: SizedBox(
