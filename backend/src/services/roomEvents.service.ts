@@ -177,8 +177,12 @@ export async function processRoomGift(giftTransactionId: string) {
     let pk = lock?.pk;
     if (pk?.status === 'ACTIVE' && gift.createdAt >= pk.startedAt && gift.createdAt < pk.endsAt) {
       const cfg = pk.configSnapshot;
-      // Attribute every counted gift to its room, independent of recipient.
-      const side = gift.roomId === pk.room1Id ? 'A' : gift.roomId === pk.room2Id ? 'B' : null;
+      // Room-vs-room: a gift counts for the room it was sent in. Inside one
+      // room (both sides share the room) it counts for the side whose player
+      // RECEIVED it — never for whoever opened the PK by default.
+      const side = pk.room1Id === pk.room2Id
+        ? (gift.recipientId === pk.sideAUserId ? 'A' : gift.recipientId === pk.sideBUserId ? 'B' : null)
+        : gift.roomId === pk.room1Id ? 'A' : gift.roomId === pk.room2Id ? 'B' : null;
       if (side && (!cfg.countedGiftIds.length || cfg.countedGiftIds.includes(gift.giftId)) &&
         !await tx.pkContribution.findUnique({ where: { giftTransactionId } })) {
         const points = Math.min(MAX, gift.paidCoins * cfg.pointsPerCoin);
@@ -253,8 +257,12 @@ export async function startPk(userId: number, raw: any) {
     const global = raw.type === 'GLOBAL';
     const room2Id = global ? integer(raw.opponentRoomId) : roomId;
     const opponent = await tx.room.findUnique({ where: { id: room2Id } });
-    if (!opponent?.isActive || (global && room2Id === roomId)) throw new RoomEventError('الغرفة غير متاحة');
-    const a = global ? room.ownerId : integer(raw.sideAUserId);
+    if (global && room2Id === roomId) throw new RoomEventError('لا يمكن تحدي نفس الغرفة');
+    if (!opponent) throw new RoomEventError('رقم الغرفة غير صحيح', 404);
+    if (!opponent.isActive) throw new RoomEventError('الغرفة المنافسة مغلقة');
+    const chosen = raw.sideUserId != null ? integer(raw.sideUserId) : null;
+    if (chosen != null && global && !getSeatedUserIds(roomId).includes(chosen)) throw new RoomEventError('اللاعب المختار ليس على المايك');
+    const a = global ? (chosen ?? room.ownerId) : integer(raw.sideAUserId);
     const b = global ? opponent.ownerId : integer(raw.sideBUserId);
     if (!global && (a === b || !getSeatedUserIds(roomId).includes(a) || !getSeatedUserIds(roomId).includes(b)))
       throw new RoomEventError('اختر مستخدمين مختلفين على المايك');
@@ -283,6 +291,8 @@ const lockedRooms = new Set<number>();
  */
 export async function joinRandomPk(userId: number, raw: any) {
   const roomId = integer(raw.roomId);
+  const sideUserId = raw.sideUserId != null ? integer(raw.sideUserId) : null;
+  if (sideUserId != null && !getSeatedUserIds(roomId).includes(sideUserId)) throw new RoomEventError('اللاعب المختار ليس على المايك');
   const durationSec = await eventTransaction(async tx => {
     await requireRoomManager(tx, roomId, userId);
     const cfg = await tx.pkConfig.findFirst({ orderBy: { id: 'desc' } });
@@ -293,7 +303,7 @@ export async function joinRandomPk(userId: number, raw: any) {
     for (const l of busy) lockedRooms.add(l.roomId);
     return pkDurationSec(raw.durationSec, cfg);
   });
-  const partner = randomQueue.take({ roomId, userId, durationSec }, id => lockedRooms.has(id));
+  const partner = randomQueue.take({ roomId, userId, durationSec, sideUserId }, id => lockedRooms.has(id));
   if (!partner) return { status: 'WAITING', roomId, durationSec };
   let p: any;
   try {
@@ -302,12 +312,12 @@ export async function joinRandomPk(userId: number, raw: any) {
       if (!cfg?.enabled) throw new RoomEventError('PK غير متاح');
       const [room1, room2] = await Promise.all([
         tx.room.findUnique({ where: { id: partner.roomId } }), tx.room.findUnique({ where: { id: roomId } })]);
-      if (!room1?.isActive || !room2?.isActive) throw new RoomEventError('الغرفة غير متاحة');
+      if (!room1?.isActive || !room2?.isActive) throw new RoomEventError('إحدى الغرفتين مغلقة');
       if (await tx.pkRoomLock.count({ where: { roomId: { in: [partner.roomId, roomId] } } }))
         throw new RoomEventError('يوجد PK أو دعوة قائمة', 409);
       const now = new Date();
       const pk = await tx.pkBattle.create({ data: { room1Id: partner.roomId, room2Id: roomId, type: 'GLOBAL',
-        sideAUserId: room1.ownerId, sideBUserId: room2.ownerId, durationSec: partner.durationSec,
+        sideAUserId: partner.sideUserId ?? room1.ownerId, sideBUserId: sideUserId ?? room2.ownerId, durationSec: partner.durationSec,
         configSnapshot: { ...pkConfigSnapshot(cfg), random: true }, createdBy: partner.userId, status: 'ACTIVE', startedAt: now,
         endsAt: new Date(now.getTime() + partner.durationSec * 1000) } });
       await reservePk(tx, pk, cfg, partner.userId);

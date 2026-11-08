@@ -12,6 +12,8 @@ export interface RandomPkEntry {
   roomId: number;
   userId: number;
   durationSec: number;
+  /** Player the initiator picked for this PK (null = room owner). */
+  sideUserId?: number | null;
   at: number;
 }
 

@@ -489,15 +489,15 @@ final ValueNotifier<Set<int>> pkSearchingRooms = ValueNotifier<Set<int>>(<int>{}
 /// The server keeps a waiting room for two minutes; re-join while searching.
 final Map<int, Timer> _pkSearchTimers = {};
 
-Future<void> _joinRandomPk(int roomId, int durationSec) async {
-  final res = await DioClient.dio.post('/pk/random', data: {'roomId': roomId, 'durationSec': durationSec});
+Future<void> _joinRandomPk(int roomId, int durationSec, [int? sideUserId]) async {
+  final res = await DioClient.dio.post('/pk/random', data: {'roomId': roomId, 'durationSec': durationSec, if (sideUserId != null) 'sideUserId': sideUserId});
   final d = res.data is Map ? res.data['data'] : null;
   if (d is Map && d['status'] == 'WAITING') {
     pkSearchingRooms.value = {...pkSearchingRooms.value, roomId};
     _pkSearchTimers[roomId]?.cancel();
     _pkSearchTimers[roomId] = Timer(const Duration(seconds: 100), () {
       if (pkSearchingRooms.value.contains(roomId)) {
-        _joinRandomPk(roomId, durationSec).catchError((Object e) {
+        _joinRandomPk(roomId, durationSec, sideUserId).catchError((Object e) {
           _stopPkSearch(roomId);
           _toast(_err(e));
         });
@@ -580,19 +580,22 @@ class RoomPkButton extends StatelessWidget {
                 if (type == 'ROOM') ...[
                   _pick(tr('اللاعب A', "Player A"), a, (v) => set(() => a = v)),
                   _pick(tr('اللاعب B', "Player B"), b, (v) => set(() => b = v)),
-                ] else if (type == 'GLOBAL')
+                ] else if (type == 'GLOBAL') ...[
+                  _pick(tr('اللاعب المشارك من غرفتك', "Your player"), a, (v) => set(() => a = v)),
                   TextField(
                     controller: opp,
                     keyboardType: TextInputType.number,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(labelText: tr('رقم الغرفة المنافسة', "Opponent room ID"), labelStyle: const TextStyle(color: Colors.white54)),
-                  )
-                else
+                  ),
+                ] else ...[
+                  _pick(tr('اللاعب المشارك من غرفتك', "Your player"), a, (v) => set(() => a = v)),
                   Text(
                     tr('هنقابلك بغرفة تانية مفعّلة PK عشوائي، وكل واحد يفضل في غرفته.',
                         'You will be matched with another room that turned on random PK; each side stays in its own room.'),
                     style: const TextStyle(color: Colors.white70, fontSize: 12.5),
                   ),
+                ],
                 const SizedBox(height: 12),
                 // Client @199: «المطلوب مربع كمان احط فيه المده».
                 Row(children: [
@@ -625,7 +628,7 @@ class RoomPkButton extends StatelessWidget {
                     }
                     try {
                       if (type == 'RANDOM') {
-                        await _joinRandomPk(roomId, m * 60);
+                        await _joinRandomPk(roomId, m * 60, a);
                       } else {
                         await DioClient.dio.post('/pk/start', data: {
                           'roomId': roomId,
@@ -633,6 +636,7 @@ class RoomPkButton extends StatelessWidget {
                           'durationSec': m * 60,
                           if (type == 'ROOM') 'sideAUserId': a,
                           if (type == 'ROOM') 'sideBUserId': b,
+                          if (type == 'GLOBAL' && a != null) 'sideUserId': a,
                           if (type == 'GLOBAL') 'opponentRoomId': int.tryParse(opp.text.trim()),
                         });
                       }

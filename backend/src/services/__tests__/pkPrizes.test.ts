@@ -125,3 +125,12 @@ test('ROOM gifts to unrelated recipients score by room and retain the gift filte
   state.gift.giftId = 'excluded'; await processRoomGift('gift-2');
   assert.equal(state.pk.room2Score, 50); assert.equal(state.contributions.length, 1);
 });
+test('inside one room a gift counts for the side whose player received it, not the opener', async () => {
+  Object.assign(state.pk, { type: 'ROOM', room1Id: 1, room2Id: 1, sideAUserId: 10, sideBUserId: 20, room1Score: 0, room2Score: 0 });
+  state.pk.startedAt = new Date(Date.now() - 10000); state.pk.endsAt = new Date(Date.now() + 10000);
+  state.pk.configSnapshot.countedGiftIds = []; state.pk.configSnapshot.pointsPerCoin = 1;
+  state.contributions.length = 0;
+  state.gift = { roomId: 1, recipientId: 20, giftId: 'gift', paidCoins: 7, createdAt: new Date() };
+  await processRoomGift('gift-b'); assert.equal(state.pk.room2Score, 7); assert.equal(state.pk.room1Score, 0);
+  assert.equal(state.contributions.at(-1).side, 'B');
+});
