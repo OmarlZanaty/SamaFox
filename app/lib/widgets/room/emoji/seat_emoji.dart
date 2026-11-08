@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -83,10 +82,9 @@ class _SeatEmojiState extends State<SeatEmoji> with SingleTickerProviderStateMix
     final double fade = t > .9 ? (1 - (t - .9) / .1).clamp(0.0, 1.0) : 1.0;
     final rollEnd = 1200 / SeatEmoji.duration.inMilliseconds;
     final rolling = e.def.isGame && t < rollEnd;
-    // Lively wiggle/bounce once it is in; a game emoji only wiggles after it lands.
-    final live = t >= .14 && !rolling;
-    final double wiggle = live ? math.sin(t * math.pi * 2 * 5) * (8 * math.pi / 180) : 0.0;
-    final double bounce = live ? -math.sin(t * math.pi * 2 * 3).abs() * side * .05 : 0.0;
+    // Client 7/11: no left/right sway or bounce — a GIF plays its own animation.
+    const double wiggle = 0.0;
+    const double bounce = 0.0;
     final art = roomEmojiArt(
       e.def,
       side * .92,

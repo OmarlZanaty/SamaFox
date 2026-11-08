@@ -89,8 +89,10 @@ export function isAnimatedFile(filePath: string): boolean {
 
 /** True when an uploaded file or URL is (or may be) animated. */
 export function isAnimatedUpload(opts: { filename?: string | null; mimetype?: string | null; filePath?: string | null }): boolean {
-  if (isAnimatedImage(opts)) return true;
-  return !!opts.filePath && isAnimatedFile(opts.filePath);
+  // The file's own bytes decide when we have it: a static .webp/.png is NOT
+  // animated (client 7/11: static room pictures were being VIP-gated).
+  if (opts.filePath && fs.existsSync(opts.filePath)) return isAnimatedFile(opts.filePath);
+  return isAnimatedImage(opts);
 }
 
 /** Resolve one of OUR /uploads/ URLs to its file on disk (null for foreign URLs). */
@@ -104,7 +106,7 @@ export function localUploadPath(url: string): string | null {
 /** Is assigning this avatar URL allowed for the user? (null = allowed) */
 export async function animatedAvatarUrlDenial(userId: number, url: string): Promise<string | null> {
   const local = localUploadPath(url);
-  const animated = isAnimatedImage({ filename: url }) || (local ? isAnimatedFile(local) : false);
+  const animated = local ? isAnimatedFile(local) : isAnimatedImage({ filename: url });
   if (!animated) return null;
   const { allowed, minLevel } = await canUseAnimatedAvatar(userId);
   if (allowed) return null;
@@ -150,7 +152,7 @@ export async function canUseAnimatedRoomImage(userId: number): Promise<{ allowed
 /** null = allowed; otherwise the Arabic reason. Server-side check for every room-picture assignment. */
 export async function animatedRoomImageDenial(userId: number, url: string): Promise<string | null> {
   const local = localUploadPath(url);
-  const animated = isAnimatedImage({ filename: url }) || (local ? isAnimatedFile(local) : false);
+  const animated = local ? isAnimatedFile(local) : isAnimatedImage({ filename: url });
   if (!animated) return null;
   const { allowed, minLevel } = await canUseAnimatedRoomImage(userId);
   if (allowed) return null;
