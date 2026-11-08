@@ -2545,10 +2545,10 @@ document.getElementById("btnLiveToggle")?.addEventListener("click", (e) => {
 function startLiveRefresh() {
   stopLiveRefresh();
   liveTimer = setInterval(() => {
-    if (!liveMode) return;
-    loadOverview().catch(()=>{});
-    loadAdvanced().catch(()=>{});
-  }, 20000);
+    if (!liveMode || document.hidden) return;
+    if (isSectionActive("section-overview")) loadOverview().catch(()=>{});
+    if (isSectionActive("section-advanced")) loadAdvanced().catch(()=>{});
+  }, 30000);
 }
 function stopLiveRefresh() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
 
@@ -3014,13 +3014,22 @@ window.deleteLvLevel = async function (level) {
 // ============================================================
 // LOAD ALL
 // ============================================================
+// A manager / super-admin opening the panel on a phone used to fire ~20 heavy
+// requests at once (analytics, leaderboard, transactions, gifts...) and then
+// repeat them every 20s, which hung the phone. Boot now loads only what is on
+// screen; the heavy sections load the first time they are opened.
+function isSectionActive(id) { return document.getElementById(id)?.classList.contains("active"); }
+let _advancedLoaded = false, _giftsLoaded = false;
+document.querySelectorAll(".nav-item").forEach((item) => {
+  item.addEventListener("click", () => {
+    const sec = item.getAttribute("data-section");
+    if (sec === "advanced" && !_advancedLoaded) { _advancedLoaded = true; loadAdvanced().catch(() => {}); }
+    if (sec === "store" && !_giftsLoaded && document.getElementById("giftsTable")) { _giftsLoaded = true; loadGifts().catch(() => {}); }
+  });
+});
 async function loadAll() {
   await loadOverview();
-  await loadUsers();
-  await loadRooms();
-  await loadAgencies();
-  if (document.getElementById("section-advanced")) await loadAdvanced();
-  if (document.getElementById("giftsTable")) await loadGifts();
+  await Promise.allSettled([loadUsers(), loadRooms(), loadAgencies()]);
 }
 
 // ============================================================
