@@ -284,6 +284,10 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
           // Translucent dim while any flight is at centre stage.
           if (_flights.isNotEmpty) _AggregateDimLayer(flights: _flights),
 
+          // Client 7/11 21:02: gifts are fired from a cannon at the bottom
+          // centre, leave its mouth small and grow to full size mid-room.
+          if (_flights.isNotEmpty) const _GiftCannon(),
+
           // In-flight gifts.
           for (final f in _flights) _FlightWidget(flight: f),
 
@@ -468,6 +472,57 @@ class _AggregateDimLayer extends StatelessWidget {
   }
 }
 
+/// The gold cannon gifts are fired from (client 7/11). Uses the client's art
+/// at assets/images/room/gift_cannon.png when present, else a drawn barrel.
+class _GiftCannon extends StatelessWidget {
+  const _GiftCannon();
+  static const double width = 78, height = 104, bottomGap = 74;
+
+  static Offset mouth(Size screen, double safeBottom) =>
+      Offset(screen.width / 2, screen.height - safeBottom - bottomGap - height + 8);
+
+  @override
+  Widget build(BuildContext context) {
+    final screen = MediaQuery.of(context).size;
+    return Positioned(
+      left: (screen.width - width) / 2,
+      bottom: MediaQuery.of(context).padding.bottom + bottomGap,
+      width: width,
+      height: height,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.6, end: 1),
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutBack,
+        builder: (_, v, child) => Transform.scale(scale: v, alignment: Alignment.bottomCenter, child: child),
+        child: Image.asset(
+          'assets/images/room/gift_cannon.png',
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+            Container(
+              width: 34,
+              height: 62,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                gradient: const LinearGradient(colors: [Color(0xFFB8860B), Color(0xFFFFE082), Color(0xFFB8860B)]),
+                border: Border.all(color: const Color(0xFF7A5300), width: 1.5),
+              ),
+            ),
+            Container(
+              width: 70,
+              height: 34,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: const LinearGradient(colors: [Color(0xFF5B2A86), Color(0xFF8E44AD), Color(0xFF5B2A86)]),
+                border: Border.all(color: const Color(0xFFFFD54F), width: 2),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class _FlightWidget extends StatelessWidget {
   const _FlightWidget({required this.flight});
   final _Flight flight;
@@ -486,6 +541,9 @@ class _FlightWidget extends StatelessWidget {
 
     final bigSize = math.min(screen.width, screen.height) * 0.7;
     const smallSize = 96.0;
+    // The cannon's mouth: gifts start pipe-sized there, not at the sender.
+    final mouth = _GiftCannon.mouth(screen, MediaQuery.of(context).padding.bottom);
+    const mouthSize = 26.0;
 
     return AnimatedBuilder(
       animation: flight.controller,
@@ -498,8 +556,8 @@ class _FlightWidget extends StatelessWidget {
 
         if (t < 0.35) {
           final u = Curves.easeOutCubic.transform(t / 0.35);
-          pos = Offset.lerp(flight.start, centre + spreadOffset, u)!;
-          size = smallSize + (bigSize - smallSize) * u;
+          pos = Offset.lerp(mouth, centre + spreadOffset, u)!;
+          size = mouthSize + (bigSize - mouthSize) * u;
           opacity = (u * 1.5).clamp(0.0, 1.0);
           rotation = (1 - u) * 0.6; // unwinding spin on entry
         } else if (t < 0.7) {

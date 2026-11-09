@@ -9,11 +9,14 @@ class RoomLeftRail extends StatelessWidget {
   const RoomLeftRail({
     super.key,
     required this.onGames,
+    this.gamesIcon,
     this.pk,
     this.rocket,
   });
 
   final VoidCallback onGames;
+  /// The new games art (client 7/11: only the new icon, a bit bigger).
+  final Widget? gamesIcon;
   final Widget? pk;
   final Widget? rocket;
 
@@ -25,12 +28,19 @@ class RoomLeftRail extends StatelessWidget {
       children: [
         if (rocket != null) ...[rocket!, const SizedBox(height: 8)],
         if (pk != null) ...[pk!, const SizedBox(height: 8)],
-        RoomRailButton(
-          icon: Icons.sports_esports_rounded,
-          color: Colors.greenAccent,
-          label: tr('ألعاب', 'Games'),
-          onTap: onGames,
-        ),
+        if (gamesIcon != null)
+          Semantics(
+            button: true,
+            label: tr('ألعاب', 'Games'),
+            child: GestureDetector(onTap: onGames, child: gamesIcon),
+          )
+        else
+          RoomRailButton(
+            icon: Icons.sports_esports_rounded,
+            color: Colors.greenAccent,
+            label: tr('ألعاب', 'Games'),
+            onTap: onGames,
+          ),
       ],
     );
   }

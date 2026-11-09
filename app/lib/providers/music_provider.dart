@@ -171,13 +171,42 @@ class RoomMusicState {
 class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
   RoomMusicNotifier(this.roomId) : super(const RoomMusicState()) {
     _player.setReleaseMode(ReleaseMode.stop);
+    // Android MediaPlayer errors (e.g. MEDIA_ERROR -38) arrive on the event
+    // stream; without a listener they surfaced as uncaught errors.
+    _eventSub = _player.eventStream.listen((_) {}, onError: (Object e, StackTrace s) => _logPlaybackError(e, s));
     _completeSub = _player.onPlayerComplete.listen((_) => _reportEnded());
     _attachSocket();
     // SPEC52 #18 — the room's music follows «كتم صوت الغرفة» too.
     AudioRoute.instance.roomMuted.addListener(_onRoomMute);
     _onRoomMute();
-    _socket.emit('music_sync', {'roomId': roomId});
+    _send('music_sync', {'roomId': roomId});
+    // Client 5/11–7/11 «تحميل الموسيقى واقف»: the first sync was sent before
+    // the socket was up and silently dropped (logs: "Cannot emit music_sync"),
+    // so the room's song never started. Re-sync whenever the socket connects.
+    _connectSub = _socket.connectionStream.listen((up) {
+      if (up) resync();
+    });
   }
+
+  StreamSubscription<bool>? _connectSub;
+  StreamSubscription<dynamic>? _eventSub;
+
+  /// Emit now, or — when the socket is down — as soon as it is back (one
+  /// pending message per event, the newest wins).
+  final Map<String, dynamic> _pending = {};
+  void _send(String event, Map<String, dynamic> data) {
+    if (_socket.isConnected) {
+      _socket.emit(event, data);
+      return;
+    }
+    _pending[event] = data;
+    _flushSub ??= _socket.connectionStream.where((up) => up).listen((_) {
+      final queued = Map<String, dynamic>.from(_pending);
+      _pending.clear();
+      queued.forEach((e, d) => _socket.emit(e, d));
+    });
+  }
+  StreamSubscription<bool>? _flushSub;
 
   final int roomId;
   final SocketService _socket = SocketService();
@@ -361,7 +390,9 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
           _loadedIndex = -1;
           await _player.stop();
           if (!_isCurrent(revision)) return;
-          if (attempt == 2 && !kIsWeb) {
+          // Some phones (old Huawei/OPPO) fail to stream: the first try now
+          // plays a downloaded local file, then streaming, then download again.
+          if ((attempt == 0 || attempt == 2) && !kIsWeb) {
             final path = await _downloadTrack(url, revision);
             if (!_isCurrent(revision)) return;
             await _player.setSourceDeviceFile(path);
@@ -372,6 +403,16 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
         if (!_isCurrent(revision)) return;
         final target = Duration(milliseconds:
             positionMs + (isPlaying ? receivedAt.elapsedMilliseconds : 0));
+        // MEDIA_ERROR -38: seeking an Android player that is not prepared
+        // yet. Wait (briefly) for the source to report a duration first.
+        if (reload || attempt > 0) {
+          for (var i = 0; i < 20; i++) {
+            if (!_isCurrent(revision)) return;
+            final d = await _player.getDuration();
+            if (d != null && d > Duration.zero) break;
+            await Future<void>.delayed(const Duration(milliseconds: 150));
+          }
+        }
         final current = await _player.getCurrentPosition() ?? Duration.zero;
         if (!_isCurrent(revision)) return;
         if (reload || attempt > 0 || !isPlaying ||
@@ -408,14 +449,14 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
     if (!state.active) return;
     // The server takes the first report and ignores the rest, so it is safe
     // for every listener to send this.
-    _socket.emit('music_ended', {'roomId': roomId, 'index': state.index});
+    _send('music_ended', {'roomId': roomId, 'index': state.index});
   }
 
   // ---- controls (server enforces owner/admin) ----
 
   void play(List<MusicTrack> tracks, {int index = 0}) {
     if (tracks.isEmpty) return;
-    _socket.emit('music_play', {
+    _send('music_play', {
       'roomId': roomId,
       'tracks': tracks.map((t) => t.toJson()).toList(),
       'index': index,
@@ -423,16 +464,16 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
     });
   }
 
-  void pause() => _socket.emit('music_pause', {'roomId': roomId});
-  void resume() => _socket.emit('music_resume', {'roomId': roomId});
-  void next() => _socket.emit('music_next', {'roomId': roomId});
-  void previous() => _socket.emit('music_prev', {'roomId': roomId});
-  void stop() => _socket.emit('music_stop', {'roomId': roomId});
+  void pause() => _send('music_pause', {'roomId': roomId});
+  void resume() => _send('music_resume', {'roomId': roomId});
+  void next() => _send('music_next', {'roomId': roomId});
+  void previous() => _send('music_prev', {'roomId': roomId});
+  void stop() => _send('music_stop', {'roomId': roomId});
 
   void togglePlayPause() => state.isPlaying ? pause() : resume();
 
   /// Re-ask the server after a reconnect or when the app comes back.
-  void resync() => _socket.emit('music_sync', {'roomId': roomId});
+  void resync() => _send('music_sync', {'roomId': roomId});
 
   void _onRoomMute() {
     unawaited(_player.setVolume(AudioRoute.instance.roomMuted.value ? 0 : _localVolume).catchError((_) {}));
@@ -461,6 +502,9 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
     _socket.off('room_music_state');
     _socket.off('music_denied');
     _reconnectSub?.cancel();
+    _connectSub?.cancel();
+    _eventSub?.cancel();
+    _flushSub?.cancel();
     _completeSub?.cancel();
     _deniedController.close();
     // Stop, THEN dispose. Firing both unawaited let stop()'s continuation set

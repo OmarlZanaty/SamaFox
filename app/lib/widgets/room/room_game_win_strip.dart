@@ -9,7 +9,7 @@ import 'room_win_announcement.dart';
 class RoomGameWinStrip extends StatefulWidget {
   const RoomGameWinStrip({super.key, required this.roomId});
   final int roomId;
-  static const double height = 22;
+  static const double height = 40; // client 7/11: a richer, readable strip
   @override
   State<RoomGameWinStrip> createState() => _RoomGameWinStripState();
 }
@@ -98,11 +98,13 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
                         margin: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(11),
-                            border: Border.all(color: const Color(0xFFFFDB81)),
+                            border: Border.all(color: const Color(0xFFFFDB81), width: 1.6),
                             gradient: const LinearGradient(colors: [
-                              Color(0xFF080909),
-                              Color(0xFF584015),
-                              Color(0xFF171006)
+                              Color(0xFF2A1A05),
+                              Color(0xFF8A6420),
+                              Color(0xFFD9A93E),
+                              Color(0xFF8A6420),
+                              Color(0xFF2A1A05)
                             ]),
                             boxShadow: const [
                               BoxShadow(color: Color(0x665B410B), blurRadius: 6)
@@ -127,7 +129,7 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
                                       textDirection: TextDirection.rtl,
                                       children: [
                                         SizedBox(
-                                            width: 21,
+                                            width: 32,
                                             child: Stack(
                                                 clipBehavior: Clip.none,
                                                 alignment:
@@ -139,21 +141,21 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
                                                               true
                                                           ? AppNetworkImage(
                                                               w.avatar!,
-                                                              width: 12,
-                                                              height: 12,
+                                                              width: 24,
+                                                              height: 24,
                                                               fit: BoxFit.cover)
                                                           : const Icon(
                                                               Icons.person,
                                                               color: Color(
                                                                   0xFFFFDB81),
-                                                              size: 12)),
+                                                              size: 22)),
                                                   const Positioned(
-                                                      top: -5,
+                                                      top: -9,
                                                       child: Text('♛',
                                                           style: TextStyle(
                                                               color: Color(
                                                                   0xFFFFDE86),
-                                                              fontSize: 12,
+                                                              fontSize: 16,
                                                               height: 1))),
                                                 ])),
                                         const SizedBox(width: 3),
@@ -165,16 +167,16 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
                                                 overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
                                                     color: Color(0xFFFFEBC4),
-                                                    fontSize: 10,
+                                                    fontSize: 13,
                                                     fontWeight:
-                                                        FontWeight.w700))),
+                                                        FontWeight.w800))),
                                         const SizedBox(width: 4),
                                         if (w.icon?.isNotEmpty == true)
                                           AppNetworkImage(w.icon!,
-                                              width: 13, height: 13)
+                                              width: 20, height: 20)
                                         else
                                           const Icon(Icons.casino,
-                                              size: 13,
+                                              size: 20,
                                               color: Color(0xFFFFD67A)),
                                         const SizedBox(width: 5),
                                         Flexible(
@@ -194,7 +196,7 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
                                                             TextDirection.ltr,
                                                         style: const TextStyle(
                                                             color: Colors.white,
-                                                            fontSize: 12,
+                                                            fontSize: 17,
                                                             fontWeight:
                                                                 FontWeight
                                                                     .w900))))),

@@ -263,7 +263,23 @@ class _EntranceBannerLayerState extends ConsumerState<EntranceBannerLayer>
                       ),
                       // Confined to the bar's empty inner box.
                       padding: _barPadding(e, barBox),
-                      decoration: BoxDecoration(image: _plate(e)),
+                      // Client 7/11 (reference 21/10): the default entry
+                      // bar is the warm orange strip fading out to the left.
+                      decoration: custom
+                          ? BoxDecoration(image: _plate(e))
+                          : BoxDecoration(
+                              borderRadius: BorderRadius.circular(_barHeight / 2),
+                              gradient: const LinearGradient(
+                                begin: Alignment.centerRight,
+                                end: Alignment.centerLeft,
+                                colors: [Color(0xFFFF6A00), Color(0xFFFF8F2E), Color(0x00FF8F2E)],
+                                stops: [0, .55, 1],
+                              ),
+                              border: Border(
+                                top: BorderSide(color: Colors.white.withOpacity(.25)),
+                                bottom: BorderSide(color: Colors.black.withOpacity(.25)),
+                              ),
+                            ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

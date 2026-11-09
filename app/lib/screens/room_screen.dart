@@ -76,7 +76,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, ValueListenable;
 import '../repositories/message_repository.dart';
 import '../repositories/room_repository.dart';
 import '../repositories/user_repository.dart';
@@ -268,7 +268,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   Widget _comboCircle() => Semantics(
     button: true, label: tr('إرسال مرة أخرى', 'Send again'),
     child: GestureDetector(onTap: _sendGiftAgain,
-      child: SizedBox.square(dimension: 76, child: Stack(alignment: Alignment.center, children: [
+      child: SizedBox.square(dimension: 100, child: Stack(alignment: Alignment.center, children: [
         Positioned.fill(child: Image.asset('assets/images/room/gift_combo_ring.png',
           fit: BoxFit.contain, errorBuilder: (_, __, ___) => Container(
             decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xDD63279C),
@@ -276,8 +276,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         Positioned.fill(child: CircularProgressIndicator(value: _comboLeft / 5,
           strokeWidth: 3, color: Colors.amber)),
         Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('$_comboLeft', style: const TextStyle(color: Colors.white, fontSize: 22)),
-          Text(tr('إرسال مجدداً', 'Send again'), style: const TextStyle(color: Colors.white, fontSize: 10)),
+          Text('$_comboLeft', style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
+          Text(tr('إرسال مجدداً', 'Send again'), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
         ]),
       ])),
     ),
@@ -5041,30 +5041,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                               // without opening the menu. Green when the loudspeaker
                               // is on, so the state reads at a glance.
                               // SPEC52 #3 — no speaker button: routing is automatic.
-                              // SPEC52 #18 — 🔇 كتم صوت الغرفة (for me only).
-                              const SizedBox(width: 6),
-                              Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(20),
-                                  onTap: _toggleRoomMute,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(7),
-                                    decoration: BoxDecoration(
-                                      color: _roomMuted
-                                          ? Colors.redAccent.withOpacity(0.28)
-                                          : Colors.black.withOpacity(0.5),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Icon(
-                                      _roomMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                                      color: _roomMuted ? Colors.redAccent : Colors.white70,
-                                      size: 16,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
+                              // SPEC52 #18 room mute moved next to the mic (client 7/11).
                               const SizedBox(width: 6),
                               Material(
                                 color: Colors.transparent,
@@ -5316,9 +5293,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             if (kb == 0 && !_showChatPanel)
               Positioned(
                 left: 6,
-                bottom: _bottomBarH + 10,
+                bottom: _bottomBarH + 18,
                 child: RoomLeftRail(
                   onGames: () => _openGamesSheet(context),
+                  gamesIcon: Image.asset('assets/images/room/btn_games.png',
+                      width: 46, height: 46, fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(Icons.sports_esports_rounded,
+                          color: Colors.greenAccent, size: 30)),
                   pk: RoomPkButton(
                     roomId: widget.roomId,
                     canStart: isAdmin,
@@ -5441,6 +5422,25 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       child: Row(
                       children: [
 
+                        // Client 7/11 01:54: the animated-emoji icon sits
+                        // right next to the text bar (the bar may shrink).
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                          icon: const Icon(Icons.emoji_emotions_outlined, color: Color(0xFFFFD54F), size: 24),
+                          tooltip: tr('إيموجي متحرك', "Animated emoji"),
+                          onPressed: () {
+                            if (_currentSeatNumber == null) {
+                              _showRoomSnack(tr('اصعد على المايك لإرسال الإيموجي', "Join a mic to send emoji"), error: true);
+                              return;
+                            }
+                            RoomEmojiPicker.show(context, onPick: (e) {
+                              Navigator.of(context).maybePop();
+                              SocketService().emit('room_emoji_send', {'roomId': widget.roomId, 'emojiId': e.id});
+                            });
+                          },
+                        ),
                         Expanded(
                           child: Material(
                             color: Colors.transparent,
@@ -5554,8 +5554,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           },
                         ),
 
-                        if (isAdmin && state.micQueue.isNotEmpty)
+                        if (isAdmin)
                           Badge(
+                            isLabelVisible: state.micQueue.isNotEmpty,
                             label: Text('${state.micQueue.length}'),
                             child: IconButton(
                               tooltip: tr('طلبات المايك', 'Mic requests'),
@@ -5587,12 +5588,15 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             ),
                           ),
 
+                        // Client 7/11: room mute sits next to the mic.
                         IconButton(
-                          tooltip: tr('الألعاب', 'Games'),
+                          tooltip: tr('كتم صوت الغرفة', 'Mute room'),
                           visualDensity: VisualDensity.compact,
-                          onPressed: () => _openGamesSheet(context),
-                          icon: _roomArt('btn_games.png',
-                            const Icon(Icons.sports_esports, color: Colors.white)),
+                          onPressed: _toggleRoomMute,
+                          icon: Icon(
+                            _roomMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                            color: _roomMuted ? Colors.redAccent : Colors.white,
+                          ),
                         ),
 
                         GestureDetector(
@@ -5621,7 +5625,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             if (_showSeatVideo && _seatVideoController != null)
               Positioned.fill(
                 child: ClipRect(
-                  clipper: _RoomEffectsClipper(_overlayKey, _effectsViewportKey, _effectsLayout),
+                  clipper: _RoomEffectsClipper(_foregroundBarsHeight, _effectsLayout),
                   child: IgnorePointer(
                   child: AnimatedOpacity(
                     duration: const Duration(milliseconds: 400),
@@ -5693,7 +5697,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             // ===== Gift flight overlay (above seats, below foreground bars) =====
             Positioned.fill(
               child: ClipRect(
-                clipper: _RoomEffectsClipper(_overlayKey, _effectsViewportKey, _effectsLayout),
+                clipper: _RoomEffectsClipper(_foregroundBarsHeight, _effectsLayout),
                 child: GiftAnimationOverlay(
                   socket: _giftSocket,
                   resolvePosition: _getSeatPositionByUser,
@@ -5718,7 +5722,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             if (_cpMicPair != null)
               Positioned.fill(child: IgnorePointer(child: Center(child: _cpMicCard()))),
             if (_comboLeft > 0)
-              Positioned(right: 16, bottom: _bottomBarH + 16, child: _comboCircle()),
+              // Client 7/11 20:17/21:06: bigger, in the free space at the
+              // bottom centre (on the gift cannon), never over the bar below.
+              Positioned(left: 0, right: 0, bottom: _bottomBarH + 10,
+                child: Center(child: _comboCircle())),
 
             // Bars paint above every room effect. SafeArea already offsets
             // this Stack; the Column lays the entrance below the actual bars.
@@ -7811,21 +7818,17 @@ class _RoomTopBarsRenderBox extends RenderProxyBox {
   }
 }
 
+/// Client 7/11 (02:13, 02:49): gifts and entrance clips were cut to the chat
+/// box, so only half a gift showed. They now use the whole room below the top
+/// bars (title, entrance, win strips) — those strips are never covered.
 class _RoomEffectsClipper extends CustomClipper<Rect> {
-  _RoomEffectsClipper(this.roomKey, this.chatKey, Listenable layout) : super(reclip: layout);
-  final GlobalKey roomKey;
-  final GlobalKey chatKey;
+  _RoomEffectsClipper(this.topInset, Listenable layout)
+      : super(reclip: Listenable.merge([layout, topInset]));
+  final ValueListenable<double> topInset;
 
   @override
-  Rect getClip(Size size) {
-    final room = roomKey.currentContext?.findRenderObject();
-    final chat = chatKey.currentContext?.findRenderObject();
-    if (room is! RenderBox || chat is! RenderBox || !chat.hasSize || !chat.attached) {
-      return Rect.zero;
-    }
-    return (chat.localToGlobal(Offset.zero, ancestor: room) & chat.size)
-        .intersect(Offset.zero & size);
-  }
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(0, topInset.value.clamp(0.0, size.height), size.width, size.height);
 
   @override
   bool shouldReclip(covariant _RoomEffectsClipper oldClipper) => true;

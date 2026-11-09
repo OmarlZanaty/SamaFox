@@ -355,7 +355,11 @@ class CpActivatedPopup {
         ),
       ),
     );
-    Overlay.of(context, rootOverlay: true).insert(entry);
+    // The socket event can arrive while no overlay is mounted (crash reports
+    // 6–9/11: Null check in Overlay.of).
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    overlay.insert(entry);
     await Future<void>.delayed(const Duration(milliseconds: 3200));
     entry.remove();
   }

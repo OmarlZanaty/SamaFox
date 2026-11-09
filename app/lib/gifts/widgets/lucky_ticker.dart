@@ -129,57 +129,66 @@ class _LuckyTickerState extends State<LuckyTicker> {
               child: child,
             ),
           ),
+          // Client 7/11 (reference 21/10): the teal «مبروك … ربح … عملة في
+          // الهدية المحظوظة» card with the big gold «N x / مرات» — every room.
           child: Container(
             key: ValueKey(e.rollId),
-            height: 30,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            height: 54,
+            margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.55),
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: tint.withOpacity(0.7)),
+              gradient: const LinearGradient(
+                begin: Alignment.centerRight,
+                end: Alignment.centerLeft,
+                colors: [Color(0xFF17809A), Color(0xFF1FA6BE), Color(0xFF136E86)],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
+              boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 2))],
             ),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('🎲', style: TextStyle(fontSize: 13)),
-                const SizedBox(width: 6),
-                ClipOval(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: (e.senderAvatarUrl == null ||
-                            e.senderAvatarUrl!.isEmpty)
-                        ? Container(color: Colors.white24)
-                        : AppNetworkImage(e.senderAvatarUrl!,
-                            width: 20,
-                            height: 20,
-                            fit: BoxFit.cover,
-                            cacheWidth: 48),
+                Container(
+                  padding: const EdgeInsets.all(1.5),
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                  child: ClipOval(
+                    child: SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: (e.senderAvatarUrl == null || e.senderAvatarUrl!.isEmpty)
+                          ? Container(color: Colors.white24, child: const Icon(Icons.person, color: Colors.white70))
+                          : AppNetworkImage(e.senderAvatarUrl!, width: 36, height: 36, fit: BoxFit.cover, cacheWidth: 80),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Flexible(
+                const SizedBox(width: 8),
+                Expanded(
                   child: Text(
-                    tr('${e.senderName ?? tr('مستخدم', 'User')} كسب ',
-                        '${e.senderName ?? tr('مستخدم', 'User')} won '),
-                    maxLines: 1,
+                    tr('مبروك ${e.senderName ?? 'مستخدم'} ربح ${_short(e.payoutCoins)} عملة في ${e.giftName ?? 'الهدية المحظوظة'}',
+                        'Congrats ${e.senderName ?? 'User'}: won ${_short(e.payoutCoins)} coins on ${e.giftName ?? 'the lucky gift'}'),
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700, height: 1.25),
                   ),
                 ),
-                Text(
-                  '×${e.multiplier}',
-                  style: TextStyle(
-                      color: tint, fontSize: 14, fontWeight: FontWeight.w900),
-                ),
                 const SizedBox(width: 6),
-                Text(
-                  '${e.payoutCoins} 🪙',
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.85), fontSize: 11),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ShaderMask(
+                      blendMode: BlendMode.srcIn,
+                      shaderCallback: (r) => const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFFFFF6B0), Color(0xFFFFC93C), Color(0xFFB8740F)],
+                      ).createShader(r),
+                      child: Text('${e.multiplier}x',
+                          textDirection: TextDirection.ltr,
+                          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, height: 1)),
+                    ),
+                    Text(tr('مرات', 'Times'),
+                        style: TextStyle(color: tint == const Color(0xFF7C4DFF) ? const Color(0xFFFFE08A) : tint, fontSize: 10, fontWeight: FontWeight.w800)),
+                  ],
                 ),
               ],
             ),
@@ -188,4 +197,10 @@ class _LuckyTickerState extends State<LuckyTicker> {
       ),
     );
   }
+}
+
+String _short(int n) {
+  if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(n % 1000000 == 0 ? 0 : 2)}M';
+  if (n >= 1000) return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 2)}K';
+  return '$n';
 }

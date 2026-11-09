@@ -330,6 +330,9 @@ class _OlympusScreenState extends ConsumerState<OlympusScreen> {
 
   /// Replays one fully-resolved spin, frame by frame.
   Future<void> _playSpin(OlympusSpin spin) async {
+    // The spin can resolve after the player left the game (crash reports
+    // 6–9/11: "Null check operator" in State.context).
+    if (!mounted) return;
     // Captured before the first await: every banner below lands after one.
     final s = OlympusStrings.of(context);
     setState(() {

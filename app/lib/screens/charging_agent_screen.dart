@@ -192,10 +192,14 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                                         // matching the backend. A plain member
                                         // used to be offered the charge sheet and
                                         // got a 403 the moment he used it.
-                                        isAgencyAdmin: isSystemAdmin ||
-                                            myRoles[agency.id] == 'OWNER' ||
+                                        // Client 7/11: tapping SOMEONE ELSE's
+                                        // agency showed my own charge sheet
+                                        // (a system admin counted as its
+                                        // agent). Only its own agent/branch
+                                        // gets the seller sheet now.
+                                        isAgencyAdmin: myRoles[agency.id] == 'OWNER' ||
                                             myRoles[agency.id] == 'BRANCH',
-                                        isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
+                                        isOwner: myRoles[agency.id] == 'OWNER',
                                       ),
                                     );
                             },
@@ -224,8 +228,8 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                                         context,
                                         ref,
                                         agency,
-                                        isAgencyAdmin: isSystemAdmin || myRoles.containsKey(agency.id),
-                                        isOwner: isSystemAdmin || myRoles[agency.id] == 'OWNER',
+                                        isAgencyAdmin: myRoles.containsKey(agency.id),
+                                        isOwner: myRoles[agency.id] == 'OWNER',
                                       ),
                                     );
                             },

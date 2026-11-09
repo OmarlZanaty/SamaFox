@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../services/socket_service.dart';
 import 'seat_card.dart';
 import 'cp_seat_effect.dart' show CpEffectPair;
-import '../../l10n/tr.dart';
 
 /// The mic grid.
 ///
@@ -214,29 +213,34 @@ class SeatsGrid extends StatelessWidget {
                 fit: StackFit.passthrough,
                 clipBehavior: Clip.none,
                 children: [
+                  grid,
+                  // Client 7/11: no frame over the two mics — a small CP-level
+                  // heart sitting between the two partners, sized to them.
                   for (final pair in neighbourLinks)
                     Positioned(
-                      left: _pairLeft(pair, solved.columns, solved.seatSize, safeCount, box.width),
+                      left: _pairLeft(pair, solved.columns, solved.seatSize, safeCount, box.width) +
+                          solved.seatSize + _spacing / 2 - solved.seatSize * 0.26,
                       top: ((pair.seatA - 1) ~/ solved.columns) *
-                          (solved.seatSize + _labelHeight + _spacing),
-                      width: solved.seatSize * 2 + _spacing,
-                      height: solved.seatSize + _labelHeight,
-                      child: IgnorePointer(child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: Colors.pinkAccent.withOpacity(.6)),
-                          gradient: const LinearGradient(colors: [Color(0x304D2787), Color(0x30E84393)]),
-                        ),
-                        alignment: Alignment.bottomCenter,
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        child: SizedBox(height: 14, child: FittedBox(fit: BoxFit.scaleDown,
-                          child: Text(tr('♥ CP مستوى ${pair.link.level} ♥', '♥ CP LV ${pair.link.level} ♥'),
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.pinkAccent, fontSize: 11))),
-                        ),
-                      )),
+                              (solved.seatSize + _labelHeight + _spacing) +
+                          solved.seatSize * 0.22,
+                      width: solved.seatSize * 0.52,
+                      height: solved.seatSize * 0.52,
+                      child: IgnorePointer(
+                        child: Stack(alignment: Alignment.center, children: [
+                          Icon(Icons.favorite, size: solved.seatSize * 0.52,
+                              color: const Color(0xFFFF2D87),
+                              shadows: const [Shadow(color: Color(0xAAFF4FA3), blurRadius: 8)]),
+                          Padding(
+                            padding: EdgeInsets.only(bottom: solved.seatSize * 0.05),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('${pair.link.level}',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
+                            ),
+                          ),
+                        ]),
+                      ),
                     ),
-                  grid,
                 ],
               );
 

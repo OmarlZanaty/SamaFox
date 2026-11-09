@@ -420,8 +420,12 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
                           )
                         else ...[
                           _historyBar(state),
-                          const SizedBox(height: 4),
-                          _topSlot(state),
+                          // Client 6/11: inside the room (a ~480px canvas) the
+                          // slot box ate the wheel's space; the wheel comes first.
+                          if (MediaQuery.of(context).size.height >= 560) ...[
+                            const SizedBox(height: 4),
+                            _topSlot(state),
+                          ],
                         ],
                         Expanded(
                           child: Padding(
@@ -657,7 +661,8 @@ class _CrazyWheelScreenState extends ConsumerState<CrazyWheelScreen>
         // The room sheet is nearly square, so there the stage is short and a
         // full-width disc would show only a sliver of its middle; capping the
         // diameter keeps the flapper and the hub in frame.
-        final diameter = min(constraints.maxWidth, available * 1.45);
+        // A short stage (the room sheet) crops harder so the wheel still reads big.
+        final diameter = min(constraints.maxWidth, available * (available < 220 ? 2.4 : 1.45));
 
         // Park the hub a little below the middle of the visible window: that
         // keeps the countdown whole and the flapper in frame, and spends the
