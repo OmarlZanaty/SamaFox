@@ -1,0 +1,60 @@
+# Release AAB on GitHub's runner (16 GB RAM) instead of the dev PC.
+# Trigger: push a tag `aab-v*` (any branch), or run manually from the default branch.
+# Secrets (set once, from the local files — never in the repo):
+#   ANDROID_KEYSTORE_B64   base64 of app/android/samafox-key.jks
+#   ANDROID_KEY_PROPERTIES contents of app/android/key.properties
+#   GOOGLE_SERVICES_JSON   contents of app/android/app/google-services.json
+#   TURN_ENV               contents of app/turn.env
+name: Android AAB
+
+on:
+  push:
+    tags: ['aab-v*']
+  workflow_dispatch:
+
+jobs:
+  aab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - name: Write signing and config files
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEY_PROPERTIES: ${{ secrets.ANDROID_KEY_PROPERTIES }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          TURN_ENV: ${{ secrets.TURN_ENV }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > android/samafox-key.jks
+          printf '%s\n' "$KEY_PROPERTIES" | tr -d '\r' > android/key.properties
+          printf '%s\n' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          printf '%s\n' "$TURN_ENV" | tr -d '\r' > turn.env
+
+      - run: flutter pub get
+
+      - run: bash build-release.sh appbundle
+
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f android/samafox-key.jks android/key.properties android/app/google-services.json turn.env
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aab-${{ github.ref_name }}
+          path: app/build/app/outputs/bundle/release/app-release.aab
+          retention-days: 3
