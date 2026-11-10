@@ -5722,10 +5722,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             if (_cpMicPair != null)
               Positioned.fill(child: IgnorePointer(child: Center(child: _cpMicCard()))),
             if (_comboLeft > 0)
-              // Client 7/11 20:17/21:06: bigger, in the free space at the
-              // bottom centre (on the gift cannon), never over the bar below.
-              Positioned(left: 0, right: 0, bottom: _bottomBarH + 10,
-                child: Center(child: _comboCircle())),
+              // Client 7/11 20:17/21:06: bigger, never over the bar below.
+              // Bottom right, so the gift cannon at bottom centre stays visible.
+              Positioned(right: 14, bottom: _bottomBarH + 10,
+                child: _comboCircle()),
 
             // Bars paint above every room effect. SafeArea already offsets
             // this Stack; the Column lays the entrance below the actual bars.

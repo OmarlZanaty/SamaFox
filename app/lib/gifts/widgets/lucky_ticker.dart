@@ -200,7 +200,11 @@ class _LuckyTickerState extends State<LuckyTicker> {
 }
 
 String _short(int n) {
-  if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(n % 1000000 == 0 ? 0 : 2)}M';
-  if (n >= 1000) return '${(n / 1000).toStringAsFixed(n % 1000 == 0 ? 0 : 2)}K';
+  String f(double v) {
+    final s = v.toStringAsFixed(1);
+    return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+  }
+  if (n >= 1000000) return '${f(n / 1000000)}M';
+  if (n >= 1000) return '${f(n / 1000)}K';
   return '$n';
 }

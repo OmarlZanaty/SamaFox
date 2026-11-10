@@ -464,7 +464,18 @@ class _AggregateDimLayer extends StatelessWidget {
         if (maxIntensity <= 0.01) return const SizedBox.shrink();
         return Positioned.fill(
           child: IgnorePointer(
-            child: Container(color: Colors.black.withOpacity(maxIntensity)),
+            // Fade in over the first stretch so the dim has no hard line
+            // under the top bars it is clipped to.
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0, 0.15],
+                  colors: [Colors.transparent, Colors.black.withOpacity(maxIntensity)],
+                ),
+              ),
+            ),
           ),
         );
       },
