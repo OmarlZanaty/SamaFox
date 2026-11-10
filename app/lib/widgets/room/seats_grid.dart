@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/socket_service.dart';
 import 'seat_card.dart';
-import 'cp_seat_effect.dart' show CpEffectPair;
+import 'cp_seat_effect.dart' show CpEffectPair, CpSeatEffectLayer;
 
 /// The mic grid.
 ///
@@ -213,34 +213,17 @@ class SeatsGrid extends StatelessWidget {
                 fit: StackFit.passthrough,
                 clipBehavior: Clip.none,
                 children: [
+                  // Client 10/11 16:10 «القلب ثلاثي الأبعاد راح فين»: the turning
+                  // 3D heart is back, sized to the two partner mics (7/11:
+                  // «صغره … محكوم علي اد المايكين»), behind the seats.
+                  Positioned.fill(child: IgnorePointer(child: CpSeatEffectLayer(
+                    pairs: neighbourLinks, seatKeys: seatKeys, seatSize: solved.seatSize))),
                   grid,
-                  // Client 7/11: no frame over the two mics — a small CP-level
-                  // heart sitting between the two partners, sized to them.
-                  for (final pair in neighbourLinks)
-                    Positioned(
-                      left: _pairLeft(pair, solved.columns, solved.seatSize, safeCount, box.width) +
-                          solved.seatSize + _spacing / 2 - solved.seatSize * 0.26,
-                      top: ((pair.seatA - 1) ~/ solved.columns) *
-                              (solved.seatSize + _labelHeight + _spacing) +
-                          solved.seatSize * 0.22,
-                      width: solved.seatSize * 0.52,
-                      height: solved.seatSize * 0.52,
-                      child: IgnorePointer(
-                        child: Stack(alignment: Alignment.center, children: [
-                          Icon(Icons.favorite, size: solved.seatSize * 0.52,
-                              color: const Color(0xFFFF2D87),
-                              shadows: const [Shadow(color: Color(0xAAFF4FA3), blurRadius: 8)]),
-                          Padding(
-                            padding: EdgeInsets.only(bottom: solved.seatSize * 0.05),
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text('${pair.link.level}',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
-                            ),
-                          ),
-                        ]),
-                      ),
-                    ),
+                  // The pair's CP level on the heart's cusp, in front. Placed from
+                  // the measured seats: the old fixed left-to-right maths put an
+                  // RTL row's badges on the wrong pairs (16:39 «معكوس»).
+                  Positioned.fill(child: IgnorePointer(child: CpSeatEffectLayer(
+                    pairs: neighbourLinks, seatKeys: seatKeys, seatSize: solved.seatSize, badgesOnly: true))),
                 ],
               );
 
@@ -261,14 +244,6 @@ class SeatsGrid extends StatelessWidget {
         );
       },
     );
-  }
-
-  double _pairLeft(CpEffectPair pair, int columns, double size, int count, double width) {
-    final first = pair.seatA < pair.seatB ? pair.seatA : pair.seatB;
-    final row = (first - 1) ~/ columns;
-    final rowCount = (count - row * columns).clamp(0, columns);
-    return (width - rowCount * (size + _spacing)) / 2 +
-        ((first - 1) % columns) * (size + _spacing) + _spacing / 2;
   }
 
   Widget _seat(int seatNumber, double seatSize) {

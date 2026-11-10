@@ -28,11 +28,18 @@ class CpSeatEffectLayer extends StatefulWidget {
     required this.pairs,
     required this.seatKeys,
     required this.seatSize,
+    this.badgesOnly = false,
   });
 
   final List<CpEffectPair> pairs;
   final Map<int, GlobalKey> seatKeys;
   final double seatSize;
+
+  /// The grid mounts this twice: the heart BEHIND the seats, and with
+  /// [badgesOnly] the CP-level badge IN FRONT of them, both from the same
+  /// measured seat positions (so RTL rows never swap the badges — client
+  /// 10/11 16:39 «الليفل الأصلي معكوس»).
+  final bool badgesOnly;
 
   @override
   State<CpSeatEffectLayer> createState() => _CpSeatEffectLayerState();
@@ -118,6 +125,12 @@ class _CpSeatEffectLayerState extends State<CpSeatEffectLayer> with SingleTicker
       if (widget.pairs.isNotEmpty) _scheduleMeasure();
       return const SizedBox.expand();
     }
+    if (widget.badgesOnly) {
+      return CustomPaint(
+        size: Size.infinite,
+        painter: _LevelBadgePainter(specs: visible, seatSize: widget.seatSize),
+      );
+    }
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: _ctrl,
@@ -183,11 +196,14 @@ class _HeartPainter extends CustomPainter {
     final tau = 2 * math.pi;
     final mid = Offset((s.a.dx + s.b.dx) / 2, (s.a.dy + s.b.dy) / 2);
     final span = (s.a - s.b).distance;
-    // Big enough that each avatar sits inside one lobe of the heart.
-    final w = span + seatSize * 1.75;
-    final h = w * 0.9;
-    // The lobes are in the upper half of the curve, so drop the centre a little.
-    final centre = mid + Offset(0, h * 0.12);
+    // Client 7/11: «صغره خليه محكوم علي اد المايكين» — the heart spans the two
+    // partner mics only (each avatar in one lobe) and ends inside their name
+    // labels, never on the row below. It was span + 1.75 seats wide and
+    // 0.9× that tall.
+    final w = span * 2.0;
+    final h = math.min(w * 0.85, seatSize * 1.35);
+    // Lobes sit ~0.17h above the curve's centre: put them on the avatars.
+    final centre = mid + Offset(0, h * 0.17);
 
     // 3D: a slow turn about the vertical axis (x squash) with a pulse.
     final turn = math.sin(phase * tau);
@@ -248,7 +264,7 @@ class _HeartPainter extends CustomPainter {
     // Light pulses: heart outlines expanding outwards and fading.
     for (var k = 0; k < 2; k++) {
       final p = ((phase * 2) + k * 0.5) % 1.0;
-      final ring = _heartPath(centre, ww * (1 + p * 0.28), hh * (1 + p * 0.28), squash);
+      final ring = _heartPath(centre, ww * (1 + p * 0.12), hh * (1 + p * 0.12), squash);
       canvas.drawPath(
         ring,
         Paint()
@@ -280,9 +296,8 @@ class _HeartPainter extends CustomPainter {
       }
     }
 
-    // Crystal accents at the top cusp and the tip.
-    _crystal(canvas, Offset(centre.dx, bounds.top + hh * 0.2), 5.5 + 1.5 * math.sin(phase * tau * 2), phase);
-    _crystal(canvas, Offset(centre.dx, bounds.bottom), 7 + 2 * math.sin(phase * tau * 2 + 1), phase);
+    // Crystal accent at the tip (the top cusp carries the level badge).
+    _crystal(canvas, Offset(centre.dx, bounds.bottom), 4.5 + 1.5 * math.sin(phase * tau * 2 + 1), phase);
   }
 
   void _crystal(Canvas canvas, Offset c, double r, double phase) {
@@ -314,4 +329,43 @@ class _HeartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _HeartPainter old) => true;
+}
+
+/// The pair's CP level: a small pink heart with the number, on the heart's
+/// top cusp between the two avatars. Painted in front of the seats.
+class _LevelBadgePainter extends CustomPainter {
+  _LevelBadgePainter({required this.specs, required this.seatSize});
+  final List<_HeartSpec> specs;
+  final double seatSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final s in specs) {
+      final mid = Offset((s.a.dx + s.b.dx) / 2, (s.a.dy + s.b.dy) / 2);
+      final d = (seatSize * 0.46).clamp(16.0, 26.0);
+      final c = mid - Offset(0, seatSize * 0.28);
+      final heart = _HeartPainter(specs: const [], t: 0, seatSize: seatSize)._heartPath(c, d, d, 1);
+      canvas.drawPath(heart, Paint()
+        ..color = const Color(0xAAFF4FA3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+      canvas.drawPath(heart, Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [Color(0xFFFF7AB8), Color(0xFFE0186C)],
+        ).createShader(heart.getBounds()));
+      canvas.drawPath(heart, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.1
+        ..color = const Color(0xFFFFD36E));
+      final tp = TextPainter(
+        text: TextSpan(text: '${s.level}', style: TextStyle(
+          color: Colors.white, fontWeight: FontWeight.w900, fontSize: d * 0.42, height: 1)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2 + d * 0.06));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LevelBadgePainter old) => true;
 }
