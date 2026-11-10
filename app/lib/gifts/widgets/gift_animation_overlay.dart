@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/device_tier.dart';
@@ -30,10 +31,15 @@ class GiftAnimationOverlay extends StatefulWidget {
     super.key,
     required this.socket,
     required this.resolvePosition,
+    this.bannersTop,
   });
 
   final GiftSocketService socket;
   final Offset Function(int userId) resolvePosition;
+
+  /// Height of the room's top bars. The effects cover the whole screen, but
+  /// the VIP and cross-room banners are laid out just below the bars.
+  final ValueListenable<double>? bannersTop;
 
   @override
   State<GiftAnimationOverlay> createState() => _GiftAnimationOverlayState();
@@ -324,15 +330,28 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
             ),
 
           // VIP banner — explicitly above everything else in this overlay.
-          for (final v in _vipBursts)
-            _VipBanner(key: ValueKey('vip-banner-${v.id}'), event: v.event),
+          if (_vipBursts.isNotEmpty)
+            _belowBars(Stack(children: [
+              for (final v in _vipBursts)
+                _VipBanner(key: ValueKey('vip-banner-${v.id}'), event: v.event),
+            ])),
 
         ],
       ),
         ),
         // Cross-room broadcasts — tappable: «هل تريد الانتقال إلى هذه الغرفة؟».
-        BroadcastBannerLayer(socket: widget.socket),
+        _belowBars(Stack(children: [BroadcastBannerLayer(socket: widget.socket)])),
       ],
+    );
+  }
+
+  Widget _belowBars(Widget child) {
+    final top = widget.bannersTop;
+    if (top == null) return Positioned.fill(child: child);
+    return ValueListenableBuilder<double>(
+      valueListenable: top,
+      builder: (_, h, c) => Positioned.fill(top: h, child: c!),
+      child: MediaQuery.removePadding(context: context, removeTop: true, child: child),
     );
   }
 }
@@ -392,19 +411,12 @@ class _FullscreenVideoGift extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // SPEC52 #24 — the mics stay visible: a centred area of at most 70%
-        // of the screen height and no opaque backdrop, unless the gift is
-        // configured «fullscreen» in the dashboard.
+        // Client 10/11 16:00: «عاوزينها زي ما بضيفها» — a full-screen clip
+        // fills the screen, a half-screen clip plays on the bottom half rising
+        // up (AsUploadedVideo). No fixed 70% box. The dark backdrop stays only
+        // for gifts set «fullscreen» in the dashboard.
         if (fullscreen) Container(color: Colors.black.withOpacity(0.72)),
-        if (fullscreen)
-          GiftPlayer(gift: gift, onComplete: onDone, onError: onDone)
-        else
-          Center(
-            child: FractionallySizedBox(
-              heightFactor: 0.7,
-              child: GiftPlayer(gift: gift, onComplete: onDone, onError: onDone),
-            ),
-          ),
+        GiftPlayer(gift: gift, onComplete: onDone, onError: onDone, asUploaded: true),
         if (senderName.isNotEmpty || recipientName.isNotEmpty)
           Positioned(
             left: 16,

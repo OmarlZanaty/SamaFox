@@ -11,11 +11,14 @@ class GiftPlayer extends StatelessWidget {
     required this.gift,
     required this.onComplete,
     this.onError,
+    this.asUploaded = false,
   });
 
   final Gift gift;
   final VoidCallback onComplete;
   final VoidCallback? onError;
+  /// Video only: play at the clip's own size (see AsUploadedVideo).
+  final bool asUploaded;
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +34,7 @@ class GiftPlayer extends StatelessWidget {
           gift: gift,
           onComplete: onComplete,
           onError: onError,
+          asUploaded: asUploaded,
         );
     }
   }

@@ -15,11 +15,15 @@ class VideoGiftPlayer extends StatefulWidget {
     required this.gift,
     required this.onComplete,
     this.onError,
+    this.asUploaded = false,
   });
 
   final Gift gift;
   final VoidCallback onComplete;
   final VoidCallback? onError;
+
+  /// Client 10/11 16:00: play the clip at its own size — see [AsUploadedVideo].
+  final bool asUploaded;
 
   @override
   State<VideoGiftPlayer> createState() => _VideoGiftPlayerState();
@@ -30,6 +34,45 @@ class VideoGiftPlayer extends StatefulWidget {
 
   /// Gift players alive right now, for the memory breadcrumb.
   static int liveCount = 0;
+}
+
+/// A gift / entrance clip «زي ما بضيفها» (client 10/11 16:00): full screen
+/// width at its own aspect. A clip that is (nearly) screen-tall fills the
+/// whole screen; a shorter one — a half-screen clip — sits on the bottom edge
+/// and rises from the bottom. Never a fixed two-thirds box, never cropped
+/// beyond the edges of a full-screen clip.
+class AsUploadedVideo extends StatelessWidget {
+  const AsUploadedVideo({super.key, required this.size, required this.child});
+  final Size size;
+  final Widget child;
+
+  /// A clip at least this share of the screen tall counts as full screen.
+  static const double fullScreenShare = 0.75;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, box) {
+      final w = box.maxWidth, h = box.maxHeight;
+      if (size.width <= 0 || size.height <= 0 || !w.isFinite || !h.isFinite) {
+        return const SizedBox.shrink();
+      }
+      final clipH = w * size.height / size.width;
+      final sized = SizedBox(width: size.width, height: size.height, child: child);
+      if (clipH >= h * fullScreenShare) {
+        return SizedBox.expand(child: FittedBox(fit: BoxFit.cover, child: sized));
+      }
+      return Align(
+        alignment: Alignment.bottomCenter,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 1, end: 0),
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeOutCubic,
+          builder: (_, v, c) => Transform.translate(offset: Offset(0, v * clipH), child: c),
+          child: SizedBox(width: w, height: clipH, child: FittedBox(fit: BoxFit.fill, child: sized)),
+        ),
+      );
+    });
+  }
 }
 
 class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingObserver {
@@ -193,6 +236,9 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
     final c = _controller;
     if (c == null || !_initialized) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (widget.asUploaded) {
+      return AsUploadedVideo(size: c.value.size, child: VideoPlayer(c));
     }
     return SizedBox.expand(
       child: FittedBox(

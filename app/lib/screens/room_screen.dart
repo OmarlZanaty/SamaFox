@@ -69,6 +69,7 @@ import '../gifts/services/gift_socket_service.dart';
 import '../gifts/models/gift.dart' show GiftSendEvent;
 import '../gifts/widgets/gift_picker_sheet.dart';
 import '../gifts/widgets/gift_animation_overlay.dart';
+import '../gifts/widgets/video_gift_player.dart' show AsUploadedVideo;
 import 'dart:ui';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -76,7 +77,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, ValueListenable;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../repositories/message_repository.dart';
 import '../repositories/room_repository.dart';
 import '../repositories/user_repository.dart';
@@ -5624,34 +5625,22 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
             // ===== مركبة الدخول — same layer as the gifts, above the mics =====
 // ===== Seat video overlay =====
+            // Client 10/11 16:00: the entrance plays at its own size over the
+            // whole screen (a half clip on the bottom half rising up, a full
+            // clip full screen). It used to be clipped to below the top-bars
+            // block and cropped with BoxFit.cover — about two thirds of the
+            // screen. The bars are painted after this, so they stay on top.
             if (_showSeatVideo && _seatVideoController != null)
               Positioned.fill(
-                child: ClipRect(
-                  clipper: _RoomEffectsClipper(_foregroundBarsHeight, _effectsLayout),
-                  child: IgnorePointer(
+                child: IgnorePointer(
                   child: AnimatedOpacity(
                     duration: const Duration(milliseconds: 400),
                     opacity: _showSeatVideo ? 1 : 0,
-                    child: TweenAnimationBuilder<double>(
-                      duration: const Duration(milliseconds: 600),
-                      tween: Tween(begin: 1.2, end: 1.0), // 🔥 zoom out effect
-                      builder: (context, scale, child) {
-                        return Transform.scale(
-                          scale: scale,
-                          child: child,
-                        );
-                      },
-                      child: FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: _seatVideoController!.value.size.width,
-                          height: _seatVideoController!.value.size.height,
-                          child: VideoPlayer(_seatVideoController!),
-                        ),
-                      ),
+                    child: AsUploadedVideo(
+                      size: _seatVideoController!.value.size,
+                      child: VideoPlayer(_seatVideoController!),
                     ),
                   ),
-                ),
                 ),
               ),
 
@@ -5696,14 +5685,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               ),
             ),
 
-            // ===== Gift flight overlay (above seats, below foreground bars) =====
+            // ===== Gift overlay (above seats, below the bars painted later).
+            // Full screen, not clipped under the top bars (client 10/11 16:00).
             Positioned.fill(
-              child: ClipRect(
-                clipper: _RoomEffectsClipper(_foregroundBarsHeight, _effectsLayout),
-                child: GiftAnimationOverlay(
-                  socket: _giftSocket,
-                  resolvePosition: _getSeatPositionByUser,
-                ),
+              child: GiftAnimationOverlay(
+                socket: _giftSocket,
+                resolvePosition: _getSeatPositionByUser,
+                bannersTop: _foregroundBarsHeight,
               ),
             ),
 
@@ -7824,22 +7812,6 @@ class _RoomTopBarsRenderBox extends RenderProxyBox {
       if (attached) onHeight(size.height);
     });
   }
-}
-
-/// Client 7/11 (02:13, 02:49): gifts and entrance clips were cut to the chat
-/// box, so only half a gift showed. They now use the whole room below the top
-/// bars (title, entrance, win strips) — those strips are never covered.
-class _RoomEffectsClipper extends CustomClipper<Rect> {
-  _RoomEffectsClipper(this.topInset, Listenable layout)
-      : super(reclip: Listenable.merge([layout, topInset]));
-  final ValueListenable<double> topInset;
-
-  @override
-  Rect getClip(Size size) =>
-      Rect.fromLTRB(0, topInset.value.clamp(0.0, size.height), size.width, size.height);
-
-  @override
-  bool shouldReclip(covariant _RoomEffectsClipper oldClipper) => true;
 }
 
 class _Recipient {
