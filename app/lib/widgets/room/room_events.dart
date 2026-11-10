@@ -733,8 +733,9 @@ class _RoomPkBarState extends State<RoomPkBar> {
     final id = (d['pkId'] ?? d['id'])?.toString();
     if (id != null && !_shownResults.add(id)) return;
     if (d['status'] == 'CANCELLED') return;
-    // The root navigator's context: this bar shrinks to nothing right now.
-    final ctx = navigatorKey.currentContext ?? (mounted ? context : null);
+    // The bar's own context (it stays mounted, only shrinks): the room may sit
+    // above the root navigator, where a dialog would open hidden behind it.
+    final ctx = mounted ? context : navigatorKey.currentContext;
     if (ctx != null) showPkWinner(ctx, d, people);
   }
 
