@@ -586,7 +586,7 @@ class RoomPkButton extends StatelessWidget {
                     controller: opp,
                     keyboardType: TextInputType.number,
                     style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(labelText: tr('رقم الغرفة المنافسة', "Opponent room ID"), labelStyle: const TextStyle(color: Colors.white54)),
+                    decoration: InputDecoration(labelText: tr('ID الغرفة المنافسة (اللي ظاهر فوق في الغرفة)', "Opponent room ID (shown at the top of the room)"), labelStyle: const TextStyle(color: Colors.white54)),
                   ),
                 ] else ...[
                   _pick(tr('اللاعب المشارك من غرفتك', "Your player"), a, (v) => set(() => a = v)),

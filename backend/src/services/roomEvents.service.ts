@@ -246,6 +246,14 @@ async function reservePk(tx: any, pk: any, cfg: any, userId: number) {
   }
   for (const id of new Set<number>([pk.room1Id, pk.room2Id])) await tx.pkRoomLock.create({ data: { roomId: id, pkId: pk.id } });
 }
+/** The number people see on a room = its owner's displayId (or the room id when the owner has none). */
+export async function resolveRoomByShownId(tx: any, shown: number) {
+  const byOwner = await tx.room.findFirst({
+    where: { owner: { displayId: shown } },
+    orderBy: [{ isActive: 'desc' }, { id: 'desc' }],
+  });
+  return byOwner ?? await tx.room.findUnique({ where: { id: shown } });
+}
 export async function startPk(userId: number, raw: any) {
   const roomId = integer(raw.roomId);
   const p: any = await eventTransaction(async tx => {
@@ -255,8 +263,11 @@ export async function startPk(userId: number, raw: any) {
     const durationSec = pkDurationSec(raw.durationSec, cfg);
     if (!['ROOM', 'GLOBAL'].includes(raw.type)) throw new RoomEventError('نوع PK غير صالح');
     const global = raw.type === 'GLOBAL';
-    const room2Id = global ? integer(raw.opponentRoomId) : roomId;
-    const opponent = await tx.room.findUnique({ where: { id: room2Id } });
+    // Client 10/11 «رقم الغرفة غير صحيح»: the room header shows the OWNER's
+    // ID (room_screen roomIdLabel), so the typed number is resolved as that
+    // first and only then as the internal room id.
+    const opponent = global ? await resolveRoomByShownId(tx, integer(raw.opponentRoomId)) : room;
+    const room2Id: number = opponent?.id ?? roomId;
     if (global && room2Id === roomId) throw new RoomEventError('لا يمكن تحدي نفس الغرفة');
     if (!opponent) throw new RoomEventError('رقم الغرفة غير صحيح', 404);
     if (!opponent.isActive) throw new RoomEventError('الغرفة المنافسة مغلقة');
