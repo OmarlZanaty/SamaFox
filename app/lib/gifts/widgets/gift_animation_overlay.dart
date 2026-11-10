@@ -510,7 +510,8 @@ class _AggregateDimLayer extends StatelessWidget {
 /// at assets/images/room/gift_cannon.png when present, else a drawn barrel.
 class _GiftCannon extends StatelessWidget {
   const _GiftCannon();
-  static const double width = 78, height = 104, bottomGap = 74;
+  // The client's cannon art (10/11) is 293×420: keep its proportions.
+  static const double width = 80, height = 115, bottomGap = 74;
 
   static Offset mouth(Size screen, double safeBottom) =>
       Offset(screen.width / 2, screen.height - safeBottom - bottomGap - height + 8);
