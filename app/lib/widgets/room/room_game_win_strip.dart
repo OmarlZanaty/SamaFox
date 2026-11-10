@@ -27,9 +27,11 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
   @override
   void initState() {
     super.initState();
-    _sub = RoomGameWins.stream.listen((w) {
-      if (w.roomId == widget.roomId) _push(w);
-    });
+    // Client 10/11 16:07: the slot between the room header and the mics sat
+    // empty — it only showed wins made in THIS room. Like the lucky-win bar
+    // it now carries every game win in the app (server: game_win_broadcast),
+    // sliding in and out. `_seen` drops the room copy of the same win.
+    _sub = RoomGameWins.stream.listen(_push);
     _loadRecent();
   }
 
@@ -49,7 +51,7 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
     final room = widget.roomId;
     try {
       final res = await DioClient.dio.get('/games/wins/recent',
-          queryParameters: {'roomId': room, 'limit': 3});
+          queryParameters: {'limit': 3});
       if (!mounted || widget.roomId != room) return;
       final list =
           (res.data is Map ? res.data['data'] : null) as List? ?? const [];
@@ -88,7 +90,12 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
     return SizedBox(
         height: RoomGameWinStrip.height,
         child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 350),
+            duration: const Duration(milliseconds: 450),
+            // Comes in from the side and leaves the other way (client 7/11 02:41).
+            transitionBuilder: (child, anim) => SlideTransition(
+                position: Tween<Offset>(begin: const Offset(1.1, 0), end: Offset.zero)
+                    .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                child: FadeTransition(opacity: anim, child: child)),
             child: w == null
                 ? const SizedBox.shrink()
                 : GestureDetector(
