@@ -16,6 +16,9 @@ SeatData _seat(int n, int? uid) => SeatData(
       isLocked: false,
     );
 
+/// The grid mounts the layer twice (heart behind, badges in front); count hearts.
+final _hearts = find.byWidgetPredicate((w) => w is CpSeatEffectLayer && !w.badgesOnly);
+
 const _heart = CpSeatLink(userA: 1, userB: 2, level: 3, effectKey: 'heart3d', animationSpeed: 1, priority: 10);
 
 Widget _grid(Map<int, int?> occupants, List<CpSeatLink> links) {
@@ -49,7 +52,7 @@ void main() {
     await tester.pumpWidget(_grid({1: 1, 2: 2}, [_heart]));
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 700));
-    expect(find.byType(CpSeatEffectLayer), findsOneWidget);
+    expect(_hearts, findsOneWidget);
     await expectLater(find.byType(SeatsGrid), matchesGoldenFile('goldens/cp_heart_effect.png'));
   });
 
@@ -69,7 +72,7 @@ void main() {
   testWidgets('one partner leaves the mic → the effect goes', (tester) async {
     await tester.pumpWidget(_grid({1: 1, 2: 2}, [_heart]));
     await tester.pump(const Duration(milliseconds: 50));
-    expect(find.byType(CpSeatEffectLayer), findsOneWidget);
+    expect(_hearts, findsOneWidget);
     // The next server snapshot no longer carries the link.
     await tester.pumpWidget(_grid({1: 1, 2: null}, const []));
     await tester.pump(const Duration(milliseconds: 50));

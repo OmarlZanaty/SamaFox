@@ -46,10 +46,10 @@ class CpSeatEffectLayer extends StatefulWidget {
 }
 
 class _CpSeatEffectLayerState extends State<CpSeatEffectLayer> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2600),
-  )..repeat();
+  /// Only the heart layer animates. Created in initState, never lazily: a
+  /// lazy controller first touched in dispose() looks up TickerMode on a
+  /// deactivated element and throws (the badge layer never builds one).
+  AnimationController? _ctrl;
 
   /// Seat centres in this layer's coordinates, measured after layout.
   final Map<int, Offset> _centres = {};
@@ -60,6 +60,9 @@ class _CpSeatEffectLayerState extends State<CpSeatEffectLayer> with SingleTicker
   @override
   void initState() {
     super.initState();
+    if (!widget.badgesOnly) {
+      _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
+    }
     _scheduleMeasure();
   }
 
@@ -103,7 +106,7 @@ class _CpSeatEffectLayerState extends State<CpSeatEffectLayer> with SingleTicker
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _ctrl?.dispose();
     super.dispose();
   }
 
@@ -133,10 +136,10 @@ class _CpSeatEffectLayerState extends State<CpSeatEffectLayer> with SingleTicker
     }
     return RepaintBoundary(
       child: AnimatedBuilder(
-        animation: _ctrl,
+        animation: _ctrl!,
         builder: (_, __) => CustomPaint(
           size: Size.infinite,
-          painter: _HeartPainter(specs: visible, t: _ctrl.value, seatSize: widget.seatSize),
+          painter: _HeartPainter(specs: visible, t: _ctrl!.value, seatSize: widget.seatSize),
         ),
       ),
     );
