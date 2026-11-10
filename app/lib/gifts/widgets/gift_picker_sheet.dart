@@ -1017,9 +1017,9 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         _toast(tr('🎲 هديتك دخلت الجولة — بانتظار لاعب آخر لتبدأ المنافسة', "🎲 Your gift entered the round — waiting for another player to start"));
       } else if (lucky.won) {
         _toast(tr('🎉 كسبت ×${lucky.multiplier} على $sentCost كوينز — ${lucky.payoutCoins} كوينز رجعت لرصيدك', "🎉 You won ×${lucky.multiplier} on $sentCost coins — ${lucky.payoutCoins} coins added to your balance"));
-      } else {
-        _toast(tr('🎲 حظ أوفر المرة الجاية — ${lucky.hostCoins} كوينز راحت للمضيف', "🎲 Better luck next time — ${lucky.hostCoins} coins went to the host"), warning: true);
       }
+      // No win: nothing shown (client R10 @100: «مش عاوز جملة حظ اوفر المرة
+      // القادمه اللي بتظهر عندي دي»).
     } on GiftRepositoryException catch (e) {
       if (!mounted) return;
       _stopPendingSends();
