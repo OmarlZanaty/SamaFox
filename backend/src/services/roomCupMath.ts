@@ -16,3 +16,18 @@ export function rungDue(lastPaidAt: Date | null | undefined, hours: number, now 
   if (hours <= 0) return false; // all-time total: each rung pays once per room
   return now.getTime() - lastPaidAt.getTime() >= hours * 60 * 60 * 1000;
 }
+
+/**
+ * What crossing rung [index] adds, given every rung's reward in threshold order.
+ *
+ * Each rung's reward is the TOTAL the owner should hold at that level, not an
+ * extra on top: «دعم مليون مكافأة 30 الف، دعم 2 مليون مكافأة 60 الف» means 60k
+ * at 2M, not 30k + 60k = 90k (client 2026-11-10 19:02). So a rung pays only
+ * the difference over the best lower rung; a rung worth no more pays nothing.
+ */
+export function rungIncrement(rewards: readonly bigint[], index: number): bigint {
+  let below = 0n;
+  for (const r of rewards.slice(0, index)) if (r > below) below = r;
+  const diff = (rewards[index] ?? 0n) - below;
+  return diff > 0n ? diff : 0n;
+}

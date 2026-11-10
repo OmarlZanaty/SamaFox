@@ -56,8 +56,8 @@ export async function roomSupportTotal(roomId: number): Promise<number> {
   return Number(agg._sum?.totalCoins ?? 0);
 }
 
-export { rungDue } from './roomCupMath';
-import { rungDue } from './roomCupMath';
+export { rungDue, rungIncrement } from './roomCupMath';
+import { rungDue, rungIncrement } from './roomCupMath';
 
 /** Advisory-lock namespace for room cup payouts (one lock per room). */
 const ROOM_CUP_LOCK = 41501;
@@ -137,10 +137,12 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
     const hours = await getRoomSupportWindowHours();
     const total = await roomSupportTotal(roomId);
 
-    for (const rung of rungs) {
+    // Rewards are cumulative per level: each rung pays only what it adds.
+    const rewards = rungs.map((r: any) => BigInt(r.rewardCoins ?? 0));
+    for (const [index, rung] of rungs.entries()) {
       if (BigInt(Math.floor(total)) < BigInt(rung.thresholdCoins)) continue;
 
-      const coins = Number(rung.rewardCoins ?? 0);
+      const coins = Number(rungIncrement(rewards, index));
       if (coins <= 0) continue;
 
       const paid = await db.$transaction(async (tx: any) => {
@@ -166,7 +168,7 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
         userId: room.ownerId,
         type: 'room_cup_reward',
         title: 'مكافأة كأس الغرفة 🏆',
-        body: `تهانينا! وصل دعم غرفتك إلى ${rung.thresholdCoins} كوينز فحصلت على ${coins} كوينز`,
+        body: `تهانينا! وصل دعم غرفتك إلى ${rung.thresholdCoins} كوينز فاكتملت مكافأتك إلى ${rung.rewardCoins} كوينز (+${coins})`,
         data: { roomId, coins },
       }).catch((e) => console.warn('[roomReward] notification failed:', e));
     }
