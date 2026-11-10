@@ -255,24 +255,26 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: 36,
-            height: 36,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CircularProgressIndicator(
-                  value: p,
-                  strokeWidth: 3,
-                  color: const Color(0xFFFFB300),
-                  backgroundColor: Colors.white12,
-                ),
-                Opacity(
-                  opacity: _enabled || _rocket != null ? 1 : 0.5,
-                  child: Image.asset('assets/images/spec52/rocket.png',
-                    width: 22, height: 22, errorBuilder: (_, __, ___) => const Text('🚀', style: TextStyle(fontSize: 16))),
-                ),
-              ],
+          // Client 7/11 02:03 + 10/11 16:07 «شكل الصاروخ متغيرش»: new art in the
+          // cannon's gold/purple set, with the gift box above it, big enough to
+          // read; the fill shows as a gold bar under it.
+          Opacity(
+            opacity: _enabled || _rocket != null ? 1 : 0.5,
+            child: Image.asset('assets/images/spec52/rocket.png',
+                height: 50, fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Text('🚀', style: TextStyle(fontSize: 22))),
+          ),
+          const SizedBox(height: 2),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: SizedBox(
+              width: 32,
+              height: 4,
+              child: LinearProgressIndicator(
+                value: p,
+                color: const Color(0xFFFFB300),
+                backgroundColor: Colors.white24,
+              ),
             ),
           ),
           Text(target > 0 ? '${_compact(cur)}/${_compact(target)}' : tr('صاروخ', "Rocket"),
