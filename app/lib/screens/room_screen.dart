@@ -5104,6 +5104,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // SPEC52 #39 — real game wins of people in this room.
                 if (state.topSupporters.isNotEmpty)
                   Align(
+                    key: const ValueKey('room-top-supporters'),
                     alignment: Alignment.centerLeft,
                     child: Padding(
                       padding: const EdgeInsets.only(left: 12),
@@ -5112,9 +5113,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       )),
                     ),
                   ),
-                RoomGameWinStrip(roomId: widget.roomId),
+                RoomGameWinStrip(key: const ValueKey('room-win-strip'), roomId: widget.roomId),
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
                 RoomPkBar(
+                  key: const ValueKey('room-pk-bar'),
                   roomId: widget.roomId,
                   onGift: () => _openGiftSheet(context),
                   onToggleMute: mySeatNumber != null ? _toggleMicFromMenu : null,
@@ -5719,17 +5721,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               },
             ),
 
+            // Keyed: these appear and disappear, and an unkeyed Positioned
+            // inserted before the bars below made Flutter rebuild the bars
+            // from scratch — the PK box vanished for whoever sent a gift
+            // (the combo circle shows up only for the sender).
             if (_cpMicPair != null)
-              Positioned.fill(child: IgnorePointer(child: Center(child: _cpMicCard()))),
+              Positioned.fill(key: const ValueKey('room-cp-mic'),
+                child: IgnorePointer(child: Center(child: _cpMicCard()))),
             if (_comboLeft > 0)
               // Client 7/11 20:17/21:06: bigger, never over the bar below.
               // Bottom right, so the gift cannon at bottom centre stays visible.
-              Positioned(right: 14, bottom: _bottomBarH + 10,
+              Positioned(key: const ValueKey('room-combo'), right: 14, bottom: _bottomBarH + 10,
                 child: _comboCircle()),
 
             // Bars paint above every room effect. SafeArea already offsets
             // this Stack; the Column lays the entrance below the actual bars.
             Positioned(
+              key: const ValueKey('room-top-bars'),
               top: 0, left: 0, right: 0,
               child: _RoomTopBarsMeasure(
                 onHeight: (height) {

@@ -260,6 +260,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     onPressed: authState.isLoading ? null : _openEmailLoginSheet,
                   ),
+                  const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: authState.isLoading ? null : () => Navigator.of(context).pushNamed('/register'),
+                    child: Text(
+                      tr('ليس لديك حساب؟ إنشاء حساب', 'No account? Create one'),
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline, decorationColor: Colors.white),
+                    ),
+                  ),
                   const Spacer(flex: 2),
                   Text(
                     tr('لقد قرأت ووافقت على سياسة الخصوصية واستخدام العرف السائد', 'I have read and agree to the privacy policy and terms of use'),

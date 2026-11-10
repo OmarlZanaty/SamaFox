@@ -73,9 +73,50 @@ class GiftRepository {
     }
   }
 
-  Future<GiftCatalog> fetchCatalog() async {
+  /// Last good catalog (all repositories share it): opening the gift panel
+  /// again — from the bar, the PK box or a profile — is instant instead of
+  /// waiting on the network (phone test 10/11: one open spun for 30 s).
+  static GiftCatalog? _cached;
+  static DateTime? _cachedAt;
+  static Future<GiftCatalog>? _inflight;
+  static const Duration _cacheFor = Duration(minutes: 5);
+
+  Future<GiftCatalog> fetchCatalog() {
+    final cached = _cached;
+    final at = _cachedAt;
+    if (cached != null && at != null && DateTime.now().difference(at) < _cacheFor) {
+      return Future.value(cached);
+    }
+    final pending = _inflight;
+    if (pending != null) return pending;
+    final f = _fetchWithRetry().then((c) {
+      _cached = c;
+      _cachedAt = DateTime.now();
+      return c;
+    }).whenComplete(() => _inflight = null);
+    _inflight = f;
+    // Stale but usable: show it now, refresh behind it.
+    if (cached != null) {
+      f.ignore();
+      return Future.value(cached);
+    }
+    return f;
+  }
+
+  /// A stalled request is cut at 12 s and tried once more, instead of one
+  /// 30 s wait ending in an error.
+  Future<GiftCatalog> _fetchWithRetry() async {
     try {
-      final res = await _dio.get<Map<String, dynamic>>('gifts');
+      return await _fetchCatalogOnce(const Duration(seconds: 12));
+    } on GiftRepositoryException {
+      return _fetchCatalogOnce(const Duration(seconds: 20));
+    }
+  }
+
+  Future<GiftCatalog> _fetchCatalogOnce(Duration timeout) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('gifts',
+          options: Options(receiveTimeout: timeout, sendTimeout: timeout));
       final body = res.data ?? const {};
       if (body['success'] != true) {
         throw GiftRepositoryException(body['message']?.toString() ?? tr('فشل تحميل الهدايا', "Could not load gifts"));

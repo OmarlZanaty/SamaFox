@@ -697,11 +697,69 @@ class RoomPkBar extends StatefulWidget {
 }
 
 class _RoomPkBarState extends State<RoomPkBar> {
+  /// Last PK seen per room, so a rebuilt bar shows it at once (no flicker,
+  /// no lost box while the reload is in flight).
+  static final Map<int, Map<String, dynamic>> _cache = {};
+  static final Map<int, Map<int, Map>> _peopleCache = {};
+  /// PK results already shown — the socket event and the end-of-time check
+  /// below may both find the same result.
+  static final Set<String> _shownResults = {};
+
   Map<String, dynamic>? _pk;
   Map<int, Map> _people = {};
   final _subs = <StreamSubscription>[];
   Timer? _tick;
   bool _hidden = false;
+  DateTime? _lastEndCheck;
+
+  void _setPk(Map<String, dynamic>? pk) {
+    _pk = pk;
+    if (pk == null) {
+      _cache.remove(widget.roomId);
+    } else {
+      _cache[widget.roomId] = pk;
+    }
+  }
+
+  void _setPeople(Map<int, Map> people) {
+    _people = people;
+    _peopleCache[widget.roomId] = people;
+  }
+
+  /// One place for a finished PK: drop the box and show the winner once.
+  void _finished(Map d) {
+    final people = _people;
+    if (mounted) setState(() => _setPk(null));
+    final id = (d['pkId'] ?? d['id'])?.toString();
+    if (id != null && !_shownResults.add(id)) return;
+    if (d['status'] == 'CANCELLED') return;
+    // The root navigator's context: this bar shrinks to nothing right now.
+    final ctx = navigatorKey.currentContext ?? (mounted ? context : null);
+    if (ctx != null) showPkWinner(ctx, d, people);
+  }
+
+  /// Time is up but no `pk_result` came (missed socket event): ask the
+  /// server every 5 s; hide a box that is 60 s past its end either way.
+  Future<void> _checkEnded(Duration over) async {
+    final now = DateTime.now();
+    if (_lastEndCheck != null && now.difference(_lastEndCheck!) < const Duration(seconds: 5)) return;
+    _lastEndCheck = now;
+    final current = _pk;
+    try {
+      final res = await DioClient.dio.get('/room-events/${widget.roomId}');
+      final d = (res.data is Map ? res.data['data'] : null) as Map?;
+      final pk = d?['pk'];
+      if (!mounted || pk is! Map || current == null) return;
+      final sameId = (pk['pkId'] ?? pk['id'])?.toString() == (current['pkId'] ?? current['id'])?.toString();
+      if (sameId && (pk['status'] == 'FINISHED' || pk['status'] == 'CANCELLED')) {
+        _finished(Map<String, dynamic>.from(pk));
+        return;
+      }
+    } catch (_) {}
+    if (mounted && over > const Duration(seconds: 60) && identical(_pk, current)) {
+      setState(() => _setPk(null));
+    }
+  }
 
   bool _mine(Map d) =>
       (d['roomId'] as num?)?.toInt() == widget.roomId ||
@@ -712,25 +770,31 @@ class _RoomPkBarState extends State<RoomPkBar> {
   @override
   void initState() {
     super.initState();
-    _pk = widget.initialPk;
-    _people = {...?widget.initialPeople};
+    _pk = widget.initialPk ?? _cache[widget.roomId];
+    _people = {...?widget.initialPeople, ...?_peopleCache[widget.roomId]};
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _pk != null) setState(() {});
+      final pk = _pk;
+      if (!mounted || pk == null) return;
+      setState(() {});
+      final ends = DateTime.tryParse('${pk['endsAt'] ?? ''}')?.toLocal();
+      if (ends == null || widget.initialPk != null) return;
+      final over = DateTime.now().difference(ends);
+      if (over > const Duration(seconds: 4)) _checkEnded(over);
     });
     pkSearchingRooms.addListener(_onSearching);
     RoomEventsBus.instance.wire();
     _subs.add(RoomEventsBus.instance.pk.listen((d) {
       if (_mine(d) && mounted) {
         _stopPkSearch(widget.roomId);
-        setState(() => _pk = d);
+        final status = d['status'];
+        if (status == 'FINISHED' || status == 'CANCELLED') return;
+        setState(() => _setPk(d));
         _loadPeople();
       }
     }));
     _subs.add(RoomEventsBus.instance.pkResult.listen((d) {
       if (!_mine(d) || !mounted) return;
-      final people = _people;
-      setState(() => _pk = null);
-      showPkWinner(context, d, people);
+      _finished(d);
     }));
     if (widget.initialPk != null) return;
     _load();
@@ -748,11 +812,15 @@ class _RoomPkBarState extends State<RoomPkBar> {
       if (!mounted || pk is! Map) return;
       if (pk['status'] == 'ACTIVE' || pk['status'] == 'PENDING') {
         setState(() {
-          _pk = Map<String, dynamic>.from(pk);
-          _people = {
+          _setPk(Map<String, dynamic>.from(pk));
+          _setPeople({
             for (final p in (d?['participants'] as List? ?? const []).whereType<Map>()) (p['id'] as num).toInt(): p,
-          };
+          });
         });
+      } else if (_pk != null &&
+          (pk['pkId'] ?? pk['id'])?.toString() == (_pk!['pkId'] ?? _pk!['id'])?.toString()) {
+        // The cached PK ended while this bar was away.
+        setState(() => _setPk(null));
       }
     } catch (_) {}
   }
@@ -762,9 +830,9 @@ class _RoomPkBarState extends State<RoomPkBar> {
       final res = await DioClient.dio.get('/room-events/${widget.roomId}');
       final d = (res.data is Map ? res.data['data'] : null) as Map?;
       if (!mounted || d == null) return;
-      setState(() => _people = {
+      setState(() => _setPeople({
             for (final p in (d['participants'] as List? ?? const []).whereType<Map>()) (p['id'] as num).toInt(): p,
-          });
+          }));
     } catch (_) {}
   }
 
@@ -855,7 +923,8 @@ class _RoomPkBarState extends State<RoomPkBar> {
             ),
             const SizedBox(height: 4),
             LayoutBuilder(builder: (context, constraints) {
-              final avatarSize = math.min(48.0, ((constraints.maxWidth - 44) / 2) * .62);
+              // Phone test 10/11: the box ate the mics' height — smaller faces.
+              final avatarSize = math.min(36.0, ((constraints.maxWidth - 44) / 2) * .62);
               final frameSize = avatarSize / .62;
               return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(child: _player(aId, tr('لاعب أ', 'Player A'), fire: true, score: a, avatarSize: avatarSize, canSupport: !global || mySide == 'A')),
@@ -863,11 +932,8 @@ class _RoomPkBarState extends State<RoomPkBar> {
                 Expanded(child: _player(bId, tr('لاعب ب', 'Player B'), fire: false, score: b, avatarSize: avatarSize, canSupport: !global || mySide == 'B')),
               ]);
             }),
-            const SizedBox(height: 5),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              _gifts(a, fire: true),
-              _gifts(b, fire: false),
-            ]),
+            // Each side's score already shows under its player (the separate
+            // «هدايا N» row repeated it and cost the mics ~23 dp).
             const SizedBox(height: 4),
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
@@ -906,9 +972,9 @@ class _RoomPkBarState extends State<RoomPkBar> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: 3),
           child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, size: 20, color: color),
+            Icon(icon, size: 18, color: color),
             const SizedBox(width: 5),
             if (dot) ...[
               const Icon(Icons.circle, size: 5, color: Color(0xFFFF5252)),
@@ -919,17 +985,6 @@ class _RoomPkBarState extends State<RoomPkBar> {
           ]),
         ),
       );
-
-  Widget _gifts(int score, {required bool fire}) {
-    final color = fire ? const Color(0xFFFFD778) : const Color(0xFF79CBFF);
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(Icons.card_giftcard, color: color, size: 16),
-      const SizedBox(width: 4),
-      Text('${tr('هدايا', 'Gifts')} ${_compact(score)}', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800)),
-      const SizedBox(width: 3),
-      Icon(fire ? Icons.monetization_on : Icons.diamond, color: color, size: 14),
-    ]);
-  }
 
   Widget _hideButton(IconData icon) => InkWell(
         key: const Key('pk_hide'),
@@ -1154,7 +1209,7 @@ Future<void> showPkWinner(BuildContext context, Map d, Map<int, Map> people) {
   );
   // Keep claimable results open so the request and its result stay visible.
   if (!prizeEligible) {
-    final timer = Timer(const Duration(seconds: 5), () {
+    final timer = Timer(const Duration(seconds: 10), () {
       final route = winnerRoute;
       if (route != null && route.isActive) route.navigator?.removeRoute(route);
     });
