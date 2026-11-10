@@ -1734,8 +1734,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               () => Navigator.pushNamed(context, '/my-agencies')),
           tile(Icons.storefront, tr('متجر', 'Store'), const Color(0xFF4ECDC4),
               () => Navigator.pushNamed(context, '/store')),
-          tile(Icons.local_shipping, tr('شحن', 'Recharge'), const Color(0xFFFF8A3D),
-              () => Navigator.pushNamed(context, '/charging-agent').then((_) => _refreshCoins()),),
+          // Client 10/11 16:21: «شحن» → «وكالات» (hosting + charging lists).
+          tile(Icons.apartment_rounded, tr('وكالات', 'Agencies'), const Color(0xFFFF8A3D),
+              () => Navigator.pushNamed(context, '/agencies').then((_) => _refreshCoins()),),
           tile(Icons.settings, tr('إعدادات', 'Settings'), const Color(0xFF9C6BFF),
               () => Navigator.pushNamed(context, '/settings')),
         ],

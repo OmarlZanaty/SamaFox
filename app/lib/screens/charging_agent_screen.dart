@@ -22,7 +22,13 @@ import '../l10n/tr.dart';
 
 /// Charging Agent Screen - وكيل الشحن
 class ChargingAgentScreen extends ConsumerStatefulWidget {
-  const ChargingAgentScreen({super.key});
+  const ChargingAgentScreen({super.key, this.directory = false});
+
+  /// Client 7/11 02:18 + 10/11 16:21: the profile tile «وكالات» opens the
+  /// directory — the two activation requests on top, then every HOSTING and
+  /// every CHARGING agency in two tabs, whatever agency the viewer belongs to.
+  /// Tapping one opens that agency (its own agent/branch still gets his tools).
+  final bool directory;
 
   @override
   ConsumerState<ChargingAgentScreen> createState() => _ChargingAgentScreenState();
@@ -34,6 +40,8 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
   // null = not chosen yet (only relevant when they actually have both).
   String? _activeInterface;
   String _agencyQuery = '';
+  /// Directory tab: 'HOSTING' (وكالات مضيفين) or 'CHARGING' (وكالات الشحن).
+  String _dirTab = 'HOSTING';
 
   @override
   Widget build(BuildContext context) {
@@ -53,14 +61,14 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
         chargingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
     final hasHosting = isSystemAdmin ||
         hostingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
-    final needsChoice = hasCharging && hasHosting;
+    final needsChoice = !widget.directory && hasCharging && hasHosting;
 
     // A user who belongs to an agency must see HIS agency's system only —
     // opening وكالتي / العمل كوكيل شحن / العمل كوكيل مضيفين used to dump the
     // full directory of approved agencies on him. Users with no agency (and
     // system admins) still browse the whole list, which is how they join one.
     final hasMembership = myRoles.isNotEmpty;
-    final scopedToMine = hasMembership && !isSystemAdmin;
+    final scopedToMine = !widget.directory && hasMembership && !isSystemAdmin;
     List<ChargingAgency> scope(List<ChargingAgency> items) {
       final base = scopedToMine ? items.where((a) => myRoles.containsKey(a.id)).toList() : items;
       final q = _agencyQuery.trim().toLowerCase();
@@ -79,10 +87,12 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
 
     // Once scoped, a section the user has no agency in is just an empty box —
     // hide it instead.
-    final showCharging =
-        (!needsChoice || _activeInterface == 'CHARGING') && (!scopedToMine || hasCharging);
-    final showHosting =
-        (!needsChoice || _activeInterface == 'HOSTING') && (!scopedToMine || hasHosting);
+    final showCharging = widget.directory
+        ? _dirTab == 'CHARGING'
+        : (!needsChoice || _activeInterface == 'CHARGING') && (!scopedToMine || hasCharging);
+    final showHosting = widget.directory
+        ? _dirTab == 'HOSTING'
+        : (!needsChoice || _activeInterface == 'HOSTING') && (!scopedToMine || hasHosting);
 
     return Scaffold(
       backgroundColor: const Color(0xFF1A0E3E),
@@ -90,7 +100,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          tr('وكيل الشحن', 'Recharge agent'),
+          widget.directory ? tr('الوكالات', 'Agencies') : tr('وكيل الشحن', 'Recharge agent'),
           style: TextStyle(
             color: Colors.white,
             fontSize: 24,
@@ -173,6 +183,10 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    if (widget.directory) ...[
+                      _directoryTabs(),
+                      const SizedBox(height: 14),
+                    ],
                     if (showCharging) ...[
                       _AgencySidePanel(
                         title: tr('وكالات الشحن', 'Recharge agencies'),
@@ -246,6 +260,41 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
         ),
       ),
     );
+  }
+
+  Widget _directoryTabs() {
+    Widget tab(String key, String label, IconData icon) {
+      final on = _dirTab == key;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => setState(() => _dirTab = key),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: on
+                  ? const LinearGradient(colors: [Color(0xFF8E44AD), Color(0xFFB36BFF)])
+                  : null,
+              color: on ? null : Colors.white10,
+              border: Border.all(color: on ? const Color(0xFFFFD36E) : Colors.white24),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(icon, color: Colors.white, size: 18),
+              const SizedBox(width: 6),
+              Flexible(child: Text(label, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white, fontWeight: on ? FontWeight.w800 : FontWeight.w500))),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return Row(children: [
+      tab('HOSTING', tr('وكالات مضيفين', 'Hosting agencies'), Icons.mic),
+      const SizedBox(width: 10),
+      tab('CHARGING', tr('وكالات الشحن', 'Recharge agencies'), Icons.local_shipping),
+    ]);
   }
 
   Widget _buildInterfaceChooser() {

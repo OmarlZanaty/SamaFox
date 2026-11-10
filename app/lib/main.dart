@@ -497,6 +497,8 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
         },
         '/store': (context) => const StoreScreen(),
         '/charging-agent': (_) => const ChargingAgentScreen(),
+        // Profile «وكالات» tile: the agencies directory (client 10/11 16:21).
+        '/agencies': (_) => const ChargingAgentScreen(directory: true),
         '/agency-panel': (_) => const AgencyPanelScreen(),
         // وكالتي — routes to the right agency, or lets the user pick when
         // they hold both a hosting and a charging one.
