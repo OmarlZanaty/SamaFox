@@ -65,8 +65,12 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   /// Gift flights on screen at once. A x50 burst in a busy room (room 87 took
   /// 40k gifts on 05/10) keeps this full; on a 2–4 GB phone a third of it,
   /// and two under 3 GB (10/10).
-  static int get _maxConcurrent => DeviceTier.ultraLite ? 2 : DeviceTier.lite ? 8 : 24;
-  static const int _staggerMs = 180;
+  static int get _maxConcurrent => DeviceTier.ultraLite ? 3 : DeviceTier.lite ? 8 : 24;
+
+  /// Client 10/11 16:30: every hit comes to the centre for 1–2 s and then goes
+  /// to the mics on its own, whether or not more hits follow. One flight per
+  /// hit (×N badge) with a fixed timeline: in → hold → out to the seat.
+  static const Duration _flightDuration = Duration(milliseconds: 2300);
 
   @override
   void initState() {
@@ -127,15 +131,11 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       // Under 3 GB a small gift is left to GiftAnnouncementBar, which names
       // every gift anyway; its flights are the decodes the phone can't spare.
     } else {
-      // Past [_maxConcurrent] each new flight only evicts an older one, so
-      // spawning more than that is decode work nobody sees.
-      final qty = event.quantity.clamp(1, DeviceTier.ultraLite ? _maxConcurrent : 30);
-      for (int i = 0; i < qty; i++) {
-        Future.delayed(Duration(milliseconds: i * _staggerMs), () {
-          if (!mounted) return;
-          _spawnFlight(event, i, qty);
-        });
-      }
+      // One flight per hit. It used to be one per unit (×7 = 7 flights of up
+      // to 5.5 s): a combo filled the cap and every new hit deleted the oldest
+      // while it was still parked at the centre, so only the last hit ever
+      // reached the mics.
+      _spawnFlight(event, 0, 1, displayQuantity: event.quantity > 1 ? event.quantity : null);
     }
 
     // VIP tier (LEGENDARY) → fireworks + sound + banner
@@ -166,7 +166,19 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   }
 
   void _spawnFlight(GiftSendEvent event, int index, int total, {int? displayQuantity}) {
-    while (_flights.length >= _maxConcurrent) {
+    // Over the cap: the oldest still at the centre leaves for its mic now
+    // (never deleted before it lands). Only a flood past twice the cap drops
+    // the oldest outright.
+    if (_flights.length >= _maxConcurrent) {
+      for (final f in _flights) {
+        if (f.controller.value < _GiftPhase.holdEnd) {
+          f.controller.value = _GiftPhase.holdEnd;
+          f.controller.forward();
+          break;
+        }
+      }
+    }
+    while (_flights.length >= _maxConcurrent * 2) {
       final old = _flights.removeAt(0);
       old.controller.dispose();
     }
@@ -174,15 +186,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     final start = widget.resolvePosition(event.senderId);
     final end = widget.resolvePosition(event.recipientId);
 
-    // A video gift's flight must outlast its clip, otherwise the flight is
-    // removed mid-playback and the video is cut short. Image/SVG gifts keep the
-    // tighter window so a burst of them stays snappy.
-    final dur = Duration(
-      milliseconds: event.gift.format == GiftFormat.video
-          ? event.gift.animationMs.clamp(2000, 15000) + 400
-          : event.gift.animationMs.clamp(2000, 5500),
-    );
-    final controller = AnimationController(vsync: this, duration: dur);
+    final controller = AnimationController(vsync: this, duration: _flightDuration);
 
     final flight = _Flight(
       id: ++_flightSeq,
@@ -356,6 +360,13 @@ class _Flight {
   final int? displayQuantity;
 }
 
+/// Flight timeline over [_GiftAnimationOverlayState._flightDuration] (2.3 s):
+/// cannon → centre in ~0.5 s, hold ~1.2 s, then to the seat in ~0.6 s.
+abstract final class _GiftPhase {
+  static const double inEnd = 0.22;
+  static const double holdEnd = 0.74;
+}
+
 class _VideoShow {
   _VideoShow({required this.id, required this.event, required this.quantity});
   final int id;
@@ -452,12 +463,12 @@ class _AggregateDimLayer extends StatelessWidget {
         for (final f in flights) {
           final t = f.controller.value;
           double intensity;
-          if (t < 0.35) {
-            intensity = (t / 0.35) * 0.45;
-          } else if (t < 0.7) {
+          if (t < _GiftPhase.inEnd) {
+            intensity = (t / _GiftPhase.inEnd) * 0.45;
+          } else if (t < _GiftPhase.holdEnd) {
             intensity = 0.45;
           } else {
-            intensity = (1 - (t - 0.7) / 0.3) * 0.45;
+            intensity = (1 - (t - _GiftPhase.holdEnd) / (1 - _GiftPhase.holdEnd)) * 0.45;
           }
           if (intensity > maxIntensity) maxIntensity = intensity;
         }
@@ -565,21 +576,22 @@ class _FlightWidget extends StatelessWidget {
         double opacity;
         double rotation;
 
-        if (t < 0.35) {
-          final u = Curves.easeOutCubic.transform(t / 0.35);
+        const inEnd = _GiftPhase.inEnd, holdEnd = _GiftPhase.holdEnd;
+        if (t < inEnd) {
+          final u = Curves.easeOutCubic.transform(t / inEnd);
           pos = Offset.lerp(mouth, centre + spreadOffset, u)!;
           size = mouthSize + (bigSize - mouthSize) * u;
           opacity = (u * 1.5).clamp(0.0, 1.0);
           rotation = (1 - u) * 0.6; // unwinding spin on entry
-        } else if (t < 0.7) {
+        } else if (t < holdEnd) {
           pos = centre + spreadOffset;
           size = bigSize;
           opacity = 1.0;
           // Subtle bob at centre
-          final centreT = (t - 0.35) / 0.35;
+          final centreT = (t - inEnd) / (holdEnd - inEnd);
           rotation = math.sin(centreT * math.pi * 2) * 0.04;
         } else {
-          final u = Curves.easeInCubic.transform((t - 0.7) / 0.3);
+          final u = Curves.easeInCubic.transform((t - holdEnd) / (1 - holdEnd));
           pos = Offset.lerp(centre + spreadOffset, flight.end, u)!;
           size = bigSize - (bigSize - smallSize) * u;
           opacity = 1.0 - u * 0.4;
