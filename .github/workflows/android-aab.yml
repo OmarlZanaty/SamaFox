@@ -65,5 +65,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: apk-${{ github.ref_name }}
-          path: app/build/app/outputs/flutter-apk/app-release.apk
+          path: app/build/app/outputs/flutter-apk/*.apk
           retention-days: 3
