@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { authenticate } from '../middlewares/auth.middleware';
 import { idempotent } from '../middlewares/idempotency.middleware';
 import { requireOwnerPermission } from '../services/ownerPermissions.service';
-import { acceptPk, cancelRandomPk, joinRandomPk, claimPk, claimRocket, fundEventPool, integer, pkView, rocketView, saveEventConfig, startPk, RoomEventError } from '../services/roomEvents.service';
+import { acceptPk, cancelRandomPk, joinRandomPk, claimPk, claimRocket, claimRocketTopPrize, pendingRocketTopPrizes, fundEventPool, integer, pkView, rocketView, saveEventConfig, startPk, RoomEventError } from '../services/roomEvents.service';
 import { isUserInRoom, getSeatedUserIds } from '../services/socket.service';
 import { readBalance } from '../services/economyAccounts.service';
 
@@ -26,8 +26,11 @@ roomEventsRouter.get('/room-events/:roomId', wrap(async req => {
   const rocketConfig = await db.rocketConfig.findFirst({ where: { isActive: true } });
   const seated = await db.user.findMany({ where: { id: { in: getSeatedUserIds(roomId) } }, select: { id: true, name: true, avatarUrl: true } });
   const participants = pk ? await db.user.findMany({ where: { id: { in: [pk.sideAUserId, pk.sideBUserId].filter(Boolean) } }, select: { id: true, name: true, avatarUrl: true } }) : [];
-  return { rocket: rocketView(rocket), rocketConfig, pk: pkView(pk), pkConfig: config ? { ...config, minTotalCoins: String(config.minTotalCoins ?? 0) } : null, seated, participants };
+  const myTopPrizes = await pendingRocketTopPrizes(req.userId!);
+  return { rocket: rocketView(rocket), rocketConfig, myTopPrizes, pk: pkView(pk), pkConfig: config ? { ...config, minTotalCoins: String(config.minTotalCoins ?? 0) } : null, seated, participants };
 }));
+// Top-supporter prize held under the user's name (any room).
+roomEventsRouter.post('/rockets/top-prizes/:id/claim', idempotent('rocket-top-claim'), wrap(req => claimRocketTopPrize(integer(Number(req.params.id)), req.userId!)));
 roomEventsRouter.post('/rockets/:eventId/claim', idempotent('rocket-claim'), wrap(req => claimRocket(String(req.params.eventId), req.userId!)));
 roomEventsRouter.post('/pk/:id/claim', wrap(req => claimPk(String(req.params.id), req.userId!)));
 roomEventsRouter.post('/pk/start', idempotent('pk-start'), wrap(req => startPk(req.userId!, req.body)));

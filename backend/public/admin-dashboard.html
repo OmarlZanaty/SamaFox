@@ -1582,7 +1582,11 @@
         </div>
         <div class="form-card-title" style="margin-top:8px">الجوائز (السحب عشوائي حسب الوزن)</div>
         <div id="rk_rewards"></div>
-        <div class="form-row"><button class="btn btn-outline" onclick="evAddReward()">+ جائزة</button><button class="btn btn-primary" onclick="rocketSave()" data-perm="economy.settings">حفظ الصاروخ</button></div>
+        <div class="form-row"><button class="btn btn-outline" onclick="evAddReward()">+ جائزة</button></div>
+        <div class="form-card-title" style="margin-top:10px">مستويات الصاروخ (مثلاً مليون ← 3 مليون ← 5 مليون)</div>
+        <p class="section-sub">كل صاروخ بعد ما ينطلق، اللي بعده في الغرفة بيبقى المستوى اللي بعده، وبعد آخر مستوى يرجع للأول. أكبر 3 داعمين في كل صاروخ ياخدوا جوايز المستوى ده، <strong>وتفضل محجوزة باسمهم لحد ما يدخلوا ويستلموا</strong>. لو فيه مستويات، «الهدف» اللي فوق مش بيتحسب.</p>
+        <div id="rk_tiers"></div>
+        <div class="form-row"><button class="btn btn-outline" onclick="rkAddTier()">+ مستوى</button><button class="btn btn-primary" onclick="rocketSave()" data-perm="economy.settings">حفظ الصاروخ</button></div>
         <div class="table-wrap" style="margin-top:10px"><table id="rkEvents"><thead><tr><th>الغرفة</th><th>الحالة</th><th>التقدم</th><th>البداية</th><th>الانطلاق</th><th>المستلمون</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="form-card" style="margin-top:12px">

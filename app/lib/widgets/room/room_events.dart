@@ -54,22 +54,15 @@ class RoomEventsBus {
     s.on('pk_invite', (d) {
       if (d is Map) _showPkInvite(Map<String, dynamic>.from(d));
     });
-    // A rocket launched in ANOTHER room: a small banner, tap → go there.
+    // A rocket launched in ANOTHER room (or while outside any room): it flies
+    // to the middle of the screen for 5 s with the launcher's name and photo
+    // under it; a tap takes you to that room (client 10/11 19:48).
     _launch.stream.listen((d) {
       final rid = (d['roomId'] as num?)?.toInt();
       if (rid == null || rid == ActiveRoom.instance.roomId) return;
-      final ctx = navigatorKey.currentContext;
-      if (ctx == null) return;
-      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-        backgroundColor: const Color(0xFF4A148C),
-        duration: const Duration(seconds: 6),
-        content: Text(tr('🚀 انطلق صاروخ في غرفة ${d['roomName'] ?? rid}', "🚀 A rocket launched in room ${d['roomName'] ?? rid}"), textDirection: TextDirection.rtl),
-        action: SnackBarAction(
-          label: tr('انتقال', "Go"),
-          textColor: const Color(0xFFFFD54F),
-          onPressed: () => confirmAndJumpToRoom(rid, roomName: d['roomName']?.toString()),
-        ),
-      ));
+      final overlay = navigatorKey.currentState?.overlay;
+      if (overlay == null) return;
+      RocketLaunchOverlay.insert(overlay, d, onTap: () => confirmAndJumpToRoom(rid, roomName: d['roomName']?.toString()));
     });
   }
 
@@ -211,6 +204,9 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
   Map<String, dynamic>? _rocket;
   final _subs = <StreamSubscription>[];
   bool _enabled = false;
+
+  /// Top-supporter prizes held under this user's name (any room).
+  List<Map<String, dynamic>> _topPrizes = const [];
   bool _disposed = false;
 
   @override
@@ -239,6 +235,10 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
         _enabled = d['rocketConfig'] != null || d['rocket'] != null;
         final r = d['rocket'];
         _rocket = r is Map ? Map<String, dynamic>.from(r) : null;
+        _topPrizes = ((d['myTopPrizes'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
       });
     } catch (_) {
       if (attempt >= 4) return;
@@ -270,12 +270,20 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
           // Client 7/11 02:03 + 10/11 16:07 «شكل الصاروخ متغيرش»: new art in the
           // cannon's gold/purple set, with the gift box above it, big enough to
           // read; the fill shows as a gold bar under it.
-          Opacity(
-            opacity: _enabled || _rocket != null ? 1 : 0.5,
-            child: Image.asset('assets/images/spec52/rocket.png',
-                height: 50, fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Text('🚀', style: TextStyle(fontSize: 22))),
-          ),
+          Stack(clipBehavior: Clip.none, children: [
+            Opacity(
+              opacity: _enabled || _rocket != null ? 1 : 0.5,
+              child: Image.asset('assets/images/spec52/rocket.png',
+                  height: 50, fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Text('🚀', style: TextStyle(fontSize: 22))),
+            ),
+            if (_topPrizes.isNotEmpty)
+              const Positioned(
+                top: 0,
+                right: 0,
+                child: CircleAvatar(radius: 6, backgroundColor: Color(0xFFFF3D00)),
+              ),
+          ]),
           const SizedBox(height: 2),
           ClipRRect(
             borderRadius: BorderRadius.circular(3),
@@ -295,6 +303,23 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
         ],
       ),
     );
+  }
+
+  static String _prizeText(dynamic rewards) => ((rewards as List?) ?? const [])
+      .whereType<Map>()
+      .map((r) => r['type'] == 'coins'
+          ? tr('${r['coins']} كوينز', "${r['coins']} coins")
+          : (r['name'] ?? tr('منتج', 'Item')).toString())
+      .join(' + ');
+
+  Future<void> _claimTop(Map<String, dynamic> tp) async {
+    try {
+      await DioClient.dio.post('/rockets/top-prizes/${tp['id']}/claim');
+      _toast(tr('🎉 استلمت ${_prizeText(tp['rewards'])}', "🎉 You got ${_prizeText(tp['rewards'])}"));
+      if (mounted) setState(() => _topPrizes = _topPrizes.where((e) => e['id'] != tp['id']).toList());
+    } catch (e) {
+      _toast(_err(e));
+    }
   }
 
   void _openSheet(int cur, int target) {
@@ -326,6 +351,39 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
               ),
               const SizedBox(height: 6),
               Text(tr('$cur / $target كوينز', "$cur / $target coins"), textDirection: TextDirection.ltr, style: const TextStyle(color: Colors.white70)),
+              if (r?['tierNumber'] != null)
+                Text(tr('صاروخ ${r!['tierNumber']} من ${r['tiersCount']}', "Rocket ${r['tierNumber']} of ${r['tiersCount']}"),
+                    style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 12, fontWeight: FontWeight.bold)),
+              ],
+              // Held prizes for being a top-3 supporter (client 10/11 19:48).
+              for (final tp in _topPrizes) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0x33FFD54F),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFFD54F)),
+                  ),
+                  child: Row(children: [
+                    Text(['🥇', '🥈', '🥉'][((tp['rank'] as num?)?.toInt() ?? 1).clamp(1, 3) - 1], style: const TextStyle(fontSize: 22)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        tr('جايزتك كأكبر داعم رقم ${tp['rank']}: ${_prizeText(tp['rewards'])}', "Your top-${tp['rank']} supporter prize: ${_prizeText(tp['rewards'])}"),
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFD54F), foregroundColor: Colors.black),
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await _claimTop(tp);
+                      },
+                      child: Text(tr('استلم', 'Claim')),
+                    ),
+                  ]),
+                ),
               ],
               const SizedBox(height: 10),
               Text(tr('كل هدية في الغرفة تملأ الصاروخ. عند اكتماله ينطلق ويستلم المتواجدون جوائز من الصندوق.', "Every gift in the room fills the rocket. When full, it launches and everyone present can claim a prize from the chest."),
@@ -367,13 +425,32 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
 /// then «استلم الجائزة».
 class RocketLaunchOverlay {
   static void show(BuildContext context, Map<String, dynamic> event) {
-    final overlay = Overlay.of(context, rootOverlay: true);
+    insert(Overlay.of(context, rootOverlay: true), event, onDone: () => _offerClaim(event));
+  }
+
+  /// The rocket rises to the middle, holds 5 s with whoever launched it under
+  /// it, then leaves. [onTap] (other rooms) jumps to the rocket's room.
+  static void insert(OverlayState overlay, Map<String, dynamic> event,
+      {VoidCallback? onTap, VoidCallback? onDone}) {
     late OverlayEntry entry;
+    var removed = false;
+    void remove() {
+      if (removed) return;
+      removed = true;
+      entry.remove();
+    }
     entry = OverlayEntry(
-      builder: (_) => _RocketFlight(onDone: () {
-        entry.remove();
-        _offerClaim(event);
-      }),
+      builder: (_) => _RocketFlight(
+        event: event,
+        onTap: onTap == null ? null : () {
+          remove();
+          onTap();
+        },
+        onDone: () {
+          remove();
+          onDone?.call();
+        },
+      ),
     );
     overlay.insert(entry);
   }
@@ -418,8 +495,10 @@ class RocketLaunchOverlay {
 }
 
 class _RocketFlight extends StatefulWidget {
-  const _RocketFlight({required this.onDone});
+  const _RocketFlight({required this.onDone, this.event = const {}, this.onTap});
   final VoidCallback onDone;
+  final Map<String, dynamic> event;
+  final VoidCallback? onTap;
 
   @override
   State<_RocketFlight> createState() => _RocketFlightState();
@@ -427,7 +506,7 @@ class _RocketFlight extends StatefulWidget {
 
 class _RocketFlightState extends State<_RocketFlight> with SingleTickerProviderStateMixin {
   late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 2500))..forward();
+      AnimationController(vsync: this, duration: const Duration(milliseconds: _kRocketTotalMs))..forward();
 
   @override
   void initState() {
@@ -446,33 +525,93 @@ class _RocketFlightState extends State<_RocketFlight> with SingleTickerProviderS
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    return IgnorePointer(
-      child: AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) {
-          final t = Curves.easeIn.transform(_c.value);
-          final y = size.height * (0.85 - 1.1 * t);
-          return Stack(children: [
-            Positioned.fill(child: CustomPaint(painter: _SparkPainter(_c.value))),
-            Positioned(
-              left: size.width / 2 - 40,
-              top: y,
-              child: Column(children: [
-                Image.asset('assets/images/spec52/rocket.png',
-                    width: 80, height: 80, errorBuilder: (_, __, ___) => const Text('🚀', style: TextStyle(fontSize: 64, decoration: TextDecoration.none))),
-                Opacity(
-                  opacity: 0.9,
-                  child: Image.asset('assets/images/spec52/rocket_flame.png',
-                      width: 46, height: 60, errorBuilder: (_, __, ___) => const Text('🔥', style: TextStyle(fontSize: 36, decoration: TextDecoration.none))),
+    final launcher = widget.event['launcher'] is Map ? widget.event['launcher'] as Map : const {};
+    final name = (launcher['name'] ?? '').toString();
+    final room = (widget.event['roomName'] ?? '').toString();
+    final tierN = (widget.event['tierNumber'] as num?)?.toInt();
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final ms = _c.value * _kRocketTotalMs;
+        // Rise to the centre, hold 5 s (a gentle bob), then leave upward.
+        final double y;
+        if (ms < _kRocketRiseMs) {
+          final t = Curves.easeOutCubic.transform(ms / _kRocketRiseMs);
+          y = size.height * (0.95 - 0.6 * t);
+        } else if (ms < _kRocketRiseMs + _kRocketHoldMs) {
+          y = size.height * 0.35 + 6 * math.sin(ms / 250);
+        } else {
+          final t = Curves.easeIn.transform((ms - _kRocketRiseMs - _kRocketHoldMs) / _kRocketLeaveMs);
+          y = size.height * (0.35 - 0.6 * t);
+        }
+        final fade = ms > _kRocketRiseMs + _kRocketHoldMs
+            ? (1 - (ms - _kRocketRiseMs - _kRocketHoldMs) / _kRocketLeaveMs).clamp(0.0, 1.0)
+            : 1.0;
+        return Stack(children: [
+          Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _SparkPainter((ms / 2500).clamp(0.0, 1.0))))),
+          Positioned(
+            left: size.width / 2 - 110,
+            width: 220,
+            top: y,
+            child: Opacity(
+              opacity: fade,
+              child: IgnorePointer(
+                ignoring: widget.onTap == null,
+                child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: widget.onTap,
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Image.asset('assets/images/spec52/rocket.png',
+                        width: 110, height: 110, errorBuilder: (_, __, ___) => const Text('🚀', style: TextStyle(fontSize: 72, decoration: TextDecoration.none))),
+                    Opacity(
+                      opacity: 0.9,
+                      child: Image.asset('assets/images/spec52/rocket_flame.png',
+                          width: 46, height: 52, errorBuilder: (_, __, ___) => const Text('🔥', style: TextStyle(fontSize: 32, decoration: TextDecoration.none))),
+                    ),
+                    if (name.isNotEmpty || launcher['avatarUrl'] != null) ...[
+                      _RingAvatar(url: launcher['avatarUrl']?.toString(), fire: true, size: 54, framed: true),
+                      const SizedBox(height: 4),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xCC2A1655),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFFD54F)),
+                      ),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        if (name.isNotEmpty)
+                          Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 14, fontWeight: FontWeight.w800)),
+                        Text(
+                          tr('أطلق الصاروخ${tierN != null ? ' $tierN' : ''}${room.isNotEmpty ? ' في $room' : ''}',
+                              "launched rocket${tierN != null ? ' $tierN' : ''}${room.isNotEmpty ? ' in $room' : ''}"),
+                          maxLines: 2, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                        if (widget.onTap != null)
+                          Text(tr('اضغط لدخول الغرفة', 'Tap to enter the room'),
+                              style: const TextStyle(color: Color(0xFFFFD54F), fontSize: 11)),
+                      ]),
+                    ),
+                  ]),
                 ),
-              ]),
+              ),
+              ),
             ),
-          ]);
-        },
-      ),
+          ),
+        ]);
+      },
     );
   }
 }
+
+const int _kRocketRiseMs = 1000;
+const int _kRocketHoldMs = 5000;
+const int _kRocketLeaveMs = 700;
+const int _kRocketTotalMs = _kRocketRiseMs + _kRocketHoldMs + _kRocketLeaveMs;
 
 class _SparkPainter extends CustomPainter {
   _SparkPainter(this.t);

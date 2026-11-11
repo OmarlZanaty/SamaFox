@@ -408,6 +408,29 @@
       viewer: list(Number(row.querySelector(".pl-vc").value || 0), [row.querySelector(".pl-vi").value]),
     }));
   }
+  // Rocket tiers (client 10/11 19:48): target + prizes for top 1/2/3.
+  function rkTierRow(t = {}) {
+    const top = t.topRewards || [];
+    const coinsIn = (list) => (list || []).filter((r) => r.type === "coins" || r.type === "both").reduce((n, r) => n + Number(r.coins || 0) * Number(r.quantity || 1), 0);
+    const itemIn = (list) => ((list || []).find((r) => r.type === "item" || r.type === "both") || {}).itemId || "";
+    const opts = (sel) => `<option value="">بدون منتج</option>` + evProducts.map((p) => `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+    const rank = (i) => `<label>الأول${["", " (2)", " (3)"][i]} — ${["🥇", "🥈", "🥉"][i]} كوينز <input class="form-input rt-c${i}" type="number" min="0" value="${coinsIn(top[i]) || ""}" style="max-width:110px"></label>
+      <label>منتج <select class="form-input rt-i${i}" style="max-width:180px">${opts(itemIn(top[i]))}</select></label>`;
+    return `<div class="form-row rk-tier" style="gap:6px;align-items:flex-end;border-top:1px dashed #555;padding-top:6px">
+      <label>الهدف (كوينز) <input class="form-input rt-target" type="number" min="1" value="${esc(String(t.targetCoins ?? ""))}" style="max-width:140px"></label>
+      ${rank(0)}${rank(1)}${rank(2)}
+      <button class="btn btn-outline btn-sm" onclick="this.closest('.rk-tier').remove()">حذف</button></div>`;
+  }
+  function readRkTiers() {
+    return [...document.querySelectorAll("#rk_tiers .rk-tier")].map((row) => ({
+      targetCoins: Number(row.querySelector(".rt-target").value || 0),
+      topRewards: [0, 1, 2].map((i) => {
+        const c = Number(row.querySelector(`.rt-c${i}`).value || 0);
+        const item = row.querySelector(`.rt-i${i}`).value;
+        return [...(c > 0 ? [{ type: "coins", coins: c, quantity: 1, weight: 1 }] : []), ...(item ? [{ type: "item", itemId: item, quantity: 1, weight: 1 }] : [])];
+      }),
+    }));
+  }
   async function rocketPkLoad() {
     await loadCaps();
     const [rk, pk] = await Promise.all([call("/admin-dashboard/rocket"), call("/admin-dashboard/pk")]);
@@ -424,6 +447,7 @@
     $("rk_window").value = c.claimWindowSeconds ?? 90;
     $("rk_active").checked = !!c.isActive;
     $("rk_rewards").innerHTML = (c.rewards || [{ type: "coins", coins: 100, weight: 1, quantity: 1 }]).map(rewardRow).join("");
+    $("rk_tiers").innerHTML = (c.tiers || []).map(rkTierRow).join("");
     $("rk_pool").textContent = n(R.poolBalance);
     const rkSt = $("rk_status");
     if (!R.config || !R.config.isActive) { rkSt.style.color = "#e53935"; rkSt.textContent = "⚠️ الصاروخ غير مفعّل — فعّل خانة «مفعّل» واحفظ حتى يظهر تقدمه ويبدأ العد"; }
@@ -461,6 +485,7 @@
       claimWindowSeconds: Number(val("rk_window")),
       isActive: $("rk_active").checked,
       rewards: readRewards($("rk_rewards")),
+      tiers: readRkTiers(),
     });
     toast("✅ تم حفظ إعدادات الصاروخ");
     rocketPkLoad();
@@ -494,7 +519,7 @@
     toast("✅ تم التمويل");
     rocketPkLoad();
   }
-  Object.assign(window, { pkAddLevel: () => $("pk_levels").insertAdjacentHTML("beforeend", pkLevelRow()), rocketPkLoad, rocketSave, pkSave, eventFund, evAddReward: () => $("rk_rewards").insertAdjacentHTML("beforeend", rewardRow()) });
+  Object.assign(window, { rkAddTier: () => $("rk_tiers").insertAdjacentHTML("beforeend", rkTierRow()), pkAddLevel: () => $("pk_levels").insertAdjacentHTML("beforeend", pkLevelRow()), rocketPkLoad, rocketSave, pkSave, eventFund, evAddReward: () => $("rk_rewards").insertAdjacentHTML("beforeend", rewardRow()) });
 
   // ── section router hook (called from app.js navigate) ───────────────────
   let sessionsPage = 1;

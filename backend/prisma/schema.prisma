@@ -963,6 +963,8 @@ model RocketConfig {
   maxRewardPerUserCoins Int      @default(1000)
   claimWindowSeconds    Int      @default(90)
   rewards               Json     @default("[]")
+  /// Rocket tiers: [{ targetCoins, topRewards: [Reward[] top1, top2, top3] }]
+  tiers                 Json     @default("[]")
   isActive              Boolean  @default(false)
   updatedBy             Int      @default(0)
   createdAt             DateTime @default(now())
@@ -980,6 +982,7 @@ model RocketEvent {
   startedAt      DateTime             @default(now())
   endsAt         DateTime
   launchedAt     DateTime?
+  tier           Int                  @default(0)
   contributions  RocketContribution[]
   claims         RocketClaim[]
 
@@ -996,6 +999,23 @@ model RocketContribution {
   event             RocketEvent @relation(fields: [eventId], references: [id])
 
   @@map("rocket_contributions")
+}
+
+/// A rocket's top 1/2/3 supporter prize, held until the user claims it.
+model RocketTopPrize {
+  id         Int       @id @default(autoincrement())
+  eventId    String
+  roomId     Int
+  userId     Int
+  rank       Int
+  coins      Int
+  rewardJson Json
+  createdAt  DateTime  @default(now())
+  claimedAt  DateTime?
+
+  @@unique([eventId, rank])
+  @@index([userId, claimedAt])
+  @@map("rocket_top_prizes")
 }
 
 model RocketClaim {

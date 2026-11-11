@@ -51,6 +51,26 @@ async function validateReward(tx: any, raw: any, weighted: boolean): Promise<Rew
   if (quantity > 1 && !item.durationDays) throw new RoomEventError('المنتج الدائم كميته واحدة');
   return { type: 'item', itemId: item.id, quantity, weight, durationDays: item.durationDays, name: item.name };
 }
+/**
+ * Rocket tiers (client 10/11 19:48): several rockets one after another
+ * (e.g. 1M → 3M → 5M), each with prizes for its top 1/2/3 supporters that
+ * wait under their names until they claim them.
+ */
+async function rocketTiers(tx: any, raw: any): Promise<any[]> {
+  if (raw == null) return [];
+  if (!Array.isArray(raw) || raw.length > 10) throw new RoomEventError('أقصى عدد للصواريخ 10');
+  const out: any[] = [];
+  for (const t of raw) {
+    const top = Array.isArray(t?.topRewards) ? t.topRewards.slice(0, 3) : [];
+    const topRewards: any[][] = [];
+    for (const list of top) {
+      if (list != null && (!Array.isArray(list) || list.length > 10)) throw new RoomEventError('أقصى 10 جوائز لكل مركز');
+      topRewards.push(await Promise.all((list ?? []).map((r: any) => validateReward(tx, r, false))));
+    }
+    out.push({ targetCoins: integer(Number(t?.targetCoins)), topRewards });
+  }
+  return out;
+}
 export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: number) {
   return eventTransaction(async tx => {
     let data: any;
@@ -62,6 +82,7 @@ export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: 
         durationMinutes: integer(raw.durationMinutes, 1, 1440), winnersCount: integer(raw.winnersCount, 1, 1000),
         maxRewardPerUserCoins: integer(raw.maxRewardPerUserCoins, 0, 1_000_000),
         claimWindowSeconds: integer(raw.claimWindowSeconds ?? 90, 10, 3600), rewards,
+        tiers: await rocketTiers(tx, raw.tiers),
         isActive: raw.isActive === true, updatedBy: adminId,
       };
     } else {
@@ -151,8 +172,10 @@ function queueState(key: string, roomIds: number[], event: string, payload: any)
   pendingStates.set(key, { roomIds: [...new Set(roomIds)], event, payload });
 }
 export function rocketView(e: any) {
+  const tiers: any[] = Array.isArray(e?.configSnapshot?.tiers) ? e.configSnapshot.tiers : [];
   return e ? { ...e, eventId: e.id, current: e.currentCoins, target: e.targetCoins, rewards: e.configSnapshot.rewards,
-    claimWindowSeconds: e.configSnapshot.claimWindowSeconds } : null;
+    claimWindowSeconds: e.configSnapshot.claimWindowSeconds,
+    ...(tiers.length ? { tierNumber: (e.tier ?? 0) + 1, tiersCount: tiers.length } : {}) } : null;
 }
 const rewardCoins = (r: any) => r && (r.type === 'coins' || r.type === 'both') ? (r.coins ?? 0) * (r.quantity ?? 1) : 0;
 function pkLevels(cfg: any): any[] {
@@ -200,10 +223,20 @@ export async function processRoomGift(giftTransactionId: string) {
     let rocket = await tx.rocketEvent.findFirst({ where: { roomId: gift.roomId, status: 'ACTIVE' } });
     if (!rocket) {
       const cfg = await tx.rocketConfig.findFirst({ where: { createdAt: { lte: gift.createdAt } }, orderBy: { id: 'desc' } });
-      if (cfg?.isActive) rocket = await tx.rocketEvent.create({ data: { roomId: gift.roomId, configSnapshot: cfg,
-        targetCoins: cfg.targetCoins, startedAt: gift.createdAt, endsAt: new Date(gift.createdAt.getTime() + cfg.durationMinutes * 60000) } });
+      if (cfg?.isActive) {
+        // After a launch the room moves on to the next, bigger rocket; after
+        // the last one, or an expiry, it starts again from the first.
+        const tiers: any[] = Array.isArray(cfg.tiers) ? cfg.tiers : [];
+        const last = tiers.length ? await tx.rocketEvent.findFirst({ where: { roomId: gift.roomId }, orderBy: { startedAt: 'desc' } }) : null;
+        const tier = last?.status === 'LAUNCHED' && (last.tier ?? 0) + 1 < tiers.length ? (last.tier ?? 0) + 1 : 0;
+        rocket = await tx.rocketEvent.create({ data: { roomId: gift.roomId, configSnapshot: cfg, tier,
+          targetCoins: tiers.length ? tiers[tier].targetCoins : cfg.targetCoins,
+          startedAt: gift.createdAt, endsAt: new Date(gift.createdAt.getTime() + cfg.durationMinutes * 60000) } });
+      }
     }
     let launched = false;
+    let launcherId: number | null = null;
+    let topPrizes: any[] = [];
     if (rocket && !await tx.rocketContribution.findUnique({ where: { giftTransactionId } })) {
       const coins = Math.floor(gift.paidCoins * rocket.configSnapshot.roomCupPercent / 10000);
       await tx.rocketContribution.create({ data: { eventId: rocket.id, giftTransactionId, userId: gift.senderId, coins } });
@@ -212,6 +245,10 @@ export async function processRoomGift(giftTransactionId: string) {
         const flip = await tx.rocketEvent.updateMany({ where: { id: rocket.id, status: 'ACTIVE' }, data: { status: 'LAUNCHED', launchedAt: now } });
         launched = flip.count === 1;
         rocket = { ...rocket, status: 'LAUNCHED', launchedAt: now };
+        if (launched) {
+          launcherId = gift.senderId;
+          topPrizes = await reserveRocketTopPrizes(tx, rocket);
+        }
       }
     }
     const lock = await tx.pkRoomLock.findUnique({ where: { roomId: gift.roomId }, include: { pk: true } });
@@ -234,14 +271,28 @@ export async function processRoomGift(giftTransactionId: string) {
       }
     }
     await tx.roomGiftJob.update({ where: { giftTransactionId }, data: { processedAt: now } });
-    return { rocket, launched, pk };
+    return { rocket, launched, pk, launcherId, topPrizes };
   });
   if (!out) return;
   if (out.rocket) queueState(`r:${out.rocket.id}`, [out.rocket.roomId], 'rocket_state', rocketView(out.rocket));
   if (out.launched) {
     const room = await db.room.findUnique({ where: { id: out.rocket.roomId }, select: { name: true } });
-    // A single global emit already includes every socket in the source room.
-    emitGlobal('rocket_launched', { ...rocketView(out.rocket), roomName: room?.name ?? '' });
+    const ids = [out.launcherId, ...out.topPrizes.map((t: any) => t.userId)].filter((x: any) => x != null);
+    const people = new Map<number, any>((await db.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, avatarUrl: true } }))
+      .map((u: any) => [u.id, u]));
+    const launcher = out.launcherId != null ? people.get(out.launcherId) : null;
+    // A single global emit reaches every room, even empty ones and people
+    // outside any room: the rocket flies to the middle for 5 s with the
+    // launcher's name and photo under it; a tap takes you to the room.
+    emitGlobal('rocket_launched', { ...rocketView(out.rocket), roomName: room?.name ?? '',
+      launcher: launcher ? { id: launcher.id, name: launcher.name ?? '', avatarUrl: launcher.avatarUrl ?? null } : null,
+      topSupporters: out.topPrizes.map((t: any) => ({ rank: t.rank, userId: t.userId, name: people.get(t.userId)?.name ?? '', coins: t.coins })) });
+    for (const t of out.topPrizes) {
+      const { createNotification } = await import('./notification.service');
+      await createNotification({ userId: t.userId, type: 'rocket_top_prize', title: 'جايزة الصاروخ 🚀',
+        body: `كنت أكبر داعم رقم ${t.rank} في صاروخ غرفة ${room?.name ?? ''} — جايزتك محجوزة باسمك، ادخل الغرفة واضغط على الصاروخ واستلمها`,
+        data: { roomId: out.rocket.roomId, eventId: out.rocket.id } }).catch(() => {});
+    }
   }
   if (out.pk) queueState(`p:${out.pk.id}`, [out.pk.room1Id, out.pk.room2Id], 'pk_state', pkView(out.pk));
 }
@@ -262,6 +313,42 @@ export async function claimRocket(eventId: string, userId: number) {
     await recordAdminAuditStrict(tx, { adminId: 0, action: 'ROCKET_REWARD', targetUserId: userId, targetId: eventId,
       before: reward.before, after: reward });
     return reward;
+  });
+}
+/** The rocket's top 1/2/3 supporters get its tier prizes, held under their names. */
+async function reserveRocketTopPrizes(tx: any, rocket: any): Promise<any[]> {
+  const tiers: any[] = Array.isArray(rocket.configSnapshot?.tiers) ? rocket.configSnapshot.tiers : [];
+  const tier = tiers[rocket.tier ?? 0];
+  if (!tier?.topRewards?.length) return [];
+  const sums = await tx.rocketContribution.groupBy({ by: ['userId'], where: { eventId: rocket.id }, _sum: { coins: true } });
+  const ranked = sums.filter((r: any) => (r._sum?.coins ?? 0) > 0)
+    .sort((a: any, b: any) => (b._sum.coins - a._sum.coins) || (a.userId - b.userId)).slice(0, 3);
+  const out: any[] = [];
+  for (const [i, r] of ranked.entries()) {
+    const rewards = tier.topRewards[i] ?? [];
+    if (!rewards.length) continue;
+    await tx.rocketTopPrize.create({ data: { eventId: rocket.id, roomId: rocket.roomId, userId: r.userId, rank: i + 1,
+      coins: r._sum.coins, rewardJson: rewards } });
+    out.push({ rank: i + 1, userId: r.userId, coins: r._sum.coins });
+  }
+  return out;
+}
+/** Top-supporter prizes still waiting for [userId], in any room. */
+export async function pendingRocketTopPrizes(userId: number) {
+  const rows = await db.rocketTopPrize.findMany({ where: { userId, claimedAt: null }, orderBy: { createdAt: 'asc' }, take: 20 });
+  return rows.map((r: any) => ({ id: r.id, eventId: r.eventId, roomId: r.roomId, rank: r.rank, rewards: r.rewardJson, createdAt: r.createdAt }));
+}
+export async function claimRocketTopPrize(id: number, userId: number) {
+  return eventTransaction(async tx => {
+    const prize = await tx.rocketTopPrize.findUnique({ where: { id } });
+    if (!prize || prize.userId !== userId) throw new RoomEventError('الجائزة غير متاحة', 404);
+    const taken = await tx.rocketTopPrize.updateMany({ where: { id, claimedAt: null }, data: { claimedAt: new Date() } });
+    if (taken.count !== 1) throw new RoomEventError('استلمت هذه الجائزة بالفعل', 409);
+    const rewards: any[] = [];
+    for (const [k, r] of (prize.rewardJson as Reward[]).entries())
+      rewards.push(await grantReward(tx, userId, r, 'ROCKET_POOL', `${prize.eventId}:top${prize.rank}:${k}`));
+    await recordAdminAuditStrict(tx, { adminId: 0, action: 'ROCKET_TOP_REWARD', targetUserId: userId, targetId: prize.eventId, after: { rank: prize.rank, rewards } });
+    return { rank: prize.rank, rewards };
   });
 }
 export async function requireRoomManager(tx: any, roomId: number, userId: number, ownerOnly = false) {
