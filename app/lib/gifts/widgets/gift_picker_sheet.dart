@@ -327,7 +327,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
             },
           ),
           Expanded(
-            child: FutureBuilder<GiftCatalog>(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: FutureBuilder<GiftCatalog>(
               future: _catalog,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
@@ -385,8 +388,16 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 );
               },
             ),
+                ),
+                // ×1…×7777 as a VERTICAL column right above the quantity
+                // button (left in RTL), over the gifts, not pushing them
+                // (client 7/11 02:52 arrow on a 720×1600 Realme: from the
+                // old top-left spot down to ~80 % height, left edge).
+                if (_quantityStripOpen)
+                  PositionedDirectional(end: 12, bottom: 6, child: _quantityStrip()),
+              ],
+            ),
           ),
-          if (_quantityStripOpen) _quantityStrip(),
           _footer(),
         ],
       ),
@@ -682,27 +693,34 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   }
 
   Widget _quantityStrip() {
-    return Align(
-      alignment: AlignmentDirectional.centerEnd,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
+    // Biggest on top, ×1 next to the button, like the other live apps.
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 76,
+        decoration: BoxDecoration(
+          color: _kCardColor.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _kGoldColor.withValues(alpha: 0.6)),
+          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: _kQuantities.map((q) => SizedBox(
-            width: 68,
-            height: 40,
-            child: Material(
-              color: _kCardColor,
-              child: InkWell(
-                onTap: () => setState(() {
-                  _quantity = q;
-                  _quantityStripOpen = false;
-                }),
-                child: Center(child: Text('x$q', style: TextStyle(
-                  color: q == _quantity ? _kGoldColor : Colors.white,
-                  fontSize: 12,
-                ))),
-              ),
+          children: _kQuantities.reversed.map((q) => InkWell(
+            key: ValueKey('qty-$q'),
+            onTap: () => setState(() {
+              _quantity = q;
+              _quantityStripOpen = false;
+            }),
+            child: SizedBox(
+              height: 40,
+              width: double.infinity,
+              child: Center(child: Text('x$q', style: TextStyle(
+                color: q == _quantity ? _kGoldColor : Colors.white,
+                fontSize: 14,
+                fontWeight: q == _quantity ? FontWeight.w800 : FontWeight.w600,
+              ))),
             ),
           )).toList(),
         ),
