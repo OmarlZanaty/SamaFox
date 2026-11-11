@@ -1028,7 +1028,11 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 14, vertical: 10),
-                                        decoration: BoxDecoration(
+                                        // Join lines: the client's purple plate with a gold frame
+                                        // (ref 3/11 22:07; 10/11 20:03 «ده حلو اوي حطه عندنا»).
+                                        decoration: e.type == RoomEventType.join
+                                            ? _joinPlate
+                                            : BoxDecoration(
                                           gradient: const LinearGradient(
                                             colors: [
                                               Color(0xFF1a4a1a),
@@ -1047,16 +1051,15 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Icon(icon,
-                                                color: Colors.white, size: 18),
+                                            if (e.type == RoomEventType.join) _joinGem else Icon(icon, color: Colors.white, size: 18),
                                             _roleIcon(e.userId, st.ownerId,
                                                 st.adminIds),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: Text(
                                                 line,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
+                                                style: TextStyle(
+                                                  color: e.type == RoomEventType.join ? const Color(0xFFFFF3D6) : Colors.white,
                                                   fontSize: 12.5,
                                                   fontWeight: FontWeight.w600,
                                                 ),
@@ -1065,6 +1068,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                             // شارات الداخل، بعد السطر.
                                             for (final b in e.badges)
                                               _badgeIcon(b),
+                                            if (e.type == RoomEventType.join) ...[const SizedBox(width: 6), _joinGem],
                                           ],
                                         ),
                                       ),
@@ -1181,3 +1185,17 @@ class _BubbleTailPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
+/// شريط دخول الغرفة — purple plate, gold frame (client reference 3/11 22:07).
+const BoxDecoration _joinPlate = BoxDecoration(
+  gradient: LinearGradient(
+    colors: [Color(0xFF2A0D52), Color(0xFF6A2DB8), Color(0xFF2A0D52)],
+    begin: Alignment.centerRight,
+    end: Alignment.centerLeft,
+  ),
+  border: Border.fromBorderSide(BorderSide(color: Color(0xFFE9C46A), width: 1.8)),
+  borderRadius: BorderRadius.all(Radius.circular(10)),
+  boxShadow: [BoxShadow(color: Color(0x88E9C46A), blurRadius: 8)],
+);
+
+const Widget _joinGem = Text('\u25C6', style: TextStyle(color: Color(0xFFE9C46A), fontSize: 12));
