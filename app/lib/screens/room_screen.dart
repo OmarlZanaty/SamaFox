@@ -235,6 +235,28 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   void _giftSent(Future<void> Function() repeat) {
     if (!mounted) return;
     _repeatGift = repeat;
+    _restartComboCountdown();
+    // Wait until the picker has consumed its successful repository result.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final route = _giftPickerRoute;
+      if (route != null && route.isCurrent) route.navigator?.pop();
+    });
+  }
+
+  /// Taps on «إرسال مجدداً» waiting for a free sender (client 10/11 22:08:
+  /// «كل ضغطة المفروض ترمي… الناس بتضغط 3 أو 4 ضغطات لحد ما ترمي مرة»).
+  /// Every tap used to be DROPPED while the previous send was on the network,
+  /// and each send also waited for a balance refresh before the next tap
+  /// counted. Now every tap is counted and sent, up to [_kComboParallel] at a
+  /// time, and the balance is refreshed once when the burst is over.
+  int _comboQueued = 0;
+  int _comboInFlight = 0;
+  static const int _kComboParallel = 3;
+
+  /// The 5-second window restarts on every tap, not when the server answers,
+  /// so a fast burst never sees the circle vanish under the finger.
+  void _restartComboCountdown() {
     _comboTimer?.cancel();
     setState(() => _comboLeft = 5);
     final expires = DateTime.now().add(const Duration(seconds: 5));
@@ -244,31 +266,40 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (left != _comboLeft) setState(() => _comboLeft = left);
       if (left == 0) timer.cancel();
     });
-    // Wait until the picker has consumed its successful repository result.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final route = _giftPickerRoute;
-      if (route != null && route.isCurrent) route.navigator?.pop();
-    });
   }
 
-  Future<void> _sendGiftAgain() async {
-    final repeat = _repeatGift;
-    if (_comboSending || _comboLeft <= 0 || repeat == null) return;
-    setState(() => _comboSending = true);
-    try {
-      await repeat();
-      if (mounted) await ref.read(authStateProvider.notifier).refreshUser();
-    } catch (e) {
-      if (mounted) _showRoomSnack(tr('تعذر إرسال الهدية مجدداً', 'Could not send the gift again'), error: true);
-    } finally {
-      if (mounted) setState(() => _comboSending = false);
+  void _sendGiftAgain() {
+    if (_comboLeft <= 0 || _repeatGift == null) return;
+    _restartComboCountdown();
+    _comboQueued++;
+    _pumpCombo();
+  }
+
+  void _pumpCombo() {
+    while (mounted && _comboQueued > 0 && _comboInFlight < _kComboParallel) {
+      final repeat = _repeatGift;
+      if (repeat == null) { _comboQueued = 0; break; }
+      _comboQueued--;
+      _comboInFlight++;
+      if (!_comboSending) setState(() => _comboSending = true);
+      repeat().catchError((Object e) {
+        _comboQueued = 0;
+        if (mounted) _showRoomSnack(tr('تعذر إرسال الهدية مجدداً', 'Could not send the gift again'), error: true);
+      }).whenComplete(() {
+        _comboInFlight--;
+        if (!mounted) return;
+        if (_comboQueued > 0) { _pumpCombo(); return; }
+        if (_comboInFlight == 0) {
+          setState(() => _comboSending = false);
+          ref.read(authStateProvider.notifier).refreshUser();
+        }
+      });
     }
   }
 
   Widget _comboCircle() => Semantics(
     button: true, label: tr('إرسال مرة أخرى', 'Send again'),
-    child: GestureDetector(onTap: _sendGiftAgain,
+    child: GestureDetector(behavior: HitTestBehavior.opaque, onTapDown: (_) => _sendGiftAgain(),
       child: SizedBox.square(dimension: 100, child: Stack(alignment: Alignment.center, children: [
         Positioned.fill(child: Image.asset('assets/images/room/gift_combo_ring.png',
           fit: BoxFit.contain, errorBuilder: (_, __, ___) => Container(
