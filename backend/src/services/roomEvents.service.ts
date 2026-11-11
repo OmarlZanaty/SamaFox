@@ -73,7 +73,24 @@ export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: 
       const viewerGiftCoins = integer(raw.viewerGiftCoins ?? 0, 0, 1_000_000);
       const viewerGiftItem = raw.viewerGiftItem ? await validateReward(tx,
         typeof raw.viewerGiftItem === 'string' ? { itemId: raw.viewerGiftItem } : { ...raw.viewerGiftItem, type: 'item', coins: undefined }, false) : null;
-      data = { minTotalCoins: BigInt(integer(Number(raw.minTotalCoins ?? 0), 0, Number.MAX_SAFE_INTEGER)),
+      // PK levels (client 10/11 19:48): ليفل 1، 2، … each opened by the PK's
+      // total and carrying its own prizes — several products for the winner,
+      // something for the loser, and a gift every viewer in any room can take.
+      if (raw.levels != null && (!Array.isArray(raw.levels) || raw.levels.length > 10)) throw new RoomEventError('أقصى عدد للمراحل 10');
+      const levels: any[] = [];
+      for (const l of raw.levels ?? []) {
+        const list = async (v: any) => {
+          if (v == null) return [];
+          if (!Array.isArray(v) || v.length > 10) throw new RoomEventError('أقصى 10 جوائز لكل مرحلة');
+          return Promise.all(v.map((r: any) => validateReward(tx, r, false)));
+        };
+        levels.push({ minTotalCoins: integer(Number(l?.minTotalCoins), 0, Number.MAX_SAFE_INTEGER),
+          winner: await list(l?.winner), loser: await list(l?.loser), viewer: await list(l?.viewer) });
+      }
+      levels.sort((a, b) => a.minTotalCoins - b.minTotalCoins);
+      for (let i = 1; i < levels.length; i++)
+        if (levels[i].minTotalCoins === levels[i - 1].minTotalCoins) throw new RoomEventError('مرحلتين بنفس العدد');
+      data = { minTotalCoins: BigInt(integer(Number(raw.minTotalCoins ?? 0), 0, Number.MAX_SAFE_INTEGER)), levels,
         viewerGiftCoins, viewerGiftItem: viewerGiftItem ?? undefined, allowedDurations: [...new Set(raw.allowedDurations.map((v: any) => integer(v, 30, 3600)))],
         countedGiftIds: raw.countedGiftIds, pointsPerCoin: integer(raw.pointsPerCoin, 1, 1000),
         winCondition: raw.winCondition, tieRule: raw.tieRule, rewards, enabled: raw.enabled === true, updatedBy: adminId };
@@ -137,14 +154,38 @@ export function rocketView(e: any) {
   return e ? { ...e, eventId: e.id, current: e.currentCoins, target: e.targetCoins, rewards: e.configSnapshot.rewards,
     claimWindowSeconds: e.configSnapshot.claimWindowSeconds } : null;
 }
+const rewardCoins = (r: any) => r && (r.type === 'coins' || r.type === 'both') ? (r.coins ?? 0) * (r.quantity ?? 1) : 0;
+function pkLevels(cfg: any): any[] {
+  return Array.isArray(cfg?.levels) ? cfg.levels : [];
+}
+/** The highest PK level the battle's total has opened, or -1. */
+export function pkLevelIndex(p: any): number {
+  const total = BigInt((p.room1Score ?? 0) + (p.room2Score ?? 0));
+  let at = -1;
+  pkLevels(p.configSnapshot).forEach((l: any, i: number) => { if (total >= BigInt(l.minTotalCoins ?? 0)) at = i; });
+  return at;
+}
+function pkPrizeEligible(p: any, winner: any): boolean {
+  if (!winner || winner === 'TIE') return false;
+  if (pkLevels(p.configSnapshot).length) return pkLevelIndex(p) >= 0;
+  return BigInt(p.room1Score + p.room2Score) >= BigInt(p.configSnapshot.minTotalCoins ?? 0);
+}
 function pkConfigSnapshot(cfg: any) {
   return { ...cfg, minTotalCoins: String(cfg.minTotalCoins ?? 0) };
 }
 export function pkView(p: any) {
   return p ? { ...p, pkId: p.id, roomId: p.room1Id, opponentRoomId: p.room2Id,
     scoreA: p.room1Score, scoreB: p.room2Score,
-    prizeEligible: p.status === 'FINISHED' && ['A', 'B'].includes(p.winner) &&
-      BigInt(p.room1Score + p.room2Score) >= BigInt(p.configSnapshot.minTotalCoins ?? 0) } : null;
+    prizeEligible: p.status === 'FINISHED' && ['A', 'B'].includes(p.winner) && pkPrizeEligible(p, p.winner),
+    ...pkLevelView(p) } : null;
+}
+/** Live level for the PK card: «ليفل 2 · 1,200 / 3,000». */
+function pkLevelView(p: any) {
+  const levels = pkLevels(p.configSnapshot);
+  if (!levels.length) return {};
+  const at = pkLevelIndex(p);
+  const next = levels[at + 1];
+  return { level: at + 1, levelsCount: levels.length, nextLevelAt: next ? next.minTotalCoins : null };
 }
 export async function processRoomGift(giftTransactionId: string) {
   const out: any = await eventTransaction(async tx => {
@@ -237,8 +278,10 @@ export function pkDurationSec(raw: unknown, cfg: any): number {
   return integer(raw ?? fallback, 60, 3600);
 }
 async function reservePk(tx: any, pk: any, cfg: any, userId: number) {
-  const reserve = Object.values(cfg.rewards as Record<string, Reward>).reduce((sum, reward) =>
-    sum + (reward.type === 'coins' || reward.type === 'both' ? (reward.coins ?? 0) * reward.quantity : 0), 0);
+  const levels = pkLevels(cfg);
+  const reserve = levels.length
+    ? Math.max(0, ...levels.map((l: any) => [...(l.winner ?? []), ...(l.loser ?? [])].reduce((n: number, r: any) => n + rewardCoins(r), 0)))
+    : Object.values(cfg.rewards as Record<string, Reward>).reduce((sum, reward) => sum + rewardCoins(reward), 0);
   if (reserve) {
     const movement = { kind: 'PK_RESERVE', refType: 'pk', refId: pk.id, userId };
     if (await debitAccount(tx, 'PK_POOL', reserve, movement) === null) throw new RoomEventError('رصيد صندوق PK غير كافٍ', 409);
@@ -378,13 +421,18 @@ export async function finishPk(id: string) {
     const flip = await tx.pkBattle.updateMany({ where: { id, status: p.status }, data: { status, winner, isActive: false } });
     if (!flip.count) return null;
     const rewards: any[] = [];
-    const prizeEligible = !!winner && winner !== 'TIE' &&
-      BigInt(p.room1Score + p.room2Score) >= BigInt(p.configSnapshot.minTotalCoins ?? 0);
+    const prizeEligible = pkPrizeEligible(p, winner);
+    const levels = pkLevels(p.configSnapshot);
+    const levelIndex = levels.length ? pkLevelIndex(p) : -1;
+    const level = levelIndex >= 0 ? levels[levelIndex] : null;
     let prizeBox: any = null;
     if (prizeEligible) {
       for (const side of ['A', 'B']) {
-        const reward = p.configSnapshot.rewards[side === winner ? 'winner' : 'loser'];
-        if (reward) rewards.push(await grantReward(tx, side === 'A' ? p.sideAUserId : p.sideBUserId, reward, `PK_ESCROW:${id}`, `${id}:${side}`));
+        const role = side === winner ? 'winner' : 'loser';
+        const list: Reward[] = level ? (level[role] ?? []) : (p.configSnapshot.rewards[role] ? [p.configSnapshot.rewards[role]] : []);
+        const userId = side === 'A' ? p.sideAUserId : p.sideBUserId;
+        for (const [k, reward] of list.entries())
+          rewards.push({ ...(await grantReward(tx, userId, reward, `PK_ESCROW:${id}`, k ? `${id}:${side}:${k}` : `${id}:${side}`)), userId, role });
       }
     }
     if (prizeEligible) {
@@ -392,7 +440,8 @@ export async function finishPk(id: string) {
       const user = await tx.user.findUniqueOrThrow({ where: { id: winnerUserId }, select: { name: true, avatarUrl: true } });
       prizeBox = await tx.pkPrizeBox.create({ data: { pkId: id, winnerUserId,
         winnerName: user.name ?? '', winnerAvatar: user.avatarUrl, room1Id: p.room1Id, room2Id: p.room2Id,
-        expiresAt: new Date(Date.now() + 10 * 60000), configSnapshot: p.configSnapshot } });
+        expiresAt: new Date(Date.now() + 10 * 60000),
+        configSnapshot: level ? { ...p.configSnapshot, levelIndex, viewerRewards: level.viewer ?? [] } : p.configSnapshot } });
     }
     const unused = (await readBalance(tx, `PK_ESCROW:${id}`)) ?? 0n;
     if (unused > 0n) {
@@ -401,7 +450,8 @@ export async function finishPk(id: string) {
       await creditAccount(tx, 'PK_POOL', unused, movement);
     }
     await tx.pkRoomLock.deleteMany({ where: { pkId: id } });
-    const after = { ...pkView(p), status, isActive: false, winner, rewards, prizeEligible, prizeBox };
+    const after = { ...pkView(p), status, isActive: false, winner, rewards, prizeEligible, prizeBox,
+      ...(level ? { level: levelIndex + 1 } : {}) };
     await recordAdminAuditStrict(tx, { adminId: 0, action: 'PK_RESULT', targetId: id, before: pkView(p), after });
     return after;
   });
@@ -409,7 +459,8 @@ export async function finishPk(id: string) {
     if (result.prizeBox) {
       const box = result.prizeBox;
       emitGlobal('pk_prize', { pkId: id, winnerName: box.winnerName, winnerAvatar: box.winnerAvatar,
-        roomIds: [...new Set([box.room1Id, box.room2Id])], expiresAt: box.expiresAt });
+        roomIds: [...new Set([box.room1Id, box.room2Id])], expiresAt: box.expiresAt,
+        level: result.level ?? null, viewerPrize: pkViewerPrize(box.configSnapshot) });
     }
     pendingStates.delete(`p:${id}`);
     for (const rid of new Set<number>([result.room1Id, result.room2Id])) emitToRoomAndUsers(rid, [], 'pk_result', result);
@@ -426,15 +477,26 @@ export async function claimPk(pkId: string, userId: number) {
       throw new RoomEventError('استلمت جائزة PK بالفعل', 409);
     const cfg = box.configSnapshot;
     const rewards: any[] = [];
-    if (cfg.viewerGiftCoins > 0) rewards.push(await grantReward(tx, userId,
-      { type: 'coins', coins: cfg.viewerGiftCoins, quantity: 1, weight: 1 }, 'PK_POOL', `${pkId}:${userId}`));
-    if (cfg.viewerGiftItem) rewards.push(await grantReward(tx, userId, cfg.viewerGiftItem, 'PK_POOL', `${pkId}:${userId}`));
+    if (Array.isArray(cfg.viewerRewards)) {
+      // A level's viewer gifts — anyone, in any room (client 10/11 19:47).
+      for (const [k, r] of cfg.viewerRewards.entries()) rewards.push(await grantReward(tx, userId, r, 'PK_POOL', `${pkId}:${userId}:${k}`));
+    } else {
+      if (cfg.viewerGiftCoins > 0) rewards.push(await grantReward(tx, userId,
+        { type: 'coins', coins: cfg.viewerGiftCoins, quantity: 1, weight: 1 }, 'PK_POOL', `${pkId}:${userId}`));
+      if (cfg.viewerGiftItem) rewards.push(await grantReward(tx, userId, cfg.viewerGiftItem, 'PK_POOL', `${pkId}:${userId}`));
+    }
     if (!rewards.length) throw new RoomEventError('لا توجد هدية للمشاهدين في هذا الصندوق', 409);
     const reward = { rewards };
     await tx.pkClaim.create({ data: { pkId, userId, rewardJson: JSON.parse(JSON.stringify(reward)) } });
     await recordAdminAuditStrict(tx, { adminId: 0, action: 'PK_VIEWER_REWARD', targetUserId: userId, targetId: pkId, after: reward });
     return reward;
   });
+}
+/** What a viewer gets from the box, for the banner: «50 كوينز + إطار». */
+function pkViewerPrize(cfg: any): string {
+  const list: any[] = Array.isArray(cfg?.viewerRewards) ? cfg.viewerRewards
+    : [...(cfg?.viewerGiftCoins > 0 ? [{ type: 'coins', coins: cfg.viewerGiftCoins, quantity: 1 }] : []), ...(cfg?.viewerGiftItem ? [cfg.viewerGiftItem] : [])];
+  return list.map((r) => [rewardCoins(r) ? `${rewardCoins(r)} كوينز` : '', r.type !== 'coins' ? (r.name ?? 'منتج') : ''].filter(Boolean).join(' + ')).filter(Boolean).join(' + ');
 }
 let running = false;
 export async function recoverRoomEvents() {

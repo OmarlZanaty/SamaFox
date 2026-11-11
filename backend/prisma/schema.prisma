@@ -1014,6 +1014,8 @@ model PkConfig {
   minTotalCoins   BigInt   @default(0)
   viewerGiftCoins Int      @default(0)
   viewerGiftItem  Json?
+  /// PK levels: [{ minTotalCoins, winner: Reward[], loser: Reward[], viewer: Reward[] }]
+  levels          Json     @default("[]")
   id               Int      @id @default(autoincrement())
   allowedDurations Json     @default("[180,300,600]")
   countedGiftIds   Json     @default("[]")

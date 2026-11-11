@@ -382,6 +382,32 @@
       return r;
     });
   }
+  // PK levels (client 10/11 19:48): threshold + prizes for each level.
+  function pkLevelRow(l = {}) {
+    const coinsIn = (list) => (list || []).filter((r) => r.type === "coins" || r.type === "both").reduce((n, r) => n + Number(r.coins || 0) * Number(r.quantity || 1), 0);
+    const itemsIn = (list) => (list || []).filter((r) => r.type === "item" || r.type === "both").map((r) => r.itemId);
+    const opts = (sel) => evProducts.map((p) => `<option value="${esc(p.id)}" ${sel.includes(p.id) ? "selected" : ""}>${esc(p.name)}${p.durationDays ? ` (${p.durationDays} يوم)` : ""}</option>`).join("");
+    return `<div class="form-row pk-level" style="gap:6px;align-items:flex-end;border-top:1px dashed #555;padding-top:6px">
+      <label>يفتح عند مجموع <input class="form-input pl-min" type="number" min="0" value="${esc(String(l.minTotalCoins ?? ""))}" style="max-width:130px"></label>
+      <label>كوينز الفايز <input class="form-input pl-wc" type="number" min="0" value="${coinsIn(l.winner) || ""}" style="max-width:110px"></label>
+      <label>منتجات الفايز (اختار أكتر من واحد بـ Ctrl) <select class="form-input pl-wi" multiple style="height:72px;max-width:220px">${opts(itemsIn(l.winner))}</select></label>
+      <label>كوينز الخسران <input class="form-input pl-lc" type="number" min="0" value="${coinsIn(l.loser) || ""}" style="max-width:110px"></label>
+      <label>كوينز لكل مشاهد <input class="form-input pl-vc" type="number" min="0" value="${coinsIn(l.viewer) || ""}" style="max-width:110px"></label>
+      <label>منتج لكل مشاهد <select class="form-input pl-vi" style="max-width:200px"><option value="">بدون</option>${opts(itemsIn(l.viewer))}</select></label>
+      <button class="btn btn-outline btn-sm" onclick="this.closest('.pk-level').remove()">حذف</button></div>`;
+  }
+  function readPkLevels() {
+    const list = (coins, items) => [
+      ...(coins > 0 ? [{ type: "coins", coins, quantity: 1, weight: 1 }] : []),
+      ...items.filter(Boolean).map((itemId) => ({ type: "item", itemId, quantity: 1, weight: 1 })),
+    ];
+    return [...document.querySelectorAll("#pk_levels .pk-level")].map((row) => ({
+      minTotalCoins: Number(row.querySelector(".pl-min").value || 0),
+      winner: list(Number(row.querySelector(".pl-wc").value || 0), [...row.querySelector(".pl-wi").selectedOptions].map((o) => o.value)),
+      loser: list(Number(row.querySelector(".pl-lc").value || 0), []),
+      viewer: list(Number(row.querySelector(".pl-vc").value || 0), [row.querySelector(".pl-vi").value]),
+    }));
+  }
   async function rocketPkLoad() {
     await loadCaps();
     const [rk, pk] = await Promise.all([call("/admin-dashboard/rocket"), call("/admin-dashboard/pk")]);
@@ -421,6 +447,7 @@
       <label>${pkTr('الحد الأدنى لمجموع PK للجوائز', 'Minimum PK total for prizes')} <input id="pk_min_total" class="form-input" type="number" min="0" value="${esc(String(q.minTotalCoins ?? 0))}"></label>
       <label>${pkTr('كوينز لكل مشاهد', 'Coins per viewer')} <input id="pk_viewer_coins" class="form-input" type="number" min="0" max="1000000" value="${Number(q.viewerGiftCoins || 0)}"></label>
       <label>${pkTr('منتج لكل مشاهد', 'Product per viewer')} <select id="pk_viewer_item" class="form-input">${pkOptions(q.viewerGiftItem?.itemId)}</select></label></div>`;
+    $("pk_levels").innerHTML = (q.levels || []).map(pkLevelRow).join("");
     $("pk_pool").textContent = n(P.poolBalance);
     $("pkEvents").querySelector("tbody").innerHTML = (P.events || []).map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.room1Id)} / ${esc(e.room2Id)}</td><td>${esc(e.status)}</td><td>${n(e.room1Score)} : ${n(e.room2Score)}</td><td>${esc(e.winner || "—")}</td><td>${dt(e.createdAt)}</td></tr>`).join("") || '<tr><td colspan="6" class="cell-muted">لا توجد مباريات</td></tr>';
   }
@@ -455,6 +482,7 @@
       viewerGiftCoins: Number(val("pk_viewer_coins") || 0),
       viewerGiftItem: val("pk_viewer_item") || null,
       rewards: coins > 0 || itemId ? { winner } : {},
+      levels: readPkLevels(),
     });
     toast("✅ تم حفظ إعدادات PK");
     rocketPkLoad();
@@ -466,7 +494,7 @@
     toast("✅ تم التمويل");
     rocketPkLoad();
   }
-  Object.assign(window, { rocketPkLoad, rocketSave, pkSave, eventFund, evAddReward: () => $("rk_rewards").insertAdjacentHTML("beforeend", rewardRow()) });
+  Object.assign(window, { pkAddLevel: () => $("pk_levels").insertAdjacentHTML("beforeend", pkLevelRow()), rocketPkLoad, rocketSave, pkSave, eventFund, evAddReward: () => $("rk_rewards").insertAdjacentHTML("beforeend", rewardRow()) });
 
   // ── section router hook (called from app.js navigate) ───────────────────
   let sessionsPage = 1;

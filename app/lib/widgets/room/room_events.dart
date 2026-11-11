@@ -122,6 +122,18 @@ class RoomEventsBus {
                 Text(d['winnerName']?.toString() ?? '',
                     maxLines: 2, overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white, fontSize: 18)),
+                if ((d['viewerPrize'] ?? '').toString().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(tr('هدية لكل المشاهدين: ${d['viewerPrize']}', "Gift for every viewer: ${d['viewerPrize']}"),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  ),
+                // Viewers in ANY room can take the gift (client 10/11 19:47).
+                if (d['pkId'] != null) ...[
+                  const SizedBox(height: 8),
+                  _PkPrizeButton(pkId: d['pkId'].toString()),
+                ],
                 Text(tr('اضغط لدخول الغرفة', 'Tap to enter the room'),
                     style: const TextStyle(color: Color(0xFFFFD54F))),
               ]),
@@ -132,7 +144,7 @@ class RoomEventsBus {
     ));
     overlay.insert(_prizeBanner!);
     _prizeBannerTimer = Timer(
-        remaining < const Duration(seconds: 8) ? remaining : const Duration(seconds: 8),
+        remaining < const Duration(seconds: 15) ? remaining : const Duration(seconds: 15),
         _dismissPkPrize);
   }
 
@@ -887,6 +899,12 @@ class _RoomPkBarState extends State<RoomPkBar> {
     final roundLabel = pk['round'] != null || pk['rounds'] != null
         ? " · ${tr('جولة', 'ROUND')} ${pk['round'] ?? 1}/${pk['rounds'] ?? pk['round']}"
         : '';
+    // PK levels (client 10/11 19:48): «ليفل 2 · التالي 3000».
+    final level = (pk['level'] as num?)?.toInt();
+    final nextAt = (pk['nextLevelAt'] as num?)?.toInt();
+    final levelLabel = level == null
+        ? ''
+        : " · ${tr('ليفل', 'LV')} $level${nextAt != null ? ' → ${tr('التالي', 'next')} $nextAt' : ''}";
     // Compact on purpose: the card sits above the seats and the chat, so it
     // must leave them room (about 240 dp with the actions).
     return Directionality(
@@ -914,7 +932,7 @@ class _RoomPkBarState extends State<RoomPkBar> {
                 Expanded(child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: FittedBox(fit: BoxFit.scaleDown, child: Text(
-                    pending ? tr('صندوق PK · بانتظار القبول', 'PK box · awaiting acceptance') : '${tr('صندوق PK', 'PK box')}$roundLabel',
+                    pending ? tr('صندوق PK · بانتظار القبول', 'PK box · awaiting acceptance') : '${tr('صندوق PK', 'PK box')}$roundLabel$levelLabel',
                     style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800))),
                 )),
                 Text(clock, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),

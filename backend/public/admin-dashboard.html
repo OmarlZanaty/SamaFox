@@ -1597,7 +1597,10 @@
         <div class="form-card-title" style="margin-top:8px">جائزة الفائز</div>
         <div id="pk_win"></div>
         <div id="pk_prize_settings"></div>
-        <div class="form-row"><button class="btn btn-primary" onclick="pkSave()" data-perm="economy.settings">حفظ PK</button></div>
+        <div class="form-card-title" style="margin-top:10px">مراحل الـ PK (ليفل 1، 2، …)</div>
+        <p class="section-sub">كل مرحلة تفتح لما مجموع الـ PK (الطرفين) يوصل لعددها، والجوايز بتاعة أعلى مرحلة اتفتحت هي اللي تتصرف: الفايز ياخد كل منتجاتها + الكوينز، والخسران الكوينز بتاعته، وأي حد في أي غرفة يقدر يستلم هدية المشاهدين. <strong>لو فيه مراحل، الجايزة والحد الأدنى اللي فوق مش بيتحسبوا.</strong></p>
+        <div id="pk_levels"></div>
+        <div class="form-row"><button class="btn btn-outline" onclick="pkAddLevel()">+ مرحلة</button><button class="btn btn-primary" onclick="pkSave()" data-perm="economy.settings">حفظ PK</button></div>
         <div class="table-wrap" style="margin-top:10px"><table id="pkEvents"><thead><tr><th>النوع</th><th>الغرف</th><th>الحالة</th><th>النتيجة</th><th>الفائز</th><th>الوقت</th></tr></thead><tbody></tbody></table></div>
       </div>
     </section>

@@ -134,3 +134,23 @@ test('inside one room a gift counts for the side whose player received it, not t
   await processRoomGift('gift-b'); assert.equal(state.pk.room2Score, 7); assert.equal(state.pk.room1Score, 0);
   assert.equal(state.contributions.at(-1).side, 'B');
 });
+test('levels: the total opens the highest level, its winner takes every prize on it and viewers get that level gift', async () => {
+  state.pk.configSnapshot.levels = [
+    { minTotalCoins: 50, winner: [{ type: 'coins', coins: 10, quantity: 1, weight: 1 }], loser: [], viewer: [{ type: 'coins', coins: 1, quantity: 1, weight: 1 }] },
+    { minTotalCoins: 100, winner: [{ type: 'coins', coins: 30, quantity: 1, weight: 1 }, { type: 'item', itemId: 'frame', quantity: 1, weight: 1 }, { type: 'item', itemId: 'car', quantity: 1, weight: 1 }],
+      loser: [{ type: 'coins', coins: 5, quantity: 1, weight: 1 }], viewer: [{ type: 'coins', coins: 3, quantity: 1, weight: 1 }] },
+    { minTotalCoins: 500, winner: [{ type: 'coins', coins: 999, quantity: 1, weight: 1 }], loser: [], viewer: [] },
+  ];
+  const result = await finishPk('pk');
+  assert.equal(result.level, 2);
+  assert.equal(state.users[10], 30); assert.equal(state.users[20], 5);
+  assert.deepEqual(state.items.map((i: any) => i.itemId), ['frame', 'car']);
+  assert.equal(events[0].payload.viewerPrize, '3 كوينز');
+  const reward = await claimPk('pk', 30);
+  assert.equal(reward.rewards.length, 1); assert.equal(state.users[30], 3);
+});
+test('levels: below the first level there is no prize even with a winner', async () => {
+  state.pk.configSnapshot.levels = [{ minTotalCoins: 101, winner: [{ type: 'coins', coins: 10, quantity: 1, weight: 1 }], loser: [], viewer: [] }];
+  const result = await finishPk('pk');
+  assert.equal(result.prizeEligible, false); assert.deepEqual(state.users, {}); assert.equal(state.box, null);
+});
