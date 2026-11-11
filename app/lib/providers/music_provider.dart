@@ -395,9 +395,12 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
           if ((attempt == 0 || attempt == 2) && !kIsWeb) {
             final path = await _downloadTrack(url, revision);
             if (!_isCurrent(revision)) return;
-            await _player.setSourceDeviceFile(path);
+            // Client 10/11 18:55 «تحميل الموسيقى واقف» on weak phones: a
+            // source that never reports "prepared" used to hang this await
+            // for ever. Give up after a while and fall to the next attempt.
+            await _player.setSourceDeviceFile(path).timeout(_kSourceTimeout);
           } else {
-            await _player.setSourceUrl(url);
+            await _player.setSourceUrl(url).timeout(_kSourceTimeout);
           }
         }
         if (!_isCurrent(revision)) return;
@@ -408,12 +411,12 @@ class RoomMusicNotifier extends StateNotifier<RoomMusicState> {
         if (reload || attempt > 0) {
           for (var i = 0; i < 20; i++) {
             if (!_isCurrent(revision)) return;
-            final d = await _player.getDuration();
+            final d = await _player.getDuration().timeout(const Duration(seconds: 2), onTimeout: () => null);
             if (d != null && d > Duration.zero) break;
             await Future<void>.delayed(const Duration(milliseconds: 150));
           }
         }
-        final current = await _player.getCurrentPosition() ?? Duration.zero;
+        final current = await _player.getCurrentPosition().timeout(const Duration(seconds: 2), onTimeout: () => null) ?? Duration.zero;
         if (!_isCurrent(revision)) return;
         if (reload || attempt > 0 || !isPlaying ||
             (current - target).abs() > _driftTolerance) {
@@ -537,3 +540,6 @@ final roomMusicProvider =
     StateNotifierProvider.autoDispose.family<RoomMusicNotifier, RoomMusicState, int>(
   (ref, roomId) => RoomMusicNotifier(roomId),
 );
+
+/// How long a weak phone may take to prepare a song before we try the next way.
+const Duration _kSourceTimeout = Duration(seconds: 20);
