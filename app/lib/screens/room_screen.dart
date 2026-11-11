@@ -54,7 +54,6 @@ import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
 import '../gifts/widgets/gift_announcement_bar.dart';
-import '../gifts/widgets/lucky_ticker.dart';
 import '../gifts/widgets/lucky_win_banner.dart';
 import '../widgets/room/entrance_banner_layer.dart';
 import '../widgets/room/mic_queue_panel.dart';
@@ -5298,11 +5297,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     // هدايا الحظ: the app-wide winners ticker lives with the
                     // messages. Tap → the winner's card (متابعة / رسالة / مسار).
                     tabsTrailing: const AgencyBell(),
-                    header: LuckyTicker(
-                      socket: _giftSocket,
-                      repository: _giftRepository,
-                      myUserId: ref.read(authStateProvider).user?.id,
-                    ),
+                    // Lucky wins are lines IN the feed that scroll with the
+                    // messages; the fixed ticker above them covered the chat
+                    // (client 11/11 01:12 «بلع التيكست»).
+                    giftSocket: _giftSocket,
                     // Tapping a writer's name opens the room's own profile
                     // card, not a separate screen.
                     onUserTap: (uid, name, {level, vipLevel, displayId, avatarUrl}) =>
