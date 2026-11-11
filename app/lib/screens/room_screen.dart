@@ -322,6 +322,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   final Completer<void> _roomReady = Completer<void>();
   static const double _bottomBarH = 64.0; // 👈 bottom bar height
 
+  /// Android's own navigation bar under the room. The bottom bar adds it
+  /// (SafeArea) but everything placed «just above the bar» used fixed
+  /// heights, so on phones with the 3-button bar (~48 dp, e.g. Realme C53)
+  /// the games/PK rail, the send-again circle and the chat sat ON the bar
+  /// (client 10/11 19:49 «الألعاب تحت مربعات الإعدادات… وظابطه في تليفونات تانيه»).
+  double get _navInset => MediaQuery.viewPaddingOf(context).bottom;
+
   /// Artwork for the seat-tap profile card. Bundled as app assets rather than
   /// served from the API: it's one shared design for every card, so there's no
   /// reason to pay a network round-trip (and a loading flicker) per open.
@@ -5250,7 +5257,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // ✅ Seats area NOT full screen (fixed height)
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.only(bottom: bottomBarH + 10 + 55),
+                    padding: EdgeInsets.only(bottom: bottomBarH + 10 + 55 + _navInset),
                     child: RoomSeatsChatLayout(
                       seatCount: state.seatCount,
                       seats: Stack(
@@ -5325,7 +5332,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             if (kb == 0 && !_showChatPanel)
               Positioned(
                 left: 6,
-                bottom: _bottomBarH + 18,
+                bottom: _bottomBarH + 18 + _navInset,
                 child: RoomLeftRail(
                   onGames: () => _openGamesSheet(context),
                   gamesIcon: Image.asset('assets/images/room/btn_games.png',
@@ -5348,7 +5355,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               Positioned(
                 left: 8,
                 right: 8,
-                bottom: kb > 0 ? kb : _bottomBarH + 6,
+                bottom: kb > 0 ? kb : _bottomBarH + 6 + _navInset,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
@@ -5748,7 +5755,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             if (_comboLeft > 0)
               // Client 7/11 20:17/21:06: bigger, never over the bar below.
               // Bottom right, so the gift cannon at bottom centre stays visible.
-              Positioned(key: const ValueKey('room-combo'), right: 14, bottom: _bottomBarH + 10,
+              Positioned(key: const ValueKey('room-combo'), right: 14, bottom: _bottomBarH + 10 + _navInset,
                 child: _comboCircle()),
 
             // Bars paint above every room effect. SafeArea already offsets
