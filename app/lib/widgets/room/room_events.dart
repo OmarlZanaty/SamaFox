@@ -220,6 +220,11 @@ class _RoomRocketButtonState extends State<RoomRocketButton> {
       if ((d['roomId'] as num?)?.toInt() != widget.roomId || !mounted) return;
       setState(() => _rocket = d);
       RocketLaunchOverlay.show(context, d);
+      // Phone test 11/11: a top-3 prize won now only showed after re-entering
+      // the room, so fetch the held prizes again once the server has them.
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (!_disposed && mounted) _load();
+      });
     }));
     _load();
   }
