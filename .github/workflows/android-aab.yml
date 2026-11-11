@@ -49,6 +49,9 @@ jobs:
 
       - run: bash build-release.sh appbundle
 
+      # Same code, signed APK: installed on the test phone before the AAB goes out.
+      - run: bash build-release.sh apk
+
       - name: Remove secrets from the runner
         if: always()
         run: rm -f android/samafox-key.jks android/key.properties android/app/google-services.json turn.env
@@ -57,4 +60,10 @@ jobs:
         with:
           name: aab-${{ github.ref_name }}
           path: app/build/app/outputs/bundle/release/app-release.aab
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ github.ref_name }}
+          path: app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 3
