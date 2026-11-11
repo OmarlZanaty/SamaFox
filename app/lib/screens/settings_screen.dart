@@ -1,4 +1,3 @@
-import 'link_phone_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -421,27 +420,7 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
-          // SPEC52 #37 — Account: link a phone number to this account.
-          _buildSectionTitle(tr('الحساب', 'Account'), theme, isDark),
-          const SizedBox(height: 12),
-          _buildSettingsCard(
-            theme: theme,
-            isDark: isDark,
-            children: [
-              _buildSettingsTile(
-                icon: Icons.phone_iphone_outlined,
-                title: tr('ربط رقم الهاتف', 'Link phone number'),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LinkPhoneScreen()),
-                ),
-                theme: theme,
-                isDark: isDark,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
+          // Phone linking removed (owner 11/11: «شيل الطلب ده نهائى»).
 
           // Privacy & Security Section
           _buildSectionTitle(strings.privacy, theme, isDark),
