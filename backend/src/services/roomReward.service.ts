@@ -56,8 +56,8 @@ export async function roomSupportTotal(roomId: number): Promise<number> {
   return Number(agg._sum?.totalCoins ?? 0);
 }
 
-export { rungDue, rungIncrement } from './roomCupMath';
-import { rungDue, rungIncrement } from './roomCupMath';
+export { rungDue, rungIncrement, cupLevels } from './roomCupMath';
+import { rungDue, rungIncrement, cupLevels } from './roomCupMath';
 
 /** Advisory-lock namespace for room cup payouts (one lock per room). */
 const ROOM_CUP_LOCK = 41501;
@@ -76,26 +76,38 @@ export async function evaluatePerRoomCups(roomId: number): Promise<void> {
     const now = new Date();
     const cups = await db.roomCup.findMany({ where: { roomId, paidAt: null, startsAt: { lte: now }, endsAt: { gt: new Date(now.getTime() - 60000) } } });
     for (const candidate of cups) {
-      const paid = await db.$transaction(async (tx: any) => {
+      const granted = await db.$transaction(async (tx: any) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ROOM_CUP_LOCK}::int, ${roomId}::int)`;
         const cup = await tx.roomCup.findUnique({ where: { id: candidate.id } });
-        const paidAt = new Date();
-        if (!cup || cup.paidAt || cup.startsAt > paidAt || cup.endsAt.getTime() <= paidAt.getTime() - 60000) return null;
-        if (await perRoomCupSupport(cup, tx) < BigInt(cup.targetCoins)) return null;
+        const at = new Date();
+        if (!cup || cup.paidAt || cup.startsAt > at || cup.endsAt.getTime() <= at.getTime() - 60000) return null;
+        const support = await perRoomCupSupport(cup, tx);
         const room = await tx.room.findUnique({ where: { id: roomId }, select: { ownerId: true } });
         if (!room?.ownerId) return null;
-        const coins = Number(cup.ownerRewardCoins);
-        if (!Number.isSafeInteger(coins) || coins <= 0 || coins > 2147483647) return null;
-        const claimed = await tx.roomCup.updateMany({ where: { id: cup.id, paidAt: null }, data: { paidAt, paidToUserId: room.ownerId } });
-        if (claimed.count !== 1) return null;
-        await tx.user.update({ where: { id: room.ownerId }, data: { coinsBalance: { increment: coins } } });
-        await tx.transaction.create({ data: { userId: room.ownerId, type: 'ROOM_CUP_BY_ID_REWARD', amountCoins: coins, status: 'completed', externalId: `room-cup:${cup.id}` } });
-        return { userId: room.ownerId, coins };
+        const levels = cupLevels(cup);
+        const rewards = levels.map((l) => l.rewardCoins);
+        let coins = 0n;
+        for (const [level, l] of levels.entries()) {
+          if (support < l.targetCoins) break;
+          const add = rungIncrement(rewards, level);
+          if (add <= 0n || add > 2147483647n) continue;
+          const exists = await tx.roomCupClaim.findFirst({ where: { source: 'cup', refId: cup.id, level } });
+          if (exists) continue;
+          // Waits under the owner's name in the cup until he collects it.
+          await tx.roomCupClaim.create({ data: { roomId, userId: room.ownerId, coins: add, source: 'cup', refId: cup.id, level } });
+          coins += add;
+        }
+        // Every level reached: the cup is done.
+        const top = levels[levels.length - 1];
+        if (top && support >= top.targetCoins) {
+          await tx.roomCup.updateMany({ where: { id: cup.id, paidAt: null }, data: { paidAt: at, paidToUserId: room.ownerId } });
+        }
+        return coins > 0n ? { userId: room.ownerId, coins: Number(coins) } : null;
       });
-      if (paid) await createNotification({
-        userId: paid.userId, type: 'room_cup_reward', title: 'مكافأة كأس الغرفة 🏆',
-        body: `تهانينا! اكتمل دعم الغرفة وحصلت على ${paid.coins} كوينز`,
-        data: { roomId, cupId: candidate.id, coins: paid.coins },
+      if (granted) await createNotification({
+        userId: granted.userId, type: 'room_cup_reward', title: 'مكافأة كأس الغرفة 🏆',
+        body: `وصل دعم غرفتك للمستوى المطلوب — مكافأة ${granted.coins} كوينز مستنياك تحت اسمك في كأس الغرفة، اضغط «استلم»`,
+        data: { roomId, cupId: candidate.id, coins: granted.coins },
       }).catch(e => console.warn('[roomReward] notification failed:', e));
     }
   } catch (e) { console.warn('[roomReward] evaluatePerRoomCups failed:', (e as Error).message); }
@@ -153,12 +165,13 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
           select: { paidAt: true },
         });
         if (!rungDue(last?.paidAt, hours)) return false;
-        await tx.roomCupRewardPayout.create({
+        const payout = await tx.roomCupRewardPayout.create({
           data: { rewardId: rung.id, roomId, userId: room.ownerId, coins: BigInt(coins) },
         });
-        await tx.user.update({
-          where: { id: room.ownerId },
-          data: { coinsBalance: { increment: coins } },
+        // Not into the wallet: it waits under the owner's name in the cup
+        // until he collects it (client 10/11 19:02).
+        await tx.roomCupClaim.create({
+          data: { roomId, userId: room.ownerId, coins: BigInt(coins), source: 'rung', refId: payout.id, level: 0 },
         });
         return true;
       });
@@ -168,7 +181,7 @@ export async function evaluateRoomCupRewards(roomId: number): Promise<void> {
         userId: room.ownerId,
         type: 'room_cup_reward',
         title: 'مكافأة كأس الغرفة 🏆',
-        body: `تهانينا! وصل دعم غرفتك إلى ${rung.thresholdCoins} كوينز فاكتملت مكافأتك إلى ${rung.rewardCoins} كوينز (+${coins})`,
+        body: `وصل دعم غرفتك إلى ${rung.thresholdCoins} كوينز — مكافأة ${coins} كوينز مستنياك تحت اسمك في كأس الغرفة، اضغط «استلم»`,
         data: { roomId, coins },
       }).catch((e) => console.warn('[roomReward] notification failed:', e));
     }
@@ -281,3 +294,41 @@ export async function claimSupporterReward(
 
   return { coins };
 }
+
+/** One room-cup reward still waiting under the owner's name. */
+export interface RoomCupClaimOffer {
+  claimId: number;
+  coins: string;
+  source: string;
+  level: number;
+  createdAt: Date;
+}
+
+/** Rewards [userId] has been granted in [roomId] and not collected yet. */
+export async function pendingRoomCupClaims(userId: number, roomId: number): Promise<RoomCupClaimOffer[]> {
+  const rows = await db.roomCupClaim.findMany({
+    where: { userId, roomId, claimedAt: null },
+    orderBy: { createdAt: 'asc' },
+    take: 50,
+  });
+  return rows.map((r: any) => ({ claimId: r.id, coins: String(r.coins), source: r.source, level: r.level, createdAt: r.createdAt }));
+}
+
+/** The owner pressed «استلم» under his name in the cup. Pays once. */
+export async function claimRoomCupReward(userId: number, claimId: number): Promise<{ coins: number; roomId: number }> {
+  return db.$transaction(async (tx: any) => {
+    const claim = await tx.roomCupClaim.findUnique({ where: { id: claimId } });
+    if (!claim || claim.userId !== userId) throw new SupporterRewardError(404, 'المكافأة غير متاحة');
+    const coins = Number(claim.coins);
+    if (!Number.isSafeInteger(coins) || coins <= 0 || coins > 2147483647) throw new SupporterRewardError(400, 'قيمة المكافأة غير صالحة');
+    const taken = await tx.roomCupClaim.updateMany({ where: { id: claimId, claimedAt: null }, data: { claimedAt: new Date() } });
+    if (taken.count !== 1) throw new SupporterRewardError(409, 'استلمت هذه المكافأة بالفعل');
+    await tx.user.update({ where: { id: userId }, data: { coinsBalance: { increment: coins } } });
+    await tx.transaction.create({ data: {
+      userId, type: claim.source === 'cup' ? 'ROOM_CUP_BY_ID_REWARD' : 'ROOM_CUP_REWARD',
+      amountCoins: coins, status: 'completed', externalId: `room-cup-claim:${claim.id}`,
+    } });
+    return { coins, roomId: claim.roomId };
+  });
+}
+

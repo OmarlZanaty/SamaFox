@@ -1219,7 +1219,8 @@
       <div class="form-card">
         <div class="form-card-title">&#127942; مكافأة كأس الروم</div>
         <p class="section-sub">
-          لما يوصل الدعم داخل الغرفة للعدد المحدد، تُضاف المكافأة تلقائياً لمحفظة صاحب الغرفة — مرة واحدة لكل غرفة لكل درجة.
+          لما يوصل الدعم داخل الغرفة للعدد المحدد، تظهر المكافأة تحت اسم صاحب الغرفة في الكأس ويضغط «استلم» — مرة واحدة لكل غرفة لكل درجة في كل فترة.
+          <strong>مكافأة كل درجة = الإجمالي عندها</strong> (مثال: مليون ← 30 ألف، 2 مليون ← 60 ألف = 60 ألف في المجموع مش 90).
           <strong>خاص بوكالة المضيفين فقط.</strong>
           أضف أكثر من درجة: كل صف مستوى مستقل يُصرف عند الوصول له.
         </p>
@@ -1245,7 +1246,20 @@
           <input id="prc_hours" class="form-input" type="number" min="0.01" step="any" placeholder="المدة بالساعات" />
           <button id="prc_save" class="btn btn-primary" onclick="savePerRoomCup()">إضافة</button>
         </div>
+        <p class="section-sub">أكتر من مستوى (اختياري): كل سطر <code>الدعم المطلوب , المكافأة</code> — المكافأة هي الإجمالي عند المستوى ده. لو كتبت مستويات، خانتا الدعم والمكافأة اللي فوق مش بيتحسبوا.</p>
+        <textarea id="prc_levels" class="form-input" rows="3" placeholder="1000000 , 30000&#10;2000000 , 60000&#10;5000000 , 150000"></textarea>
         <div class="table-wrap"><table id="perRoomCupsTable"><thead><tr><th>الغرفة</th><th>صاحبها</th><th>التقدم</th><th>المكافأة</th><th>ينتهي</th><th>الحالة</th><th>حذف</th></tr></thead><tbody></tbody></table></div>
+      </div>
+
+      <div class="form-card">
+        <div class="form-card-title">&#127942; مكافآت الكأس: نزلت ولا لأ، واستلمها ولا لأ</div>
+        <div class="form-row">
+          <select id="rcc_status" class="form-input" onchange="loadRoomCupClaims()">
+            <option value="all">الكل</option><option value="pending">لسه ما استلمش</option><option value="claimed">استلم</option>
+          </select>
+          <button class="btn btn-outline" onclick="loadRoomCupClaims()">تحديث</button>
+        </div>
+        <div class="table-wrap"><table id="roomCupClaimsTable"><thead><tr><th>الغرفة</th><th>صاحبها</th><th>المكافأة</th><th>من</th><th>نزلت</th><th>استلمها</th></tr></thead><tbody></tbody></table></div>
       </div>
 
       <div class="form-card">

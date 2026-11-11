@@ -517,6 +517,9 @@ export async function leaderboard(req: Request, res: Response) {
     // "مكافأة لك" square next to their own name.
     const viewerId = (req as any).userId as number | undefined;
     const myRewards = viewerId ? await pendingSupporterRewards(viewerId, roomId) : [];
+    // Room-cup rewards waiting under the owner's name (client 10/11 19:02).
+    const { pendingRoomCupClaims } = await import('../services/roomReward.service');
+    const myCupRewards = viewerId ? await pendingRoomCupClaims(viewerId, roomId) : [];
 
     return res.json({
       success: true,
@@ -527,6 +530,7 @@ export async function leaderboard(req: Request, res: Response) {
       supportTotal,
       supportWindowHours: windowHours,
       myRewards,
+      myCupRewards,
     });
   } catch (err) {
     console.error('[gifts.leaderboard]', err);
@@ -656,6 +660,27 @@ export async function claimSupporterRewardHandler(req: Request, res: Response) {
     }
   } catch (err) {
     console.error('[gifts.claimSupporterReward]', err);
+    return res.status(500).json({ success: false, message: 'Failed to claim reward' });
+  }
+}
+
+/** POST /gifts/room-cup-claims/:id/claim — «استلم» under the owner's name in the cup. */
+export async function claimRoomCupRewardHandler(req: Request, res: Response) {
+  try {
+    const userId = (req as any).userId as number | undefined;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+    const claimId = Number(req.params.id);
+    if (!Number.isInteger(claimId) || claimId <= 0) return res.status(400).json({ success: false, message: 'Invalid claim id' });
+    const { claimRoomCupReward, SupporterRewardError } = await import('../services/roomReward.service');
+    try {
+      const { coins } = await claimRoomCupReward(userId, claimId);
+      return res.json({ success: true, coins, message: `تم إضافة ${coins} كوينز إلى محفظتك` });
+    } catch (e: any) {
+      if (e instanceof SupporterRewardError) return res.status(e.status).json({ success: false, message: e.message });
+      throw e;
+    }
+  } catch (err) {
+    console.error('[gifts.claimRoomCupReward]', err);
     return res.status(500).json({ success: false, message: 'Failed to claim reward' });
   }
 }

@@ -75,6 +75,10 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
   /// "مكافأة لك" button.
   List<Map<String, dynamic>> _myRewards = const [];
 
+  /// Room-cup rewards waiting under the OWNER's name until he presses «استلم»
+  /// (client 10/11 19:02). The server only sends them to the owner.
+  List<Map<String, dynamic>> _myCupRewards = const [];
+
   bool get _isRoom => widget.roomId != null;
   int get _limit => _isRoom ? 20 : 30;
 
@@ -95,6 +99,10 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
     // server, and the UI simply omits them.
     _supportTotal = (data['supportTotal'] as num?)?.toInt();
     _myRewards = ((data['myRewards'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    _myCupRewards = ((data['myCupRewards'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
@@ -157,6 +165,79 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
           : tr('تعذّر استلام المكافأة', "Could not claim reward");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
+  }
+
+  Future<void> _claimCupReward(Map<String, dynamic> reward) async {
+    final id = (reward['claimId'] as num?)?.toInt();
+    if (id == null) return;
+    try {
+      final res = await DioClient.dio.post('/gifts/room-cup-claims/$id/claim');
+      final coins = (res.data is Map) ? (res.data['coins'] as num?)?.toInt() ?? 0 : 0;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('تم إضافة $coins كوينز إلى محفظتك', "$coins coins added to your wallet"))),
+      );
+      setState(() => _future = _load());
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is DioException && e.response?.data is Map
+          ? (e.response!.data['message']?.toString() ?? tr('تعذّر استلام المكافأة', "Could not claim reward"))
+          : tr('تعذّر استلام المكافأة', "Could not claim reward");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  /// The owner's cup reward: his name, the coins, and «استلم».
+  Widget _cupRewardCard(Map<String, dynamic> r) {
+    final me = ref.read(authStateProvider).user;
+    final name = (me?.name ?? '').trim();
+    final coins = int.tryParse('${r['coins'] ?? ''}') ?? 0;
+    final level = (r['level'] as num?)?.toInt() ?? 0;
+    return Container(
+      key: ValueKey('cup-claim-${r['claimId']}'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF3A2410), Color(0xFF6B4A12)]),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _gold, width: 1.4),
+      ),
+      child: Row(
+        children: [
+          const Text('🏆', style: TextStyle(fontSize: 26)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isEmpty ? tr('مكافأة صاحب الغرفة', "Room owner's reward") : name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: _gold, fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  r['source'] == 'cup'
+                      ? tr('كأس الغرفة — مستوى ${level + 1}: ${_coins(coins)} كوينز', "Room cup — level ${level + 1}: ${_coins(coins)} coins")
+                      : tr('كأس الغرفة: ${_coins(coins)} كوينز', "Room cup: ${_coins(coins)} coins"),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _gold,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              minimumSize: const Size(0, 34),
+              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            onPressed: () => _claimCupReward(r),
+            child: Text(tr('استلم', 'Claim')),
+          ),
+        ],
+      ),
+    );
   }
 
   /// The signed-in viewer, or 0 before auth has settled.
@@ -301,6 +382,12 @@ class _SupportersBoardScreenState extends ConsumerState<SupportersBoardScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
+                  ],
+
+                  // Room-cup rewards under the owner's name, waiting for «استلم».
+                  for (final r in _myCupRewards) ...[
+                    _cupRewardCard(r),
+                    const SizedBox(height: 10),
                   ],
 
                   // A15 — "مكافأة لك" used to be a stack of full-width buttons

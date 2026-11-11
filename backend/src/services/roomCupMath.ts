@@ -31,3 +31,28 @@ export function rungIncrement(rewards: readonly bigint[], index: number): bigint
   const diff = (rewards[index] ?? 0n) - below;
   return diff > 0n ? diff : 0n;
 }
+
+export interface CupLevel { targetCoins: bigint; rewardCoins: bigint }
+
+/**
+ * كأس الغرفة بالـ ID levels, lowest target first. [levels] is the stored JSON
+ * ([{ targetCoins, rewardCoins }]); bad rows are dropped. With no usable level
+ * the cup is its single legacy target/reward (client 10/11 19:02: «محدد
+ * بمستوى واحد فقط، المطلوب أحدده بأكتر من مستوى»).
+ */
+export function cupLevels(cup: { levels?: unknown; targetCoins: unknown; ownerRewardCoins: unknown }): CupLevel[] {
+  const out: CupLevel[] = [];
+  const raw = Array.isArray(cup.levels) ? cup.levels : [];
+  for (const l of raw) {
+    try {
+      const t = BigInt(String((l as any)?.targetCoins));
+      const r = BigInt(String((l as any)?.rewardCoins));
+      if (t > 0n && r >= 0n) out.push({ targetCoins: t, rewardCoins: r });
+    } catch { /* skip a malformed level */ }
+  }
+  if (out.length === 0) {
+    return [{ targetCoins: BigInt(String(cup.targetCoins)), rewardCoins: BigInt(String(cup.ownerRewardCoins)) }];
+  }
+  return out.sort((a, b) => (a.targetCoins < b.targetCoins ? -1 : a.targetCoins > b.targetCoins ? 1 : 0));
+}
+

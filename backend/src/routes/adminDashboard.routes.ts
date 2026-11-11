@@ -1,7 +1,7 @@
 import { idempotent } from '../middlewares/idempotency.middleware';
 import express from 'express';
 import { banUserName, banUserImage, listNameBans, listImageBans, deleteNameBan, deleteImageBan, listBanBypass, addBanBypass, deleteBanBypass } from '../controllers/adminNameImageBan.controller';
-import { createRoomCup, listRoomCups, deleteRoomCup } from '../controllers/adminRoomCup.controller';
+import { createRoomCup, listRoomCups, deleteRoomCup, listRoomCupClaims } from '../controllers/adminRoomCup.controller';
 import prisma from '../utils/prisma';
 import { authenticate } from '../middlewares/auth.middleware';
 import { requireAdminDashboard, requireSuperAdmin } from '../middlewares/adminDashboard.middleware';
@@ -373,6 +373,7 @@ router.patch('/settings', requireFinancialSettingsPermission, require('../contro
 // ── A15: قائمة المكافآت ──────────────────────────────────────────────────
 router.get('/rewards/room-cup', adminListRoomCupRewards);
 router.get('/rewards/room-cups', requireOwnerPermission('economy.settings'), listRoomCups);
+router.get('/rewards/room-cup-claims', requireOwnerPermission('economy.settings'), listRoomCupClaims);
 router.post('/rewards/room-cups', requireOwnerPermission('economy.settings'), createRoomCup);
 router.delete('/rewards/room-cups/:id', requireOwnerPermission('economy.settings'), deleteRoomCup);
 router.post('/rewards/room-cup', requireOwnerPermission('economy.settings'), adminSaveRoomCupReward);

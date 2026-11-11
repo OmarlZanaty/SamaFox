@@ -2870,8 +2870,32 @@ model RoomCup {
   paidToUserId     Int?
   createdById      Int
   createdAt        DateTime  @default(now())
+  /// Several levels: [{ targetCoins, rewardCoins }] as strings, rewards being
+  /// the owner's TOTAL at that level. Empty = the single level above.
+  levels           Json      @default("[]")
 
   @@index([roomId, paidAt])
+}
+
+/// A room-cup reward waiting under the owner's name in the cup until he
+/// collects it (client 10/11 19:02). source 'rung' = كأس الروم levels
+/// (refId = RoomCupRewardPayout.id), 'cup' = كأس الغرفة بالـ ID (refId =
+/// RoomCup.id, level = level index). The unique triple is the payout lock.
+model RoomCupClaim {
+  id        Int       @id @default(autoincrement())
+  roomId    Int
+  userId    Int
+  coins     BigInt
+  source    String
+  refId     Int
+  level     Int       @default(0)
+  createdAt DateTime  @default(now())
+  claimedAt DateTime?
+
+  @@unique([source, refId, level], map: "room_cup_claims_source_ref_level_key")
+  @@index([userId, roomId, claimedAt], map: "room_cup_claims_user_room_idx")
+  @@index([createdAt], map: "room_cup_claims_created_idx")
+  @@map("room_cup_claims")
 }
 
 // Client 31/10 — emoji lists managed from the dashboard, like gifts. A list

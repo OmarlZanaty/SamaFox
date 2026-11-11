@@ -3137,7 +3137,7 @@ async function loadPerRoomCups() {
   const result = await apiFetch('/admin-dashboard/rewards/room-cups');
   document.querySelector('#perRoomCupsTable tbody').innerHTML = (result.data || []).map(r => `<tr>
     <td>#${r.roomId} ${escapeHtml(r.roomName)}</td><td>${escapeHtml(r.ownerName)}</td>
-    <td>${escapeHtml(r.support)} / ${escapeHtml(r.targetCoins)}</td><td>${escapeHtml(r.ownerRewardCoins)}</td>
+    <td>${escapeHtml(r.support)} / ${escapeHtml(r.targetCoins)}${(r.levels || []).length > 1 ? `<br><small>${(r.levels || []).map(l => `${escapeHtml(l.targetCoins)}→${escapeHtml(l.rewardCoins)}`).join(' · ')}</small>` : ''}</td><td>${escapeHtml(r.ownerRewardCoins)}</td>
     <td>${escapeHtml(new Date(r.endsAt).toLocaleString('ar'))}</td><td>${escapeHtml(r.status)}</td>
     <td>${r.paidAt ? '—' : `<button class="btn btn-outline btn-sm" onclick="deletePerRoomCup(${r.id})">حذف</button>`}</td>
     </tr>`).join('') || '<tr><td colspan="7">لا توجد كؤوس</td></tr>';
@@ -3152,11 +3152,24 @@ async function savePerRoomCup() {
       targetCoins: document.getElementById('prc_target').value,
       ownerRewardCoins: document.getElementById('prc_reward').value,
       hours: document.getElementById('prc_hours').value,
+      levels: (document.getElementById('prc_levels')?.value || '').split('\n')
+        .map(l => l.split(/[,،\s]+/).filter(Boolean))
+        .filter(p => p.length >= 2)
+        .map(([targetCoins, rewardCoins]) => ({ targetCoins, rewardCoins })),
     });
     showToast('تمت إضافة الكأس');
     await loadPerRoomCups();
   } catch (e) { showToast(e.message); }
   finally { btn.disabled = false; }
+}
+async function loadRoomCupClaims() {
+  const status = document.getElementById('rcc_status')?.value || 'all';
+  const result = await apiFetch(`/admin-dashboard/rewards/room-cup-claims?status=${encodeURIComponent(status)}`);
+  const fmt = d => d ? escapeHtml(new Date(d).toLocaleString('ar')) : '';
+  document.querySelector('#roomCupClaimsTable tbody').innerHTML = (result.data || []).map(c => `<tr>
+    <td>#${c.roomId} ${escapeHtml(c.roomName)}</td><td>${escapeHtml(c.userName)}${c.displayId ? ` (${escapeHtml(String(c.displayId))})` : ''}</td>
+    <td>${escapeHtml(c.coins)}</td><td>${escapeHtml(c.source)}</td><td>✅ ${fmt(c.createdAt)}</td>
+    <td>${c.claimedAt ? `✅ ${fmt(c.claimedAt)}` : '⏳ لسه'}</td></tr>`).join('') || '<tr><td colspan="6">لا توجد مكافآت</td></tr>';
 }
 async function deletePerRoomCup(id) {
   if (!confirm('تأكيد حذف الكأس؟')) return;
@@ -3166,6 +3179,7 @@ async function deletePerRoomCup(id) {
 
 async function loadRewards() {
   loadPerRoomCups().catch(e => showToast(e.message));
+  loadRoomCupClaims().catch(e => showToast(e.message));
   const [win, cup, sup] = await Promise.all([
     apiFetch("/admin-dashboard/rewards/room-support-window"),
     apiFetch("/admin-dashboard/rewards/room-cup"),
@@ -3646,7 +3660,7 @@ async function luckyTopUp() {
 Object.assign(window, {
   loadLucky, saveLuckyTiers, luckyTopUp,
   loadRewards, saveRoomSupportWindow,
-  saveRoomCupReward, deleteRoomCupReward,
+  saveRoomCupReward, deleteRoomCupReward, loadRoomCupClaims,
   saveSupporterReward, deleteSupporterReward,
   loadGamesConfig, saveGameConfig, loadHalalGames, saveHalalGames, loadGamesRtp, renderGamesRtp,
   loadModeration, sendAdminMessage,

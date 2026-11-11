@@ -19,6 +19,8 @@ router.get('/supporters', ctrl.topSupporters);
 router.get('/leaderboard/:roomId', optionalAuth, ctrl.leaderboard);
 // A15b — claim a supporter reward rung.
 router.post('/supporter-rewards/:id/claim', authMiddleware, idempotent('supporter_reward_claim'), ctrl.claimSupporterRewardHandler);
+// Room-cup reward waiting under the owner's name — «استلم».
+router.post('/room-cup-claims/:id/claim', authMiddleware, idempotent('room_cup_claim'), ctrl.claimRoomCupRewardHandler);
 router.post(
   '/send',
   authMiddleware,
