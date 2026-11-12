@@ -369,14 +369,14 @@
       <select class="form-input ev-type" style="max-width:110px"><option value="coins" ${r.type !== "item" ? "selected" : ""}>كوينز</option><option value="item" ${r.type === "item" ? "selected" : ""}>منتج</option></select>
       <input class="form-input ev-coins" type="number" min="1" placeholder="عدد الكوينز" value="${r.coins ?? ""}" style="max-width:120px">
       <select class="form-input ev-item" style="max-width:220px"><option value="">— المنتج —</option>${opts}</select>
-      <input class="form-input ev-weight" type="number" min="1" placeholder="الوزن (الاحتمال)" value="${r.weight ?? 1}" style="max-width:110px">
-      <input class="form-input ev-qty" type="number" min="1" placeholder="الكمية" value="${r.quantity ?? 1}" style="max-width:80px">
+      <label>الوزن (الفرصة) <input class="form-input ev-weight" type="number" min="1" placeholder="الوزن" value="${r.weight ?? 1}" style="max-width:110px"></label>
       <button class="btn btn-outline btn-sm" onclick="this.parentElement.remove()">حذف</button></div>`;
   }
   function readRewards(container) {
     return [...container.querySelectorAll(".ev-reward")].map((row) => {
       const type = row.querySelector(".ev-type").value;
-      const r = { type, weight: Number(row.querySelector(".ev-weight").value || 1), quantity: Number(row.querySelector(".ev-qty").value || 1) };
+      // One prize per winner: a quantity here only multiplied it (client 12/11 typed 250/1000 meaning stock).
+      const r = { type, weight: Number(row.querySelector(".ev-weight").value || 1), quantity: 1 };
       if (type === "coins") r.coins = Number(row.querySelector(".ev-coins").value || 0);
       else r.itemId = row.querySelector(".ev-item").value;
       return r;
@@ -431,6 +431,36 @@
       }),
     }));
   }
+  // Live «how much can one rocket cost» line (client 12/11 thought the prizes split a total budget).
+  function rkSummary() {
+    const box = $("rk_summary");
+    if (!box) return;
+    const winners = Number(val("rk_winners") || 0);
+    const cap = Number(val("rk_max") || 0);
+    const draws = readRewards($("rk_rewards")).filter((r) => r.type === "coins");
+    const lines = [];
+    const drawMax = winners * Math.min(cap, Math.max(0, ...draws.map((r) => r.coins || 0)));
+    lines.push(`🎲 السحب: أقصى صرف = ${n(winners)} فائز × ${n(cap)} = <strong>${n(winners * cap)}</strong> كوينز`);
+    if (!cap) lines.push(`⚠️ «أقصى جائزة للمستخدم» = 0، يعني جوايز الكوينز في السحب مش هتتصرف`);
+    const big = [...new Set(draws.filter((r) => r.coins > cap).map((r) => r.coins))];
+    if (cap && big.length) lines.push(`⚠️ جوايز ${big.map(n).join("، ")} أكبر من «أقصى جائزة للمستخدم» (${n(cap)})، هتتصرف ${n(cap)} بس`);
+    if (cap && draws.length && drawMax < winners * cap) lines.push(`ℹ️ أكبر جايزة في السحب ${n(Math.max(...draws.map((r) => r.coins)))}، فالسحب فعلياً بالكتير ${n(drawMax)}`);
+    readRkTiers().forEach((t, i) => {
+      const top = t.topRewards.map((list) => list.filter((r) => r.type === "coins").reduce((s, r) => s + r.coins, 0));
+      const topSum = top.reduce((a, b) => a + b, 0);
+      lines.push(`🚀 المستوى ${i + 1} (هدف ${n(t.targetCoins)}): أكبر 3 = ${top.map(n).join(" + ")} = ${n(topSum)}، والصاروخ كله بالكتير <strong>${n(topSum + drawMax)}</strong> كوينز`);
+    });
+    box.innerHTML = lines.join("<br>");
+  }
+  let rkSummaryHooked = false;
+  function hookRkSummary() {
+    if (rkSummaryHooked) return;
+    const card = $("rk_rewards")?.closest(".form-card");
+    if (!card) return;
+    rkSummaryHooked = true;
+    const later = () => requestAnimationFrame(rkSummary);
+    for (const ev of ["input", "change", "click"]) card.addEventListener(ev, later);
+  }
   async function rocketPkLoad() {
     await loadCaps();
     const [rk, pk] = await Promise.all([call("/admin-dashboard/rocket"), call("/admin-dashboard/pk")]);
@@ -448,6 +478,8 @@
     $("rk_active").checked = !!c.isActive;
     $("rk_rewards").innerHTML = (c.rewards || [{ type: "coins", coins: 100, weight: 1, quantity: 1 }]).map(rewardRow).join("");
     $("rk_tiers").innerHTML = (c.tiers || []).map(rkTierRow).join("");
+    hookRkSummary();
+    rkSummary();
     $("rk_pool").textContent = n(R.poolBalance);
     const rkSt = $("rk_status");
     if (!R.config || !R.config.isActive) { rkSt.style.color = "#e53935"; rkSt.textContent = "⚠️ الصاروخ غير مفعّل — فعّل خانة «مفعّل» واحفظ حتى يظهر تقدمه ويبدأ العد"; }
@@ -466,7 +498,7 @@
     $("pk_win").innerHTML = `<div class="form-row">
       <label>${pkTr('كوينز الفائز', 'Winner coins')} <input id="pk_win_coins" class="form-input" type="number" min="0" max="1000000" value="${Number(winner.coins || 0)}"></label>
       <label>${pkTr('منتج الفائز', 'Winner product')} <select id="pk_win_item" class="form-input">${pkOptions(winner.itemId)}</select></label>
-      <label>${pkTr('الكمية', 'Quantity')} <input id="pk_win_qty" class="form-input" type="number" min="1" max="100" value="${Number(winner.quantity || 1)}"></label></div>`;
+      <label>${pkTr('الكمية (بتتضرب في جايزة الفائز، مش عدد الجوايز)', 'Quantity (multiplies the winner prize)')} <input id="pk_win_qty" class="form-input" type="number" min="1" max="100" value="${Number(winner.quantity || 1)}"></label></div>`;
     $("pk_prize_settings").innerHTML = `<div class="form-row">
       <label>${pkTr('الحد الأدنى لمجموع PK للجوائز', 'Minimum PK total for prizes')} <input id="pk_min_total" class="form-input" type="number" min="0" value="${esc(String(q.minTotalCoins ?? 0))}"></label>
       <label>${pkTr('كوينز لكل مشاهد', 'Coins per viewer')} <input id="pk_viewer_coins" class="form-input" type="number" min="0" max="1000000" value="${Number(q.viewerGiftCoins || 0)}"></label>

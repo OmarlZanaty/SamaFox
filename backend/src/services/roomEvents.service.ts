@@ -10,8 +10,13 @@ const MAX = 2_000_000_000;
 export class RoomEventError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
-export function integer(v: unknown, min = 1, max = MAX): number {
-  if (!Number.isSafeInteger(v) || Number(v) < min || Number(v) > max) throw new RoomEventError('قيمة غير صالحة');
+/** [label] names the admin field, so the error says which box is wrong and its allowed range. */
+export function integer(v: unknown, min = 1, max = MAX, label?: string): number {
+  if (!Number.isSafeInteger(v) || Number(v) < min || Number(v) > max) {
+    if (!label) throw new RoomEventError('قيمة غير صالحة');
+    const range = max >= MAX ? `رقم صحيح ${min} أو أكثر` : `رقم صحيح من ${min} إلى ${max.toLocaleString('en-US')}`;
+    throw new RoomEventError(`«${label}» غير صالحة — المسموح ${range}`);
+  }
   return Number(v);
 }
 export async function eventTransaction<T>(work: (tx: any) => Promise<T>): Promise<T> {
@@ -35,13 +40,13 @@ async function validateReward(tx: any, raw: any, weighted: boolean): Promise<Rew
   if (!raw || typeof raw !== 'object') throw new RoomEventError('الجائزة غير صالحة');
   if (!weighted && raw.itemId && raw.coins > 0) {
     const item = await validateReward(tx, { ...raw, type: 'item', coins: undefined }, false);
-    return { ...item, type: 'both', coins: integer(raw.coins, 1, 1_000_000) };
+    return { ...item, type: 'both', coins: integer(raw.coins, 1, 1_000_000, 'كوينز الجائزة') };
   }
-  const quantity = integer(raw.quantity ?? 1, 1, 100);
-  const weight = weighted ? integer(raw.weight, 1, 1_000_000) : 1;
+  const quantity = integer(raw.quantity ?? 1, 1, 100, 'الكمية');
+  const weight = weighted ? integer(raw.weight, 1, 1_000_000, 'الوزن') : 1;
   if (raw.type === 'coins' || (!weighted && raw.coins != null)) {
-    const coins = integer(raw.coins, 1, 1_000_000);
-    integer(coins * quantity);
+    const coins = integer(raw.coins, 1, 1_000_000, 'كوينز الجائزة');
+    integer(coins * quantity, 1, MAX, 'الكوينز × الكمية');
     return { type: 'coins', coins, quantity, weight };
   }
   if (typeof raw.itemId !== 'string') throw new RoomEventError('اختر المنتج');
@@ -67,7 +72,7 @@ async function rocketTiers(tx: any, raw: any): Promise<any[]> {
       if (list != null && (!Array.isArray(list) || list.length > 10)) throw new RoomEventError('أقصى 10 جوائز لكل مركز');
       topRewards.push(await Promise.all((list ?? []).map((r: any) => validateReward(tx, r, false))));
     }
-    out.push({ targetCoins: integer(Number(t?.targetCoins)), topRewards });
+    out.push({ targetCoins: integer(Number(t?.targetCoins), 1, MAX, 'هدف المستوى'), topRewards });
   }
   return out;
 }
@@ -78,10 +83,10 @@ export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: 
       if (!Array.isArray(raw.rewards) || raw.rewards.length < 1 || raw.rewards.length > 100) throw new RoomEventError('أضف الجوائز');
       const rewards = await Promise.all(raw.rewards.map((r: any) => validateReward(tx, r, true)));
       data = {
-        targetCoins: integer(raw.targetCoins), roomCupPercent: integer(raw.roomCupPercent, 0, 10000),
-        durationMinutes: integer(raw.durationMinutes, 1, 1440), winnersCount: integer(raw.winnersCount, 1, 1000),
-        maxRewardPerUserCoins: integer(raw.maxRewardPerUserCoins, 0, 1_000_000),
-        claimWindowSeconds: integer(raw.claimWindowSeconds ?? 90, 10, 3600), rewards,
+        targetCoins: integer(raw.targetCoins, 1, MAX, 'الهدف'), roomCupPercent: integer(raw.roomCupPercent, 0, 10000, 'نسبة كأس الغرفة'),
+        durationMinutes: integer(raw.durationMinutes, 1, 1440, 'مدة الحدث (دقيقة)'), winnersCount: integer(raw.winnersCount, 1, 1000, 'عدد الفائزين'),
+        maxRewardPerUserCoins: integer(raw.maxRewardPerUserCoins, 0, 1_000_000, 'أقصى جائزة للمستخدم'),
+        claimWindowSeconds: integer(raw.claimWindowSeconds ?? 90, 10, 3600, 'مهلة الاستلام (ثانية)'), rewards,
         tiers: await rocketTiers(tx, raw.tiers),
         isActive: raw.isActive === true, updatedBy: adminId,
       };
@@ -91,7 +96,7 @@ export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: 
       if (raw.winCondition !== 'HIGHER_SCORE' || !['TIE', 'FIRST_TO_REACH'].includes(raw.tieRule)) throw new RoomEventError('قاعدة الحسم غير صالحة');
       const rewards: any = {};
       for (const side of ['winner', 'loser']) if (raw.rewards?.[side]) rewards[side] = await validateReward(tx, raw.rewards[side], false);
-      const viewerGiftCoins = integer(raw.viewerGiftCoins ?? 0, 0, 1_000_000);
+      const viewerGiftCoins = integer(raw.viewerGiftCoins ?? 0, 0, 1_000_000, 'كوينز لكل مشاهد');
       const viewerGiftItem = raw.viewerGiftItem ? await validateReward(tx,
         typeof raw.viewerGiftItem === 'string' ? { itemId: raw.viewerGiftItem } : { ...raw.viewerGiftItem, type: 'item', coins: undefined }, false) : null;
       // PK levels (client 10/11 19:48): ليفل 1، 2، … each opened by the PK's
@@ -105,15 +110,15 @@ export async function saveEventConfig(kind: 'rocket' | 'pk', raw: any, adminId: 
           if (!Array.isArray(v) || v.length > 10) throw new RoomEventError('أقصى 10 جوائز لكل مرحلة');
           return Promise.all(v.map((r: any) => validateReward(tx, r, false)));
         };
-        levels.push({ minTotalCoins: integer(Number(l?.minTotalCoins), 0, Number.MAX_SAFE_INTEGER),
+        levels.push({ minTotalCoins: integer(Number(l?.minTotalCoins), 0, Number.MAX_SAFE_INTEGER, 'يفتح عند مجموع'),
           winner: await list(l?.winner), loser: await list(l?.loser), viewer: await list(l?.viewer) });
       }
       levels.sort((a, b) => a.minTotalCoins - b.minTotalCoins);
       for (let i = 1; i < levels.length; i++)
         if (levels[i].minTotalCoins === levels[i - 1].minTotalCoins) throw new RoomEventError('مرحلتين بنفس العدد');
-      data = { minTotalCoins: BigInt(integer(Number(raw.minTotalCoins ?? 0), 0, Number.MAX_SAFE_INTEGER)), levels,
-        viewerGiftCoins, viewerGiftItem: viewerGiftItem ?? undefined, allowedDurations: [...new Set(raw.allowedDurations.map((v: any) => integer(v, 30, 3600)))],
-        countedGiftIds: raw.countedGiftIds, pointsPerCoin: integer(raw.pointsPerCoin, 1, 1000),
+      data = { minTotalCoins: BigInt(integer(Number(raw.minTotalCoins ?? 0), 0, Number.MAX_SAFE_INTEGER, 'الحد الأدنى لمجموع PK')), levels,
+        viewerGiftCoins, viewerGiftItem: viewerGiftItem ?? undefined, allowedDurations: [...new Set(raw.allowedDurations.map((v: any) => integer(v, 30, 3600, 'المدد المسموحة بالثواني')))],
+        countedGiftIds: raw.countedGiftIds, pointsPerCoin: integer(raw.pointsPerCoin, 1, 1000, 'نقاط لكل كوين'),
         winCondition: raw.winCondition, tieRule: raw.tieRule, rewards, enabled: raw.enabled === true, updatedBy: adminId };
     }
     const model = kind === 'rocket' ? tx.rocketConfig : tx.pkConfig;

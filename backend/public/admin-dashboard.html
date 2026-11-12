@@ -1580,12 +1580,14 @@
           <label>مهلة الاستلام (ثانية) <input id="rk_window" type="number" min="10" class="form-input"></label>
           <label><input id="rk_active" type="checkbox"> مفعّل</label>
         </div>
-        <div class="form-card-title" style="margin-top:8px">الجوائز (السحب عشوائي حسب الوزن)</div>
+        <div class="form-card-title" style="margin-top:8px">جوائز السحب (كل فائز بيسحب جايزة واحدة عشوائياً)</div>
+        <p class="section-sub">الوزن = فرصة الجايزة (وزن 50 فرصته ضعف وزن 25). مفيش خانة لإجمالي الجوايز: أقصى صرف للسحب = «عدد الفائزين» × «أقصى جائزة للمستخدم»، وأي جايزة أكبر من «أقصى جائزة للمستخدم» بتتقص لها.</p>
         <div id="rk_rewards"></div>
         <div class="form-row"><button class="btn btn-outline" onclick="evAddReward()">+ جائزة</button></div>
         <div class="form-card-title" style="margin-top:10px">مستويات الصاروخ (مثلاً مليون ← 3 مليون ← 5 مليون)</div>
         <p class="section-sub">كل صاروخ بعد ما ينطلق، اللي بعده في الغرفة بيبقى المستوى اللي بعده، وبعد آخر مستوى يرجع للأول. أكبر 3 داعمين في كل صاروخ ياخدوا جوايز المستوى ده، <strong>وتفضل محجوزة باسمهم لحد ما يدخلوا ويستلموا</strong>. لو فيه مستويات، «الهدف» اللي فوق مش بيتحسب.</p>
         <div id="rk_tiers"></div>
+        <div id="rk_summary" class="settings-hint" style="margin:10px 0;padding:10px;border:1px solid #555;border-radius:8px;line-height:1.9"></div>
         <div class="form-row"><button class="btn btn-outline" onclick="rkAddTier()">+ مستوى</button><button class="btn btn-primary" onclick="rocketSave()" data-perm="economy.settings">حفظ الصاروخ</button></div>
         <div class="table-wrap" style="margin-top:10px"><table id="rkEvents"><thead><tr><th>الغرفة</th><th>الحالة</th><th>التقدم</th><th>البداية</th><th>الانطلاق</th><th>المستلمون</th></tr></thead><tbody></tbody></table></div>
       </div>
