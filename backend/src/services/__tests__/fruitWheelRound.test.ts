@@ -367,7 +367,7 @@ async function nextBonusRound(patch: Record<string, unknown> = {}) {
   await placeBet(1, 'plum', 100);
   await playOut();
   await __test.advance();
-  assert.equal(getPublicState()!.roundsToBonus, 0);
+  assert.equal(getPublicState()!.roundsToBonus, null);
 }
 
 test('bonus interval defaults to 13, supports fixed overrides and preserves explicit ranges', () => {
@@ -384,7 +384,7 @@ for (const kind of ['double', 'triple'] as const) test(`default ${kind} bonus is
   assert.equal(getPublicState()!.bonusEveryRounds, 13);
   await playOut(); await __test.advance(); // Empty rounds do not advance the counter.
   for (let occupied = 1; occupied <= 26; occupied++) {
-    assert.equal(getPublicState()!.roundsToBonus, 12 - ((occupied - 1) % 13));
+    assert.equal(getPublicState()!.roundsToBonus, null);
     // Alternating players share the same table counter.
     const userId = occupied % 2 + 1;
     const cards = kind === 'double'
@@ -399,13 +399,24 @@ for (const kind of ['double', 'triple'] as const) test(`default ${kind} bonus is
     if (occupied % 13 === 0) assert.equal(getPublicState(userId)!.me!.payout, kind === 'double' ? 1000 : 400);
     await __test.advance();
   }
-  assert.equal(getPublicState()!.roundsToBonus, 12);
+  assert.equal(getPublicState()!.roundsToBonus, null);
+});
+
+test('public state hides the bonus countdown when the minimum and maximum gaps are equal', async () => {
+  await configureBonus({ bonusEnabled: true, bonusEveryRounds: 5, bonusMaxRounds: 5 });
+  assert.equal(round().roundsToBonus, 4);
+  for (const userId of [undefined, 1]) {
+    const state = getPublicState(userId)!;
+    assert.equal(state.roundsToBonus, null);
+    assert.equal(state.bonusEveryRounds, 5);
+    assert.equal(state.bonusEnabled, true);
+  }
 });
 
 test('engine honors stored fixed and ranged overrides', async () => {
   await configureBonus({ bonusEveryRounds: 5, bonusMaxRounds: 5 });
   assert.equal(getPublicState()!.bonusEveryRounds, 5);
-  assert.equal(getPublicState()!.roundsToBonus, 4);
+  assert.equal(getPublicState()!.roundsToBonus, null);
   await configureBonus({ bonusEveryRounds: 20, bonusMaxRounds: 90 });
   assert.equal(getPublicState()!.bonusEveryRounds, 20);
   assert.equal(getPublicState()!.roundsToBonus, null);
@@ -431,25 +442,25 @@ test('bonus settings default, clear to defaults, and reject invalid values', asy
 
 test('Nth occupied round is bonus; empty and cleared rounds do not count; reset after bonus and boot', async () => {
   await configureBonus({ bonusEveryRounds: 3, bonusMaxRounds: 3 });
-  assert.equal(getPublicState()!.roundsToBonus, 2);
+  assert.equal(getPublicState()!.roundsToBonus, null);
   await placeBet(1, 'plum', 100); await clearBets(1);
   await playOut(); await __test.advance();
-  assert.equal(getPublicState()!.roundsToBonus, 2);
+  assert.equal(getPublicState()!.roundsToBonus, null);
   for (let i = 0; i < 2; i++) {
     await placeBet(1, 'plum', 100); await playOut();
     assert.equal(round().bonus, null);
     await __test.advance();
   }
-  assert.equal(getPublicState()!.roundsToBonus, 0);
+  assert.equal(getPublicState()!.roundsToBonus, null);
   await playOut(); await __test.advance(); // empty due round doesn't consume bonus
-  assert.equal(getPublicState()!.roundsToBonus, 0);
+  assert.equal(getPublicState()!.roundsToBonus, null);
   await placeBet(1, 'plum', 100); await playOut();
   assert.equal(round().bonus, 'triple');
   await __test.advance();
-  assert.equal(getPublicState()!.roundsToBonus, 2);
+  assert.equal(getPublicState()!.roundsToBonus, null);
   await placeBet(1, 'plum', 100); await playOut();
   stopFruitWheelRoundEngine(); await startFruitWheelRoundEngine(io);
-  assert.equal(getPublicState()!.roundsToBonus, 2);
+  assert.equal(getPublicState()!.roundsToBonus, null);
 });
 
 test('double uses the specified SHA-256 salt and always starts with sevens', () => {
@@ -531,7 +542,7 @@ for (const fallback of ['double', 'plain'] as const) test(`unfunded bonus downgr
   const paid = [...round().players.values()].reduce((n, p) => n + p.payout, 0);
   assert.equal(accounts.get('GAME_POOL:fruitwheel'), 2000 - paid);
   assert.equal(reservedForGame('fruitwheel'), 0);
-  await __test.advance(); assert.equal(getPublicState()!.roundsToBonus, 1);
+  await __test.advance(); assert.equal(getPublicState()!.roundsToBonus, null);
 });
 
 test('bonus disabled never adds winners and plain history has additive defaults', async () => {

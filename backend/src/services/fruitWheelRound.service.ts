@@ -111,8 +111,8 @@ export function getPublicState(userId?: number) {
     result: preResult ? null : round.result,
     results: preResult ? [] : round.results,
     bonus: preResult ? null : round.bonus,
-    // A random gap stays secret so nobody waits for it; a fixed one shows its countdown.
-    roundsToBonus: round.bonusSettings.bonusMaxRounds > round.bonusSettings.bonusEveryRounds ? null : round.roundsToBonus,
+    // Keep the bonus countdown private for every configuration.
+    roundsToBonus: null,
     bonusEveryRounds: round.bonusSettings.bonusEveryRounds,
     bonusEnabled: round.bonusSettings.bonusEnabled,
     segment: preResult ? null : round.segment,
