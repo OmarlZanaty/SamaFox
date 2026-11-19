@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import * as seatLease from '../seatLease';
+import * as seatRules from '../seatRules';
 
 // Evaluate the real handlers with isolated sockets/DB and no startup timers or services.
 // Private maps are exposed only in this test's VM, never in the production API.
@@ -37,6 +38,7 @@ function harness() {
   const asyncNoop = async () => {};
   const imports: Record<string, any> = {
     './seatLease': seatLease,
+    './seatRules': seatRules,
     '../utils/prisma': { __esModule: true, default: db },
     './halalGames.service': { cairoDay: (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d) },
     './livekitPublishGuard': { liveKitRoomApiFromEnv: noop, createPublishGuard: () => ({ sync: asyncNoop, syncWithin: asyncNoop }) },

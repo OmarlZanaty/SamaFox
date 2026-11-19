@@ -4,7 +4,7 @@ import { MIN_ROOM_SEATS, MAX_ROOM_SEATS } from '../utils/roomSeats';
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { io } from '../index';
-import { evictRoomUser, invalidateAdminCacheAndRefresh } from '../services/socket.service';
+import { evictRoomUser, invalidateAdminCacheAndRefresh, applyMaxSeatsLive } from '../services/socket.service';
 
 const toInt = (v: any): number | null => {
   const n = Number(v);
@@ -460,6 +460,7 @@ export async function updateMaxSeats(req: Request, res: Response) {
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can change seat count' });
 
     const room = await prisma.room.update({ where: { id: roomId }, data: { maxSeats } });
+    applyMaxSeatsLive(roomId, maxSeats);
 
     return res.json({ success: true, message: 'Max seats updated', room });
   } catch (e) {

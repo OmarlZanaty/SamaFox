@@ -1,4 +1,5 @@
 import { MIN_ROOM_SEATS, MAX_ROOM_SEATS } from '../utils/roomSeats';
+import { seatsAboveMax, moveRejection, shouldReconcileMute } from './seatRules';
 import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS, seatHolders } from './seatLease';
 import { roomEmojiOutcome } from './roomEmojiOutcome';
 import { customEmojiForSend } from '../emoji/emoji.service';
@@ -481,6 +482,25 @@ function releaseSeat(io: Server, rid: number, sn: number, uid: number, reason: s
   void publishGuard.sync(rid);
 }
 
+/**
+ * The room's mic count shrank: free every seat above the new max (the DB row is
+ * already updated by the caller), and forget locks / admin-mutes / approvals
+ * that pointed at seats which no longer exist.
+ */
+export function applyMaxSeats(io: Server, rid: number, newMax: number) {
+  const seats = getSeats(rid);
+  for (const [sn, uid] of seatsAboveMax(seats.entries(), newMax)) {
+    releaseSeat(io, rid, sn, uid, 'seat_count_reduced');
+    io.to(`user:${uid}`).emit('removed_from_seat', { roomId: rid });
+  }
+  for (const sn of Array.from(getLockedSeats(rid))) if (sn > newMax) getLockedSeats(rid).delete(sn);
+  for (const sn of Array.from(getAdminMutedSeats(rid))) if (sn > newMax) getAdminMutedSeats(rid).delete(sn);
+  // Mic approvals are per user, not per seat; a user who lost their seat keeps
+  // none so they must ask again only when the room requires it.
+  void publishGuard.sync(rid);
+  emitRoomState(io, rid).catch(console.error);
+}
+
 function sweepSeatLeases(io: Server) {
   const now = Date.now();
   for (const rid of roomSeats.keys()) {
@@ -699,6 +719,15 @@ async function populateAdmins(roomId: number) {
   roomAdmins.set(roomId, admins);
 }
 
+// Monotonic per-room sequence stamped on every room_seats_state at EMIT time,
+// so a client can drop an older snapshot that arrives after a newer one.
+const roomSeatsSeq = new Map<number, number>();
+function nextSeatsSeq(rid: number): number {
+  const n = (roomSeatsSeq.get(rid) ?? 0) + 1;
+  roomSeatsSeq.set(rid, n);
+  return n;
+}
+
 async function emitRoomState(io: Server, rid: number, recipient?: AuthenticatedSocket) {
   // make sure admins are populated
   let adminsSet = getAdmins(rid);
@@ -706,10 +735,9 @@ async function emitRoomState(io: Server, rid: number, recipient?: AuthenticatedS
     await populateAdmins(rid);
     adminsSet = getAdmins(rid);
   }
-const locked = getLockedSeats(rid);
-
-  const seatsMap = new Map([...getSeats(rid)].filter(([, uid]) => !isHiddenInRoom(uid, rid)));
-  const mutedMap = getMuted(rid);
+  // Occupants used only to know whom to load; the map that is actually sent is
+  // re-read right before emitting so a slow query can't publish a stale seat map.
+  const seatsForLookup = new Map([...getSeats(rid)].filter(([, uid]) => !isHiddenInRoom(uid, rid)));
 
     // Build FULL seat list (1..maxSeats), not only occupied seats
   const room = await prisma.room.findUnique({
@@ -720,7 +748,7 @@ const locked = getLockedSeats(rid);
   const maxSeats = room?.maxSeats ?? 8;
 
   // fetch all users who are seated (to avoid N queries)
-  const seatedUserIds = Array.from(new Set(Array.from(seatsMap.values())));
+  const seatedUserIds = Array.from(new Set(Array.from(seatsForLookup.values())));
   const seatedUsers = seatedUserIds.length
     ? await prisma.user.findMany({
         where: { id: { in: seatedUserIds } },
@@ -774,6 +802,15 @@ await Promise.all(
   })
 );
 
+  const adminMutedSet = getAdminMutedSeats(rid);
+  const settings = await roomSettings(rid);
+  const topSupporters = await roomTopSupporters(rid);
+  const cpLinks = await cpSeatLinks(seatsForLookup).catch(() => []);
+
+  // ---- Build from the CURRENT state, synchronously, right before emitting ----
+  const locked = getLockedSeats(rid);
+  const seatsMap = new Map([...getSeats(rid)].filter(([, uid]) => !isHiddenInRoom(uid, rid)));
+  const mutedMap = getMuted(rid);
   const seatDetails = Array.from({ length: maxSeats }, (_, i) => {
     const seatNumber = i + 1;
     const occupant = seatsMap.get(seatNumber) ?? null;
@@ -815,21 +852,20 @@ await Promise.all(
 
   // CP partners on the mics and the effect their level earns (item 11). The
   // app draws it only for neighbouring seats; a snapshot without the link is
-  // what removes it.
-  const cpLinks = await cpSeatLinks(seatsMap).catch(() => []);
-
-  const settings = await roomSettings(rid);
+  // what removes it (cpLinks is computed above, before the synchronous build).
+  const seq = nextSeatsSeq(rid);
   (recipient ?? io.to(`room:${rid}`)).emit('room_seats_state', {
     ...settings,
+    seq,
     membersCount: visibleRoomCount(rid),
-    topSupporters: await roomTopSupporters(rid),
+    topSupporters,
     roomId: rid,
     ownerId: room?.ownerId ?? 0,
     admins: adminList,
     adminIds: adminList,
     maxSeats,
     lockedSeats: Array.from(locked.values()),
-    mutedSeats: Array.from(getAdminMutedSeats(rid).values()),
+    mutedSeats: Array.from(adminMutedSet.values()),
     seats: seatDetails,
     cpLinks,
   });
@@ -1233,6 +1269,11 @@ function releaseUserFromRooms(io: Server, uid: number, reason: LeaveReason = 'le
 
 let _io: Server | null = null;
 
+/** REST callers (no socket in hand) use this after changing a room's maxSeats. */
+export function applyMaxSeatsLive(rid: number, newMax: number): void {
+  if (_io) applyMaxSeats(_io, rid, newMax);
+}
+
 export function emitToUser(userId: number, event: string, payload: unknown): void {
   _io?.to(`user:${userId}`).emit(event, payload);
 }
@@ -1567,7 +1608,7 @@ socket.on('set_seat_count', async ({ roomId, seatCount }: any) => {
 
   const safe = Math.max(MIN_ROOM_SEATS, Math.min(MAX_ROOM_SEATS, count)); // ✅ no ! needed
   await prisma.room.update({ where: { id: rid }, data: { maxSeats: safe } });
-  await emitRoomState(io, rid);
+  applyMaxSeats(io, rid, safe);
   } catch (err) {
     console.error('[socket.set_seat_count] handler error:', err);
     socket.emit('error', { event: 'set_seat_count', message: 'Internal error' });
@@ -1789,31 +1830,44 @@ socket.on('moveSeat', async ({ roomId, fromSeat, toSeat }: any) => {
   const from = toInt(fromSeat);
   const to = toInt(toSeat);
   const uid = socket.userId;
-  if (!rid || !from || !to || !uid) return;
+  if (!rid || !uid) return;
+  const reject = (message: string) => {
+    socket.emit('seat_error', { roomId: rid, seatNumber: to ?? 0, code: 'MOVE_FAILED', message });
+    emitRoomState(io, rid, socket).catch(console.error);
+  };
+  try {
+    if (!from || !to) return reject('رقم المايك غير صالح');
+    if (!socket.rooms.has(`room:${rid}`)) return reject('أنت لست داخل الغرفة');
 
-  const seats = getSeats(rid);
-  const lockedSet = getLockedSeats(rid);
+    const room = await prisma.room.findUnique({ where: { id: rid }, select: { maxSeats: true } });
+    const maxSeats = room?.maxSeats ?? 8;
 
-  // Verify the user is in fromSeat
-  if (seats.get(from) !== uid) {
-    socket.emit('seat_error', { message: 'Not your seat' });
-    return;
+    // Same self-heal as take_seat: a seat above the room's mic count is dead.
+    const seats = getSeats(rid);
+    for (const [sn, occ] of seatsAboveMax(seats.entries(), maxSeats)) {
+      if (occ === uid) releaseSeat(io, rid, sn, uid, 'seat_count_reduced');
+    }
+
+    // Validate EVERYTHING before touching state.
+    const why = moveRejection({ seats, locked: getLockedSeats(rid), uid, from, to, maxSeats });
+    if (why) return reject(why);
+
+    const lease = seats.leases.get(from);
+    seats.delete(from);
+    seats.set(to, uid);
+    if (lease) seats.leases.set(to, { ...lease }); // keep lease semantics for the moved seat
+    // getMuted() is keyed by user, so the mute state follows them untouched.
+
+    try { await publishGuard.syncWithin(rid); } catch (e) { console.error('[socket.moveSeat] publish sync failed:', e); }
+
+    io.to(`room:${rid}`).emit('seat_moved', { roomId: rid, from, to, userId: uid });
+    await emitRoomState(io, rid);
+    // Second snapshot shortly after, for clients that missed the first.
+    setTimeout(() => { emitRoomState(io, rid).catch(console.error); }, 1500);
+  } catch (err) {
+    console.error('[socket.moveSeat] handler error:', err);
+    reject('تعذّر نقل المايك، حاول مرة أخرى');
   }
-
-  // Target seat must be free and not locked
-  if (seats.has(to) || lockedSet.has(to)) {
-    socket.emit('seat_error', { message: 'Target seat unavailable' });
-    return;
-  }
-
-  const room = await prisma.room.findUnique({ where: { id: rid }, select: { maxSeats: true } });
-  const maxSeats = room?.maxSeats ?? 8;
-  if (to < 1 || to > maxSeats) return;
-
-  seats.delete(from);
-  seats.set(to, uid);
-
-  await emitRoomState(io, rid);
 });
 
 
@@ -1966,6 +2020,12 @@ socket.emit('seat_error', {
   message: 'Seat already occupied',
 });
     return;
+  }
+
+  // Self-heal: a seat above the (reduced) mic count no longer exists, so the
+  // user is not really seated there.
+  for (const [num, occupant] of seatsAboveMax(seats.entries(), maxSeats)) {
+    if (occupant === uid) releaseSeat(io, rid, num, uid, 'seat_count_reduced');
   }
 
   // user already seated somewhere?
@@ -2981,55 +3041,70 @@ socket.on('remove_from_seat', async ({ roomId, seatNumber, targetUserId }) => {
       }
     });
 
-    socket.on('toggle_mute', async ({ roomId, seatNumber, isMuted }: any) => {
-      const rid = toInt(roomId);
-      const seatNum = toInt(seatNumber);
-      const uid = socket.userId;
-      if (!uid || !rid || !seatNum) return;
+    socket.on('toggle_mute', async ({ roomId, seatNumber, isMuted }: any = {}, ack?: any) => {
+      // Old clients send no ack callback; every reply must tolerate that.
+      const reply = (r: { ok: boolean; muted?: boolean; message?: string }) => {
+        if (typeof ack === 'function') { try { ack(r); } catch { /* ignore */ } }
+      };
+      try {
+        const rid = toInt(roomId);
+        const uid = socket.userId;
+        if (!uid || !rid) return reply({ ok: false, message: 'بيانات غير صالحة' });
 
-      const seats = getSeats(rid);
-      if (seats.get(seatNum) !== uid) return;
-
-      // Force-mute: an admin muted this user — block self-unmute, keep muted.
-      if (!isMuted) {
-        const fm = await prisma.roomMember
-          .findUnique({
-            where: { userId_roomId: { userId: uid, roomId: rid } },
-            select: { forceMuted: true },
-          })
-          .catch(() => null);
-        if (fm?.forceMuted) {
-          getMuted(rid).set(uid, true);
-          socket.emit('seat_mute_changed', {
-            roomId: rid,
-            seatNumber: seatNum,
-            userId: uid,
-            isMuted: true,
-            forced: true,
-          });
-          return;
+        const seats = getSeats(rid);
+        // The client's seat number can be stale (seat just moved): use the
+        // seat this user really holds instead of dropping the request.
+        let seatNum = toInt(seatNumber);
+        if (!seatNum || seats.get(seatNum) !== uid) {
+          seatNum = null;
+          for (const [num, occ] of seats.entries()) if (occ === uid) { seatNum = num; break; }
         }
+        if (!seatNum) return reply({ ok: false, message: 'أنت لست على مايك' });
+
+        // Force-mute: an admin muted this user — block self-unmute, keep muted.
+        if (!isMuted) {
+          const fm = await prisma.roomMember
+            .findUnique({
+              where: { userId_roomId: { userId: uid, roomId: rid } },
+              select: { forceMuted: true },
+            })
+            .catch(() => null);
+          if (fm?.forceMuted) {
+            getMuted(rid).set(uid, true);
+            socket.emit('seat_mute_changed', {
+              roomId: rid,
+              seatNumber: seatNum,
+              userId: uid,
+              isMuted: true,
+              forced: true,
+            });
+            return reply({ ok: false, message: 'تم كتم صوتك بواسطة الإدارة' });
+          }
+        }
+
+        getMuted(rid).set(uid, !!isMuted);
+
+        console.log('[toggle_mute]', { uid, rid, seatNum, isMuted: !!isMuted });
+
+        io.to(`room:${rid}`).emit('seat_mute_changed', {
+          roomId: rid,
+          seatNumber: seatNum,
+          userId: uid,
+          isMuted: !!isMuted,
+        });
+        reply({ ok: true, muted: !!isMuted });
+
+        if (!!isMuted) {
+          getVoiceSet(rid).delete(uid);
+        } else {
+          getVoiceSet(rid).add(uid);
+        }
+        await emitVoiceUsers(io, rid);
+        await emitRoomState(io, rid);
+      } catch (err) {
+        console.error('[socket.toggle_mute] handler error:', err);
+        reply({ ok: false, message: 'تعذّر تغيير حالة المايك' });
       }
-
-      getMuted(rid).set(uid, !!isMuted);
-
-      console.log('[toggle_mute]', { uid, rid, seatNum, isMuted: !!isMuted });
-
-      io.to(`room:${rid}`).emit('seat_mute_changed', {
-        roomId: rid,
-        seatNumber: seatNum,
-        userId: uid,
-        isMuted: !!isMuted,
-      });
-
-      if (!!isMuted) {
-  getVoiceSet(rid).delete(uid);
-} else {
-  getVoiceSet(rid).add(uid);
-}
-await emitVoiceUsers(io, rid);
-await emitRoomState(io, rid);
-
     });
 
 
@@ -3135,7 +3210,7 @@ socket.on('webrtc_ice_candidate', ({ to, candidate, roomId }: any) => {
       sessionHeartbeat(uid, socket.id, undefined);
     });
 
-    socket.on('seat_heartbeat', (payload: any = {}) => {
+    socket.on('seat_heartbeat', async (payload: any = {}) => {
       const uid = socket.userId;
       const rid = toInt(payload?.roomId);
       if (!uid || !rid || userCurrentRoom.get(uid) !== rid || !socket.rooms.has(`room:${rid}`)) return;
@@ -3147,6 +3222,46 @@ socket.on('webrtc_ice_candidate', ({ to, candidate, roomId }: any) => {
       seats.renew(uid, session.id);
       sessionHeartbeat(uid, socket.id, payload.voiceState);
       if (wasHeld) { void publishGuard.sync(rid); emitRoomState(io, rid).catch(console.error); }
+
+      // Reconcile the mic icon with what the phone says (weak network can drop
+      // toggle_mute). Only on a real change, never against admin/force mutes.
+      if (typeof payload?.micMuted === 'boolean') {
+        try {
+          let seatNum: number | null = null;
+          for (const [num, occ] of seats.entries()) if (occ === uid) { seatNum = num; break; }
+          if (seatNum != null && !getAdminMutedSeats(rid).has(seatNum)
+              && (getMuted(rid).get(uid) ?? true) !== payload.micMuted) {
+            const fm = await prisma.roomMember
+              .findUnique({
+                where: { userId_roomId: { userId: uid, roomId: rid } },
+                select: { forceMuted: true },
+              })
+              .catch(() => null);
+            // Re-read after the await: the seat or mute may have changed meanwhile.
+            const cur = seats.get(seatNum) === uid ? getMuted(rid).get(uid) : undefined;
+            if (shouldReconcileMute({
+              micMuted: payload.micMuted,
+              seated: seats.get(seatNum) === uid,
+              adminMuted: getAdminMutedSeats(rid).has(seatNum),
+              forceMuted: !!fm?.forceMuted,
+              current: cur,
+            })) {
+              getMuted(rid).set(uid, payload.micMuted);
+              if (payload.micMuted) getVoiceSet(rid).delete(uid); else getVoiceSet(rid).add(uid);
+              io.to(`room:${rid}`).emit('seat_mute_changed', {
+                roomId: rid,
+                seatNumber: seatNum,
+                userId: uid,
+                isMuted: payload.micMuted,
+              });
+              await emitVoiceUsers(io, rid);
+              await emitRoomState(io, rid);
+            }
+          }
+        } catch (err) {
+          console.error('[socket.seat_heartbeat] mute reconcile error:', err);
+        }
+      }
     });
 
     // ----------------------------

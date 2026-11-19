@@ -4,7 +4,7 @@ import { roomAdmission, shareInviter } from '../services/roomShare.service';
 import { Request, Response } from 'express';
 import { intParam } from '../utils/http';
 import bcrypt from 'bcrypt';
-import { broadcastRoomClosed, getLiveRoomUserIds, visibleRoomCount, giftSeatSnapshot } from '../services/socket.service';
+import { broadcastRoomClosed, getLiveRoomUserIds, visibleRoomCount, giftSeatSnapshot, applyMaxSeatsLive } from '../services/socket.service';
 import { rankedRoomIds } from '../services/roomRanking.service';
 import { hasFeature, isFeatureOn } from '../services/features.service';
 
@@ -414,6 +414,8 @@ export const updateRoom = async (req: Request, res: Response) => {
         ...(backgroundImageUrl && { backgroundImageUrl }),
       },
     });
+
+    if (safeMaxSeats != null && Number.isFinite(safeMaxSeats)) applyMaxSeatsLive(roomIdNum, safeMaxSeats);
 
     return res.json(updatedRoom);
   } catch (error) {
