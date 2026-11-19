@@ -489,6 +489,14 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     });
   }
 
+  void _updateEntryVolume() {
+    final controller = _seatVideoController;
+    if (controller != null && controller.value.isInitialized) {
+      unawaited(controller.setVolume(EffectsPrefs.instance.entrySoundsOn.value
+          ? AudioRoute.instance.effectiveVolume : 0.0));
+    }
+  }
+
   Future<void> _playSeatBackgroundVideo(String videoUrl) async {
     final normalizedUrl = videoUrl.trim();
     if (normalizedUrl.isEmpty) return;
@@ -524,7 +532,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
-    await _seatVideoController!.setVolume(AudioRoute.instance.roomMuted.value ? 0.0 : 1.0);
+    await _seatVideoController!.setVolume(AudioRoute.instance.roomMuted.value || !EffectsPrefs.instance.entrySoundsOn.value ? 0.0 : AudioRoute.instance.effectiveVolume);
 
     if (!mounted) {
       _isPlayingEffect = false;
@@ -714,7 +722,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   void _openSeatCountDialog(BuildContext context) {
     int selected = ref.read(roomControllerProvider(widget.roomId)).seatCount;
 
-    final options = [5, 10, 15, 20, 25, 30];
+    final options = [5, 10, 15, 20, 24];
 
     showModalBottomSheet(
       context: context,
@@ -958,7 +966,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     SocketService().setSeatCount(roomId: widget.roomId, seatCount: safe);
 
     try {
-      await _api.updateMaxSeats({
+      final result = await _api.updateMaxSeats({
         'roomId': widget.roomId,
         'room_id': widget.roomId,
         'maxSeats': safe,
@@ -966,11 +974,23 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         'seatCount': safe,
         'seat_count': safe,
       });
+      if (!result.success) {
+        SocketService().emit('init_room_seats', {'roomId': widget.roomId});
+        _showRoomSnack(result.message.trim().isNotEmpty ? result.message
+            : tr('تعذر تغيير عدد المايكات', 'Could not change mic count'), error: true);
+        return;
+      }
 
       await _refreshRoomData();
       _showRoomSnack(tr('تم تحديث عدد الميكروفونات إلى $safe', "Mic count updated to $safe"));
     } catch (e) {
-      _showRoomSnack(tr('تعذر تحديث عدد الميكروفونات: $e', "Could not update mic count: $e"), error: true);
+      final data = e is DioException ? e.response?.data : null;
+      final message = data is Map
+          ? (data['error'] is String && (data['error'] as String).trim().isNotEmpty
+              ? data['error'] : data['message']) : null;
+      SocketService().emit('init_room_seats', {'roomId': widget.roomId});
+      _showRoomSnack(message is String && message.trim().isNotEmpty
+          ? message : tr('تعذر تغيير عدد المايكات', 'Could not change mic count'), error: true);
     }
   }
 
@@ -1719,7 +1739,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // subscribes to.
     await VoiceEngine.instance.setRemoteVolume(next ? 0 : _volumeLevel);
     if (_seatVideoController != null) {
-      await _seatVideoController!.setVolume(next ? 0 : _volumeLevel);
+      await _seatVideoController!.setVolume(next || !EffectsPrefs.instance.entrySoundsOn.value ? 0 : _volumeLevel);
     }
     _showRoomSnack(next ? tr('تم كتم صوت الغرفة لديك فقط', "Room muted for you only") : tr('تم إلغاء كتم صوت الغرفة', "Room unmuted"));
   }
@@ -2604,7 +2624,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // level survives a restart instead of springing back to full.
                 await AudioRoute.instance.setMasterVolume(tempVolume);
                 if (_seatVideoController != null) {
-                  await _seatVideoController!.setVolume(tempVolume);
+                  await _seatVideoController!.setVolume(EffectsPrefs.instance.entrySoundsOn.value && !AudioRoute.instance.roomMuted.value ? tempVolume : 0.0);
                 }
                 // A24 — the room VOICE is what the user is actually turning
                 // down. Without this the slider only ever touched effects and
@@ -2781,6 +2801,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   void _openSoundEffectsDialog(BuildContext context) {
     final room = ref.read(roomsProvider).findById(widget.roomId);
+    final state = ref.read(roomControllerProvider(widget.roomId));
+    final me = ref.read(authStateProvider).user?.id;
+    final canModerate = me != null && (state.ownerId == me || state.adminIds.contains(me));
     bool muteGifts = room?.giftSoundsMuted ?? false;
     bool muteEntrance = room?.entranceSoundsMuted ?? false;
 
@@ -2792,7 +2815,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
           title: Text(tr('المؤثرات الصوتية', "Sound effects"), style: TextStyle(color: Colors.white)),
           content: StatefulBuilder(
             builder: (context, setModalState) {
-              return Column(
+              return SingleChildScrollView(child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // SPEC52 #23 — personal display switches (this phone only),
@@ -2817,10 +2840,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       title: Text(tr('تأثيرات الدخول', "Entrance effects"), style: TextStyle(color: Colors.white)),
                     ),
                   ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: EffectsPrefs.instance.giftSoundsOn,
+                    builder: (_, on, __) => SwitchListTile.adaptive(
+                      value: on,
+                      onChanged: EffectsPrefs.instance.setGiftSounds,
+                      title: Text(tr('أصوات الهدايا', 'Gift sounds')),
+                    ),
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: EffectsPrefs.instance.entrySoundsOn,
+                    builder: (_, on, __) => SwitchListTile.adaptive(
+                      value: on,
+                      onChanged: EffectsPrefs.instance.setEntrySounds,
+                      title: Text(tr('أصوات الدخول', 'Entrance sounds')),
+                    ),
+                  ),
+                  if (canModerate) ...[
                   const Divider(color: Colors.white24),
                   Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: Text(tr('أصوات الغرفة (للجميع)', "Room sounds (everyone)"), style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    child: Text(tr('للغرفة كلها (للمشرف)', 'Whole room (moderator)'), style: TextStyle(color: Colors.white54, fontSize: 12)),
                   ),
                   SwitchListTile.adaptive(
                     value: !muteGifts,
@@ -2832,19 +2872,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     onChanged: (value) => setModalState(() => muteEntrance = !value),
                     title: Text(tr('أصوات الدخول', "Entrance sounds"), style: TextStyle(color: Colors.white)),
                   ),
+                  ],
                   // #17-18: the coin-counter reset moved to its own item in the
                   // main room menu (next to "حذف الدردشة") — it doesn't belong
                   // under Sound Effects, which is why the owner couldn't find it.
                 ],
-              );
+              ));
             },
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(tr('إلغاء', "Cancel")),
+              child: Text(tr('إغلاق', 'Close')),
             ),
-            ElevatedButton(
+            if (canModerate) ElevatedButton(
               onPressed: () async {
                 try {
                   await _api.toggleSoundSettings({
@@ -2863,7 +2904,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   _showRoomSnack(tr('تعذر حفظ الإعدادات: $e', "Could not save settings: $e"), error: true);
                 }
               },
-              child: Text(tr('حفظ', "Save")),
+              child: Text(tr('حفظ للغرفة كلها', 'Save for whole room')),
             ),
           ],
         );
@@ -2898,24 +2939,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
-    final isMicTurningOn = seat.isMuted;
-    await AudioController.instance.setMicEnabled(isMicTurningOn);
     ref.read(roomControllerProvider(widget.roomId).notifier).toggleMute(
       seatNumber: seatNumber,
       isMuted: !seat.isMuted,
       targetUserId: seat.userId,
     );
-
-    if (seat.isMuted) {
-      await AudioController.instance.setMicEnabled(true);
-      await _audioService.unmuteAudio();
-      _showRoomSnack(tr('تم فتح الميكروفون', "Mic unmuted"));
-    } else {
-      await AudioController.instance.setMicEnabled(false);
-      await _audioService.muteAudio();
-      _showRoomSnack(tr('تم كتم الميكروفون', "Mic muted"));
-    }
   }
+
 
   void _openAudioSettingsDialog(BuildContext context) {
     showDialog(
@@ -3160,6 +3190,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     CrashReporter.breadcrumb('room ${widget.roomId} enter');
     CrashReporter.setRoom(widget.roomId);
     super.initState();
+    EffectsPrefs.instance.entrySoundsOn.addListener(_updateEntryVolume);
     _recordingSub = ScreenRecordService.instance.events.listen((state) {
       if (mounted) setState(() => _isScreenRecording = state['recording'] == true);
     });
@@ -3174,6 +3205,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       unawaited(_loadImageGiftPolicy());
       CpActivatedPopup.wireOnce(); // SPEC52 #10
       // SPEC52 #48 — what the heartbeat reports as my voice state.
+      SocketService().micMutedProvider = () => _audioService.isMicMuted;
       SocketService().voiceStateProvider = () => _currentSeatNumber == null
           ? 'listening'
           : (_currentSeatMuted ? 'muted' : 'publishing');
@@ -3677,6 +3709,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (s.userId == me) { seat = s; break; }
     }
     if (seat == null ||
+        _audioService.isMicMuted ||
         seat.isMuted ||
         seat.forceMuted ||
         state.mutedSeats.contains(seat.seatNumber)) {
@@ -3701,6 +3734,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
+    EffectsPrefs.instance.entrySoundsOn.removeListener(_updateEntryVolume);
     _effectsLayout.dispose();
     _topBarsHeight.dispose();
     _foregroundBarsHeight.dispose();
@@ -4842,7 +4876,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     const bottomBarH = 64.0;
     const seatsWaveDepth = 40.0;
-    const roomHorizontalPadding = 12.0;
+    const roomHorizontalPadding = 0.0;
 
     // Find my seat
     int? mySeatNumber;
@@ -4851,7 +4885,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       if (seat.userId != null &&
           seat.userId.toString() == userId.toString()) {
         mySeatNumber = seat.seatNumber;
-        mySeatMuted = seat.isMuted;
+        mySeatMuted = seat.isMuted || seat.forceMuted || state.mutedSeats.contains(seat.seatNumber);
         break;
       }
     }
@@ -5003,10 +5037,20 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       child: Column(mainAxisSize: MainAxisSize.min, children: [
                 // Header
                 Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(8),
                   child: Row(
                     children: [
-                      GestureDetector(
+                      if (state.topSupporters.isNotEmpty)
+                        SizedBox(
+                          key: const ValueKey('room-top-supporters'),
+                          width: 88, height: 44,
+                          child: FittedBox(child: RoomTopSupporters(
+                            items: state.topSupporters,
+                            onTap: (user) => showUserProfileCard(
+                              userId: user.userId, username: user.name, avatarUrl: user.avatar),
+                          )),
+                        )
+                      else GestureDetector(
                         onTap: _openRoomInfo,
                         child: CircleAvatar(
                         radius: 22,
@@ -5038,7 +5082,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                       // 2026-10-18 — "ده شكل الغرف فى بعض التليفونات": name gone, ID vertical on narrow phones.
                       ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.55),
+                        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * (state.topSupporters.isEmpty ? 0.55 : 0.48)),
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: AlignmentDirectional.centerEnd,
@@ -5140,20 +5184,11 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
 
                 // SPEC52 #39 — real game wins of people in this room.
-                if (state.topSupporters.isNotEmpty)
-                  Align(
-                    key: const ValueKey('room-top-supporters'),
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: RoomTopSupporters(items: state.topSupporters, onTap: (user) => showUserProfileCard(
-                        userId: user.userId, username: user.name, avatarUrl: user.avatar,
-                      )),
-                    ),
-                  ),
                 RoomGameWinStrip(key: const ValueKey('room-win-strip'), roomId: widget.roomId),
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
-                RoomPkBar(
+                ValueListenableBuilder<Set<String>>(
+                  valueListenable: LiveKitVoiceEngine().activeSpeakerIdentities,
+                  builder: (context, speakers, _) => RoomPkBar(
                   key: const ValueKey('room-pk-bar'),
                   roomId: widget.roomId,
                   onGift: () => _openGiftSheet(context),
@@ -5163,13 +5198,16 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   // the other room's player (room-vs-room PK) isn't ours to know.
                   micOn: (id) {
                     for (final e in state.seats.entries) {
-                      if (e.value.userId == id) return !e.value.isMuted && !state.mutedSeats.contains(e.key);
+                      if (e.value.userId == id) return
+                          !e.value.forceMuted && !e.value.isLocked &&
+                          !state.lockedSeats.contains(e.key) && !state.mutedSeats.contains(e.key) &&
+                          (!e.value.isMuted || speakers.contains(id.toString()));
                     }
                     return state.onlineUsers.containsKey(id) ? false : null;
                   },
                   onSupport: (id, name, avatar) => _openGiftSheetToUser(
                       context, _Recipient(id: id, name: name, avatarUrl: avatar)),
-                ),
+                )),
 
       ]),
     );
@@ -5606,18 +5644,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                           ),
                         if (_currentSeatNumber != null)
                           GestureDetector(
-                            onTap: () async {
-                              final userId = ref.read(authStateProvider).user?.id;
-                              if (userId == null) return;
-                              final isMicTurningOn = _currentSeatMuted;
-                              await AudioController.instance.setMicEnabled(isMicTurningOn);
-
-                              ref.read(roomControllerProvider(widget.roomId).notifier).toggleMute(
-                                seatNumber: _currentSeatNumber!,
-                                isMuted: !_currentSeatMuted,
-                                targetUserId: userId,
-                              );
-                            },
+                            onTap: _toggleMicFromMenu,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 10),
                               child: Icon(
@@ -5887,6 +5914,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
         // has to see the real capture, not the null one it used to start on.
         await _audioService.goLive(muted: newMuted);
         if (!mounted) return;
+        ref.read(roomControllerProvider(widget.roomId).notifier).syncRealMute();
 
         // A10 — "المتكلم على المايك يظهر حوله دائرة متحركة". The detector only
         // runs while this user actually holds a mic; it was never switched on
@@ -5915,13 +5943,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     }
 
 
-    // Still seated, mute changed
+    if (prevSeat != null && newSeatNumber != null && prevSeat != newSeatNumber) {
+      ref.read(roomControllerProvider(widget.roomId).notifier).syncRealMute();
+    }
+
+    // Still seated: publish the real result after capture has stopped/restarted.
     if (newSeatNumber != null && prevMuted != newMuted) {
-      debugPrint('🎧 mute changed while seated room=${widget.roomId} seat=$newSeatNumber muted=$newMuted');
       if (newMuted) {
-        _audioService.muteAudio();
+        await _audioService.muteAudio();
       } else {
-        _audioService.unmuteAudio();
+        await _audioService.unmuteAudio();
+      }
+      if (mounted && _currentSeatNumber == newSeatNumber && _currentSeatMuted == newMuted) {
+        ref.read(roomControllerProvider(widget.roomId).notifier).syncRealMute();
       }
     }
   }

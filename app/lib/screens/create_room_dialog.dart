@@ -28,7 +28,7 @@ class _CreateRoomDialogState extends ConsumerState<CreateRoomDialog> {
   int _selectedMicCount = 8; // Default mic count
   bool _isLoading = false;
 
-  final List<int> _micCountOptions = [2, 5, 8, 9, 10, 12, 15, 20, 30];
+  final List<int> _micCountOptions = [2, 5, 8, 9, 10, 12, 15, 20, 24];
   final String _pkMode = 'PK';
 
   @override

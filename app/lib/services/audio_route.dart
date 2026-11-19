@@ -274,13 +274,15 @@ class AudioRoute {
           // out of the loudspeaker however the usage type is labelled.
           // During a call it must stay `inCommunication` whatever the route —
           // see [_voiceLive].
-          audioMode: (speaker || _externalConnected) && !_voiceLive
+          // A muted speaker in the background releases call mode even if
+          // the last selected output was the earpiece.
+          audioMode: !_voiceLive
               ? AndroidAudioMode.normal
               : AndroidAudioMode.inCommunication,
           stayAwake: false,
           contentType: AndroidContentType.sonification,
           usageType:
-              (speaker || _externalConnected) && !_voiceLive
+              !_voiceLive
                   ? AndroidUsageType.media
                   : AndroidUsageType.voiceCommunication,
           // `none` so a game cue never ducks or stops the room's voice.
@@ -289,13 +291,13 @@ class AudioRoute {
         iOS: AudioContextIOS(
           // The session is shared with WebRTC: `playback` mid-call would drop
           // the microphone and its voice processing.
-          category: (speaker || _externalConnected) && !_voiceLive
+          category: !_voiceLive
               ? AVAudioSessionCategory.playback
               : AVAudioSessionCategory.playAndRecord,
           options: [
             // Never interrupt the WebRTC session this app is built around.
             AVAudioSessionOptions.mixWithOthers,
-            if (_voiceLive || (!speaker && !_externalConnected)) ...[
+            if (_voiceLive) ...[
               AVAudioSessionOptions.allowBluetooth,
               AVAudioSessionOptions.allowBluetoothA2DP,
               if (speaker) AVAudioSessionOptions.defaultToSpeaker,

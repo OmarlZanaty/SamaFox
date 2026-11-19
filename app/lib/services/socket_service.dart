@@ -351,6 +351,7 @@ class SocketService {
 
   /// Supplies the voice state sent with the heartbeat (set by the room).
   String Function()? voiceStateProvider;
+  bool Function()? micMutedProvider;
 
   void _startSeatHeartbeat() {
     _heartbeat?.cancel();
@@ -364,6 +365,7 @@ class SocketService {
     emit('seat_heartbeat', {
       'roomId': rid,
       if (voiceStateProvider != null) 'voiceState': voiceStateProvider!(),
+      if (micMutedProvider != null) 'micMuted': micMutedProvider!(),
     });
   }
 
@@ -1374,7 +1376,19 @@ class SocketService {
 
   // Seats
   void leaveSeat({required int roomId, required int seatNumber}) => emit('leave_seat', {'roomId': roomId, 'seatNumber': seatNumber});
-  DateTime? _lastToggleMuteAt;
+  // Per-room desired state. A trailing send coalesces rapid taps without
+  // dropping the last one. A newer request invalidates older acknowledgements.
+  final Map<int, Map<String, dynamic>> _desiredMuted = {};
+  final Map<int, Timer> _muteTimers = {};
+  final Map<int, DateTime> _lastMuteSent = {};
+
+  bool? desiredMuteForRoom(int roomId) => _desiredMuted[roomId]?['isMuted'] as bool?;
+
+  void clearPendingMute(int roomId) {
+    _muteTimers.remove(roomId)?.cancel();
+    _desiredMuted.remove(roomId);
+    _lastMuteSent.remove(roomId);
+  }
 
   void toggleMute({
     required int roomId,
@@ -1382,27 +1396,44 @@ class SocketService {
     required bool isMuted,
     int? userId,
   }) {
-    final now = DateTime.now();
-    if (_lastToggleMuteAt != null &&
-        now.difference(_lastToggleMuteAt!).inMilliseconds < 400) {
-      AppLogger.warning('toggleMute ignored (spam protection)');
-      return;
-    }
-    _lastToggleMuteAt = now;
-
-    emit('toggle_mute', {
+    final payload = <String, dynamic>{
       'roomId': roomId,
       'seatNumber': seatNumber,
       'isMuted': isMuted,
-
-      // ✅ send both names (server will pick what it uses)
       if (userId != null) 'userId': userId,
       if (userId != null) 'targetUserId': userId,
-    });
+    };
+    _desiredMuted[roomId] = payload;
+    _muteTimers.remove(roomId)?.cancel();
+    final elapsed = DateTime.now().difference(
+      _lastMuteSent[roomId] ?? DateTime.fromMillisecondsSinceEpoch(0));
+    final delay = (400 - elapsed.inMilliseconds).clamp(0, 400);
+    _muteTimers[roomId] = Timer(Duration(milliseconds: delay),
+      () => _sendDesiredMute(roomId, payload, 0));
+  }
 
+  void _sendDesiredMute(int roomId, Map<String, dynamic> payload, int retry) {
+    if (!identical(_desiredMuted[roomId], payload) || !isConnected) return;
+    _lastMuteSent[roomId] = DateTime.now();
+    // Old servers have no ack: bounded retries are idempotent and harmless.
+    _muteTimers[roomId] = Timer(const Duration(seconds: 4), () {
+      if (retry < 3) _sendDesiredMute(roomId, payload, retry + 1);
+    });
+    _socket!.emitWithAck('toggle_mute', payload, ack: (dynamic ack) {
+      if (!identical(_desiredMuted[roomId], payload) || ack is! Map) return;
+      if (ack['ok'] != true && ack['ok'] != false) return;
+      _muteTimers.remove(roomId)?.cancel();
+      if (ack['ok'] == false || ack['muted'] != payload['isMuted']) {
+        _desiredMuted.remove(roomId);
+        emit('init_room_seats', {'roomId': roomId});
+      }
+    });
   }
 
   void dispose() {
+    for (final timer in _muteTimers.values) { timer.cancel(); }
+    _muteTimers.clear();
+    _desiredMuted.clear();
     // Disconnect first so the socket doesn't try to emit to closed controllers.
     _socket?.clearListeners();
     _socket?.disconnect();
@@ -1628,6 +1659,7 @@ List<int> parseRoomUserIds(dynamic value) => value is List
     : const [];
 
 class RoomSeatsState {
+  final int? seq;
   final int roomId;
   final bool chatLocked;
   final List<int> chatBlockedUserIds;
@@ -1650,6 +1682,7 @@ class RoomSeatsState {
   final List<CpSeatLink> cpLinks;
 
   RoomSeatsState({
+    this.seq,
     required this.roomId,
     this.chatLocked = false,
     this.chatBlockedUserIds = const [],
@@ -1720,6 +1753,7 @@ class RoomSeatsState {
         : seats.map((s) => s.seatNumber).reduce((a, b) => a > b ? a : b);
 
     return RoomSeatsState(
+      seq: int.tryParse('${json['seq']}'),
       roomId: rid,
       chatLocked: json['chatLocked'] == true,
       chatBlockedUserIds: parseRoomUserIds(json['chatBlockedUserIds']),
@@ -1851,6 +1885,7 @@ class SeatData {
   );
 
   SeatData copyWith({
+    int? seatNumber,
     int? userId,
     int? displayId,
     int? vipLevel,
@@ -1869,7 +1904,7 @@ class SeatData {
     bool? isSpeaking,
   }) {
     return SeatData(
-      seatNumber: seatNumber,
+      seatNumber: seatNumber ?? this.seatNumber,
       userId: userId ?? this.userId,
       displayId: displayId ?? this.displayId,
       vipLevel: vipLevel ?? this.vipLevel,

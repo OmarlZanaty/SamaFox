@@ -1,3 +1,4 @@
+import '../services/voice_engine.dart';
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -180,6 +181,38 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   StreamSubscription<dynamic>? _seatLockSub;
 
   Timer? _earningsTimer;
+  Timer? _seatResyncTimer;
+  int? _lastSeatsSeq;
+  ({SeatData from, SeatData to, DateTime started})? _pendingMove;
+
+  void _startSeatResync() {
+    _seatResyncTimer?.cancel();
+    _seatResyncTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (state.isOpen && _socket.isConnected) {
+        _socket.emit('init_room_seats', {'roomId': roomId});
+      }
+    });
+  }
+
+  void syncRealMute() => _resendRealMute();
+
+  void _resendRealMute() {
+    final me = ref.read(authStateProvider).user?.id;
+    for (final seat in state.seats.values) {
+      if (me != null && seat.userId == me) {
+        final actualMuted = VoiceEngine.instance.isMicMuted;
+        if (seat.isMuted != actualMuted && !seat.forceMuted &&
+            !state.mutedSeats.contains(seat.seatNumber)) {
+          state = state.copyWith(seats: {...state.seats,
+            seat.seatNumber: seat.copyWith(isMuted: actualMuted)});
+        }
+        _socket.toggleMute(roomId: roomId, seatNumber: seat.seatNumber,
+          isMuted: actualMuted, userId: me);
+        return;
+      }
+    }
+  }
+
 
   RoomControllerNotifier({required this.ref, required this.roomId})
       : super(RoomControllerState(roomId: roomId)) {
@@ -459,10 +492,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
       if (!_socket.isConnected) return;
 
+      _bindStreams();
+      _lastSeatsSeq = null;
+
       _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode, hiddenBypass: _hiddenBypass);
       _socket.getVoiceUsers(roomId: roomId); // ✅ request voice users snapshot
 
-      _bindStreams();
       // after joinRoom + bindStreams
       final room = ref.read(roomsProvider).findById(roomId); // or call /rooms/:id
       final maxSeats = room?.maxSeats;
@@ -472,6 +507,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
 
       state = state.copyWith(isOpen: true);
+      _startSeatResync();
     } finally {
       _opening = false;
     }
@@ -485,6 +521,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _hiddenBypass = true;
     await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
     if (!_socket.isConnected) return;
+    _lastSeatsSeq = null;
     _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, hiddenBypass: true);
     _socket.getVoiceUsers(roomId: roomId);
   }
@@ -497,6 +534,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _accessCode = code;
     await _socket.waitUntilConnected(timeout: const Duration(seconds: 10));
     if (!_socket.isConnected) return;
+    _lastSeatsSeq = null;
     _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: code);
     _socket.getVoiceUsers(roomId: roomId);
   }
@@ -519,19 +557,24 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     }
 
     debugPrint('▶️ foreground -> resync room=$roomId (reconnected=$wasDisconnected)');
+    if (wasDisconnected) _bindStreams();
+    _lastSeatsSeq = null;
     _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode, hiddenBypass: _hiddenBypass);
     // The one snapshot request the server answers (the two names that used
     // to be here were never handled).
     _socket.emit('init_room_seats', {'roomId': roomId});
     _socket.getVoiceUsers(roomId: roomId);
 
-    // Raw socket listeners are cleared when the socket itself reconnects.
-    // Re-binding on a live socket would only duplicate them.
-    if (wasDisconnected) _bindStreams();
+    _resendRealMute();
   }
 
 
   void closeRoom() {
+    _seatResyncTimer?.cancel();
+    _seatResyncTimer = null;
+    _pendingMove = null;
+    _lastSeatsSeq = null;
+    _socket.clearPendingMute(roomId);
     final user = ref.read(authStateProvider).user;
     if (user == null) return;
 
@@ -572,6 +615,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   /// Every raw socket event this controller listens to. Kept as one list so
   /// binding and unbinding cannot drift — they had, and that is the bug below.
   static const List<String> _rawRoomEvents = [
+    'seat_moved',
     'room_settings_updated',
     'room_top_supporters',
     'mic_queue_updated',
@@ -768,27 +812,32 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     // ✅ This snapshot is the source of truth
     _seatsStateSub = _socket.roomStateStream.listen((s) {
+      if (s.roomId != roomId) return;
+      if (s.seq != null) {
+        if (_lastSeatsSeq != null && s.seq! < _lastSeatsSeq!) return;
+        _lastSeatsSeq = s.seq;
+      }
       final nextSeats = <int, SeatData>{};
 
       for (final seat in s.seats) {
-        final old = state.seats[seat.seatNumber];
+        final previous = state.seats[seat.seatNumber];
+        final old = previous?.userId == seat.userId ? previous : null;
 
-        nextSeats[seat.seatNumber] = SeatData(
-          seatNumber: seat.seatNumber,
-          userId: seat.userId,
-          username: seat.username,
-          avatarUrl: seat.avatarUrl,
+        final isSelf = seat.userId != null && seat.userId == ref.read(authStateProvider).user?.id;
+        final adminMuted = seat.forceMuted || s.mutedSeats.contains(seat.seatNumber);
+        if (isSelf && adminMuted) _socket.clearPendingMute(roomId);
+        nextSeats[seat.seatNumber] = seat.copyWith(
+          isMuted: adminMuted ? true : (isSelf ? _socket.desiredMuteForRoom(roomId) : null),
           relationPartner: seat.relationPartner ?? old?.relationPartner,
-
-          // ✅ KEEP OLD FRAME IF SNAPSHOT IS NULL
           avatarFrameUrl: seat.avatarFrameUrl ?? old?.avatarFrameUrl,
-
           displayId: seat.displayId ?? old?.displayId,
           vipLevel: seat.vipLevel != 0 ? seat.vipLevel : (old?.vipLevel ?? 0),
-          level: seat.level,
-          isMuted: seat.isMuted,
-          isLocked: seat.isLocked,
         );
+      }
+
+      final me = ref.read(authStateProvider).user?.id;
+      if (me != null && !nextSeats.values.any((seat) => seat.userId == me)) {
+        _socket.clearPendingMute(roomId);
       }
 
       final nextCount = s.seatCount > 0 ? s.seatCount : state.seatCount;
@@ -824,7 +873,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         adminIds: s.adminIds,
         seatCount: ensureSeatsUpTo,
         lockedSeats: lockedFromSnapshot,
-        mutedSeats: mutedFromSnapshot ?? state.mutedSeats,
+        mutedSeats: mutedFromSnapshot ?? <int>{},
         // Every snapshot replaces the links: a pair that left the mic (or the
         // room) is simply absent from the next one, which removes the effect.
         cpLinks: s.cpLinks,
@@ -843,16 +892,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         final current = Map<int, SeatData>.from(state.seats);
         final old = current[u.seatNumber!];
         if (old != null) {
-          current[u.seatNumber!] = SeatData(
-            seatNumber: old.seatNumber,
-            userId: old.userId,
-            username: old.username,
-            avatarUrl: old.avatarUrl,
-            avatarFrameUrl: old.avatarFrameUrl, // ✅ FIX: preserve frame on mute change
-            level: old.level,
-            isMuted: u.isMuted!,
-            isLocked: old.isLocked,
-          );
+          current[u.seatNumber!] = old.copyWith(isMuted:
+              old.userId == ref.read(authStateProvider).user?.id && !old.forceMuted &&
+                  !state.mutedSeats.contains(u.seatNumber)
+                ? (_socket.desiredMuteForRoom(roomId) ?? u.isMuted!) : u.isMuted!);
 
           state = state.copyWith(seats: current);
         }
@@ -879,16 +922,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       // ✅ 2) also update SeatData.isLocked so snapshot/UI stays consistent
       final current = Map<int, SeatData>.from(state.seats);
       final old = current[sn] ?? SeatData.empty(sn);
-      current[sn] = SeatData(
-        seatNumber: old.seatNumber,
-        userId: old.userId,
-        username: old.username,
-        avatarUrl: old.avatarUrl,
-        avatarFrameUrl: old.avatarFrameUrl, // ✅ FIX: preserve frame on seat lock change
-        level: old.level,
-        isMuted: old.isMuted,
-        isLocked: locked,
-      );
+      current[sn] = old.copyWith(isLocked: locked);
       state = state.copyWith(seats: current);
 
       debugPrint('🔒 seat_lock applied room=$roomId seat=$sn locked=$locked');
@@ -931,8 +965,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       // and re-binding afterwards raced it: the reply could land before any
       // handler existed and the seat map was simply dropped.
       _bindStreams();
+      _lastSeatsSeq = null;
       _socket.joinRoom(roomId: roomId, userId: user.id, username: user.name, code: _accessCode, hiddenBypass: _hiddenBypass);
       _socket.getVoiceUsers(roomId: roomId);
+      _resendRealMute();
     });
 
 
@@ -942,6 +978,22 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // RAW socket listeners (source of truth)
     // ----------------------------
 
+    _onRaw('seat_moved', (data) {
+      if (data is! Map || _safeInt(data['roomId']) != roomId) return;
+      final from = _safeInt(data['from']);
+      final to = _safeInt(data['to']);
+      final uid = _safeInt(data['userId']);
+      if (from == null || to == null || uid == null) return;
+      final source = state.seats[from];
+      if (source?.userId == uid) {
+        _applyMove(source!, to);
+      } else if (state.seats[to]?.userId != uid) {
+        _socket.emit('init_room_seats', {'roomId': roomId});
+      }
+      if (_pendingMove?.from.userId == uid &&
+          _pendingMove?.to.seatNumber == to) _pendingMove = null;
+    });
+
     _onRaw('seat_error', (data) {
       if (data is! Map) return;
       final map = Map<String, dynamic>.from(data);
@@ -949,6 +1001,26 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
       if (rid != roomId) return;
 
+      final move = _pendingMove;
+      if (move != null && (map['code'] == 'MOVE_FAILED' ||
+          DateTime.now().difference(move.started) <= const Duration(seconds: 3))) {
+        final seats = Map<int, SeatData>.from(state.seats);
+        // Restore only our two seats; unrelated room updates must survive.
+        if (seats[move.to.seatNumber]?.userId == move.from.userId) {
+          seats[move.to.seatNumber] = move.to;
+        }
+        if (seats[move.from.seatNumber]?.userId == null) {
+          seats[move.from.seatNumber] = move.from;
+        }
+        _pendingMove = null;
+        state = state.copyWith(seats: seats);
+        _socket.emit('init_room_seats', {'roomId': roomId});
+        return;
+      }
+      if (map['code'] == 'MOVE_FAILED') {
+        _socket.emit('init_room_seats', {'roomId': roomId});
+        return;
+      }
       if (map['code'] == 'MIC_REQUEST_REQUIRED') {
         state = state.copyWith(micRequestRequired: true);
       }
@@ -1037,7 +1109,11 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         if (e.value.userId == targetUserId) { entry = e; break; }
       }
       if (entry == null) return;
-      current[entry.key] = entry.value.copyWith(isMuted: muted, forceMuted: forced);
+      final isSelf = targetUserId == ref.read(authStateProvider).user?.id;
+      if (isSelf && forced) _socket.clearPendingMute(roomId);
+      current[entry.key] = entry.value.copyWith(
+        isMuted: isSelf && !forced ? (_socket.desiredMuteForRoom(roomId) ?? muted) : muted,
+        forceMuted: forced);
       state = state.copyWith(seats: current);
     });
 
@@ -1248,32 +1324,24 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   }
 
-  void moveSeat({
-    required int fromSeat,
-    required int toSeat,
-  }) {
-    final updatedSeats = Map<int, SeatData>.from(state.seats);
+  void _applyMove(SeatData source, int to) {
+    final seats = Map<int, SeatData>.from(state.seats);
+    seats[source.seatNumber] = SeatData.empty(source.seatNumber)
+        .copyWith(isLocked: source.isLocked || state.lockedSeats.contains(source.seatNumber));
+    seats[to] = source.copyWith(seatNumber: to,
+        isLocked: (state.seats[to]?.isLocked ?? false) || state.lockedSeats.contains(to));
+    state = state.copyWith(seats: seats);
+  }
 
-    final mySeat = updatedSeats[fromSeat];
+  void moveSeat({required int fromSeat, required int toSeat}) {
+    final source = state.seats[fromSeat];
+    if (!_socket.isConnected || source == null || source.userId == null || fromSeat == toSeat) return;
+    final pending = _pendingMove;
+    if (pending != null && DateTime.now().difference(pending.started) < const Duration(seconds: 3)) return;
+    _pendingMove = (from: source,
+      to: state.seats[toSeat] ?? SeatData.empty(toSeat), started: DateTime.now());
+    _applyMove(source, toSeat);
 
-    if (mySeat != null) {
-      updatedSeats[fromSeat] = SeatData.empty(fromSeat);
-      updatedSeats[toSeat] = SeatData(
-        seatNumber: toSeat,
-        userId: mySeat.userId,
-        username: mySeat.username,
-        avatarUrl: mySeat.avatarUrl,
-        avatarFrameUrl: mySeat.avatarFrameUrl,
-        level: mySeat.level,
-        isMuted: mySeat.isMuted,
-        isLocked: mySeat.isLocked,
-        isSpeaking: mySeat.isSpeaking,
-      );
-    }
-
-    state = state.copyWith(seats: updatedSeats);
-
-    // 🔥 emit to backend
     _socket.emit('moveSeat', {
       'roomId': roomId,
       'fromSeat': fromSeat,
@@ -1315,6 +1383,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   }
 
   void _applySeatReleasedFromRaw(Map<String, dynamic> map) {
+    final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
+    if (rid != null && rid != roomId) return;
     final seatNumber =
         _safeInt(map['seatNumber']) ?? _safeInt(map['seat_number']);
     debugPrint('🪑 APPLY seat_released room=$roomId seat=$seatNumber');
@@ -1341,6 +1411,8 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   }
 
   void _applySeatUpdatedFromRaw(Map<String, dynamic> map) {
+    final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
+    if (rid != null && rid != roomId) return;
     final seatNumber = _safeInt(map['seatNumber']) ??
         _safeInt(map['seat_number']) ??
         _safeInt(map['seatId']) ??
@@ -1354,14 +1426,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     final current = Map<int, SeatData>.from(state.seats);
     final old = current[seatNumber] ?? SeatData.empty(seatNumber);
 
-    current[seatNumber] = SeatData(
-      seatNumber: seatNumber,
+    final base = old.userId == userId ? old : SeatData.empty(seatNumber);
+    final isSelf = userId != null && userId == ref.read(authStateProvider).user?.id;
+    current[seatNumber] = base.copyWith(
       userId: userId,
-      username: userId == null ? null : old.username,
-      avatarUrl: userId == null ? null : old.avatarUrl,
-      avatarFrameUrl: userId == null ? null : old.avatarFrameUrl,
-      level: userId == null ? 0 : old.level,
-      isMuted: !micEnabled,
+      isMuted: base.forceMuted || state.mutedSeats.contains(seatNumber) ? true :
+          (isSelf ? (_socket.desiredMuteForRoom(roomId) ?? !micEnabled) : !micEnabled),
       isLocked: old.isLocked,
       isSpeaking: isSpeaking,
     );
@@ -1501,6 +1571,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     );
 
     // ✅ backend
+    _socket.clearPendingMute(roomId);
     _socket.leaveSeat(roomId: roomId, seatNumber: seatNumber);
 
     // ✅ refresh
@@ -1621,21 +1692,13 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     if (resolvedTarget == null) return;
 
     final bool isSelf = resolvedTarget == me;
+    if (isSelf && !isMuted && (seat.forceMuted || state.mutedSeats.contains(seatNumber))) return;
 
     // optimistic UI update
     final current = Map<int, SeatData>.from(state.seats);
     final old = current[seatNumber];
     if (old != null) {
-      current[seatNumber] = SeatData(
-        seatNumber: old.seatNumber,
-        userId: old.userId,
-        username: old.username,
-        avatarUrl: old.avatarUrl,
-        avatarFrameUrl: old.avatarFrameUrl,
-        level: old.level,
-        isMuted: isMuted,
-        isLocked: old.isLocked,
-      );
+      current[seatNumber] = old.copyWith(isMuted: isMuted);
       state = state.copyWith(seats: current);
     }
 
@@ -1657,11 +1720,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       );
     }
 
-    // refresh snapshot
-    // The one snapshot request the server answers (the two names that used
-    // to be here were never handled).
-    _socket.emit('init_room_seats', {'roomId': roomId});
-    _socket.getVoiceUsers(roomId: roomId);
+
   }
 
 

@@ -70,8 +70,8 @@ Widget _grid(int seatCount, {double? height, double bottomInset = 0}) {
 }
 
 void main() {
-  for (final seatCount in const [5, 10, 30]) {
-    testWidgets('$seatCount seats keep avatars at or below 54 dp',
+  for (final seatCount in const [5, 10, 24]) {
+    testWidgets('$seatCount seats keep avatars at or below 60 dp',
         (tester) async {
       await tester.pumpWidget(_grid(seatCount));
       await tester.pump();
@@ -79,10 +79,29 @@ void main() {
       final exception = tester.takeException();
       expect(exception, isNull);
       for (final card in tester.widgetList<SeatCard>(find.byType(SeatCard))) {
-        expect(card.seatSize, lessThanOrEqualTo(54));
+        expect(card.seatSize, lessThanOrEqualTo(60));
       }
     });
   }
+
+  testWidgets('24 seats use five per row when the height permits', (tester) async {
+    await tester.pumpWidget(_grid(24, height: 500));
+    final cards = find.byType(SeatCard);
+    expect(cards, findsNWidgets(24));
+    expect(tester.getTopLeft(cards.at(0)).dy, tester.getTopLeft(cards.at(4)).dy);
+    expect(tester.getTopLeft(cards.at(5)).dy, greaterThan(tester.getTopLeft(cards.at(4)).dy));
+    expect(tester.getTopLeft(cards.at(20)).dy, tester.getTopLeft(cards.at(23)).dy);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('24 seats fall back to six in a shorter box', (tester) async {
+    await tester.pumpWidget(_grid(24, height: 368));
+    final cards = find.byType(SeatCard);
+    expect(tester.getTopLeft(cards.at(0)).dy, tester.getTopLeft(cards.at(5)).dy);
+    expect(tester.getTopLeft(cards.at(6)).dy, greaterThan(tester.getTopLeft(cards.at(5)).dy));
+    expect(tester.getTopLeft(cards.first).dx - tester.getTopLeft(find.byKey(_gridBoxKey)).dx, lessThan(12));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('ten seats are packed at the top and heightFor matches',
       (tester) async {
@@ -111,7 +130,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(SingleChildScrollView), findsNothing);
     for (final card in tester.widgetList<SeatCard>(find.byType(SeatCard))) {
-      expect(card.seatSize, 54);
+      expect(card.seatSize, 60);
     }
   });
 
@@ -119,7 +138,7 @@ void main() {
       (tester) async {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     for (final size in const [Size(360, 640), Size(412, 915)]) {
-      for (var seatCount = 1; seatCount <= 30; seatCount++) {
+      for (var seatCount = 1; seatCount <= 24; seatCount++) {
         await tester.binding.setSurfaceSize(size);
         await tester.pumpWidget(
           ProviderScope(
@@ -144,7 +163,7 @@ void main() {
                             seatCount: seatCount,
                             seats: Padding(
                               // Same as the room (the icon rail now sits above the chat bar).
-                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 40),
+                              padding: const EdgeInsets.fromLTRB(0, 0, 0, 40),
                               child: SeatsGrid(
                                 seats: {
                                   for (var i = 1; i <= seatCount; i++)
@@ -184,7 +203,7 @@ void main() {
             reason: reason);
         // 15/10: the messages disappeared under 20 mics. The chat keeps room
         // for the tabs, the winners strip and a few lines.
-        expect(chatRect.height, greaterThanOrEqualTo(170 - .01),
+        expect(chatRect.height, greaterThanOrEqualTo(RoomSeatsChatLayout.minChatHeight(size.height - 48 - 96 - 129) - .01),
             reason: reason);
         expect(find.byType(SeatCard), findsNWidgets(seatCount));
         var lastSeatBottom = 0.0;

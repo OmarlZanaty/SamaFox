@@ -1,3 +1,4 @@
+import '../../services/livekit_voice_engine.dart';
 import 'room_role_chip.dart';
 import 'package:flutter/material.dart';
 import '../user_name_text.dart';
@@ -45,10 +46,16 @@ class SeatCard extends StatelessWidget {
   bool get _isOccupied => seat.userId != null;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder<Set<String>>(
+    valueListenable: LiveKitVoiceEngine().activeSpeakerIdentities,
+    builder: (context, speakers, _) => _buildCard(context, speakers),
+  );
+
+  Widget _buildCard(BuildContext context, Set<String> speakers) {
     final imageUrl = seat.avatarUrl;
     final username = (seat.username?.trim().isNotEmpty == true) ? seat.username! : 'User';
-    final isMuted = seat.isMuted;
+    final isMuted = isSeatMuted || seat.forceMuted || isSeatLocked || seat.isLocked ||
+        (seat.isMuted && !speakers.contains(seat.userId?.toString()));
     final locked = isSeatLocked;
 
     final outerSize = seatSize;

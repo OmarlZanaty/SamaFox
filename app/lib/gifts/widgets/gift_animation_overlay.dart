@@ -81,6 +81,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   @override
   void initState() {
     super.initState();
+    EffectsPrefs.instance.giftSoundsOn.addListener(_onSoundPreference);
     widget.socket.bind();
     _sentSub = widget.socket.sentStream.listen(_onGift);
     MemoryGuard.pressure.addListener(_onMemoryPressure);
@@ -94,8 +95,15 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
   /// Plays the ordinary-gift chime. Best-effort: never throws, never blocks the
   /// animation. VIDEO gifts carry their own audio track and LEGENDARY gifts get
   /// the fanfare instead, so neither doubles up with this.
+  void _onSoundPreference() {
+    if (!EffectsPrefs.instance.giftSoundsOn.value) {
+      unawaited(_giftPlayer.stop());
+      unawaited(_vipPlayer.stop());
+    }
+  }
+
   void _playGiftSound(GiftSendEvent event) {
-    if (AudioRoute.instance.roomMuted.value) return; // SPEC52 #18
+    if (AudioRoute.instance.roomMuted.value || !EffectsPrefs.instance.giftSoundsOn.value) return; // SPEC52 #18
     // SPEC52 #25 — image gifts never ring. Only video gifts make sound, and
     // they carry it in their own clip.
     if (event.gift.format != GiftFormat.video) return;
@@ -232,7 +240,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     // Sound — best-effort, never throws. Asset must exist at assets/sounds/vip_gift.mp3
     () async {
       try {
-        if (AudioRoute.instance.roomMuted.value) return; // SPEC52 #18
+        if (AudioRoute.instance.roomMuted.value || !EffectsPrefs.instance.giftSoundsOn.value) return; // SPEC52 #18
         if (event.gift.format != GiftFormat.video) return; // SPEC52 #25 — image gifts are silent
         await _vipPlayer.stop();
         await _vipPlayer.play(AssetSource('sounds/vip_gift.wav'), volume: 0.9);
@@ -269,6 +277,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
 
   @override
   void dispose() {
+    EffectsPrefs.instance.giftSoundsOn.removeListener(_onSoundPreference);
     MemoryGuard.pressure.removeListener(_onMemoryPressure);
     _sentSub?.cancel();
     for (final f in _flights) {

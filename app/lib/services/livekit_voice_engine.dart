@@ -57,6 +57,20 @@ class LiveKitVoiceEngine implements VoiceEngine {
   bool _initialized = false;
   bool _listenOnly = true;
   bool _isMicMuted = true;
+  final ValueNotifier<Set<String>> _activeSpeakers = ValueNotifier(<String>{});
+  ValueListenable<Set<String>> get activeSpeakerIdentities => _activeSpeakers;
+  Future<void> _micWork = Future<void>.value();
+
+  bool get _backgrounded {
+    final state = WidgetsBinding.instance.lifecycleState;
+    return state == AppLifecycleState.paused || state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+  }
+
+  Future<void> _syncVoiceMode() async {
+    await AudioRoute.instance.setVoiceLive(
+      _currentRoomId != null && !(_backgrounded && !_listenOnly && _isMicMuted));
+  }
 
   /// Serialises [initialize], as the mesh engine does: two overlapping calls
   /// (re-entering a room quickly) must not connect twice.
@@ -254,13 +268,17 @@ class LiveKitVoiceEngine implements VoiceEngine {
       })
       ..on<ParticipantDisconnectedEvent>((e) {
         CrashReporter.breadcrumb('lk -${e.participant.identity}');
+        _activeSpeakers.value = {..._activeSpeakers.value}..remove(e.participant.identity);
       })
       ..on<ActiveSpeakersChangedEvent>((e) {
+        if (!identical(_room, room)) return;
+        _activeSpeakers.value = e.speakers.map((p) => p.identity).toSet();
         final me = _currentUserId?.toString();
         final speaking = e.speakers.any((p) => p.identity == me);
         _emitSpeaking(speaking && !_isMicMuted);
       })
       ..on<RoomReconnectingEvent>((_) {
+        _activeSpeakers.value = <String>{};
         _log('reconnecting…');
         CrashReporter.breadcrumb('lk reconnecting');
         if (identical(_room, room)) _watchStuckReconnect(room);
@@ -281,6 +299,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
         // disconnecting must not start another reconnect — that is how two
         // sessions ended up evicting each other.
         if (!identical(_room, room)) return;
+        _activeSpeakers.value = <String>{};
         _cancelStuckWatch();
         _emitSpeaking(false);
         final lifecycle = WidgetsBinding.instance.lifecycleState;
@@ -328,7 +347,10 @@ class LiveKitVoiceEngine implements VoiceEngine {
   StreamSubscription<void>? _socketRecovered;
 
   void _watchForRecovery() {
-    _lifecycle ??= AppLifecycleListener(onResume: () => _rejoinIfDead('resume'));
+    _lifecycle ??= AppLifecycleListener(
+      onStateChange: (_) => unawaited(_syncVoiceMode()),
+      onResume: () => _rejoinIfDead('resume'),
+    );
     _socketRecovered ??=
         _socketService.reconnectStream.listen((_) => _rejoinIfDead('socket back'));
   }
@@ -484,6 +506,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
       });
     }
     _initialized = false;
+    _activeSpeakers.value = <String>{};
     _stopWatchingForRecovery();
     _socketService.off('voice_users', _onVoiceUsers);
     await _teardownRoom();
@@ -559,8 +582,6 @@ class LiveKitVoiceEngine implements VoiceEngine {
     }
     _listenOnly = false;
     try {
-      // Captures and publishes. Idempotent when already publishing.
-      await lp.setMicrophoneEnabled(true, audioCaptureOptions: _captureOptions);
       if (muted) {
         await muteAudio();
       } else {
@@ -579,6 +600,8 @@ class LiveKitVoiceEngine implements VoiceEngine {
     _listenOnly = true;
     _isMicMuted = true;
     _emitSpeaking(false);
+    await _micWork;
+    _isMicMuted = true;
     final lp = _room?.localParticipant;
     if (lp == null) return;
     try {
@@ -599,34 +622,42 @@ class LiveKitVoiceEngine implements VoiceEngine {
   }
 
   @override
-  Future<void> muteAudio() async {
+  Future<void> muteAudio() {
     _isMicMuted = true;
     _emitSpeaking(false);
-    try {
-      // stopOnMute: false keeps the capture warm so unmute is instant; the
-      // seat is still held, so keeping the microphone is the intended state.
-      await _micPublication?.mute(stopOnMute: false);
-    } catch (e) {
-      _log('mute failed: $e');
-    }
+    return _micWork = _micWork.then((_) async {
+      try {
+        // Stop capture so another app can acquire the OS microphone.
+        await _micPublication?.mute(stopOnMute: true);
+        _isMicMuted = true;
+      } catch (e) {
+        _log('mute failed: $e');
+        _isMicMuted = _micPublication?.muted ?? true;
+      }
+      await _syncVoiceMode();
+    });
   }
 
   @override
-  Future<void> unmuteAudio() async {
-    if (_listenOnly) return; // no seat, nothing to open
-    _isMicMuted = false;
-    try {
-      final pub = _micPublication;
-      if (pub == null) {
-        // Nothing published (an interruption dropped it): publish again.
-        await _room?.localParticipant
-            ?.setMicrophoneEnabled(true, audioCaptureOptions: _captureOptions);
-      } else {
-        await pub.unmute(stopOnMute: false);
+  Future<void> unmuteAudio() {
+    return _micWork = _micWork.then((_) async {
+      if (_listenOnly) return;
+      try {
+        await AudioRoute.instance.setVoiceLive(true);
+        final pub = _micPublication;
+        if (pub != null) await pub.unmute(stopOnMute: true);
+        if (pub == null || pub.track == null || !pub.track!.isActive) {
+          await _room?.localParticipant
+              ?.setMicrophoneEnabled(true, audioCaptureOptions: _captureOptions);
+        }
+        final track = _micPublication?.track;
+        _isMicMuted = track == null || !track.isActive || _micPublication!.muted;
+      } catch (e) {
+        _isMicMuted = true;
+        _log('unmute failed: $e');
       }
-    } catch (e) {
-      _log('unmute failed: $e');
-    }
+      await _syncVoiceMode();
+    });
   }
 
   @override
@@ -637,14 +668,14 @@ class LiveKitVoiceEngine implements VoiceEngine {
 
   @override
   bool get micHealthy {
-    if (_listenOnly) return _room != null;
+    if (_listenOnly || _isMicMuted) return true;
     final track = _micPublication?.track;
     return track != null && track.isActive;
   }
 
   @override
   Future<void> ensureMicAlive() async {
-    if (!_initialized || _listenOnly) {
+    if (!_initialized || _listenOnly || _isMicMuted) {
       await reapplyAudioRoute();
       return;
     }
@@ -669,6 +700,8 @@ class LiveKitVoiceEngine implements VoiceEngine {
   @override
   Future<void> reapplyAudioRoute() async {
     if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    await _syncVoiceMode();
+    if (_backgrounded && !_listenOnly && _isMicMuted) return;
     // SPEC52 #3 — automatic: headset (BT/wired) when connected, else speaker.
     await AudioRoute.instance.applyAutomatic();
   }
@@ -725,12 +758,12 @@ class LiveKitVoiceEngine implements VoiceEngine {
     // SPEC52 #2 — apply on the LIVE track: restartTrack swaps the capture on
     // the same sender, so the seat, the publication and the mute state stay
     // as they are (no unpublish/republish, no gap for listeners).
-    if (_initialized && !_listenOnly) {
+    if (_initialized && !_listenOnly && !_isMicMuted) {
       final track = _micPublication?.track;
       if (track != null) {
         try {
           await track.restartTrack(_captureOptions);
-          if (_isMicMuted) await track.mute();
+          if (_isMicMuted) await _micPublication?.mute(stopOnMute: true);
           _log('noise processing -> $enabled (track restarted in place)');
           return;
         } catch (e) {

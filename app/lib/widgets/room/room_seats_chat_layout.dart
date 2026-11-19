@@ -45,8 +45,8 @@ class RoomSeatsChatLayout extends StatelessWidget {
           final gridMax =
               math.max(0.0, available - gapUnderSeats - minChatHeight(available));
           final gridHeight = SeatsGrid.heightFor(
-            // 24 = horizontal padding. The rail now floats bottom-left.
-            width: math.max(0.0, constraints.maxWidth - 24),
+            // The grid owns its side padding (narrower with six columns).
+            width: math.max(0.0, constraints.maxWidth),
             seatCount: seatCount,
             maxHeight: gridMax,
           );

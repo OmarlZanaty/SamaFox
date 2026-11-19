@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -131,11 +132,41 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
   Timer? _countdown;
   int _msLeft = 0;
 
+  bool _muted = false;
+  bool _soundPrefsLoaded = false;
+
+  Future<void> _loadSoundPreference() async {
+    var muted = false;
+    try {
+      muted = (await SharedPreferences.getInstance()).getBool('crash_game_muted') ?? false;
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _muted = muted;
+      _soundPrefsLoaded = true;
+    });
+    if (!_muted && _state?.isFlying == true) await _startEngineSound();
+  }
+
+  Future<void> _toggleSound() async {
+    setState(() => _muted = !_muted);
+    if (_muted) {
+      await _stopEngineSound();
+      await _sfx.stop();
+    } else if (_state?.isFlying == true) {
+      await _startEngineSound();
+    }
+    try {
+      await (await SharedPreferences.getInstance()).setBool('crash_game_muted', _muted);
+    } catch (_) {}
+  }
+
   int? get _myId => ref.read(authStateProvider).user?.id;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_loadSoundPreference());
     _balance = ref.read(authStateProvider).user?.coinsBalance ?? 0;
 
     // A3 / G3(e) — طيّار is the game the client named when he asked that the
@@ -463,15 +494,20 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
   // The asset files are optional: a missing file must never break the round, so
   // every play is best-effort. See assets/sounds/README.txt.
   Future<void> _play(String asset) async {
+    if (_muted || !_soundPrefsLoaded) return;
     try {
       await _sfx.play(AssetSource(asset), volume: 0.8);
+      if (_muted) await _sfx.stop();
     } catch (_) {/* asset not shipped yet */}
   }
 
   Future<void> _startEngineSound() async {
+    if (_muted || !_soundPrefsLoaded) return;
     try {
       await _engine.setReleaseMode(ReleaseMode.loop);
+      if (_muted || !mounted) return;
       await _engine.play(AssetSource('sounds/crash_engine.wav'), volume: 0.35);
+      if (_muted) await _engine.stop();
     } catch (_) {/* asset not shipped yet */}
   }
 
@@ -483,8 +519,10 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
 
   /// Engine pitch and volume rise with the multiplier, as in the original.
   Future<void> _updateEnginePitch(double m) async {
+    if (_muted || !_soundPrefsLoaded) return;
     try {
       await _engine.setPlaybackRate((1.0 + math.log(m) * 0.25).clamp(1.0, 2.0));
+      if (_muted || !mounted) return;
       await _engine.setVolume((0.35 + math.log(m) * 0.12).clamp(0.35, 0.9));
     } catch (_) {}
   }
@@ -644,6 +682,10 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
             ),
           ]),
           actions: [
+            IconButton(
+              icon: Icon(_muted ? Icons.volume_off : Icons.volume_up, color: Colors.white),
+              onPressed: _soundPrefsLoaded ? _toggleSound : null,
+            ),
             IconButton(
               icon: const Icon(Icons.menu, color: Colors.white),
               onPressed: _openMenu,

@@ -1,3 +1,4 @@
+import '../../services/effects_prefs.dart';
 import '../../services/audio_route.dart';
 import '../../services/device_tier.dart';
 import 'dart:async';
@@ -89,6 +90,8 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
   void initState() {
     super.initState();
     VideoGiftPlayer.liveCount++;
+    EffectsPrefs.instance.giftSoundsOn.addListener(_updateVolume);
+    AudioRoute.instance.roomMuted.addListener(_updateVolume);
     WidgetsBinding.instance.addObserver(this);
     _initialize();
     // Safety net only, until the real duration is known. `animationMs` is an
@@ -165,7 +168,7 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
       // phone to their ear. The room's own speaker toggle stays the one place
       // that decides.
       // SPEC52 #18 — silent while the user muted the room.
-      await controller.setVolume(AudioRoute.instance.roomMuted.value || !widget.gift.hasSound ? 0.0 : 1.0);
+      await controller.setVolume(AudioRoute.instance.roomMuted.value || !EffectsPrefs.instance.giftSoundsOn.value || !widget.gift.hasSound ? 0.0 : 1.0);
       controller.addListener(_onTick);
       if (!mounted) return;
       setState(() => _initialized = true);
@@ -188,6 +191,14 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
       _reportFailure('playback', e);
       _markComplete();
     }
+  }
+
+  void _updateVolume() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    unawaited(controller.setVolume(AudioRoute.instance.roomMuted.value ||
+        !EffectsPrefs.instance.giftSoundsOn.value || !widget.gift.hasSound
+        ? 0.0 : AudioRoute.instance.effectiveVolume));
   }
 
   void _onTick() {
@@ -223,6 +234,8 @@ class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingOb
 
   @override
   void dispose() {
+    EffectsPrefs.instance.giftSoundsOn.removeListener(_updateVolume);
+    AudioRoute.instance.roomMuted.removeListener(_updateVolume);
     VideoGiftPlayer.liveCount--;
     WidgetsBinding.instance.removeObserver(this);
     _hardTimer?.cancel();
