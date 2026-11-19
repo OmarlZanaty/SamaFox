@@ -6,8 +6,8 @@ import { recordAdminAudit, AdminAuditInput } from '../services/adminAudit.servic
 import { emitToUser, kickBannedUser } from '../services/socket.service';
 import { createNotification } from '../services/notification.service';
 import { invalidateBanCache } from '../utils/banGuard';
-import { computeVipLevelWithOverrides, getVipThresholdOverrides, grantVipRewardsForRange } from '../services/vip.service';
-import { calculateLevelWithOverrides, getLevelThresholdOverrides, grantLevelRewards } from '../services/xp.service';
+import { computeVipLevelWithOverrides, getVipMaxLevel, getVipThresholdOverrides, grantVipRewardsForRange } from '../services/vip.service';
+import { calculateLevelWithOverrides, getLevelMaxLevel, getLevelThresholdOverrides, grantLevelRewards } from '../services/xp.service';
 import { computeAgencyEarnedCoins, memberTargetEarned } from '../agencies/agency.controller';
 import { getBroadcastSeconds } from '../services/broadcast.service';
 import * as rules from './staffRules';
@@ -154,8 +154,8 @@ async function scopedAgency(c: Context, id: number) {
 
 async function naturalValue(c: Context, userId: number, type: string): Promise<{ current: number; natural: number }> {
   const user = await c.db.user.findUniqueOrThrow({ where: { id: userId }, select: { vipLevel: true, level: true, totalRecharge: true, xp: true } });
-  return type === 'VIP' ? { current: user.vipLevel, natural: computeVipLevelWithOverrides(user.totalRecharge, await getVipThresholdOverrides()) } :
-    { current: user.level, natural: calculateLevelWithOverrides(user.xp, await getLevelThresholdOverrides(c.db)) };
+  return type === 'VIP' ? { current: user.vipLevel, natural: computeVipLevelWithOverrides(user.totalRecharge, await getVipThresholdOverrides(), await getVipMaxLevel()) } :
+    { current: user.level, natural: calculateLevelWithOverrides(user.xp, await getLevelThresholdOverrides(c.db), await getLevelMaxLevel()) };
 }
 async function applyItemGrant(c: Context, userId: number, itemId: string, expiresAt: Date,
   source = 'GRANT', staffRoleId: number | null = null) {

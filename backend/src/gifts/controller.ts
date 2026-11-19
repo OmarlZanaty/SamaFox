@@ -1,3 +1,4 @@
+import { canOpenCategory, isCategoryLocked } from './categoryAccess';
 import crypto from 'crypto';
 import { giftOperationId, runGiftOperation } from './giftOperation';
 import { withNameStyle } from '../services/vipStyle.service';
@@ -233,7 +234,7 @@ export async function listCatalog(_req: Request, res: Response) {
       prisma.giftCategory.findMany({
         where: { isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        select: { key: true, nameAr: true, sortOrder: true },
+        select: { key: true, nameAr: true, sortOrder: true, minVipLevel: true, allowedUserIds: true },
       }),
     ]);
     const grouped: Record<string, any[]> = { SMALL: [], MEDIUM: [], LARGE: [], LEGENDARY: [] };
@@ -266,7 +267,7 @@ export async function listCatalog(_req: Request, res: Response) {
         createdAt: g.createdAt,
       });
     }
-    const body = JSON.stringify({ success: true, version, gifts: grouped, categories });
+    const body = JSON.stringify({ success: true, version, gifts: grouped, categories: categories.map(({ allowedUserIds, ...category }) => ({ ...category, locked: isCategoryLocked({ ...category, allowedUserIds }) })) });
     await writeCatalogCache(version, body);
     res.setHeader('X-Gifts-Catalog-Version', String(version));
     res.setHeader('Cache-Control', 'public, max-age=30');
@@ -746,5 +747,20 @@ export async function luckyRecent(_req: Request, res: Response) {
   } catch (err) {
     console.error('[gifts.luckyRecent]', err);
     return res.status(500).json({ success: false, message: 'Failed' });
+  }
+}
+
+export async function categoryAccess(req: Request, res: Response) {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const userId = req.userId ?? req.authUser?.id;
+    if (!userId) return res.status(401).json({ message: 'سجل الدخول أولاً' });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, displayId: true } });
+    if (!user) return res.status(401).json({ message: 'سجل الدخول أولاً' });
+    const categories = await prisma.giftCategory.findMany({ where: { isActive: true } });
+    return res.json({ keys: categories.filter(category => canOpenCategory(category, user)).map(category => category.key) });
+  } catch (error) {
+    console.error('[gifts.categoryAccess]', error);
+    return res.status(500).json({ message: 'تعذر تحميل القوائم' });
   }
 }

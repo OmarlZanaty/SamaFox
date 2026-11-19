@@ -97,10 +97,11 @@ export const levelXpFloor = (
 export const calculateLevelWithOverrides = (
   xp: number,
   overrides: Map<number, number>,
+  cap: number | null = null,
 ): number => {
-  if (overrides.size === 0) return calculateLevel(xp);
+  if (overrides.size === 0) return Math.min(calculateLevel(xp), cap ?? Infinity);
   let level = 1;
-  while (level < MAX_LEVEL && levelThresholdWithOverrides(level + 1, overrides) <= xp) {
+  while (level < (cap ?? MAX_LEVEL) && levelThresholdWithOverrides(level + 1, overrides) <= xp) {
     level++;
   }
   return level;
@@ -231,7 +232,7 @@ export const awardUserXP = async (userId: number, xpAmount: number, client: DbCl
 
     const newXP = user.xp + xpAmount;
     const overrides = await getLevelThresholdOverrides(client);
-    const newLevel = calculateLevelWithOverrides(newXP, overrides);
+    const newLevel = calculateLevelWithOverrides(newXP, overrides, await getLevelMaxLevel());
     // Never demote on an XP gain: if an admin raises a threshold later, a user
     // who already reached a level keeps it instead of silently dropping.
     const leveledUp = newLevel > user.level;
@@ -345,3 +346,13 @@ export const getUserLevelInfo = async (userId: number) => {
     return { success: false, error: 'Failed to get level info' };
   }
 };
+
+let maxLevelCache: { value: number | null; until: number } | undefined;
+export function invalidateLevelMaxCache() { maxLevelCache = undefined; }
+export async function getLevelMaxLevel(): Promise<number | null> {
+  if (maxLevelCache && maxLevelCache.until > Date.now()) return maxLevelCache.value;
+  const result = await prisma.levelConfig.aggregate({ _max: { level: true } });
+  const value = result._max.level;
+  maxLevelCache = { value, until: Date.now() + 15000 };
+  return value;
+}

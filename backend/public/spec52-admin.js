@@ -132,6 +132,8 @@
         <td class="cell-muted">${esc(x.key)}</td>
         <td><input type="number" class="form-input form-input--sm" id="gl_order_${esc(x.id)}" value="${Number(x.sortOrder) || 0}" style="width:80px"></td>
         <td><input type="checkbox" id="gl_active_${esc(x.id)}" ${x.isActive ? "checked" : ""}></td>
+        <td><input type="number" min="0" max="100" id="gl_vip_${esc(x.id)}" value="${x.minVipLevel ?? ''}" aria-label="أقل مستوى VIP" class="form-input"></td>
+        <td><input id="gl_ids_${esc(x.id)}" value="${esc((x.allowedUserIds || []).join(', '))}" aria-label="أرقام ID مسموح لها" class="form-input"></td>
         <td>${n(x.giftCount)}</td>
         <td><button class="btn btn-primary btn-sm" onclick="glSave('${esc(x.id)}')">حفظ</button>
           ${x.key === "general" ? "" : `<button class="btn btn-outline btn-sm" onclick="glDelete('${esc(x.id)}', ${Number(x.giftCount) || 0})">حذف</button>`}</td>
@@ -172,15 +174,19 @@
   async function glAdd() {
     const nameAr = val("gl_new_name");
     if (!nameAr) return toast("اكتب اسم القائمة");
-    await call("/admin/gifts/categories", "POST", { nameAr, key: val("gl_new_key") || undefined });
+    await call("/admin/gifts/categories", "POST", { nameAr, key: val("gl_new_key") || undefined, minVipLevel: val("gl_new_vip") || null, allowedUserIds: val("gl_new_ids") });
     $("gl_new_name").value = "";
     $("gl_new_key").value = "";
+    $("gl_new_vip").value = "";
+    $("gl_new_ids").value = "";
     toast("✅ تمت إضافة القائمة");
     giftListsLoad();
   }
 
   async function glSave(id) {
     await call(`/admin/gifts/categories/${id}`, "PATCH", {
+      minVipLevel: val(`gl_vip_${id}`) || null,
+      allowedUserIds: val(`gl_ids_${id}`),
       nameAr: val(`gl_name_${id}`),
       sortOrder: Number(val(`gl_order_${id}`) || 0),
       isActive: $(`gl_active_${id}`).checked,

@@ -57,7 +57,7 @@ import {
   adminListGifts,
   adminUpdateGift,
   adminListVipLevels,
-  adminUpsertVipLevel,
+  adminUpsertVipLevel, adminDeleteVipLevel,
   adminListLevels,
   adminUpsertLevel,
   adminDeleteLevel,
@@ -353,6 +353,7 @@ router.delete('/gifts/:id', authenticate, requireOwnerPermission('gifts.prices')
 
 router.get('/vip-levels', adminListVipLevels);
 router.post('/vip-levels', requireOwnerPermission('vip.config'), adminUpsertVipLevel);
+router.delete('/vip-levels/:level', requireOwnerPermission('vip.config'), adminDeleteVipLevel);
 
 router.get('/levels', adminListLevels);
 router.post('/levels', adminUpsertLevel);

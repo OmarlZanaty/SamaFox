@@ -3,6 +3,7 @@ import prisma from '../utils/prisma';
 
 // Professional defaults (Yalla/Bigo-style) used until the client provides a real CP spec.
 export const CP_DEFAULTS: Record<string, string> = {
+  badge_size: '26',
   cp_per_coin: '1',              // CP earned per coin spent on a CP-eligible gift
   target_coins_per_dollar: '10000', // received-gift coins equal to $1 of target payout
   level_multiplier: '1.5',       // each level threshold = previous * this
@@ -116,6 +117,7 @@ export async function getSettings(_req: Request, res: Response) {
       success: true,
       data: {
         ...s,
+        badgeSize: Math.max(16, Math.min(48, Number(s.badge_size) || 26)),
         // camelCase aliases for the app, which quotes the background price and
         // term to the room owner before charging them.
         roomBackgroundPriceCoins: Number(s.room_background_price_coins) || 1000,
@@ -150,6 +152,11 @@ export async function getSettings(_req: Request, res: Response) {
 export async function updateSettings(req: Request, res: Response) {
   try {
     const body = (req.body ?? {}) as Record<string, unknown>;
+    if (body.badge_size !== undefined) {
+      const size = Number(body.badge_size);
+      if (!Number.isInteger(size)) return res.status(400).json({ success: false, message: 'حجم الشارات لازم يكون رقم صحيح' });
+      body.badge_size = Math.max(16, Math.min(48, size));
+    }
     const entries = Object.entries(body).filter(([k]) => typeof k === 'string' && k.length > 0);
     if (entries.length === 0) return res.status(400).json({ success: false, message: 'No settings provided' });
 

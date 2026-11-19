@@ -2559,7 +2559,6 @@ window.setAgencyStatus = setAgencyStatus;
 // VIP LEVELS
 // ============================================================
 const VIP_BASE_STEP = 500000;
-const VIP_MAX_LEVEL = 5;
 
 // Group 10 state: all store items (app + private) and per-level reward selections.
 let vipAllProducts = [];
@@ -2588,9 +2587,8 @@ window.loadVipLevels = async function () {
   vipAllProducts = productsRes.data || productsRes.products || [];
   const frames = vipAllProducts.filter(p => /frame/i.test(String(p.type || "")));
 
-  // Render every configured level plus the 1..5 defaults, sorted.
+  // Render saved tiers only.
   const levels = [...new Set([
-    ...Array.from({ length: VIP_MAX_LEVEL }, (_, i) => i + 1),
     ...Object.keys(saved).map(Number),
   ])].sort((a, b) => a - b);
 
@@ -2638,7 +2636,7 @@ window.loadVipLevels = async function () {
         </div>
       </td>
       <td><button class="btn btn-outline" id="vip_rewards_btn_${level}" onclick="openVipRewardsModal(${level})">🎁 منتجات (${vipRewardSelections[level].size})</button></td>
-      <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button></td>
+      <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button> <button class="btn btn-outline" onclick="deleteVipLevel(${level})">حذف</button></td>
     `;
     tbody.appendChild(tr);
   }
@@ -2782,7 +2780,6 @@ window.saveVipLevel = async function (level) {
 // ((level-1)^2 * 100) as a hint; nothing is applied until you press حفظ, so
 // opening this page never changes anyone's level.
 // ============================================================
-const LV_DEFAULT_ROWS = 20;
 const lvRewardSelections = {}; // level -> Set of item ids
 let lvAllProducts = [];
 let lvRewardsEditingLevel = null;
@@ -2802,7 +2799,6 @@ window.loadLvLevels = async function () {
   lvAllProducts = productsRes.data || productsRes.products || [];
 
   const levels = [...new Set([
-    ...Array.from({ length: LV_DEFAULT_ROWS }, (_, i) => i + 1),
     ...Object.keys(saved).map(Number),
   ])].sort((a, b) => a - b);
 
@@ -2832,7 +2828,7 @@ window.loadLvLevels = async function () {
       <td>
         <button class="btn btn-primary" onclick="saveLvLevel(${level})">حفظ</button>
         ${isConfigured ? `<button class="btn btn-outline" onclick="backfillLvRewards(${level})" title="منح منتجات هذا المستوى لمن بلغه بالفعل">🎁 بأثر رجعي</button>` : ""}
-        ${isConfigured ? `<button class="btn btn-outline" onclick="deleteLvLevel(${level})">إرجاع للافتراضي</button>` : ""}
+        <button class="btn btn-outline" onclick="deleteLvLevel(${level})">حذف</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -2997,19 +2993,22 @@ window.closeLvBackfillModal = function () {
   document.getElementById("lvBackfillModal").classList.add("hidden");
 };
 
-// Removing a tier hands that level back to the built-in curve.
-window.deleteLvLevel = async function (level) {
-  if (!confirm(`إرجاع LV ${level} إلى المعادلة الافتراضية؟`)) return;
+// Delete saved tiers, with an explicit confirmation for occupied tiers.
+async function deleteTier(level, vip) {
+  if (!confirm(`حذف المستوى ${level}؟`)) return;
+  const path = `/admin-dashboard/${vip ? 'vip-levels' : 'levels'}/${level}`;
   try {
-    await apiFetchAny([`/admin-dashboard/levels/${level}`, `/admin/levels/${level}`], {
-      method: "DELETE",
-    });
-    showToast(`✓ تم إرجاع LV ${level} للافتراضي`);
-    await loadLvLevels();
-  } catch (e) {
-    showToast("❌ خطأ: " + e.message);
-  }
-};
+    try { await apiFetch(path, { method: 'DELETE' }); }
+    catch (e) {
+      if (e.status !== 409 || !confirm(`${e.message} — نقل المستخدمين للمستوى الأقل وحذفه؟`)) throw e;
+      await apiFetch(`${path}?force=1`, { method: 'DELETE' });
+    }
+    showToast('تم حذف المستوى');
+    await (vip ? loadVipLevels() : loadLvLevels());
+  } catch (e) { showToast(e.message); }
+}
+window.deleteVipLevel = level => deleteTier(level, true);
+window.deleteLvLevel = level => deleteTier(level, false);
 
 // ============================================================
 // LOAD ALL
@@ -3058,6 +3057,7 @@ async function loadAll() {
       const res = await apiFetch("/settings");
       const s = (res && res.data) || {};
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      set("badgeSize", s.badge_size ?? "26");
       set("cpPerCoin", s.cp_per_coin ?? "1");
       set("cpTargetPerDollar", s.target_coins_per_dollar ?? "10000");
       set("cpLevelMultiplier", s.level_multiplier ?? "1.5");
@@ -3074,6 +3074,7 @@ async function loadAll() {
     try {
       const val = (id) => (document.getElementById(id) || {}).value;
       const body = {
+        badge_size: val("badgeSize") || "26",
         cp_per_coin: val("cpPerCoin") || "1",
         target_coins_per_dollar: val("cpTargetPerDollar") || "10000",
         level_multiplier: val("cpLevelMultiplier") || "1.5",

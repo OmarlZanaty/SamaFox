@@ -1,3 +1,4 @@
+import { MIN_ROOM_SEATS, MAX_ROOM_SEATS } from '../utils/roomSeats';
 // File: src/controllers/room-admin.controller.ts
 
 import { Request, Response } from 'express';
@@ -453,7 +454,7 @@ export async function updateMaxSeats(req: Request, res: Response) {
 
     if (!requesterId) return res.status(401).json({ error: 'Unauthorized' });
     if (!roomId || !maxSeats) return res.status(400).json({ error: 'roomId and maxSeats required' });
-    if (maxSeats < 2 || maxSeats > 20) return res.status(400).json({ error: 'Max seats must be 2..20' });
+    if (maxSeats < MIN_ROOM_SEATS || maxSeats > MAX_ROOM_SEATS) return res.status(400).json({ error: 'عدد المايكات لازم يكون من 2 لـ 24' });
 
     const { isAdmin } = await isRoomAdminOrOwner(requesterId, roomId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can change seat count' });

@@ -1,3 +1,4 @@
+import { canOpenCategory } from './categoryAccess';
 import { buildGiftEvent } from './giftEvent';
 import { isValidGiftQuantity } from './giftLimits';
 import { findAgencyCommissionOwner } from './agencyCommission';
@@ -116,6 +117,14 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
 
   const gift = await db.gift.findUnique({ where: { id: input.giftId } });
   if (!gift || !gift.isActive) throw new GiftSendError('INVALID_GIFT', 'Gift not found or inactive', 404);
+
+  const category = gift.category ? await db.giftCategory.findUnique({ where: { key: gift.category } }) : null;
+  const categorySender = category ? await db.user.findUnique({
+    where: { id: input.senderId }, select: { vipLevel: true, displayId: true },
+  }) : null;
+  if (!canOpenCategory(category, categorySender)) {
+    throw new GiftSendError('LOCKED_CATEGORY', 'هذه القائمة مقفولة لمستوى VIP أعلى', 403);
+  }
 
   // CP accrual rate (admin-configurable; professional default = 1 CP per coin).
   const { cpPerCoin } = await getCpConfig();

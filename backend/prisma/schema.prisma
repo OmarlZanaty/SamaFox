@@ -1538,6 +1538,8 @@ model Gift {
 /// working: the seeded rows below reuse the keys the app already ships
 /// ('love', 'luxury', …), so nothing is re-categorised by the migration.
 model GiftCategory {
+  minVipLevel Int?
+  allowedUserIds Int[] @default([])
   id        String   @id @default(cuid())
   key       String   @unique
   nameAr    String

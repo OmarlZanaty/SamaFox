@@ -2,12 +2,12 @@ import { Router } from 'express';
 import prisma from '../utils/prisma';
 import {
   vipThreshold,
-  getVipThresholdOverrides,
+  getVipMaxLevel, getVipThresholdOverrides,
   vipThresholdWithOverrides,
   vipRechargeFloor,
   computeVipLevelWithOverrides,
 } from '../services/vip.service';
-import { getLevelThresholdOverrides, levelThresholdWithOverrides } from '../services/xp.service';
+import { getLevelMaxLevel, getLevelThresholdOverrides, levelThresholdWithOverrides } from '../services/xp.service';
 import { grantVipRewardsForRange } from '../services/vip.service';
 import { createNotification } from '../services/notification.service';
 import { authMiddleware } from '../middlewares/auth.middleware';
@@ -26,29 +26,32 @@ router.get('/progress', authMiddleware, async (req, res) => {
     });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const nextLevel = user.level + 1;
+    const maxLevel = await getLevelMaxLevel();
+    const maxVip = await getVipMaxLevel();
+    const nextLevel = maxLevel != null && user.level >= maxLevel ? null : user.level + 1;
     // LV reads the SAME source as the promotion itself (LevelConfig via
     // xp.service), so the dialog can't promise a target that differs from the
     // rule that actually levels the user up — matching how VIP already works.
     const levelOverrides = await getLevelThresholdOverrides();
-    const nextLevelXp = levelThresholdWithOverrides(nextLevel, levelOverrides);
-    const nextVip = user.vipLevel + 1;
+    const nextLevelXp = nextLevel == null ? null : levelThresholdWithOverrides(nextLevel, levelOverrides);
+    const nextVip = maxVip != null && user.vipLevel >= maxVip ? null : user.vipLevel + 1;
     const overrides = await getVipThresholdOverrides();
-    const nextVipThreshold = vipThresholdWithOverrides(nextVip, overrides);
+    const nextVipThreshold = nextVip == null ? null : vipThresholdWithOverrides(nextVip, overrides);
 
     return res.json({
       success: true,
       data: {
+        maxVip, maxLevel,
         level: user.level,
         xp: user.xp,
         nextLevel,
         xpForNextLevel: nextLevelXp,
-        xpRemaining: Math.max(0, nextLevelXp - user.xp),
+        xpRemaining: nextLevelXp == null ? 0 : Math.max(0, nextLevelXp - user.xp),
         vipLevel: user.vipLevel,
         totalRecharge: user.totalRecharge,
         nextVip,
         coinsForNextVip: nextVipThreshold,
-        coinsRemainingForNextVip: Math.max(0, nextVipThreshold - user.totalRecharge),
+        coinsRemainingForNextVip: nextVipThreshold == null ? 0 : Math.max(0, nextVipThreshold - user.totalRecharge),
       },
     });
   } catch (e) {
@@ -97,7 +100,7 @@ router.post('/buy', authMiddleware, idempotent('vip_buy'), async (req, res) => {
         where: { userId, type: 'VIP', status: 'ACTIVE' },
         orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
       });
-      const natural = computeVipLevelWithOverrides(user.totalRecharge, await getVipThresholdOverrides());
+      const natural = computeVipLevelWithOverrides(user.totalRecharge, await getVipThresholdOverrides(), await getVipMaxLevel());
       const realBase = Math.max(natural, chain.length ? Number(chain[0]!.previousValue ?? 0) : user.vipLevel);
       const temporaryValue = Math.max(0, ...chain.filter(g => g.expiresAt > new Date()).map(g => g.value ?? 0));
       if (realBase >= level) {

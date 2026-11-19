@@ -1622,11 +1622,13 @@
       <div class="form-card">
         <div class="form-row">
           <input id="gl_new_name" class="form-input" placeholder="اسم القائمة الجديدة" />
+          <input id="gl_new_vip" type="number" min="0" max="100" class="form-input" placeholder="أقل مستوى VIP" />
+          <input id="gl_new_ids" class="form-input" placeholder="أرقام ID مسموح لها" />
           <input id="gl_new_key" class="form-input" placeholder="مفتاح إنجليزي (اختياري)" />
           <button class="btn btn-primary" onclick="glAdd()" data-perm="gifts.prices">+ إضافة قائمة</button>
         </div>
         <div class="table-wrap" style="margin-top:10px">
-          <table id="glCats"><thead><tr><th>الصورة</th><th>الاسم</th><th>المفتاح</th><th>الترتيب</th><th>مفعّلة</th><th>عدد الهدايا</th><th></th></tr></thead><tbody></tbody></table>
+          <table id="glCats"><thead><tr><th>الصورة</th><th>الاسم</th><th>المفتاح</th><th>الترتيب</th><th>مفعّلة</th><th>أقل مستوى VIP</th><th>أرقام ID مسموح لها</th><th>عدد الهدايا</th><th></th></tr></thead><tbody></tbody></table>
         </div>
       </div>
       <div class="form-card" style="margin-top:12px">
@@ -1839,6 +1841,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           إعدادات قوة الحساب (CP) والتارجت
         </div>
+        <div class="form-row"><label>حجم الشارات (بكسل)</label><input id="badgeSize" type="number" min="16" max="48" value="26" class="form-input" /></div>
         <div class="form-row">
           <label class="settings-hint" style="min-width:220px">نقاط CP لكل كوين (هدايا CP)</label>
           <input id="cpPerCoin" type="number" step="0.1" class="form-input" placeholder="1" />

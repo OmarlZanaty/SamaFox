@@ -77,9 +77,9 @@ stub('utils/prisma', { __esModule: true, default: db });
 stub('services/socket.service', { emitToUser: (userId: number, event: string, payload: any) => events.push({ userId, event, payload }), kickBannedUser: async () => {} });
 stub('services/notification.service', { createNotification: async (input: Row) => notifications.push(input) });
 stub('utils/banGuard', { invalidateBanCache: () => {} });
-stub('services/vip.service', { getVipThresholdOverrides: async () => new Map(), computeVipLevelWithOverrides: (value: number) => value,
+stub('services/vip.service', { getVipMaxLevel: async () => null, getVipThresholdOverrides: async () => new Map(), computeVipLevelWithOverrides: (value: number) => value,
   grantVipRewardsForRange: async (userId: number, from: number, to: number) => earnedRewards.push({ type: 'VIP', userId, from, to }) });
-stub('services/xp.service', { getLevelThresholdOverrides: async () => new Map(), calculateLevelWithOverrides: (value: number) => value,
+stub('services/xp.service', { getLevelMaxLevel: async () => null, getLevelThresholdOverrides: async () => new Map(), calculateLevelWithOverrides: (value: number) => value,
   grantLevelRewards: async (userId: number, level: number) => earnedRewards.push({ type: 'LEVEL', userId, level }) });
 stub('agencies/agency.controller', { computeAgencyEarnedCoins: async () => 10, memberTargetEarned: async () => 5 });
 stub('services/broadcast.service', { getBroadcastSeconds: async () => 3600 });

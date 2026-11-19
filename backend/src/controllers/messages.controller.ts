@@ -4,7 +4,7 @@ import { createNotification } from '../services/notification.service';
 import { isBlockedBetween, blockedUserIds } from '../utils/blockGuard';
 import { checkDmAccess, unlockConversationWithFee, DmUnlockError } from '../services/dmAccess.service';
 import { getChatBubble, getChatBubbles } from '../utils/chatBubble';
-import { calculateLevelWithOverrides, getLevelThresholdOverrides } from '../services/xp.service';
+import { calculateLevelWithOverrides, getLevelThresholdOverrides, getLevelMaxLevel } from '../services/xp.service';
 
 /**
  * C18 — minimum VIP tier allowed to send images in a DM, set from لوحة التحكم.
@@ -97,9 +97,9 @@ export async function setImageLevelKind(value: ImageLevelKind) {
   return value;
 }
 
-export function pictureGateLevel(user: { level?: number; receivedXp?: bigint } | null, kind: ImageLevelKind, thresholds: Map<number, number>) {
+export function pictureGateLevel(user: { level?: number; receivedXp?: bigint } | null, kind: ImageLevelKind, thresholds: Map<number, number>, cap: number | null = null) {
   return kind === 'supported'
-    ? calculateLevelWithOverrides(Number(user?.receivedXp ?? 0n), thresholds)
+    ? calculateLevelWithOverrides(Number(user?.receivedXp ?? 0n), thresholds, cap)
     : user?.level ?? 0;
 }
 
@@ -146,7 +146,7 @@ export async function picturePolicy(userId: number, scope: 'dm' | 'room') {
     return { ...policy, denial: { code: 'VIP_REQUIRED', ...policy, message: `${where} متاح من VIP ${minVip} فما فوق / Images require VIP ${minVip}` } };
   }
   const thresholds = kind === 'supported' ? await getLevelThresholdOverrides() : new Map<number, number>();
-  if (minLevel > 0 && pictureGateLevel(me, kind, thresholds) < minLevel) {
+  if (minLevel > 0 && pictureGateLevel(me, kind, thresholds, kind === 'supported' ? await getLevelMaxLevel() : null) < minLevel) {
     return { ...policy, denial: { code: 'LEVEL_REQUIRED', ...policy, message: `${where} متاح من ليفل ${kind === 'supported' ? 'المدعوم' : 'الداعم'} ${minLevel} فما فوق / Images require ${kind} level ${minLevel}` } };
   }
   return { ...policy, denial: null };
@@ -478,40 +478,15 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
     const full = await tx.directMessage.findUnique({
       where: { id: msg.id },
       include: {
-        sender: { select: { id: true, name: true, avatarUrl: true } },
+        sender: { select: { id: true, name: true, avatarUrl: true, avatarFrameUrl: true, level: true } },
       },
     });
 
     return full as any;
   });
 
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-    select: { userAId: true, userBId: true },
-  });
-  const targetUserId = conversation
-      ? (conversation.userAId === me ? conversation.userBId : conversation.userAId)
-      : null;
-  if (targetUserId != null) {
-    await createNotification({
-      userId: targetUserId,
-      actorId: me,
-      type: 'message_received',
-      title: 'New message',
-      body: created.type === 'text' ? (created.text || 'You received a new message') : 'You received a media message',
-      data: {
-        conversationId: created.conversationId,
-        messageId: created.id,
-        messageType: created.type,
-      },
-    });
-  }
-
-  // C6 — the echoed message carries the bubble too, so the sender's own copy
-  // is drawn the same way as the one the recipient receives.
   const myBubble = await getChatBubble(created.senderId);
-
-  return res.json({
+  const payload = {
     id: created.id,
     conversationId: created.conversationId,
     senderId: created.senderId,
@@ -523,7 +498,26 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
     sender: created.sender ?? null,
     bubbleUrl: myBubble.bubbleUrl,
     bubbleMeta: myBubble.bubbleMeta,
-  });
+  };
+  try {
+    if (otherId != null && otherId !== me) {
+      const { emitToUser } = await import('../services/socket.service');
+      emitToUser(otherId, 'dm_new_message', payload);
+      emitToUser(otherId, 'dm_conversation_updated', {
+        conversationId, partnerId: me,
+        lastMessage: created.text || (created.imageUrl ? '📷' : '🎤'),
+        lastMessageTime: created.createdAt.toISOString(),
+      });
+    }
+  } catch (error) { console.warn('[messages.socket]', error); }
+  if (otherId != null) {
+    await createNotification({
+      userId: otherId, actorId: me, type: 'message_received', title: 'رسالة جديدة',
+      body: created.text || 'وصلتك رسالة وسائط',
+      data: { conversationId, messageId: created.id, messageType: created.type },
+    });
+  }
+  return res.json(payload);
   } catch (err) {
     console.error('[messages.sendMessage]', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });

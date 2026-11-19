@@ -1,3 +1,4 @@
+import { MIN_ROOM_SEATS, MAX_ROOM_SEATS } from '../utils/roomSeats';
 import { LeasedSeats, SeatLease, SEAT_LEASE_MS, SEAT_STALE_MS, seatHolders } from './seatLease';
 import { roomEmojiOutcome } from './roomEmojiOutcome';
 import { customEmojiForSend } from '../emoji/emoji.service';
@@ -1564,7 +1565,7 @@ socket.on('set_seat_count', async ({ roomId, seatCount }: any) => {
   await populateAdmins(rid);
   if (!getAdmins(rid).has(uid)) return;
 
-  const safe = Math.max(1, Math.min(24, count)); // ✅ no ! needed
+  const safe = Math.max(MIN_ROOM_SEATS, Math.min(MAX_ROOM_SEATS, count)); // ✅ no ! needed
   await prisma.room.update({ where: { id: rid }, data: { maxSeats: safe } });
   await emitRoomState(io, rid);
   } catch (err) {

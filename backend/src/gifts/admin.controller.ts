@@ -1,3 +1,4 @@
+import { parseCategoryLock, type CategoryLock } from './categoryAccess';
 import { recordAdminAuditStrict } from '../services/adminAudit.service';
 import type { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
@@ -521,6 +522,10 @@ export async function listCategories(req: Request, res: Response) {
 
 export async function createCategory(req: Request, res: Response) {
   try {
+    let lock: Partial<CategoryLock>;
+    try { lock = parseCategoryLock(req.body ?? {}); }
+    catch (error) { return res.status(400).json({ success: false, message: (error as Error).message }); }
+
     const nameAr = String(req.body?.nameAr ?? '').trim();
     if (!nameAr) return res.status(400).json({ success: false, message: 'اسم القائمة مطلوب' });
     // An Arabic-only name has no usable ASCII key, so fall back to a stable
@@ -533,6 +538,7 @@ export async function createCategory(req: Request, res: Response) {
     const last = await prisma.giftCategory.findFirst({ orderBy: { sortOrder: 'desc' } });
     const category = await prisma.giftCategory.create({
       data: {
+        ...lock,
         key,
         nameAr,
         imageUrl: req.body?.imageUrl ? String(req.body.imageUrl).trim() : null,
@@ -551,11 +557,15 @@ export async function createCategory(req: Request, res: Response) {
 
 export async function updateCategory(req: Request, res: Response) {
   try {
+    let lock: Partial<CategoryLock>;
+    try { lock = parseCategoryLock(req.body ?? {}); }
+    catch (error) { return res.status(400).json({ success: false, message: (error as Error).message }); }
+
     const id = String(req.params.id);
     const existing = await prisma.giftCategory.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ success: false, message: 'القائمة غير موجودة' });
 
-    const data: any = {};
+    const data: any = { ...lock };
     if (req.body?.nameAr !== undefined) data.nameAr = String(req.body.nameAr).trim();
     if (req.body?.sortOrder !== undefined) data.sortOrder = Math.floor(Number(req.body.sortOrder)) || 0;
     if (req.body?.isActive !== undefined) data.isActive = !!req.body.isActive;

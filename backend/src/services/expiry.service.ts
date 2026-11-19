@@ -60,7 +60,7 @@ export async function sweepExpired(now: Date = new Date()): Promise<{
   }
 
   try {
-    const { computeVipLevelWithOverrides, getVipThresholdOverrides } = await import('./vip.service');
+    const { computeVipLevelWithOverrides, getVipMaxLevel, getVipThresholdOverrides } = await import('./vip.service');
     const overrides = await getVipThresholdOverrides();
     const lapsedVips = await (prisma as any).user.findMany({
       where: { vipExpiresAt: { not: null, lte: now } },
@@ -72,9 +72,11 @@ export async function sweepExpired(now: Date = new Date()): Promise<{
       for (let attempt = 0; ; attempt++) {
         try {
           await prisma.$transaction(async tx => {
-            const current = await tx.user.findUnique({ where: { id: u.id }, select: { totalRecharge: true, vipExpiresAt: true } });
+            const current = await tx.user.findUnique({ where: { id: u.id }, select: { totalRecharge: true, vipExpiresAt: true, vipLevel: true } });
             if (!current?.vipExpiresAt || current.vipExpiresAt > now) return;
-            const earned = computeVipLevelWithOverrides(current.totalRecharge, overrides);
+            const cap = await getVipMaxLevel();
+            const earned = cap != null && current.vipLevel > cap ? current.vipLevel
+              : computeVipLevelWithOverrides(current.totalRecharge, overrides, cap);
             const temporary = await tx.temporaryEntitlement.findMany({
               where: { userId: u.id, type: 'VIP', status: 'ACTIVE', expiresAt: { gt: now } }, select: { value: true },
             });

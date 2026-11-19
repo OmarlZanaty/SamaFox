@@ -7,6 +7,7 @@ import { idempotent } from '../middlewares/idempotency.middleware';
 const router = Router();
 
 router.get('/', ctrl.listCatalog);
+router.get('/categories/access', authMiddleware, ctrl.categoryAccess);
 // هدايا الحظ — public proof of a roll, and the recent wins for the ticker.
 router.get('/lucky/recent', ctrl.luckyRecent);
 router.get('/lucky/rolls/:id', ctrl.luckyRollProof);

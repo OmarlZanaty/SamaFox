@@ -7,7 +7,10 @@ let thresholds: any[] = [];
 const db = {
   appSetting: { findUnique: async ({ where }: any) => ({ value: settings[where.key] }) },
   user: { findUnique: async () => user },
-  levelConfig: { findMany: async () => thresholds },
+  levelConfig: {
+    findMany: async () => thresholds,
+    aggregate: async () => ({ _max: { level: thresholds.length ? Math.max(...thresholds.map(row => row.level)) : null } }),
+  },
 };
 const filename = require.resolve('../../utils/prisma');
 require.cache[filename] = { id: filename, filename, loaded: true, exports: { __esModule: true, default: db } } as any;
@@ -16,6 +19,7 @@ require.cache[notificationFile] = { id: notificationFile, filename: notification
 const { pictureDenial, getRoomImagePolicy, getMessageImagePolicy }: typeof import('../messages.controller') = require('../messages.controller');
 
 function fixture() {
+  require('../../services/xp.service').invalidateLevelMaxCache();
   for (const key of Object.keys(settings)) delete settings[key];
   settings.gate_image_level_kind = 'supported';
   settings.message_image_min_level = settings.room_image_min_level = '3';

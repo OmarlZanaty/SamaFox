@@ -17,13 +17,13 @@ import {
   grantVipRewardsForRange,
   evaluateVip,
   getVipThresholdOverrides,
-  vipRechargeFloor,
+  vipRechargeFloor, getVipMaxLevel, invalidateVipMaxCache,
 } from '../services/vip.service';
 import {
   grantLevelRewards as grantLvLevelRewards,
   notifyLevelUp,
   getLevelThresholdOverrides,
-  levelXpFloor,
+  levelXpFloor, getLevelMaxLevel, invalidateLevelMaxCache,
 } from '../services/xp.service';
 import { recordAgencySelfCharge } from '../services/agencyReward.service';
 import { createNotification } from '../services/notification.service';
@@ -218,25 +218,25 @@ export const adminChangeUserDisplayId = async (req: AdminReq, res: Response) => 
 export const adminUpdateUserProgression = async (req: AdminReq, res: Response) => {
   try {
     const id = Number(req.params.id);
-    if (!id) return fail(res, 400, 'Invalid user id');
+    if (!id) return fail(res, 400, 'رقم المستخدم غير صالح');
 
     const data: any = {};
     if (req.body?.level != null) {
       const level = Number(req.body.level);
-      if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'level must be an integer >= 1');
-      data.level = level;
+      if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'المستوى لازم يكون رقم صحيح من 1');
+      data.level = Math.min(level, (await getLevelMaxLevel()) ?? level);
     }
     if (req.body?.xp != null) {
       const xp = Number(req.body.xp);
-      if (!Number.isInteger(xp) || xp < 0) return fail(res, 400, 'xp must be an integer >= 0');
+      if (!Number.isInteger(xp) || xp < 0) return fail(res, 400, 'النقاط لازم تكون رقم صحيح من 0');
       data.xp = xp;
     }
     if (req.body?.vipLevel != null) {
       const vipLevel = Number(req.body.vipLevel);
-      if (!Number.isInteger(vipLevel) || vipLevel < 0) return fail(res, 400, 'vipLevel must be an integer >= 0');
-      data.vipLevel = vipLevel;
+      if (!Number.isInteger(vipLevel) || vipLevel < 0) return fail(res, 400, 'مستوى VIP لازم يكون رقم صحيح من 0');
+      data.vipLevel = Math.min(vipLevel, (await getVipMaxLevel()) ?? vipLevel);
     }
-    if (Object.keys(data).length === 0) return fail(res, 400, 'nothing to update');
+    if (Object.keys(data).length === 0) return fail(res, 400, 'لا توجد تعديلات');
 
     // Rewards used to hang off the recharge path only, so a VIP level set here
     // granted nothing — the tier's frame/badge/entrance/bubble never arrived.
@@ -245,27 +245,26 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
       where: { id },
       select: { level: true, vipLevel: true, xp: true, totalRecharge: true },
     });
-    if (!before) return fail(res, 404, 'User not found');
+    if (!before) return fail(res, 404, 'المستخدم غير موجود');
 
-    // E3: carry the underlying counters up with the manual tier so the next
-    // tier costs the DIFFERENCE, not the cumulative total.
-    if (data.vipLevel != null && data.vipLevel > before.vipLevel) {
+    // Reset progress to the selected tier in either direction. Explicit XP wins.
+    if (data.vipLevel != null) {
       const vipOverrides = await getVipThresholdOverrides();
       const floor = vipRechargeFloor(data.vipLevel, vipOverrides);
-      if (floor > (before.totalRecharge ?? 0)) data.totalRecharge = floor;
+      data.totalRecharge = data.vipLevel === 0 ? 0 : floor;
     }
-    if (data.level != null && data.level > before.level && data.xp == null) {
+    if (data.level != null && data.xp == null) {
       // Skipped when the admin set `xp` explicitly in the same request — an
       // explicit value is the more specific instruction and must win.
       const xpOverrides = await getLevelThresholdOverrides();
       const floor = levelXpFloor(data.level, xpOverrides);
-      if (floor > (before.xp ?? 0)) data.xp = floor;
+      data.xp = data.level <= 1 ? 0 : floor;
     }
 
     const updated = await (prisma as any).user.update({
       where: { id },
       data,
-      select: { id: true, name: true, level: true, xp: true, vipLevel: true },
+      select: { id: true, name: true, level: true, xp: true, vipLevel: true, totalRecharge: true },
     });
     // SPEC52 #43 — VIP/level changes carry their real before/after.
     {
@@ -276,8 +275,8 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
         targetUserId: id,
         targetType: 'user',
         targetId: id,
-        before: { level: before.level, xp: before.xp, vipLevel: before.vipLevel },
-        after: { level: updated.level, xp: updated.xp, vipLevel: updated.vipLevel },
+        before: { level: before.level, xp: before.xp, vipLevel: before.vipLevel, totalRecharge: before.totalRecharge },
+        after: { level: updated.level, xp: updated.xp, vipLevel: updated.vipLevel, totalRecharge: updated.totalRecharge },
         ...ctx(req),
       });
     }
@@ -306,9 +305,9 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
 
     return ok(res, { data: updated });
   } catch (e: any) {
-    if (e?.code === 'P2025') return fail(res, 404, 'User not found');
+    if (e?.code === 'P2025') return fail(res, 404, 'المستخدم غير موجود');
     console.error('adminUpdateUserProgression error:', e);
-    return fail(res, 500, 'Server error');
+    return fail(res, 500, 'تعذر تحديث المستوى');
   }
 };
 
@@ -2063,6 +2062,7 @@ export const adminUpsertVipLevel = async (req: AdminReq, res: Response) => {
       return row;
     });
     invalidateVipStyleCache();
+    invalidateVipMaxCache();
 
     // C11 — rewards are granted at the moment a user CROSSES a tier, so adding
     // an item to a tier gave it to nobody: every existing VIP had already
@@ -2146,6 +2146,7 @@ export const adminUpsertLevel = async (req: AdminReq, res: Response) => {
       update: data,
       create: { level, ...data },
     });
+    invalidateLevelMaxCache();
     return res.json({ success: true, data: saved });
   } catch (e) {
     console.error('adminUpsertLevel error:', e);
@@ -2230,18 +2231,45 @@ export const adminBackfillLevelRewards = async (req: AdminReq, res: Response) =>
   }
 };
 
-export const adminDeleteLevel = async (req: AdminReq, res: Response) => {
+async function deleteProgressionConfig(req: AdminReq, res: Response, vip: boolean) {
   try {
     const level = Number(req.params.level);
-    if (!level) return res.status(400).json({ success: false, message: 'Invalid level' });
-    // Removing a tier returns that level to the built-in curve.
-    await (prisma as any).levelConfig.delete({ where: { level } }).catch(() => null);
-    return res.json({ success: true });
-  } catch (e) {
-    console.error('adminDeleteLevel error:', e);
-    return res.status(500).json({ success: false, message: 'Failed to delete level' });
+    if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'المستوى غير صالح');
+    const { recordAdminAuditStrict, auditContext } = await import('../services/adminAudit.service');
+    const result = await prisma.$transaction(async (tx) => {
+      const model = vip ? tx.vipLevelConfig : tx.levelConfig;
+      const before = await (model as any).findUnique({ where: { level } });
+      if (!before) return { status: 404, message: 'المستوى غير موجود' };
+      const where = vip ? { vipLevel: level } : { level };
+      const count = await tx.user.count({ where });
+      if (count && req.query.force !== '1') return { status: 409, count, message: `المستوى مستخدم بواسطة ${count} مستخدم` };
+      const rows: { level: number; threshold: number | null }[] = await (model as any).findMany({ where: { level: { not: level } } });
+      const below = rows.filter(row => row.level < level).map(row => row.level);
+      const fallback = Math.max(vip ? 0 : 1, ...below);
+      const overrides = new Map<number, number>(rows.filter(row => row.threshold != null).map(row => [row.level, row.threshold!]));
+      if (count) await tx.user.updateMany({ where, data: vip
+        ? { vipLevel: fallback, totalRecharge: vipRechargeFloor(fallback, overrides) }
+        : { level: fallback, xp: levelXpFloor(fallback, overrides) } });
+      await (model as any).delete({ where: { level } });
+      await recordAdminAuditStrict(tx, {
+        adminId: Number(req.userId), action: vip ? 'VIP_LEVEL_DELETE' : 'LEVEL_DELETE',
+        targetType: vip ? 'vip_level' : 'level', targetId: level, before,
+        after: { deleted: true, usersMoved: count, fallback }, ...auditContext(req),
+      });
+      return { status: 200, count };
+    }, { isolationLevel: 'Serializable' });
+    if (result.status !== 200) return res.status(result.status).json({ success: false, ...result });
+    if (vip) { invalidateVipStyleCache(); invalidateVipMaxCache(); }
+    else invalidateLevelMaxCache();
+    await bumpCatalogVersion();
+    return res.json({ success: true, usersMoved: result.count });
+  } catch (error) {
+    console.error('deleteProgressionConfig', error);
+    return fail(res, 500, 'تعذر حذف المستوى');
   }
-};
+}
+export const adminDeleteVipLevel = (req: AdminReq, res: Response) => deleteProgressionConfig(req, res, true);
+export const adminDeleteLevel = (req: AdminReq, res: Response) => deleteProgressionConfig(req, res, false);
 
 // ============================================================
 // ADMIN ROLE MANAGEMENT (#22, #23)

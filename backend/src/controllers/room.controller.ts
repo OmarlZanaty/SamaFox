@@ -1,3 +1,4 @@
+import { MIN_ROOM_SEATS, MAX_ROOM_SEATS } from '../utils/roomSeats';
 import prisma from '../utils/prisma';
 import { roomAdmission, shareInviter } from '../services/roomShare.service';
 import { Request, Response } from 'express';
@@ -268,7 +269,7 @@ export async function createRoom(req: Request, res: Response) {  try {
 
     // ✅ parse + clamp seats safely
     const rawMaxSeats = Number(req.body.maxSeats);
-    const safeMaxSeats = Math.max(2, Math.min(30, Number.isFinite(rawMaxSeats) ? rawMaxSeats : 8));
+    const safeMaxSeats = Math.max(MIN_ROOM_SEATS, Math.min(MAX_ROOM_SEATS, Number.isFinite(rawMaxSeats) ? rawMaxSeats : 8));
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -393,7 +394,7 @@ export const updateRoom = async (req: Request, res: Response) => {
     }
 
     const safeMaxSeats =
-      maxSeats != null ? Math.max(2, Math.min(30, Number(maxSeats))) : undefined;
+      maxSeats != null ? Math.max(MIN_ROOM_SEATS, Math.min(MAX_ROOM_SEATS, Number(maxSeats))) : undefined;
 
     // SPEC52 #30 — same VIP gate for a NEW animated room picture.
     if (coverImageUrl && coverImageUrl !== room.coverImageUrl) {

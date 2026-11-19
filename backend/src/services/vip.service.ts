@@ -72,10 +72,11 @@ export function vipRechargeFloor(level: number, overrides: Map<number, number>):
 export function computeVipLevelWithOverrides(
   totalRecharge: number,
   overrides: Map<number, number>,
+  cap: number | null = null,
 ): number {
   let level = 0;
   while (
-    level < HARD_CAP_LEVEL &&
+    level < (cap ?? HARD_CAP_LEVEL) &&
     vipThresholdWithOverrides(level + 1, overrides) <= totalRecharge
   ) {
     level++;
@@ -145,7 +146,7 @@ export async function evaluateVip(
   if (!user) return { leveledUp: false, vipLevel: 0 };
 
   const overrides = await getVipThresholdOverrides();
-  const newLevel = computeVipLevelWithOverrides(user.totalRecharge, overrides);
+  const newLevel = computeVipLevelWithOverrides(user.totalRecharge, overrides, await getVipMaxLevel());
   if (newLevel <= user.vipLevel) {
     return { leveledUp: false, vipLevel: user.vipLevel };
   }
@@ -174,4 +175,14 @@ export async function evaluateVip(
   }
 
   return { leveledUp: true, vipLevel: newLevel };
+}
+
+let maxVipCache: { value: number | null; until: number } | undefined;
+export function invalidateVipMaxCache() { maxVipCache = undefined; }
+export async function getVipMaxLevel(): Promise<number | null> {
+  if (maxVipCache && maxVipCache.until > Date.now()) return maxVipCache.value;
+  const result = await prisma.vipLevelConfig.aggregate({ _max: { level: true } });
+  const value = result._max.level;
+  maxVipCache = { value, until: Date.now() + 15000 };
+  return value;
 }
