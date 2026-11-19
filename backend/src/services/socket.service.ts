@@ -704,6 +704,7 @@ function cleanupRoomStateIfEmpty(roomId: number) {
   roomSeats.delete(roomId);
   roomLeases.delete(roomId);
   roomMuted.delete(roomId);
+  roomMuteChangedAt.delete(roomId);
   roomMicQueue.delete(roomId);
   roomAdmins.delete(roomId);
   roomLockedSeats.delete(roomId);
