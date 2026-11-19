@@ -281,12 +281,26 @@ class GiftCategory {
   final String nameAr;
   final int sortOrder;
 
-  const GiftCategory({required this.key, required this.nameAr, this.sortOrder = 0});
+  /// B5 — a locked list can only be opened by users the server lets in
+  /// (`GET /gifts/categories/access`). [minVipLevel] is the VIP level that
+  /// unlocks it, null when it is reserved for specific members.
+  final int? minVipLevel;
+  final bool locked;
+
+  const GiftCategory({
+    required this.key,
+    required this.nameAr,
+    this.sortOrder = 0,
+    this.minVipLevel,
+    this.locked = false,
+  });
 
   factory GiftCategory.fromJson(Map<String, dynamic> json) => GiftCategory(
         key: json['key']?.toString() ?? '',
         nameAr: json['nameAr']?.toString() ?? json['key']?.toString() ?? '',
         sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+        minVipLevel: (json['minVipLevel'] as num?)?.toInt(),
+        locked: json['locked'] == true,
       );
 }
 

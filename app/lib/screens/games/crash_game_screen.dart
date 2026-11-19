@@ -14,6 +14,7 @@ import '../../repositories/crash_repository.dart';
 import '../../services/socket_service.dart';
 import '../../services/audio_route.dart';
 import '../../l10n/tr.dart';
+import '../../widgets/app_network_image.dart';
 
 /// طيّار — the Aviator-style crash game.
 ///
@@ -1019,7 +1020,7 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
   Widget _avatar(CrashBet b) {
     final url = b.avatarUrl;
     if (url != null && url.isNotEmpty) {
-      return CircleAvatar(radius: 8, backgroundImage: NetworkImage(url));
+      return CircleAvatar(radius: 8, backgroundImage: appImage(url, 16));
     }
     return CircleAvatar(
       radius: 8,

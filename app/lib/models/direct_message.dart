@@ -110,7 +110,11 @@ class DirectMessage {
       senderId: _i(j['senderId']),
       text: (j['text'] ?? j['content'] ?? '') as String,
       type: (j['type'] ?? 'text') as String,
-      metadata: j['metadata'] is Map ? Map<String, dynamic>.from(j['metadata'] as Map) : null,
+      metadata: j['metadata'] is Map
+          ? Map<String, dynamic>.from(j['metadata'] as Map)
+          : (j['imageUrl'] is String && (j['imageUrl'] as String).isNotEmpty)
+              ? <String, dynamic>{'imageUrl': j['imageUrl']}
+              : null,
       createdAt: (j['createdAt'] ?? DateTime.now().toIso8601String()) as String,
       deliveredAt: j['deliveredAt'] as String?,
       readAt: j['readAt'] as String?,

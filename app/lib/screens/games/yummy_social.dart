@@ -5,6 +5,7 @@ import '../../services/socket_service.dart';
 import 'yummy_fx.dart';
 import 'yummy_strings.dart';
 import 'yummy_symbols.dart';
+import '../../widgets/app_network_image.dart';
 
 /// The social side of YUMMY: the big-win ticker (fed by the server's global
 /// `game_win_broadcast`), the weekly leaderboard, daily missions and the
@@ -197,7 +198,7 @@ Widget _avatar(String? url, String name, double size) {
   );
   if (url == null || !url.startsWith('http')) return fallback;
   return ClipOval(
-    child: Image.network(
+    child: AppNetworkImage(
       url,
       width: size,
       height: size,

@@ -136,6 +136,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   TabController? _tab;
   List<String> _tabKeys = const [];
   Future<GiftCatalog>? _catalog;
+
+  /// B5 — lists this user may open; null until answered or when the call
+  /// failed (then every locked list stays locked).
+  Set<String>? _accessKeys;
   int _balance = 0;
   String? _selectedGiftId;
 
@@ -196,6 +200,10 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     _balance = widget.balance;
     GiftPickerSheet.liveBalance.addListener(_onLiveBalance);
     _catalog = widget.repository.fetchCatalog();
+    widget.repository.fetchAccessibleCategories().then((keys) {
+      if (!mounted) return;
+      setState(() => _accessKeys = keys);
+    });
     _selectedRecipientIds = {
       ...widget.initialRecipientIds.where(
         (id) => widget.recipients.any((r) => r.id == id),
@@ -261,6 +269,27 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     return all.where((g) => (g.category ?? '') == key && !g.isLucky).toList();
   }
 
+  GiftCategory? _categoryFor(GiftCatalog catalog, String key) {
+    for (final c in catalog.categories) {
+      if (c.key == key) return c;
+    }
+    return null;
+  }
+
+  bool _isTabLocked(GiftCatalog catalog, String key) {
+    if (key == 'all') return false;
+    final c = _categoryFor(catalog, key);
+    if (c == null || !c.locked) return false;
+    return !(_accessKeys?.contains(key) ?? false);
+  }
+
+  String _lockedMessage(GiftCatalog catalog, String key) {
+    final n = _categoryFor(catalog, key)?.minVipLevel;
+    return n == null
+        ? tr('القائمة دي مخصصة لأعضاء محددين', 'This list is for selected members only')
+        : tr('القائمة دي مقفولة — محتاج VIP $n', 'Locked — requires VIP $n');
+  }
+
   void _ensureTabController(GiftCatalog catalog) {
     final fromData =
         catalog.all.map((g) => g.category ?? '').where((c) => c.isNotEmpty).toSet();
@@ -322,7 +351,28 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 unselectedLabelColor: Colors.white60,
                 tabAlignment: TabAlignment.start,
                 labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                tabs: _tabKeys.map((k) => Tab(text: _tabLabel(k))).toList(),
+                onTap: (i) {
+                  if (i < 0 || i >= _tabKeys.length) return;
+                  final k = _tabKeys[i];
+                  if (_isTabLocked(snapshot.data!, k)) {
+                    _toast(_lockedMessage(snapshot.data!, k), warning: true);
+                  }
+                },
+                tabs: _tabKeys.map((k) {
+                  if (!_isTabLocked(snapshot.data!, k)) {
+                    return Tab(text: _tabLabel(k));
+                  }
+                  return Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.lock, size: 13),
+                        const SizedBox(width: 4),
+                        Text(_tabLabel(k)),
+                      ],
+                    ),
+                  );
+                }).toList(),
               );
             },
           ),
@@ -347,6 +397,25 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 return TabBarView(
                   controller: _tab,
                   children: _tabKeys.map((key) {
+                    if (_isTabLocked(catalog, key)) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.lock, color: Colors.white38, size: 34),
+                              const SizedBox(height: 10),
+                              Text(
+                                _lockedMessage(catalog, key),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white60),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
                     final gifts = _giftsForTab(catalog, key);
                     if (gifts.isEmpty) {
                       return Center(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'roulette_art.dart';
 import 'roulette_engine.dart';
 import 'roulette_strings.dart';
+import '../../widgets/app_network_image.dart';
 
 /// Bottom sheets for الروليت. Material sheets give focus containment,
 /// Escape/back to close and one-at-a-time stacking.
@@ -274,7 +275,7 @@ Widget rouletteAvatar(String? url, String name, double size) {
   );
   if (url == null || !url.startsWith('http')) return fallback;
   return ClipOval(
-    child: Image.network(
+    child: AppNetworkImage(
       url,
       width: size,
       height: size,

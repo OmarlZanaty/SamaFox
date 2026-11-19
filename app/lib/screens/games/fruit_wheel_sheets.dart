@@ -3,6 +3,7 @@ import 'dart:async';
 import 'fruit_wheel_art.dart';
 import 'fruit_wheel_engine.dart';
 import 'fruit_wheel_strings.dart';
+import '../../widgets/app_network_image.dart';
 
 /// Bottom sheets and the timed winners popup for FRUIT WHEEL. Material sheets give
 /// focus containment, Escape/back to close and one-at-a-time stacking.
@@ -430,7 +431,7 @@ Widget fruitAvatar(String? url, String name, double size) {
   );
   if (url == null || !url.startsWith('http')) return fallback;
   return ClipOval(
-    child: Image.network(
+    child: AppNetworkImage(
       url,
       width: size,
       height: size,

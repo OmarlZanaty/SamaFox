@@ -54,6 +54,13 @@ final conversationsControllerProvider = StateNotifierProvider.autoDispose<
   t = Timer.periodic(const Duration(seconds: 12), (_) => controller.silentRefresh());
   ref.onDispose(() => t?.cancel());
 
+  // Safety net: if the dm_new_message event is missed, the notification the
+  // server also emits for a received DM still refreshes the list at once.
+  final notifSub = SocketService().notificationStream.listen((n) {
+    if (n['type']?.toString() == 'message_received') controller.silentRefresh();
+  });
+  ref.onDispose(notifSub.cancel);
+
   return controller;
 });
 
@@ -113,7 +120,11 @@ class ConversationsController extends StateNotifier<AsyncValue<List<Conversation
 
     // ✅ You need copyWith in ConversationItem (see section D)
     final updated = old.copyWith(
-      lastMessage: m.type == 'image' ? '📷 Photo' : m.text,
+      lastMessage: m.type == 'voice'
+          ? '🎤'
+          : m.type == 'image'
+              ? '📷'
+              : m.text,
       lastMessageTime: m.createdAt,
       unreadCount: isMine ? old.unreadCount : (old.unreadCount + 1),
     );
@@ -245,7 +256,9 @@ class ChatController extends StateNotifier<ChatState> {
       if (cid == null) return;
       if (m.conversationId != cid) return;
 
-
+      // Same server message already in the open chat (event delivered twice,
+      // or already added by the send/load path).
+      if (m.id > 0 && state.messages.any((x) => x.id == m.id)) return;
 
       final dm = DirectMessage(
         id: m.id, // ✅ use socket message id
@@ -262,6 +275,9 @@ class ChatController extends StateNotifier<ChatState> {
         reactions: const {},
         myReaction: null,
         audioUrl: m.audioUrl,
+        metadata: (m.imageUrl != null && m.imageUrl!.isNotEmpty)
+            ? <String, dynamic>{'imageUrl': m.imageUrl}
+            : null,
         pinnedAt: null,
 
         localStatus: LocalMsgStatus.sent,

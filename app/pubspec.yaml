@@ -168,8 +168,6 @@ flutter:
     - assets/fonts/
     - assets/frames/gold_wings.png
     - assets/icons/
-    - assets/mega/
-    - assets/seat_effect.mp4
     - assets/sounds/
     - android/app/src/main/assets/adi-registration.properties
   # Bloom post-process for the crash game. Loaded at runtime with a fallback to

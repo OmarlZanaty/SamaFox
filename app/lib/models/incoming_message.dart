@@ -6,6 +6,7 @@ class IncomingMessage {
   final String type; // text | image | voice
   final String createdAt;
   final String? audioUrl; // ✅ for voice
+  final String? imageUrl; // for image messages
   final Map<String, dynamic>? sender;
 
   IncomingMessage({
@@ -16,6 +17,7 @@ class IncomingMessage {
     required this.type,
     required this.createdAt,
     this.audioUrl,
+    this.imageUrl,
     this.sender,
   });
 
@@ -34,6 +36,7 @@ class IncomingMessage {
       type: (json['type'] ?? 'text') as String,
       createdAt: (json['createdAt'] ?? DateTime.now().toIso8601String()) as String,
       audioUrl: json['audioUrl'] as String? ?? json['voiceUrl'] as String?,
+      imageUrl: json['imageUrl'] as String?,
       sender: json['sender'] is Map<String, dynamic> ? (json['sender'] as Map<String, dynamic>) : null,
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'car_wheel_art.dart';
 import 'car_wheel_engine.dart';
 import 'car_wheel_strings.dart';
+import '../../widgets/app_network_image.dart';
 
 /// Bottom sheets for عجلة السيارات. Material sheets give focus containment,
 /// Escape/back to close and one-at-a-time stacking.
@@ -229,7 +230,7 @@ Widget carWheelAvatar(String? url, String name, double size) {
   );
   if (url == null || !url.startsWith('http')) return fallback;
   return ClipOval(
-    child: Image.network(
+    child: AppNetworkImage(
       url,
       width: size,
       height: size,

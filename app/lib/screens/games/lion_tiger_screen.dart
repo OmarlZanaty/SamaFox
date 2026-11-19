@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../repositories/boxing_repository.dart';
 import '../../services/socket_service.dart';
+import '../../widgets/app_network_image.dart';
 
 /// حلبة الأسد والنمر — Lion & Tiger Arena.
 ///
@@ -858,7 +859,7 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                       backgroundColor: Colors.white10,
                       backgroundImage:
                           (p.avatarUrl != null && p.avatarUrl!.isNotEmpty)
-                              ? NetworkImage(p.avatarUrl!)
+                              ? appImage(p.avatarUrl!, 36)
                               : null,
                       child: (p.avatarUrl == null || p.avatarUrl!.isEmpty)
                           ? const Icon(Icons.person,

@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:video_player/video_player.dart';
 
 import '../services/device_tier.dart';
@@ -125,7 +128,20 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
     }
     _active++;
     _holdsSlot = true;
-    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    // Disk-cached copy first so a re-mounted frame/banner does not re-download.
+    final url = widget.url;
+    VideoPlayerController controller;
+    try {
+      final cached = await DefaultCacheManager().getSingleFile(url);
+      controller = VideoPlayerController.file(File(cached.path));
+    } catch (_) {
+      controller = VideoPlayerController.networkUrl(Uri.parse(url));
+    }
+    if (!mounted || !_holdsSlot || url != widget.url) {
+      // Unmounted (or released under memory pressure) while the file loaded.
+      await controller.dispose();
+      return;
+    }
     _controller = controller;
     try {
       await controller.initialize();

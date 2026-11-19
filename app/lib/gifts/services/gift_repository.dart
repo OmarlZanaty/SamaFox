@@ -113,6 +113,23 @@ class GiftRepository {
     }
   }
 
+  /// B5 — keys of the gift lists this user may open. Null when the call fails
+  /// (older server, offline): the caller then treats every locked list as
+  /// locked.
+  Future<Set<String>?> fetchAccessibleCategories() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('gifts/categories/access');
+      final body = res.data ?? const <String, dynamic>{};
+      final inner = body['data'];
+      final raw = body['keys'] ?? (inner is Map ? inner['keys'] : null);
+      if (raw is! List) return null;
+      return raw.map((e) => e.toString()).toSet();
+    } catch (e) {
+      debugPrint('[GiftRepository] categories/access skipped: $e');
+      return null;
+    }
+  }
+
   Future<GiftCatalog> _fetchCatalogOnce(Duration timeout) async {
     try {
       final res = await _dio.get<Map<String, dynamic>>('gifts',

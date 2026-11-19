@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../repositories/fish_game_repository.dart';
+import '../../widgets/app_network_image.dart';
 
 /// Underwater fish-shooting arcade game.
 ///
@@ -921,7 +922,7 @@ class _FishShooterScreenState extends ConsumerState<FishShooterScreen>
                       backgroundColor: Colors.blueGrey.shade700,
                       backgroundImage: (user?.avatarUrl != null &&
                               user!.avatarUrl!.isNotEmpty)
-                          ? NetworkImage(user.avatarUrl!)
+                          ? appImage(user.avatarUrl!, 28)
                           : null,
                       child:
                           (user?.avatarUrl == null || user!.avatarUrl!.isEmpty)

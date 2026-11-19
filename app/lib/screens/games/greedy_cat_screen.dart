@@ -11,6 +11,7 @@ import '../../services/socket_service.dart';
 import 'greedy_cat_art.dart';
 import 'greedy_cat_rules.dart';
 import 'greedy_cat_sfx.dart';
+import '../../widgets/app_network_image.dart';
 
 /// القط الجشع — Greedy Cat Jackpot.
 ///
@@ -1972,9 +1973,10 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                 ),
               ),
             )
-          : Image.network(
+          : AppNetworkImage(
               url,
               fit: BoxFit.cover,
+              cacheWidth: (size * 3).round(),
               errorBuilder: (_, __, ___) => Center(
                 child: Text(
                   initial,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'car_wheel_art.dart';
 import 'car_wheel_engine.dart';
 import 'car_wheel_strings.dart';
+import '../../widgets/app_network_image.dart';
 
 /// A raised glass panel: lit from the top, shaded at the bottom, gold-edged.
 BoxDecoration cwPanel({double radius = 14, bool lit = false, Color? edge}) =>
@@ -250,7 +251,7 @@ class _Bettor extends StatelessWidget {
               ),
               child: ClipOval(
                 child: url.startsWith('http')
-                    ? Image.network(
+                    ? AppNetworkImage(
                         url,
                         cacheWidth: 96,
                         fit: BoxFit.cover,

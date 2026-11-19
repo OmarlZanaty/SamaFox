@@ -19,7 +19,6 @@ import '../models/InventoryItem.dart';
 import '../providers/auth_provider.dart';
 import '../providers/room_controller_provider.dart';
 import '../models/user.dart';
-import '../services/device_tier.dart';
 import '../services/dio_client.dart';
 import '../services/store_service.dart';
 import '../utils/storage_service.dart';
@@ -34,10 +33,13 @@ import 'cp_list_screen.dart';
 import '../widgets/vip_buy_sheet.dart';
 import '../widgets/glass_bottom_bar.dart';
 import '../widgets/video_preview_widget.dart';
+import '../widgets/product_video_layer.dart' show isProductVideoUrl;
 import '../services/socket_service.dart';
 import '../config/app_config.dart';
 import 'home_screen.dart';
 import '../widgets/app_network_image.dart';
+import '../widgets/user_badge.dart';
+import '../services/badge_size.dart';
 import '../widgets/cp_box.dart';
 import 'relations_screen.dart';
 import '../l10n/tr.dart';
@@ -96,6 +98,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
   late final StoreService _service = StoreService();
   Timer? _coinsRefreshTimer;
   String selectedType = "seat_effect";
+  // Items drawn in the inventory grid; grows by 9 per "show more" tap.
+  int _inventoryShown = 9;
   InventoryItem? activeFrame;
 
   // Gifts state
@@ -130,14 +134,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     }
   }
 
-  /// Fixed on-screen size for every badge in the row, whatever the uploaded
-  /// artwork's pixel dimensions are.
-  static const double _kBadgeSize = 26;
-
   /// "خليهم قد بعض" — the level chip is tall and the VIP chip short, so side
   /// by side one dwarfs the other. Both are given the same height and centred;
   /// neither is rescaled, so their own artwork stays crisp.
-  static const double _kIdentityChipHeight = 26;
+  static double get _kIdentityChipHeight => BadgeSize.value;
 
   Widget _sameHeightChip(Widget child) => SizedBox(
         height: _kIdentityChipHeight,
@@ -186,19 +186,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               return Tooltip(
                 message: (b['name'] ?? '').toString(),
                 child: SizedBox(
-                  width: _kBadgeSize,
-                  height: _kBadgeSize,
-                  child: AppNetworkImage(
-                    iconUrl,
-                    width: _kBadgeSize,
-                    height: _kBadgeSize,
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.medium,
-                    // A row of 60 badges is 60 open GIF/WebP decoders.
-                    still: DeviceTier.ultraLite,
-                    // Same rule on failure: show nothing, never a stand-in.
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
+                  height: BadgeSize.value,
+                  child: UserBadgeImage(iconUrl),
                 ),
               );
             }).toList(),
@@ -828,6 +817,71 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
     );
   }
 
+  /// ONE preview player, opened on tap. The grid itself never builds a video
+  /// decoder: with dozens of items that froze the page (black cards).
+  void _previewVideoItem(InventoryItem item) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: EdgeInsets.zero,
+        child: SizedBox.expand(
+          child: Stack(
+            children: [
+              Center(child: VideoPreview(url: item.fileUrl)),
+              Positioned(
+                top: 40,
+                left: 16,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _inventoryThumb(InventoryItem item) {
+    if (!isProductVideoUrl(item.fileUrl)) {
+      return AppNetworkImage(
+        item.previewUrl,
+        fit: BoxFit.cover,
+        cacheWidth: 360,
+        errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported),
+      );
+    }
+    final poster = item.previewUrl;
+    final hasPoster = poster.isNotEmpty &&
+        poster != item.fileUrl &&
+        !isProductVideoUrl(poster);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _previewVideoItem(item),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (hasPoster)
+            AppNetworkImage(
+              poster,
+              fit: BoxFit.cover,
+              cacheWidth: 360,
+              errorBuilder: (_, __, ___) =>
+                  const ColoredBox(color: Color(0xFF14102B)),
+            )
+          else
+            const ColoredBox(color: Color(0xFF14102B)),
+          const Center(
+            child: Icon(Icons.play_circle_outline,
+                color: Colors.white70, size: 34),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget buildItem(InventoryItem item) {
     return Container(
       decoration: BoxDecoration(
@@ -837,8 +891,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             ? Border.all(color: Colors.greenAccent, width: 2)
             : Border.all(color: Colors.white10),
       ),
-      child: SingleChildScrollView(
-        child: Column(
+      child: Column(
           children: [
             SizedBox(
               height: 120,
@@ -847,14 +900,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                   Positioned.fill(
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(10),
-                      child: isVideo(item.fileUrl)
-                          ? VideoPreview(url: item.fileUrl)
-                          : AppNetworkImage(
-                        item.previewUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.image_not_supported),
-                      ),
+                      child: _inventoryThumb(item),
                     ),
                   ),
                   // Rented products say how long is left; permanent ones stay
@@ -909,12 +955,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             const SizedBox(height: 8),
           ],
         ),
-      ),
     );
   }
 
   Widget _buildInventorySection() {
     final filtered = items.where((e) => e.type == selectedType).toList();
+    final shown = math.min(filtered.length, _inventoryShown);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -971,7 +1017,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: filtered.length,
+              itemCount: shown,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 mainAxisSpacing: 10,
@@ -981,6 +1027,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
               itemBuilder: (context, index) {
                 return buildItem(filtered[index]);
               },
+            ),
+          if (!loading && filtered.length > shown)
+            Center(
+              child: TextButton(
+                onPressed: () => setState(() => _inventoryShown += 9),
+                child: Text(
+                  tr('عرض المزيد', 'Show more'),
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
             ),
         ],
       ),
@@ -1114,6 +1170,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
       onTap: () {
         setState(() {
           selectedType = type;
+          _inventoryShown = 9;
         });
       },
       // التبويبات كانت ملتصقة ببعضها — مسافة بسيطة تفصلها.

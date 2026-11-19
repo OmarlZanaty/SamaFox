@@ -18,6 +18,7 @@ import 'games/greedy_cat_screen.dart';
 import 'games/plinko_screen.dart';
 import 'games/roulette_screen.dart';
 import 'games/car_wheel_screen.dart';
+import '../widgets/app_network_image.dart';
 // G3(a) — these four shipped but were parked out of the hub; they are back.
 
 /// A grid of game tiles, three per row: the artwork cropped around its subject
@@ -368,7 +369,8 @@ class _GameCard extends StatelessWidget {
                     fit: BoxFit.cover,
                     alignment: entry.focus,
                     // Decode near the tile's size, not the full banner.
-                    cacheWidth: 360,
+                    cacheWidth:
+                        (180 * MediaQuery.of(context).devicePixelRatio).round(),
                     // Falls back to the gradient plus the game's emoji if the
                     // artwork is ever missing, so the tile never renders empty.
                     errorBuilder: (_, __, ___) => emoji,
@@ -641,9 +643,10 @@ class _TopWagerersState extends State<_TopWagerers> {
               child: ClipOval(
                 child: avatar == null || avatar.trim().isEmpty
                     ? fallback
-                    : Image.network(
+                    : AppNetworkImage(
                         avatar,
                         fit: BoxFit.cover,
+                        cacheWidth: 144,
                         errorBuilder: (_, __, ___) => fallback,
                       ),
               ),

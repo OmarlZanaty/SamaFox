@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'badge_size.dart';
 import 'crash_reporter.dart';
 import 'dio_client.dart';
 import 'livekit_voice_engine.dart';
@@ -176,6 +177,7 @@ class VoiceEngineConfig {
           .timeout(timeout);
       final data = resp.data is Map ? resp.data['data'] : null;
       if (data is! Map) return;
+      BadgeSize.apply(data['badgeSize']);
       final e = (data['voiceEngine'] ?? 'mesh').toString();
       final u = (data['livekitUrl'] ?? '').toString().trim();
       // Only takes effect for rooms entered AFTER this point; the engine in use

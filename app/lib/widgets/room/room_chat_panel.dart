@@ -18,6 +18,8 @@ import '../../screens/profile_screen.dart';
 import '../../utils/image_intrinsic_size.dart';
 import 'TopWaveClipper.dart';
 import '../../widgets/app_network_image.dart';
+import '../../widgets/user_badge.dart';
+import '../../services/badge_size.dart';
 import '../product_video_layer.dart';
 
 // ==========================
@@ -576,13 +578,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// One achievement icon. Never let a broken url punch a hole in a message.
   static Widget _badgeIcon(String url) => Padding(
         padding: const EdgeInsets.only(left: 4),
-        child: AppNetworkImage(
-          url,
-          width: 18,
-          height: 18,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-        ),
+        child: UserBadgeImage(url, height: BadgeSize.value * 0.8),
       );
 
   @override
@@ -897,10 +893,10 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                                                 .isNotEmpty) ...[
                                                               const SizedBox(
                                                                   height: 3),
-                                                              Row(
-                                                                mainAxisSize:
-                                                                    MainAxisSize
-                                                                        .min,
+                                                              Wrap(
+                                                                crossAxisAlignment:
+                                                                    WrapCrossAlignment
+                                                                        .center,
                                                                 children: [
                                                                   for (final b
                                                                       in m
@@ -1066,8 +1062,17 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                               ),
                                             ),
                                             // شارات الداخل، بعد السطر.
-                                            for (final b in e.badges)
-                                              _badgeIcon(b),
+                                            if (e.badges.isNotEmpty)
+                                              Flexible(
+                                                child: Wrap(
+                                                  crossAxisAlignment:
+                                                      WrapCrossAlignment.center,
+                                                  children: [
+                                                    for (final b in e.badges)
+                                                      _badgeIcon(b),
+                                                  ],
+                                                ),
+                                              ),
                                             if (e.type == RoomEventType.join) ...[const SizedBox(width: 6), _joinGem],
                                           ],
                                         ),

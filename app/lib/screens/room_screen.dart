@@ -99,6 +99,8 @@ import '../widgets/user_trail.dart';
 import '../screens/profile_screen.dart'; // adjust path to your project
 import '../widgets/cp_relationship.dart';
 import '../widgets/app_network_image.dart';
+import '../widgets/user_badge.dart';
+import '../services/badge_size.dart';
 import '../services/audio_route.dart';
 import '../services/screen_record_service.dart';
 
@@ -611,20 +613,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _keyboardWasOpen = isOpen;
   }
 
-  Future<void> _initializeVideo() async {
-    if (_seatVideoController != null) {
-      await _seatVideoController!.dispose();
-    }
-
-    _seatVideoController = VideoPlayerController.asset('assets/seat_effect.mp4');
-    await _seatVideoController!.initialize();
-    await _seatVideoController!.setLooping(false);
-
-    if (!mounted) return;
-    setState(() {
-      _showSeatVideo = true;
-    });
-  }
   Offset _getSeatPosition(int seatNumber) {
     final key = _seatKeys[seatNumber];
 
@@ -6585,13 +6573,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                             for (final m in medals)
                                               Tooltip(
                                                 message: m.name,
-                                                child: AppNetworkImage(
-                                                  m.iconUrl,
-                                                  width: 24,
-                                                  height: 24,
-                                                  fit: BoxFit.contain,
-                                                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                                                ),
+                                                child: UserBadgeImage(m.iconUrl),
                                               ),
                                             if (profile?.familyName != null &&
                                                 profile!.familyName!.isNotEmpty)
@@ -6749,7 +6731,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             const SizedBox(width: 6),
                             Expanded(
                               child: SizedBox(
-                                height: 38,
+                                height: BadgeSize.value + 8,
                                 child: ListView.separated(
                                   scrollDirection: Axis.horizontal,
                                   reverse: true,
@@ -6759,16 +6741,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                                     final m = medals[i];
                                     return Tooltip(
                                       message: m.name,
-                                      child: AppNetworkImage(
-                                        m.iconUrl,
-                                        width: 34,
-                                        height: 34,
-                                        fit: BoxFit.contain,
-                                        errorBuilder: (_, __, ___) => const Icon(
-                                            Icons.emoji_events,
-                                            color: Colors.white24,
-                                            size: 26),
-                                      ),
+                                      child: UserBadgeImage(m.iconUrl),
                                     );
                                   },
                                 ),
