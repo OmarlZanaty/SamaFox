@@ -57,6 +57,8 @@ class LiveKitVoiceEngine implements VoiceEngine {
   bool _initialized = false;
   bool _listenOnly = true;
   bool _isMicMuted = true;
+  // Capture options changed while muted: apply them on the next unmute.
+  bool _captureOptionsDirty = false;
   final ValueNotifier<Set<String>> _activeSpeakers = ValueNotifier(<String>{});
   ValueListenable<Set<String>> get activeSpeakerIdentities => _activeSpeakers;
   Future<void> _micWork = Future<void>.value();
@@ -650,8 +652,21 @@ class LiveKitVoiceEngine implements VoiceEngine {
           await _room?.localParticipant
               ?.setMicrophoneEnabled(true, audioCaptureOptions: _captureOptions);
         }
+        if (_captureOptionsDirty) {
+          _captureOptionsDirty = false;
+          final t = _micPublication?.track;
+          if (t != null) {
+            try {
+              await t.restartTrack(_captureOptions);
+            } catch (e) {
+              _log('restartTrack after unmute failed: $e');
+            }
+          }
+        }
         final track = _micPublication?.track;
-        _isMicMuted = track == null || !track.isActive || _micPublication!.muted;
+        // unmute() returned without throwing: live, unless the publication
+        // itself still reports muted.
+        _isMicMuted = track == null ? true : (_micPublication?.muted ?? false);
       } catch (e) {
         _isMicMuted = true;
         _log('unmute failed: $e');
@@ -758,6 +773,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
     // SPEC52 #2 — apply on the LIVE track: restartTrack swaps the capture on
     // the same sender, so the seat, the publication and the mute state stay
     // as they are (no unpublish/republish, no gap for listeners).
+    if (_initialized && !_listenOnly && _isMicMuted) _captureOptionsDirty = true;
     if (_initialized && !_listenOnly && !_isMicMuted) {
       final track = _micPublication?.track;
       if (track != null) {

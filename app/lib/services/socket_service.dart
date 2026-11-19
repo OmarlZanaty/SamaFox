@@ -1132,7 +1132,7 @@ class SocketService {
     });
 
     _socket!.on('seat_error', (data) {
-      if (data is Map && data['code'] == 'MIC_REQUEST_REQUIRED') {
+      if (data is Map && (data['code'] == 'MIC_REQUEST_REQUIRED' || data['code'] == 'MOVE_FAILED')) {
         final message = data['message']?.toString();
         if (message != null && message.isNotEmpty) _errorController.add(message);
       }
@@ -1412,19 +1412,41 @@ class SocketService {
       () => _sendDesiredMute(roomId, payload, 0));
   }
 
+  /// Implicit ack: the server echoed our own seat's mute state. If it matches
+  /// the pending desired value the send is done and the desired value is
+  /// dropped, so later server (admin) mutes are accepted as-is.
+  void acknowledgeMuteEcho(int roomId, bool serverMuted) {
+    final d = _desiredMuted[roomId];
+    if (d == null) return;
+    if (d['isMuted'] == serverMuted) {
+      _muteTimers.remove(roomId)?.cancel();
+      _desiredMuted.remove(roomId);
+    }
+  }
+
   void _sendDesiredMute(int roomId, Map<String, dynamic> payload, int retry) {
-    if (!identical(_desiredMuted[roomId], payload) || !isConnected) return;
+    if (!identical(_desiredMuted[roomId], payload)) return;
+    if (!isConnected) {
+      _desiredMuted.remove(roomId); // cannot send: no longer pending
+      return;
+    }
     _lastMuteSent[roomId] = DateTime.now();
-    // Old servers have no ack: bounded retries are idempotent and harmless.
+    // Old servers have no ack: bounded retries (max 2) are idempotent; the
+    // matching seat_mute_changed echo stops them via acknowledgeMuteEcho().
     _muteTimers[roomId] = Timer(const Duration(seconds: 4), () {
-      if (retry < 3) _sendDesiredMute(roomId, payload, retry + 1);
+      if (!identical(_desiredMuted[roomId], payload)) return;
+      if (retry < 2) {
+        _sendDesiredMute(roomId, payload, retry + 1);
+      } else {
+        _desiredMuted.remove(roomId); // retries exhausted
+      }
     });
     _socket!.emitWithAck('toggle_mute', payload, ack: (dynamic ack) {
       if (!identical(_desiredMuted[roomId], payload) || ack is! Map) return;
       if (ack['ok'] != true && ack['ok'] != false) return;
       _muteTimers.remove(roomId)?.cancel();
+      _desiredMuted.remove(roomId);
       if (ack['ok'] == false || ack['muted'] != payload['isMuted']) {
-        _desiredMuted.remove(roomId);
         emit('init_room_seats', {'roomId': roomId});
       }
     });

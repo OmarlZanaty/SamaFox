@@ -2833,7 +2833,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     builder: (_, on, __) => SwitchListTile.adaptive(
                       value: on,
                       onChanged: EffectsPrefs.instance.setGiftSounds,
-                      title: Text(tr('أصوات الهدايا', 'Gift sounds')),
+                      title: Text(tr('أصوات الهدايا', 'Gift sounds'), style: const TextStyle(color: Colors.white)),
                     ),
                   ),
                   ValueListenableBuilder<bool>(
@@ -2841,7 +2841,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     builder: (_, on, __) => SwitchListTile.adaptive(
                       value: on,
                       onChanged: EffectsPrefs.instance.setEntrySounds,
-                      title: Text(tr('أصوات الدخول', 'Entrance sounds')),
+                      title: Text(tr('أصوات الدخول', 'Entrance sounds'), style: const TextStyle(color: Colors.white)),
                     ),
                   ),
                   if (canModerate) ...[
@@ -5028,17 +5028,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   padding: const EdgeInsets.all(8),
                   child: Row(
                     children: [
-                      if (state.topSupporters.isNotEmpty)
-                        SizedBox(
-                          key: const ValueKey('room-top-supporters'),
-                          width: 88, height: 44,
-                          child: FittedBox(child: RoomTopSupporters(
-                            items: state.topSupporters,
-                            onTap: (user) => showUserProfileCard(
-                              userId: user.userId, username: user.name, avatarUrl: user.avatar),
-                          )),
-                        )
-                      else GestureDetector(
+                      GestureDetector(
                         onTap: _openRoomInfo,
                         child: CircleAvatar(
                         radius: 22,
@@ -5051,6 +5041,18 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             : const Icon(Icons.mic, color: Colors.white),
                       ),
                       ),
+                      if (state.topSupporters.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        SizedBox(
+                          key: const ValueKey('room-top-supporters'),
+                          width: 88, height: 44,
+                          child: FittedBox(child: RoomTopSupporters(
+                            items: state.topSupporters,
+                            onTap: (user) => showUserProfileCard(
+                              userId: user.userId, username: user.name, avatarUrl: user.avatar),
+                          )),
+                        )
+                      ],
                       const SizedBox(width: 8),
                       // SPEC52 #14 — name + ID on a glass plate, with the width
                       // the speaker / keep buttons used to take.

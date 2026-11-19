@@ -154,7 +154,11 @@ class SeatsGrid extends StatelessWidget {
         // Half a pixel of slack: heightFor's own result must not read as overflow.
         final overflows = box.height > 0 && neededHeight > box.height + 0.5;
 
-        final grid = Padding(
+        // Seat labels must not outgrow heightFor(): cap the text scale.
+        final scaledMq = MediaQuery.of(context).copyWith(
+          textScaler: MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.15),
+        );
+        final gridContent = Padding(
           padding: EdgeInsets.symmetric(horizontal: solved.columns == 6 ? 4 : 12),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.start,
@@ -191,6 +195,7 @@ class SeatsGrid extends StatelessWidget {
             ],
           ),
         );
+        final grid = MediaQuery(data: scaledMq, child: gridContent);
 
         // CP effect: drawn BEHIND the seats, so it can never cover a face, a
         // mic, a name or the coins line.

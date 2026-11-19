@@ -1,5 +1,6 @@
 import '../services/voice_engine.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:samafox/providers/room_provider.dart';
@@ -187,10 +188,23 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
   void _startSeatResync() {
     _seatResyncTimer?.cancel();
-    _seatResyncTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (state.isOpen && _socket.isConnected) {
+    _scheduleSeatResync();
+  }
+
+  DateTime? _lastSeatsStateAt;
+  final math.Random _resyncRng = math.Random();
+
+  void _scheduleSeatResync() {
+    _seatResyncTimer?.cancel();
+    final delay = Duration(seconds: 60 + _resyncRng.nextInt(16));
+    _seatResyncTimer = Timer(delay, () {
+      final last = _lastSeatsStateAt;
+      final fresh = last != null &&
+          DateTime.now().difference(last) < const Duration(seconds: 45);
+      if (state.isOpen && _socket.isConnected && !fresh) {
         _socket.emit('init_room_seats', {'roomId': roomId});
       }
+      if (state.isOpen) _scheduleSeatResync();
     });
   }
 
@@ -813,6 +827,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     // ✅ This snapshot is the source of truth
     _seatsStateSub = _socket.roomStateStream.listen((s) {
       if (s.roomId != roomId) return;
+      _lastSeatsStateAt = DateTime.now();
       if (s.seq != null) {
         if (_lastSeatsSeq != null && s.seq! < _lastSeatsSeq!) return;
         _lastSeatsSeq = s.seq;
@@ -826,6 +841,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         final isSelf = seat.userId != null && seat.userId == ref.read(authStateProvider).user?.id;
         final adminMuted = seat.forceMuted || s.mutedSeats.contains(seat.seatNumber);
         if (isSelf && adminMuted) _socket.clearPendingMute(roomId);
+        if (isSelf && !adminMuted) _socket.acknowledgeMuteEcho(roomId, seat.isMuted);
         nextSeats[seat.seatNumber] = seat.copyWith(
           isMuted: adminMuted ? true : (isSelf ? _socket.desiredMuteForRoom(roomId) : null),
           relationPartner: seat.relationPartner ?? old?.relationPartner,
@@ -892,6 +908,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         final current = Map<int, SeatData>.from(state.seats);
         final old = current[u.seatNumber!];
         if (old != null) {
+          if (old.userId == ref.read(authStateProvider).user?.id &&
+              !old.forceMuted && !state.mutedSeats.contains(u.seatNumber)) {
+            _socket.acknowledgeMuteEcho(roomId, u.isMuted!);
+          }
           current[u.seatNumber!] = old.copyWith(isMuted:
               old.userId == ref.read(authStateProvider).user?.id && !old.forceMuted &&
                   !state.mutedSeats.contains(u.seatNumber)
@@ -999,11 +1019,16 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final map = Map<String, dynamic>.from(data);
 
       final rid = _safeInt(map['roomId']) ?? _safeInt(map['room_id']);
-      if (rid != roomId) return;
+      final errSeat = _safeInt(map['seatNumber']) ?? _safeInt(map['seat_number']);
 
       final move = _pendingMove;
-      if (move != null && (map['code'] == 'MOVE_FAILED' ||
-          DateTime.now().difference(move.started) <= const Duration(seconds: 3))) {
+      if (move != null &&
+          (rid == null || rid == roomId) &&
+          (map['code'] == 'MOVE_FAILED' ||
+              errSeat == move.to.seatNumber ||
+              rid == null) &&
+          (map['code'] == 'MOVE_FAILED' ||
+              DateTime.now().difference(move.started) <= const Duration(seconds: 3))) {
         final seats = Map<int, SeatData>.from(state.seats);
         // Restore only our two seats; unrelated room updates must survive.
         if (seats[move.to.seatNumber]?.userId == move.from.userId) {
@@ -1015,8 +1040,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         _pendingMove = null;
         state = state.copyWith(seats: seats);
         _socket.emit('init_room_seats', {'roomId': roomId});
+        // The error text is surfaced by SocketService.errorStream (snackbar).
         return;
       }
+      if (rid != roomId) return;
       if (map['code'] == 'MOVE_FAILED') {
         _socket.emit('init_room_seats', {'roomId': roomId});
         return;
@@ -1111,6 +1138,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       if (entry == null) return;
       final isSelf = targetUserId == ref.read(authStateProvider).user?.id;
       if (isSelf && forced) _socket.clearPendingMute(roomId);
+      if (isSelf && !forced) _socket.acknowledgeMuteEcho(roomId, muted);
       current[entry.key] = entry.value.copyWith(
         isMuted: isSelf && !forced ? (_socket.desiredMuteForRoom(roomId) ?? muted) : muted,
         forceMuted: forced);
@@ -1428,6 +1456,9 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
 
     final base = old.userId == userId ? old : SeatData.empty(seatNumber);
     final isSelf = userId != null && userId == ref.read(authStateProvider).user?.id;
+    if (isSelf && !(base.forceMuted || state.mutedSeats.contains(seatNumber))) {
+      _socket.acknowledgeMuteEcho(roomId, !micEnabled);
+    }
     current[seatNumber] = base.copyWith(
       userId: userId,
       isMuted: base.forceMuted || state.mutedSeats.contains(seatNumber) ? true :
