@@ -220,24 +220,6 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
     const id = Number(req.params.id);
     if (!id) return fail(res, 400, 'رقم المستخدم غير صالح');
 
-    const data: any = {};
-    if (req.body?.level != null) {
-      const level = Number(req.body.level);
-      if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'المستوى لازم يكون رقم صحيح من 1');
-      data.level = Math.min(level, (await getLevelMaxLevel()) ?? level);
-    }
-    if (req.body?.xp != null) {
-      const xp = Number(req.body.xp);
-      if (!Number.isInteger(xp) || xp < 0) return fail(res, 400, 'النقاط لازم تكون رقم صحيح من 0');
-      data.xp = xp;
-    }
-    if (req.body?.vipLevel != null) {
-      const vipLevel = Number(req.body.vipLevel);
-      if (!Number.isInteger(vipLevel) || vipLevel < 0) return fail(res, 400, 'مستوى VIP لازم يكون رقم صحيح من 0');
-      data.vipLevel = Math.min(vipLevel, (await getVipMaxLevel()) ?? vipLevel);
-    }
-    if (Object.keys(data).length === 0) return fail(res, 400, 'لا توجد تعديلات');
-
     // Rewards used to hang off the recharge path only, so a VIP level set here
     // granted nothing — the tier's frame/badge/entrance/bubble never arrived.
     // Capture the standing first so we can grant exactly the tiers crossed.
@@ -247,14 +229,46 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
     });
     if (!before) return fail(res, 404, 'المستخدم غير موجود');
 
-    // Reset progress to the selected tier in either direction. Explicit XP wins.
+    // The dashboard modal is prefilled and may send all three fields on every
+    // save, so a field only counts as an edit when it DIFFERS from what the
+    // user has now. Untouched fields must never reset counters or be clamped
+    // (a legacy user above the cap keeps his level when only XP is edited).
+    const data: any = {};
+    let xpExplicit = false;
+    if (req.body?.level != null) {
+      const level = Number(req.body.level);
+      if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'المستوى لازم يكون رقم صحيح من 1');
+      if (level !== before.level) {
+        const next = Math.min(level, (await getLevelMaxLevel()) ?? level);
+        if (next !== before.level) data.level = next;
+      }
+    }
+    if (req.body?.xp != null) {
+      const xp = Number(req.body.xp);
+      if (!Number.isInteger(xp) || xp < 0) return fail(res, 400, 'النقاط لازم تكون رقم صحيح من 0');
+      if (xp !== before.xp) { data.xp = xp; xpExplicit = true; }
+    }
+    if (req.body?.vipLevel != null) {
+      const vipLevel = Number(req.body.vipLevel);
+      if (!Number.isInteger(vipLevel) || vipLevel < 0) return fail(res, 400, 'مستوى VIP لازم يكون رقم صحيح من 0');
+      if (vipLevel !== before.vipLevel) {
+        const next = Math.min(vipLevel, (await getVipMaxLevel()) ?? vipLevel);
+        if (next !== before.vipLevel) data.vipLevel = next;
+      }
+    }
+    if (Object.keys(data).length === 0) {
+      return fail(res, 400, req.body?.level == null && req.body?.xp == null && req.body?.vipLevel == null
+        ? 'لا توجد تعديلات' : 'لا توجد تعديلات (القيم مطابقة للحالية)');
+    }
+
+    // Reset progress to the selected tier only when the tier itself changed.
     if (data.vipLevel != null) {
       const vipOverrides = await getVipThresholdOverrides();
       const floor = vipRechargeFloor(data.vipLevel, vipOverrides);
       data.totalRecharge = data.vipLevel === 0 ? 0 : floor;
     }
-    if (data.level != null && data.xp == null) {
-      // Skipped when the admin set `xp` explicitly in the same request — an
+    if (data.level != null && !xpExplicit) {
+      // Skipped when the admin changed `xp` explicitly in the same request — an
       // explicit value is the more specific instruction and must win.
       const xpOverrides = await getLevelThresholdOverrides();
       const floor = levelXpFloor(data.level, xpOverrides);
@@ -2236,28 +2250,57 @@ async function deleteProgressionConfig(req: AdminReq, res: Response, vip: boolea
     const level = Number(req.params.level);
     if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'المستوى غير صالح');
     const { recordAdminAuditStrict, auditContext } = await import('../services/adminAudit.service');
-    const result = await prisma.$transaction(async (tx) => {
+    let result: { status: number; count?: number; message?: string } | undefined;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        result = await prisma.$transaction(async (tx) => {
       const model = vip ? tx.vipLevelConfig : tx.levelConfig;
       const before = await (model as any).findUnique({ where: { level } });
       if (!before) return { status: 404, message: 'المستوى غير موجود' };
+      const rows: { level: number; threshold: number | null }[] = await (model as any).findMany({ where: { level: { not: level } } });
+      // Only the TOP configured tier may go: removing a middle one leaves a hole
+      // that falls back to the built-in curve, which can exceed the thresholds
+      // of the tiers above it and break progression.
+      if (rows.some(row => row.level > level)) return { status: 409, message: 'احذف أعلى مستوى الأول' };
       const where = vip ? { vipLevel: level } : { level };
       const count = await tx.user.count({ where });
       if (count && req.query.force !== '1') return { status: 409, count, message: `المستوى مستخدم بواسطة ${count} مستخدم` };
-      const rows: { level: number; threshold: number | null }[] = await (model as any).findMany({ where: { level: { not: level } } });
       const below = rows.filter(row => row.level < level).map(row => row.level);
       const fallback = Math.max(vip ? 0 : 1, ...below);
       const overrides = new Map<number, number>(rows.filter(row => row.threshold != null).map(row => [row.level, row.threshold!]));
-      if (count) await tx.user.updateMany({ where, data: vip
-        ? { vipLevel: fallback, totalRecharge: vipRechargeFloor(fallback, overrides) }
-        : { level: fallback, xp: levelXpFloor(fallback, overrides) } });
+      if (count) {
+        // LEAST semantics: the counter is only ever LOWERED to the fallback
+        // tier's floor, never raised (timed-VIP holders with little recharge
+        // keep it; nobody gains progress from a deletion).
+        const counter = vip ? 'totalRecharge' : 'xp';
+        const floor = vip ? vipRechargeFloor(fallback, overrides) : levelXpFloor(fallback, overrides);
+        await tx.user.updateMany({ where: { ...where, [counter]: { gt: floor } }, data: { [counter]: floor } });
+        await tx.user.updateMany({ where, data: vip ? { vipLevel: fallback } : { level: fallback } });
+      }
+      // Active timed grants at/above the deleted tier would keep the user on a
+      // tier that no longer exists (and re-apply it on the next sweep). The
+      // safest fix is to lower their value to the fallback rather than expire
+      // them: the grant record and its chain/previousValue stay intact and
+      // the staff expiry job still closes it normally.
+      const grants = await tx.temporaryEntitlement.updateMany({
+        where: { type: vip ? 'VIP' : 'LEVEL', status: 'ACTIVE', value: { gte: level } },
+        data: { value: fallback },
+      });
       await (model as any).delete({ where: { level } });
       await recordAdminAuditStrict(tx, {
         adminId: Number(req.userId), action: vip ? 'VIP_LEVEL_DELETE' : 'LEVEL_DELETE',
         targetType: vip ? 'vip_level' : 'level', targetId: level, before,
-        after: { deleted: true, usersMoved: count, fallback }, ...auditContext(req),
+        after: { deleted: true, usersMoved: count, fallback, grantsLowered: grants?.count ?? 0 }, ...auditContext(req),
       });
       return { status: 200, count };
     }, { isolationLevel: 'Serializable' });
+        break;
+      } catch (error) {
+        if ((error as { code?: string }).code === 'P2034' && attempt < 3) continue;
+        throw error;
+      }
+    }
+    if (!result) return fail(res, 500, 'تعذر حذف المستوى');
     if (result.status !== 200) return res.status(result.status).json({ success: false, ...result });
     if (vip) { invalidateVipStyleCache(); invalidateVipMaxCache(); }
     else invalidateLevelMaxCache();

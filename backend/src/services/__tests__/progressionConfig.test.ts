@@ -13,6 +13,7 @@ let levelCap: number | null;
 let vipRows: any[];
 let levelRows: any[];
 let auditFails: boolean;
+let grants: any[] = [];
 const config = (vip: boolean) => ({
   aggregate: async () => ({ _max: { level: vip ? vipCap : levelCap } }),
   findMany: async ({ where }: any = {}) => (vip ? vipRows : levelRows).filter(row =>
@@ -28,13 +29,25 @@ const db: any = {
     findUnique: async () => ({ ...user }),
     update: async ({ data }: any) => Object.assign(user, data),
     count: async ({ where }: any) => Object.entries(where).every(([key, value]) => user[key] === value) ? 1 : 0,
-    updateMany: async ({ data }: any) => { Object.assign(user, data); return { count: 1 }; },
+    updateMany: async ({ where, data }: any) => {
+      for (const [key, cond] of Object.entries<any>(where ?? {})) {
+        if (cond && typeof cond === 'object' ? !(user[key] > cond.gt) : user[key] !== cond) return { count: 0 };
+      }
+      Object.assign(user, data); return { count: 1 };
+    },
+  },
+  temporaryEntitlement: {
+    updateMany: async ({ where, data }: any) => {
+      const hit = grants.filter(g => g.type === where.type && g.status === where.status && g.value >= where.value.gte);
+      hit.forEach(g => Object.assign(g, data));
+      return { count: hit.length };
+    },
   },
   vipLevelConfig: config(true), levelConfig: config(false),
   $transaction: async (fn: any) => {
-    const snapshot = { user: { ...user }, vipRows: [...vipRows], levelRows: [...levelRows] };
+    const snapshot = { user: { ...user }, vipRows: [...vipRows], levelRows: [...levelRows], grants: grants.map(g => ({ ...g })) };
     try { return await fn(db); }
-    catch (error) { user = snapshot.user; vipRows = snapshot.vipRows; levelRows = snapshot.levelRows; throw error; }
+    catch (error) { user = snapshot.user; vipRows = snapshot.vipRows; levelRows = snapshot.levelRows; grants = snapshot.grants; throw error; }
   },
 };
 stub('utils/prisma', { __esModule: true, default: db });
@@ -64,7 +77,7 @@ const { adminUpdateUserProgression, adminDeleteVipLevel, adminDeleteLevel } = re
 beforeEach(() => {
   user = { id: 1, level: 1, vipLevel: 0, xp: 0, totalRecharge: 0 };
   audits = []; vipCap = null; levelCap = null;
-  vipRows = []; levelRows = []; auditFails = false;
+  vipRows = []; levelRows = []; auditFails = false; grants = [];
   vip.invalidateVipMaxCache(); xp.invalidateLevelMaxCache();
 });
 async function set(body: any) {
@@ -168,4 +181,57 @@ test('strict audit failure rolls back forced deletion and user movement', async 
   assert.equal(vipRows.length, 2);
   assert.equal(user.vipLevel, 7);
   assert.equal(user.totalRecharge, 9000000);
+});
+
+test('saving unchanged prefilled fields keeps progress; only changed fields reset counters', async () => {
+  user = { id: 1, level: 5, vipLevel: 3, xp: 5000, totalRecharge: 2_000_000 };
+  // VIP unchanged, only xp edited: totalRecharge must survive.
+  await set({ level: 5, xp: 7000, vipLevel: 3 });
+  assert.equal(user.xp, 7000);
+  assert.equal(user.totalRecharge, 2_000_000);
+  // Level changed, xp resent unchanged: xp resets to the new level floor.
+  await set({ level: 9, xp: 7000, vipLevel: 3 });
+  assert.equal(user.xp, xp.levelXpFloor(9, new Map()));
+  assert.equal(user.totalRecharge, 2_000_000);
+  // VIP changed: recharge resets to that tier's floor.
+  await set({ level: 9, xp: user.xp, vipLevel: 4 });
+  assert.equal(user.totalRecharge, vip.vipRechargeFloor(4, new Map()));
+});
+
+test('users above the cap are not clamped when another field is edited', async () => {
+  vipCap = 6; levelCap = 8;
+  user = { id: 1, level: 30, vipLevel: 30, xp: 100, totalRecharge: 5e9 };
+  await set({ level: 30, vipLevel: 30, xp: 200 });
+  assert.equal(user.level, 30);
+  assert.equal(user.vipLevel, 30);
+  assert.equal(user.totalRecharge, 5e9);
+  assert.equal(user.xp, 200);
+  await set({ vipLevel: 40 });
+  assert.equal(user.vipLevel, 6);
+});
+
+test('forced deletion only lowers counters and caps active timed grants', async () => {
+  vipRows = [{ level: 6, threshold: 1000 }, { level: 7, threshold: 2000 }];
+  // Timed VIP 7 holder with little recharge must NOT be raised to the VIP 6 floor.
+  user = { ...user, vipLevel: 7, totalRecharge: 50 };
+  grants = [{ type: 'VIP', status: 'ACTIVE', value: 7 }, { type: 'VIP', status: 'ACTIVE', value: 3 }, { type: 'LEVEL', status: 'ACTIVE', value: 7 }];
+  let status = 200;
+  const res = { status(n: number) { status = n; return res; }, json() { return res; } };
+  await adminDeleteVipLevel({ params: { level: '7' }, query: { force: '1' }, userId: 9 }, res);
+  assert.equal(status, 200);
+  assert.equal(user.vipLevel, 6);
+  assert.equal(user.totalRecharge, 50);
+  assert.deepEqual(grants.map(g => g.value), [6, 3, 7]);
+});
+
+test('only the highest configured tier can be deleted', async () => {
+  for (const handler of [adminDeleteVipLevel, adminDeleteLevel]) {
+    vipRows = levelRows = [{ level: 5, threshold: 500 }, { level: 6, threshold: 1000 }, { level: 7, threshold: 2000 }];
+    let status = 200; let payload: any;
+    const res = { status(n: number) { status = n; return res; }, json(v: any) { payload = v; return res; } };
+    await handler({ params: { level: '6' }, query: { force: '1' }, userId: 9 }, res);
+    assert.equal(status, 409);
+    assert.equal(payload.message, 'احذف أعلى مستوى الأول');
+    assert.equal(vipRows.length, 3);
+  }
 });

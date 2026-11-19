@@ -2292,8 +2292,14 @@ window.confirmEditProfile = async function () {
 };
 
 // --- Manual override: level / xp / vipLevel (#12, #18) ---
+let progressionOriginal = { level: "", xp: "", vipLevel: "" };
 window.openProgressionModal = function (userId, level, xp, vipLevel) {
   selectedUserId = userId;
+  progressionOriginal = {
+    level: level == null ? "" : String(level),
+    xp: xp == null ? "" : String(xp),
+    vipLevel: vipLevel == null ? "" : String(vipLevel),
+  };
   document.getElementById("progLevel").value = level ?? "";
   document.getElementById("progXp").value = xp ?? "";
   document.getElementById("progVip").value = vipLevel ?? "";
@@ -2312,9 +2318,11 @@ window.confirmEditProgression = async function () {
     const level = document.getElementById("progLevel").value;
     const xp = document.getElementById("progXp").value;
     const vip = document.getElementById("progVip").value;
-    if (level !== "") body.level = Number(level);
-    if (xp !== "") body.xp = Number(xp);
-    if (vip !== "") body.vipLevel = Number(vip);
+    // Send only what the admin actually changed: the fields are prefilled, and
+    // sending all three would reset counters of fields left untouched.
+    if (level !== "" && level !== progressionOriginal.level) body.level = Number(level);
+    if (xp !== "" && xp !== progressionOriginal.xp) body.xp = Number(xp);
+    if (vip !== "" && vip !== progressionOriginal.vipLevel) body.vipLevel = Number(vip);
     if (Object.keys(body).length === 0) return showToast("❗ عدّل حقلاً واحداً على الأقل");
 
     await apiFetch(`/admin-dashboard/users/${selectedUserId}/progression`, {
@@ -2636,7 +2644,7 @@ window.loadVipLevels = async function () {
         </div>
       </td>
       <td><button class="btn btn-outline" id="vip_rewards_btn_${level}" onclick="openVipRewardsModal(${level})">🎁 منتجات (${vipRewardSelections[level].size})</button></td>
-      <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button> <button class="btn btn-outline" onclick="deleteVipLevel(${level})">حذف</button></td>
+      <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button> ${level === levels[levels.length - 1] ? `<button class="btn btn-outline" onclick="deleteVipLevel(${level})" title="يُحذف أعلى مستوى فقط">حذف</button>` : ""}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -2828,7 +2836,7 @@ window.loadLvLevels = async function () {
       <td>
         <button class="btn btn-primary" onclick="saveLvLevel(${level})">حفظ</button>
         ${isConfigured ? `<button class="btn btn-outline" onclick="backfillLvRewards(${level})" title="منح منتجات هذا المستوى لمن بلغه بالفعل">🎁 بأثر رجعي</button>` : ""}
-        <button class="btn btn-outline" onclick="deleteLvLevel(${level})">حذف</button>
+        ${level === levels[levels.length - 1] ? `<button class="btn btn-outline" onclick="deleteLvLevel(${level})" title="يُحذف أعلى مستوى فقط">حذف</button>` : ""}
       </td>
     `;
     tbody.appendChild(tr);
@@ -3000,7 +3008,7 @@ async function deleteTier(level, vip) {
   try {
     try { await apiFetch(path, { method: 'DELETE' }); }
     catch (e) {
-      if (e.status !== 409 || !confirm(`${e.message} — نقل المستخدمين للمستوى الأقل وحذفه؟`)) throw e;
+      if (e.status !== 409 || !/^المستوى مستخدم/.test(String(e.message || '')) || !confirm(`${e.message} — نقل المستخدمين للمستوى الأقل وحذفه؟`)) throw e;
       await apiFetch(`${path}?force=1`, { method: 'DELETE' });
     }
     showToast('تم حذف المستوى');

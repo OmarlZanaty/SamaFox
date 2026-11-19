@@ -235,6 +235,16 @@ export async function listCatalog(_req: Request, res: Response) {
         where: { isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         select: { key: true, nameAr: true, sortOrder: true, minVipLevel: true, allowedUserIds: true },
+      }).catch(async (error: any) => {
+        // Lock columns not migrated yet: serve the tabs unlocked instead of failing the catalog.
+        if (error?.code !== 'P2022') throw error;
+        console.error('[gifts] category lock columns missing (migration pending)');
+        const rows = await prisma.giftCategory.findMany({
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: { key: true, nameAr: true, sortOrder: true },
+        });
+        return rows.map(r => ({ ...r, minVipLevel: null, allowedUserIds: [] as number[] }));
       }),
     ]);
     const grouped: Record<string, any[]> = { SMALL: [], MEDIUM: [], LARGE: [], LEGENDARY: [] };

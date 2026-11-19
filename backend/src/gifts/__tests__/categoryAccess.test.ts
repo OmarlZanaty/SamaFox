@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { canOpenCategory, isCategoryLocked, parseCategoryLock } from '../categoryAccess';
+import { canOpenCategory, isCategoryLocked, loadCategoryLock, parseCategoryLock } from '../categoryAccess';
 
 function stub(relative: string, exports: any) {
   const filename = require.resolve(resolve(__dirname, '../..', relative));
@@ -9,7 +9,8 @@ function stub(relative: string, exports: any) {
 }
 for (const module of ['gifts/giftEvent', 'gifts/lucky.service', 'utils/coinFreeze',
   'services/notification.service', 'services/xp.service', 'controllers/achievement.controller']) stub(module, {});
-stub('utils/prisma', { __esModule: true, default: {} });
+let categoryLookup: () => Promise<any> = async () => null;
+stub('utils/prisma', { __esModule: true, default: { giftCategory: { findUnique: () => categoryLookup() } } });
 const passedGate = new Error('passed category gate');
 stub('controllers/settings.controller', { getCpConfig: async () => { throw passedGate; } });
 const { sendGiftAtomic, GiftSendError }: typeof import('../giftService') = require('../giftService');
@@ -20,7 +21,9 @@ test('locks allow either VIP or public display ID, including ID-only and VIP-zer
   assert.equal(canOpenCategory(lock, { vipLevel: 0, displayId: 777 }), true);
   assert.equal(canOpenCategory(lock, { vipLevel: 5, displayId: 1 }), false);
   assert.equal(canOpenCategory({ minVipLevel: null, allowedUserIds: [777] }, { vipLevel: 100, displayId: 1 }), false);
-  assert.equal(isCategoryLocked({ minVipLevel: 0, allowedUserIds: [] }), true);
+  assert.equal(isCategoryLocked({ minVipLevel: 0, allowedUserIds: [] }), false);
+  assert.equal(isCategoryLocked({ minVipLevel: 3, allowedUserIds: null }), true);
+  assert.equal(canOpenCategory({ minVipLevel: null, allowedUserIds: undefined }, null), true);
   assert.equal(canOpenCategory(null, null), true);
   assert.equal(canOpenCategory({ minVipLevel: null, allowedUserIds: [] }, null), true);
 });
@@ -31,9 +34,9 @@ test('sendGiftAtomic enforces the lock before any debit; missing categories stay
   let writes = 0;
   const tx = {
     gift: { findUnique: async () => ({ id: 'gift', category: 'locked', isActive: true }) },
-    giftCategory: { findUnique: async () => category },
     user: { findUnique: async () => sender, updateMany: async () => { writes++; } },
   };
+  categoryLookup = async () => category;
   const send = () => sendGiftAtomic({ senderId: 777, recipientId: 2, giftId: 'gift' }, { tx, afterCommit: [], beforeCommit: [] });
   await assert.rejects(send, error => error instanceof GiftSendError && error.code === 'LOCKED_CATEGORY' && error.status === 403);
   assert.equal(writes, 0);
@@ -48,6 +51,18 @@ test('sendGiftAtomic enforces the lock before any debit; missing categories stay
 test('admin lock fields validate IDs and preserve omitted patch fields', () => {
   assert.deepEqual(parseCategoryLock({ minVipLevel: '', allowedUserIds: '12, 34 12' }), { minVipLevel: null, allowedUserIds: [12, 34] });
   assert.deepEqual(parseCategoryLock({}), {});
+  assert.deepEqual(parseCategoryLock({ minVipLevel: 0 }), { minVipLevel: null });
+  assert.deepEqual(parseCategoryLock({ minVipLevel: '0' }), { minVipLevel: null });
   for (const minVipLevel of [-1, 101, 1.5, 'bad']) assert.throws(() => parseCategoryLock({ minVipLevel }));
   for (const allowedUserIds of ['0', '1.5', 'abc', '2147483648', null]) assert.throws(() => parseCategoryLock({ allowedUserIds }));
+});
+
+test('missing lock columns (P2022) leave categories unlocked instead of breaking gifts', async () => {
+  const failing = { giftCategory: { findUnique: async () => { throw Object.assign(new Error('col'), { code: 'P2022' }); } } };
+  assert.equal(await loadCategoryLock(failing, 'x'), null);
+  assert.equal(await loadCategoryLock(failing, 'x'), null);
+  const other = { giftCategory: { findUnique: async () => { throw Object.assign(new Error('db'), { code: 'P1001' }); } } };
+  await assert.rejects(() => loadCategoryLock(other, 'x'));
+  const legacy = { giftCategory: { findUnique: async () => ({ minVipLevel: 2 }) } };
+  assert.deepEqual(await loadCategoryLock(legacy, 'x'), { minVipLevel: 2, allowedUserIds: [] });
 });
