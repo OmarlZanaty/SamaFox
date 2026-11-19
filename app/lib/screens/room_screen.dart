@@ -5045,7 +5045,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         const SizedBox(width: 6),
                         SizedBox(
                           key: const ValueKey('room-top-supporters'),
-                          width: 88, height: 44,
+                          width: 64, height: 44,
                           child: FittedBox(child: RoomTopSupporters(
                             items: state.topSupporters,
                             onTap: (user) => showUserProfileCard(
@@ -5072,7 +5072,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                       // 2026-10-18 — "ده شكل الغرف فى بعض التليفونات": name gone, ID vertical on narrow phones.
                       ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * (state.topSupporters.isEmpty ? 0.55 : 0.48)),
+                        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * (state.topSupporters.isEmpty ? 0.5 : 0.36)),
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: AlignmentDirectional.centerEnd,

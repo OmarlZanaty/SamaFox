@@ -1693,6 +1693,9 @@ class RoomSeatsState {
   final List<int> lockedSeats; // ✅ NEW
   final List<int> mutedSeats;
 
+  /// Server boot id; changes on restart (seq counters reset).
+  final String? bootId;
+
   /// ✅ NEW: how many seats this room has
   final int seatCount;
 
@@ -1718,6 +1721,7 @@ class RoomSeatsState {
     required this.lockedSeats,
     this.mutedSeats = const [],
     this.cpLinks = const [],
+    this.bootId,
   });
 
   factory RoomSeatsState.fromJson(Map<String, dynamic> json) {
@@ -1776,6 +1780,7 @@ class RoomSeatsState {
 
     return RoomSeatsState(
       seq: int.tryParse('${json['seq']}'),
+      bootId: json['bootId']?.toString(),
       roomId: rid,
       chatLocked: json['chatLocked'] == true,
       chatBlockedUserIds: parseRoomUserIds(json['chatBlockedUserIds']),
@@ -1863,6 +1868,8 @@ class SeatData {
   final bool isMuted;
   final bool isLocked;
   final bool forceMuted; // admin force-mute: user cannot unmute themselves
+  /// True when the payload carried a forceMuted key (absent = unknown).
+  final bool forceMutedKnown;
 
   /// Platform admin / super admin. Room moderation is never offered against
   /// them ("ولا احد ياخد اجراء ضده").
@@ -1886,6 +1893,7 @@ class SeatData {
     required this.isMuted,
     required this.isLocked,
     this.forceMuted = false,
+    this.forceMutedKnown = false,
     this.isPlatformStaff = false,
     this.isSpeaking = false,
   });
@@ -1978,6 +1986,7 @@ class SeatData {
       isMuted: rawMuted == true || rawMuted?.toString() == 'true',
       isLocked: rawLocked == true || rawLocked?.toString() == 'true',
       forceMuted: (json['forceMuted'] ?? json['force_muted']) == true,
+      forceMutedKnown: json.containsKey('forceMuted') || json.containsKey('force_muted'),
       isPlatformStaff: (json['isPlatformStaff'] ?? json['is_platform_staff']) == true,
     );
   }

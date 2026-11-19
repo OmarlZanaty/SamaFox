@@ -121,7 +121,10 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
     }
   }
 
+  int _openGen = 0;
+
   Future<void> _open() async {
+    final gen = ++_openGen;
     if (_active >= _maxActive) {
       debugPrint('🎞️ [ProductVideoLayer] cap of $_maxActive reached — ${widget.url} not played');
       return;
@@ -137,7 +140,7 @@ class _ProductVideoLayerState extends State<ProductVideoLayer> {
     } catch (_) {
       controller = VideoPlayerController.networkUrl(Uri.parse(url));
     }
-    if (!mounted || !_holdsSlot || url != widget.url) {
+    if (!mounted || !_holdsSlot || url != widget.url || gen != _openGen) {
       // Unmounted (or released under memory pressure) while the file loaded.
       await controller.dispose();
       return;

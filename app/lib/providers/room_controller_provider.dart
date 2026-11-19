@@ -184,6 +184,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
   Timer? _earningsTimer;
   Timer? _seatResyncTimer;
   int? _lastSeatsSeq;
+  String? _lastBootId;
   ({SeatData from, SeatData to, DateTime started})? _pendingMove;
 
   void _startSeatResync() {
@@ -828,6 +829,10 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
     _seatsStateSub = _socket.roomStateStream.listen((s) {
       if (s.roomId != roomId) return;
       _lastSeatsStateAt = DateTime.now();
+      if (s.bootId != null && s.bootId != _lastBootId) {
+        _lastBootId = s.bootId;
+        _lastSeatsSeq = null;
+      }
       if (s.seq != null) {
         if (_lastSeatsSeq != null && s.seq! < _lastSeatsSeq!) return;
         _lastSeatsSeq = s.seq;
@@ -839,11 +844,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
         final old = previous?.userId == seat.userId ? previous : null;
 
         final isSelf = seat.userId != null && seat.userId == ref.read(authStateProvider).user?.id;
-        final adminMuted = seat.forceMuted || s.mutedSeats.contains(seat.seatNumber);
+        final force = seat.forceMutedKnown ? seat.forceMuted : (old?.forceMuted ?? false);
+        final adminMuted = force || s.mutedSeats.contains(seat.seatNumber);
         if (isSelf && adminMuted) _socket.clearPendingMute(roomId);
-        if (isSelf && !adminMuted) _socket.acknowledgeMuteEcho(roomId, seat.isMuted);
         nextSeats[seat.seatNumber] = seat.copyWith(
           isMuted: adminMuted ? true : (isSelf ? _socket.desiredMuteForRoom(roomId) : null),
+          forceMuted: force,
           relationPartner: seat.relationPartner ?? old?.relationPartner,
           avatarFrameUrl: seat.avatarFrameUrl ?? old?.avatarFrameUrl,
           displayId: seat.displayId ?? old?.displayId,
@@ -1128,6 +1134,7 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       final targetUserId = _safeInt(map['userId']) ?? _safeInt(map['user_id']);
       if (targetUserId == null) return;
       final muted = map['isMuted'] == true || map['isMuted']?.toString() == 'true';
+      final forcedKnown = map.containsKey('forced');
       final forced = map['forced'] == true || map['forced']?.toString() == 'true';
 
       final current = Map<int, SeatData>.from(state.seats);
@@ -1137,11 +1144,12 @@ class RoomControllerNotifier extends StateNotifier<RoomControllerState> {
       }
       if (entry == null) return;
       final isSelf = targetUserId == ref.read(authStateProvider).user?.id;
-      if (isSelf && forced) _socket.clearPendingMute(roomId);
-      if (isSelf && !forced) _socket.acknowledgeMuteEcho(roomId, muted);
+      final effForced = forcedKnown ? forced : entry.value.forceMuted;
+      if (isSelf && effForced) _socket.clearPendingMute(roomId);
+      if (isSelf && !effForced) _socket.acknowledgeMuteEcho(roomId, muted);
       current[entry.key] = entry.value.copyWith(
-        isMuted: isSelf && !forced ? (_socket.desiredMuteForRoom(roomId) ?? muted) : muted,
-        forceMuted: forced);
+        isMuted: isSelf && !effForced ? (_socket.desiredMuteForRoom(roomId) ?? muted) : (effForced ? true : muted),
+        forceMuted: effForced);
       state = state.copyWith(seats: current);
     });
 
