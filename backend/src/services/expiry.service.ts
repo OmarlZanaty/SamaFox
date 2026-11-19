@@ -77,10 +77,8 @@ export async function sweepExpired(now: Date = new Date()): Promise<{
             const cap = await getVipMaxLevel();
             // Earned strictly from recharge — never from current.vipLevel, which
             // may itself be a timed grant above the cap that is expiring now.
-            // A legacy recharge-derived level already above the cap is kept.
             const natural = computeVipLevelWithOverrides(current.totalRecharge, overrides, cap);
-            const naturalUncapped = computeVipLevelWithOverrides(current.totalRecharge, overrides, null);
-            const earned = cap != null && naturalUncapped > cap ? naturalUncapped : natural;
+            const earned = natural; // capped: never above the top configured tier
             const temporary = await tx.temporaryEntitlement.findMany({
               where: { userId: u.id, type: 'VIP', status: 'ACTIVE', expiresAt: { gt: now } }, select: { value: true },
             });

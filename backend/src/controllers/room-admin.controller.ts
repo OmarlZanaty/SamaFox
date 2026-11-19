@@ -4,7 +4,7 @@ import { MIN_ROOM_SEATS, MAX_ROOM_SEATS } from '../utils/roomSeats';
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { io } from '../index';
-import { evictRoomUser, invalidateAdminCacheAndRefresh, applyMaxSeatsLive } from '../services/socket.service';
+import { evictRoomUser, invalidateAdminCacheAndRefresh, applyMaxSeatsLive, applyForceMuteLive } from '../services/socket.service';
 
 const toInt = (v: any): number | null => {
   const n = Number(v);
@@ -228,6 +228,8 @@ export async function muteUser(req: Request, res: Response) {
       roomId, userId, isMuted, forced: isMuted,
     });
     io.to(`user:${userId}`).emit('force_mute', { roomId, isMuted });
+    // Enforce in memory too (seat mute map + room_seats_state snapshot).
+    await applyForceMuteLive(roomId, userId, isMuted).catch(e => console.error('applyForceMuteLive error:', e));
 
     return res.json({ success: true, message: isMuted ? 'User muted' : 'User unmuted', member });
   } catch (e) {

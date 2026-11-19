@@ -10,30 +10,49 @@ export function canOpenCategory(category: { minVipLevel: number | null; allowedU
     (user.displayId != null && (category!.allowedUserIds ?? []).includes(user.displayId)));
 }
 
-let warnedMissingColumns = false;
+let lockColumnsPresent: boolean | undefined;
+let lockColumnsCheck: Promise<boolean> | null = null;
 /**
- * Reads a category's lock. If the lock columns are not migrated yet (Prisma
- * P2022) the category is treated as unlocked (logged once) so sending gifts
- * never breaks while a migration lags. Pass the GLOBAL prisma client, not a
- * transaction: a failed statement would poison a Postgres transaction.
+ * One-time (cached) check, with the GLOBAL client and OUTSIDE any transaction,
+ * that the category lock columns are migrated. Never call inside a tx.
+ * On a failed check (DB error) nothing is cached, so it is retried later and
+ * the lock stays enforced (fail closed).
+ */
+export function ensureCategoryLockColumns(
+  client: { $queryRaw: (...args: any[]) => Promise<any> },
+): Promise<boolean> {
+  if (lockColumnsPresent !== undefined) return Promise.resolve(lockColumnsPresent);
+  if (!lockColumnsCheck) {
+    lockColumnsCheck = (async () => {
+      try {
+        const rows: unknown[] = await client.$queryRaw`SELECT 1 FROM information_schema.columns WHERE table_name = 'gift_categories' AND column_name = 'minVipLevel' LIMIT 1`;
+        lockColumnsPresent = Array.isArray(rows) && rows.length > 0;
+        if (!lockColumnsPresent) console.error('[gifts] category lock columns missing (migration pending); treating categories as unlocked');
+        return lockColumnsPresent;
+      } catch (error) {
+        console.error('[gifts] category lock column check failed', error);
+        return true;
+      } finally {
+        lockColumnsCheck = null;
+      }
+    })();
+  }
+  return lockColumnsCheck;
+}
+export function categoryLockColumnsKnownMissing(): boolean { return lockColumnsPresent === false; }
+export function __resetCategoryLockColumnsForTest() { lockColumnsPresent = undefined; lockColumnsCheck = null; }
+
+/**
+ * Reads a category's lock through the caller's client (the gift transaction),
+ * selecting only the lock columns. Call ensureCategoryLockColumns() first.
  */
 export async function loadCategoryLock(
   client: { giftCategory: { findUnique: (args: any) => Promise<any> } },
   key: string,
 ): Promise<CategoryLock | null> {
-  try {
-    const row = await client.giftCategory.findUnique({ where: { key } });
-    return row ? { minVipLevel: row.minVipLevel ?? null, allowedUserIds: row.allowedUserIds ?? [] } : null;
-  } catch (error) {
-    if ((error as { code?: string })?.code === 'P2022') {
-      if (!warnedMissingColumns) {
-        warnedMissingColumns = true;
-        console.error('[gifts] category lock columns missing (migration pending); treating categories as unlocked');
-      }
-      return null;
-    }
-    throw error;
-  }
+  if (categoryLockColumnsKnownMissing()) return null;
+  const row = await client.giftCategory.findUnique({ where: { key }, select: { minVipLevel: true, allowedUserIds: true } });
+  return row ? { minVipLevel: row.minVipLevel ?? null, allowedUserIds: row.allowedUserIds ?? [] } : null;
 }
 export function parseCategoryLock(body: Record<string, unknown>): Partial<CategoryLock> {
   const data: Partial<CategoryLock> = {};

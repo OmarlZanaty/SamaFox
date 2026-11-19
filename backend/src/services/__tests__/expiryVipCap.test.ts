@@ -32,8 +32,8 @@ test('a lapsed timed VIP above the cap falls back to the recharge-earned level, 
   assert.equal(user.vipExpiresAt, null);
 });
 
-test('recharge-derived level above the cap (legacy) is kept', async () => {
+test('a lapsed VIP is never left above the top configured tier, even with huge recharge', async () => {
   user = { id: 1, vipLevel: 30, totalRecharge: 1e12, vipExpiresAt: new Date(1000) };
   await sweepExpired(new Date(5000));
-  assert.ok(user.vipLevel > 6);
+  assert.equal(user.vipLevel, 6);
 });

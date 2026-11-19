@@ -2267,14 +2267,10 @@ async function deleteProgressionConfig(req: AdminReq, res: Response, vip: boolea
       if (count && req.query.force !== '1') return { status: 409, count, message: `المستوى مستخدم بواسطة ${count} مستخدم` };
       const below = rows.filter(row => row.level < level).map(row => row.level);
       const fallback = Math.max(vip ? 0 : 1, ...below);
-      const overrides = new Map<number, number>(rows.filter(row => row.threshold != null).map(row => [row.level, row.threshold!]));
       if (count) {
-        // LEAST semantics: the counter is only ever LOWERED to the fallback
-        // tier's floor, never raised (timed-VIP holders with little recharge
-        // keep it; nobody gains progress from a deletion).
-        const counter = vip ? 'totalRecharge' : 'xp';
-        const floor = vip ? vipRechargeFloor(fallback, overrides) : levelXpFloor(fallback, overrides);
-        await tx.user.updateMany({ where: { ...where, [counter]: { gt: floor } }, data: { [counter]: floor } });
+        // Only the displayed vipLevel/level moves. totalRecharge and xp are
+        // recharge/progress HISTORY and are never lowered; the configured cap
+        // keeps the user from being re-promoted into the deleted tier.
         await tx.user.updateMany({ where, data: vip ? { vipLevel: fallback } : { level: fallback } });
       }
       // Active timed grants at/above the deleted tier would keep the user on a

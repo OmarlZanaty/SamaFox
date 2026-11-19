@@ -1,4 +1,4 @@
-import { canOpenCategory, loadCategoryLock } from './categoryAccess';
+import { canOpenCategory, ensureCategoryLockColumns, loadCategoryLock } from './categoryAccess';
 import { buildGiftEvent } from './giftEvent';
 import { isValidGiftQuantity } from './giftLimits';
 import { findAgencyCommissionOwner } from './agencyCommission';
@@ -90,7 +90,11 @@ const BROADCAST_TTL_MS = 30 * 1000;
  * the client can render without an extra lookup.
  */
 export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransactionContext): Promise<SendGiftResult> {
+  // Warm the one-time lock-column check with the global client, outside any
+  // transaction (never awaited inside one: it would hold a second connection).
+  const lockColumnCheck = ensureCategoryLockColumns(prisma as any);
   if (!context) {
+    await lockColumnCheck;
     let effects: GiftTransactionContext['afterCommit'] = [];
     const result = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
       const ctx: GiftTransactionContext = { tx, afterCommit: [], beforeCommit: [] };
@@ -118,7 +122,7 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
   const gift = await db.gift.findUnique({ where: { id: input.giftId } });
   if (!gift || !gift.isActive) throw new GiftSendError('INVALID_GIFT', 'Gift not found or inactive', 404);
 
-  const category = gift.category ? await loadCategoryLock(prisma as any, gift.category) : null;
+  const category = gift.category ? await loadCategoryLock(db as any, gift.category) : null;
   const categorySender = category ? await db.user.findUnique({
     where: { id: input.senderId }, select: { vipLevel: true, displayId: true },
   }) : null;

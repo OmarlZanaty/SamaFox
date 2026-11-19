@@ -164,8 +164,9 @@ test('occupied tier deletion requires force, resets counters and audits the dele
     await handler(req, res);
     assert.equal(status, 200);
     assert.equal(user[vipTier ? 'vipLevel' : 'level'], 6);
-    const overrides = new Map([[6, 1000]]);
-    assert.equal(user[vipTier ? 'totalRecharge' : 'xp'], vipTier ? vip.vipRechargeFloor(6, overrides) : xp.levelXpFloor(6, overrides));
+    // History is never lowered: only the displayed tier moves.
+    assert.equal(user.totalRecharge, 9000000);
+    assert.equal(user.xp, 9000);
     assert.deepEqual(audits[audits.length - 1].before, { level: 7, threshold: 2000 });
     assert.equal(audits[audits.length - 1].action, vipTier ? 'VIP_LEVEL_DELETE' : 'LEVEL_DELETE');
   }
@@ -210,7 +211,7 @@ test('users above the cap are not clamped when another field is edited', async (
   assert.equal(user.vipLevel, 6);
 });
 
-test('forced deletion only lowers counters and caps active timed grants', async () => {
+test('forced deletion leaves recharge/xp untouched and caps active timed grants', async () => {
   vipRows = [{ level: 6, threshold: 1000 }, { level: 7, threshold: 2000 }];
   // Timed VIP 7 holder with little recharge must NOT be raised to the VIP 6 floor.
   user = { ...user, vipLevel: 7, totalRecharge: 50 };

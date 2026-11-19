@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { canOpenCategory, isCategoryLocked, loadCategoryLock, parseCategoryLock } from '../categoryAccess';
+import { __resetCategoryLockColumnsForTest, canOpenCategory, ensureCategoryLockColumns, isCategoryLocked, loadCategoryLock, parseCategoryLock } from '../categoryAccess';
 
 function stub(relative: string, exports: any) {
   const filename = require.resolve(resolve(__dirname, '../..', relative));
@@ -9,8 +9,9 @@ function stub(relative: string, exports: any) {
 }
 for (const module of ['gifts/giftEvent', 'gifts/lucky.service', 'utils/coinFreeze',
   'services/notification.service', 'services/xp.service', 'controllers/achievement.controller']) stub(module, {});
+let globalCategoryReads = 0;
 let categoryLookup: () => Promise<any> = async () => null;
-stub('utils/prisma', { __esModule: true, default: { giftCategory: { findUnique: () => categoryLookup() } } });
+stub('utils/prisma', { __esModule: true, default: { giftCategory: { findUnique: () => { globalCategoryReads++; return categoryLookup(); } }, $queryRaw: async () => [{ '?column?': 1 }] } });
 const passedGate = new Error('passed category gate');
 stub('controllers/settings.controller', { getCpConfig: async () => { throw passedGate; } });
 const { sendGiftAtomic, GiftSendError }: typeof import('../giftService') = require('../giftService');
@@ -36,7 +37,9 @@ test('sendGiftAtomic enforces the lock before any debit; missing categories stay
     gift: { findUnique: async () => ({ id: 'gift', category: 'locked', isActive: true }) },
     user: { findUnique: async () => sender, updateMany: async () => { writes++; } },
   };
-  categoryLookup = async () => category;
+  const txCategory = { findUnique: async () => category };
+  (tx as any).giftCategory = txCategory;
+  categoryLookup = async () => { throw new Error('global client must not be used'); };
   const send = () => sendGiftAtomic({ senderId: 777, recipientId: 2, giftId: 'gift' }, { tx, afterCommit: [], beforeCommit: [] });
   await assert.rejects(send, error => error instanceof GiftSendError && error.code === 'LOCKED_CATEGORY' && error.status === 403);
   assert.equal(writes, 0);
@@ -57,12 +60,25 @@ test('admin lock fields validate IDs and preserve omitted patch fields', () => {
   for (const allowedUserIds of ['0', '1.5', 'abc', '2147483648', null]) assert.throws(() => parseCategoryLock({ allowedUserIds }));
 });
 
-test('missing lock columns (P2022) leave categories unlocked instead of breaking gifts', async () => {
-  const failing = { giftCategory: { findUnique: async () => { throw Object.assign(new Error('col'), { code: 'P2022' }); } } };
-  assert.equal(await loadCategoryLock(failing, 'x'), null);
-  assert.equal(await loadCategoryLock(failing, 'x'), null);
-  const other = { giftCategory: { findUnique: async () => { throw Object.assign(new Error('db'), { code: 'P1001' }); } } };
-  await assert.rejects(() => loadCategoryLock(other, 'x'));
-  const legacy = { giftCategory: { findUnique: async () => ({ minVipLevel: 2 }) } };
-  assert.deepEqual(await loadCategoryLock(legacy, 'x'), { minVipLevel: 2, allowedUserIds: [] });
+test('loadCategoryLock reads only lock columns through the given client', async () => {
+  let args: any;
+  const client = { giftCategory: { findUnique: async (a: any) => { args = a; return { minVipLevel: 2 }; } } };
+  assert.deepEqual(await loadCategoryLock(client, 'x'), { minVipLevel: 2, allowedUserIds: [] });
+  assert.deepEqual(args.select, { minVipLevel: true, allowedUserIds: true });
+  assert.equal(await loadCategoryLock({ giftCategory: { findUnique: async () => null } }, 'x'), null);
+});
+
+test('missing lock columns are detected once outside transactions and skip the lock', async () => {
+  __resetCategoryLockColumnsForTest();
+  let checks = 0;
+  const raw = { $queryRaw: async () => { checks++; return []; } };
+  assert.equal(await ensureCategoryLockColumns(raw), false);
+  assert.equal(await ensureCategoryLockColumns(raw), false);
+  assert.equal(checks, 1);
+  let reads = 0;
+  assert.equal(await loadCategoryLock({ giftCategory: { findUnique: async () => { reads++; return { minVipLevel: 9 }; } } }, 'x'), null);
+  assert.equal(reads, 0);
+  __resetCategoryLockColumnsForTest();
+  assert.equal(await ensureCategoryLockColumns({ $queryRaw: async () => { throw new Error('db'); } }), true);
+  __resetCategoryLockColumnsForTest();
 });

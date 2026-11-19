@@ -26,13 +26,21 @@ test('moveSeat rejection paths', () => {
   assert.ok(moveRejection({ ...base(), to: 2 }));              // same seat
 });
 
-test('heartbeat mute reconcile respects force/admin mute and only fires on change', () => {
-  const ok = { micMuted: false, seated: true, adminMuted: false, forceMuted: false, current: true as boolean | undefined };
+test('heartbeat mute reconcile: mute always allowed, unmute only when live, outside grace, not forced', () => {
+  const ok = { micMuted: false, seated: true, adminMuted: false, forceMuted: false, current: true as boolean | undefined, voiceState: 'publishing' as unknown, msSinceServerChange: undefined as number | undefined };
   assert.equal(shouldReconcileMute(ok), true);
   assert.equal(shouldReconcileMute({ ...ok, current: false }), false);
   assert.equal(shouldReconcileMute({ ...ok, forceMuted: true }), false);
   assert.equal(shouldReconcileMute({ ...ok, adminMuted: true }), false);
   assert.equal(shouldReconcileMute({ ...ok, seated: false }), false);
   assert.equal(shouldReconcileMute({ ...ok, micMuted: undefined }), false);
+  assert.equal(shouldReconcileMute({ ...ok, voiceState: 'muted' }), false);
+  assert.equal(shouldReconcileMute({ ...ok, voiceState: 'listening' }), false);
+  assert.equal(shouldReconcileMute({ ...ok, voiceState: undefined }), false);
+  assert.equal(shouldReconcileMute({ ...ok, msSinceServerChange: 5_000 }), false);
+  assert.equal(shouldReconcileMute({ ...ok, msSinceServerChange: 16_000 }), true);
+  // mute direction: always safe even if force/admin muted or phone not 'publishing'
+  assert.equal(shouldReconcileMute({ ...ok, micMuted: true, current: false, forceMuted: true, adminMuted: true, voiceState: 'muted' }), true);
   assert.equal(shouldReconcileMute({ ...ok, micMuted: true, current: undefined }), false);
+  assert.equal(shouldReconcileMute({ ...ok, micMuted: true, current: false, msSinceServerChange: 1_000 }), false);
 });
