@@ -58,12 +58,12 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: aab-${{ github.ref_name }}
+          name: aab-${{ github.run_number }}-${{ github.sha }}
           path: app/build/app/outputs/bundle/release/app-release.aab
           retention-days: 3
 
       - uses: actions/upload-artifact@v4
         with:
-          name: apk-${{ github.ref_name }}
+          name: apk-${{ github.run_number }}-${{ github.sha }}
           path: app/build/app/outputs/flutter-apk/*.apk
           retention-days: 3
