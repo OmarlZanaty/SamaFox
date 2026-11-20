@@ -464,7 +464,7 @@ async function settleCrash(r: Round) {
     results: Array.from(r.bets.values()).map(publicBet),
   });
 
-  maybeStartRain();
+  // Coin rain is disabled.
 }
 
 function advance() {

@@ -765,7 +765,7 @@ export async function categoryAccess(req: Request, res: Response) {
   try {
     const userId = req.userId ?? req.authUser?.id;
     if (!userId) return res.status(401).json({ message: 'سجل الدخول أولاً' });
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { vipLevel: true, displayId: true } });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, vipLevel: true, displayId: true } });
     if (!user) return res.status(401).json({ message: 'سجل الدخول أولاً' });
     const categories = await prisma.giftCategory.findMany({ where: { isActive: true } });
     return res.json({ keys: categories.filter(category => canOpenCategory(category, user)).map(category => category.key) });

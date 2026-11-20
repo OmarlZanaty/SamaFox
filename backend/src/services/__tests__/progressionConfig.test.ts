@@ -225,14 +225,12 @@ test('forced deletion leaves recharge/xp untouched and caps active timed grants'
   assert.deepEqual(grants.map(g => g.value), [6, 3, 7]);
 });
 
-test('only the highest configured tier can be deleted', async () => {
+test('an empty middle tier can be deleted', async () => {
   for (const handler of [adminDeleteVipLevel, adminDeleteLevel]) {
     vipRows = levelRows = [{ level: 5, threshold: 500 }, { level: 6, threshold: 1000 }, { level: 7, threshold: 2000 }];
-    let status = 200; let payload: any;
-    const res = { status(n: number) { status = n; return res; }, json(v: any) { payload = v; return res; } };
+    let status = 200;
+    const res = { status(n: number) { status = n; return res; }, json() { return res; } };
     await handler({ params: { level: '6' }, query: { force: '1' }, userId: 9 }, res);
-    assert.equal(status, 409);
-    assert.equal(payload.message, 'احذف أعلى مستوى الأول');
-    assert.equal(vipRows.length, 3);
+    assert.equal(status, 200);
   }
 });

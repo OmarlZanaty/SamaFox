@@ -89,8 +89,8 @@ class SeatsGrid extends StatelessWidget {
           .clamp(0.0, _maxSeatSize).toDouble();
     }
 
-    if (count >= 10) {
-      // Five per row is the requested layout. Use six only when five rows
+    if (count > 5) {
+      // Five per row is the requested layout. Use six only when five columns
       // cannot fit at a readable size, then scale/scroll as the last resort.
       final columns = sizeFor(5) >= _minSeatSize - 0.01 ? 5 : 6;
       return (columns: columns,

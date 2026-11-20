@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../widgets/app_network_image.dart';
 
 /// إطار تزيين الصفحة الشخصية.
@@ -34,6 +35,7 @@ class ProfileDecorFrame extends StatefulWidget {
 class _ProfileDecorFrameState extends State<ProfileDecorFrame> {
   VideoPlayerController? _controller;
   bool _ready = false;
+  int _videoGeneration = 0;
 
   @override
   void initState() {
@@ -45,6 +47,7 @@ class _ProfileDecorFrameState extends State<ProfileDecorFrame> {
   void didUpdateWidget(covariant ProfileDecorFrame old) {
     super.didUpdateWidget(old);
     if (old.url != widget.url || old.isVideo != widget.isVideo) {
+      _videoGeneration++;
       _controller?.dispose();
       _controller = null;
       _ready = false;
@@ -53,22 +56,35 @@ class _ProfileDecorFrameState extends State<ProfileDecorFrame> {
   }
 
   Future<void> _initVideo() async {
+    final generation = ++_videoGeneration;
+    final url = widget.url;
     try {
-      final c = VideoPlayerController.networkUrl(
-        Uri.parse(widget.url),
-        // Decoration must never fight the room's voice or a background clip.
-        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-      );
+      // Decoration must never fight the room's voice or a background clip.
+      final options = VideoPlayerOptions(mixWithOthers: true);
+      VideoPlayerController c;
+      try {
+        final cached = await DefaultCacheManager().getSingleFile(url);
+        c = VideoPlayerController.file(cached, videoPlayerOptions: options);
+      } catch (_) {
+        c = VideoPlayerController.networkUrl(
+          Uri.parse(url), videoPlayerOptions: options);
+      }
+      if (!mounted || generation != _videoGeneration) {
+        await c.dispose();
+        return;
+      }
       _controller = c;
       await c.initialize();
       await c.setVolume(0);
       await c.setLooping(true);
-      if (!mounted) return;
+      if (!mounted || generation != _videoGeneration) return;
       setState(() => _ready = true);
       await c.play();
     } catch (_) {
       // A broken clip simply leaves the page undecorated.
-      if (mounted) setState(() => _ready = false);
+      if (mounted && generation == _videoGeneration) {
+        setState(() => _ready = false);
+      }
     }
   }
 

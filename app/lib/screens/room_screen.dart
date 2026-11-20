@@ -85,6 +85,7 @@ import '../utils/result.dart';
 import '../widgets/room/seats_grid.dart';
 import '../widgets/room/room_seats_chat_layout.dart';
 import 'package:video_player/video_player.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../models/room_event.dart';
 import '../screens/messages_screen.dart';
 import '../screens/challenges_screen.dart';
@@ -521,7 +522,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
     _seatVideoController?.dispose();
 
-    _seatVideoController = VideoPlayerController.networkUrl(Uri.parse(normalizedUrl));
+    _seatVideoController = null;
+    VideoPlayerController cachedController;
+    try {
+      final cached = await DefaultCacheManager().getSingleFile(normalizedUrl);
+      cachedController = VideoPlayerController.file(cached);
+    } catch (_) {
+      cachedController = VideoPlayerController.networkUrl(Uri.parse(normalizedUrl));
+    }
+    if (!mounted) {
+      await cachedController.dispose();
+      return;
+    }
+    _seatVideoController = cachedController;
 
     try {
       await _seatVideoController!.initialize();
@@ -5045,12 +5058,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                         const SizedBox(width: 6),
                         SizedBox(
                           key: const ValueKey('room-top-supporters'),
-                          width: 64, height: 44,
-                          child: FittedBox(child: RoomTopSupporters(
+                          width: 128, height: 54,
+                          child: RoomTopSupporters(
                             items: state.topSupporters,
                             onTap: (user) => showUserProfileCard(
                               userId: user.userId, username: user.name, avatarUrl: user.avatar),
-                          )),
+                          ),
                         )
                       ],
                       const SizedBox(width: 8),
@@ -5071,8 +5084,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       ),
 
                       // 2026-10-18 — "ده شكل الغرف فى بعض التليفونات": name gone, ID vertical on narrow phones.
-                      ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * (state.topSupporters.isEmpty ? 0.5 : 0.36)),
+                      Flexible(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: AlignmentDirectional.centerEnd,

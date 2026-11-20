@@ -84,6 +84,18 @@ void main() {
     });
   }
 
+  for (final seatCount in const [6, 7, 8, 9]) {
+    testWidgets('$seatCount seats use five per row', (tester) async {
+      await tester.pumpWidget(_grid(seatCount));
+      final cards = find.byType(SeatCard);
+      expect(cards, findsNWidgets(seatCount));
+      expect(tester.getTopLeft(cards.at(0)).dy, tester.getTopLeft(cards.at(4)).dy);
+      expect(tester.getTopLeft(cards.at(5)).dy,
+          greaterThan(tester.getTopLeft(cards.at(4)).dy));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('24 seats use five per row when the height permits', (tester) async {
     await tester.pumpWidget(_grid(24, height: 500));
     final cards = find.byType(SeatCard);

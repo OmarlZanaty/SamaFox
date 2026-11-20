@@ -4,10 +4,10 @@ const hasVipLock = (c: { minVipLevel?: number | null }) => c.minVipLevel != null
 export function isCategoryLocked(category: { minVipLevel: number | null; allowedUserIds?: number[] | null } | null): boolean {
   return !!category && (hasVipLock(category) || (category.allowedUserIds ?? []).length > 0);
 }
-export function canOpenCategory(category: { minVipLevel: number | null; allowedUserIds?: number[] | null } | null, user: { vipLevel: number; displayId: number | null } | null): boolean {
+export function canOpenCategory(category: { minVipLevel: number | null; allowedUserIds?: number[] | null } | null, user: { id?: number; vipLevel: number; displayId: number | null } | null): boolean {
   if (!isCategoryLocked(category)) return true;
   return !!user && ((hasVipLock(category!) && user.vipLevel >= category!.minVipLevel!) ||
-    (user.displayId != null && (category!.allowedUserIds ?? []).includes(user.displayId)));
+    (category!.allowedUserIds ?? []).some(id => String(id) === String(user.displayId ?? user.id)));
 }
 
 let lockColumnsPresent: boolean | undefined;

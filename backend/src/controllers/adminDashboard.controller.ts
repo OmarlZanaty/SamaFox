@@ -225,7 +225,7 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
     // Capture the standing first so we can grant exactly the tiers crossed.
     const before = await (prisma as any).user.findUnique({
       where: { id },
-      select: { level: true, vipLevel: true, xp: true, totalRecharge: true },
+      select: { id: true, name: true, level: true, vipLevel: true, xp: true, totalRecharge: true },
     });
     if (!before) return fail(res, 404, 'المستخدم غير موجود');
 
@@ -234,12 +234,14 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
     // user has now. Untouched fields must never reset counters or be clamped
     // (a legacy user above the cap keeps his level when only XP is edited).
     const data: any = {};
+    const capMessages: string[] = [];
     let xpExplicit = false;
     if (req.body?.level != null) {
       const level = Number(req.body.level);
       if (!Number.isInteger(level) || level < 1) return fail(res, 400, 'المستوى لازم يكون رقم صحيح من 1');
       if (level !== before.level) {
         const next = Math.min(level, (await getLevelMaxLevel()) ?? level);
+        if (next < level) capMessages.push(`تم ضبط المستوى على الحد الأقصى ${next}`);
         if (next !== before.level) data.level = next;
       }
     }
@@ -253,10 +255,12 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
       if (!Number.isInteger(vipLevel) || vipLevel < 0) return fail(res, 400, 'مستوى VIP لازم يكون رقم صحيح من 0');
       if (vipLevel !== before.vipLevel) {
         const next = Math.min(vipLevel, (await getVipMaxLevel()) ?? vipLevel);
+        if (next < vipLevel) capMessages.push(`تم ضبط مستوى VIP على الحد الأقصى ${next}`);
         if (next !== before.vipLevel) data.vipLevel = next;
       }
     }
     if (Object.keys(data).length === 0) {
+      if (capMessages.length) return ok(res, { data: before, message: capMessages.join('، ') });
       return fail(res, 400, req.body?.level == null && req.body?.xp == null && req.body?.vipLevel == null
         ? 'لا توجد تعديلات' : 'لا توجد تعديلات (القيم مطابقة للحالية)');
     }
@@ -317,7 +321,7 @@ export const adminUpdateUserProgression = async (req: AdminReq, res: Response) =
       await notifyLevelUp(id, updated.level).catch(() => {});
     }
 
-    return ok(res, { data: updated });
+    return ok(res, { data: updated, ...(capMessages.length ? { message: capMessages.join('، ') } : {}) });
   } catch (e: any) {
     if (e?.code === 'P2025') return fail(res, 404, 'المستخدم غير موجود');
     console.error('adminUpdateUserProgression error:', e);
@@ -2258,12 +2262,11 @@ async function deleteProgressionConfig(req: AdminReq, res: Response, vip: boolea
       const before = await (model as any).findUnique({ where: { level } });
       if (!before) return { status: 404, message: 'المستوى غير موجود' };
       const rows: { level: number; threshold: number | null }[] = await (model as any).findMany({ where: { level: { not: level } } });
-      // Only the TOP configured tier may go: removing a middle one leaves a hole
-      // that falls back to the built-in curve, which can exceed the thresholds
-      // of the tiers above it and break progression.
-      if (rows.some(row => row.level > level)) return { status: 409, message: 'احذف أعلى مستوى الأول' };
+      const isTopTier = !rows.some(row => row.level > level);
       const where = vip ? { vipLevel: level } : { level };
       const count = await tx.user.count({ where });
+      // Empty tiers may be deleted anywhere; moving users is only allowed at the top.
+      if (count && !isTopTier) return { status: 409, count, message: 'احذف أعلى مستوى الأول' };
       if (count && req.query.force !== '1') return { status: 409, count, message: `المستوى مستخدم بواسطة ${count} مستخدم` };
       const below = rows.filter(row => row.level < level).map(row => row.level);
       const fallback = Math.max(vip ? 0 : 1, ...below);
@@ -2279,7 +2282,7 @@ async function deleteProgressionConfig(req: AdminReq, res: Response, vip: boolea
       // them: the grant record and its chain/previousValue stay intact and
       // the staff expiry job still closes it normally.
       const grants = await tx.temporaryEntitlement.updateMany({
-        where: { type: vip ? 'VIP' : 'LEVEL', status: 'ACTIVE', value: { gte: level } },
+        where: { type: vip ? 'VIP' : 'LEVEL', status: 'ACTIVE', value: isTopTier ? { gte: level } : level },
         data: { value: fallback },
       });
       await (model as any).delete({ where: { level } });

@@ -124,7 +124,7 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
 
   const category = gift.category ? await loadCategoryLock(db as any, gift.category) : null;
   const categorySender = category ? await db.user.findUnique({
-    where: { id: input.senderId }, select: { vipLevel: true, displayId: true },
+    where: { id: input.senderId }, select: { id: true, vipLevel: true, displayId: true },
   }) : null;
   if (!canOpenCategory(category, categorySender)) {
     throw new GiftSendError('LOCKED_CATEGORY', 'هذه القائمة مقفولة لمستوى VIP أعلى', 403);
