@@ -1,3 +1,4 @@
+import { drawTable, advanceTable, tablePayout } from './luckyTable';
 import crypto from 'crypto';
 import type { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
@@ -296,6 +297,9 @@ interface EntryInput {
   senderId: number;
   recipientId: number;
   roomId: number | null;
+  giftValue?: number; // Unit price, before quantity and mic fan-out
+  throws?: number; // quantity times recipients
+  mics?: number; // recipients (mic count) of this entry
   giftCoins: number; // V
   hostCoins: number; // H
   // A gift to yourself enters the round like any other (owner's call,
@@ -405,6 +409,7 @@ export async function rollLucky(tx: Prisma.TransactionClient, input: EntryInput)
     });
   }
 
+  const tableDraw = await drawTable(tx, input.giftValue ?? V, input.throws ?? 1, false, input.mics ?? 1);
   const serverSeed = crypto.randomBytes(16).toString('hex');
   const serverSeedHash = rollHash(serverSeed);
 
@@ -439,7 +444,7 @@ export async function rollLucky(tx: Prisma.TransactionClient, input: EntryInput)
       poolAfter: funded.balance,
       serverSeed,
       serverSeedHash,
-      tiersSnapshot: [],
+      tiersSnapshot: tableDraw ? JSON.parse(JSON.stringify(tableDraw)) : [],
       roundId: round.id,
       programCoins,
       poolCoins,
@@ -449,8 +454,8 @@ export async function rollLucky(tx: Prisma.TransactionClient, input: EntryInput)
   });
 
   let settled: SettledEntry[] = [];
-  if (updatedRound.playerCount >= cfg.minPlayers) {
-    settled = await drawPending(tx, round.id, round.code, cfg, updatedRound.playerCount < 2);
+  if (tableDraw || updatedRound.playerCount >= cfg.minPlayers) {
+    settled = await drawPending(tx, round.id, round.code, cfg, updatedRound.playerCount < 2, tableDraw && updatedRound.playerCount < cfg.minPlayers ? own.id : undefined);
   }
 
   const mine = settled.find((s) => s.rollId === own.id);
@@ -490,9 +495,9 @@ async function netPoolContribution(tx: Prisma.TransactionClient, senderId: numbe
 
 /** Draw every pending entry of a drawable round, oldest first. `solo`: the
  *  round has a single player, whose wins are capped by his own losses. */
-async function drawPending(tx: Prisma.TransactionClient, roundId: number, roundCode: string, cfg: LuckyConfig, solo: boolean): Promise<SettledEntry[]> {
+async function drawPending(tx: Prisma.TransactionClient, roundId: number, roundCode: string, cfg: LuckyConfig, solo: boolean, onlyId?: number): Promise<SettledEntry[]> {
   const pending = await tx.luckyRoll.findMany({
-    where: { roundId, status: 'PENDING' },
+    where: { roundId, status: 'PENDING', ...(onlyId ? { id: onlyId } : {}) },
     orderBy: { id: 'asc' },
   });
   if (!pending.length) return [];
@@ -523,13 +528,21 @@ async function drawPending(tx: Prisma.TransactionClient, roundId: number, roundC
       );
     });
     const point = drawPointFromSeed(p.serverSeed, p.giftTxId);
-    const multiplier = multiplierAtPoint(point, eligible);
-    const payoutCoins = multiplier * p.giftCoins;
+    const snapshot = p.tiersSnapshot as any;
+    const multiplier = snapshot?.mode === 'table' ? snapshot.multiplier : multiplierAtPoint(point, eligible);
+    let payoutCoins = multiplier * p.giftCoins;
+    let capped = false;
+    if (snapshot?.mode === 'table') {
+      const win = tablePayout(multiplier, Number(snapshot.giftValue), Number(snapshot.mics ?? 1));
+      const limit = Math.min(cfg.maxWin, Number(available > 2_000_000_000n ? 2_000_000_000n : available), 2_000_000_000);
+      payoutCoins = Math.max(0, Math.min(win, limit));
+      capped = payoutCoins < win;
+    }
 
     let poolAfter = pool;
     if (payoutCoins > 0) {
       const paid = await tx.luckyPool.updateMany({
-        where: { id: 1, balance: { gte: BigInt(payoutCoins) } },
+        where: { id: 1, balance: { gte: BigInt(payoutCoins) + floor } },
         data: { balance: { decrement: BigInt(payoutCoins) }, totalOut: { increment: BigInt(payoutCoins) } },
       });
       if (paid.count !== 1) throw new Error('lucky: pool could not cover payout');
@@ -547,7 +560,7 @@ async function drawPending(tx: Prisma.TransactionClient, roundId: number, roundC
         payoutCoins,
         poolBefore: pool,
         poolAfter,
-        tiersSnapshot: eligible.map((t) => ({ multiplier: t.multiplier, weightBp: t.weightBp })),
+        tiersSnapshot: snapshot?.mode === 'table' ? { ...snapshot, payout: payoutCoins, capped } : eligible.map((t) => ({ multiplier: t.multiplier, weightBp: t.weightBp })),
         status: 'SETTLED',
         settledAt: new Date(),
       },
@@ -583,7 +596,10 @@ export function verifyRoll(roll: {
   // Round entries (2026-09-26 on) draw from the seed; the older instant rolls
   // drew from the hash itself.
   const point = roll.roundId != null && roll.giftTxId ? drawPointFromSeed(roll.serverSeed, roll.giftTxId) : rollPointFromHash(hash);
-  const multiplier = multiplierAtPoint(point, tiers);
+  const snapshot = roll.tiersSnapshot as any;
+  const multiplier = snapshot?.mode === 'table'
+    ? advanceTable(snapshot.thresholds, snapshot.previousTier, snapshot.previousCounter, snapshot.throws).multiplier
+    : multiplierAtPoint(point, tiers);
   return {
     hashMatches: hash === roll.serverSeedHash,
     point,

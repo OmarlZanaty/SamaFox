@@ -70,18 +70,12 @@ export const uploadImage = async (req: Request, res: Response) => {
       }
     }
 
-    // Shrink before anyone downloads it: chat pictures and room backgrounds
-    // are capped at 1600px and re-encoded as WebP; a GIF keeps its size and
-    // gets a real palette. Whatever fails leaves the original in place.
-    // A GIF is also brought within the role policy (pixels + frames); the
-    // dashboard passes ?gifRole= for product art, everything else is treated
-    // as a background (the largest allowance). Beyond the hard ceiling the
-    // file is refused with the reason instead of shipped to every phone.
+    // Cap still uploads at 1024px; preserve animated GIF/WebP bytes.
     const roleParam = String(req.query.gifRole ?? '').trim() as GifRole;
     const gifRole: GifRole = (roleParam in GIF_POLICY) ? roleParam : 'bg';
     let opt;
     try {
-      opt = await optimizeUpload(file.path, { resizeTo: 1600, gifRole });
+      opt = await optimizeUpload(file.path, { resizeTo: 1024, gifRole });
     } catch (e) {
       await fsp.unlink(file.path).catch(() => {});
       return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });

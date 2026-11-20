@@ -487,39 +487,26 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         ),
       );
 
-  /// One screen, no scrolling. The wheel spans the machine's full width
-  /// (the button rails moved into the meta bar) unless the phone is short,
-  /// in which case it takes the height that is left.
+  /// Reserve space for controls; the wheel uses the remaining safe-area height.
   Widget _game(int balance, int? userId) => LayoutBuilder(
         builder: (context, box) {
-          // The room's games card is about square.
           if (box.maxWidth > box.maxHeight * .75 && box.maxHeight < 700) {
             return _roomGame(balance, box);
           }
-          final width = min(box.maxWidth, 560.0);
-          // Fits one screen from 640 px tall; only tiny phones (iPhone SE 1st
-          // gen) scroll, and then a 640-tall layout rather than a squashed one.
-          return SingleChildScrollView(
-            physics: box.maxHeight >= 640
-                ? const NeverScrollableScrollPhysics()
-                : null,
-            child: Center(
-              child: SizedBox(
-                width: width,
-                height: max(box.maxHeight, 640),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Column(
-                    children: [
-                      _header(balance),
-                      _metaBar(userId),
-                      const SizedBox(height: 6),
-                      _socialStrip(),
-                      const SizedBox(height: 8),
-                      Expanded(child: _machine()),
-                      const SizedBox(height: 6),
-                    ],
-                  ),
+          return Center(
+            child: SizedBox(
+              width: min(box.maxWidth, 560.0),
+              height: box.maxHeight,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Column(
+                  children: [
+                    _header(balance),
+                    _metaBar(userId),
+                    const SizedBox(height: 8),
+                    Expanded(child: _machine()),
+                    const SizedBox(height: 6),
+                  ],
                 ),
               ),
             ),
@@ -533,7 +520,8 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
   Widget _roomGame(int balance, BoxConstraints box) {
     const cardsH = 92.0, barH = 50.0, side = 44.0;
     final stageH = max(0.0, box.maxHeight - cardsH - barH - 18);
-    final wheel = min(box.maxWidth - 2 * side - 8, stageH);
+    // Leave room for the pointer above the circular wheel.
+    final wheel = min(box.maxWidth - 2 * side - 12, stageH / 1.06);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Column(
@@ -562,6 +550,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                       ),
                       Expanded(
                         child: Container(
+                          key: const ValueKey('fruit-history'),
                           margin: const EdgeInsets.only(top: 3),
                           width: 34,
                           decoration: BoxDecoration(
@@ -569,19 +558,18 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                             color: fwPurpleDeep.withValues(alpha: .8),
                             border: Border.all(color: fwPurpleLight.withValues(alpha: .7)),
                           ),
-                          child: ListView.builder(
+                          child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4),
-                            itemCount: _ticker.length,
-                            itemBuilder: (_, i) => Semantics(
-                              label: _ticker[i].map((card) => card == 'crown' ? '—' : _s.text(card)).join(' + '),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 1),
-                                child: Column(
-                                  children: [
-                                    for (final card in _ticker[i]) FruitArt(card, size: i == 0 ? 28 : 24),
-                                  ],
-                                ),
-                              ),
+                            child: Column(
+                              children: [
+                                for (var i = 0; i < _ticker.length; i++)
+                                  Expanded(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: _historyResult(i),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ),
@@ -720,6 +708,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
     final won = winning && state?.bonus == null ? _payout : 0;
     final bottom = won > 0 ? '+${fruitCompact(won)}' : fruitCompact(mine);
     return Semantics(
+      key: ValueKey('fruit-bet-$card'),
       button: true,
       label:
           '${_s.text(card)} ${fruitMultiplierLabel(_multipliers[card]!)}, ${_s.text('yourBet')}: $mine',
@@ -943,84 +932,6 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
     );
   }
 
-  Widget _socialStrip() => Semantics(
-        button: true,
-        label: _s.text('leaders'),
-        child: GestureDetector(
-          onTap: _openLeaders,
-          child: Container(
-            height: 66,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: LinearGradient(
-                colors: [
-                  fwPurpleDeep.withValues(alpha: .9),
-                  fwPinkDark.withValues(alpha: .5),
-                ],
-              ),
-            ),
-            child: _leaders.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        _s.text('emptyBoard'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: fwCream, fontSize: 14),
-                      ),
-                    ),
-                  )
-                : ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    children: [
-                      for (final e in _leaders.take(6))
-                        SizedBox(
-                          width: 64,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Tooltip(
-                                message: e['name']?.toString() ?? '',
-                                child: Container(
-                                  padding: const EdgeInsets.all(2),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: const LinearGradient(
-                                      colors: [fwGold, fwPink],
-                                    ),
-                                    boxShadow: [
-                                      if (e == _leaders.first)
-                                        const BoxShadow(
-                                          color: fwGold,
-                                          blurRadius: 8,
-                                        ),
-                                    ],
-                                  ),
-                                  child: fruitAvatar(
-                                    e['avatarUrl']?.toString(),
-                                    e['name']?.toString() ?? '',
-                                    34,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                '🔥 ${fruitCompact((e['net'] as num?)?.toInt() ?? 0)}',
-                                style: const TextStyle(
-                                  color: fwGold,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-          ),
-        ),
-      );
-
   Widget _machine() => Container(
         padding: const EdgeInsets.fromLTRB(8, 12, 8, 10),
         decoration: BoxDecoration(
@@ -1049,66 +960,69 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
             // The wheel takes every pixel the cards and chips leave.
             Expanded(
               child: Center(
-                child: AspectRatio(
-                  aspectRatio: 1,
-                  child: LayoutBuilder(
-                    builder: (context, square) {
-                      final wheel = square.maxWidth;
-                      return Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Positioned.fill(child: _wheel()),
-                          // The round's outcome as a plaque over the bottom of the wheel.
-                          if (_notice != null)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: wheel * .06,
-                              child: IgnorePointer(
-                                child: Center(
-                                  child: TweenAnimationBuilder<double>(
-                                    key: ValueKey(_notice),
-                                    tween: Tween(begin: 0, end: 1),
-                                    duration: Duration(
-                                      milliseconds: _reduced ? 0 : 420,
-                                    ),
-                                    curve: Curves.easeOutBack,
-                                    builder: (_, t, child) => Opacity(
-                                      opacity: t.clamp(0.0, 1.0),
-                                      child: Transform.scale(
-                                        scale: .8 + .2 * t,
-                                        child: child,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: LayoutBuilder(
+                      builder: (context, square) {
+                        final wheel = square.maxWidth;
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Positioned.fill(child: _wheel()),
+                            // The round's outcome as a plaque over the bottom of the wheel.
+                            if (_notice != null)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: wheel * .06,
+                                child: IgnorePointer(
+                                  child: Center(
+                                    child: TweenAnimationBuilder<double>(
+                                      key: ValueKey(_notice),
+                                      tween: Tween(begin: 0, end: 1),
+                                      duration: Duration(
+                                        milliseconds: _reduced ? 0 : 420,
                                       ),
-                                    ),
-                                    child: Semantics(
-                                      liveRegion: true,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 7,
+                                      curve: Curves.easeOutBack,
+                                      builder: (_, t, child) => Opacity(
+                                        opacity: t.clamp(0.0, 1.0),
+                                        child: Transform.scale(
+                                          scale: .8 + .2 * t,
+                                          child: child,
                                         ),
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(18),
-                                          color: const Color(0xEE1F0A3D),
-                                          border: Border.all(
-                                            color: fwGold,
-                                            width: 1.5,
+                                      ),
+                                      child: Semantics(
+                                        liveRegion: true,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 7,
                                           ),
-                                          boxShadow: const [
-                                            BoxShadow(
-                                              color: Colors.black54,
-                                              blurRadius: 10,
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(18),
+                                            color: const Color(0xEE1F0A3D),
+                                            border: Border.all(
+                                              color: fwGold,
+                                              width: 1.5,
                                             ),
-                                          ],
-                                        ),
-                                        child: Text(
-                                          _notice!,
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            color: fwCream,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w800,
+                                            boxShadow: const [
+                                              BoxShadow(
+                                                color: Colors.black54,
+                                                blurRadius: 10,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            _notice!,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: fwCream,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w800,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -1116,10 +1030,10 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
-                      );
-                    },
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -1151,6 +1065,7 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
       );
 
   Widget _wheel() => AspectRatio(
+        key: const ValueKey('fruit-wheel'),
         aspectRatio: 1,
         child: LayoutBuilder(
           builder: (context, box) {
@@ -1338,192 +1253,79 @@ class FruitWheelScreenState extends ConsumerState<FruitWheelScreen>
         ),
       );
 
-  Widget _tickerView() => Container(
-        height: 46,
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(23),
-          border: Border.all(color: const Color(0xFFD9D4E8), width: 1.5),
-          gradient: const LinearGradient(colors: [fwPurpleDeep, fwPurple]),
-        ),
+  Widget _historyResult(int i) => Semantics(
+        label: _ticker[i]
+            .map((card) => card == 'crown' ? '?' : _s.text(card))
+            .join(' + '),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: fwRed,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                _s.text('new'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _ticker.length,
-                itemBuilder: (_, i) => Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Container(
-                    decoration: i == 0
-                        ? BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: fwGold.withValues(alpha: .8),
-                                blurRadius: 10,
-                              ),
-                            ],
-                          )
-                        : null,
-                    child: Semantics(
-                      label: _ticker[i].map((card) => card == 'crown' ? '—' : _s.text(card)).join(' + '),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (final card in _ticker[i])
-                            FruitArt(card, size: i == 0 ? 34 : 28),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            for (final card in _ticker[i]) FruitArt(card, size: 28),
           ],
         ),
       );
 
-  Widget _cards() => LayoutBuilder(
-        builder: (context, box) {
-          final narrow = box.maxWidth < 300;
-          final cardWidth = narrow ? 104.0 : (box.maxWidth - 16) / 3;
-          final row = Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              for (final card in fruitCards)
-                SizedBox(width: cardWidth, child: _card(card)),
-            ],
-          );
-          return narrow
-              ? SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(width: cardWidth * 3 + 16, child: row),
-                )
-              : row;
-        },
+  Widget _tickerView() => Container(
+        key: const ValueKey('fruit-history'),
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: fwPurpleLight),
+          color: fwPurpleDeep,
+        ),
+        child: Row(
+          children: [
+            Text(_s.text('new'),
+                style: const TextStyle(color: fwGold, fontSize: 10)),
+            const SizedBox(width: 4),
+            for (var i = 0; i < _ticker.length; i++)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 1),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: _historyResult(i),
+                  ),
+                ),
+              ),
+          ],
+        ),
       );
 
-  Widget _card(String card) {
-    final mine = bets[card];
-    final winning = state?.phase == 'result' && state!.results.contains(card);
-    // A bonus payout is a round total; show it in the hub and winners dialog.
-    final won = winning && state?.bonus == null ? _payout : 0;
-    final glow = winning ? _glow.value : 0.0;
-    final bottom = won > 0 ? '+$won' : '$mine';
-    return Semantics(
-      button: true,
-      label:
-          '${_s.text(card)} ${fruitMultiplierLabel(_multipliers[card]!)}, ${_s.text('yourBet')}: $mine${won > 0 ? ', ${_s.text('won')} $won' : ''}',
-      child: _Pressable(
-        onTap: _busy ? null : () => placeChip(card),
-        child: AnimatedBuilder(
-          animation: _glow,
-          builder: (context, _) => Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFF6A23B8), fwPurpleDeep],
+  Widget _cards() => SizedBox(
+        height: 82,
+        child: Row(
+          children: [
+            for (final card in fruitCards)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: _roomCard(card),
+                ),
               ),
-              border: Border.all(
-                color: winning ? fwCream : fwGold,
-                width: winning ? 3 : 2,
-              ),
-              boxShadow: [
-                if (winning)
-                  BoxShadow(
-                    color: fwGold.withValues(alpha: .8 * glow),
-                    blurRadius: 18,
-                    spreadRadius: 2,
-                  ),
-                const BoxShadow(
-                  color: Colors.black45,
-                  blurRadius: 6,
-                  offset: Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Tooltip(
-                  message: _s.text('totalBet'),
-                  child: Text(
-                    fruitCompact(state?.totals[card] ?? 0),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                FruitArt('capsule_$card', size: 58),
-                Text(
-                  fruitMultiplierLabel(_multipliers[card]!),
-                  style: const TextStyle(
-                    color: fwGold,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    shadows: [Shadow(color: fwGoldDark, offset: Offset(0, 2))],
-                  ),
-                ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  transitionBuilder: (child, a) =>
-                      ScaleTransition(scale: a, child: child),
-                  child: Text(
-                    bottom,
-                    key: ValueKey(bottom),
-                    style: TextStyle(
-                      color: won > 0 ? fwGreen : fwCream,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
-      ),
-    );
-  }
+      );
 
   Widget _chipRow() => Row(
         children: [
           Expanded(
-            child: Wrap(
-              alignment: WrapAlignment.spaceEvenly,
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final chip in _chips)
-                  _Chip(
-                    value: chip,
-                    selected: chip == _chip,
-                    onTap: _busy ? null : () => _pickChip(chip),
-                  ),
-              ],
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                children: [
+                  for (final chip in _chips)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: _Chip(
+                        value: chip,
+                        selected: chip == _chip,
+                        onTap: _busy ? null : () => _pickChip(chip),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           Semantics(
@@ -1654,6 +1456,7 @@ class _Chip extends StatelessWidget {
     final label = value >= 1000 ? '${value ~/ 1000}K' : '$value';
     final size = selected ? 52.0 : 44.0;
     return Semantics(
+      key: ValueKey('fruit-chip-$value'),
       button: true,
       selected: selected,
       label: '$value',

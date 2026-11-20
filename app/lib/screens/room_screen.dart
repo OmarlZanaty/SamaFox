@@ -53,7 +53,7 @@ import '../widgets/mic_perfect_badge.dart';
 import '../utils/result.dart' show Result;
 import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
-import '../gifts/widgets/gift_announcement_bar.dart';
+import '../widgets/room/room_gift_announcement_text.dart';
 import '../gifts/widgets/lucky_win_banner.dart';
 import '../widgets/room/entrance_banner_layer.dart';
 import '../widgets/room/mic_queue_panel.dart';
@@ -67,7 +67,8 @@ import '../gifts/services/gift_repository.dart';
 import '../gifts/services/gift_socket_service.dart';
 import '../gifts/models/gift.dart' show GiftSendEvent;
 import '../gifts/widgets/gift_picker_sheet.dart';
-import '../gifts/widgets/gift_animation_overlay.dart';
+import '../widgets/room/room_gift_animation_overlay.dart';
+import '../widgets/room/room_sound_settings.dart';
 import '../gifts/widgets/video_gift_player.dart' show AsUploadedVideo;
 import 'dart:ui';
 import 'package:image_picker/image_picker.dart';
@@ -492,10 +493,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     });
   }
 
+  late final RoomSoundSettings _soundSettings;
+
   void _updateEntryVolume() {
     final controller = _seatVideoController;
     if (controller != null && controller.value.isInitialized) {
-      unawaited(controller.setVolume(EffectsPrefs.instance.entrySoundsOn.value
+      unawaited(controller.setVolume(_soundSettings.entrySoundsOn
           ? AudioRoute.instance.effectiveVolume : 0.0));
     }
   }
@@ -547,7 +550,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
       return;
     }
 
-    await _seatVideoController!.setVolume(AudioRoute.instance.roomMuted.value || !EffectsPrefs.instance.entrySoundsOn.value ? 0.0 : AudioRoute.instance.effectiveVolume);
+    await _seatVideoController!.setVolume(AudioRoute.instance.roomMuted.value || !_soundSettings.entrySoundsOn ? 0.0 : AudioRoute.instance.effectiveVolume);
 
     if (!mounted) {
       _isPlayingEffect = false;
@@ -1740,7 +1743,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     // subscribes to.
     await VoiceEngine.instance.setRemoteVolume(next ? 0 : _volumeLevel);
     if (_seatVideoController != null) {
-      await _seatVideoController!.setVolume(next || !EffectsPrefs.instance.entrySoundsOn.value ? 0 : _volumeLevel);
+      await _seatVideoController!.setVolume(next || !_soundSettings.entrySoundsOn ? 0 : _volumeLevel);
     }
     _showRoomSnack(next ? tr('تم كتم صوت الغرفة لديك فقط', "Room muted for you only") : tr('تم إلغاء كتم صوت الغرفة', "Room unmuted"));
   }
@@ -2625,7 +2628,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // level survives a restart instead of springing back to full.
                 await AudioRoute.instance.setMasterVolume(tempVolume);
                 if (_seatVideoController != null) {
-                  await _seatVideoController!.setVolume(EffectsPrefs.instance.entrySoundsOn.value && !AudioRoute.instance.roomMuted.value ? tempVolume : 0.0);
+                  await _seatVideoController!.setVolume(_soundSettings.entrySoundsOn && !AudioRoute.instance.roomMuted.value ? tempVolume : 0.0);
                 }
                 // A24 — the room VOICE is what the user is actually turning
                 // down. Without this the slider only ever touched effects and
@@ -2800,18 +2803,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     _showRoomSnack(next ? tr('تم التحويل إلى السماعة الخارجية', "Switched to speaker") : tr('تم التحويل إلى سماعة الأذن', "Switched to earpiece"));
   }
 
-  void _openSoundEffectsDialog(BuildContext context) {
-    final room = ref.read(roomsProvider).findById(widget.roomId);
+  Future<void> _openSoundEffectsDialog(BuildContext context) async {
+    await _soundSettings.refresh();
+    if (!mounted) return;
     final state = ref.read(roomControllerProvider(widget.roomId));
     final me = ref.read(authStateProvider).user?.id;
     final canModerate = me != null && (state.ownerId == me || state.adminIds.contains(me));
-    bool muteGifts = room?.giftSoundsMuted ?? false;
-    bool muteEntrance = room?.entranceSoundsMuted ?? false;
+    bool? muteGifts;
+    bool? muteEntrance;
 
     showDialog(
       context: context,
       builder: (_) {
-        return AlertDialog(
+        return AnimatedBuilder(
+          animation: _soundSettings,
+          builder: (context, _) => AlertDialog(
           backgroundColor: const Color(0xFF2A1655),
           title: Text(tr('المؤثرات الصوتية', "Sound effects"), style: TextStyle(color: Colors.white)),
           content: StatefulBuilder(
@@ -2864,12 +2870,12 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     child: Text(tr('للغرفة كلها (للمشرف)', 'Whole room (moderator)'), style: TextStyle(color: Colors.white54, fontSize: 12)),
                   ),
                   SwitchListTile.adaptive(
-                    value: !muteGifts,
+                    value: !(muteGifts ?? _soundSettings.muteGiftSounds),
                     onChanged: (value) => setModalState(() => muteGifts = !value),
                     title: Text(tr('أصوات الهدايا', "Gift sounds"), style: TextStyle(color: Colors.white)),
                   ),
                   SwitchListTile.adaptive(
-                    value: !muteEntrance,
+                    value: !(muteEntrance ?? _soundSettings.muteEntranceSounds),
                     onChanged: (value) => setModalState(() => muteEntrance = !value),
                     title: Text(tr('أصوات الدخول', "Entrance sounds"), style: TextStyle(color: Colors.white)),
                   ),
@@ -2889,15 +2895,17 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             if (canModerate) ElevatedButton(
               onPressed: () async {
                 try {
+                  final giftsMuted = muteGifts ?? _soundSettings.muteGiftSounds;
+                  final entranceMuted = muteEntrance ?? _soundSettings.muteEntranceSounds;
                   await _api.toggleSoundSettings({
                     'roomId': widget.roomId,
                     'room_id': widget.roomId,
-                    'muteGiftSounds': muteGifts,
-                    'mute_gift_sounds': muteGifts,
-                    'muteEntranceSounds': muteEntrance,
-                    'mute_entrance_sounds': muteEntrance,
+                    'muteGiftSounds': giftsMuted,
+                    'mute_gift_sounds': giftsMuted,
+                    'muteEntranceSounds': entranceMuted,
+                    'mute_entrance_sounds': entranceMuted,
                   });
-                  await _refreshRoomData();
+                  _soundSettings.update(giftsMuted: giftsMuted, entranceMuted: entranceMuted);
                   if (mounted) Navigator.pop(context);
                   _showRoomSnack(tr('تم حفظ إعدادات المؤثرات الصوتية', "Sound effect settings saved"));
                 } catch (e) {
@@ -2908,7 +2916,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
               child: Text(tr('حفظ للغرفة كلها', 'Save for whole room')),
             ),
           ],
-        );
+        ));
       },
     );
   }
@@ -3191,7 +3199,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     CrashReporter.breadcrumb('room ${widget.roomId} enter');
     CrashReporter.setRoom(widget.roomId);
     super.initState();
-    EffectsPrefs.instance.entrySoundsOn.addListener(_updateEntryVolume);
+    _soundSettings = RoomSoundSettings(widget.roomId)..addListener(_updateEntryVolume);
+    AudioRoute.instance.roomMuted.addListener(_updateEntryVolume);
     _recordingSub = ScreenRecordService.instance.events.listen((state) {
       if (mounted) setState(() => _isScreenRecording = state['recording'] == true);
     });
@@ -3735,7 +3744,9 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
-    EffectsPrefs.instance.entrySoundsOn.removeListener(_updateEntryVolume);
+    AudioRoute.instance.roomMuted.removeListener(_updateEntryVolume);
+    _soundSettings.removeListener(_updateEntryVolume);
+    _soundSettings.dispose();
     _effectsLayout.dispose();
     _topBarsHeight.dispose();
     _foregroundBarsHeight.dispose();
@@ -5185,6 +5196,19 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 ),
 
 
+                // Wins sit directly below the header, above every mic.
+                LuckyWinBanner(
+                  socket: _giftSocket,
+                  roomId: widget.roomId,
+                  myUserId: userId,
+                  onMyWin: () async {
+                    await ref.read(authStateProvider.notifier).refreshUser();
+                    final u = ref.read(authStateProvider).user;
+                    final coins = u?.coinsBalance ?? u?.coins;
+                    if (coins != null) GiftPickerSheet.liveBalance.value = coins;
+                  },
+                ),
+
                 // SPEC52 #39 — real game wins of people in this room.
                 RoomGameWinStrip(key: const ValueKey('room-win-strip'), roomId: widget.roomId),
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
@@ -5297,7 +5321,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 // ✅ Seats area NOT full screen (fixed height)
                 Expanded(
                   child: Padding(
-                    padding: EdgeInsets.only(bottom: bottomBarH + 10 + 55 + _navInset),
+                    padding: EdgeInsets.only(bottom: bottomBarH + 10 + _navInset),
                     child: RoomSeatsChatLayout(
                       seatCount: state.seatCount,
                       seats: Stack(
@@ -5753,25 +5777,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             // ===== Gift overlay (above seats, below the bars painted later).
             // Full screen, not clipped under the top bars (client 10/11 16:00).
             Positioned.fill(
-              child: GiftAnimationOverlay(
+              child: RoomSoundScope(
+                settings: _soundSettings,
+                child: GiftAnimationOverlay(
                 socket: _giftSocket,
                 resolvePosition: _getSeatPositionByUser,
                 bannersTop: _foregroundBarsHeight,
-              ),
-            ),
-
-            // ===== هدايا الحظ: "كسب ×N" in the middle of the screen, one at a
-            // time, for every win in this room (and the sender's own loss).
-            LuckyWinBanner(
-              socket: _giftSocket,
-              roomId: widget.roomId,
-              myUserId: userId,
-              onMyWin: () async {
-                await ref.read(authStateProvider.notifier).refreshUser();
-                final u = ref.read(authStateProvider).user;
-                final coins = u?.coinsBalance ?? u?.coins;
-                if (coins != null) GiftPickerSheet.liveBalance.value = coins;
-              },
+              )),
             ),
 
             // Keyed: these appear and disappear, and an unkeyed Positioned
@@ -5800,30 +5812,10 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 },
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   topBars,
+                  RoomGiftAnnouncementText(socket: _giftSocket, roomId: widget.roomId),
                   EntranceBannerLayer(roomId: widget.roomId),
                 ]),
               ),
-            ),
-
-            // ===== A22: شريط إعلان الهدية — one at a time, ~1.5s. Deliberately
-            // NOT at the top: the client's complaint was that the notifications
-            // kept covering the gift bar up there. D6/D9: right for the sender,
-            // centred for everyone else — see GiftAnnouncementBar.myUserId.
-            ValueListenableBuilder<double>(
-              valueListenable: _foregroundBarsHeight,
-              // Keep the gift announcement below the entrance even when the
-              // header grows. Its sender/recipient alignment is unchanged.
-              builder: (_, height, child) => Positioned.fill(
-                top: height,
-                child: child!,
-              ),
-              child: Stack(children: [
-                GiftAnnouncementBar(
-                  socket: _giftSocket,
-                  roomId: widget.roomId,
-                  myUserId: userId,
-                ),
-              ]),
             ),
 
             // ===== Music control bar — draggable, only for owner/admins, and

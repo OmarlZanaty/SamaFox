@@ -2966,3 +2966,15 @@ model UserSpecialId {
   @@index([status, expiresAt])
   @@map("user_special_ids")
 }
+
+// Global sequential ladder per unit gift price. Test counters never affect live draws.
+model LuckyControlRow {
+  giftValue   Int @id
+  thresholds Int[]
+  tier        Int @default(0)
+  counter     Int @default(0)
+  testTier    Int @default(0)
+  testCounter Int @default(0)
+
+  @@map("lucky_control_rows")
+}

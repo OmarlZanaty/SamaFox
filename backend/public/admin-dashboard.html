@@ -1366,6 +1366,22 @@
 
     <!-- ============= هدايا الحظ ============= -->
     <section class="section" id="section-lucky">
+      <div class="form-card">
+        <h3>جدول مضاعفات المحظوظ</h3>
+        <p>عداد عالمي لكل قيمة هدية؛ الرميات = الكمية × المايكات. المكسب المزدوج = المضاعف الداخلي × الخارجي.</p>
+        <button class="btn btn-outline" onclick="lctLoad()">عرض / تحديث الجدول</button>
+        <button class="btn btn-outline" onclick="lctAdd()">إضافة قيمة هدية</button>
+        <button class="btn btn-outline" onclick="lctReset()">تصفير الكل</button>
+        <label><input type="checkbox" id="lctTest" onchange="document.getElementById('lctSimulation').hidden=!this.checked"> وضع التجربة (حوض وهمي فقط)</label>
+        <div id="lctSimulation" hidden>
+          <input id="lctValue" type="number" min="1" placeholder="قيمة الهدية">
+          <input id="lctQuantity" type="number" min="1" value="1" aria-label="الكمية">
+          <input id="lctMics" type="number" min="1" value="1" aria-label="عدد المايكات">
+          <button class="btn btn-outline" onclick="lctSimulate()">رمي تجريبي</button>
+          <output id="lctResult"></output>
+        </div>
+        <div style="overflow-x:auto"><table class="data-table" id="lctTable"><thead></thead><tbody></tbody></table></div>
+      </div>
       <div class="section-header">
         <div>
           <h2 class="section-title">الألعاب / إدارة المحظوظ</h2>
@@ -1841,7 +1857,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           إعدادات قوة الحساب (CP) والتارجت
         </div>
-        <div class="form-row"><label>حجم الشارات (بكسل)</label><input id="badgeSize" type="number" min="16" max="48" value="26" class="form-input" /></div>
+        <div class="form-row"><label>حجم الشارات (بكسل)</label><input id="badgeSize" type="number" min="16" max="48" value="32" class="form-input" /></div>
         <div class="form-row">
           <label class="settings-hint" style="min-width:220px">نقاط CP لكل كوين (هدايا CP)</label>
           <input id="cpPerCoin" type="number" step="0.1" class="form-input" placeholder="1" />
@@ -2597,5 +2613,6 @@
   void loadChargingWalletFreeze();
 })();
 </script>
+  <script src="lucky-table-admin.js"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../config/app_config.dart';
 import '../utils/logger.dart';
+import '../l10n/tr.dart';
 import 'crash_reporter.dart';
 import 'token_refresher.dart';
 import '../models/incoming_message.dart';
@@ -1439,6 +1440,8 @@ class SocketService {
         _sendDesiredMute(roomId, payload, retry + 1);
       } else {
         _desiredMuted.remove(roomId); // retries exhausted
+        _emitError(tr('تعذر تغيير حالة المايك، تأكد من الإنترنت',
+            'Could not change mic state, check your internet'));
       }
     });
     _socket!.emitWithAck('toggle_mute', payload, ack: (dynamic ack) {

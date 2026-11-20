@@ -3065,7 +3065,7 @@ async function loadAll() {
       const res = await apiFetch("/settings");
       const s = (res && res.data) || {};
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-      set("badgeSize", s.badge_size ?? "26");
+      set("badgeSize", s.badge_size ?? "32");
       set("cpPerCoin", s.cp_per_coin ?? "1");
       set("cpTargetPerDollar", s.target_coins_per_dollar ?? "10000");
       set("cpLevelMultiplier", s.level_multiplier ?? "1.5");
@@ -3082,7 +3082,7 @@ async function loadAll() {
     try {
       const val = (id) => (document.getElementById(id) || {}).value;
       const body = {
-        badge_size: val("badgeSize") || "26",
+        badge_size: val("badgeSize") || "32",
         cp_per_coin: val("cpPerCoin") || "1",
         target_coins_per_dollar: val("cpTargetPerDollar") || "10000",
         level_multiplier: val("cpLevelMultiplier") || "1.5",

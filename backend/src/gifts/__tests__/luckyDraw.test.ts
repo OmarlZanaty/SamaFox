@@ -54,7 +54,7 @@ function fakeTx(opts: { pool: bigint; tiers: { multiplier: number; weightBp: num
         rolls.push(r);
         return { id: r.id };
       },
-      findMany: async ({ where }: any) => rolls.filter((r) => r.roundId === where.roundId && r.status === where.status),
+      findMany: async ({ where }: any) => rolls.filter((r) => r.roundId === where.roundId && r.status === where.status && (where.id == null || r.id === where.id)),
       update: async ({ where, data }: any) => apply(rolls.find((r) => r.id === where.id)!, data),
       updateMany: async () => ({ count: 0 }),
       aggregate: async ({ where }: any) => {
@@ -151,4 +151,39 @@ test('a lucky gift to every mic is one draw on the whole amount', async () => {
   assert.equal(r.own.payoutCoins, 20_000, 'x5 on 4 × 1000, not on 1000');
   assert.equal(rolls.filter((x) => x.senderId === 1).length, 1, 'one entry for the four mics');
   assert.equal(wins.filter((w) => w.userId === 1).length, 1);
+});
+
+
+test('configured unit-price ladder overrides probabilities, counts all mics, and pays the whole batch', async () => {
+  const { tx, rolls, wins } = fakeTx({ pool: 1_000_000n, tiers: [{ multiplier: 500, weightBp: 10000 }] });
+  const row = { giftValue: 10, thresholds: Array(14).fill(100), tier: 0, counter: 95, testTier: 0, testCounter: 0 };
+  tx.$queryRaw = async (_sql: unknown, value: number) => value === 10 ? [{ ...row }] : [];
+  tx.$executeRaw = async (_sql: unknown, tier: number, counter: number) => { row.tier = tier; row.counter = counter; return 1; };
+  const result = await rollLucky(tx, { giftTxId: 'table-batch', senderId: 1, recipientId: 2, roomId: 1,
+    giftCoins: 50, giftValue: 10, throws: 5, mics: 5, hostCoins: 5, cfg: LUCKY_DEFAULTS });
+  assert.equal(result.own.status, 'SETTLED', 'global table does not wait for room competition');
+  assert.equal(result.own.multiplier, 5, 'does not use the legacy x500 probability');
+  assert.equal(result.own.payoutCoins, 250, '5 x unit price 10 x five mics');
+  assert.equal(row.counter, 0); assert.equal(row.tier, 1);
+  assert.equal(rolls[0]!.tiersSnapshot.mode, 'table'); assert.equal(wins.length, 1);
+  const next = await rollLucky(tx, { giftTxId: 'table-next', senderId: 1, recipientId: 2, roomId: 2,
+    giftCoins: 20, giftValue: 10, throws: 2, hostCoins: 2, cfg: LUCKY_DEFAULTS });
+  assert.equal(next.own.multiplier, 0); assert.equal(row.counter, 2, 'same unit-price counter across rooms');
+});
+
+import { tablePayout as _tablePayout } from '../luckyTable';
+test('table payout is multiplier x unit price x mics (never x quantity again)', () => {
+  assert.equal(_tablePayout(500, 10, 3), 15000);
+  assert.equal(_tablePayout(5, 100, 0), 500);
+});
+
+test('table payout is clamped by maxWin and never throws when the pool is short', async () => {
+  const { tx, rolls } = fakeTx({ pool: 1_000_000n, tiers: [{ multiplier: 500, weightBp: 10000 }] });
+  const row = { giftValue: 10, thresholds: Array(14).fill(100), tier: 0, counter: 95, testTier: 0, testCounter: 0 };
+  tx.$queryRaw = async (_sql: unknown, value: number) => value === 10 ? [{ ...row }] : [];
+  tx.$executeRaw = async (_sql: unknown, tier: number, counter: number) => { row.tier = tier; row.counter = counter; return 1; };
+  const r = await rollLucky(tx, { giftTxId: 'table-cap', senderId: 1, recipientId: 2, roomId: 1,
+    giftCoins: 50, giftValue: 10, throws: 5, mics: 5, hostCoins: 5, cfg: { ...LUCKY_DEFAULTS, maxWin: 100 } });
+  assert.equal(r.own.payoutCoins, 100);
+  assert.equal(rolls[0]!.tiersSnapshot.capped, true);
 });

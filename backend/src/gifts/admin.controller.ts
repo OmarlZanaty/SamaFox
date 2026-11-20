@@ -2,7 +2,7 @@ import { parseCategoryLock, type CategoryLock } from './categoryAccess';
 import { recordAdminAuditStrict } from '../services/adminAudit.service';
 import type { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
-import { optimizeImage, optimizeGif, createGiftFallback } from '../utils/mediaOptimize';
+import { optimizeImage, optimizeUpload, createGiftFallback } from '../utils/mediaOptimize';
 import path from 'path';
 import fs from 'fs/promises';
 import prisma from '../utils/prisma';
@@ -338,9 +338,15 @@ export async function uploadIcon(req: Request, res: Response) {
     await moveFile(file.path, target);
     // A gift icon is a 60px tile in the sheet: 256px is more than enough —
     // WebP for stills, a 256px / 15fps GIF for animated icons.
-    const opt = ext === '.gif'
-      ? await optimizeGif(target, { maxSide: 256, fps: 15 })
-      : await optimizeImage(target, { maxSide: 256, quality: 85 });
+    let opt: { path: string };
+    try {
+      opt = ext === '.gif'
+        ? await optimizeUpload(target, { gifRole: 'icon' })
+        : await optimizeImage(target, { maxSide: 256, quality: 80 });
+    } catch (e) {
+      await fs.unlink(target).catch(() => {});
+      return res.status(400).json({ success: false, code: 'GIF_TOO_HEAVY', message: (e as Error).message });
+    }
     return res.json({ success: true, url: `${getPublicBaseUrl(req)}/assets/icons/${path.basename(opt.path)}` });
   } catch (err) {
     console.error('[admin.gifts.uploadIcon]', err);

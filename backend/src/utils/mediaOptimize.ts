@@ -5,13 +5,8 @@ import path from 'path';
 // ============================================================
 // Media optimisation at upload time
 // ============================================================
-// The dashboard was "ثقيلة أوي في تحميلها" because nothing ever shrank what
-// was uploaded: a 20 MB GIF and 16 MB clips were stored as-is and served
-// as-is to every phone and every admin list. Everything below is best-effort
-// and size-checked — an optimisation that fails, or that would make the file
-// BIGGER, leaves the original untouched. Nothing here changes a file's
-// pixel dimensions unless the caller asks for it (frames and chat bubbles
-// carry 9-slice guides in pixel coordinates, so they must keep their size).
+// Still uploads are capped at 1024px with alpha retained; animated uploads
+// are passed through unchanged. Video optimization remains best-effort.
 
 const ffmpegPath = () => process.env.FFMPEG_PATH?.trim() || 'ffmpeg';
 
@@ -79,7 +74,7 @@ export interface OptimizeResult {
 
 /**
  * Still image → WebP. `maxSide` resizes down when given (icons, avatars,
- * chat pictures); omit it for artwork whose pixel size is meaningful.
+ * chat pictures); the default and maximum are 1024px.
  * Returns the new path (extension `.webp`). SVG and GIF are left alone.
  */
 export async function optimizeImage(file: string, opts: { maxSide?: number; quality?: number } = {}): Promise<OptimizeResult> {
@@ -89,14 +84,16 @@ export async function optimizeImage(file: string, opts: { maxSide?: number; qual
   try {
     const sharp = (await import('sharp')).default;
     const out = file.replace(/\.[^.]+$/, '') + '.opt.webp';
-    let img = sharp(file, { animated: false }).rotate();
-    if (opts.maxSide) img = img.resize({ width: opts.maxSide, height: opts.maxSide, fit: 'inside', withoutEnlargement: true });
-    await img.webp({ quality: opts.quality ?? 82, effort: 4 }).toFile(out);
+    const metadata = await sharp(file, { animated: true }).metadata();
+    if ((metadata.pages ?? 1) > 1) return { path: file, changed: false, before, after: before };
+    const maxSide = Math.min(opts.maxSide ?? 1024, 1024);
+    const img = sharp(file).rotate().resize({ width: maxSide, height: maxSide, fit: 'inside', withoutEnlargement: true });
+    await img.webp({ quality: opts.quality ?? 80, effort: 4 }).toFile(out);
     const final = file.replace(/\.[^.]+$/, '') + '.webp';
     const after = await sizeOf(out);
     // A resize is always applied (the caller asked for a smaller picture);
     // a pure re-encode only sticks when it pays.
-    if (opts.maxSide || after < before * 0.85) {
+    if (Math.max(metadata.width ?? 0, metadata.height ?? 0) > maxSide || after < before * 0.85) {
       await fs.rename(out, final);
       if (final !== file) await fs.unlink(file).catch(() => {});
       return { path: final, changed: true, before, after };
@@ -213,7 +210,14 @@ export async function normalizeGif(file: string, role: GifRole = 'default'): Pro
     return { probe: { width: 0, height: 0, frames: 0, durationS: 0 }, changed: false };
   }
   const pol = GIF_POLICY[role] ?? GIF_POLICY.default;
-  const before = await probeGif(file);
+  let before: GifProbe;
+  try {
+    before = await probeGif(file);
+  } catch (e) {
+    // No ffprobe / unreadable: best-effort, keep the file as uploaded.
+    console.warn('[mediaOptimize] gif probe skipped:', (e as Error).message);
+    return { probe: { width: 0, height: 0, frames: 0, durationS: 0 }, changed: false };
+  }
   const tooBig = Math.max(before.width, before.height) > pol.maxSide;
   const tooMany = before.frames > pol.maxFrames;
   const tooFast = before.durationS > 0 && before.frames / before.durationS > pol.maxFps + 0.5;
@@ -265,6 +269,8 @@ export async function normalizeGif(file: string, role: GifRole = 'default'): Pro
  */
 export async function shrinkVideo(file: string, opts: { maxHeight?: number; crf?: number } = {}): Promise<OptimizeResult> {
   const before = await sizeOf(file);
+  // The output is MP4: never write MP4 bytes under another extension (.webm etc.).
+  if (path.extname(file).toLowerCase() !== '.mp4') return { path: file, changed: false, before, after: before };
   const out = `${file}.opt.mp4`;
   try {
     await run(ffmpegPath(), [
@@ -287,13 +293,11 @@ export async function shrinkVideo(file: string, opts: { maxHeight?: number; crf?
 export async function optimizeUpload(file: string, opts: { resizeTo?: number; gifMaxSide?: number; gifRole?: GifRole } = {}): Promise<OptimizeResult> {
   const ext = path.extname(file).toLowerCase();
   if (ext === '.gif') {
-    // Role policy first (pixels + frames), then the palette pass for bytes.
-    // normalizeGif throws when the clip is beyond the hard ceiling; that
-    // propagates so the upload is refused with the reason.
+    // Role caps (pixels + frames); throws GIF_TOO_HEAVY-style errors beyond the ceiling.
+    // No palette pass: it broke animations.
     const before = await sizeOf(file);
-    await normalizeGif(file, opts.gifRole ?? 'default');
-    const pal = await optimizeGif(file, { maxSide: opts.gifMaxSide });
-    return { path: file, changed: true, before, after: pal.after };
+    const { changed } = await normalizeGif(file, opts.gifRole ?? 'default');
+    return { path: file, changed, before, after: await sizeOf(file) };
   }
   if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return optimizeImage(file, { maxSide: opts.resizeTo });
   if (['.mp4', '.mov', '.m4v', '.webm'].includes(ext)) return shrinkVideo(file);

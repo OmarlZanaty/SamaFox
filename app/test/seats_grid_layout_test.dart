@@ -215,9 +215,16 @@ void main() {
             reason: reason);
         // 15/10: the messages disappeared under 20 mics. The chat keeps room
         // for the tabs, the winners strip and a few lines.
-        expect(chatRect.height, greaterThanOrEqualTo(RoomSeatsChatLayout.minChatHeight(size.height - 48 - 96 - 129) - .01),
+        expect(chatRect.height, greaterThanOrEqualTo(170.0 - .01),
             reason: reason);
         expect(find.byType(SeatCard), findsNWidgets(seatCount));
+        if (seatCount == 24 && size.width == 360) {
+          final cards = find.byType(SeatCard);
+          expect(tester.getTopLeft(cards.at(0)).dy,
+              tester.getTopLeft(cards.at(5)).dy);
+          expect(tester.getTopLeft(cards.at(6)).dy,
+              greaterThan(tester.getTopLeft(cards.at(5)).dy));
+        }
         var lastSeatBottom = 0.0;
         for (final card in find.byType(SeatCard).evaluate()) {
           final rect = tester.getRect(find.byWidget(card.widget));

@@ -19,7 +19,6 @@ import '../../utils/image_intrinsic_size.dart';
 import 'TopWaveClipper.dart';
 import '../../widgets/app_network_image.dart';
 import '../../widgets/user_badge.dart';
-import '../../services/badge_size.dart';
 import '../product_video_layer.dart';
 
 // ==========================
@@ -578,7 +577,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   /// One achievement icon. Never let a broken url punch a hole in a message.
   static Widget _badgeIcon(String url) => Padding(
         padding: const EdgeInsets.only(left: 4),
-        child: UserBadgeImage(url, height: BadgeSize.value * 0.8),
+        child: UserBadgeImage(url),
       );
 
   @override
@@ -709,7 +708,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                         child: ListView.builder(
                           controller: _scroll,
                           reverse: false, // ✅ NORMAL TOP → DOWN
-                          padding: const EdgeInsets.only(bottom: 20),
+                          padding: EdgeInsets.zero,
                           itemCount: feed.length,
                           findChildIndexCallback: (key) {
                             final index = feed.indexWhere(
@@ -1105,8 +1104,7 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
   }
 
   // ✅ Filter tabs: plain text, like the room reference under the mics.
-  // SPEC52 #27 — compact segmented pill (~26px) so the tabs never push into
-  // or cover the mics on small phones.
+  // Compact text filters keep the room background continuous.
   Widget _buildFilterTabs() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -1115,11 +1113,6 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
           Container(
             height: 26,
             padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.35),
-              borderRadius: BorderRadius.circular(13),
-              border: Border.all(color: Colors.white.withOpacity(0.10)),
-            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1150,13 +1143,6 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
         duration: const Duration(milliseconds: 160),
         padding: const EdgeInsets.symmetric(horizontal: 10),
         alignment: Alignment.center,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(11),
-          gradient: isSelected
-              ? const LinearGradient(
-                  colors: [Color(0xFF7C4DFF), Color(0xFFB388FF)])
-              : null,
-        ),
         child: Text(
           label,
           style: TextStyle(

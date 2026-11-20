@@ -108,10 +108,7 @@ export const createProduct = async (req: Request, res: Response) => {
     const host = req.get("host") || "";
     const requestBaseUrl = host ? `${protocol}://${host}` : "";
     const baseUrl = configuredBaseUrl || requestBaseUrl || `http://localhost:${process.env.PORT || 3000}`;
-    // Product artwork keeps its pixel size (9-slice guides are in pixels);
-    // GIFs get a palette, clips go to ≤720p H.264, PNG/JPG become WebP.
-    // GIF artwork is also capped in pixels and frames per role — see
-    // GIF_POLICY. The 9-slice guides are fractions, so a downscale is safe.
+    // Still artwork is capped at 1024px; fractional layout guides remain valid.
     const gifRole: GifRole =
       type === 'avatar_frame' || type === 'frame' ? 'frame'
       : type === 'badge' || type === 'chat_top_banner' ? 'badge'

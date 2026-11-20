@@ -614,7 +614,11 @@ export async function sendBatch(req: Request, res: Response) {
           totalCoins: s.totalCoins, recipientCoins: s.recipientCoins })))
         : null;
       if (stake) {
-        batchLucky = await rollLucky(context.tx, { ...stake, senderId, roomId: rid, cfg: await getLuckyConfig() });
+        const throws = Number(quantity ?? 1) * sends.length;
+        batchLucky = await rollLucky(context.tx, {
+          ...stake, giftValue: stake.giftCoins / throws, throws, mics: sends.length,
+          senderId, roomId: rid, cfg: await getLuckyConfig(),
+        });
         if (batchLucky.settled.some((e) => e.senderId === senderId && e.payoutCoins > 0)) {
           const after = await context.tx.user.findUnique({ where: { id: senderId }, select: { coinsBalance: true } });
           senderBalance = after?.coinsBalance ?? senderBalance;

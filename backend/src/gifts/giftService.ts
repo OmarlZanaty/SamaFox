@@ -404,6 +404,9 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
           recipientId: input.recipientId,
           roomId: input.roomId ?? null,
           giftCoins: totalCoins,
+          giftValue: gift.coinCost,
+          throws: quantity,
+          mics: 1,
           hostCoins: recipientCoins,
           cfg: luckySettings,
         });

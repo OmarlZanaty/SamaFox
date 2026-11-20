@@ -1,3 +1,5 @@
+import { optimizeUpload } from '../utils/mediaOptimize';
+import path from 'path';
 import { Router } from 'express';
 import multer from 'multer';
 import { requestIp } from '../services/adminAudit.service';
@@ -307,7 +309,8 @@ adminBackgroundsRouter.post('/', upload.single('file'), async (req: any, res) =>
       return res.status(400).json({ success: false, message: 'يجب رفع صورة أو فيديو' });
     }
     const baseUrl = publicBaseUrl(req);
-    const assetUrl = `${baseUrl}/uploads/${file.filename}`;
+    const optimized = await optimizeUpload(file.path);
+    const assetUrl = `${baseUrl}/uploads/${path.basename(optimized.path)}`;
     const previewUrl = await buildPosterUrl(file, isVideo, baseUrl);
     const b = req.body ?? {};
     const truthy = (v: unknown) => v === true || v === 'true' || v === '1' || v === 1;

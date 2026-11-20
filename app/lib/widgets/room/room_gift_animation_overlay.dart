@@ -1,0 +1,853 @@
+import 'room_sound_settings.dart';
+import '../../services/audio_route.dart';
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import '../../services/device_tier.dart';
+import '../../services/effects_prefs.dart';
+import '../../services/memory_guard.dart';
+import '../../gifts/models/gift.dart';
+import '../../gifts/services/gift_socket_service.dart';
+import '../../gifts/widgets/broadcast_banner_layer.dart';
+import '../../gifts/widgets/fireworks_overlay.dart';
+import 'room_gift_player.dart';
+import '../../l10n/tr.dart';
+
+/// Full-screen gift animation stack. Mount above the voice room UI.
+///
+/// On every [gift_sent] socket event we spawn one flying gift per quantity,
+/// staggered by ~180ms. Each flight goes:
+///   sender seat (small) → centre of screen (BIG, covers ~70% of view) → recipient seat (small)
+///
+/// VIP (LEGENDARY tier) gifts ALSO trigger:
+///   - fullscreen fireworks
+///   - a one-shot fanfare sound from assets/sounds/vip_gift.mp3
+///   - a VIP banner that paints over everything else in the room
+class GiftAnimationOverlay extends StatefulWidget {
+  const GiftAnimationOverlay({
+    super.key,
+    required this.socket,
+    required this.resolvePosition,
+    this.bannersTop,
+  });
+
+  final GiftSocketService socket;
+  final Offset Function(int userId) resolvePosition;
+
+  /// Height of the room's top bars. The effects cover the whole screen, but
+  /// the VIP and cross-room banners are laid out just below the bars.
+  final ValueListenable<double>? bannersTop;
+
+  @override
+  State<GiftAnimationOverlay> createState() => _GiftAnimationOverlayState();
+}
+
+class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
+    with TickerProviderStateMixin {
+  StreamSubscription<GiftSendEvent>? _sentSub;
+  final List<_Flight> _flights = [];
+  final List<_VipBurst> _vipBursts = [];
+  /// Fullscreen video gifts. At most one at a time (see [_spawnVideoShow]).
+  final List<_VideoShow> _videoShows = [];
+  int _flightSeq = 0;
+
+  /// One reusable audio player for VIP fanfare. Keeps a single decoder alive.
+  final AudioPlayer _vipPlayer = AudioPlayer();
+
+  /// Sound for ordinary (non-VIP) gifts. Fired the instant the broadcast
+  /// `gift_sent` event arrives — the same event every client in the room gets —
+  /// so the sound lands at the same moment for the sender and everyone else.
+  /// It is a bundled asset, so there is no download to wait on.
+  final AudioPlayer _giftPlayer = AudioPlayer();
+
+  /// A x50 send is one event, but combos can still arrive back to back. Don't
+  /// retrigger the chime more than this often or it turns into noise.
+  static const Duration _giftSoundThrottle = Duration(milliseconds: 320);
+  DateTime? _lastGiftSoundAt;
+
+  /// Gift flights on screen at once. A x50 burst in a busy room (room 87 took
+  /// 40k gifts on 05/10) keeps this full; on a 2–4 GB phone a third of it,
+  /// and two under 3 GB (10/10).
+  static int get _maxConcurrent => DeviceTier.ultraLite ? 3 : DeviceTier.lite ? 8 : 24;
+
+  /// Client 10/11 16:30: every hit comes to the centre for 1–2 s and then goes
+  /// to the mics on its own, whether or not more hits follow. One flight per
+  /// hit (×N badge) with a fixed timeline: in → hold → out to the seat.
+  static const Duration _flightDuration = Duration(milliseconds: 2300);
+
+  RoomSoundSettings? _sounds;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final sounds = RoomSoundScope.of(context);
+    if (identical(sounds, _sounds)) return;
+    _sounds?.removeListener(_onSoundPreference);
+    _sounds = sounds..addListener(_onSoundPreference);
+    _onSoundPreference();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    AudioRoute.instance.roomMuted.addListener(_onSoundPreference);
+    widget.socket.bind();
+    _sentSub = widget.socket.sentStream.listen(_onGift);
+    MemoryGuard.pressure.addListener(_onMemoryPressure);
+    _vipPlayer.setReleaseMode(ReleaseMode.stop);
+    _giftPlayer.setReleaseMode(ReleaseMode.stop);
+    // Low latency mode keeps the asset decoded so playback starts immediately
+    // rather than a few hundred ms after the event.
+    _giftPlayer.setPlayerMode(PlayerMode.lowLatency);
+  }
+
+  /// Plays the ordinary-gift chime. Best-effort: never throws, never blocks the
+  /// animation. VIDEO gifts carry their own audio track and LEGENDARY gifts get
+  /// the fanfare instead, so neither doubles up with this.
+  void _onSoundPreference() {
+    if (AudioRoute.instance.roomMuted.value || !(_sounds?.giftSoundsOn ?? false)) {
+      unawaited(_giftPlayer.stop());
+      unawaited(_vipPlayer.stop());
+    }
+  }
+
+  void _playGiftSound(GiftSendEvent event) {
+    if (AudioRoute.instance.roomMuted.value || !(_sounds?.giftSoundsOn ?? false)) return; // SPEC52 #18
+    // SPEC52 #25 — image gifts never ring. Only video gifts make sound, and
+    // they carry it in their own clip.
+    if (event.gift.format != GiftFormat.video) return;
+    if (event.gift.tier == GiftTier.legendary) return;
+    if (event.gift.format == GiftFormat.video) return;
+    final now = DateTime.now();
+    if (_lastGiftSoundAt != null && now.difference(_lastGiftSoundAt!) < _giftSoundThrottle) {
+      return;
+    }
+    _lastGiftSoundAt = now;
+    () async {
+      try {
+        await _giftPlayer.stop();
+        if (!mounted || !(_sounds?.giftSoundsOn ?? false) || AudioRoute.instance.roomMuted.value) return;
+        await _giftPlayer.play(AssetSource('sounds/gift_send.wav'), volume: 0.75);
+      } catch (e) {
+        debugPrint('[GiftOverlay] gift sound failed: $e');
+      }
+    }();
+  }
+
+  void _onGift(GiftSendEvent event) {
+    // Fire the sound FIRST, before any animation work, so it is as close to the
+    // socket event as possible on every device.
+    _playGiftSound(event);
+
+    // SPEC52 #23 — the user switched gift effects off: nothing is drawn for
+    // him (the event itself was still received and counted elsewhere).
+    if (!EffectsPrefs.instance.giftEffects.value) return;
+
+    // Video gifts carry sound and a real clip — repeating that N times for a
+    // ×N send would replay the same video N times over each other. They play
+    // ONCE, FULLSCREEN, badged with the send count: as a flight they were
+    // squeezed into a 70%-of-screen square that flew off to a seat mid-clip.
+    // Image/SVG gifts have no audio and are cheap to repeat, so those keep
+    // spawning one flight per unit as before.
+    if (event.gift.format == GiftFormat.video) {
+      _spawnVideoShow(event);
+    } else if (DeviceTier.ultraLite && event.gift.tier == GiftTier.small) {
+      // Under 3 GB a small gift is left to GiftAnnouncementBar, which names
+      // every gift anyway; its flights are the decodes the phone can't spare.
+    } else {
+      // One flight per hit. It used to be one per unit (×7 = 7 flights of up
+      // to 5.5 s): a combo filled the cap and every new hit deleted the oldest
+      // while it was still parked at the centre, so only the last hit ever
+      // reached the mics.
+      _spawnFlight(event, 0, 1, displayQuantity: event.quantity > 1 ? event.quantity : null);
+    }
+
+    // VIP tier (LEGENDARY) → fireworks + sound + banner
+    if (event.gift.tier == GiftTier.legendary) {
+      _triggerVip(event);
+    }
+  }
+
+  /// Mounts a video gift as a fullscreen show. Only one plays at a time: a
+  /// second clip arriving while one runs replaces it, so two soundtracks never
+  /// overlap.
+  void _spawnVideoShow(GiftSendEvent event) {
+    final show = _VideoShow(
+      id: ++_flightSeq,
+      event: event,
+      quantity: event.quantity.clamp(1, 30),
+    );
+    setState(() {
+      _videoShows.clear();
+      _videoShows.add(show);
+    });
+  }
+
+  void _endVideoShow(_VideoShow show) {
+    if (!mounted) return;
+    if (!_videoShows.contains(show)) return;
+    setState(() => _videoShows.remove(show));
+  }
+
+  void _spawnFlight(GiftSendEvent event, int index, int total, {int? displayQuantity}) {
+    // Over the cap: the oldest still at the centre leaves for its mic now
+    // (never deleted before it lands). Only a flood past twice the cap drops
+    // the oldest outright.
+    if (_flights.length >= _maxConcurrent) {
+      for (final f in _flights) {
+        if (f.controller.value < _GiftPhase.holdEnd) {
+          f.controller.value = _GiftPhase.holdEnd;
+          f.controller.forward();
+          break;
+        }
+      }
+    }
+    while (_flights.length >= _maxConcurrent * 2) {
+      final old = _flights.removeAt(0);
+      old.controller.dispose();
+    }
+
+    final start = widget.resolvePosition(event.senderId);
+    final end = widget.resolvePosition(event.recipientId);
+
+    final controller = AnimationController(vsync: this, duration: _flightDuration);
+
+    final flight = _Flight(
+      id: ++_flightSeq,
+      event: event,
+      start: start,
+      end: end,
+      controller: controller,
+      index: index,
+      total: total,
+      displayQuantity: displayQuantity,
+    );
+
+    setState(() => _flights.add(flight));
+
+    controller.addStatusListener((s) {
+      if (s == AnimationStatus.completed) {
+        if (mounted) setState(() => _flights.remove(flight));
+        controller.dispose();
+      }
+    });
+    controller.forward();
+  }
+
+  void _triggerVip(GiftSendEvent event) {
+    // VIP banner + fireworks for ~5s
+    final burst = _VipBurst(
+      id: ++_flightSeq,
+      event: event,
+      createdAt: DateTime.now(),
+    );
+    setState(() => _vipBursts.add(burst));
+    Future.delayed(const Duration(milliseconds: 5000), () {
+      if (!mounted) return;
+      setState(() => _vipBursts.remove(burst));
+    });
+
+    // Sound — best-effort, never throws. Asset must exist at assets/sounds/vip_gift.mp3
+    () async {
+      try {
+        if (AudioRoute.instance.roomMuted.value || !(_sounds?.giftSoundsOn ?? false)) return; // SPEC52 #18
+        if (event.gift.format != GiftFormat.video) return; // SPEC52 #25 — image gifts are silent
+        await _vipPlayer.stop();
+        if (!mounted || !(_sounds?.giftSoundsOn ?? false) || AudioRoute.instance.roomMuted.value) return;
+        await _vipPlayer.play(AssetSource('sounds/vip_gift.wav'), volume: 0.9);
+      } catch (e) {
+        // Asset missing or platform error — silent. Logged once to avoid spam.
+        debugPrint('[GiftOverlay] vip sound failed: $e');
+      }
+    }();
+  }
+
+  /// The phone is short of memory: clear the stage. Every gift is still named
+  /// by GiftAnnouncementBar; only the flights, the VIP burst and a running
+  /// video clip go.
+  void _onMemoryPressure() {
+    if (!mounted) return;
+    if (_flights.isEmpty && _vipBursts.isEmpty && _videoShows.isEmpty) return;
+    final gone = List.of(_flights);
+    // Stopped now so none completes (and disposes itself) before the frame.
+    for (final f in gone) {
+      f.controller.stop();
+    }
+    setState(() {
+      _flights.clear();
+      _vipBursts.clear();
+      _videoShows.clear();
+    });
+    // Once the frame without them is out: their widgets still listen until then.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final f in gone) {
+        f.controller.dispose();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sounds?.removeListener(_onSoundPreference);
+    AudioRoute.instance.roomMuted.removeListener(_onSoundPreference);
+    MemoryGuard.pressure.removeListener(_onMemoryPressure);
+    _sentSub?.cancel();
+    for (final f in _flights) {
+      f.controller.dispose();
+    }
+    _vipPlayer.dispose().catchError((Object _) {});
+    _giftPlayer.dispose().catchError((Object _) {});
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // SPEC52 #4 — the effects never take touches, but the cross-room gift
+    // banner must: it sits OUTSIDE the IgnorePointer, on top.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        IgnorePointer(
+      ignoring: true,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Translucent dim while any flight is at centre stage.
+          if (_flights.isNotEmpty) _AggregateDimLayer(flights: _flights),
+
+          // Client 7/11 21:02: gifts are fired from a cannon at the bottom
+          // centre, leave its mouth small and grow to full size mid-room.
+          if (_flights.isNotEmpty) const _GiftCannon(),
+
+          // In-flight gifts.
+          for (final f in _flights) _FlightWidget(flight: f),
+
+          // Video gifts — the whole screen, edge to edge, over the room UI.
+          for (final v in _videoShows)
+            Positioned.fill(
+              key: ValueKey('video-gift-${v.id}'),
+              child: _FullscreenVideoGift(
+                show: v,
+                onDone: () => _endVideoShow(v),
+              ),
+            ),
+
+          // VIP fireworks (one layer per active burst, capped above).
+          for (final v in _vipBursts)
+            Positioned.fill(
+              key: ValueKey('vip-fireworks-${v.id}'),
+              child: const RepaintBoundary(
+                child: FireworksOverlay(
+                  duration: Duration(milliseconds: 5000),
+                  palette: [
+                    Color(0xFFFFD700),
+                    Color(0xFFFF4081),
+                    Color(0xFFFFFFFF),
+                    Color(0xFF00E5FF),
+                    Color(0xFFE040FB),
+                  ],
+                ),
+              ),
+            ),
+
+          // VIP banner — explicitly above everything else in this overlay.
+          if (_vipBursts.isNotEmpty)
+            _belowBars(Stack(children: [
+              for (final v in _vipBursts)
+                _VipBanner(key: ValueKey('vip-banner-${v.id}'), event: v.event),
+            ])),
+
+        ],
+      ),
+        ),
+        // Cross-room broadcasts — tappable: «هل تريد الانتقال إلى هذه الغرفة؟».
+        _belowBars(Stack(children: [BroadcastBannerLayer(socket: widget.socket)])),
+      ],
+    );
+  }
+
+  Widget _belowBars(Widget child) {
+    final top = widget.bannersTop;
+    if (top == null) return Positioned.fill(child: child);
+    return ValueListenableBuilder<double>(
+      valueListenable: top,
+      builder: (_, h, c) => Positioned.fill(top: h, child: c!),
+      child: MediaQuery.removePadding(context: context, removeTop: true, child: child),
+    );
+  }
+}
+
+class _Flight {
+  _Flight({
+    required this.id,
+    required this.event,
+    required this.start,
+    required this.end,
+    required this.controller,
+    required this.index,
+    required this.total,
+    this.displayQuantity,
+  });
+  final int id;
+  final GiftSendEvent event;
+  final Offset start;
+  final Offset end;
+  final AnimationController controller;
+  final int index;
+  final int total;
+  /// Set only for the single-flight video case — the ×N badge to show since
+  /// this one flight represents the whole send, not one unit of it.
+  final int? displayQuantity;
+}
+
+/// Flight timeline over [_GiftAnimationOverlayState._flightDuration] (2.3 s):
+/// cannon → centre in ~0.5 s, hold ~1.2 s, then to the seat in ~0.6 s.
+abstract final class _GiftPhase {
+  static const double inEnd = 0.22;
+  static const double holdEnd = 0.74;
+}
+
+class _VideoShow {
+  _VideoShow({required this.id, required this.event, required this.quantity});
+  final int id;
+  final GiftSendEvent event;
+  final int quantity;
+}
+
+/// A video gift filling the screen: the clip exactly as uploaded (letterboxed,
+/// never cropped), its own sound, and the sender → recipient line over it.
+class _FullscreenVideoGift extends StatelessWidget {
+  const _FullscreenVideoGift({required this.show, required this.onDone});
+
+  final _VideoShow show;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    final gift = show.event.gift;
+    final senderName = show.event.sender?.name ?? '';
+    final recipientName = show.event.recipient?.name ?? '';
+    final fullscreen = (show.event.effectType ?? gift.effectType) == 'fullscreen';
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Client 10/11 16:00: «عاوزينها زي ما بضيفها» — a full-screen clip
+        // fills the screen, a half-screen clip plays on the bottom half rising
+        // up (AsUploadedVideo). No fixed 70% box. The dark backdrop stays only
+        // for gifts set «fullscreen» in the dashboard.
+        if (fullscreen) Container(color: Colors.black.withOpacity(0.72)),
+        GiftPlayer(gift: gift, onComplete: onDone, onError: onDone, asUploaded: true),
+        if (senderName.isNotEmpty || recipientName.isNotEmpty)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(context).padding.bottom + 28,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.45),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                tr(
+                  '$senderName أرسل '
+                  '${show.quantity > 1 ? '×${show.quantity} ' : ''}'
+                  '${gift.nameAr ?? gift.name}'
+                  '${recipientName.isEmpty ? '' : ' إلى $recipientName'}',
+                  '$senderName sent '
+                  '${show.quantity > 1 ? '×${show.quantity} ' : ''}'
+                  '${gift.name}'
+                  '${recipientName.isEmpty ? '' : ' to $recipientName'}',
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _VipBurst {
+  _VipBurst({required this.id, required this.event, required this.createdAt});
+  final int id;
+  final GiftSendEvent event;
+  final DateTime createdAt;
+}
+
+class _AggregateDimLayer extends StatelessWidget {
+  const _AggregateDimLayer({required this.flights});
+  final List<_Flight> flights;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge(flights.map((f) => f.controller).toList()),
+      builder: (_, __) {
+        double maxIntensity = 0;
+        for (final f in flights) {
+          final t = f.controller.value;
+          double intensity;
+          if (t < _GiftPhase.inEnd) {
+            intensity = (t / _GiftPhase.inEnd) * 0.45;
+          } else if (t < _GiftPhase.holdEnd) {
+            intensity = 0.45;
+          } else {
+            intensity = (1 - (t - _GiftPhase.holdEnd) / (1 - _GiftPhase.holdEnd)) * 0.45;
+          }
+          if (intensity > maxIntensity) maxIntensity = intensity;
+        }
+        if (maxIntensity <= 0.01) return const SizedBox.shrink();
+        return Positioned.fill(
+          child: IgnorePointer(
+            // Fade in over the first stretch so the dim has no hard line
+            // under the top bars it is clipped to.
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0, 0.15],
+                  colors: [Colors.transparent, Colors.black.withOpacity(maxIntensity)],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The gold cannon gifts are fired from (client 7/11). Uses the client's art
+/// at assets/images/room/gift_cannon.png when present, else a drawn barrel.
+class _GiftCannon extends StatelessWidget {
+  const _GiftCannon();
+  // The client's cannon art (10/11) is 293×420: keep its proportions.
+  static const double width = 80, height = 115, bottomGap = 74;
+
+  static Offset mouth(Size screen, double safeBottom) =>
+      Offset(screen.width / 2, screen.height - safeBottom - bottomGap - height + 8);
+
+  @override
+  Widget build(BuildContext context) {
+    final screen = MediaQuery.of(context).size;
+    return Positioned(
+      left: (screen.width - width) / 2,
+      bottom: MediaQuery.of(context).padding.bottom + bottomGap,
+      width: width,
+      height: height,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.6, end: 1),
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutBack,
+        builder: (_, v, child) => Transform.scale(scale: v, alignment: Alignment.bottomCenter, child: child),
+        child: Image.asset(
+          'assets/images/room/gift_cannon.png',
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+            Container(
+              width: 34,
+              height: 62,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                gradient: const LinearGradient(colors: [Color(0xFFB8860B), Color(0xFFFFE082), Color(0xFFB8860B)]),
+                border: Border.all(color: const Color(0xFF7A5300), width: 1.5),
+              ),
+            ),
+            Container(
+              width: 70,
+              height: 34,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: const LinearGradient(colors: [Color(0xFF5B2A86), Color(0xFF8E44AD), Color(0xFF5B2A86)]),
+                border: Border.all(color: const Color(0xFFFFD54F), width: 2),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class _FlightWidget extends StatelessWidget {
+  const _FlightWidget({required this.flight});
+  final _Flight flight;
+
+  @override
+  Widget build(BuildContext context) {
+    final screen = MediaQuery.of(context).size;
+    final centre = Offset(screen.width / 2, screen.height / 2);
+
+    final spreadAngle =
+        flight.total > 1 ? (flight.index - (flight.total - 1) / 2) * 0.18 : 0.0;
+    final spreadOffset = Offset(
+      math.cos(spreadAngle) * 28,
+      math.sin(spreadAngle) * 28,
+    );
+
+    final bigSize = math.min(screen.width, screen.height) * 0.7;
+    const smallSize = 96.0;
+    // The cannon's mouth: gifts start pipe-sized there, not at the sender.
+    final mouth = _GiftCannon.mouth(screen, MediaQuery.of(context).padding.bottom);
+    const mouthSize = 26.0;
+
+    return AnimatedBuilder(
+      animation: flight.controller,
+      builder: (context, _) {
+        final t = flight.controller.value;
+        Offset pos;
+        double size;
+        double opacity;
+        double rotation;
+
+        const inEnd = _GiftPhase.inEnd, holdEnd = _GiftPhase.holdEnd;
+        if (t < inEnd) {
+          final u = Curves.easeOutCubic.transform(t / inEnd);
+          pos = Offset.lerp(mouth, centre + spreadOffset, u)!;
+          size = mouthSize + (bigSize - mouthSize) * u;
+          opacity = (u * 1.5).clamp(0.0, 1.0);
+          rotation = (1 - u) * 0.6; // unwinding spin on entry
+        } else if (t < holdEnd) {
+          pos = centre + spreadOffset;
+          size = bigSize;
+          opacity = 1.0;
+          // Subtle bob at centre
+          final centreT = (t - inEnd) / (holdEnd - inEnd);
+          rotation = math.sin(centreT * math.pi * 2) * 0.04;
+        } else {
+          final u = Curves.easeInCubic.transform((t - holdEnd) / (1 - holdEnd));
+          pos = Offset.lerp(centre + spreadOffset, flight.end, u)!;
+          size = bigSize - (bigSize - smallSize) * u;
+          opacity = 1.0 - u * 0.4;
+          rotation = u * 0.6;
+        }
+
+        return Positioned(
+          left: pos.dx - size / 2,
+          top: pos.dy - size / 2,
+          width: size,
+          height: size,
+          child: Opacity(
+            opacity: opacity.clamp(0.0, 1.0),
+            child: Transform.rotate(
+              angle: rotation,
+              child: _GiftVisual(gift: flight.event.gift, quantity: flight.displayQuantity),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Visual for an in-flight gift — the gift's OWN art: its static icon, or for
+/// a VIDEO-format gift its uploaded clip (via the existing [GiftPlayer],
+/// previously built but never mounted anywhere live). [quantity] is only set
+/// for the single-flight video case, where it renders as a "×N" badge since
+/// one flight is standing in for the whole send.
+class _GiftVisual extends StatelessWidget {
+  const _GiftVisual({required this.gift, this.quantity});
+  final Gift gift;
+  final int? quantity;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final side = math.min(constraints.maxWidth, constraints.maxHeight);
+        final isVideo = gift.format == GiftFormat.video;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            // A video clip is a rectangle with its own background: cropping it
+            // into a circle chopped the artwork and showed a black disc. Show
+            // the whole frame for video, keep the round badge for icons.
+            SizedBox(
+              width: side * (isVideo ? 1.0 : 0.9),
+              height: side * (isVideo ? 1.0 : 0.9),
+              child: isVideo
+                  ? GiftPlayer(gift: gift, onComplete: () {}, onError: () {})
+                  : ClipOval(
+                      child: GiftPlayer(gift: gift, onComplete: () {}, onError: () {}),
+                    ),
+            ),
+
+            // Gift name strip — only when big
+            if (side > 140)
+              Positioned(
+                bottom: side * 0.10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.50),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    gift.nameAr ?? gift.name,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: side * 0.045,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+
+            // ×N badge — this one flight represents the whole send.
+            if (quantity != null && quantity! > 1)
+              Positioned(
+                top: side * 0.06,
+                right: side * 0.06,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF50057),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 6)],
+                  ),
+                  child: Text(
+                    '×$quantity',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: side * 0.06,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Full-width banner that shows above seats during a VIP send.
+class _VipBanner extends StatefulWidget {
+  const _VipBanner({super.key, required this.event});
+  final GiftSendEvent event;
+
+  @override
+  State<_VipBanner> createState() => _VipBannerState();
+}
+
+class _VipBannerState extends State<_VipBanner> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 5000),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final senderName = widget.event.sender?.name ?? '?';
+    final recipientName = widget.event.recipient?.name ?? '?';
+    final giftName = widget.event.gift.nameAr ?? widget.event.gift.name;
+    final qty = widget.event.quantity;
+
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) {
+        final t = _ctrl.value;
+        double slide;
+        double opacity;
+        if (t < 0.15) {
+          final u = Curves.easeOutBack.transform(t / 0.15);
+          slide = -1 + u;
+          opacity = u;
+        } else if (t < 0.85) {
+          slide = 0;
+          opacity = 1;
+        } else {
+          final u = (t - 0.85) / 0.15;
+          slide = -u;
+          opacity = (1 - u).clamp(0.0, 1.0);
+        }
+
+        return Positioned(
+          top: MediaQuery.of(context).padding.top + 12,
+          left: 16,
+          right: 16,
+          child: Transform.translate(
+            offset: Offset(0, slide * 80),
+            child: Opacity(
+              opacity: opacity,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFD700), Color(0xFFFF6F00), Color(0xFFE040FB)],
+                  ),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x88FFD700), blurRadius: 24, spreadRadius: 2),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('👑', style: TextStyle(fontSize: 22)),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text.rich(
+                        TextSpan(
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          children: [
+                            TextSpan(text: senderName),
+                            TextSpan(text: tr(' أرسل ', ' sent ')),
+                            if (qty > 1) TextSpan(text: '×$qty '),
+                            TextSpan(
+                              text: giftName,
+                              style: const TextStyle(color: Color(0xFFFFEB3B)),
+                            ),
+                            TextSpan(text: tr(' إلى ', ' to ')),
+                            TextSpan(text: recipientName),
+                          ],
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('👑', style: TextStyle(fontSize: 22)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

@@ -7,8 +7,8 @@ class BadgeSize {
   static const double min = 16;
   static const double max = 48;
 
-  /// Pixels. 26 until the server says otherwise.
-  static double value = 26;
+  /// Pixels. 32 until the server says otherwise.
+  static double value = 32;
 
   /// Reads the `badgeSize` field of a /settings payload; ignores anything that
   /// is not a number, and clamps the rest to [min]..[max].

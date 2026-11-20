@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 
 // Professional defaults (Yalla/Bigo-style) used until the client provides a real CP spec.
 export const CP_DEFAULTS: Record<string, string> = {
-  badge_size: '26',
+  badge_size: '32',
   cp_per_coin: '1',              // CP earned per coin spent on a CP-eligible gift
   target_coins_per_dollar: '10000', // received-gift coins equal to $1 of target payout
   level_multiplier: '1.5',       // each level threshold = previous * this
@@ -117,7 +117,7 @@ export async function getSettings(_req: Request, res: Response) {
       success: true,
       data: {
         ...s,
-        badgeSize: Math.max(16, Math.min(48, Number(s.badge_size) || 26)),
+        badgeSize: Math.max(16, Math.min(48, Number(s.badge_size) || 32)),
         // camelCase aliases for the app, which quotes the background price and
         // term to the room owner before charging them.
         roomBackgroundPriceCoins: Number(s.room_background_price_coins) || 1000,

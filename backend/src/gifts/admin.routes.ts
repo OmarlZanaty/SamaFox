@@ -1,3 +1,4 @@
+import { luckyTableAdmin } from './luckyTable.admin';
 import { requireOwnerPermission } from '../services/ownerPermissions.service';
 import { Router } from 'express';
 import multer from 'multer';
@@ -19,6 +20,8 @@ router.use(authMiddleware, adminMiddleware);
 
 const adminRate = [rateLimitMw('admin_write', (req) => req.userId ?? null), requireOwnerPermission('gifts.prices')];
 const uploadRate = [rateLimitMw('upload', (req) => req.userId ?? null), requireOwnerPermission('gifts.prices')];
+
+router.use('/lucky-table', adminRate, luckyTableAdmin);
 
 router.get('/', admin.listAll);
 // B4/B5/B6 — قوائم الهدايا. MUST stay above the '/:id' routes below, otherwise

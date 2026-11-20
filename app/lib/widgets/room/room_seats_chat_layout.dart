@@ -30,13 +30,9 @@ class RoomSeatsChatLayout extends StatelessWidget {
   /// From the last row's coins to the top of the chat panel.
   static const gapUnderSeats = 6.0;
 
-  /// The chat never gets less: tabs, the winners strip and a few messages.
-  /// When space is tight (a PK box on top, a short phone) the mics come
-  /// first: the chat gives way down to 100 dp instead of the seats shrinking
-  /// to a third (phone test 10/11).
-  static double minChatHeight(double available) => available < 520
-      ? (available * .25).clamp(100.0, 170.0).toDouble()
-      : (available * .32).clamp(170.0, 260.0).toDouble();
+  /// Reserve messages first; the grid uses six columns and scales down as needed.
+  static double minChatHeight(double available) =>
+      (available * .32).clamp(170.0, 260.0).toDouble();
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(

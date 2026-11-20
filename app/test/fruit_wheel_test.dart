@@ -407,11 +407,62 @@ void main() {
     expect(game.state!.phase, 'betting');
     await t.pumpWidget(const SizedBox());
   });
-  testWidgets('one-screen layout fits 360 × 640', (t) async {
-    await _mount(t, _Repository(), size: const Size(360, 640));
-    expect(t.takeException(), isNull);
-    await t.pumpWidget(const SizedBox());
-  });
+  for (final size in [
+    const Size(360, 640),
+    const Size(393, 873),
+    const Size(412, 915),
+    const Size(381, 457),
+  ]) {
+    testWidgets('wheel, bets, balance and full history fit without scrolling $size',
+        (t) async {
+      final repo = _Repository();
+      repo.snapshot['historyRows'] = List.generate(
+        10,
+        (i) => {
+          'result': 'plum',
+          'results': ['plum', 'sevens', 'watermelon'],
+          'bonus': 'triple',
+        },
+      );
+      await _mount(t, repo, size: size);
+      t.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+      await t.pumpAndSettle();
+
+      void expectVisible(Finder finder) {
+        expect(finder, findsOneWidget);
+        final rect = t.getRect(finder);
+        expect(rect.width, greaterThan(0));
+        expect(rect.height, greaterThan(0));
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(size.width));
+        expect(rect.top, greaterThanOrEqualTo(24));
+        expect(rect.bottom, lessThanOrEqualTo(size.height - 24));
+      }
+
+      expect(t.takeException(), isNull);
+      expect(find.byType(Scrollable), findsNothing);
+      expectVisible(find.byKey(const ValueKey('fruit-wheel')));
+      final history = find.byKey(const ValueKey('fruit-history'));
+      expectVisible(history);
+      expect(find.descendant(of: history, matching: find.byType(FruitArt)),
+          findsNWidgets(30));
+      for (final card in fruitCards) {
+        expectVisible(find.byKey(ValueKey('fruit-bet-$card')));
+      }
+      for (final chip in fruitChips) {
+        expectVisible(find.byKey(ValueKey('fruit-chip-$chip')));
+      }
+      expectVisible(find.text(size.height < 500 ? fruitCompact(50000) : '50000'));
+      await t.tap(find.byKey(const ValueKey('fruit-chip-100')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('fruit-bet-sevens')));
+      await t.pumpAndSettle();
+      expect(repo.stakes['sevens'], 100);
+      expect(t.takeException(), isNull);
+      expect(find.byType(Scrollable), findsNothing);
+      await t.pumpWidget(const SizedBox());
+    });
+  }
   test('rules disclose multipliers and program share, no crown', () {
     for (final ar in [true, false]) {
       final s = FruitWheelStrings(ar);

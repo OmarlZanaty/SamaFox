@@ -1,0 +1,281 @@
+import 'room_sound_settings.dart';
+import '../../services/audio_route.dart';
+import '../../services/device_tier.dart';
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:video_player/video_player.dart';
+
+import '../../gifts/models/gift.dart';
+
+class VideoGiftPlayer extends StatefulWidget {
+  const VideoGiftPlayer({
+    super.key,
+    required this.gift,
+    required this.onComplete,
+    this.onError,
+    this.asUploaded = false,
+  });
+
+  final Gift gift;
+  final VoidCallback onComplete;
+  final VoidCallback? onError;
+
+  /// Client 10/11 16:00: play the clip at its own size — see [AsUploadedVideo].
+  final bool asUploaded;
+
+  @override
+  State<VideoGiftPlayer> createState() => _VideoGiftPlayerState();
+
+  /// Longest a clip is ever allowed to hold the screen, whatever it says its
+  /// duration is — a corrupt header must not freeze the room forever.
+  static const Duration maxPlayback = Duration(seconds: 60);
+
+  /// Gift players alive right now, for the memory breadcrumb.
+  static int liveCount = 0;
+}
+
+/// A gift / entrance clip «زي ما بضيفها» (client 10/11 16:00): full screen
+/// width at its own aspect. A clip that is (nearly) screen-tall fills the
+/// whole screen; a shorter one — a half-screen clip — sits on the bottom edge
+/// and rises from the bottom. Never a fixed two-thirds box, never cropped
+/// beyond the edges of a full-screen clip.
+class AsUploadedVideo extends StatelessWidget {
+  const AsUploadedVideo({super.key, required this.size, required this.child});
+  final Size size;
+  final Widget child;
+
+  /// A clip at least this share of the screen tall counts as full screen.
+  static const double fullScreenShare = 0.75;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, box) {
+      final w = box.maxWidth, h = box.maxHeight;
+      if (size.width <= 0 || size.height <= 0 || !w.isFinite || !h.isFinite) {
+        return const SizedBox.shrink();
+      }
+      final clipH = w * size.height / size.width;
+      final sized = SizedBox(width: size.width, height: size.height, child: child);
+      if (clipH >= h * fullScreenShare) {
+        return SizedBox.expand(child: FittedBox(fit: BoxFit.cover, child: sized));
+      }
+      return Align(
+        alignment: Alignment.bottomCenter,
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 1, end: 0),
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeOutCubic,
+          builder: (_, v, c) => Transform.translate(offset: Offset(0, v * clipH), child: c),
+          child: SizedBox(width: w, height: clipH, child: FittedBox(fit: BoxFit.fill, child: sized)),
+        ),
+      );
+    });
+  }
+}
+
+class _VideoGiftPlayerState extends State<VideoGiftPlayer> with WidgetsBindingObserver {
+  VideoPlayerController? _controller;
+  Timer? _hardTimer;
+  bool _completed = false;
+  bool _initialized = false;
+  /// SPEC52 #24 — the H.264 Baseline copy is used on weak devices, and once
+  /// after the original fails to initialise or decode.
+  bool _usingFallback = false;
+  bool get _hasFallback => (widget.gift.videoFallbackUrl ?? '').isNotEmpty;
+
+  RoomSoundSettings? _sounds;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final sounds = RoomSoundScope.of(context);
+    if (identical(sounds, _sounds)) return;
+    _sounds?.removeListener(_updateVolume);
+    _sounds = sounds..addListener(_updateVolume);
+    _updateVolume();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    VideoGiftPlayer.liveCount++;
+
+    AudioRoute.instance.roomMuted.addListener(_updateVolume);
+    WidgetsBinding.instance.addObserver(this);
+    _initialize();
+    // Safety net only, until the real duration is known. `animationMs` is an
+    // admin-typed number that has nothing to do with the uploaded file, so
+    // using it as the cut-off chopped every clip that ran longer than it —
+    // "الهديه لا تنزل كما وضعتها". Rearmed from the decoded duration below.
+    _hardTimer = Timer(VideoGiftPlayer.maxPlayback, _markComplete);
+  }
+
+  /// D1 — a video gift that fails shows nothing at all, and the failure used
+  /// to be discarded by a bare `catch (_)`. The sender had paid, the room saw
+  /// an empty flash, and there was no way to tell a bad upload from a missing
+  /// codec from a dead URL. Every failure path now says what happened and for
+  /// which gift; the user-visible behaviour (skip the clip, don't hang the
+  /// room) is unchanged.
+  void _reportFailure(String stage, Object? error) {
+    debugPrint(
+      '🎬 [VideoGiftPlayer] $stage failed for gift ${widget.gift.id} '
+      '(${widget.gift.animationUrl}): ${error ?? 'no detail'}',
+    );
+    widget.onError?.call();
+  }
+
+  /// Swap to the fallback rendition once; true if a retry was started.
+  bool _retryWithFallback(String stage, Object? error) {
+    if (_usingFallback || !_hasFallback || _completed) return false;
+    debugPrint('🎬 [VideoGiftPlayer] $stage failed for ${widget.gift.id} (${widget.gift.animationUrl}): $error — retrying H.264 baseline');
+    final old = _controller;
+    _controller = null;
+    old?.removeListener(_onTick);
+    old?.dispose();
+    _usingFallback = true;
+    if (mounted) setState(() => _initialized = false);
+    _initialize();
+    return true;
+  }
+
+  Future<void> _initialize() async {
+    // Alpha clips keep the original: the baseline copy has no alpha channel.
+    if (!_usingFallback && _hasFallback && (DeviceTier.lite || DeviceTier.ultraLite) && !widget.gift.videoHasAlpha) {
+      _usingFallback = true;
+    }
+    final url = _usingFallback ? widget.gift.videoFallbackUrl : widget.gift.animationUrl;
+    if (url == null || url.isEmpty) {
+      _reportFailure('lookup', 'gift has no animationUrl');
+      _markComplete();
+      return;
+    }
+    try {
+      VideoPlayerController controller;
+      try {
+        final cached = await DefaultCacheManager().getSingleFile(url);
+        controller = VideoPlayerController.file(File(cached.path),
+            videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
+      } catch (e) {
+        // Not a failure yet — the network player below is the real attempt.
+        debugPrint('🎬 [VideoGiftPlayer] cache miss for $url, streaming: $e');
+        controller = VideoPlayerController.networkUrl(
+          Uri.parse(url),
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        );
+      }
+      _controller = controller;
+      await controller.initialize();
+      controller.setLooping(false);
+      // D1 — the clip's own audio track, at full volume. `mixWithOthers` is
+      // what keeps this from hijacking the call: without it the platform gives
+      // the video exclusive use of the audio session and the room goes silent
+      // for as long as the gift plays.
+      //
+      // Routing is deliberately NOT forced here. The gift follows whatever the
+      // call is already using — earpiece or speaker — because the alternative
+      // is a gift that blasts out of the speaker while the user is holding the
+      // phone to their ear. The room's own speaker toggle stays the one place
+      // that decides.
+      // SPEC52 #18 — silent while the user muted the room.
+      await controller.setVolume(AudioRoute.instance.roomMuted.value || !(_sounds?.giftSoundsOn ?? false) || !widget.gift.hasSound ? 0.0 : AudioRoute.instance.effectiveVolume);
+      controller.addListener(_onTick);
+      if (!mounted) return;
+      setState(() => _initialized = true);
+
+      // Play for exactly as long as the FILE lasts (plus a small tail), so the
+      // gift is seen the way it was uploaded.
+      final real = controller.value.duration;
+      if (real > Duration.zero) {
+        _hardTimer?.cancel();
+        final window = real + const Duration(milliseconds: 600);
+        _hardTimer = Timer(
+          window > VideoGiftPlayer.maxPlayback ? VideoGiftPlayer.maxPlayback : window,
+          _markComplete,
+        );
+      }
+
+      await controller.play();
+    } catch (e) {
+      if (_retryWithFallback('playback', e)) return;
+      _reportFailure('playback', e);
+      _markComplete();
+    }
+  }
+
+  void _updateVolume() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    unawaited(controller.setVolume(AudioRoute.instance.roomMuted.value ||
+        !(_sounds?.giftSoundsOn ?? false) || !widget.gift.hasSound
+        ? 0.0 : AudioRoute.instance.effectiveVolume));
+  }
+
+  void _onTick() {
+    final c = _controller;
+    if (c == null) return;
+    if (c.value.hasError) {
+      if (_retryWithFallback('decode', c.value.errorDescription)) return;
+      _reportFailure('decode', c.value.errorDescription);
+      _markComplete();
+      return;
+    }
+    if (c.value.position >= c.value.duration && c.value.duration > Duration.zero) {
+      _markComplete();
+    }
+  }
+
+  void _markComplete() {
+    if (_completed) return;
+    _completed = true;
+    widget.onComplete();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final c = _controller;
+    if (c == null) return;
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      c.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      if (!_completed) c.play();
+    }
+  }
+
+  @override
+  void dispose() {
+    _sounds?.removeListener(_updateVolume);
+    AudioRoute.instance.roomMuted.removeListener(_updateVolume);
+    VideoGiftPlayer.liveCount--;
+    WidgetsBinding.instance.removeObserver(this);
+    _hardTimer?.cancel();
+    _controller?.removeListener(_onTick);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (c == null || !_initialized) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (widget.asUploaded) {
+      return AsUploadedVideo(size: c.value.size, child: VideoPlayer(c));
+    }
+    return SizedBox.expand(
+      child: FittedBox(
+        // `contain`, not `cover`: gift clips are usually portrait and `cover`
+        // cropped the sides of the artwork away.
+        fit: BoxFit.contain,
+        child: SizedBox(
+          width: c.value.size.width,
+          height: c.value.size.height,
+          child: VideoPlayer(c),
+        ),
+      ),
+    );
+  }
+}
