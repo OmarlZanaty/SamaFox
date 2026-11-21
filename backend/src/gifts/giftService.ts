@@ -1,6 +1,7 @@
 import { canOpenCategory, ensureCategoryLockColumns, loadCategoryLock } from './categoryAccess';
 import { buildGiftEvent } from './giftEvent';
 import { isValidGiftQuantity } from './giftLimits';
+import { retryTxConflicts } from './giftRetry';
 import { findAgencyCommissionOwner } from './agencyCommission';
 import type { GiftTransactionContext } from './giftOperation';
 import prisma from '../utils/prisma';
@@ -614,18 +615,6 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
 }
 
 /** Retry a Serializable transaction that lost a conflict (P2034 / 40001). */
-export async function withSerializableRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
-  let last: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await fn();
-    } catch (e: any) {
-      const msg = String(e?.message ?? '');
-      const conflict = e?.code === 'P2034' || msg.includes('could not serialize') || msg.includes('40001');
-      if (!conflict || e instanceof GiftSendError) throw e;
-      last = e;
-      await new Promise((r) => setTimeout(r, 20 + Math.floor(Math.random() * 60) * (i + 1)));
-    }
-  }
-  throw last;
+export async function withSerializableRetry<T>(fn: () => Promise<T>, attempts = 6): Promise<T> {
+  return retryTxConflicts(fn, attempts, (e) => e instanceof GiftSendError);
 }
