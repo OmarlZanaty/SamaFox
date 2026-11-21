@@ -27,7 +27,7 @@ class RoomTopSupporters extends StatelessWidget {
                 CircleAvatar(
                   radius: 16 * scale,
                   backgroundImage: (items[i].avatar ?? '').isNotEmpty
-                      ? appImage(items[i].avatar!, (32 * scale).round()) : null,
+                      ? appImage(items[i].avatar!, 32.0 * scale) : null,
                   child: (items[i].avatar ?? '').isEmpty ? Icon(Icons.person, size: 20 * scale) : null,
                 ),
                 if (i == 0)
