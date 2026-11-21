@@ -2644,7 +2644,7 @@ window.loadVipLevels = async function () {
         </div>
       </td>
       <td><button class="btn btn-outline" id="vip_rewards_btn_${level}" onclick="openVipRewardsModal(${level})">🎁 منتجات (${vipRewardSelections[level].size})</button></td>
-      <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button> ${level === levels[levels.length - 1] ? `<button class="btn btn-outline" onclick="deleteVipLevel(${level})" title="يُحذف أعلى مستوى فقط">حذف</button>` : ""}</td>
+      <td><button class="btn btn-primary" onclick="saveVipLevel(${level})">حفظ</button> <button class="btn btn-outline" onclick="deleteVipLevel(${level})" title="حذف المستوى">حذف</button></td>
     `;
     tbody.appendChild(tr);
   }
@@ -2836,7 +2836,7 @@ window.loadLvLevels = async function () {
       <td>
         <button class="btn btn-primary" onclick="saveLvLevel(${level})">حفظ</button>
         ${isConfigured ? `<button class="btn btn-outline" onclick="backfillLvRewards(${level})" title="منح منتجات هذا المستوى لمن بلغه بالفعل">🎁 بأثر رجعي</button>` : ""}
-        ${level === levels[levels.length - 1] ? `<button class="btn btn-outline" onclick="deleteLvLevel(${level})" title="يُحذف أعلى مستوى فقط">حذف</button>` : ""}
+        <button class="btn btn-outline" onclick="deleteLvLevel(${level})" title="حذف المستوى">حذف</button>
       </td>
     `;
     tbody.appendChild(tr);
