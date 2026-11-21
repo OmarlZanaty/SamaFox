@@ -5065,18 +5065,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                             : const Icon(Icons.mic, color: Colors.white),
                       ),
                       ),
-                      if (state.topSupporters.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        SizedBox(
-                          key: const ValueKey('room-top-supporters'),
-                          width: 128, height: 54,
-                          child: RoomTopSupporters(
-                            items: state.topSupporters,
-                            onTap: (user) => showUserProfileCard(
-                              userId: user.userId, username: user.name, avatarUrl: user.avatar),
-                          ),
-                        )
-                      ],
                       const SizedBox(width: 8),
                       // SPEC52 #14 — name + ID on a glass plate, with the width
                       // the speaker / keep buttons used to take.
@@ -5210,6 +5198,21 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 ),
 
                 // SPEC52 #39 — real game wins of people in this room.
+                // Client 17/11 (#87-#92): the two top supporters sit on their own
+                // row, bigger, directly above the first row of mics.
+                if (state.topSupporters.isNotEmpty)
+                  Padding(
+                    key: const ValueKey('room-top-supporters'),
+                    padding: const EdgeInsets.only(top: 2, bottom: 2),
+                    child: Center(
+                      child: RoomTopSupporters(
+                        scale: 1.45,
+                        items: state.topSupporters,
+                        onTap: (user) => showUserProfileCard(
+                          userId: user.userId, username: user.name, avatarUrl: user.avatar),
+                      ),
+                    ),
+                  ),
                 RoomGameWinStrip(key: const ValueKey('room-win-strip'), roomId: widget.roomId),
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
                 ValueListenableBuilder<Set<String>>(

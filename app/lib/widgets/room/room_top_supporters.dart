@@ -4,7 +4,8 @@ import '../../l10n/tr.dart';
 import '../app_network_image.dart';
 
 class RoomTopSupporters extends StatelessWidget {
-  const RoomTopSupporters({super.key, required this.items, required this.onTap});
+  const RoomTopSupporters({super.key, required this.items, required this.onTap, this.scale = 1.0});
+  final double scale;
   final List<RoomParticipant> items;
   final ValueChanged<RoomParticipant> onTap;
 
@@ -20,18 +21,18 @@ class RoomTopSupporters extends StatelessWidget {
           child: InkWell(
             onTap: () => onTap(items[i]),
             child: SizedBox(
-              width: 64, height: 54,
+              width: 64 * scale, height: 54 * scale,
               child: Stack(alignment: Alignment.center, children: [
-                CustomPaint(size: const Size(64, 44), painter: _WingFrame(gold: i == 0)),
+                CustomPaint(size: Size(64 * scale, 44 * scale), painter: _WingFrame(gold: i == 0)),
                 CircleAvatar(
-                  radius: 16,
+                  radius: 16 * scale,
                   backgroundImage: (items[i].avatar ?? '').isNotEmpty
-                      ? appImage(items[i].avatar!, 32) : null,
-                  child: (items[i].avatar ?? '').isEmpty ? const Icon(Icons.person, size: 20) : null,
+                      ? appImage(items[i].avatar!, (32 * scale).round()) : null,
+                  child: (items[i].avatar ?? '').isEmpty ? Icon(Icons.person, size: 20 * scale) : null,
                 ),
                 if (i == 0)
-                  const Positioned(top: 0, child: CustomPaint(
-                      size: Size(17, 12), painter: _Crown())),
+                  Positioned(top: 0, child: CustomPaint(
+                      size: Size(17 * scale, 12 * scale), painter: const _Crown())),
               ]),
             ),
           ),

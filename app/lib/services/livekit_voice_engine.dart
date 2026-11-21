@@ -663,7 +663,19 @@ class LiveKitVoiceEngine implements VoiceEngine {
             }
           }
         }
-        final track = _micPublication?.track;
+        var track = _micPublication?.track;
+        // Capture was stopped on mute: if unmute left the track dead or the
+        // publication still muted, drop it and publish a fresh mic track.
+        if (track == null || !track.isActive || (_micPublication?.muted ?? true)) {
+          try {
+            await _room?.localParticipant?.unpublishAllTracks();
+            await _room?.localParticipant?.setMicrophoneEnabled(true,
+                audioCaptureOptions: _captureOptions);
+          } catch (e) {
+            _log('republish after unmute failed: $e');
+          }
+          track = _micPublication?.track;
+        }
         // unmute() returned without throwing: live, unless the publication
         // itself still reports muted.
         _isMicMuted = track == null ? true : (_micPublication?.muted ?? false);
