@@ -233,10 +233,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 14),
                   const Text(
-                    'dandana chat',
+                    'SamaFox',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 40,
+                      fontSize: 48,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
