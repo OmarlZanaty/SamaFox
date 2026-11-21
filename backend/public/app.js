@@ -494,7 +494,33 @@ async function loadOverview() {
   document.getElementById("ovRooms").textContent    = data.roomsCount    ?? "--";
   document.getElementById("ovAgencies").textContent = data.agenciesCount ?? "--";
   document.getElementById("ovPending").textContent  = data.pendingAgencies ?? "--";
+  loadOverviewSeats().catch(() => {});
 }
+
+// Overview card: room list with each room's mic count and a change button.
+async function loadOverviewSeats() {
+  const tbody = document.querySelector("#ovSeatsTable tbody");
+  if (!tbody) return;
+  const search = (document.getElementById("ovSeatsSearch")?.value || "").trim();
+  const d = await apiFetch("/admin-dashboard/rooms" + (search ? `?search=${encodeURIComponent(search)}` : ""));
+  tbody.innerHTML = "";
+  const rows = (d.data || []).slice(0, 20);
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="cell-muted">لا توجد غرف مطابقة</td></tr>';
+    return;
+  }
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="cell-id">${escapeHtml(r.id ?? "")}</span></td>
+      <td>${escapeHtml(r.name ?? "")}</td>
+      <td>${escapeHtml(r.owner?.name ?? "—")} <span class="cell-muted">#${escapeHtml(r.owner?.displayId ?? r.owner?.id ?? "")}</span></td>
+      <td><strong>${r.maxSeats ?? "—"}</strong></td>
+      <td><button class="btn-ok" onclick="setRoomSeats(${r.id}, ${Number(r.maxSeats) || 0})">تغيير</button></td>`;
+    tbody.appendChild(tr);
+  }
+}
+window.loadOverviewSeats = loadOverviewSeats;
 
 // --- USERS ---
 async function loadUsers() {
@@ -607,7 +633,8 @@ window.setRoomSeats = async function (roomId, current) {
   try {
     await apiFetch("/room-admin/max-seats", "POST", { roomId, maxSeats });
     showToast("تم تغيير عدد المايكات");
-    await loadRooms();
+    if (document.querySelector("#roomsTable tbody tr")) await loadRooms();
+    await loadOverviewSeats();
   } catch (e) { showToast(e.message); }
 };
 

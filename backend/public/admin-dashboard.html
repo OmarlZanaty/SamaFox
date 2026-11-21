@@ -238,6 +238,22 @@
         </div>
       </div>
 
+      <!-- Mic counts per room -->
+      <div class="config-card" id="ovSeatsCard">
+        <div class="config-card-header">عدد المايكات في الغرف</div>
+        <div class="config-row">
+          <input id="ovSeatsSearch" class="form-input" placeholder="ابحث برقم الغرفة أو اسمها أو اسم المالك" onkeydown="if(event.key==='Enter')loadOverviewSeats()" />
+          <button class="btn btn-primary" onclick="loadOverviewSeats()">بحث</button>
+        </div>
+        <div class="table-wrap">
+          <table id="ovSeatsTable">
+            <thead><tr><th>رقم الغرفة</th><th>الاسم</th><th>المالك</th><th>عدد المايكات</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="cell-muted" style="margin-top:6px">أقصى عدد 24 مايك. أول 20 غرفة تظهر هنا، استخدم البحث لغيرها.</div>
+      </div>
+
       <!-- API Configuration card -->
       <div class="config-card">
         <div class="config-card-header">
@@ -2414,7 +2430,7 @@
   <div id="uploadBarLabel" style="margin-bottom:6px">جارٍ الرفع…</div>
   <div style="height:6px;background:rgba(255,255,255,.15);border-radius:3px;overflow:hidden"><div id="uploadBarFill" style="height:100%;width:0;background:#FFB300;transition:width .2s"></div></div>
 </div>
-<script src="app.js?v=20261109-light"></script>
+<script src="app.js?v=20261121-seats"></script>
 <script src="economy-admin.js?v=20261021-fruitwheel-bonus"></script>
 <script src="staff-admin.js?v=20261011"></script>
 <script src="spec52-admin.js?v=20261020"></script>
