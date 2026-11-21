@@ -583,7 +583,7 @@ async function loadRooms() {
       <td>${escapeHtml(r.name ?? "")}</td>
       <td><span class="cell-muted">${escapeHtml(r.type ?? "")}</span></td>
       <td>${status}</td>
-      <td>${r.maxSeats ?? "—"}</td>
+      <td>${r.maxSeats ?? "—"} <button class="btn-ok" onclick="setRoomSeats(${r.id}, ${Number(r.maxSeats) || 0})">تغيير</button></td>
       <td>${ownerName} <span class="cell-muted">#${r.owner?.displayId ?? r.owner?.id ?? ""}</span></td>
       <td>${cover}</td>
       <td><span class="cell-muted">${fmtDate(r.createdAt)}</span></td>
@@ -597,6 +597,19 @@ async function loadRooms() {
     tbody.appendChild(tr);
   }
 }
+
+// Change a room's mic count (2..24) from the dashboard; the server validates the range.
+window.setRoomSeats = async function (roomId, current) {
+  const raw = prompt("عدد المايكات الجديد (من 2 لـ 24):", current || "");
+  if (raw === null) return;
+  const maxSeats = Number(String(raw).trim());
+  if (!Number.isInteger(maxSeats) || maxSeats < 2 || maxSeats > 24) return showToast("عدد المايكات لازم يكون من 2 لـ 24");
+  try {
+    await apiFetch("/room-admin/max-seats", "POST", { roomId, maxSeats });
+    showToast("تم تغيير عدد المايكات");
+    await loadRooms();
+  } catch (e) { showToast(e.message); }
+};
 
 // Room edit modal (name + nameLocked)
 let editRoomId = null;
