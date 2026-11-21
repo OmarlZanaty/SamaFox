@@ -614,7 +614,6 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
                 children: [
                   _shortcutStrip(),
                   _header(),
-                  _wheelZone(context, reduced),
                   Expanded(child: _dashboard(reduced)),
                 ],
               ),
@@ -1287,21 +1286,42 @@ class _GreedyCatScreenState extends ConsumerState<GreedyCatScreen>
   }
 
   // ── Dashboard ─────────────────────────────────────────────
-  Widget _dashboard(bool reduced) => ListView(
-        padding: const EdgeInsets.fromLTRB(10, 4, 10, 22),
-        children: [
-          _categoryRow(),
-          const SizedBox(height: 8),
-          _wagerPanel(),
-          const SizedBox(height: 8),
-          _statsRow(),
-          const SizedBox(height: 8),
-          _jackpotBar(),
-          const SizedBox(height: 8),
-          _resultsStrip(),
-          const SizedBox(height: 8),
-          _rankingCard(),
-        ],
+  Widget _dashboard(bool reduced) => LayoutBuilder(
+        builder: (context, c) => ListView(
+          padding: const EdgeInsets.fromLTRB(10, 4, 10, 22),
+          children: [
+            // Client 20/11: the wheel, food buttons and bet chips all fit one
+            // screen with no scrolling; the stats and rankings sit below it.
+            SizedBox(
+              height: (c.maxHeight - 26).clamp(200.0, 4000.0),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  width: c.maxWidth - 20,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _wheelZone(context, reduced),
+                      const SizedBox(height: 4),
+                      _categoryRow(),
+                      const SizedBox(height: 8),
+                      _wagerPanel(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _statsRow(),
+            const SizedBox(height: 8),
+            _jackpotBar(),
+            const SizedBox(height: 8),
+            _resultsStrip(),
+            const SizedBox(height: 8),
+            _rankingCard(),
+          ],
+        ),
       );
 
   Widget _categoryRow() {
