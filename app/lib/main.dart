@@ -454,7 +454,7 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
     return MaterialApp(
       navigatorKey: navigatorKey,
       navigatorObservers: [appRouteObserver],
-      title: 'SamaFox',
+      title: 'dandana chat',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
