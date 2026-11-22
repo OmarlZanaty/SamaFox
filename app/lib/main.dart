@@ -293,7 +293,9 @@ class _SamaFoxAppState extends ConsumerState<SamaFoxApp> with WidgetsBindingObse
           type.contains('commission') || type.contains('agency') || type.contains('target');
       // SPEC52 #31 — inside a room these go to the 🔔 above the messages
       // (with a badge) instead of a bar across the room.
-      if (isAgentPercentage && ActiveRoom.instance.roomId != null) return;
+      // Client 21/11: the «هدية جديدة» bar covered the mics. Inside a room the
+      // gift notice is not shown as a bar; it stays in the notifications list.
+      if ((isAgentPercentage || isGiftReceived) && ActiveRoom.instance.roomId != null) return;
 
       GlobalNotificationService.instance.show(
         GlobalNotificationEvent(
