@@ -5206,7 +5206,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                     padding: const EdgeInsets.only(top: 2, bottom: 2),
                     child: Center(
                       child: RoomTopSupporters(
-                        scale: 1.45,
+                        scale: 1.15,
                         items: state.topSupporters,
                         onTap: (user) => showUserProfileCard(
                           userId: user.userId, username: user.name, avatarUrl: user.avatar),

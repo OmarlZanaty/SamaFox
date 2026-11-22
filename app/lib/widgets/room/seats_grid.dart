@@ -74,7 +74,7 @@ class SeatsGrid extends StatelessWidget {
   static const double _spacing = 4;
 
   /// Nobody needs a 120px seat in a two-person room.
-  static const double _maxSeatSize = 60;
+  static const double _maxSeatSize = 72;
   static const double _minSeatSize = 36;
 
   /// The column count that makes the seats biggest while still fitting every
@@ -82,7 +82,7 @@ class SeatsGrid extends StatelessWidget {
   static ({int columns, double seatSize}) _solve(Size box, int count) {
     double sizeFor(int columns) {
       final rows = (count / columns).ceil();
-      final sidePadding = columns == 6 ? 4.0 : 12.0;
+      final sidePadding = 2.0;
       final tileW = (box.width - sidePadding * 2 - _spacing * columns) / columns;
       final tileH = (box.height - _spacing * (rows - 1)) / rows;
       return (tileW < tileH - _labelHeight ? tileW : tileH - _labelHeight)
@@ -159,7 +159,7 @@ class SeatsGrid extends StatelessWidget {
           textScaler: MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.15),
         );
         final gridContent = Padding(
-          padding: EdgeInsets.symmetric(horizontal: solved.columns == 6 ? 4 : 12),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
