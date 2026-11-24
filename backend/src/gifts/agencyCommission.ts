@@ -31,6 +31,8 @@ export async function applyCommissionAccrual(
   db: any = prisma,
 ): Promise<void> {
   const inc = BigInt(accrual.amount);
+  // The gift is already committed: a failure here loses commission money. Log every
+  // field needed to re-apply it by hand (grep "[agency-commission LOST]").
   await retryTxConflicts(async () => {
     if (accrual.ownerMemberId === accrual.hostMemberId) {
       await db.agencyMember.update({
@@ -46,5 +48,8 @@ export async function applyCommissionAccrual(
       ].sort((x, y) => x.id - y.id);
       for (const op of ops) await t.agencyMember.update({ where: { id: op.id }, data: op.data });
     });
-  }, 12);
+  }, 12).catch((e) => {
+    console.error('[agency-commission LOST]', JSON.stringify(accrual), (e as Error)?.message ?? e);
+    throw e;
+  });
 }

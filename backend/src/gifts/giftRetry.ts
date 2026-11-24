@@ -47,7 +47,9 @@ export async function retryTxConflicts<T>(
     } catch (e: any) {
       if (!isRetryableTxConflict(e) || isBusinessError(e)) throw e;
       last = e;
-      await new Promise((r) => setTimeout(r, retryDelayMs(i)));
+      // No sleep after the final attempt: it only delays the error (and, under
+      // serializeByKey, every queued send of the same sender).
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, retryDelayMs(i)));
     }
   }
   throw last;

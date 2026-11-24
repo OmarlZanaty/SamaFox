@@ -78,8 +78,11 @@ function agencySearchFilter(q: unknown): Record<string, unknown> {
   const or: Record<string, unknown>[] = [{ agencyName: { contains: text, mode: 'insensitive' } }];
   if (/^\d{1,10}$/.test(text)) {
     const n = Number(text);
-    if (n <= 2_147_483_647) or.push({ id: n });
-    or.push({ members: { some: { role: 'OWNER', user: { displayId: text } } } });
+    // User.displayId is an Int column: a string here is a Prisma validation error (500).
+    if (n <= 2_147_483_647) {
+      or.push({ id: n });
+      or.push({ members: { some: { role: 'OWNER', user: { OR: [{ displayId: n }, { id: n }] } } } });
+    }
   }
   return { OR: or };
 }

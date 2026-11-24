@@ -56,7 +56,9 @@ function resolveExtension(file: Express.Multer.File): string | null {
   if (ALLOWED_EXTENSIONS.has(byName)) return byName;
   // M1: any other audio/* type is accepted too, and a generic/empty MIME with no
   // usable extension (content:// pickers) is accepted and sniffed after upload.
-  if (file.mimetype?.startsWith('audio/')) return '.mp3';
+  // '.bin' (not '.mp3'): an unknown container stored as .mp3 would skip conversion
+  // in normalizeAudioUpload and stay unplayable; '.bin' is sniffed and converted.
+  if (file.mimetype?.startsWith('audio/')) return '.bin';
   if (!file.mimetype || file.mimetype === 'application/octet-stream' || file.mimetype === 'binary/octet-stream') return '.bin';
   return null;
 }
