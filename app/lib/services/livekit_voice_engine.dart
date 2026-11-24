@@ -239,6 +239,8 @@ class LiveKitVoiceEngine implements VoiceEngine {
       );
       _initialized = true;
       _watchForRecovery();
+      // Still in the room (the rejoin brings the audio): keep sharing the mic.
+      _watchMicShare();
       _scheduleRejoin(const Duration(seconds: 2), 'first connect failed');
       return;
     }
@@ -730,11 +732,20 @@ class LiveKitVoiceEngine implements VoiceEngine {
     _wantMuted = false;
     final req = ++_micReq;
     return _micWork = _micWork.then((_) async {
-      if (_listenOnly) return;
+      if (_listenOnly) {
+        // No seat, no microphone: the next tap must not "mute" from here.
+        if (req == _micReq) _wantMuted = true;
+        return;
+      }
       // A newer mute/unmute is queued behind this one: skip the capture start.
       if (req != _micReq) return;
-      // Another app is recording: stay released; it is taken back afterwards.
-      if (_micYielded) return;
+      // Another app is recording: stay released. The unmute is refused (the
+      // room syncs the seat from isMicMuted), so the mic is never turned on
+      // later behind a seat that shows muted.
+      if (_micYielded) {
+        if (req == _micReq) _wantMuted = _isMicMuted;
+        return;
+      }
       try {
         await AudioRoute.instance.setVoiceLive(true);
         final pub = _micPublication;

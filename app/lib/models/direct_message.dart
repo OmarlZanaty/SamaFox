@@ -110,11 +110,19 @@ class DirectMessage {
       senderId: _i(j['senderId']),
       text: (j['text'] ?? j['content'] ?? '') as String,
       type: (j['type'] ?? 'text') as String,
-      metadata: j['metadata'] is Map
-          ? Map<String, dynamic>.from(j['metadata'] as Map)
-          : (j['imageUrl'] is String && (j['imageUrl'] as String).isNotEmpty)
-              ? <String, dynamic>{'imageUrl': j['imageUrl']}
-              : null,
+      // The image bubble reads metadata.imageUrl: a server row that carries
+      // some other metadata ({} or bubble info) plus a top-level imageUrl
+      // must still show its picture.
+      metadata: () {
+        final meta = j['metadata'] is Map
+            ? Map<String, dynamic>.from(j['metadata'] as Map)
+            : <String, dynamic>{};
+        final img = j['imageUrl'];
+        if (img is String && img.isNotEmpty && meta['imageUrl'] == null) {
+          meta['imageUrl'] = img;
+        }
+        return (meta.isEmpty && j['metadata'] is! Map) ? null : meta;
+      }(),
       createdAt: (j['createdAt'] ?? DateTime.now().toIso8601String()) as String,
       deliveredAt: j['deliveredAt'] as String?,
       readAt: j['readAt'] as String?,

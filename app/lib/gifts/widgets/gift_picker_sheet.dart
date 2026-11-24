@@ -462,17 +462,25 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 // old top-left spot down to ~80 % height, left edge).
                 if (_quantityStripOpen)
                   PositionedDirectional(
+                    // top: 0 bounds the height (a Positioned with only a bottom
+                    // gets an infinite max height, so the cap never applied);
+                    // Align keeps the strip at the bottom and lets taps through
+                    // the empty space above it.
+                    top: 0,
                     end: 12,
                     bottom: 6,
                     // G1: never clipped on short screens — scrolls if needed.
-                    child: LayoutBuilder(
-                      builder: (ctx, c) => ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: c.maxHeight.isFinite ? c.maxHeight : 260,
-                        ),
-                        child: SingleChildScrollView(
-                          reverse: true,
-                          child: _quantityStrip(),
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: LayoutBuilder(
+                        builder: (ctx, c) => ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: c.maxHeight.isFinite ? c.maxHeight : 260,
+                          ),
+                          child: SingleChildScrollView(
+                            reverse: true,
+                            child: _quantityStrip(),
+                          ),
                         ),
                       ),
                     ),
