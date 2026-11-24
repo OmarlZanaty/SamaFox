@@ -24,6 +24,7 @@ class LuckyWinBanner extends StatefulWidget {
 class _Streak {
   LuckyRollEvent? win;
   int sends = 0, rolls = 0, coins = 0, revision = 0;
+  num maxMult = 0;
   DateTime touched = DateTime.now();
   int get count => math.max(sends, rolls);
 }
@@ -119,6 +120,7 @@ class _LuckyWinBannerState extends State<LuckyWinBanner> {
       if (e.payoutCoins > 0) {
         s.win = e;
         s.coins += e.payoutCoins;
+        if (e.multiplier > s.maxMult) s.maxMult = e.multiplier;
       }
     });
   }
@@ -158,26 +160,30 @@ class _LuckyBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final e = streak.win!;
-    return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: CustomPaint(
-            painter: _GoldWings(),
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 10),
+    // R9 tiers: x5/x10 = simple warm-gold frame; 11..99 = the standard
+    // winged frame; >=100 = luxurious animated frame.
+    final m = streak.maxMult;
+    final tier = m >= 100 ? 2 : (m > 10 ? 1 : 0);
+    final bar = Container(
+              margin: EdgeInsets.symmetric(horizontal: tier == 0 ? 0 : 10),
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
               decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [
-                    Color(0xFF390817),
-                    Color(0xFFA31535),
-                    Color(0xFF4B091B)
-                  ]),
+                  gradient: LinearGradient(
+                      colors: tier == 0
+                          ? const [Color(0xFF3A2A12), Color(0xFF6B4A18), Color(0xFF3A2A12)]
+                          : tier == 2
+                              ? const [Color(0xFF1B0638), Color(0xFF7A1B6B), Color(0xFF2A0A4F)]
+                              : const [Color(0xFF390817), Color(0xFFA31535), Color(0xFF4B091B)]),
                   borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: const Color(0xFFFFD678), width: 2),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0x996B001A), blurRadius: 9),
-                    BoxShadow(color: Color(0xFF9C631C), offset: Offset(0, 2))
-                  ]),
+                  border: Border.all(
+                      color: tier == 0 ? const Color(0xFFE2B85A) : const Color(0xFFFFD678),
+                      width: tier == 0 ? 1.2 : 2),
+                  boxShadow: tier == 0
+                      ? const []
+                      : const [
+                          BoxShadow(color: Color(0x996B001A), blurRadius: 9),
+                          BoxShadow(color: Color(0xFF9C631C), offset: Offset(0, 2))
+                        ]),
               child: Row(textDirection: TextDirection.rtl, children: [
                 Container(
                     padding: const EdgeInsets.all(2),
@@ -259,8 +265,87 @@ class _LuckyBar extends StatelessWidget {
                                         fontWeight: FontWeight.w900,
                                         fontSize: 15)))))),
               ]),
-            )));
+            );
+    return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: tier == 0
+            ? bar
+            : tier == 1
+                ? CustomPaint(painter: _GoldWings(), child: bar)
+                : _LuxuryFrame(child: bar));
   }
+}
+
+/// R9 — luxurious frame for x100+: a travelling gold sweep + soft glow around
+/// the bar. One controller, one RepaintBoundary, no assets.
+class _LuxuryFrame extends StatefulWidget {
+  const _LuxuryFrame({required this.child});
+  final Widget child;
+  @override
+  State<_LuxuryFrame> createState() => _LuxuryFrameState();
+}
+
+class _LuxuryFrameState extends State<_LuxuryFrame>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 2200))
+    ..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _c,
+        child: CustomPaint(painter: _GoldWings(), child: widget.child),
+        builder: (context, child) {
+          final glow = 0.45 + 0.35 * math.sin(_c.value * math.pi * 2);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(32),
+                boxShadow: [
+                  BoxShadow(
+                      color: Color(0xFFFFC53D).withOpacity(glow.clamp(0.0, 1.0)),
+                      blurRadius: 16,
+                      spreadRadius: 1)
+                ]),
+            child: ShaderMask(
+              blendMode: BlendMode.srcATop,
+              shaderCallback: (r) {
+                final x = r.width * (_c.value * 2.4 - 0.7);
+                return LinearGradient(
+                  colors: const [
+                    Color(0x00FFFFFF),
+                    Color(0x55FFF2B0),
+                    Color(0x00FFFFFF)
+                  ],
+                  stops: const [0, 0.5, 1],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  transform: _SlideTransform(x),
+                ).createShader(Rect.fromLTWH(0, 0, r.width * 0.5, r.height));
+              },
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SlideTransform extends GradientTransform {
+  const _SlideTransform(this.dx);
+  final double dx;
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) =>
+      Matrix4.translationValues(dx, 0, 0);
 }
 
 class _GoldWings extends CustomPainter {

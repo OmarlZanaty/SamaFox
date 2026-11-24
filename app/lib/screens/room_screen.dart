@@ -254,9 +254,8 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
   /// and each send also waited for a balance refresh before the next tap
   /// counted. Now every tap is counted and sent, up to [_kComboParallel] at a
   /// time, and the balance is refreshed once when the burst is over.
-  int _comboQueued = 0;
   int _comboInFlight = 0;
-  static const int _kComboParallel = 3;
+  static const int _kComboParallel = 12;
 
   /// The 5-second window restarts on every tap, not when the server answers,
   /// so a fast burst never sees the circle vanish under the finger.
@@ -272,33 +271,28 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
     });
   }
 
+  /// L4: a tap is sent AT ONCE, in parallel with the ones already on the
+  /// network. Nothing is queued: lifting the finger leaves no backlog. Only a
+  /// flood past [_kComboParallel] in flight is dropped (never deferred).
   void _sendGiftAgain() {
     if (_comboLeft <= 0 || _repeatGift == null) return;
     _restartComboCountdown();
-    _comboQueued++;
-    _pumpCombo();
-  }
-
-  void _pumpCombo() {
-    while (mounted && _comboQueued > 0 && _comboInFlight < _kComboParallel) {
-      final repeat = _repeatGift;
-      if (repeat == null) { _comboQueued = 0; break; }
-      _comboQueued--;
-      _comboInFlight++;
-      if (!_comboSending) setState(() => _comboSending = true);
-      repeat().catchError((Object e) {
-        _comboQueued = 0;
-        if (mounted) _showRoomSnack(tr('تعذر إرسال الهدية مجدداً', 'Could not send the gift again'), error: true);
-      }).whenComplete(() {
-        _comboInFlight--;
-        if (!mounted) return;
-        if (_comboQueued > 0) { _pumpCombo(); return; }
-        if (_comboInFlight == 0) {
-          setState(() => _comboSending = false);
-          ref.read(authStateProvider.notifier).refreshUser();
-        }
-      });
-    }
+    if (_comboInFlight >= _kComboParallel) return;
+    final repeat = _repeatGift;
+    if (repeat == null) return;
+    _comboInFlight++;
+    if (!_comboSending) setState(() => _comboSending = true);
+    repeat().catchError((Object e) {
+      if (mounted) _showRoomSnack(tr('تعذر إرسال الهدية مجدداً', 'Could not send the gift again'), error: true);
+    }).whenComplete(() {
+      _comboInFlight--;
+      if (!mounted) return;
+      if (_comboInFlight <= 0) {
+        _comboInFlight = 0;
+        setState(() => _comboSending = false);
+        ref.read(authStateProvider.notifier).refreshUser();
+      }
+    });
   }
 
   Widget _comboCircle() => Semantics(
@@ -5787,6 +5781,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 child: GiftAnimationOverlay(
                 socket: _giftSocket,
                 resolvePosition: _getSeatPositionByUser,
+                isSeated: (id) => _getSeatOfUser(id) != null,
                 bannersTop: _foregroundBarsHeight,
               )),
             ),

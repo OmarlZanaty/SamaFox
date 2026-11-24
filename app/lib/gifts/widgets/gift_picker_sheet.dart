@@ -176,7 +176,6 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   static const List<int> _kQuantities = [1, 7, 77, 777, 7777];
   int _quantity = 1;
   bool _quantityStripOpen = false;
-  final List<Future<void> Function()> _pendingSends = [];
   int _selectedGiftCost = 0; // coin cost of the currently selected gift (for optimistic deduction)
   bool _sending = false;
   late Set<int> _selectedRecipientIds;
@@ -218,7 +217,6 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   void dispose() {
     GiftPickerSheet.liveBalance.removeListener(_onLiveBalance);
     _repeatTimer?.cancel();
-    _pendingSends.clear();
     _tab?.dispose();
     super.dispose();
   }
@@ -463,7 +461,22 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
                 // (client 7/11 02:52 arrow on a 720×1600 Realme: from the
                 // old top-left spot down to ~80 % height, left edge).
                 if (_quantityStripOpen)
-                  PositionedDirectional(end: 12, bottom: 6, child: _quantityStrip()),
+                  PositionedDirectional(
+                    end: 12,
+                    bottom: 6,
+                    // G1: never clipped on short screens — scrolls if needed.
+                    child: LayoutBuilder(
+                      builder: (ctx, c) => ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: c.maxHeight.isFinite ? c.maxHeight : 260,
+                        ),
+                        child: SingleChildScrollView(
+                          reverse: true,
+                          child: _quantityStrip(),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -783,7 +796,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
               _quantityStripOpen = false;
             }),
             child: SizedBox(
-              height: 40,
+              height: 38,
               width: double.infinity,
               child: Center(child: Text('x$q', style: TextStyle(
                 color: q == _quantity ? _kGoldColor : Colors.white,
@@ -890,7 +903,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
 
   Widget _repeatCircle() {
     return GestureDetector(
-      onTap: _repeatSend,
+      onTapDown: (_) => _repeatSend(),
       child: SizedBox(
         width: 58,
         height: 58,
@@ -945,21 +958,39 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     final cost = _selectedGiftCost;
     final isCp = _selectedGiftIsCp;
     final isLucky = _selectedGiftIsLucky;
-    _pendingSends.add(() => _sendOnce(giftId, recipients, quantity, cost, isCp, isLucky));
-    if (_sending) return;
-    setState(() => _sending = true);
+    // L4: every tap is sent IMMEDIATELY and in parallel — no serial queue, so
+    // nothing keeps sending after the finger is lifted.
+    _inFlight++;
+    if (!_sending) setState(() => _sending = true);
     try {
-      while (mounted && _pendingSends.isNotEmpty) {
-        await _pendingSends.removeAt(0)();
-      }
+      await _sendOnce(giftId, recipients, quantity, cost, isCp, isLucky);
     } finally {
-      _pendingSends.clear();
-      if (mounted) setState(() => _sending = false);
+      _inFlight--;
+      if (mounted && _inFlight <= 0) {
+        _inFlight = 0;
+        setState(() => _sending = false);
+      }
     }
   }
 
+  int _inFlight = 0;
+
+  void _restoreBalance(int refund) {
+    if (!mounted) return;
+    setState(() => _balance = _balance + refund);
+    widget.onBalanceChanged(_balance);
+  }
+
+  /// With parallel sends, replies can arrive out of order: while others are
+  /// still in flight keep the lowest known balance (never show coins that are
+  /// about to be spent); the last reply sets the authoritative value.
+  void _applyServerBalance(int serverBalance) {
+    final v = _inFlight > 1 && serverBalance > _balance ? _balance : serverBalance;
+    setState(() => _balance = v);
+    widget.onBalanceChanged(v);
+  }
+
   void _stopPendingSends() {
-    _pendingSends.clear();
     _stopRepeatWindow();
   }
 
@@ -977,7 +1008,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     //
     // A27 — the cost of a fan-out is price × quantity × RECIPIENTS: every
     // person on the list receives the whole gift, they do not share one.
-    final int prevBalance = _balance;
+    final int refund = optimisticCost;
     setState(() {
       _balance = (_balance - optimisticCost).clamp(0, 1 << 62);
     });
@@ -985,17 +1016,16 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
 
     try {
       if (isCp) {
-        await _sendCp(giftId, recipients, prevBalance, quantity);
+        await _sendCp(giftId, recipients, refund, quantity);
       } else if (recipients.length == 1) {
-        await _sendSingle(giftId, recipients.first, prevBalance, quantity, cost, isLucky);
+        await _sendSingle(giftId, recipients.first, refund, quantity, cost, isLucky);
       } else {
-        await _sendMany(giftId, recipients, prevBalance, quantity, isLucky);
+        await _sendMany(giftId, recipients, refund, quantity, isLucky);
       }
     } catch (_) {
       _stopPendingSends();
       if (!mounted) return;
-      setState(() => _balance = prevBalance);
-      widget.onBalanceChanged(prevBalance);
+      _restoreBalance(refund);
       _toast(tr('تعذر إرسال الهدية', 'Could not send gift'), error: true);
     }
   }
@@ -1018,9 +1048,8 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   /// 2026-09-22 — opening CP may cost coins ([CpUnlockGate]): the fee is shown
   /// and confirmed before the invitation, and the server re-checks it on the
   /// send (403 CP_LOCKED), in which case the gate runs once more.
-  Future<void> _sendCp(String giftId, List<int> recipients, int prevBalance, int quantity) async {
-    setState(() => _balance = prevBalance);
-    widget.onBalanceChanged(prevBalance);
+  Future<void> _sendCp(String giftId, List<int> recipients, int refund, int quantity) async {
+    _restoreBalance(refund);
 
     final recipientId = recipients.first;
     // One key per tap: a retry of THIS send is recognised by the server and
@@ -1082,7 +1111,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     return gate.proceed;
   }
 
-  Future<void> _sendSingle(String giftId, int recipientId, int prevBalance,
+  Future<void> _sendSingle(String giftId, int recipientId, int refund,
       int quantity, int cost, bool isLucky) async {
     // Capture the stake before awaiting: the picker can change during the send.
     final sentCost = cost * quantity;
@@ -1094,8 +1123,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         quantity: quantity,
       );
       if (!mounted) return;
-      setState(() => _balance = result.senderBalance);
-      widget.onBalanceChanged(result.senderBalance);
+      _applyServerBalance(result.senderBalance);
       if (isLucky) _startRepeatWindow();
       final lucky = result.lucky;
       if (lucky == null) {
@@ -1110,8 +1138,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
     } on GiftRepositoryException catch (e) {
       if (!mounted) return;
       _stopPendingSends();
-      setState(() => _balance = prevBalance);
-      widget.onBalanceChanged(prevBalance);
+      _restoreBalance(refund);
       _toast(e.message, error: true);
     }
   }
@@ -1123,7 +1150,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
   /// off part-way and the sender was left having paid for an arbitrary prefix
   /// of the list. The server now charges the whole fan-out atomically enough to
   /// report exactly how many landed.
-  Future<void> _sendMany(String giftId, List<int> recipients, int prevBalance,
+  Future<void> _sendMany(String giftId, List<int> recipients, int refund,
       int quantity, bool isLucky) async {
     try {
       final result = await widget.repository.sendBatch(
@@ -1133,8 +1160,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
         quantity: quantity,
       );
       if (!mounted) return;
-      setState(() => _balance = result.senderBalance);
-      widget.onBalanceChanged(result.senderBalance);
+      _applyServerBalance(result.senderBalance);
       if (isLucky && result.sent > 0) _startRepeatWindow();
 
       if (result.sent == result.requested) {
@@ -1153,8 +1179,7 @@ class _GiftPickerSheetState extends State<GiftPickerSheet> with SingleTickerProv
       // Nothing was charged when the batch is refused up front (the server
       // checks the whole cost before moving a single coin), so the optimistic
       // deduction is simply undone.
-      setState(() => _balance = prevBalance);
-      widget.onBalanceChanged(prevBalance);
+      _restoreBalance(refund);
       _toast(e.message, error: true);
     }
   }

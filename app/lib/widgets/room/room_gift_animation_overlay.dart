@@ -31,11 +31,15 @@ class GiftAnimationOverlay extends StatefulWidget {
     super.key,
     required this.socket,
     required this.resolvePosition,
+    this.isSeated,
     this.bannersTop,
   });
 
   final GiftSocketService socket;
   final Offset Function(int userId) resolvePosition;
+
+  /// L5: true when [userId] sits on a mic, so their cannon is at THEIR seat.
+  final bool Function(int userId)? isSeated;
 
   /// Height of the room's top bars. The effects cover the whole screen, but
   /// the VIP and cross-room banners are laid out just below the bars.
@@ -221,6 +225,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       event: event,
       start: start,
       end: end,
+      seated: widget.isSeated?.call(event.senderId) ?? false,
       controller: controller,
       index: index,
       total: total,
@@ -236,6 +241,15 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       }
     });
     controller.forward();
+  }
+
+  /// One cannon per distinct seated sender with a flight on screen.
+  Map<int, Offset> _seatCannons() {
+    final m = <int, Offset>{};
+    for (final f in _flights) {
+      if (f.seated) m[f.event.senderId] = f.start;
+    }
+    return m;
   }
 
   void _triggerVip(GiftSendEvent event) {
@@ -321,7 +335,11 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
 
           // Client 7/11 21:02: gifts are fired from a cannon at the bottom
           // centre, leave its mouth small and grow to full size mid-room.
-          if (_flights.isNotEmpty) const _GiftCannon(),
+          // L5: a sender on a mic fires from THEIR OWN seat; only senders
+          // without a seat use the shared bottom cannon.
+          if (_flights.any((f) => !f.seated)) const _GiftCannon(),
+          for (final e in _seatCannons().entries)
+            _GiftCannon(key: ValueKey('cannon-${e.key}'), seat: e.value),
 
           // In-flight gifts.
           for (final f in _flights) _FlightWidget(flight: f),
@@ -388,6 +406,7 @@ class _Flight {
     required this.event,
     required this.start,
     required this.end,
+    required this.seated,
     required this.controller,
     required this.index,
     required this.total,
@@ -397,6 +416,8 @@ class _Flight {
   final GiftSendEvent event;
   final Offset start;
   final Offset end;
+  /// L5: the sender sits on a mic: the gift is fired from that seat's cannon.
+  final bool seated;
   final AnimationController controller;
   final int index;
   final int total;
@@ -535,7 +556,10 @@ class _AggregateDimLayer extends StatelessWidget {
 /// The gold cannon gifts are fired from (client 7/11). Uses the client's art
 /// at assets/images/room/gift_cannon.png when present, else a drawn barrel.
 class _GiftCannon extends StatelessWidget {
-  const _GiftCannon();
+  const _GiftCannon({super.key, this.seat});
+
+  /// When set, a small cannon centred on this seat (L5); else the bottom one.
+  final Offset? seat;
   // The client's cannon art (10/11) is 293×420: keep its proportions.
   static const double width = 80, height = 115, bottomGap = 74;
 
@@ -545,11 +569,14 @@ class _GiftCannon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.of(context).size;
+    final seat = this.seat;
+    const sw = 44.0, sh = 62.0;
     return Positioned(
-      left: (screen.width - width) / 2,
-      bottom: MediaQuery.of(context).padding.bottom + bottomGap,
-      width: width,
-      height: height,
+      left: seat != null ? seat.dx - sw / 2 : (screen.width - width) / 2,
+      top: seat != null ? seat.dy - sh / 2 : null,
+      bottom: seat != null ? null : MediaQuery.of(context).padding.bottom + bottomGap,
+      width: seat != null ? sw : width,
+      height: seat != null ? sh : height,
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0.6, end: 1),
         duration: const Duration(milliseconds: 260),
@@ -603,7 +630,9 @@ class _FlightWidget extends StatelessWidget {
     final bigSize = math.min(screen.width, screen.height) * 0.7;
     const smallSize = 96.0;
     // The cannon's mouth: gifts start pipe-sized there, not at the sender.
-    final mouth = _GiftCannon.mouth(screen, MediaQuery.of(context).padding.bottom);
+    final mouth = flight.seated
+        ? flight.start
+        : _GiftCannon.mouth(screen, MediaQuery.of(context).padding.bottom);
     const mouthSize = 26.0;
 
     return AnimatedBuilder(

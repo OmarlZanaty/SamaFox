@@ -585,10 +585,14 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.onEffectsLayout?.call();
     });
-    final st = ref.watch(roomControllerProvider(widget.roomId));
-
-    final messages = st.messages;
-    final events = st.events
+    // M6: rebuild the feed only when messages/events/roles change — not on
+    // every seat/speaking/mic tick of the room state.
+    final roomProv = roomControllerProvider(widget.roomId);
+    final messages = ref.watch(roomProv.select((s) => s.messages));
+    final rawEvents = ref.watch(roomProv.select((s) => s.events));
+    final ownerId = ref.watch(roomProv.select((s) => s.ownerId));
+    final adminIds = ref.watch(roomProv.select((s) => s.adminIds));
+    final events = rawEvents
         .where((event) =>
             event.type == RoomEventType.gift ||
             event.type == RoomEventType.join)
@@ -860,8 +864,8 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                                                     ),
                                                                     _roleIcon(
                                                                         m.userId,
-                                                                        st.ownerId,
-                                                                        st.adminIds),
+                                                                        ownerId,
+                                                                        adminIds),
                                                                     // "فهد  VIP 6 · LV 8" — the
                                                                     // writer's standing sits with
                                                                     // his name, above the text.
@@ -1047,8 +1051,8 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             if (e.type == RoomEventType.join) _joinGem else Icon(icon, color: Colors.white, size: 18),
-                                            _roleIcon(e.userId, st.ownerId,
-                                                st.adminIds),
+                                            _roleIcon(e.userId, ownerId,
+                                                adminIds),
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: Text(
