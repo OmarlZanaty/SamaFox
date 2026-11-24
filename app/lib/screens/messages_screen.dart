@@ -381,6 +381,7 @@ class _ConversationTile extends StatelessWidget {
                           ? ClipOval(
                         child: CachedNetworkImage(
                           imageUrl: conversation.partnerAvatar!,
+                          memCacheWidth: 168,
                           width: 56,
                           height: 56,
                           fit: BoxFit.cover,
