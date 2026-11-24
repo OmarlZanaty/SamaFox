@@ -259,7 +259,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
     setState(() {
       _state = s;
       _msLeft = s.msLeft;
-      _rain = s.rain;
+      // Client 17/11: no free coin grant (the «مطر» of 500) in the plane game.
+      _rain = null;
       if (previous == null || previous.roundId != s.roundId) {
         _rainClaimed = false;
         _lastCrashPoint = 0;
@@ -414,13 +415,8 @@ class _CrashGameScreenState extends ConsumerState<CrashGameScreen>
   }
 
   void _onRain(dynamic data) {
-    if (data is! Map || !mounted) return;
-    setState(() {
-      _rain = CrashRain.fromJson(Map<String, dynamic>.from(data));
-      _rainClaimed = false;
-    });
-    _play('sounds/crash_rain.wav');
-    HapticFeedback.selectionClick();
+    // Disabled on purpose: the plane game gives no coin rain.
+    return;
   }
 
   void _onRainClaimed(dynamic data) {

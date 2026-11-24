@@ -1122,8 +1122,13 @@ class _RoomChatPanelState extends ConsumerState<RoomChatPanel> {
               ],
             ),
           ),
+          // Client 21/11: the bell sits right beside «دردشة», not at the far
+          // end of the row (it rides with the tabs as the mic list grows).
+          if (widget.tabsTrailing != null) ...[
+            const SizedBox(width: 6),
+            widget.tabsTrailing!,
+          ],
           const Spacer(),
-          if (widget.tabsTrailing != null) widget.tabsTrailing!,
         ],
       ),
     );

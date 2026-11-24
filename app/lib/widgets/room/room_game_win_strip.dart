@@ -66,14 +66,18 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
     if (_seen.length > 100) _seen.remove(_seen.first);
     _queue.add(w);
     if (_queue.length > 5) _queue.removeAt(0);
-    if (_current == null) _next();
+    // Show at once when nothing is on screen or the current win has had its
+    // 5 seconds; otherwise the running timer brings the next one.
+    if (_current == null || !(_rotate?.isActive ?? false)) _next();
   }
 
+  /// Client 21/11: the bar stays put. The last win remains on screen until a
+  /// newer one replaces it (it never empties and slides away on a timer).
   void _next() {
+    if (!mounted || _queue.isEmpty) return;
     _rotate?.cancel();
-    if (!mounted) return;
-    setState(() => _current = _queue.isEmpty ? null : _queue.removeAt(0));
-    if (_current != null) _rotate = Timer(const Duration(seconds: 5), _next);
+    setState(() => _current = _queue.removeAt(0));
+    _rotate = Timer(const Duration(seconds: 5), _next);
   }
 
   @override
@@ -88,14 +92,11 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
   Widget build(BuildContext context) {
     final w = _current;
     return SizedBox(
-        height: RoomGameWinStrip.height,
+        height: w == null ? 0 : RoomGameWinStrip.height,
         child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 450),
-            // Comes in from the side and leaves the other way (client 7/11 02:41).
-            transitionBuilder: (child, anim) => SlideTransition(
-                position: Tween<Offset>(begin: const Offset(1.1, 0), end: Offset.zero)
-                    .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-                child: FadeTransition(opacity: anim, child: child)),
+            duration: const Duration(milliseconds: 350),
+            // Fade only: no sliding in and out (client 21/11).
+            transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
             child: w == null
                 ? const SizedBox.shrink()
                 : GestureDetector(

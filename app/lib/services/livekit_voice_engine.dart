@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart'
     show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
 import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
@@ -70,8 +71,80 @@ class LiveKitVoiceEngine implements VoiceEngine {
   }
 
   Future<void> _syncVoiceMode() async {
-    await AudioRoute.instance.setVoiceLive(
-      _currentRoomId != null && !(_backgrounded && !_listenOnly && _isMicMuted));
+    // While another app records (a WhatsApp voice note) the call mode is theirs.
+    await AudioRoute.instance.setVoiceLive(_currentRoomId != null &&
+        !_micYielded &&
+        !(_backgrounded && !_listenOnly && _isMicMuted));
+  }
+
+  // ── sharing the microphone with other apps ───────────────────────────────
+  //
+  // Client 22/11 «اسجل فويس عادي سواء كاتم مايك او لا»: while the phone is in
+  // call mode (MODE_IN_COMMUNICATION) Android gives US the microphone even over
+  // the app on screen, so a WhatsApp voice note recorded silence — muted or
+  // not. The native side reports when any other app records; we then drop the
+  // call mode and release our capture, and take both back when they finish.
+  // The seat and the user's mute choice are untouched.
+  static const MethodChannel _micShare = MethodChannel('samafox/mic_share');
+  bool _micYielded = false;
+  bool _micShareWatched = false;
+
+  void _watchMicShare() {
+    if (_micShareWatched || kIsWeb || !Platform.isAndroid) return;
+    _micShareWatched = true;
+    _micShare.setMethodCallHandler((call) async {
+      if (call.method == 'othersRecording') {
+        await _onOthersRecording(call.arguments == true);
+      }
+      return null;
+    });
+    unawaited(_micShare.invokeMethod('watch').catchError((_) => null));
+  }
+
+  void _unwatchMicShare() {
+    if (!_micShareWatched) return;
+    _micShareWatched = false;
+    _micShare.setMethodCallHandler(null);
+    unawaited(_micShare.invokeMethod('unwatch').catchError((_) => null));
+    if (_micYielded) {
+      _micYielded = false;
+      unawaited(_micShare.invokeMethod('restoreCommunication').catchError((_) => null));
+    }
+  }
+
+  Future<void> _onOthersRecording(bool others) async {
+    if (!_initialized) return;
+    if (others) {
+      if (_micYielded) return;
+      _micYielded = true;
+      _log('another app is recording — handing the microphone over');
+      CrashReporter.breadcrumb('lk mic yielded to another app');
+      _emitSpeaking(false);
+      // Stop the capture (kept published, so no seat/track churn) ...
+      _micWork = _micWork.then((_) async {
+        try {
+          await _micPublication?.mute(stopOnMute: true);
+        } catch (e) {
+          _log('yield mute failed: $e');
+        }
+      });
+      await _micWork;
+      // ... and leave the call mode, which is what gives us the priority.
+      try {
+        await _micShare.invokeMethod('yieldCommunication');
+      } catch (_) {}
+      await _syncVoiceMode();
+    } else {
+      if (!_micYielded) return;
+      _micYielded = false;
+      _log('other recording ended — taking the microphone back');
+      CrashReporter.breadcrumb('lk mic taken back');
+      try {
+        await _micShare.invokeMethod('restoreCommunication');
+      } catch (_) {}
+      await _syncVoiceMode();
+      if (!_listenOnly && !_wantMuted) await unmuteAudio();
+    }
   }
 
   /// Serialises [initialize], as the mesh engine does: two overlapping calls
@@ -171,6 +244,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
     }
     _initialized = true;
     _watchForRecovery();
+    _watchMicShare();
     CrashReporter.breadcrumb('voice init room=$roomId listenOnly=$listenOnly engine=livekit');
 
     if (!listenOnly) {
@@ -510,11 +584,13 @@ class LiveKitVoiceEngine implements VoiceEngine {
     _initialized = false;
     _activeSpeakers.value = <String>{};
     _stopWatchingForRecovery();
+    _unwatchMicShare();
     _socketService.off('voice_users', _onVoiceUsers);
     await _teardownRoom();
     _emitSpeaking(false);
     _listenOnly = true;
     _isMicMuted = true;
+    _wantMuted = true;
     _currentRoomId = null;
     _currentUserId = null;
     CrashReporter.breadcrumb('voice left (livekit)');
@@ -601,6 +677,7 @@ class LiveKitVoiceEngine implements VoiceEngine {
   Future<void> goListenOnly() async {
     _listenOnly = true;
     _isMicMuted = true;
+    _wantMuted = true;
     _emitSpeaking(false);
     await _micWork;
     _isMicMuted = true;
@@ -623,9 +700,17 @@ class LiveKitVoiceEngine implements VoiceEngine {
     return pubs.first;
   }
 
+  /// What the user asked for last (true = muted), set the moment they ask, so
+  /// two quick taps are one mute and one unmute and not two unmutes while the
+  /// first is still starting the capture.
+  bool _wantMuted = true;
+  int _micReq = 0;
+
   @override
   Future<void> muteAudio() {
     _isMicMuted = true;
+    _wantMuted = true;
+    _micReq++;
     _emitSpeaking(false);
     return _micWork = _micWork.then((_) async {
       try {
@@ -642,8 +727,14 @@ class LiveKitVoiceEngine implements VoiceEngine {
 
   @override
   Future<void> unmuteAudio() {
+    _wantMuted = false;
+    final req = ++_micReq;
     return _micWork = _micWork.then((_) async {
       if (_listenOnly) return;
+      // A newer mute/unmute is queued behind this one: skip the capture start.
+      if (req != _micReq) return;
+      // Another app is recording: stay released; it is taken back afterwards.
+      if (_micYielded) return;
       try {
         await AudioRoute.instance.setVoiceLive(true);
         final pub = _micPublication;
@@ -683,26 +774,28 @@ class LiveKitVoiceEngine implements VoiceEngine {
         _isMicMuted = true;
         _log('unmute failed: $e');
       }
+      // The real state is what the next tap toggles from.
+      if (req == _micReq) _wantMuted = _isMicMuted;
       await _syncVoiceMode();
     });
   }
 
   @override
-  Future<void> toggleMute() => _isMicMuted ? unmuteAudio() : muteAudio();
+  Future<void> toggleMute() => _wantMuted ? unmuteAudio() : muteAudio();
 
   @override
   bool get isMicMuted => _isMicMuted;
 
   @override
   bool get micHealthy {
-    if (_listenOnly || _isMicMuted) return true;
+    if (_listenOnly || _isMicMuted || _micYielded) return true;
     final track = _micPublication?.track;
     return track != null && track.isActive;
   }
 
   @override
   Future<void> ensureMicAlive() async {
-    if (!_initialized || _listenOnly || _isMicMuted) {
+    if (!_initialized || _listenOnly || _isMicMuted || _micYielded) {
       await reapplyAudioRoute();
       return;
     }

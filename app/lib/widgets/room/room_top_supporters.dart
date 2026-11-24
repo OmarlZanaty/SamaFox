@@ -66,6 +66,13 @@ class _WingFrame extends CustomPainter {
         begin: Alignment.topCenter, end: Alignment.bottomCenter)
         .createShader(Offset.zero & size);
     final center = Offset(size.width / 2, size.height / 2);
+    // Drawn in a 64-wide design space so a smaller [scale] shrinks the wings
+    // together with the avatar.
+    final k = size.width / 64;
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.scale(k, k);
+    canvas.translate(-center.dx, -center.dy);
     canvas.drawCircle(center, 19, paint);
     // Feathered wing silhouettes, mirrored around the avatar.
     for (final direction in [-1.0, 1.0]) {
@@ -84,6 +91,7 @@ class _WingFrame extends CustomPainter {
       canvas.drawPath(wing, Paint()..color = colors.last);
       canvas.restore();
     }
+    canvas.restore();
   }
 
   @override

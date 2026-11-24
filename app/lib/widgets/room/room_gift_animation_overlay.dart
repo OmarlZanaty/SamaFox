@@ -12,7 +12,6 @@ import '../../services/effects_prefs.dart';
 import '../../services/memory_guard.dart';
 import '../../gifts/models/gift.dart';
 import '../../gifts/services/gift_socket_service.dart';
-import '../../gifts/widgets/broadcast_banner_layer.dart';
 import '../../gifts/widgets/fireworks_overlay.dart';
 import 'room_gift_player.dart';
 import '../../l10n/tr.dart';
@@ -365,8 +364,9 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
         ],
       ),
         ),
-        // Cross-room broadcasts — tappable: «هل تريد الانتقال إلى هذه الغرفة؟».
-        _belowBars(Stack(children: [BroadcastBannerLayer(socket: widget.socket)])),
+        // Cross-room broadcasts (big gifts) are drawn by the room screen itself,
+        // at the very top above the header (client 24/11 «شريط الهدايا الكبيرة
+        // كان فوق اعلى الغرفه»).
       ],
     );
   }

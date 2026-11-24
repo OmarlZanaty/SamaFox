@@ -326,8 +326,16 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
+          // One page, no scrolling (client 21/11): the whole table scales
+          // down to the screen instead of running past the bottom.
+          child: LayoutBuilder(
+            builder: (context, box) => FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.topCenter,
+            child: Padding(
             padding: const EdgeInsets.all(16),
+            child: SizedBox(
+            width: (box.maxWidth - 32).clamp(200.0, 1000.0).toDouble(),
             child: Column(
               children: [
                 _balanceBar(),
@@ -352,6 +360,9 @@ class _LionTigerScreenState extends ConsumerState<LionTigerScreen>
                 const SizedBox(height: 16),
                 _fairnessNote(),
               ],
+            ),
+            ),
+            ),
             ),
           ),
         ),

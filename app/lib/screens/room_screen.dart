@@ -55,6 +55,7 @@ import '../utils/storage_service.dart';
 import '../widgets/room/_FloatingChatOverlay.dart';
 import '../widgets/room/room_gift_announcement_text.dart';
 import '../gifts/widgets/lucky_win_banner.dart';
+import '../gifts/widgets/broadcast_banner_layer.dart';
 import '../widgets/room/entrance_banner_layer.dart';
 import '../widgets/room/mic_queue_panel.dart';
 import '../widgets/room/music_library_sheet.dart';
@@ -5069,6 +5070,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                       // SPEC52 #14 — name + ID on a glass plate, with the width
                       // the speaker / keep buttons used to take.
                       Expanded(
+                        flex: 3,
                         child: SizedBox(
                           width: double.infinity,
                           child: RoomHeaderGlass(
@@ -5084,12 +5086,27 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
 
                       // 2026-10-18 — "ده شكل الغرف فى بعض التليفونات": name gone, ID vertical on narrow phones.
                       Flexible(
+                        flex: 5,
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: AlignmentDirectional.centerEnd,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              // Client 21/11 (22:19): the two top supporters go in
+                              // the empty header space beside the close button;
+                              // the room card stays next to the room picture and
+                              // the mics move up into the row they used to take.
+                              if (state.topSupporters.isNotEmpty) ...[
+                                RoomTopSupporters(
+                                  key: const ValueKey('room-top-supporters'),
+                                  scale: 0.8,
+                                  items: state.topSupporters,
+                                  onTap: (user) => showUserProfileCard(
+                                    userId: user.userId, username: user.name, avatarUrl: user.avatar),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
                               Material(
                                 color: Colors.transparent,
                                 child: InkWell(
@@ -5198,21 +5215,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 ),
 
                 // SPEC52 #39 — real game wins of people in this room.
-                // Client 17/11 (#87-#92): the two top supporters sit on their own
-                // row, bigger, directly above the first row of mics.
-                if (state.topSupporters.isNotEmpty)
-                  Padding(
-                    key: const ValueKey('room-top-supporters'),
-                    padding: const EdgeInsets.only(top: 2, bottom: 2),
-                    child: Center(
-                      child: RoomTopSupporters(
-                        scale: 1.15,
-                        items: state.topSupporters,
-                        onTap: (user) => showUserProfileCard(
-                          userId: user.userId, username: user.name, avatarUrl: user.avatar),
-                      ),
-                    ),
-                  ),
                 RoomGameWinStrip(key: const ValueKey('room-win-strip'), roomId: widget.roomId),
                 // SPEC52 #29 — A VS B, scores, countdown while a PK runs.
                 ValueListenableBuilder<Set<String>>(
@@ -5819,6 +5821,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                   EntranceBannerLayer(roomId: widget.roomId),
                 ]),
               ),
+            ),
+
+            // Big-gift (cross-room) bar: back at the very top of the room, above
+            // the header (client 21/11 «شريط الهدايا الكبيرة كان فوق»).
+            Positioned.fill(
+              key: const ValueKey('room-broadcast-top'),
+              child: Stack(children: [BroadcastBannerLayer(socket: _giftSocket)]),
             ),
 
             // ===== Music control bar — draggable, only for owner/admins, and
