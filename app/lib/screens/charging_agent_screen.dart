@@ -75,6 +75,8 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
       if (q.isEmpty) return base;
       return base.where((a) {
         if (a.agencyName.toLowerCase().contains(q)) return true;
+        if ('${a.id}' == q) return true; // search by agency ID
+        if (a.contactInfo.toLowerCase().contains(q)) return true; // agent's number
         for (final m in a.members) {
           final u = (m['user'] is Map ? m['user'] as Map : m);
           if ('${u['displayId'] ?? ''}'.toLowerCase().contains(q) || '${u['name'] ?? ''}'.toLowerCase().contains(q)) {
@@ -174,7 +176,7 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.search, color: Colors.white54),
-                        hintText: tr('ابحث باسم الوكالة أو ID الوكيل', 'Search by agency name or agent ID'),
+                        hintText: tr('ابحث باسم الوكالة أو ID الوكالة أو ID الوكيل', 'Search by agency name, agency ID or agent ID'),
                         hintStyle: const TextStyle(color: Colors.white38),
                         filled: true,
                         fillColor: Colors.white10,
@@ -629,7 +631,7 @@ Future<void> _showHostingActions(
                   await _requestJoinHostingAgency(context, agency.id);
                 },
                 icon: const Icon(Icons.group_add),
-                label: Text(tr('طلب انضمام للوكالة', 'Request to join agency')),
+                label: Text(tr('طلب الانضمام إلى وكالة ${agency.agencyName}', 'Request to join ${agency.agencyName}')),
               ),
             ],
           ],
@@ -819,12 +821,21 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
             if (!context.mounted) return;
             if (list.isNotEmpty) {
               final user = Map<String, dynamic>.from(list.first as Map);
-              final recipient = await DioClient.dio.get('/charging-agencies/recipient/${user['id']}');
+              // Only a hint for the label: if this lookup fails the user is
+              // still selectable (the server picks the wallet on send).
+              bool isAgent = false;
+              try {
+                final recipient = await DioClient.dio.get('/charging-agencies/recipient/${user['id']}');
+                isAgent = recipient.data['isChargingAgent'] == true;
+              } catch (_) {}
               if (!context.mounted) return;
+              // The agent edited the number while we were looking: drop this
+              // stale answer instead of selecting the wrong person.
+              if (idCtrl.text.trim() != q) return;
               setState(() {
                 foundUser = user;
                 // Charging yourself always lands in your personal wallet.
-                recipientIsAgent = recipient.data['isChargingAgent'] == true &&
+                recipientIsAgent = isAgent &&
                     user['id'] != ref.read(authStateProvider).user?.id;
               });
             } else {
@@ -858,7 +869,22 @@ Future<void> _sendAgencyCoinsToUser(BuildContext context, WidgetRef ref) async {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Expanded(child: _MiniField(controller: idCtrl, label: tr('رقم المستخدم (ID)', 'User ID'))),
+                    Expanded(
+                      child: _MiniField(
+                        controller: idCtrl,
+                        label: tr('رقم المستخدم (ID)', 'User ID'),
+                        // Editing the number drops the previously found user:
+                        // before, the old person stayed selected (and got the
+                        // coins) while the box showed a different number, so
+                        // the agent had to cancel and start over.
+                        onChanged: (_) {
+                          if (foundUser != null || error != null) {
+                            setState(() { foundUser = null; error = null; });
+                          }
+                        },
+                        onSubmitted: (_) => doSearch(),
+                      ),
+                    ),
                     const SizedBox(width: 8),
                     IconButton(
                       onPressed: searching || sending ? null : doSearch,
@@ -1234,12 +1260,16 @@ Future<void> _openJoinRequestsManager(BuildContext context) async {
 class _MiniField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
-  const _MiniField({required this.controller, required this.label});
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+  const _MiniField({required this.controller, required this.label, this.onChanged, this.onSubmitted});
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      onChanged: onChanged,
+      onSubmitted: onSubmitted,
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(labelText: label, labelStyle: const TextStyle(color: Colors.white70)),
     );
