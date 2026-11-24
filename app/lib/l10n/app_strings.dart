@@ -330,7 +330,7 @@ abstract class AppStrings {
 class AppStringsEn extends AppStrings {
   // Common
   @override
-  String get appName => 'SamaFox';
+  String get appName => 'dandana chat';
   @override
   String get loading => 'Loading...';
   @override
@@ -929,7 +929,7 @@ class AppStringsEn extends AppStrings {
 class AppStringsAr extends AppStrings {
   // Common
   @override
-  String get appName => 'SamaFox';
+  String get appName => 'دندنه شات';
   @override
   String get loading => 'جاري التحميل...';
   @override

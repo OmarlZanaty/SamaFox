@@ -50,7 +50,7 @@ class AppConfig {
   );
 
   // App Configuration
-  static const String appName = 'SamaFox';
+  static const String appName = 'dandana chat';
   static const String appVersion = '1.0.0';
   
   // Timeouts
