@@ -110,8 +110,24 @@ class MessageRepository {
   /// endpoint rather than adding a messages-only one, so a picture in a chat
   /// is stored exactly like every other uploaded image.
   Future<String> uploadChatImage(String filePath) async {
+    // The server's multer only accepts image/jpeg|png|webp|gif and trusts the
+    // part's Content-Type; without it the upload was refused ("Unsupported
+    // file type"), which is why DM pictures never worked.
+    final lower = filePath.toLowerCase();
+    final mime = lower.endsWith('.png')
+        ? 'image/png'
+        : lower.endsWith('.webp')
+            ? 'image/webp'
+            : lower.endsWith('.gif')
+                ? 'image/gif'
+                : 'image/jpeg';
+    final name = filePath.split(RegExp(r'[/\\]')).last;
     final form = FormData.fromMap({
-      'image': await MultipartFile.fromFile(filePath),
+      'image': await MultipartFile.fromFile(
+        filePath,
+        filename: name.isEmpty ? 'chat.jpg' : name,
+        contentType: DioMediaType.parse(mime),
+      ),
     });
     final res = await _dio.post('/upload/image', data: form);
     final data = (res.data as Map).cast<String, dynamic>();

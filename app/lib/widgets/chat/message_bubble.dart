@@ -5,6 +5,7 @@ import 'chat_ui_helpers.dart';
 import 'reaction_picker.dart';
 import 'voice_message_bubble.dart';
 import 'bubble_skin.dart';
+import '../app_network_image.dart';
 import '../../l10n/tr.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -31,6 +32,34 @@ class MessageBubble extends StatelessWidget {
     this.onLongPress, // ✅ add
 
   });
+
+  String? get _imageUrl {
+    final u = m.metadata?['imageUrl'];
+    return (u is String && u.isNotEmpty) ? u : null;
+  }
+
+  void _openFullImage(BuildContext context, String url) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.pop(ctx),
+        child: Center(
+          child: InteractiveViewer(
+            minScale: 1,
+            maxScale: 4,
+            child: AppNetworkImage(
+              url,
+              fit: BoxFit.contain,
+              cacheWidth: 1600,
+              errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.broken_image_outlined, size: 64, color: Colors.white54),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +121,38 @@ class MessageBubble extends StatelessWidget {
                 final token = m.metadata!['token'];
                 if (token is String) RoomLinkHandler.instance.accept(token);
               }, icon: const Icon(Icons.login), label: Text(tr('دخول الغرفة', 'Enter room'))),
+            ] else if (m.type == 'image' && _imageUrl != null) ...[
+              GestureDetector(
+                onTap: () => _openFullImage(context, _imageUrl!),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: AppNetworkImage(
+                    _imageUrl!,
+                    width: 220,
+                    height: 220,
+                    fit: BoxFit.cover,
+                    cacheWidth: 480,
+                    placeholder: const SizedBox(
+                      width: 220,
+                      height: 220,
+                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                    errorBuilder: (_, __, ___) => const SizedBox(
+                      width: 220,
+                      height: 120,
+                      child: Center(child: Icon(Icons.broken_image_outlined, size: 40)),
+                    ),
+                  ),
+                ),
+              ),
+              if (m.text.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    m.text,
+                    style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
+                  ),
+                ),
             ] else Text(
               m.text,
               style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
