@@ -303,3 +303,43 @@ export async function optimizeUpload(file: string, opts: { resizeTo?: number; gi
   if (['.mp4', '.mov', '.m4v', '.webm'].includes(ext)) return shrinkVideo(file);
   return { path: file, changed: false, before: await sizeOf(file), after: await sizeOf(file) };
 }
+
+/**
+ * M2: a light rendition for weak phones - H.264 Baseline, <= 480p, <= 30 fps,
+ * crf 28, faststart, audio 64k. Returns the new file's path, or null when the
+ * clip has an alpha channel (yuv420p would destroy it) or ffmpeg failed. The
+ * original is always kept.
+ */
+export async function createLiteVideo(file: string): Promise<string | null> {
+  if (path.extname(file).toLowerCase() === '.webm') return null;
+  try {
+    const pix = await new Promise<string>((resolve) => {
+      const p = spawn(process.env.FFPROBE_PATH?.trim() || 'ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=pix_fmt', '-of', 'csv=p=0', file]);
+      const out: Buffer[] = [];
+      p.stdout.on('data', (b: Buffer) => out.push(b));
+      p.on('error', () => resolve(''));
+      p.on('close', () => resolve(Buffer.concat(out).toString('utf8').trim()));
+    });
+    if (/yuva|argb|rgba|bgra|ya/i.test(pix)) return null;
+  } catch { /* probe is best effort */ }
+  const target = `${file}.lite.mp4`;
+  const pending = `${file}.lite.pending.mp4`;
+  try {
+    await run(ffmpegPath(), [
+      '-y', '-loglevel', 'error', '-i', file,
+      '-map', '0:v:0', '-map', '0:a:0?',
+      '-vf', "scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,fps='min(30,source_fps)'",
+      '-c:v', 'libx264', '-profile:v', 'baseline', '-level:v', '3.0',
+      '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '28',
+      '-maxrate', '1500k', '-bufsize', '3M',
+      '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '64k',
+      '-movflags', '+faststart', pending,
+    ]);
+    await fs.rename(pending, target);
+    return target;
+  } catch (e) {
+    console.warn('[mediaOptimize] lite video skipped:', (e as Error).message);
+    await fs.unlink(pending).catch(() => {});
+    return null;
+  }
+}

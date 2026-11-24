@@ -20,7 +20,8 @@ luckyTableAdmin.put('/:value', async (req: any, res, next) => {
       await tx.$executeRaw(Prisma.sql`INSERT INTO lucky_control_rows ("giftValue", thresholds)
         VALUES (${value}, ARRAY[${Prisma.join(thresholds)}]::integer[])
         ON CONFLICT ("giftValue") DO UPDATE SET thresholds = EXCLUDED.thresholds,
-          tier = 0, counter = 0, "testTier" = 0, "testCounter" = 0`);
+          tier = 0, counter = 0, "testTier" = 0, "testCounter" = 0,
+          fixed5 = 0, fixed10 = 0, "testFixed5" = 0, "testFixed10" = 0`);
       await recordAdminAuditStrict(tx, { adminId: Number((req as any).userId), action: 'LUCKY_TABLE_UPSERT', targetType: 'lucky_table', targetId: value, before: before[0] ?? null, after: { giftValue: value, thresholds }, ...auditContext(req) });
     });
     return res.json({ success: true });
@@ -43,8 +44,8 @@ luckyTableAdmin.post('/reset', async (req: any, res, next) => {
     const value = req.body?.giftValue;
     if (value != null && (!Number.isInteger(value) || value < 1)) return res.status(400).json({ message: 'Invalid gift value' });
     await prisma.$transaction(async (tx) => {
-      if (value == null) await tx.$executeRaw`UPDATE lucky_control_rows SET tier=0, counter=0, "testTier"=0, "testCounter"=0`;
-      else await tx.$executeRaw`UPDATE lucky_control_rows SET tier=0, counter=0, "testTier"=0, "testCounter"=0 WHERE "giftValue"=${value}`;
+      if (value == null) await tx.$executeRaw`UPDATE lucky_control_rows SET tier=0, counter=0, "testTier"=0, "testCounter"=0, fixed5=0, fixed10=0, "testFixed5"=0, "testFixed10"=0`;
+      else await tx.$executeRaw`UPDATE lucky_control_rows SET tier=0, counter=0, "testTier"=0, "testCounter"=0, fixed5=0, fixed10=0, "testFixed5"=0, "testFixed10"=0 WHERE "giftValue"=${value}`;
       await recordAdminAuditStrict(tx, { adminId: Number((req as any).userId), action: 'LUCKY_TABLE_RESET', targetType: 'lucky_table', targetId: value ?? 0, before: null, after: { giftValue: value ?? 'all' }, ...auditContext(req) });
     });
     return res.json({ success: true });

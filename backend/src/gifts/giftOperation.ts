@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
 import { GiftSendError, withSerializableRetry } from './giftService';
+import { serializeByKey } from './giftRetry';
 
 export interface GiftTransactionContext {
   tx: any;
@@ -32,7 +33,7 @@ export async function runGiftOperation<T>(
   if (previous) return previous;
   let effects: GiftTransactionContext['afterCommit'] = [];
   try {
-    const body = await withSerializableRetry(() => db.$transaction(async (tx: any) => {
+    const body = await serializeByKey(`gift:${input.senderId}`, () => withSerializableRetry(() => db.$transaction(async (tx: any) => {
       const context: GiftTransactionContext = { tx, afterCommit: [], beforeCommit: [] };
       const body = await work(context);
       await tx.giftOperation.create({
@@ -43,7 +44,7 @@ export async function runGiftOperation<T>(
       for (const check of context.beforeCommit) check();
       effects = context.afterCommit;
       return body;
-    }, { isolationLevel: 'Serializable', maxWait: 10000, timeout: 60000 }));
+    }, { isolationLevel: 'Serializable', maxWait: 10000, timeout: 60000 })));
     for (const effect of effects) {
       try { await effect(); } catch (e) { console.warn('[gift post-commit]', e); }
     }

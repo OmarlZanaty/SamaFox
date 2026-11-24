@@ -397,6 +397,8 @@ export async function sendMessage(req: AuthedRequest, res: Response) {
     type = audioUrl ? 'voice' : imageUrl ? 'image' : 'text';
   }
   if (type === 'audio') type = 'voice';
+  // M3: a client that sent imageUrl with a stale/odd type still sends a picture.
+  if (imageUrl && !audioUrl && type !== 'image') type = 'image';
 
   if (!conversationId) return res.status(400).json({ message: 'conversationId is required' });
 

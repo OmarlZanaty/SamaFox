@@ -10,6 +10,7 @@ import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs/promises';
 import prisma from '../utils/prisma';
+import { normalizeAudioUpload } from '../utils/audioNormalize';
 
 const MUSIC_DIR = path.join(process.cwd(), 'uploads', 'music');
 
@@ -56,6 +57,22 @@ export async function uploadTrack(req: Request, res: Response) {
       return res.status(400).json({
         success: false,
         message: `الحد الأقصى ${MAX_TRACKS_PER_USER} أغنية. احذف أغنية قديمة أولاً`,
+      });
+    }
+
+    // M1: odd containers / extension-less content:// files are converted to MP3 so
+    // every phone can play them; a file that is not audio at all is refused.
+    try {
+      const norm = await normalizeAudioUpload(req.file.path);
+      req.file.path = norm.path;
+      req.file.filename = norm.filename;
+      req.file.size = norm.size;
+    } catch (convErr) {
+      await fs.unlink(req.file.path).catch(() => {});
+      console.warn('[music] unsupported audio:', (convErr as Error).message);
+      return res.status(400).json({
+        success: false,
+        message: 'تعذر قراءة الملف الصوتي. اختر ملف أغنية صالح (mp3, m4a, aac, wav, ogg)',
       });
     }
 

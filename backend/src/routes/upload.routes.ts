@@ -30,6 +30,25 @@ const ALLOWED_IMAGE_TYPES: Record<string, string> = {
 };
 
 // Configure multer storage
+// M3: some phones' pickers send image/jpg, image/pjpeg or a generic
+// application/octet-stream for a normal photo. Map those by MIME alias first, then
+// (octet-stream only) by the original extension - the stored name still never
+// keeps the user's extension and sharp re-encodes every still image.
+const IMAGE_MIME_ALIASES: Record<string, string> = {
+  'image/jpg': '.jpg', 'image/pjpeg': '.jpg', 'image/x-png': '.png',
+};
+const IMAGE_EXT_FALLBACK: Record<string, string> = {
+  '.jpg': '.jpg', '.jpeg': '.jpg', '.png': '.png', '.webp': '.webp', '.gif': '.gif',
+};
+function imageExtFor(file: { mimetype: string; originalname?: string }): string | null {
+  const direct = ALLOWED_IMAGE_TYPES[file.mimetype] ?? IMAGE_MIME_ALIASES[file.mimetype];
+  if (direct) return direct;
+  if (file.mimetype === 'application/octet-stream' || !file.mimetype) {
+    return IMAGE_EXT_FALLBACK[path.extname(file.originalname || '').toLowerCase()] ?? null;
+  }
+  return null;
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, uploadsDir);
@@ -37,14 +56,14 @@ const storage = multer.diskStorage({
   filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     // ✅ FIX: force extension from MIME type — ignore file.originalname extension entirely
-    const ext = ALLOWED_IMAGE_TYPES[file.mimetype] ?? '.bin';
+    const ext = imageExtFor(file) ?? '.bin';
     cb(null, `upload-${uniqueSuffix}${ext}`);
   }
 });
 
 // ✅ FIX: add fileFilter — reject anything not in the allowed MIME map
 const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
-  if (ALLOWED_IMAGE_TYPES[file.mimetype]) {
+  if (imageExtFor(file)) {
     cb(null, true);
   } else {
     cb(new Error(`Unsupported file type: ${file.mimetype}. Only JPEG, PNG, WebP and GIF are allowed.`));

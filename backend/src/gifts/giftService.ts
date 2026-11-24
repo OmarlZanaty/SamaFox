@@ -1,8 +1,8 @@
 import { canOpenCategory, ensureCategoryLockColumns, loadCategoryLock } from './categoryAccess';
 import { buildGiftEvent } from './giftEvent';
 import { isValidGiftQuantity } from './giftLimits';
-import { retryTxConflicts } from './giftRetry';
-import { findAgencyCommissionOwner } from './agencyCommission';
+import { retryTxConflicts, serializeByKey } from './giftRetry';
+import { findAgencyCommissionOwner, applyCommissionAccrual } from './agencyCommission';
 import type { GiftTransactionContext } from './giftOperation';
 import prisma from '../utils/prisma';
 import { coinFreezeReason } from '../utils/coinFreeze';
@@ -97,13 +97,13 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
   if (!context) {
     await lockColumnCheck;
     let effects: GiftTransactionContext['afterCommit'] = [];
-    const result = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
+    const result = await serializeByKey(`gift:${input.senderId}`, () => withSerializableRetry(() => prisma.$transaction(async (tx) => {
       const ctx: GiftTransactionContext = { tx, afterCommit: [], beforeCommit: [] };
       const result = await sendGiftAtomic(input, ctx);
       for (const check of ctx.beforeCommit) check();
       effects = ctx.afterCommit;
       return result;
-    }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 30000 }));
+    }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 30000 })));
     for (const effect of effects) await effect().catch(e => console.warn('[gift post-commit]', e));
     return result;
   }
@@ -281,6 +281,12 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
       // SOURCE member's row (`commissionGeneratedCoins`) keeps the commission
       // locked until that member completes their target — see
       // `computeCommissionSplit` in agency.controller.
+      // L1 (P2034 on agencyMember.update): the owner's row is the HOT row - every gift
+      // to every host of the agency increments it. Inside this Serializable
+      // transaction two concurrent gifts conflicted on it and exhausted the
+      // retries. The accrual is now applied AFTER commit with atomic increments
+      // (read-committed, so concurrent increments queue on the row lock and can
+      // never abort a gift). Only the cheap, read-only decision is made here.
       let commission: { ownerId: number; agencyId: number; amount: number; ratePercent: number; productionCoins: number } | null = null;
       if (hostMembership) {
         const COMMISSION_RATE = Number(process.env.AGENCY_COMMISSION_RATE ?? 0.2);
@@ -288,26 +294,9 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
         if (owner) {
           const amount = Math.floor(recipientCoins * COMMISSION_RATE);
           if (amount > 0) {
-            if (owner.id === hostMembership.id) {
-              // The recipient IS the وكيل: both sides of the ledger are the
-              // same row, so one update (two increments) instead of two.
-              await tx.agencyMember.update({
-                where: { id: owner.id },
-                data: {
-                  commissionTargetCoins: { increment: BigInt(amount) },
-                  commissionGeneratedCoins: { increment: BigInt(amount) },
-                },
-              });
-            } else {
-              await tx.agencyMember.update({
-                where: { id: owner.id },
-                data: { commissionTargetCoins: { increment: BigInt(amount) } },
-              });
-              await tx.agencyMember.update({
-                where: { id: hostMembership.id },
-                data: { commissionGeneratedCoins: { increment: BigInt(amount) } },
-              });
-            }
+            const accrual = { ownerMemberId: owner.id, hostMemberId: hostMembership.id, amount };
+            // Queued first so the notification below always sees the accrued amount.
+            context.afterCommit.push(() => applyCommissionAccrual(accrual));
             commission = { ownerId: owner.userId, agencyId: hostMembership.agencyId, amount, ratePercent: Math.round(COMMISSION_RATE * 10000) / 100, productionCoins: recipientCoins };
           }
         }
@@ -615,6 +604,6 @@ export async function sendGiftAtomic(input: SendGiftInput, context?: GiftTransac
 }
 
 /** Retry a Serializable transaction that lost a conflict (P2034 / 40001). */
-export async function withSerializableRetry<T>(fn: () => Promise<T>, attempts = 6): Promise<T> {
+export async function withSerializableRetry<T>(fn: () => Promise<T>, attempts = 10): Promise<T> {
   return retryTxConflicts(fn, attempts, (e) => e instanceof GiftSendError);
 }

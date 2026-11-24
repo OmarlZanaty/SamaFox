@@ -598,7 +598,8 @@ export function verifyRoll(roll: {
   const point = roll.roundId != null && roll.giftTxId ? drawPointFromSeed(roll.serverSeed, roll.giftTxId) : rollPointFromHash(hash);
   const snapshot = roll.tiersSnapshot as any;
   const multiplier = snapshot?.mode === 'table'
-    ? advanceTable(snapshot.thresholds, snapshot.previousTier, snapshot.previousCounter, snapshot.throws).multiplier
+    ? advanceTable(snapshot.thresholds, snapshot.previousTier, snapshot.previousCounter, snapshot.throws,
+        snapshot.previousFixed5 != null ? { c5: snapshot.previousFixed5, c10: snapshot.previousFixed10 } : undefined).multiplier
     : multiplierAtPoint(point, tiers);
   return {
     hashMatches: hash === roll.serverSeedHash,

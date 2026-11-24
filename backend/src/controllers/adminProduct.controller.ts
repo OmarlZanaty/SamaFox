@@ -1,7 +1,7 @@
 import { resolveUserByPublicId } from '../utils/resolveUserByPublicId';
 import fs from 'fs';
 import path from "path";
-import { optimizeUpload, GifRole } from '../utils/mediaOptimize';
+import { optimizeUpload, createLiteVideo, GifRole } from '../utils/mediaOptimize';
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
 import { extractPosterFrame } from "../gifts/videoValidate";
@@ -123,7 +123,14 @@ export const createProduct = async (req: Request, res: Response) => {
       await fs.promises.unlink(file.path).catch(() => {});
       return res.status(400).json({ message: (e as Error).message });
     }
-    const assetUrl = `${baseUrl}/uploads/${path.basename(optProduct.path)}`;
+    // M2: store videos as a light H.264 Baseline <=480p rendition so weak phones can
+    // play them; the original stays on disk. Alpha clips keep their original.
+    let servedPath = optProduct.path;
+    if (isVideo) {
+      const lite = await createLiteVideo(optProduct.path).catch(() => null);
+      if (lite) servedPath = lite;
+    }
+    const assetUrl = `${baseUrl}/uploads/${path.basename(servedPath)}`;
 
     const mappedType =
       type === "seat_effect"

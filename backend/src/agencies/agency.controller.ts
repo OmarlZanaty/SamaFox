@@ -68,40 +68,33 @@ export const requestAgency = async (req: AuthReq, res: Response) => {
 };
 
 /**
- * B8 — which agencies of [type] this caller may see.
- *
- * Client rule: "صاحب الوكاله يشوف وكالته هو بس، والمستخدم العادي اللي مالوش
- * وكاله يشوف كل الوكالات عادي". Both list endpoints returned every approved
- * agency to everyone, so an agent opening العمل كوكيل was shown the whole
- * market including his competitors.
- *
- * Returns a Prisma `id` filter to AND into the query, or null for "no filter"
- * (the caller owns nothing of this type, or is not signed in at all — the
- * lists are public routes and an anonymous browser still gets the full list).
+ * M4 (24/11): the agencies menu is visible to EVERYONE, agency owners included
+ * (the old B8 rule that showed an owner only his own agency is gone). Optional
+ * `?q=` searches by agency id, owner public ID, or part of the agency name.
  */
-async function visibleAgencyFilter(
-  userId: number | undefined,
-  type: 'CHARGING' | 'HOSTING',
-): Promise<{ id: number } | null> {
-  if (!userId) return null;
-  const owned = await db.agencyMember.findFirst({
-    where: { userId, role: 'OWNER', agency: { type, status: 'approved' } },
-    select: { agencyId: true },
-  });
-  return owned ? { id: owned.agencyId } : null;
+function agencySearchFilter(q: unknown): Record<string, unknown> {
+  const text = String(q ?? '').trim().slice(0, 60);
+  if (!text) return {};
+  const or: Record<string, unknown>[] = [{ agencyName: { contains: text, mode: 'insensitive' } }];
+  if (/^\d{1,10}$/.test(text)) {
+    const n = Number(text);
+    if (n <= 2_147_483_647) or.push({ id: n });
+    or.push({ members: { some: { role: 'OWNER', user: { displayId: text } } } });
+  }
+  return { OR: or };
 }
 
 // GET /agencies/charging
 export const listChargingAgencies = async (req: AuthReq, res: Response) => {
   try {
-    const mine = await visibleAgencyFilter(req.userId, 'CHARGING');
     const agencies = await db.chargingAgency.findMany({
-      where: { type: 'CHARGING', status: 'approved', ...(mine ?? {}) },
+      where: { type: 'CHARGING', status: 'approved', ...agencySearchFilter(req.query?.q) },
       select: {
         id: true,
         agencyName: true,
         logoUrl: true,
         contactInfo: true,
+        phoneNumber: true,
         members: {
           where: { role: 'OWNER' },
           select: { id: true, role: true, user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } },
@@ -110,7 +103,13 @@ export const listChargingAgencies = async (req: AuthReq, res: Response) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    return res.json({ success: true, data: agencies });
+    // `agentNumber`: what the app shows next to the message icon.
+    const data = agencies.map(({ phoneNumber, ...a }: any) => ({
+      ...a,
+      agentNumber: (a.contactInfo && String(a.contactInfo).trim()) || phoneNumber || null,
+      ownerUserId: a.members?.[0]?.user?.id ?? null,
+    }));
+    return res.json({ success: true, data });
   } catch (err) {
     console.error('[listChargingAgencies]', err);
     return fail(res, 500, 'Server error');
@@ -120,9 +119,8 @@ export const listChargingAgencies = async (req: AuthReq, res: Response) => {
 // GET /agencies/hosting
 export const listHostingAgencies = async (req: AuthReq, res: Response) => {
   try {
-    const mine = await visibleAgencyFilter(req.userId, 'HOSTING');
     const agencies = await db.chargingAgency.findMany({
-      where: { type: 'HOSTING', status: 'approved', ...(mine ?? {}) },
+      where: { type: 'HOSTING', status: 'approved', ...agencySearchFilter(req.query?.q) },
       include: { members: { include: { user: { select: { id: true, name: true, avatarUrl: true, displayId: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -141,6 +139,7 @@ export const listHostingAgencies = async (req: AuthReq, res: Response) => {
           imageUrl: a.agencyImageUrl,
           targetCoins: goal.toString(),
           earnedCoins: earned.toString(),
+          ownerUserId: a.userId,
           memberCount: a.members.length,
           progress: goal > 0 ? Math.min(100, Math.round((earned * 100) / goal)) : 0,
           members: a.members.map((m: any) => m.user),

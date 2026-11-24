@@ -30,19 +30,35 @@ const ALLOWED_AUDIO_TYPES: Record<string, string> = {
   'audio/webm': '.weba',
   'audio/flac': '.flac',
   'audio/x-flac': '.flac',
+  'audio/3gpp': '.3gp',
+  'audio/amr': '.amr',
+  'audio/x-aac': '.aac',
+  'audio/x-ms-wma': '.wma',
+  'audio/vnd.wave': '.wav',
+  'audio/mpeg3': '.mp3',
+  'audio/x-mpeg': '.mp3',
+  'audio/x-mpeg-3': '.mp3',
+  'video/mp4': '.m4a',
+  'video/3gpp': '.3gp',
 };
 
 // Some Android pickers hand over `application/octet-stream` for a perfectly
 // normal mp3, so fall back to the original extension when the MIME is generic.
 const ALLOWED_EXTENSIONS = new Set([
   '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.weba', '.flac',
+  '.3gp', '.amr', '.wma', '.mp4', '.m4b', '.mka', '.oga', '.caf', '.aif', '.aiff',
 ]);
 
 function resolveExtension(file: Express.Multer.File): string | null {
   const byMime = ALLOWED_AUDIO_TYPES[file.mimetype];
   if (byMime) return byMime;
   const byName = path.extname(file.originalname || '').toLowerCase();
-  return ALLOWED_EXTENSIONS.has(byName) ? byName : null;
+  if (ALLOWED_EXTENSIONS.has(byName)) return byName;
+  // M1: any other audio/* type is accepted too, and a generic/empty MIME with no
+  // usable extension (content:// pickers) is accepted and sniffed after upload.
+  if (file.mimetype?.startsWith('audio/')) return '.mp3';
+  if (!file.mimetype || file.mimetype === 'application/octet-stream' || file.mimetype === 'binary/octet-stream') return '.bin';
+  return null;
 }
 
 const storage = multer.diskStorage({

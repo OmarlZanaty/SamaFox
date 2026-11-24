@@ -2975,6 +2975,11 @@ model LuckyControlRow {
   counter     Int @default(0)
   testTier    Int @default(0)
   testCounter Int @default(0)
+  // 24/11: independent forever-counters for the fixed x5 / x10 rows.
+  fixed5       Int @default(0)
+  fixed10      Int @default(0)
+  testFixed5   Int @default(0)
+  testFixed10  Int @default(0)
 
   @@map("lucky_control_rows")
 }
