@@ -72,12 +72,13 @@ class MusicLibraryNotifier extends StateNotifier<MusicLibraryState> {
     }
   }
 
-  Future<MusicTrack?> upload({required String path, required String title}) async {
+  Future<MusicTrack?> upload({required String path, required String title, String? fileName}) async {
     state = state.copyWith(uploading: true, uploadProgress: 0, clearError: true);
     try {
       final track = await _service.uploadTrack(
         filePath: path,
         title: title,
+        fileName: fileName,
         onProgress: (sent, total) {
           if (total > 0) {
             state = state.copyWith(uploadProgress: sent / total);

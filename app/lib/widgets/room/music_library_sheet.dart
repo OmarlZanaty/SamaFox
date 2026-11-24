@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -30,7 +32,6 @@ class MusicLibrarySheet extends ConsumerStatefulWidget {
 }
 
 class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
-  static const _audioExtensions = ['mp3', 'm4a', 'aac', 'wav', 'ogg'];
   static const _panel = Color(0xFF2A1655);
 
   @override
@@ -52,6 +53,32 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
     );
   }
 
+  static const _knownExt = {'mp3', 'm4a', 'aac', 'wav', 'ogg', 'opus', 'flac', 'weba'};
+
+  /// A server-accepted extension (".mp3" ...) from the picker's extension, or by
+  /// sniffing the first bytes when the name has no usable extension.
+  Future<String?> _detectAudioExtension(String path, String? rawExt) async {
+    var e = (rawExt ?? '').toLowerCase();
+    if (e == 'mp4' || e == '3gp') e = 'm4a';
+    if (_knownExt.contains(e)) return '.$e';
+    try {
+      final raf = await File(path).open();
+      final b = await raf.read(16);
+      await raf.close();
+      if (b.length < 8) return null;
+      String ascii(int a, int n) => String.fromCharCodes(b.sublist(a, a + n));
+      if (ascii(0, 3) == 'ID3') return '.mp3';
+      if (b[0] == 0xFF && (b[1] & 0xE0) == 0xE0) {
+        return (b[1] & 0x06) == 0 ? '.aac' : '.mp3';
+      }
+      if (ascii(0, 4) == 'OggS') return '.ogg';
+      if (b.length >= 12 && ascii(0, 4) == 'RIFF' && ascii(8, 4) == 'WAVE') return '.wav';
+      if (ascii(0, 4) == 'fLaC') return '.flac';
+      if (ascii(4, 4) == 'ftyp') return '.m4a';
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> _pickAndUpload() async {
     FilePickerResult? result;
     try {
@@ -60,8 +87,9 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
       // file_picker copies the chosen document into the app cache, so even a
       // Drive/Downloads content:// item comes back with a readable path.
       result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: _audioExtensions,
+        // Any file: an extension filter hides songs on phones whose picker
+        // reports no/odd MIME. Validated below by extension OR header sniffing.
+        type: FileType.any,
         allowMultiple: true,
       );
     } catch (e) {
@@ -76,14 +104,6 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
     var uploaded = 0;
 
     for (final file in result.files) {
-      final extension = file.extension?.toLowerCase();
-      if (!_audioExtensions.contains(extension)) {
-        _snack(tr(
-          'صيغة الملف غير مدعومة. اختر MP3 أو M4A أو AAC أو WAV أو OGG',
-          'Unsupported format. Choose MP3, M4A, AAC, WAV or OGG',
-        ), error: true);
-        continue;
-      }
       final path = file.path;
       if (path == null || path.isEmpty) {
         // Used to be skipped silently, which looked like "the picker does
@@ -95,8 +115,20 @@ class _MusicLibrarySheetState extends ConsumerState<MusicLibrarySheet> {
         _snack(tr('الملف "${file.name}" أكبر من 25MB', 'File "${file.name}" exceeds 25MB'), error: true);
         continue;
       }
+      final ext = await _detectAudioExtension(path, file.extension);
+      if (ext == null) {
+        _snack(tr(
+          'الملف "${file.name}" ليس ملفاً صوتياً مدعوماً',
+          '"${file.name}" is not a supported audio file',
+        ), error: true);
+        continue;
+      }
       final title = file.name.replaceAll(RegExp(r'\.[^.]+$'), '');
-      final track = await notifier.upload(path: path, title: title);
+      final track = await notifier.upload(
+        path: path,
+        title: title,
+        fileName: 'song$ext',
+      );
       if (!mounted) return;
       if (track != null) {
         uploaded++;

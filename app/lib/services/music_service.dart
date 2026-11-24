@@ -27,9 +27,10 @@ class MusicService {
   Future<MusicTrack> uploadTrack({
     required String filePath,
     required String title,
+    String? fileName,
     void Function(int sent, int total)? onProgress,
   }) async {
-    final name = filePath.split(RegExp(r'[/\\]')).last;
+    final name = fileName ?? filePath.split(RegExp(r'[/\\]')).last;
     final form = FormData.fromMap({
       'title': title,
       'audio': await MultipartFile.fromFile(filePath, filename: name),
