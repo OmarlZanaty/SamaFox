@@ -21,12 +21,14 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
   GameWinAnnouncement? _current;
   Timer? _rotate;
   StreamSubscription<GameWinAnnouncement>? _sub;
-  late final _shine =
-      AnimationController(vsync: this, duration: const Duration(seconds: 3))
-        ..repeat();
+  /// One sweep per new win, idle otherwise: a repeating shine repainted the
+  /// room at 60 fps for as long as the user sat in it.
+  late final AnimationController _shine;
   @override
   void initState() {
     super.initState();
+    _shine =
+        AnimationController(vsync: this, duration: const Duration(seconds: 3));
     // Client 10/11 16:07: the slot between the room header and the mics sat
     // empty — it only showed wins made in THIS room. Like the lucky-win bar
     // it now carries every game win in the app (server: game_win_broadcast),
@@ -77,6 +79,7 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
     if (!mounted || _queue.isEmpty) return;
     _rotate?.cancel();
     setState(() => _current = _queue.removeAt(0));
+    _shine.forward(from: 0);
     _rotate = Timer(const Duration(seconds: 5), _next);
   }
 
@@ -91,7 +94,8 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
   @override
   Widget build(BuildContext context) {
     final w = _current;
-    return SizedBox(
+    return RepaintBoundary(
+        child: SizedBox(
         height: w == null ? 0 : RoomGameWinStrip.height,
         child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 350),
@@ -209,7 +213,7 @@ class _RoomGameWinStripState extends State<RoomGameWinStrip>
                                                                 FontWeight
                                                                     .w900))))),
                                       ])),
-                            ))))));
+                            )))))));
   }
 }
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../widgets/app_network_image.dart';
+import '../../widgets/room/room_win_announcement.dart';
 import '../models/gift.dart';
 import '../services/gift_repository.dart';
 import '../services/gift_socket_service.dart';
@@ -109,11 +110,8 @@ class _LuckyTickerState extends State<LuckyTicker> {
   Widget build(BuildContext context) {
     if (_items.isEmpty) return const SizedBox.shrink();
     final e = _items[_index.clamp(0, _items.length - 1)];
-    final tint = e.multiplier >= 100
-        ? const Color(0xFFFF3D71)
-        : e.multiplier >= 20
-            ? const Color(0xFFFFB300)
-            : const Color(0xFF7C4DFF);
+    final grade = winCardGrade(e.multiplier);
+    final radius = BorderRadius.circular(12);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: GestureDetector(
@@ -133,20 +131,24 @@ class _LuckyTickerState extends State<LuckyTicker> {
           // الهدية المحظوظة» card with the big gold «N x / مرات» — every room.
           child: Container(
             key: ValueKey(e.rollId),
-            height: 54,
+            // The double border of the top grade needs a little more room.
+            height: grade == 2 ? 60 : 54,
             margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.centerRight,
-                end: Alignment.centerLeft,
-                colors: [Color(0xFF17809A), Color(0xFF1FA6BE), Color(0xFF136E86)],
+            decoration: winCardDecoration(
+              grade,
+              radius,
+              BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.centerRight,
+                  end: Alignment.centerLeft,
+                  colors: [Color(0xFF17809A), Color(0xFF1FA6BE), Color(0xFF136E86)],
+                ),
+                borderRadius: radius,
+                border: Border.all(color: Colors.white.withOpacity(0.25)),
+                boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 2))],
               ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withOpacity(0.25)),
-              boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 6, offset: Offset(0, 2))],
             ),
-            child: Row(
+            child: winCardInner(grade, radius, const EdgeInsets.symmetric(horizontal: 8), Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(1.5),
@@ -172,6 +174,10 @@ class _LuckyTickerState extends State<LuckyTicker> {
                   ),
                 ),
                 const SizedBox(width: 6),
+                if (grade == 2) ...[
+                  const Text('👑', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 4),
+                ],
                 Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -187,11 +193,11 @@ class _LuckyTickerState extends State<LuckyTicker> {
                           style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic, height: 1)),
                     ),
                     Text(tr('مرات', 'Times'),
-                        style: TextStyle(color: tint == const Color(0xFF7C4DFF) ? const Color(0xFFFFE08A) : tint, fontSize: 10, fontWeight: FontWeight.w800)),
+                        style: const TextStyle(color: Color(0xFFFFE08A), fontSize: 10, fontWeight: FontWeight.w800)),
                   ],
                 ),
               ],
-            ),
+            )),
           ),
         ),
       ),

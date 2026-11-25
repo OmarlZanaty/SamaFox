@@ -52,11 +52,19 @@ class _LuckyWinBannerState extends State<LuckyWinBanner> {
   void _listen() {
     _wins = widget.socket.luckyWinStream.listen(_onWin);
     _sends = widget.socket.sentStream.listen(_onSend);
-    _expiry = Timer.periodic(const Duration(milliseconds: 200), (_) {
+  }
+
+  /// Ticks only while a streak is alive: an idle room is never woken.
+  void _watchExpiry() {
+    _expiry ??= Timer.periodic(const Duration(milliseconds: 200), (timer) {
       if (_streaks.values.any(
           (s) => DateTime.now().difference(s.touched).inMilliseconds >= 4000)) {
         setState(() => _streaks.removeWhere((_, s) =>
             DateTime.now().difference(s.touched).inMilliseconds >= 4000));
+      }
+      if (_streaks.isEmpty) {
+        timer.cancel();
+        _expiry = null;
       }
     });
   }
@@ -69,6 +77,7 @@ class _LuckyWinBannerState extends State<LuckyWinBanner> {
       _wins?.cancel();
       _sends?.cancel();
       _expiry?.cancel();
+      _expiry = null;
       _streaks.clear();
       _seen.clear();
       _listen();
@@ -83,6 +92,7 @@ class _LuckyWinBannerState extends State<LuckyWinBanner> {
         : old;
     s.touched = DateTime.now();
     s.revision++;
+    _watchExpiry();
     // Bound even non-winning send bookkeeping.
     if (_streaks.length > 100) {
       final oldest = _streaks.keys.firstWhere(

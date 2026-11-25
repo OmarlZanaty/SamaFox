@@ -57,18 +57,19 @@ class _ChargingAgentScreenState extends ConsumerState<ChargingAgentScreen> {
       orElse: () => const <int, String>{},
     );
 
-    final hasCharging = isSystemAdmin ||
-        chargingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
-    final hasHosting = isSystemAdmin ||
-        hostingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
-    final needsChoice = !widget.directory && hasCharging && hasHosting;
-
     // A user who belongs to an agency must see HIS agency's system only —
     // opening وكالتي / العمل كوكيل شحن / العمل كوكيل مضيفين used to dump the
-    // full directory of approved agencies on him. Users with no agency (and
-    // system admins) still browse the whole list, which is how they join one.
+    // full directory of approved agencies on him. That includes a system admin
+    // who has an agency (client 25/11). Users with no agency still browse the
+    // whole list, which is how they join one; an admin with none sees all.
     final hasMembership = myRoles.isNotEmpty;
-    final scopedToMine = !widget.directory && hasMembership && !isSystemAdmin;
+    final adminSeesAll = isSystemAdmin && !hasMembership;
+    final hasCharging = adminSeesAll ||
+        chargingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
+    final hasHosting = adminSeesAll ||
+        hostingAsync.maybeWhen(data: (items) => items.any((a) => myRoles.containsKey(a.id)), orElse: () => false);
+    final needsChoice = !widget.directory && hasCharging && hasHosting;
+    final scopedToMine = !widget.directory && hasMembership;
     List<ChargingAgency> scope(List<ChargingAgency> items) {
       final base = scopedToMine ? items.where((a) => myRoles.containsKey(a.id)).toList() : items;
       final q = _agencyQuery.trim().toLowerCase();

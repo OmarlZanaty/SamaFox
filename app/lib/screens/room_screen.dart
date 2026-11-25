@@ -5781,7 +5781,6 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 child: GiftAnimationOverlay(
                 socket: _giftSocket,
                 resolvePosition: _getSeatPositionByUser,
-                isSeated: (id) => _getSeatOfUser(id) != null,
                 bannersTop: _foregroundBarsHeight,
               )),
             ),
@@ -5795,7 +5794,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
                 child: IgnorePointer(child: Center(child: _cpMicCard()))),
             if (_comboLeft > 0)
               // Client 7/11 20:17/21:06: bigger, never over the bar below.
-              // Bottom right, so the gift cannon at bottom centre stays visible.
+              // Bottom right, clear of the gift flights' bottom-centre start.
               Positioned(key: const ValueKey('room-combo'), right: 14, bottom: _bottomBarH + 10 + _navInset,
                 child: _comboCircle()),
 

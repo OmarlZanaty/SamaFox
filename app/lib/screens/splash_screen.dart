@@ -139,11 +139,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                 style: const TextStyle(color: Colors.white, fontSize: 22)),
               const Text('CP Top 1', style: TextStyle(color: Color(0xFFFFD477), fontSize: 24, fontWeight: FontWeight.bold)),
               CpLevelBadge(pair: _cp!.pair),
-            ] else Image.asset(
-              'assets/images/logo.png',
-              width: 200,
-              height: 200,
-              fit: BoxFit.contain,
+            ] else ClipRRect(
+              borderRadius: BorderRadius.circular(44),
+              child: Image.asset(
+                'assets/images/logo.png',
+                width: 200,
+                height: 200,
+                fit: BoxFit.contain,
+              ),
             ),
             const SizedBox(height: 24),
             // Tagline

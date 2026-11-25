@@ -56,6 +56,8 @@ class RoomHeaderGlass extends StatelessWidget {
             children: [
               MarqueeText(
                 name,
+                // The room screen is sat in for hours: show the whole name, then rest.
+                cycles: 2,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 16,

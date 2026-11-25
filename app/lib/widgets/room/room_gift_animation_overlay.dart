@@ -20,7 +20,7 @@ import '../../l10n/tr.dart';
 ///
 /// On every [gift_sent] socket event we spawn one flying gift per quantity,
 /// staggered by ~180ms. Each flight goes:
-///   sender seat (small) → centre of screen (BIG, covers ~70% of view) → recipient seat (small)
+///   bottom centre (small) → centre of screen (BIG, covers ~70% of view) → recipient seat (small)
 ///
 /// VIP (LEGENDARY tier) gifts ALSO trigger:
 ///   - fullscreen fireworks
@@ -31,15 +31,11 @@ class GiftAnimationOverlay extends StatefulWidget {
     super.key,
     required this.socket,
     required this.resolvePosition,
-    this.isSeated,
     this.bannersTop,
   });
 
   final GiftSocketService socket;
   final Offset Function(int userId) resolvePosition;
-
-  /// L5: true when [userId] sits on a mic, so their cannon is at THEIR seat.
-  final bool Function(int userId)? isSeated;
 
   /// Height of the room's top bars. The effects cover the whole screen, but
   /// the VIP and cross-room banners are laid out just below the bars.
@@ -215,7 +211,6 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       old.controller.dispose();
     }
 
-    final start = widget.resolvePosition(event.senderId);
     final end = widget.resolvePosition(event.recipientId);
 
     final controller = AnimationController(vsync: this, duration: _flightDuration);
@@ -223,9 +218,7 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
     final flight = _Flight(
       id: ++_flightSeq,
       event: event,
-      start: start,
       end: end,
-      seated: widget.isSeated?.call(event.senderId) ?? false,
       controller: controller,
       index: index,
       total: total,
@@ -241,15 +234,6 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       }
     });
     controller.forward();
-  }
-
-  /// One cannon per distinct seated sender with a flight on screen.
-  Map<int, Offset> _seatCannons() {
-    final m = <int, Offset>{};
-    for (final f in _flights) {
-      if (f.seated) m[f.event.senderId] = f.start;
-    }
-    return m;
   }
 
   void _triggerVip(GiftSendEvent event) {
@@ -330,17 +314,6 @@ class _GiftAnimationOverlayState extends State<GiftAnimationOverlay>
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Translucent dim while any flight is at centre stage.
-          if (_flights.isNotEmpty) _AggregateDimLayer(flights: _flights),
-
-          // Client 7/11 21:02: gifts are fired from a cannon at the bottom
-          // centre, leave its mouth small and grow to full size mid-room.
-          // L5: a sender on a mic fires from THEIR OWN seat; only senders
-          // without a seat use the shared bottom cannon.
-          if (_flights.any((f) => !f.seated)) const _GiftCannon(),
-          for (final e in _seatCannons().entries)
-            _GiftCannon(key: ValueKey('cannon-${e.key}'), seat: e.value),
-
           // In-flight gifts.
           for (final f in _flights) _FlightWidget(flight: f),
 
@@ -404,9 +377,7 @@ class _Flight {
   _Flight({
     required this.id,
     required this.event,
-    required this.start,
     required this.end,
-    required this.seated,
     required this.controller,
     required this.index,
     required this.total,
@@ -414,10 +385,7 @@ class _Flight {
   });
   final int id;
   final GiftSendEvent event;
-  final Offset start;
   final Offset end;
-  /// L5: the sender sits on a mic: the gift is fired from that seat's cannon.
-  final bool seated;
   final AnimationController controller;
   final int index;
   final int total;
@@ -427,7 +395,7 @@ class _Flight {
 }
 
 /// Flight timeline over [_GiftAnimationOverlayState._flightDuration] (2.3 s):
-/// cannon → centre in ~0.5 s, hold ~1.2 s, then to the seat in ~0.6 s.
+/// bottom centre → centre in ~0.5 s, hold ~1.2 s, then to the seat in ~0.6 s.
 abstract final class _GiftPhase {
   static const double inEnd = 0.22;
   static const double holdEnd = 0.74;
@@ -453,16 +421,14 @@ class _FullscreenVideoGift extends StatelessWidget {
     final gift = show.event.gift;
     final senderName = show.event.sender?.name ?? '';
     final recipientName = show.event.recipient?.name ?? '';
-    final fullscreen = (show.event.effectType ?? gift.effectType) == 'fullscreen';
 
     return Stack(
       fit: StackFit.expand,
       children: [
         // Client 10/11 16:00: «عاوزينها زي ما بضيفها» — a full-screen clip
         // fills the screen, a half-screen clip plays on the bottom half rising
-        // up (AsUploadedVideo). No fixed 70% box. The dark backdrop stays only
-        // for gifts set «fullscreen» in the dashboard.
-        if (fullscreen) Container(color: Colors.black.withOpacity(0.72)),
+        // up (AsUploadedVideo). No fixed 70% box, and no dark backdrop: the
+        // mics are never darkened while gifts are thrown (client 25/11).
         GiftPlayer(gift: gift, onComplete: onDone, onError: onDone, asUploaded: true),
         if (senderName.isNotEmpty || recipientName.isNotEmpty)
           Positioned(
@@ -509,108 +475,6 @@ class _VipBurst {
   final DateTime createdAt;
 }
 
-class _AggregateDimLayer extends StatelessWidget {
-  const _AggregateDimLayer({required this.flights});
-  final List<_Flight> flights;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge(flights.map((f) => f.controller).toList()),
-      builder: (_, __) {
-        double maxIntensity = 0;
-        for (final f in flights) {
-          final t = f.controller.value;
-          double intensity;
-          if (t < _GiftPhase.inEnd) {
-            intensity = (t / _GiftPhase.inEnd) * 0.45;
-          } else if (t < _GiftPhase.holdEnd) {
-            intensity = 0.45;
-          } else {
-            intensity = (1 - (t - _GiftPhase.holdEnd) / (1 - _GiftPhase.holdEnd)) * 0.45;
-          }
-          if (intensity > maxIntensity) maxIntensity = intensity;
-        }
-        if (maxIntensity <= 0.01) return const SizedBox.shrink();
-        return Positioned.fill(
-          child: IgnorePointer(
-            // Fade in over the first stretch so the dim has no hard line
-            // under the top bars it is clipped to.
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: const [0, 0.15],
-                  colors: [Colors.transparent, Colors.black.withOpacity(maxIntensity)],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// The gold cannon gifts are fired from (client 7/11). Uses the client's art
-/// at assets/images/room/gift_cannon.png when present, else a drawn barrel.
-class _GiftCannon extends StatelessWidget {
-  const _GiftCannon({super.key, this.seat});
-
-  /// When set, a small cannon centred on this seat (L5); else the bottom one.
-  final Offset? seat;
-  // The client's cannon art (10/11) is 293×420: keep its proportions.
-  static const double width = 80, height = 115, bottomGap = 74;
-
-  static Offset mouth(Size screen, double safeBottom) =>
-      Offset(screen.width / 2, screen.height - safeBottom - bottomGap - height + 8);
-
-  @override
-  Widget build(BuildContext context) {
-    final screen = MediaQuery.of(context).size;
-    final seat = this.seat;
-    const sw = 44.0, sh = 62.0;
-    return Positioned(
-      left: seat != null ? seat.dx - sw / 2 : (screen.width - width) / 2,
-      top: seat != null ? seat.dy - sh / 2 : null,
-      bottom: seat != null ? null : MediaQuery.of(context).padding.bottom + bottomGap,
-      width: seat != null ? sw : width,
-      height: seat != null ? sh : height,
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.6, end: 1),
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutBack,
-        builder: (_, v, child) => Transform.scale(scale: v, alignment: Alignment.bottomCenter, child: child),
-        child: Image.asset(
-          'assets/images/room/gift_cannon.png',
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => Column(mainAxisAlignment: MainAxisAlignment.end, children: [
-            Container(
-              width: 34,
-              height: 62,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
-                gradient: const LinearGradient(colors: [Color(0xFFB8860B), Color(0xFFFFE082), Color(0xFFB8860B)]),
-                border: Border.all(color: const Color(0xFF7A5300), width: 1.5),
-              ),
-            ),
-            Container(
-              width: 70,
-              height: 34,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                gradient: const LinearGradient(colors: [Color(0xFF5B2A86), Color(0xFF8E44AD), Color(0xFF5B2A86)]),
-                border: Border.all(color: const Color(0xFFFFD54F), width: 2),
-              ),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
 class _FlightWidget extends StatelessWidget {
   const _FlightWidget({required this.flight});
   final _Flight flight;
@@ -629,11 +493,10 @@ class _FlightWidget extends StatelessWidget {
 
     final bigSize = math.min(screen.width, screen.height) * 0.7;
     const smallSize = 96.0;
-    // The cannon's mouth: gifts start pipe-sized there, not at the sender.
-    final mouth = flight.seated
-        ? flight.start
-        : _GiftCannon.mouth(screen, MediaQuery.of(context).padding.bottom);
-    const mouthSize = 26.0;
+    // Every flight starts small just above the bottom bar, at the centre.
+    final origin = Offset(
+        screen.width / 2, screen.height - MediaQuery.of(context).padding.bottom - 74);
+    const originSize = 26.0;
 
     return AnimatedBuilder(
       animation: flight.controller,
@@ -647,8 +510,8 @@ class _FlightWidget extends StatelessWidget {
         const inEnd = _GiftPhase.inEnd, holdEnd = _GiftPhase.holdEnd;
         if (t < inEnd) {
           final u = Curves.easeOutCubic.transform(t / inEnd);
-          pos = Offset.lerp(mouth, centre + spreadOffset, u)!;
-          size = mouthSize + (bigSize - mouthSize) * u;
+          pos = Offset.lerp(origin, centre + spreadOffset, u)!;
+          size = originSize + (bigSize - originSize) * u;
           opacity = (u * 1.5).clamp(0.0, 1.0);
           rotation = (1 - u) * 0.6; // unwinding spin on entry
         } else if (t < holdEnd) {

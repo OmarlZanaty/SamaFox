@@ -79,6 +79,50 @@ Future<void> showGameWinnerCard(BuildContext context, GameWinAnnouncement w,
       winLabel: tr('ربح في ${w.game}', 'Won in ${w.game}'));
 }
 
+/// Payout grade of a win card (client 25/11): 0 up to x10, 1 for x11–x99,
+/// 2 from x100. Same cut-offs as LuckyWinBanner.
+int winCardGrade(num? multiplier) {
+  final m = multiplier ?? 0;
+  return m >= 100 ? 2 : (m > 10 ? 1 : 0);
+}
+
+/// The card's frame: [simple] for grade 0, thick gold with a soft glow for
+/// grade 1, purple/red with a gold border and a strong glow for grade 2.
+/// Static on purpose: no animation, no assets.
+BoxDecoration winCardDecoration(int grade, BorderRadius radius, BoxDecoration simple) {
+  if (grade == 0) return simple;
+  final top = grade == 2;
+  return BoxDecoration(
+    gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: top
+            ? const [Color(0xFF3B0A6B), Color(0xFF8E1450), Color(0xFFB3122E)]
+            : const [Color(0xFF4A2504), Color(0xFF99600E), Color(0xFF3D1C03)]),
+    borderRadius: radius,
+    border: Border.all(color: const Color(0xFFFFD54F), width: top ? 2 : 2.5),
+    boxShadow: top
+        ? const [
+            BoxShadow(color: Color(0xCCFF2D6F), blurRadius: 16, spreadRadius: 1),
+            BoxShadow(color: Color(0x99FFD54F), blurRadius: 7),
+          ]
+        : const [BoxShadow(color: Color(0x88FFC107), blurRadius: 9)],
+  );
+}
+
+/// Grade 2 adds a second, inner gold line (a double border).
+Widget winCardInner(int grade, BorderRadius radius, EdgeInsets padding, Widget child) {
+  if (grade < 2) return Padding(padding: padding, child: child);
+  return Padding(
+    padding: const EdgeInsets.all(2),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+          borderRadius: radius, border: Border.all(color: const Color(0xFFFFE8A3))),
+      child: Padding(padding: padding, child: child),
+    ),
+  );
+}
+
 class RoomWinAnnouncement extends StatelessWidget {
   const RoomWinAnnouncement({super.key, this.lucky, this.game, this.myUserId});
   final LuckyRollEvent? lucky;
@@ -92,6 +136,8 @@ class RoomWinAnnouncement extends StatelessWidget {
     final title =
         lucky != null ? tr('الهدية المحظوظة', 'Lucky gift') : game!.game;
     final multiplier = lucky?.multiplier ?? game?.multiplier;
+    final grade = winCardGrade(multiplier);
+    final radius = BorderRadius.circular(18);
     return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Material(
@@ -102,13 +148,16 @@ class RoomWinAnnouncement extends StatelessWidget {
                     ? showLuckyWinnerCard(context, lucky!, myUserId: myUserId)
                     : showGameWinnerCard(context, game!, myUserId: myUserId),
                 child: Ink(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                            colors: [Color(0xFF155B66), Color(0xFF512885)]),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: const Color(0x667DE4DA))),
-                    child: Row(textDirection: TextDirection.rtl, children: [
+                    decoration: winCardDecoration(
+                        grade,
+                        radius,
+                        BoxDecoration(
+                            gradient: const LinearGradient(
+                                colors: [Color(0xFF155B66), Color(0xFF512885)]),
+                            borderRadius: radius,
+                            border: Border.all(color: const Color(0x667DE4DA)))),
+                    child: winCardInner(grade, radius, const EdgeInsets.all(10),
+                        Row(textDirection: TextDirection.rtl, children: [
                       ClipOval(
                           child: avatar?.isNotEmpty == true
                               ? AppNetworkImage(avatar!,
@@ -124,6 +173,10 @@ class RoomWinAnnouncement extends StatelessWidget {
                                   color: Colors.white,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600))),
+                      if (grade == 2) ...[
+                        const SizedBox(width: 6),
+                        const Text('👑', style: TextStyle(fontSize: 20)),
+                      ],
                       if (multiplier != null && multiplier > 0) ...[
                         const SizedBox(width: 8),
                         Flexible(
@@ -142,6 +195,6 @@ class RoomWinAnnouncement extends StatelessWidget {
                                       color: Color(0xFFFFE8B0), fontSize: 9)),
                             ]))),
                       ],
-                    ])))));
+                    ]))))));
   }
 }

@@ -61,7 +61,8 @@ class _CpSeatEffectLayerState extends State<CpSeatEffectLayer> with SingleTicker
   void initState() {
     super.initState();
     if (!widget.badgesOnly) {
-      _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600))..repeat();
+      _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600));
+      _play();
     }
     _scheduleMeasure();
   }
@@ -71,7 +72,19 @@ class _CpSeatEffectLayerState extends State<CpSeatEffectLayer> with SingleTicker
     super.didUpdateWidget(oldWidget);
     final live = widget.pairs.map((p) => p.link.id).toSet();
     _since.removeWhere((k, _) => !live.contains(k));
+    if (_seating(oldWidget.pairs) != _seating(widget.pairs)) _play();
     _scheduleMeasure();
+  }
+
+  static String _seating(List<CpEffectPair> pairs) =>
+      pairs.map((p) => '${p.link.id}:${p.seatA}:${p.seatB}').join(',');
+
+  /// A few turns when a pair sits down or moves, then the heart holds still:
+  /// repeating for as long as they sat there repainted its blurs at 60 fps.
+  void _play() {
+    _ctrl
+      ?..value = 0
+      ..repeat(count: 3);
   }
 
   void _scheduleMeasure() {
@@ -157,7 +170,7 @@ class _HeartSpec {
 class _HeartPainter extends CustomPainter {
   _HeartPainter({required this.specs, required this.t, required this.seatSize});
   final List<_HeartSpec> specs;
-  final double t; // 0..1, repeating
+  final double t; // 0..1
   final double seatSize;
 
   static const _gold = Color(0xFFFFD36E);

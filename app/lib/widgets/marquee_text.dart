@@ -18,6 +18,7 @@ class MarqueeText extends StatefulWidget {
     this.velocity = 26,
     this.pause = const Duration(seconds: 1),
     this.gap = 40,
+    this.cycles,
   });
 
   final String text;
@@ -34,6 +35,9 @@ class MarqueeText extends StatefulWidget {
 
   /// Blank space after the text before it wraps back into view.
   final double gap;
+
+  /// Round trips before the text rests at its start; null scrolls forever.
+  final int? cycles;
 
   @override
   State<MarqueeText> createState() => _MarqueeTextState();
@@ -76,7 +80,9 @@ class _MarqueeTextState extends State<MarqueeText> with SingleTickerProviderStat
   }
 
   Future<void> _cycle() async {
-    while (mounted && _scroll.hasClients) {
+    var done = 0;
+    // `_running` stays true after the last trip, so a rebuild does not restart it.
+    while (mounted && _scroll.hasClients && (widget.cycles == null || done++ < widget.cycles!)) {
       final max = _scroll.position.maxScrollExtent;
       if (max <= 0) {
         // The name now fits (window resize, rename) — stop rather than spin.

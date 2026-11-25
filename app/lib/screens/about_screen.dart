@@ -48,9 +48,12 @@ class AboutScreen extends ConsumerWidget {
                 child: Column(
                   children: [
                     const Spacer(),
-                    // SamaFox first and largest: this is the app's own page.
-                    Image.asset('assets/images/logo.png',
-                        width: 120, height: 120),
+                    // The app first and largest: this is the app's own page.
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(26),
+                      child: Image.asset('assets/images/logo.png',
+                          width: 120, height: 120),
+                    ),
                     const SizedBox(height: 20),
                     Text(
                       strings.appName,

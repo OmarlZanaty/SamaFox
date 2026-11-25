@@ -226,10 +226,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   const Spacer(flex: 3),
-                  Image.asset(
-                    'assets/images/logo.png',
-                    width: 130,
-                    height: 130,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(29),
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 130,
+                      height: 130,
+                    ),
                   ),
                   const SizedBox(height: 14),
                   const Text(
