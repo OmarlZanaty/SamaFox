@@ -106,7 +106,7 @@ class UpdateRequiredScreen extends StatelessWidget {
     }
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(tr('افتح Google Play وابحث عن سما فوكس', "Open Google Play and search for SamaFox"))),
+      SnackBar(content: Text(tr('افتح Google Play وابحث عن دندنه شات', "Open Google Play and search for dandana chat"))),
     );
   }
 

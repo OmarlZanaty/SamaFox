@@ -3,8 +3,8 @@ class FruitJackpotStrings {
   const FruitJackpotStrings(this.ar);
   String text(String key) => (ar ? _arabic : _english)[key] ?? key;
   String get footer => ar
-      ? 'يعمل بعملات سمافوكس — لا تُحوَّل إلى نقود ولا تُسحب.'
-      : 'Runs on SamaFox coins — they do not convert to money and cannot be withdrawn.';
+      ? 'يعمل بعملات دندنه شات — لا تُحوَّل إلى نقود ولا تُسحب.'
+      : 'Runs on dandana chat coins — they do not convert to money and cannot be withdrawn.';
   static const _english = {
     'title': 'Fruit Jackpot',
     'spin': 'SPIN',

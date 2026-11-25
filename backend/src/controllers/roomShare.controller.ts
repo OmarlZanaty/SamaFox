@@ -107,14 +107,14 @@ export async function roomShareLanding(req: Request, res: Response) {
   const share = validShareToken(token) ? await prisma.roomShareToken.findUnique({ where: { token } }) : null;
   const room = share ? await prisma.room.findUnique({ where: { id: share.roomId } }) : null;
   if (!share || share.revokedAt || share.expiresAt <= new Date() || !room?.isActive) {
-    return res.status(404).type('html').send('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SamaFox</title><p>الغرفة غير متاحة حالياً</p></html>');
+    return res.status(404).type('html').send('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>دندنه شات</title><p>الغرفة غير متاحة حالياً</p></html>');
   }
   const url = `${ROOM_SHARE_ORIGIN}/room/${share.token}`;
   const play = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}&referrer=${encodeURIComponent(`room_token=${share.token}`)}`;
   const intent = `intent://samafox.almobarmg.com/room/${share.token}#Intent;scheme=https;package=${ANDROID_PACKAGE};S.browser_fallback_url=${encodeURIComponent(play)};end`;
   // Locked/private rooms reveal no presentation to unauthenticated browsers.
   const privateRoom = room.isLocked || room.type !== 'public';
-  const name = privateRoom ? 'دعوة إلى غرفة SamaFox' : share.roomName;
+  const name = privateRoom ? 'دعوة إلى غرفة دندنه شات' : share.roomName;
   const image = privateRoom ? null : safePreviewUrl(share.roomImageUrl);
-  return res.type('html').send(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(name)}</title><meta property="og:title" content="${escapeHtml(name)}">${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ''}<style>body{margin:0;background:#170d30;color:white;font:18px sans-serif;text-align:center}main{max-width:480px;margin:auto;padding:32px 20px}img{width:100%;max-width:240px;border-radius:24px}a{display:block;padding:16px;margin:16px 0;background:#7c3aed;color:white;border-radius:16px;text-decoration:none;overflow-wrap:anywhere}</style></head><body><main>${image ? `<img alt="صورة الغرفة" src="${escapeHtml(image)}">` : ''}<h1>${escapeHtml(name)}</h1><a href="${escapeHtml(intent)}">فتح في SamaFox</a><a href="${escapeHtml(url)}">فتح رابط التطبيق</a><a href="${escapeHtml(play)}">تحميل من Google Play</a></main></body></html>`);
+  return res.type('html').send(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(name)}</title><meta property="og:title" content="${escapeHtml(name)}">${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ''}<style>body{margin:0;background:#170d30;color:white;font:18px sans-serif;text-align:center}main{max-width:480px;margin:auto;padding:32px 20px}img{width:100%;max-width:240px;border-radius:24px}a{display:block;padding:16px;margin:16px 0;background:#7c3aed;color:white;border-radius:16px;text-decoration:none;overflow-wrap:anywhere}</style></head><body><main>${image ? `<img alt="صورة الغرفة" src="${escapeHtml(image)}">` : ''}<h1>${escapeHtml(name)}</h1><a href="${escapeHtml(intent)}">فتح في دندنه شات</a><a href="${escapeHtml(url)}">فتح رابط التطبيق</a><a href="${escapeHtml(play)}">تحميل من Google Play</a></main></body></html>`);
 }

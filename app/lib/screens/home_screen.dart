@@ -995,7 +995,7 @@ class _WelcomePanel extends StatelessWidget {
           const SizedBox(height: 16),
 
           Text(
-            tr("يمكنك الانضمام إلى غرفة سما فوكس الرسمية أو استكشاف الغرف الأخرى.", "Join the official SamaFox room or explore other rooms."),
+            tr("يمكنك الانضمام إلى غرفة دندنه شات الرسمية أو استكشاف الغرف الأخرى.", "Join the official dandana chat room or explore other rooms."),
             style: TextStyle(
               color: Colors.white60,
               fontSize: 12,

@@ -31,8 +31,8 @@ class NeonStrings {
   String get loadFailed => ar ? 'تعذر تحميل اللعبة' : 'Could not load the game';
   String get retry => ar ? 'إعادة المحاولة' : 'Try again';
   String get footer => ar
-      ? 'يعمل بعملات سمافوكس — لا تُحوَّل إلى نقود ولا تُسحب.'
-      : 'Runs on SamaFox coins — they do not convert to money and cannot be withdrawn.';
+      ? 'يعمل بعملات دندنه شات — لا تُحوَّل إلى نقود ولا تُسحب.'
+      : 'Runs on dandana chat coins — they do not convert to money and cannot be withdrawn.';
 
   // ── Controls ──────────────────────────────────────────────────────────────
   String get spin => ar ? 'أدر' : 'SPIN';
@@ -207,10 +207,10 @@ class NeonStrings {
 
   String get coinsHeading => ar ? 'عن العملات' : 'About the coins';
   String get coinsBody => ar
-      ? 'نيون فورتشن يستخدم عملات سمافوكس نفسها المستخدمة في بقية الألعاب والهدايا. '
+      ? 'نيون فورتشن يستخدم عملات دندنه شات نفسها المستخدمة في بقية الألعاب والهدايا. '
           'العملات تُشحن أو تُربح داخل التطبيق، ولا تُحوَّل إلى نقود ولا تُسحب. العب '
           'للتسلية، وخذ استراحة متى شئت.'
-      : 'Neon Fortune uses the same SamaFox coins as the other games and gifts. Coins are '
+      : 'Neon Fortune uses the same dandana chat coins as the other games and gifts. Coins are '
           'topped up or won inside the app; they do not convert to money and cannot be '
           'withdrawn. Play for fun, and take a break whenever you like.';
 

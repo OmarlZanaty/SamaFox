@@ -5,8 +5,8 @@ class RouletteStrings {
   const RouletteStrings(this.ar);
   String text(String key) => (ar ? _arabic : _english)[key] ?? key;
   String get footer => ar
-      ? 'يعمل بعملات سمافوكس — لا تُحوَّل إلى نقود ولا تُسحب، ولا توجد جوائز مالية حقيقية.'
-      : 'Runs on SamaFox coins — they do not convert to money or withdraw; no real-money prizes.';
+      ? 'يعمل بعملات دندنه شات — لا تُحوَّل إلى نقود ولا تُسحب، ولا توجد جوائز مالية حقيقية.'
+      : 'Runs on dandana chat coins — they do not convert to money or withdraw; no real-money prizes.';
   String round(int n) => ar ? 'الجولة: $n' : 'Round: $n';
   String seconds(int s) => ar ? '$s ث' : '${s}s';
   String winning(int n) => '${text('winningNumber')}: $n ${color(n)}';

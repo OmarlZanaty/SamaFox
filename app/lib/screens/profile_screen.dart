@@ -2411,7 +2411,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> with WidgetsBindi
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'SamaFox VIP',
+                        'dandana chat VIP',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 22,

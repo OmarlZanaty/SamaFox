@@ -84,11 +84,11 @@ class _RoomShareSheetState extends State<RoomShareSheet> {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم إرسال الدعوة', 'Invitation sent'))));
           Navigator.pop(context);
         }
-      }), icon: const Icon(Icons.send), label: Text(tr('إرسال في SamaFox (${_selected.length})', 'Send in SamaFox (${_selected.length})'))),
+      }), icon: const Icon(Icons.send), label: Text(tr('إرسال في دندنه شات (${_selected.length})', 'Send in dandana chat (${_selected.length})'))),
       Flexible(child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(leading: const Icon(Icons.chat), title: const Text('WhatsApp'), enabled: !_busy,
           onTap: () => _run(() async {
-            final text = tr('انضم إلى غرفتي في SamaFox\n${await _link()}', 'Join my room in SamaFox\n${await _link()}');
+            final text = tr('انضم إلى غرفتي في دندنه شات\n${await _link()}', 'Join my room in dandana chat\n${await _link()}');
             bool opened = false;
             try { opened = await launchUrl(Uri.parse('whatsapp://send?text=${Uri.encodeComponent(text)}'), mode: LaunchMode.externalApplication); } catch (_) {}
             if (!opened) await Share.share(text);
@@ -99,7 +99,7 @@ class _RoomShareSheetState extends State<RoomShareSheet> {
             if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('تم نسخ الرابط', 'Link copied'))));
           })),
         ListTile(leading: const Icon(Icons.share), title: Text(tr('مشاركة…', 'Share…')), enabled: !_busy,
-          onTap: () => _run(() async { await Share.share(tr('انضم إلى غرفتي في SamaFox\n${await _link()}', 'Join my room in SamaFox\n${await _link()}')); })),
+          onTap: () => _run(() async { await Share.share(tr('انضم إلى غرفتي في دندنه شات\n${await _link()}', 'Join my room in dandana chat\n${await _link()}')); })),
       ]))),
     ])),
   ));

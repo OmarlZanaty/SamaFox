@@ -3073,7 +3073,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             TextButton(
               onPressed: () async {
                 final reportText =
-                    'SamaFox room report\nRoom ID: ${widget.roomId}\nIssue: ${controller.text.trim()}';
+                    'dandana chat room report\nRoom ID: ${widget.roomId}\nIssue: ${controller.text.trim()}';
                 await Clipboard.setData(ClipboardData(text: reportText));
                 if (mounted) Navigator.pop(context);
                 _showRoomSnack(tr('تم نسخ نص البلاغ', "Report copied"));
@@ -3083,7 +3083,7 @@ class _RoomScreenState extends ConsumerState<RoomScreen> with WidgetsBindingObse
             ElevatedButton(
               onPressed: () {
                 final reportText =
-                    'SamaFox room report\nRoom ID: ${widget.roomId}\nIssue: ${controller.text.trim()}';
+                    'dandana chat room report\nRoom ID: ${widget.roomId}\nIssue: ${controller.text.trim()}';
                 Navigator.pop(context);
                 Share.share(reportText);
               },

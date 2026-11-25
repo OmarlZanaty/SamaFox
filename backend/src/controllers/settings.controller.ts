@@ -22,7 +22,7 @@ export const CP_DEFAULTS: Record<string, string> = {
   // Play — set it first and you lock people out with nowhere to go.
   min_supported_build: '0',
   update_title: 'تحديث جديد متاح',
-  update_message: 'نزّل آخر إصدار من سما فوكس عشان تكمل. فيه مزايا جديدة وإصلاحات في الصوت والغرف.',
+  update_message: 'نزّل آخر إصدار من دندنه شات عشان تكمل. فيه مزايا جديدة وإصلاحات في الصوت والغرف.',
   update_store_url: 'https://play.google.com/store/apps/details?id=com.almobarmg.samafox',
 
   // ── Voice engine ────────────────────────────────────────────────────────────────────────

@@ -5,8 +5,8 @@ class FruitWheelStrings {
   const FruitWheelStrings(this.ar);
   String text(String key) => tr(_arabic[key] ?? key, _english[key] ?? key);
   String get footer => ar
-      ? 'يعمل بعملات سمافوكس — لا تُحوَّل إلى نقود ولا تُسحب، ولا توجد جوائز مالية حقيقية.'
-      : 'Runs on SamaFox coins — they do not convert to money or withdraw; no real-money prizes.';
+      ? 'يعمل بعملات دندنه شات — لا تُحوَّل إلى نقود ولا تُسحب، ولا توجد جوائز مالية حقيقية.'
+      : 'Runs on dandana chat coins — they do not convert to money or withdraw; no real-money prizes.';
   String round(int n) => ar ? 'الجولة: $n' : 'Round: $n';
   String bonusCountdown(int n) => ar
       ? (n == 0 ? 'لفة المكسب المزدوج!' : 'المكسب المزدوج بعد $n لفة')

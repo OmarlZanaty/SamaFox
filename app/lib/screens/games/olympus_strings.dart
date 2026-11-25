@@ -218,8 +218,8 @@ class OlympusStrings {
 
   // ── Responsible play ──────────────────────────────────────────────────────
   String get footer => ar
-      ? 'يعمل بعملات سمافوكس — لا تُحوَّل إلى نقود ولا تُسحب.'
-      : 'Runs on SamaFox coins — they do not convert to money and cannot be withdrawn.';
+      ? 'يعمل بعملات دندنه شات — لا تُحوَّل إلى نقود ولا تُسحب.'
+      : 'Runs on dandana chat coins — they do not convert to money and cannot be withdrawn.';
   String sessionReminder(int spins) => ar
       ? 'لعبت $spins جولة في هذه الجلسة'
       : "You've played $spins rounds this session";

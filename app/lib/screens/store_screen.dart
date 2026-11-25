@@ -154,7 +154,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
                           const SizedBox(width: 16),
                           Expanded(
                             child: Text(
-                              tr("أهلا بك فى متجر سما فوكس", "Welcome to the SamaFox store"),
+                              tr("أهلا بك فى متجر دندنه شات", "Welcome to the dandana chat store"),
                               style: TextStyle(color: Colors.white),
                             ),
                           ),
