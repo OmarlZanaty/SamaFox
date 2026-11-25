@@ -15,7 +15,13 @@ export function validTable(value: unknown, thresholds: unknown): thresholds is n
     Array.isArray(thresholds) && thresholds.length === TABLE_TIERS.length &&
     thresholds.every(n => Number.isInteger(n) && n > 0 && n <= 2_000_000_000);
 }
-/** Table payout: each fired tier pays multiplier x UNIT price x mic count (never x quantity again). */
+/** The multiplier one table row pays when it fires. */
+export function tierMultiplier(tier: number) {
+  const [inner, outer] = TABLE_TIERS[tier]!;
+  // Client combo thresholds scale by inner times outer (e.g. x5/x100 = x500).
+  return inner && outer ? inner * outer : inner || outer;
+}
+/** Table payout: each paid throw pays multiplier x UNIT price x mic count (never x quantity again). */
 export function tablePayout(multiplier: number, unitValue: number, mics: number) {
   return multiplier * unitValue * Math.max(1, mics);
 }
@@ -27,6 +33,10 @@ export interface FixedCounters { c5: number; c10: number }
  * x5 fires every thresholds[0] throws and x10 every thresholds[1] throws, whatever the
  * bigger tiers are doing; tiers 2..13 keep their own sequential ladder (wrapping to 2),
  * so a pending x1000 never blocks x5/x10. Without `fixed` the legacy 14-step ladder runs.
+ *
+ * 25/11 rule: one throw position pays ONE table value. Rows firing on the same throw pay only
+ * the highest multiplier; rows on different throws of a batch are summed. Every fired row still
+ * advances its counter and is listed in `fired`.
  */
 export function advanceTable(thresholds: number[], tier: number, counter: number, throws: number, fixed?: FixedCounters) {
   if (!validTable(1, thresholds) || !Number.isInteger(throws) || throws < 1 || throws > 1_000_000 ||
@@ -34,9 +44,14 @@ export function advanceTable(thresholds: number[], tier: number, counter: number
       (fixed && (!Number.isInteger(fixed.c5) || fixed.c5 < 0 || !Number.isInteger(fixed.c10) || fixed.c10 < 0))) {
     throw new Error('Invalid lucky table state or throw count');
   }
-  counter += throws;
-  let multiplier = 0;
+  // Highest value per throw position (1-based within this batch): O(fired rows).
+  const best = new Map<number, number>();
   const fired: number[] = [];
+  const hit = (position: number, row: number) => {
+    const at = Math.max(1, position), value = tierMultiplier(row);
+    if (value > (best.get(at) ?? 0)) best.set(at, value);
+    fired.push(row);
+  };
   let c5: number | undefined;
   let c10: number | undefined;
   let first = 0;
@@ -44,24 +59,24 @@ export function advanceTable(thresholds: number[], tier: number, counter: number
     c5 = fixed.c5 + throws;
     const n5 = Math.floor(c5 / thresholds[0]!);
     c5 -= n5 * thresholds[0]!;
-    for (let i = 0; i < n5; i++) fired.push(0);
-    multiplier += 5 * n5;
+    for (let i = 1; i <= n5; i++) hit(i * thresholds[0]! - fixed.c5, 0);
     c10 = fixed.c10 + throws;
     const n10 = Math.floor(c10 / thresholds[1]!);
     c10 -= n10 * thresholds[1]!;
-    for (let i = 0; i < n10; i++) fired.push(1);
-    multiplier += 10 * n10;
+    for (let i = 1; i <= n10; i++) hit(i * thresholds[1]! - fixed.c10, 1);
     first = 2;
     if (tier < 2) tier = 2;
   }
+  let position = -counter; // the pending ladder row started counting this far back
+  counter += throws;
   while (counter >= thresholds[tier]!) {
     counter -= thresholds[tier]!;
-    const [inner, outer] = TABLE_TIERS[tier]!;
-    // Client combo thresholds scale by inner times outer (e.g. x5/x100 = x500).
-    multiplier += inner && outer ? inner * outer : inner || outer;
-    fired.push(tier);
+    position += thresholds[tier]!;
+    hit(position, tier);
     tier = tier + 1 >= TABLE_TIERS.length ? first : tier + 1;
   }
+  let multiplier = 0;
+  for (const value of best.values()) multiplier += value;
   return fixed ? { tier, counter, multiplier, fired, c5: c5!, c10: c10! } : { tier, counter, multiplier, fired };
 }
 export async function drawTable(tx: Prisma.TransactionClient, giftValue: number, throws: number, test = false, mics = 1) {
@@ -85,6 +100,6 @@ export async function drawTable(tx: Prisma.TransactionClient, giftValue: number,
     if (hasFixed) await tx.$executeRaw`UPDATE lucky_control_rows SET tier = ${result.tier}, counter = ${result.counter}, fixed5 = ${f.c5}, fixed10 = ${f.c10} WHERE "giftValue" = ${giftValue}`;
     else await tx.$executeRaw`UPDATE lucky_control_rows SET tier = ${result.tier}, counter = ${result.counter} WHERE "giftValue" = ${giftValue}`;
   }
-  return { ...result, mode: 'table', giftValue, throws, mics, previousTier: prevTier,
+  return { ...result, mode: 'table', rule: 2, giftValue, throws, mics, previousTier: prevTier,
     previousCounter: prevCounter, previousFixed5: prevFixed?.c5, previousFixed10: prevFixed?.c10, thresholds: row.thresholds };
 }

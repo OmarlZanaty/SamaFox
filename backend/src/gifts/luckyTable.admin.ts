@@ -58,7 +58,7 @@ luckyTableAdmin.post('/test', async (req: any, res, next) => {
     if (![giftValue, quantity, mics].every(n => Number.isInteger(n) && n > 0) || quantity * mics > 1_000_000)
       return res.status(400).json({ message: 'Invalid gift value, quantity or mic count' });
     const result = await prisma.$transaction(async (tx) => {
-      const r = await drawTable(tx, giftValue, quantity * mics, true, mics);
+      const r = await drawTable(tx, giftValue, quantity, true, mics);
       if (r) await recordAdminAuditStrict(tx, { adminId: Number(req.userId), action: 'LUCKY_TABLE_TEST', targetType: 'lucky_table', targetId: giftValue, before: null, after: { quantity, mics }, ...auditContext(req) });
       return r;
     });

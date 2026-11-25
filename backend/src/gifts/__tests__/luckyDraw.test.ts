@@ -154,17 +154,18 @@ test('a lucky gift to every mic is one draw on the whole amount', async () => {
 });
 
 
-test('configured unit-price ladder overrides probabilities, counts all mics, and pays the whole batch', async () => {
+test('configured unit-price ladder overrides probabilities, counts the quantity only, and pays every mic', async () => {
   const { tx, rolls, wins } = fakeTx({ pool: 1_000_000n, tiers: [{ multiplier: 500, weightBp: 10000 }] });
   const row = { giftValue: 10, thresholds: Array(14).fill(100), tier: 0, counter: 95, testTier: 0, testCounter: 0 };
   tx.$queryRaw = async (_sql: unknown, value: number) => value === 10 ? [{ ...row }] : [];
   tx.$executeRaw = async (_sql: unknown, tier: number, counter: number) => { row.tier = tier; row.counter = counter; return 1; };
+  // Five throws of a 10-coin gift to five mics: 5 x 5 x 10 = 250 coins staked.
   const result = await rollLucky(tx, { giftTxId: 'table-batch', senderId: 1, recipientId: 2, roomId: 1,
-    giftCoins: 50, giftValue: 10, throws: 5, mics: 5, hostCoins: 5, cfg: LUCKY_DEFAULTS });
+    giftCoins: 250, giftValue: 10, throws: 5, mics: 5, hostCoins: 25, cfg: LUCKY_DEFAULTS });
   assert.equal(result.own.status, 'SETTLED', 'global table does not wait for room competition');
   assert.equal(result.own.multiplier, 5, 'does not use the legacy x500 probability');
   assert.equal(result.own.payoutCoins, 250, '5 x unit price 10 x five mics');
-  assert.equal(row.counter, 0); assert.equal(row.tier, 1);
+  assert.equal(row.counter, 0, 'advanced by the quantity, not quantity x mics'); assert.equal(row.tier, 1);
   assert.equal(rolls[0]!.tiersSnapshot.mode, 'table'); assert.equal(wins.length, 1);
   const next = await rollLucky(tx, { giftTxId: 'table-next', senderId: 1, recipientId: 2, roomId: 2,
     giftCoins: 20, giftValue: 10, throws: 2, hostCoins: 2, cfg: LUCKY_DEFAULTS });

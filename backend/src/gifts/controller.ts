@@ -614,9 +614,10 @@ export async function sendBatch(req: Request, res: Response) {
           totalCoins: s.totalCoins, recipientCoins: s.recipientCoins })))
         : null;
       if (stake) {
-        const throws = Number(quantity ?? 1) * sends.length;
+        // Table rule: one throw to N mics is ONE throw; the payout is multiplied by N.
+        const throws = Number(quantity ?? 1);
         batchLucky = await rollLucky(context.tx, {
-          ...stake, giftValue: stake.giftCoins / throws, throws, mics: sends.length,
+          ...stake, giftValue: stake.giftCoins / (throws * sends.length), throws, mics: sends.length,
           senderId, roomId: rid, cfg: await getLuckyConfig(),
         });
         if (batchLucky.settled.some((e) => e.senderId === senderId && e.payoutCoins > 0)) {

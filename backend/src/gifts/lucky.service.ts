@@ -1,4 +1,4 @@
-import { drawTable, advanceTable, tablePayout } from './luckyTable';
+import { drawTable, advanceTable, tablePayout, tierMultiplier } from './luckyTable';
 import crypto from 'crypto';
 import type { Prisma } from '@prisma/client';
 import prisma from '../utils/prisma';
@@ -298,7 +298,7 @@ interface EntryInput {
   recipientId: number;
   roomId: number | null;
   giftValue?: number; // Unit price, before quantity and mic fan-out
-  throws?: number; // quantity times recipients
+  throws?: number; // quantity of the send: one throw to N mics is ONE throw
   mics?: number; // recipients (mic count) of this entry
   giftCoins: number; // V
   hostCoins: number; // H
@@ -597,10 +597,15 @@ export function verifyRoll(roll: {
   // drew from the hash itself.
   const point = roll.roundId != null && roll.giftTxId ? drawPointFromSeed(roll.serverSeed, roll.giftTxId) : rollPointFromHash(hash);
   const snapshot = roll.tiersSnapshot as any;
-  const multiplier = snapshot?.mode === 'table'
-    ? advanceTable(snapshot.thresholds, snapshot.previousTier, snapshot.previousCounter, snapshot.throws,
-        snapshot.previousFixed5 != null ? { c5: snapshot.previousFixed5, c10: snapshot.previousFixed10 } : undefined).multiplier
-    : multiplierAtPoint(point, tiers);
+  let multiplier: number;
+  if (snapshot?.mode === 'table') {
+    const replay = advanceTable(snapshot.thresholds, snapshot.previousTier, snapshot.previousCounter, snapshot.throws,
+      snapshot.previousFixed5 != null ? { c5: snapshot.previousFixed5, c10: snapshot.previousFixed10 } : undefined);
+    // Rolls drawn before rule 2 summed every fired row, same throw or not.
+    multiplier = snapshot.rule === 2 ? replay.multiplier : replay.fired.reduce((n, row) => n + tierMultiplier(row), 0);
+  } else {
+    multiplier = multiplierAtPoint(point, tiers);
+  }
   return {
     hashMatches: hash === roll.serverSeedHash,
     point,
